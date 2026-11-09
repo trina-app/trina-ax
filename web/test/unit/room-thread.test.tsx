@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { uuidv7, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { ThreadPanel } from '../../src/components/rooms/ThreadPanel'
-import { useRooms } from '../../src/store/rooms'
+import { placeKey, useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
@@ -68,7 +68,7 @@ test('the root, how many replies, the replies; a reply sent with "also to the ro
     await m.until(() => calls.some((c) => c.method === 'POST' && c.path === `/api/rooms/${r.id}/messages`), 'the send')
     const sent = calls.find((c) => c.method === 'POST' && c.path === `/api/rooms/${r.id}/messages`)!.body as Record<string, unknown>
     expect(sent).toMatchObject({ body: 'my reply', threadRootId: root.id, alsoInRoom: true })
-    await m.until(() => useRooms.getState().threadView?.replies.length === 3, 'my reply in the thread')
+    await m.until(() => useRooms.getState().threadViews[placeKey(r.id, root.id)]?.replies.length === 3, 'my reply in the thread')
     // the choice is off again for the next reply
     expect((m.get('room-also-in-room').querySelector('input') as unknown as { checked: boolean }).checked).toBe(false)
   } finally {
@@ -115,7 +115,7 @@ test('in the phone app the thread on screen is read though its WebView reports n
   useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id })
   const m = await mount(<ThreadPanel roomId={r.id} rootId={root.id} roomTitle="acme" members={[ME, BEN]} meId={ME.id} onClose={() => {}} />)
   try {
-    await m.until(() => m.find('room-thread') && !useRooms.getState().threadView?.loading, 'the thread')
+    await m.until(() => m.find('room-thread') && !useRooms.getState().threadViews[placeKey(r.id, root.id)]?.loading, 'the thread')
     await m.settle(30)
     expect(calls.filter((c) => c.path.endsWith('/thread/read'))).toEqual([])
     // the same page inside the phone app (its bridge is there): on screen is looking at it
@@ -130,6 +130,35 @@ test('in the phone app the thread on screen is read though its WebView reports n
     delete g.ReactNativeWebView
     await m.unmount()
   }
+})
+
+test("the same thread in two panels (the room page's and the file viewer's): one read; closing one leaves the other whole", async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  const r = room()
+  const root = message({ roomId: r.id, seq: 1, author: BEN, body: 'THE ROOT', thread: { replyCount: 1, lastReplyAt: at(2), repliers: [CY], newReplies: false } })
+  const reply = message({ roomId: r.id, seq: 2, author: CY, body: 'first reply', threadRootId: root.id })
+  routes = { [`GET /api/rooms/${r.id}/messages/${root.id}/thread`]: { body: { root, items: [reply], nextCursor: null } } }
+  serve()
+  useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id })
+  const page = await mount(<ThreadPanel roomId={r.id} rootId={root.id} roomTitle="acme" members={[ME, BEN, CY]} meId={ME.id} onClose={() => {}} />)
+  const viewer = await mount(<ThreadPanel roomId={r.id} rootId={root.id} roomTitle="acme" members={[ME, BEN, CY]} meId={ME.id} onClose={() => {}} frame={false} />)
+  try {
+    await page.until(() => page.container.querySelector('[data-testid="room-message"]') && viewer.container.querySelectorAll('[data-testid="room-message"]').length === 2, 'both threads')
+    expect(calls.filter((c) => c.path.endsWith('/thread'))).toHaveLength(1)
+    // frame={false}: the caller's column; the page's own panel draws one, with its divider
+    expect(viewer.container.querySelector('section')).toBeNull()
+    expect(page.container.querySelector('[data-testid="room-thread"]')!.querySelector('[data-testid="thread-divider"]')).not.toBeNull()
+    // the viewer closes: the page's thread is still there, and live replies still reach it
+    await viewer.unmount()
+    expect(page.container.querySelectorAll('[data-testid="room-message"]')).toHaveLength(2)
+    const late = message({ roomId: r.id, seq: 3, author: BEN, body: 'late reply', threadRootId: root.id })
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: late } })
+    await page.until(() => page.container.querySelectorAll('[data-testid="room-message"]').length === 3, 'the late reply')
+  } finally {
+    await viewer.unmount()
+    await page.unmount()
+  }
+  expect(useRooms.getState().threadViews).toEqual({})
 })
 
 test('a thread I cannot see (joined after its root, or gone) says so, with no box', async () => {

@@ -1,35 +1,36 @@
 // A thread (docs/DECISIONS.md "스레드와 반응"), at /rooms/:roomId/t/:messageId: on computers a plain column beside the
 // room (a hairline on its left, a divider there to resize it: components/PanelDivider.tsx; the room keeps 420 px), on
 // phones the whole screen (the room's header gives way to the thread's, with a back arrow; the bottom tabs stay away
-// as in the room). The root on top with its reactions, a hairline with how many replies, the replies (the room's list:
+// as in the room). The column is components/rooms/RoomSideColumn.tsx: drawn here (`frame`), or by the room page around
+// this (frame={false}). The root on top with its reactions, a hairline with how many replies, the replies (the room's list:
 // runs, reactions, my AI questions asked here), and the reply box with "대화방에도 보내기". What I see is marked read in the thread (POST …/thread/read) while the window has the focus and
 // the end of the thread is in sight. A thread I cannot see (I joined after its root, it is gone) says so.
 import { ChevronLeft, Loader2, X } from 'lucide-react'
-import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt } from '../../lib/attention'
 import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
-import { THREAD_PANEL } from '../../lib/panelWidth'
 import { useLocale, useT } from '../../i18n'
-import { useRooms, type PendingSend } from '../../store/rooms'
-import { PanelDivider } from '../PanelDivider'
+import { placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { ErrorNote, IconButton, Skeleton } from '../ui'
 import { RoomAiStatus } from './RoomAiStatus'
 import { RoomComposer } from './RoomComposer'
 import { RoomMessages } from './RoomMessages'
+import { RoomSideColumn } from './RoomSideColumn'
 import { ImageGroup } from '../ImageViewer'
 
 const NO_PENDING: PendingSend[] = []
 const NO_REPLIES: RoomMessage[] = []
 
-/** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. */
-export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null }) {
+/** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. `frame`
+ * false: the column around it is the caller's (RoomSideColumn). */
+export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null, frame = true }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean }) {
   const t = useT()
   const locale = useLocale()
-  const view = useRooms((s) => (s.threadView?.roomId === roomId && s.threadView.rootId === rootId ? s.threadView : null))
+  const key = placeKey(roomId, rootId)
+  const view = useRooms((s) => s.threadViews[key] ?? null)
   const allPending = useRooms((s) => s.pending[roomId]) ?? NO_PENDING
   const pending = useMemo(() => allPending.filter((p) => p.threadRootId === rootId), [allPending, rootId])
   const replies = view?.replies ?? NO_REPLIES
@@ -59,8 +60,8 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
 
   const tryRead = useCallback(() => {
     const el = scroller.current
-    const tv = useRooms.getState().threadView
-    if (!el || !tv || tv.roomId !== roomId || tv.rootId !== rootId || tv.loading || !tv.root) return
+    const tv = useRooms.getState().threadViews[placeKey(roomId, rootId)]
+    if (!el || !tv || tv.loading || !tv.root) return
     // on screen and looked at (the phone app: on screen; lib/attention.ts)
     if (!lookingAt()) return
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 80) return
@@ -85,8 +86,8 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
     if (!el) return
     stick.current = followsAfterScroll(el, stick.current, lastTop.current)
     lastTop.current = el.scrollTop
-    const tv = useRooms.getState().threadView
-    if (el.scrollTop < 200 && tv?.rootId === rootId && tv.nextCursor && !tv.loading) {
+    const tv = useRooms.getState().threadViews[key]
+    if (el.scrollTop < 200 && tv?.nextCursor && !tv.loading) {
       const before = el.scrollHeight
       void useRooms
         .getState()
@@ -112,16 +113,8 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const notFound = !!view?.error && (isApiError(view.error, 'not_found') || isApiError(view.error, 'forbidden'))
   const count = root?.thread?.replyCount ?? replies.filter((m) => !m.deletedAt).length
 
-  return (
-    <section
-      className={clsx(
-        'flex min-h-0 min-w-0 flex-1 flex-col bg-surface md:relative md:flex-none md:border-l md:border-line',
-        // 400 px (440 from 1280 px) unless resized, never so wide the room keeps under 420 px (THREAD_PANEL), at least 320
-        'md:w-[var(--panel-w,clamp(320px,calc(100%-420px),400px))] md:min-w-[320px] xl:w-[var(--panel-w,clamp(320px,calc(100%-420px),440px))]',
-      )}
-      aria-label={t('rooms.thread')}
-      data-testid="room-thread"
-    >
+  const body = (
+    <>
       {/* the ✕ keeps the same 16 px from the right edge as the replies and the reply box */}
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
         <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="thread-back">
@@ -163,7 +156,12 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
       {!notFound && root && !root.deletedAt && (
         <RoomComposer roomId={roomId} threadRootId={rootId} members={members} meId={meId} autoFocus={focusBox} onSent={() => { stick.current = true }} />
       )}
-      <PanelDivider sizing={THREAD_PANEL} label={t('rooms.threadResize')} testId="thread-divider" overlayTestId="thread-drag-overlay" />
-    </section>
+    </>
+  )
+  if (!frame) return body
+  return (
+    <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider="thread">
+      {body}
+    </RoomSideColumn>
   )
 }

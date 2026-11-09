@@ -179,7 +179,7 @@ describe('최근 with pinned chats', () => {
 })
 
 describe('the timeline as a window around an older message', () => {
-  const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadView: null, ...o })
+  const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadViews: {}, ...o })
   test('a new message is not added to a window that does not reach the newest; it is once it does', () => {
     const r = room()
     const old = message({ roomId: r.id, seq: 5 })

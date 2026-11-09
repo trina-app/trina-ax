@@ -161,7 +161,7 @@ describe('the menu by kind', () => {
 
   test('withHidden marks or clears one room, nothing else', () => {
     const a = room(), b = room()
-    const d = { rooms: [a, b], openRoomId: null, timeline: null, threadView: null }
+    const d = { rooms: [a, b], openRoomId: null, timeline: null, threadViews: {} }
     const hidden = withHidden(d, a.id, true)
     expect(hidden.rooms.map((r) => !!r.hidden)).toEqual([true, false])
     expect('hidden' in withHidden(hidden, a.id, false).rooms[0]!).toBe(false)

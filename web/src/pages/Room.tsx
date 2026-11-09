@@ -9,6 +9,9 @@
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
+// ✦ opens my Trina side chat (components/rooms/SideChatPanel.tsx) in the same place: one of the two at a time, in the
+// room's right column (components/rooms/RoomSideColumn.tsx). Which one shows is in the rooms store (side), so the file
+// viewer can start the same way.
 // Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 이름 바꾸기 for those who may, 링크 복사,
 // and 대화방 나가기 or 숨기기 by kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
 // (docs/DECISIONS.md "대화 숨기기").
@@ -37,6 +40,7 @@ import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { SideChatPanel, type SideSeed } from '../components/rooms/SideChatPanel'
+import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { onAskTrinaInRoom } from '../lib/sideChatAsk'
@@ -102,16 +106,17 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const [missing, setMissing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
   // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), where a thread opens: one of
-  // the two at a time (a thread that opens closes it)
-  const [sideOpen, setSideOpen] = useState(false)
-  useEffect(() => { if (threadId) setSideOpen(false) }, [threadId])
+  // the two at a time (a thread that opens closes it). In the store (side), gone when the page leaves the room
+  const sideOpen = useRooms((s) => s.side[roomId] === 'trina')
+  const setSideOpen = useCallback((on: boolean) => useRooms.getState().setSide(roomId, on ? 'trina' : null), [roomId])
+  useEffect(() => { if (threadId) setSideOpen(false) }, [threadId, setSideOpen])
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
   const askTrina = useCallback((m: RoomMessage) => {
     const author = m.authorKind === 'ai' ? aiName(t) : m.author?.name ?? ''
     setSideSeed({ key: `${m.id}:${Date.now()}`, author, at: m.createdAt, text: m.body })
     setSideOpen(true)
-  }, [t])
+  }, [t, setSideOpen])
   // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not
   const [focusThread, setFocusThread] = useState(false)
   const location = useLocation()
@@ -138,7 +143,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (threadId) closeThread()
     setSideSeed(a.seed)
     setSideOpen(true)
-  }), [roomId, threadId, closeThread])
+  }), [roomId, threadId, closeThread, setSideOpen])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
   // the "⋯"'s 알림 설정 opens the bell's own menu
@@ -378,8 +383,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
     </div>
-    {sideOpen && !threadId && <SideChatPanel key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={() => setSideOpen(false)} />}
-    {threadId && <ThreadPanel key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />}
+    {/* the room's right column: the thread in the address, else my Trina side chat */}
+    {threadId ? (
+      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider="thread">
+        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />
+      </RoomSideColumn>
+    ) : sideOpen ? (
+      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider="side-chat">
+        <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={() => setSideOpen(false)} />
+      </RoomSideColumn>
+    ) : null}
     </div>
   )
 }

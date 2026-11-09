@@ -17,7 +17,7 @@ import { opensWithoutServer, roomFileOpens, roomHwpPreview, roomNoPreview } from
 import { useSession } from '../../src/store/session'
 import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
 import { closeImageViewer, getImageViewer } from '../../src/lib/imageViewer'
-import { roomFileGone, type RoomsData } from '../../src/store/rooms'
+import { placeKey, roomFileGone, type RoomsData } from '../../src/store/rooms'
 import { installDom, mount, removeDom } from './dom-host'
 import { BEN, CY, ME, message, room } from './rooms-fixtures'
 
@@ -186,18 +186,18 @@ test('a room file is gone once its message, as this window has it, is deleted or
   const data = (messages: RoomMessage[], replies: RoomMessage[] = []): RoomsData => ({
     rooms: [team], openRoomId: team.id,
     timeline: { roomId: team.id, messages, nextCursor: null } as RoomsData['timeline'],
-    threadView: { roomId: team.id, rootId: m.id, root: m, replies } as unknown as RoomsData['threadView'],
+    threadViews: { [placeKey(team.id, m.id)]: { roomId: team.id, rootId: m.id, root: m, replies } as unknown as RoomsData['threadViews'][string] },
   })
   expect(roomFileGone(data([m]), team.id, m.id, pdf.id)).toBe(false)
   // deleted: the server empties its files and marks it
   const deleted = { ...m, body: '', files: [], deletedAt: '2026-11-09T05:00:00.000Z' }
-  expect(roomFileGone({ ...data([deleted]), threadView: null }, team.id, m.id, pdf.id)).toBe(true)
+  expect(roomFileGone({ ...data([deleted]), threadViews: {} }, team.id, m.id, pdf.id)).toBe(true)
   // the file taken off it
-  expect(roomFileGone({ ...data([{ ...m, files: [] }]), threadView: null }, team.id, m.id, pdf.id)).toBe(true)
+  expect(roomFileGone({ ...data([{ ...m, files: [] }]), threadViews: {} }, team.id, m.id, pdf.id)).toBe(true)
   // a reply only the open thread holds
   expect(roomFileGone(data([m], [reply]), team.id, reply.id, reply.files[0]!.id)).toBe(false)
   expect(roomFileGone(data([m], [{ ...reply, files: [], deletedAt: '2026-11-09T05:00:00.000Z' }]), team.id, reply.id, reply.files[0]!.id)).toBe(true)
   // an older page the timeline left behind (it went back to the newest), another room: not known, so not gone
-  expect(roomFileGone({ ...data([]), threadView: null }, team.id, m.id, pdf.id)).toBe(false)
+  expect(roomFileGone({ ...data([]), threadViews: {} }, team.id, m.id, pdf.id)).toBe(false)
   expect(roomFileGone(data([m]), uuidv7(), m.id, pdf.id)).toBe(false)
 })

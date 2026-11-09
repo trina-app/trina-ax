@@ -113,6 +113,69 @@ test('a side chat\'s answer: "Share to room" in words; the dialog starts with th
   expect(en('sideChat.open', { name: aiName((k) => en(k)) })).toContain('privately')
 })
 
+test("two panels of a room (the page's and the file viewer's) are one chat: the same chat, draft and quote; an ask is quoted once", async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const seed = { key: 'kq', author: 'dion', at: at(1), text: 'the launch date' }
+  const m = await mount(
+    <MemoryRouter>
+      <div data-testid="page"><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></div>
+      <div data-testid="viewer"><SideChatPanel roomId={team.id} roomTitle="Marketing" frame={false} autoFocus={false} onClose={() => {}} /></div>
+    </MemoryRouter>,
+  )
+  const inEach = (testId: string) => [...m.container.ownerDocument!.body.querySelectorAll(`[data-testid="${testId}"]`)]
+  try {
+    await m.until(() => inEach('side-chat-open-full').length === 2, 'the chat found in both')
+    // looked for once: the second panel takes the chat the room has on this page
+    expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/chats')).toHaveLength(1)
+    // frame={false}: no column of its own (the caller's RoomSideColumn draws it)
+    expect(m.get('viewer').querySelector('section')).toBeNull()
+    expect(m.get('viewer').querySelector('[data-testid="side-chat-divider"]')).toBeNull()
+    expect(m.get('page').querySelector('[data-testid="room-side-chat"]')).not.toBeNull()
+    // the ask is quoted in both, and what is typed in one is in the other
+    expect(inEach('side-chat-quote')).toHaveLength(2)
+    await m.type(m.get('viewer').querySelector('[data-testid="side-chat-input"]')! as never, 'when is it?')
+    expect(inEach('side-chat-input').map((x) => (x as unknown as { value: string }).value)).toEqual(['when is it?', 'when is it?'])
+    // the quote taken off in one goes from both
+    await m.click(m.get('viewer').querySelector('[data-testid="side-chat-quote-remove"]')! as never)
+    expect(inEach('side-chat-quote')).toHaveLength(0)
+  } finally {
+    await m.unmount()
+  }
+  // drawn again with the same ask (the room page keeps its last one): not quoted again; the draft is still there
+  const again = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await again.until(() => !!again.find('side-chat-open-full'), 'the chat')
+    expect(again.find('side-chat-quote')).toBeNull()
+    expect((again.get('side-chat-input') as unknown as { value: string }).value).toBe('when is it?')
+    // the chat it had, read again (not looked for anew)
+    expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/chats')).toHaveLength(1)
+  } finally {
+    await again.unmount()
+  }
+})
+
+test('autoFocus false: the box leaves the focus where it is as the panel opens; an ask still takes it', async () => {
+  signIn()
+  serve(null)
+  const doc = () => m.container.ownerDocument as unknown as { activeElement: unknown }
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" frame={false} autoFocus={false} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the panel')
+    expect(doc().activeElement).not.toBe(m.get('side-chat-input'))
+  } finally {
+    await m.unmount()
+  }
+  const f = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await f.until(() => !!f.find('side-chat-empty'), 'the panel')
+    expect((f.container.ownerDocument as unknown as { activeElement: unknown }).activeElement).toBe(f.get('side-chat-input'))
+  } finally {
+    await f.unmount()
+  }
+})
+
 test('🕘 lists the room\'s side chats and opens one; "New chat" leaves the list', async () => {
   signIn()
   const id = uuidv7(), old = uuidv7()
