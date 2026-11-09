@@ -16401,14 +16401,26 @@ owner: not remembered.
   not on the Browser pane: ⤢ **크게 보기** / ⤡ **나란히 보기** (`Maximize2` / `Minimize2`, an `IconButton`, so its name
   is its tooltip). Computers only (`max-md:hidden`): below 768 px the panel is a full-screen sheet already.
 - **Big:** `<main>` is hidden (`md:hidden`, still mounted: the chat, its draft and its scroll stay; Chromium and WebKit
-  keep a scroll box's position across `display: none`), the panel is `flex-1` beside the sidebar and its divider is
-  not drawn. Beside a room's open thread it covers room and thread alike. Side by side again, the divider mounts and
-  fits the width it remembers (`mycel.sidePanel.widthFraction`), so the panel comes back at the width it had.
+  keep a scroll box's position across `display: none`), the panel is `flex-1` beside the sidebar, without its own left
+  line (the sidebar's edge is the line) and without its divider. Beside a room's open thread it covers room and thread
+  alike. The skip link goes to the panel then. Side by side again, the divider mounts and fits the width it remembers
+  (`mycel.sidePanel.widthFraction`), so the panel comes back at the width it had.
+- **What runs behind it:** the two message boxes (`Composer`, `RoomComposer`) measure their height when their text or
+  hint changes; not drawn, they measured 0 and came back as a sliver (an answer that ended behind the panel changes the
+  hint). Now a box that measures 0 keeps its height and is measured again when the page shows. The thread's and side
+  chat's dividers fit a 0-wide row while hidden and fit again when it shows (they never store that).
+- **The place being read:** the file panel's viewers fit its width, so a PDF's pages grow when it goes big. The panel
+  keeps the scroll position as a share of the scroll height and brings it back for 0.8 s after a width change, while the
+  pages settle, until the person scrolls (also for the divider and a window resize). Before, a PDF read at page 4 showed
+  the end of page 3 once big.
+- **The header at its narrowest:** the new button takes 28 px; in a panel under 448 px (`@container`, the divider at its
+  least) "AI에게 묻기" shows as its icon (the name stays its accessible name and tooltip), so the file's name keeps room.
 - **How long:** `expanded` in `lib/sidePanel.ts`, beside the panel itself, never stored. Another file or an artifact
   opened in the panel keeps it (a link in a Markdown file, the AI opening an artifact); closing the panel (✕, Esc, a
-  page that does not keep it) or the Browser pane taking it ends it, so the next panel opens side by side. A move to
-  another address ends it too (the sidebar's **Files**, a folder link): a page the person went to must show, and a
-  page that keeps the panel (the Files screen) would otherwise stay hidden behind it.
+  page that does not keep it) or the Browser pane taking it ends it, so the next panel opens side by side. Any move
+  (`location.key`: the sidebar's **Files**, a folder link, a link to the page already open) ends it too: a page the
+  person went to must show, and a page that keeps the panel (the Files screen) would otherwise stay hidden behind it.
+  The image viewer's history entry is not a move (it copies React Router's state).
 - **Actions:** download, edit and save, PDF로 저장, copy and the artifact's versions work in place. **Add to chat**,
   **Ask AI** (`useTeamAttach`) and **Show in Files** first go back side by side: their result is in the page behind the
   panel (a chip in the composer, the folder with the file selected), which a big panel would keep hidden.
@@ -16416,6 +16428,9 @@ owner: not remembered.
   goes back side by side; then the panel closes. The Files screen's own Esc, which clears a selection before the panel
   closes, waits while the panel is big (the list it would clear is hidden), so there it is: side by side, the
   selection, the panel. On a phone width a leftover big state counts as not big (`panelExpandedNow`), so Esc closes.
+  The image viewer (#246) over a big panel is a dialog whose focus trap takes its Esc: the first Esc closes the viewer
+  (focus back on the panel's picture), the next one brings the panel side by side, the third closes it. The viewer's
+  history entry is at the same address, so opening or closing it does not end the big state.
 - **Not done:** no keyboard shortcut and no double-click on the header; the PDF keeps fitting the panel's width (as a
   panel dragged wide does), with no reading-width cap. The PDF toolbar's "fit width" also draws `Maximize2`; left as
   is (it sits in the toolbar under the header, with its own tooltip).
@@ -16423,5 +16438,6 @@ owner: not remembered.
   and by the Browser pane, the Esc order), e2e `side-panel-expand.spec.ts` (from the AI chat: the chat hidden, the
   panel as wide as the page area, no divider, Esc and the button back at the divider's width, Esc twice closes,
   reopened side by side; add to chat; from Files: a link in a big Markdown file opens the PDF still big, editing works
-  there, Esc before the selection, Show in Files; no button at 390 px).
+  there, Esc before the selection, Show in Files; an answer that ends behind a big panel leaves the message box whole;
+  the image viewer over a big panel and Esc's order; no button at 390 px).
 - Version impact: **minor** (a visible UX addition; no API or data change).

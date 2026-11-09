@@ -3,6 +3,7 @@
 // brings it back side by side at the divider's width; a second Esc closes it; closing ends it (not remembered); no
 // button on a phone, where the panel is full screen already. SHOTS_DIR=<dir> saves 1440 light screenshots of both.
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 import { DICTS } from '../../src/i18n'
@@ -19,6 +20,23 @@ const pageArea = (page: Page) =>
     const row = document.querySelector('[data-testid="side-panel"]')!.parentElement!
     return Math.round(row.getBoundingClientRect().right - row.firstElementChild!.getBoundingClientRect().right)
   })
+
+/** A plain 320 × 200 PNG (one colour). */
+function png(w = 320, h = 200) {
+  const raw = Buffer.alloc((w * 3 + 1) * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw.set([37, 99, 235], y * (w * 3 + 1) + 1 + x * 3)
+  const table = Array.from({ length: 256 }, (_, n) => { let c = n; for (let i = 0; i < 8; i++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
+  const crc = (b: Buffer) => { let c = 0xffffffff; for (const x of b) c = table[(c ^ x) & 0xff]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
+  const chunk = (name: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(name, 'latin1'), data])
+    const out = Buffer.alloc(body.length + 8)
+    out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE(crc(body), body.length + 4)
+    return out
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
+}
 
 async function shot(page: Page, name: string) {
   if (!process.env.SHOTS_DIR) return
@@ -142,6 +160,24 @@ test('"add to chat" from a big panel goes back side by side, so the chat with it
   await expect(page.getByTestId('attachment-chip').filter({ hasText: 'report.pdf' })).toBeVisible()
 })
 
+test('an answer that ends behind a big panel leaves the message box whole (it is measured again when the chat shows)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await openPdfFromChat(page)
+  // a slow answer: while it runs the box has the queue's longer hint, after it the short one
+  await page.getByTestId('composer-input').fill('slow answer please')
+  await page.getByTestId('send').click()
+  const last = page.getByTestId('assistant-message').last()
+  await expect(last).toHaveAttribute('data-status', 'streaming')
+  await expandButton(page).click()
+  await expect(main(page)).toBeHidden()
+  await expect(last).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
+  await sideBySideButton(page).click()
+  const box = page.getByTestId('composer-input')
+  await expect(box).toBeVisible()
+  await expect.poll(() => box.evaluate((ta: HTMLTextAreaElement) => ta.clientHeight > 10 && ta.clientHeight >= ta.scrollHeight - 1)).toBe(true)
+})
+
 test('a file opened from a link inside a big panel keeps it big; the edit and its save work there', async ({ page }) => {
   await reset(page)
   await signIn(page)
@@ -201,6 +237,40 @@ test('from Files: the list is hidden; Esc goes side by side before it clears a s
   await expect(page.getByTestId('file-row').first()).toBeVisible()
   await expect(panel(page)).not.toHaveAttribute('data-expanded')
   await expect(page).toHaveURL(/\/files\?path=docs&select=handbook\.pdf/)
+})
+
+test('the image viewer over a big panel: Esc closes the viewer first, then the panel goes side by side, then it closes', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await page.getByTestId('files-input').setInputFiles({ name: 'acme-photo.png', mimeType: 'image/png', buffer: png() })
+  await page.getByTestId('file-row').filter({ hasText: 'acme-photo.png' }).getByRole('button').first().click()
+  const pic = page.getByTestId('file-panel-image')
+  await expect(pic).toBeVisible()
+  await expandButton(page).click()
+  await expect(main(page)).toBeHidden()
+  // the panel's picture opens the viewer over everything; the panel stays big under it
+  await pic.click()
+  const viewer = page.getByTestId('image-viewer')
+  await expect(viewer).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(viewer).toHaveCount(0)
+  await expect(pic).toBeFocused()
+  await expect(panel(page)).toHaveAttribute('data-expanded', 'true')
+  await expect(main(page)).toBeHidden()
+  // the next Esc: side by side
+  await page.keyboard.press('Escape')
+  await expect(main(page)).toBeVisible()
+  await expect(panel(page)).not.toHaveAttribute('data-expanded')
+  await expect(page.getByTestId('file-panel')).toBeVisible()
+  // opened from the side-by-side panel: Esc closes the viewer only, the next the panel
+  await pic.click()
+  await expect(viewer).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(viewer).toHaveCount(0)
+  await expect(page.getByTestId('file-panel')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(panel(page)).toHaveCount(0)
 })
 
 test('a phone: the panel is full screen, and there is no 크게 보기 button', async ({ page }) => {

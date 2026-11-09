@@ -18,10 +18,15 @@ export default function SidePanelFrame({ children, besideThread = false, expande
   const t = useT()
   return (
     <div
+      id="side-panel"
+      // big, it stands in for the page: the skip link (components/Layout.tsx) lands here, as on <main>
+      tabIndex={expanded ? -1 : undefined}
       data-testid="side-panel"
       data-expanded={expanded || undefined}
       className={clsx(
-        'min-w-0 border-line md:relative bg-surface md:border-l',
+        // big: the sidebar's own edge is the line on its left
+        'min-w-0 border-line outline-none md:relative bg-surface',
+        !expanded && 'md:border-l',
         // phones: a full-screen sheet over everything (no edge of its own)
         'max-md:fixed max-md:inset-0 max-md:z-40 max-md:pt-[var(--safe-top)] max-md:pb-[var(--safe-bottom)]',
         expanded ? 'md:flex-1' : 'md:w-[var(--panel-w,min(46%,880px))] md:min-w-[320px]',

@@ -107,8 +107,9 @@ export default function Layout() {
   }, [location.pathname])
 
   useEffect(() => setDrawer(false), [location.pathname, setDrawer])
-  // another page (the sidebar's Files, a folder link): side by side again, so the page shows beside a panel it keeps
-  useEffect(() => setPanelExpanded(false), [location.pathname, location.search])
+  // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
+  // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
+  useEffect(() => setPanelExpanded(false), [location.key])
 
   // the app is exactly the window: only the areas inside it scroll (index.css html.app-shell)
   useEffect(() => {
@@ -118,7 +119,8 @@ export default function Layout() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <a href="#main" className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
+      {/* a big side panel hides the page: the panel is what there is to skip to */}
+      <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
       </a>
       <DemoOrDevBanner />

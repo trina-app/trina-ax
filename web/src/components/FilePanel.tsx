@@ -188,14 +188,18 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     let frame = 0
     const settling = () => until > performance.now()
     const settle = () => {
+      frame = 0
+      if (!settling()) return
       el.scrollTop = share * el.scrollHeight
-      frame = settling() ? requestAnimationFrame(settle) : 0
+      frame = requestAnimationFrame(settle)
     }
     const onScroll = () => {
       if (!settling()) share = el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0
     }
+    // the person scrolls: theirs from now on
     const stop = () => {
       until = 0
+      cancelAnimationFrame(frame)
     }
     const ro = new ResizeObserver(() => {
       setWidth(el.clientWidth)
@@ -244,7 +248,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
 
   return (
     <aside aria-label={t('preview.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="file-panel">
-      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
+      {/* @container: a narrow panel (the divider at its least) shows "AI에게 묻기" as its icon, so the name keeps room */}
+      <header className="@container flex items-center gap-2 border-b border-line px-3 py-2">
         <FileText size={16} className="shrink-0 text-muted" aria-hidden />
         <h2
           className={clsx('min-w-0 truncate text-sm font-semibold', file.source === 'team' && 'cursor-grab')}
@@ -265,7 +270,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <Tooltip label={t('files.askAi')}>
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
+                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort')}</span>
               </button>
             </Tooltip>
           )}
