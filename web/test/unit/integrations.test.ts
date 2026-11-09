@@ -172,12 +172,15 @@ describe('your own app at the service (sign-in where apps do not register themse
   test('a stored secret stays only where it went before (the server\'s rule): another address asks for it again', () => {
     const f = formFrom(google())
     expect(storedSecretStays(f, app, google().url)).toBe(true)
-    // a found app: another server address; any app: another token address or client ID
+    // another service address, token address or client ID
     expect(storedSecretStays({ ...f, url: 'https://other.example/mcp' }, app, google().url)).toBe(false)
     expect(storedSecretStays({ ...f, clientId: 'other' }, app, google().url)).toBe(false)
     const given = { ...app, authorizationUrl: 'https://as.example/a', tokenUrl: 'https://as.example/t' }
     const g = { ...f, authUrl: 'https://as.example/a', tokenUrl: 'https://as.example/t' }
-    expect(storedSecretStays({ ...g, url: 'https://other.example/mcp' }, given, google().url)).toBe(true)
+    expect(storedSecretStays(g, given, google().url)).toBe(true)
+    // with given addresses too: the people who sign in through the app send their tokens to the service address
+    expect(storedSecretStays({ ...g, url: 'https://other.example/mcp' }, given, google().url)).toBe(false)
+    expect(validate({ ...g, url: 'https://other.example/mcp' }, google({ oauthClient: given })).clientSecret).toBe('integrations.error.clientSecretAgain')
     expect(storedSecretStays({ ...g, tokenUrl: 'https://evil.example/t' }, given, google().url)).toBe(false)
     // there, a secret typed in the empty field goes with the change
     expect(toPatch({ ...g, tokenUrl: 'https://evil.example/t', clientSecret: 's2' }, google({ oauthClient: given })).oauthClient).toMatchObject({ clientSecret: 's2' })

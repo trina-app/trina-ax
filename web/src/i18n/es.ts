@@ -2734,6 +2734,7 @@ export const es: Record<MessageKey, string> = {
   "integrations.field.scope": "Permisos (scope)",
   "integrations.field.scopeHint.mcp": "Separe varios con espacios. Si lo deja vacío, se piden todos los permisos que indica el servicio.",
   "integrations.field.scopeHint.http": "Los nombres de la documentación de la API del servicio, separados por espacios.",
+  "integrations.field.scopeHint.given": "Separe varios con espacios. Con ambas direcciones indicadas no se busca nada: si lo deja vacío, no se pide ningún permiso.",
   "integrations.error.clientId": "Introduzca el ID de cliente (sin espacios).",
   "integrations.error.clientSecretAgain": "El secreto de cliente guardado no pasa a una dirección nueva. Introdúzcalo de nuevo.",
   "integrations.error.scope": "Los permisos son una línea de 2000 caracteres como máximo.",

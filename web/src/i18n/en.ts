@@ -2774,6 +2774,7 @@ export const en: Record<MessageKey, string> = {
   "integrations.field.scope": "Scopes",
   "integrations.field.scopeHint.mcp": "Separate several with spaces. Left empty, every scope the service lists is asked for.",
   "integrations.field.scopeHint.http": "The names from the service's API docs, separated by spaces.",
+  "integrations.field.scopeHint.given": "Separate several with spaces. With both addresses given, nothing is looked up: left empty, no scope is asked for.",
   "integrations.error.clientId": "Enter the client ID (no spaces).",
   "integrations.error.clientSecretAgain": "The saved client secret does not follow a new address. Enter it again.",
   "integrations.error.scope": "Scopes are one line of at most 2,000 characters.",

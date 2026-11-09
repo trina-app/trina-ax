@@ -7,7 +7,8 @@
 import { PRODUCT } from '@mycel/shared'
 import { jsonRequest, NetError, type NetOptions } from './net'
 
-/** issuer: null when the addresses were given with an own app instead of found (nothing to check an answer's "iss" against) */
+/** issuer: null when the addresses were given with an own app instead of found (an answer's "iss" is then checked
+ * against the sign-in address's server, issuerMatches) */
 export interface OAuthServer { issuer: string | null; authorizationEndpoint: string; tokenEndpoint: string; registrationEndpoint: string | null; revocationEndpoint: string | null }
 export interface OAuthClient { clientId: string; clientSecret: string | null; authMethod: 'none' | 'client_secret_post' | 'client_secret_basic'; redirectUri: string }
 export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null }
@@ -15,11 +16,13 @@ export interface OAuthTokens { accessToken: string; refreshToken: string | null;
  * for an HTTP API, which has none. */
 export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens }
 /** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
- * first sign-in found from the server, where its secret may go (service.ts pinFound) */
+ * first sign-in that worked found from the server, where its secret may go (service.ts pinFound). clientSecret: null
+ * also when the stored one was entered for another address of the connection (store.ts secretHere) */
 export interface OwnClient {
   clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
-  /** the stored values it was read from (pinFound writes only onto these) */
-  stored: { json: string; enc: string | null }
+  /** the stored values it was read from (pinFound writes only onto these), and the version of the row that holds them
+   * (a template's: a sign-in through it finishes only on the template as it was when it started) */
+  stored: { json: string; enc: string | null; version: number }
 }
 
 export class GrantError extends Error { name = 'GrantError' }
@@ -91,6 +94,14 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
     server: { issuer: trimSlash(issuer), authorizationEndpoint, tokenEndpoint, registrationEndpoint: httpsUrl(meta.registration_endpoint), revocationEndpoint: httpsUrl(meta.revocation_endpoint) },
     resource, scope: scopes && scopes.length <= 2000 ? scopes : null, authMethods,
   }
+}
+
+/** RFC 9207: does an authorization answer's `iss` name the server the sign-in started at? Found addresses: the issuer
+ * found. Given addresses (no issuer known): the sign-in address's own server, by origin (an issuer may have a path,
+ * such as a tenant's). */
+export function issuerMatches(iss: string, server: Pick<OAuthServer, 'issuer' | 'authorizationEndpoint'>): boolean {
+  if (server.issuer) return trimSlash(iss) === server.issuer
+  try { return new URL(iss).origin === new URL(server.authorizationEndpoint).origin } catch { return false }
 }
 
 /** The sign-in and token addresses given with an own app (an HTTP API, or an MCP server whose addresses are not found). */
