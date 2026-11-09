@@ -16553,8 +16553,6 @@ of a web page could not be read. Pictures should open like Slack, across the app
 - **Later:** a large file viewer with page thumbnails on the left and the side chat (or the message's thread) on the
   right, as Slack's file view.
 
-||||||| a5a26059
-
 ## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
