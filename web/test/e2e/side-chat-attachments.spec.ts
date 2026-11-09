@@ -3,7 +3,7 @@
 // into the side chat (the first file makes the room's side chat), goes with the question and shows in the message; a
 // PDF picked with 📎 goes as a file card. Pasted as the browser does it (the page's clipboard and ⌘V / Ctrl+V; Chromium
 // only, WebKit grants these tests no clipboard). The room is answered through page.route (rooms-mock.ts); the chats,
-// uploads and answers by the mock team server.
+// uploads and answers by the mock team server. The box's send is the room box's round ↑ (rooms/RoomComposer.tsx).
 // SHOTS_DIR=<folder>: a pasted picture at 1440 light, the sent message with its picture at 1440 dark, the box with a
 // pasted picture at 390 light.
 import fs from 'node:fs'
@@ -58,6 +58,32 @@ async function shot(page: Page, name: string) {
 }
 
 test.beforeEach(({ browserName }) => test.skip(browserName !== 'chromium', 'pastes through the page clipboard (Chromium)'))
+
+test('the box: send is the room box\'s round ↑, named 보내기 with its tooltip; no "나만 볼 수 있어요" under it', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' })
+  const side = await openSide(page)
+  // the empty line says who sees the side chat; the line under the box is gone
+  await expect(side.getByTestId('side-chat-empty')).toContainText('이 대화는 나만 봐요')
+  await expect(side.getByText('나만 볼 수 있어요')).toHaveCount(0)
+  const send = side.getByRole('button', { name: '보내기', exact: true })
+  await expect(send).toHaveAttribute('data-testid', 'side-chat-send')
+  await expect(send).toHaveText('')
+  await expect(send).toBeDisabled()
+  await side.getByTestId('side-chat-input').fill('요약해 줘')
+  await expect(send).toBeEnabled()
+  // the same button as the room's box: size, round, colours, empty and filled (polled: the colour fades in)
+  const look = (l: Locator) => l.evaluate((e) => { const c = getComputedStyle(e); return JSON.stringify([c.width, c.height, c.borderRadius, c.backgroundColor, c.color, e.querySelector('svg')?.getAttribute('width')]) })
+  const roomSend = page.getByTestId('room-send')
+  const same = async () => (await look(send)) === (await look(roomSend))
+  await page.getByTestId('room-input').first().fill('안녕하세요')
+  await expect.poll(same).toBe(true)
+  await side.getByTestId('side-chat-input').fill('')
+  await page.getByTestId('room-input').first().fill('')
+  await expect.poll(same).toBe(true)
+  await side.getByTestId('side-chat-input').fill('요약해 줘')
+  await send.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('보내기')
+})
 
 test('a picture pasted into the side chat: its square at once while it uploads into a new side chat, then sent with the question and shown in the message', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
