@@ -145,7 +145,7 @@ export const accessEditable = (r: Pick<ProjectRow, 'folder_path' | 'trashed_with
 /**
  * GET /api/projects/:id/access: who sees a team project, as its edit screen shows it to `p` (its creator or an admin).
  * A member gets only the count for a project they may not change (its folder's rules are an admin's), and of the rules
- * on folders inside it only those of folders they can list (an admin's restricted folder inside is not named).
+ * on folders inside it only those of folders they can read (an admin's restricted folder inside is not named).
  */
 export function projectAccess(ctx: AppContext, r: ProjectRow, p: Principal): ProjectAccess {
   const db = ctx.db
@@ -153,7 +153,8 @@ export function projectAccess(ctx: AppContext, r: ProjectRow, p: Principal): Pro
   const people = new Audiences(db, ctx.files).of(r).length
   const row = getFolderByPath(db, r.folder_path)
   const rules = row ? rulesOf(db, row.id) : []
-  if (!editable && !isAdminRole(p)) return { editable, participants: [], otherRules: [], rulesHash: rulesHash(rules), people }
+  // (no rules hash either: it would let a member confirm a guessed set of an admin's rules)
+  if (!editable && !isAdminRole(p)) return { editable, participants: [], otherRules: [], rulesHash: '', people }
   const participants = rules.filter(isParticipantRule).map((x) => ({
     subjectType: x.subjectType as 'group' | 'user', subjectId: x.subjectId!, name: subjectName(db, x.subjectType, x.subjectId) ?? '',
     ...(x.subjectType === 'user' && x.subjectId === r.created_by ? { creator: true } : {}),
@@ -167,7 +168,9 @@ export function projectAccess(ctx: AppContext, r: ProjectRow, p: Principal): Pro
       .all(r.folder_path, r.folder_path) as { path: string; subject_type: ProjectOtherRule['subjectType']; subject_id: string | null; access: ProjectOtherRule['access'] }[]
     const set = ctx.files.rules()
     for (const x of below) {
-      if (!isAdminRole(p) && !set.canList(p, segsOf(x.path))) continue
+      // a member: only rules of folders they can read (one they can only list, for something readable below it, keeps
+      // its rules to admins)
+      if (!isAdminRole(p) && !atLeast(set.access(p, segsOf(x.path)), 'read')) continue
       otherRules.push({ path: x.path, subjectType: x.subject_type, subjectId: x.subject_id, name: subjectName(db, x.subject_type, x.subject_id), access: x.access })
     }
   }

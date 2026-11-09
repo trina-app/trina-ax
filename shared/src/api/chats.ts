@@ -335,7 +335,8 @@ export const ProjectAccess = z.object({
   editable: z.boolean(),
   participants: z.array(ProjectMember),
   otherRules: z.array(ProjectOtherRule),
-  /** the folder's Folder.rulesHash now: PUT participants sends it back (409 rules_changed when someone changed them) */
+  /** the folder's Folder.rulesHash now: PUT participants sends it back (409 rules_changed when someone changed them).
+   * Empty for a member's answer about a project they may not change. */
   rulesHash: z.string(),
   /** how many active people see the project now (owner and admins included) */
   people: z.number().int().nonnegative(),

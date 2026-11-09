@@ -103,7 +103,8 @@ describe('who may see and change participants', () => {
     // a member gets the count only: the folder's rules are an admin's
     expect(a.status).toBe(200)
     expect(a.body).toMatchObject({ editable: false, participants: [], otherRules: [] })
-    const r = await put('alice', legacy, [user('bob')], a.body.rulesHash)
+    expect(a.body.rulesHash).toBe('') // no hash of an admin's rules for a member
+    const r = await put('alice', legacy, [user('bob')], 'any-hash')
     expect([r.status, r.body.error.params.reason]).toEqual([409, 'project_not_editable'])
     expect(rulesAt('groups/marketing')).toEqual([{ t: 'group', s: 'marketing', a: 'write' }])
     expect((await preview('alice', { projectId: legacy, participants: [] })).status).toBe(409)
@@ -119,8 +120,8 @@ describe('what a member may not reach through a project (review)', () => {
     const id = uuidv7()
     A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'HR', 'projects/hr', '', 'alice', '2026-01-01T00:00:00Z')").run(id)
     const a = await access('alice', id)
-    expect(a.body).toMatchObject({ editable: false, participants: [], otherRules: [] })
-    const r = await put('alice', id, [user('bob')], a.body.rulesHash)
+    expect(a.body).toMatchObject({ editable: false, participants: [], otherRules: [], rulesHash: '' })
+    const r = await put('alice', id, [user('bob')], 'any-hash')
     expect([r.status, r.body.error.params.reason]).toEqual([409, 'project_not_editable'])
     expect((await preview('alice', { projectId: id, participants: [user('bob')] })).status).toBe(409)
     const del = await A.json(`/api/projects/${id}?trashFolder=1`, { as: 'alice', method: 'DELETE' })
@@ -144,6 +145,14 @@ describe('what a member may not reach through a project (review)', () => {
     const mine = await access('alice', p.id)
     expect(JSON.stringify(mine.body)).not.toContain('payroll-2027')
     expect(JSON.stringify(mine.body)).not.toContain('Finance')
+    // a folder she can only list (something below it is readable): its rules stay the admins' too
+    const v = ensureFolderRow(A.ctx.db, `${p.folderPath}/vault`)
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, v.id, [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: 'finance', access: 'write' }], 'carol'))()
+    const vb = ensureFolderRow(A.ctx.db, `${p.folderPath}/vault/open`)
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, vb.id, [{ subjectType: 'user', subjectId: 'alice', access: 'read' }], 'carol'))()
+    const listed2 = (await access('alice', p.id)).body.otherRules.map((r: { path: string }) => r.path)
+    expect(listed2).toContain(`${p.folderPath}/vault/open`)
+    expect(listed2).not.toContain(`${p.folderPath}/vault`)
     expect((await access('carol', p.id)).body.otherRules.map((r: { path: string }) => r.path)).toContain(`${p.folderPath}/payroll-2027`)
     // bob (finance) would read the payroll files once added: alice is told of the brief only
     expect((await preview('alice', { projectId: p.id, participants: [user('erin'), user('bob')] })).body).toMatchObject({ added: 1, files: 1 })
@@ -162,6 +171,12 @@ describe('what a member may not reach through a project (review)', () => {
     expect(A.ctx.db.query('SELECT trashed_with FROM projects WHERE id = ?').get(inner)).toEqual({ trashed_with: null })
     expect(A.ctx.db.query('SELECT 1 AS x FROM projects WHERE id = ?').get(p.id)).toEqual({ x: 1 })
     A.ctx.db.query('DELETE FROM projects WHERE id = ?').run(inner)
+    // an admin's rule folder inside it that alice can write: still the admins' to trash (managed inside)
+    const w = await create('alice', { name: 'Writable inside', participants: [user('erin')] })
+    const ws = ensureFolderRow(A.ctx.db, `${w.folderPath}/contracts`)
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, ws.id, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: 'finance', access: 'write' }], 'carol'))()
+    expect((await A.json(`/api/projects/${w.id}?trashFolder=1`, { as: 'alice', method: 'DELETE' })).status).toBe(403)
+    expect(fs.existsSync(path.join(A.team, w.folderPath))).toBe(true)
     // a rule folder inside it alice cannot write stops it too, and nothing changes
     const q = await create('alice', { name: 'Ruled inside', participants: [user('erin')] })
     const sub = ensureFolderRow(A.ctx.db, `${q.folderPath}/legal`)

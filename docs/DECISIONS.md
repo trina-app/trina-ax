@@ -16246,9 +16246,10 @@ edit screen. A review before building asked for eight changes, all built:
   (migration 277, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
   points the project at an existing folder. A member changes participants, or trashes the folder with the project, only
   when it is 1; admins change any `projects/<name>` project. For a project a member may not change, the access answer
-  gives them the count only (no names of an admin's rules), and admins alone see that summary in the dialog. Rules on
-  folders inside a member's project are listed to them only for folders they can list, and the dry run counts only files
-  the caller can read (an admin's restricted folder inside is neither named nor counted).
+  gives them the count only (no names of an admin's rules, and no rules hash: an unsalted hash would let them confirm a
+  guess), and admins alone see that summary in the dialog. Rules on folders inside a member's project are listed to them
+  only for folders they can read (not one they can only list because something below it is readable), and the dry run
+  counts only files the caller can read (an admin's restricted folder inside is neither named nor counted).
 - **The widening confirm is the server's.** `POST /api/projects/access-preview` (the creator or an admin for a project;
   whoever may make team projects for a new one): how many people would see it, who gains and loses it, and for the people
   who gain it the files they could read there (skills/ left out), those someone other than the caller put there (the

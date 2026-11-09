@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 08:37
 - Branch: `feat/projects-in-projects`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/routes/chats.ts`, `server/src/chat/projects.ts`, a new
   `server/src/chat/project-access.ts`, `server/src/admin/` (settings, users, groups), `server/src/team-files/service.ts`,
   `shared/src/api/`, `web/src/components/ProjectForm.tsx`, `web/src/pages/Projects.tsx`, `web/src/pages/Files.tsx`,
@@ -89,4 +89,21 @@ tests in Docker (bun 1.3.12), `bun run --cwd web build`, `bun run prepare:hwp`, 
 
 ## Result
 
-Filled in at the end.
+Built as planned: `chat/project-access.ts` (participants, the dry run, the save, the system-made folder), create / share /
+repoint / delete in `routes/chats.ts`, `TeamFiles.copyFolderInto` and the delete's folder trash, the floor on person and
+group deletion, `TeamSettings.projectCreators`, the dialog's picker and "볼 수 있는 사람" line, the widening confirm, the
+share dialog, Files without "프로젝트로 만들기", the Team settings switch, five languages, docs.
+
+Changed from the plan:
+- **Migration 277** (`projects.folder_made`, add-only), after the independent review: a member's project made by an older
+  build on an existing admin-ruled `projects/<name>` would otherwise have let that member rewrite or trash it. Only a
+  folder the server made is its creator's; admins change any.
+- The access answer gives a member the count only (no rules hash) for a project they may not change, and names rule
+  folders inside only when they can read them; the dry run counts only files the caller can read (review).
+- Trashing the project folder still refuses anything managed inside it for a member, and runs before the delete stops
+  chats (review).
+- Naming a person or group with a rule set in Admin › Folder permissions is refused (400 `participant_fixed`) instead of
+  silently doing nothing.
+- The web mock still takes a `folderPath` from specs (fixtures of older projects); the real server refuses it.
+
+PR: see the branch `feat/projects-in-projects`.
