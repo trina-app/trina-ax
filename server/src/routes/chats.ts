@@ -15,7 +15,7 @@ import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/ru
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
 import { frequentQuestions } from '../chat/frequent-questions'
 import { hideTitle } from '../chat/title'
-import { notInternalChat } from '../chat/internal-chats'
+import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
@@ -40,6 +40,7 @@ import { Audiences, accountSeesProject, chatFor, chatPeople, chatView, isSharedR
 import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
+import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -195,6 +196,12 @@ export const chatsRoutes: RouteModule = {
       }
       const cur = decodeCursor(query.cursor, ['u', 'id'])
       if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
+      // my pinned chats first (chat/pins.ts): the first page of my list, and of a project's page, starts with the ones of
+      // that list, the most recently pinned first; every page leaves them out of the rest. Not in a search or the trash
+      // (a chat in the trash has no pin). My list's first page also drops my pins of chats I can no longer see.
+      const pinsFirst = !q && !query.trash
+      const pinWhere = [...where], pinArgs = [...args]
+      if (pinsFirst) { where.push('id NOT IN (SELECT chat_id FROM chat_pins WHERE user_id = ?)'); args.push(me) }
       // a shared chat only while I see its project now (its creator too): pages are read until one is full. A search
       // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts).
       // In the trash only what I may restore (chatFor 'manage'): its creator, or an editor of its project now
@@ -239,11 +246,21 @@ export const chatsRoutes: RouteModule = {
       const more = out.length > limit
       const items = out.slice(0, limit)
       const lastItem = items[items.length - 1]
+      let pinned: ChatRow[] = []
+      if (pinsFirst && !cur) {
+        if (!query.projectId) dropUnseenPins(rt, me)
+        const pins = pinsOf(ctx.db, me)
+        if (pins.size) {
+          const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${pinWhere.join(' AND ')} AND id IN (SELECT value FROM json_each(?))`).all(...pinArgs, JSON.stringify([...pins.keys()])) as ChatRow[]
+          pinned = rows.filter(visible).sort((a, b) => pins.get(b.id)!.localeCompare(pins.get(a.id)!) || b.id.localeCompare(a.id))
+        }
+      }
       const hide = redactorFor(ctx, me).hide
       // a project's page: who wrote in each of its shared chats listed here (all of them visible to me, above), in one
       // query for the page
-      const people = query.projectId && !query.trash ? chatPeople(ctx.db, items.filter(isSharedRow).map((r) => r.id)) : undefined
-      return { items: items.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}), ...(people ? { people } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
+      const page = [...pinned, ...items]
+      const people = query.projectId && !query.trash ? chatPeople(ctx.db, page.filter(isSharedRow).map((r) => r.id)) : undefined
+      return { items: page.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}), ...(people ? { people } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
     })
 
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
@@ -334,7 +351,11 @@ export const chatsRoutes: RouteModule = {
       rt.stopChat(chat.id)
       const now = new Date()
       // who deleted it: a shared chat is in their trash too while they may restore it (listChats)
-      ctx.db.query('UPDATE chats SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(now.toISOString(), auth.user.id, chat.id)
+      ctx.db.transaction(() => {
+        ctx.db.query('UPDATE chats SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(now.toISOString(), auth.user.id, chat.id)
+        // in the trash it is in nobody's list: everyone's pin of it goes (restored, it comes back unpinned)
+        dropChatPins(ctx.db, [chat.id])
+      })()
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
@@ -348,6 +369,29 @@ export const chatsRoutes: RouteModule = {
         rt.publishChat(auth.user.id, chat.id, 'restored')
       }
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
+    })
+
+    // "상단에 고정" / "고정 해제" (chat/pins.ts): any chat I may view, mine only; only my own windows hear it (a shared
+    // chat's other people never learn of my pin). Not the server's own drafts: they are in no list (chat/internal-chats.ts)
+    const pinnable = (c: Context<AppEnv>, auth: AuthInfo, id: string) => {
+      const a = chatOf(rt, c, auth, id, 'view')
+      if (isInternalChat(ctx.db, a.row.id)) fail('not_found')
+      return a
+    }
+    const pinned = (me: string, id: string) => {
+      const chat = chatOut(rt, me, rt.store.chatRow(id)!)
+      rt.hub.publish(me, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat } })
+      return chat
+    }
+    kit.handle(API.pinChat, ({ c, params, auth }) => {
+      const a = pinnable(c, auth, params.id)
+      if (rt.store.pinnedAt(auth.user.id, a.row.id)) return chatOut(rt, auth.user.id, a.row)
+      pin(rt, auth.user.id, a.row.id, c.get('locale'))
+      return pinned(auth.user.id, a.row.id)
+    })
+    kit.handle(API.unpinChat, ({ c, params, auth }) => {
+      const a = pinnable(c, auth, params.id)
+      return unpin(ctx.db, auth.user.id, a.row.id) ? pinned(auth.user.id, a.row.id) : chatOut(rt, auth.user.id, a.row)
     })
 
     // ---------------- messages ----------------
@@ -743,6 +787,8 @@ export const chatsRoutes: RouteModule = {
         for (const x of purged) rt.purgeChat(x.id)
         // one already in the trash keeps its time there (and who put it there)
         for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, auth.user.id, x.id)
+        // in the trash: nobody's pin of them stays (chat/pins.ts)
+        dropChatPins(ctx.db, kept.map((x) => x.id))
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
         // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
