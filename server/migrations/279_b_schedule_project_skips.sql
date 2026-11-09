@@ -5,7 +5,7 @@
 -- so. schedule_outcomes has a fixed code CHECK list and tables are never rebuilt, so these get their own table, as
 -- schedule_template_skips do. Metadata only: the project's id, never its name or folder.
 -- Additive only (reader 1): an older build does not know the table.
--- Numbered 276: 275 (notification_preview) is the highest on dev.
+-- Numbered 279: 276 (side_chat), 277 (chat_pins) and 278 (room_pins) are on dev.
 CREATE TABLE schedule_project_skips (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

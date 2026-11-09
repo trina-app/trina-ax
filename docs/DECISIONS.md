@@ -16038,7 +16038,7 @@ boxes); no contract, setting or data change.
   the move asks first with their names (409 `project_skills_on` unless `skillsOk`) and records each as `skills.change`.
   Creating, repointing and sharing projects are the project work's (another branch); no other path switches them on.
 - **Scheduled tasks:** a task whose project its owner no longer sees is skipped and the owner told (inbox, the task's
-  last result "프로젝트 없음"); before, the run's chat silently dropped the project. Migration 276 (add-only,
+  last result "프로젝트 없음"); before, the run's chat silently dropped the project. Migration 279 (add-only,
   `schedule_project_skips`).
 - **Out:** sharing a skill to a project from the share flow, project skill usage in Admin › Usage (not recorded, as
   personal skills), the project-folder word bonus in `find_skills` (removed).

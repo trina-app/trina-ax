@@ -59,7 +59,7 @@ In:
 11. **Switching on.** A person moving a project's folder into `projects/<name>` is asked first with the skills' names
     (409 `project_skills_on`, then `skillsOk`), and each is recorded. Creating, repointing and sharing projects are the
     project work's (another branch): review MUST 1 and the nesting part of MUST 2 are dropped here.
-12. **Scheduled runs.** A task whose project its owner no longer sees is skipped and the owner told (migration 276,
+12. **Scheduled runs.** A task whose project its owner no longer sees is skipped and the owner told (migration 279,
     add-only `schedule_project_skips`), instead of running without the project.
 13. **API.** `GET /api/skills?projectId=` and `?projects=1`, `SkillInfo.project`, `shadowedBy.tier` `team`, `replaces`
     `project`, `SkillChange.project`, `SkillWritePreview.sameName`, `GET` / `POST /api/skills/move`, `skillsOk` on
@@ -91,7 +91,7 @@ skills).
   replaced, the AI's write card and the audit apply, the list labels them, nothing is granted, a run taints.
 - **Silent switch-on** (step 11) and **widening by a planted message** (step 9: the AI only narrows).
 - **Guard coverage.** The guard now reads the database. A failed lookup refuses the write.
-- **Migration** 276 (add-only). Highest `b` on dev is 275.
+- **Migration** 279 (add-only). On dev 276, 277 and 278 are taken.
 - **Overlap** with the project work (option A, another branch): this branch leaves `routes/chats.ts`,
   `chat/projects.ts`, `ProjectForm.tsx` and `lib/projectFolders.ts` alone.
 - Five app languages, phone and desktop, light and dark.
@@ -115,7 +115,7 @@ Different from the first draft, and why:
 - `move_skill` only narrows; widening moves are the Skills page's, which shows the whole text (review).
 - The `move_skill` guidance is in the tool's own description, not in the skills section: that section stays the same
   for every engine and the sub-agents.
-- A scheduled run whose project is gone is skipped with its own add-only table (migration 276): `schedule_outcomes`
+- A scheduled run whose project is gone is skipped with its own add-only table (migration 279): `schedule_outcomes`
   has a fixed CHECK list, as `schedule_template_skips` found before.
 - Project skill uses are not recorded in Admin › Usage (as personal skills); left for later.
 
