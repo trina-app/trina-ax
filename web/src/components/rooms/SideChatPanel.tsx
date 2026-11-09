@@ -427,7 +427,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             {!history && chatId && messages.map((m, i) =>
               m.role === 'user' ? (
                 <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? me.user }} at={m.createdAt}>
-                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
+                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} sideChat />
                 </ViewerMeta>
               ) : (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>

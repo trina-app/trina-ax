@@ -186,9 +186,9 @@ const dec = new TextDecoder()
 const OWNER_PASSWORD = 'correct horse battery'
 /** the general pack's card news as the server installs it (resources/skill-packs/general/ko/card-news), its form included:
  * a member who joins with the first result's invite lands on it */
-/** A new chat's title: its first prompt's first 30 characters; a room's side chat question about a message or a file as
- * the team server names it (server/src/chat/title.ts: the question, or "<quick word>: <the quote's first words>") */
-const mockTitle = (prompt: string) => (sideQuoteOf(prompt) ? placeholderTitle(prompt) : prompt.slice(0, 30))
+/** A new chat's title: its first prompt's first 30 characters; in a room's side chat a question about a message or a file
+ * as the team server names it (server/src/chat/title.ts: the question, or "<quick word>: <the quote's first words>") */
+const mockTitle = (prompt: string, chat: Pick<Chat, 'sideRoomId'>) => (chat.sideRoomId && sideQuoteOf(prompt) ? placeholderTitle(prompt, [], undefined, true) : prompt.slice(0, 30))
 
 const CARDNEWS_TEXT = '---\nname: card-news\ndescription: 카드뉴스 — 회사 소개서나 자료를 읽고 정사각형 카드뉴스 5장을 만들어요.\nmetadata:\n  title: 카드뉴스\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "blog", "label": "블로그"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 카드뉴스\n'
 /** the general pack's promo video (resources/skill-packs/general/ko/promo-video), its form included: the welcome steps'
@@ -1638,7 +1638,7 @@ export class MockServer {
     if (assistant.status === 'error') chat.lastOutcome = 'error'
     else if (assistant.status === 'done' && assistant.stopReason) chat.lastOutcome = 'paused'
     else delete chat.lastOutcome
-    if (!chat.title) chat.title = mockTitle(prompt)
+    if (!chat.title) chat.title = mockTitle(prompt, chat)
     this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
     // "long answer": like an answer that ran over a minute (server/src/chat/runtime.ts LONG_ANSWER_MS): worth telling
@@ -4731,7 +4731,7 @@ export class MockServer {
     s.runner = user.id
     chat.runState = 'running'
     chat.updatedAt = now()
-    if (!chat.title) chat.title = mockTitle(prompt)
+    if (!chat.title) chat.title = mockTitle(prompt, chat)
     this.queueRevision++
     this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
     const gen = this.generation

@@ -3470,8 +3470,6 @@ export const id: Record<MessageKey, string> = {
   "sideChat.empty": "Tanya {name} tentang ruang ini. Hanya kamu yang melihat chat ini. Bagikan jawaban ke ruang kapan pun kamu mau.",
   "sideChat.placeholder": "Tanya {name} tentang ruang ini…",
   "sideChat.send": "Kirim",
-  "sideChat.sendThread": "Kirim ke utas",
-  "sideChat.sendRoom": "Kirim ke ruang",
   "sideChat.sendElsewhere": "Kirim ke tempat lain",
   "sideChat.sentThread": "Terkirim ke utas",
   "sideChat.sentRoom": "Terkirim ke ruang",

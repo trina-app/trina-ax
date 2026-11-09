@@ -17510,16 +17510,20 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   unique index on room, author and client id stands behind it, and a retry must find what it sent).
 - **↗.** The side chat opened as a full chat keeps the dialog, with the side chat's room picked (`chat.sideRoomId`).
 - **The question as people read it (found on dev, fixed here).** A question about a message showed its quote as raw
-  Markdown ("> Leo · Nov 9, 2026, 7:14 PM"); the bubble now shows it as a quote, as the side chat's box showed it before
-  it went: who and when, its first lines, then the question below (a file by its name). One parser for the app and the
-  server: shared rooms.ts `sideQuoteOf` (the header, its lines, then a blank line and the question; a quote typed by hand
-  is not one).
+  Markdown ("> Leo · Nov 9, 2026, 7:14 PM"); in a side chat (also opened as a full chat) the bubble now shows it as a
+  quote, as the side chat's box showed it before it went: who and when, its lines, then the question below (a file by its
+  name). A long message is folded as any long question is: the quote's first 3 lines, and 전체 보기 opens all of it. One
+  parser for the app and the server: shared rooms.ts `sideQuoteOf` (the header, its lines, then a blank line and the
+  question). Only side chats: in any other chat a quote of that shape typed by hand shows, and names the chat, as typed.
 - **Its title (found on dev, fixed at the source).** A new chat's placeholder title (server chat/title.ts, written with
   the first message; the AI may still rename it with set_title) took the quote's header ("Sam · Nov 9, 2026, 7:0…").
-  It is now the question after the quote; a quick question (번역, 요약, 설명; a file's 요약, 핵심 정리, 검토, 팀 폴더에 저장)
+  In a side chat it is now the question after the quote; a quick question (번역, 요약, 설명; a file's 요약, 핵심 정리, 검토, 팀 폴더에 저장)
   is "<its word>: <the message's first words, or the file's name>" ("요약: 로고 시안 언제까지 받을 수 있을까요?"), in the
   language it was asked in. The quick questions' words and texts moved from the app's strings to one shared table
-  (rooms.ts `SIDE_CHAT_QUICK`), which the server reads to recognize them. The AI's side panel instructions name the new
-  buttons and say what the quote's thread_id is. Chats already named after a quote keep their title.
+  (rooms.ts `SIDE_CHAT_QUICK`), which the server reads to recognize them. The button's words are shared the same way
+  (rooms.ts `SIDE_CHAT_SEND`): the AI's side panel instructions name it as the person sees it, in their language, and say
+  what the quote's thread_id is. Chats already named after a quote keep their title.
+- **A thread found gone** (a send answered `thread_root`) is gone for every answer about that message on this page
+  (store/sideChats.ts `goneRoots`, by the root's id): each offers the room; answers about other messages keep theirs.
 - **Not in this version:** "대화방에도 보내기" on a thread send; a file's thread (a file ask goes to the room); the note; a
   toast; a server column for the asked message.

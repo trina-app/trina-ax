@@ -11,7 +11,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { hideThreadRef, threadRefOf, threadRefToken, uuidv7, type Me } from '@mycel/shared/api'
+import { hideThreadRef, SIDE_CHAT_SEND, threadRefOf, threadRefToken, uuidv7, type Me } from '@mycel/shared/api'
 import { AssistantMessage, UserMessage } from '../../src/components/chat/Messages'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
 import type { SentHere } from '../../src/components/rooms/SendHere'
@@ -117,7 +117,7 @@ test('an edit keeps the token while the quote\'s header line is the same; a quot
 test('a question about a message shows it as a quote (who, when, its lines), then the question: no Markdown, no token; the edit keeps the token', async () => {
   const content = quoteOf(ROOT, 'logo drafts?')
   const edited: string[] = []
-  const m = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={(_m, text) => { edited.push(text) }} onSelectBranch={() => {}} /></MemoryRouter>)
+  const m = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={(_m, text) => { edited.push(text) }} onSelectBranch={() => {}} sideChat /></MemoryRouter>)
   try {
     const quote = m.get('user-quote')
     expect(quote.localName).toBe('blockquote')
@@ -191,7 +191,7 @@ test('no thread: "Send to room" sends at once; then "✓ Sent to room · View", 
   answers = [{ body: sent() }]
   const { m, views } = await answerWith(null)
   try {
-    expect(m.get('send-here-room').textContent).toBe(en('sideChat.sendRoom'))
+    expect(m.get('send-here-room').textContent).toBe(SIDE_CHAT_SEND.room.en)
     expect(m.find('send-here-thread')).toBeNull()
     expect(m.find('send-here-more')).toBeNull()
     expect(m.find('share-to-room')).toBeNull()
@@ -218,7 +218,7 @@ test('a thread: "Send to thread" sends there; cut says so; ▾ has one item, "Se
   answers = ['hold']
   const { m } = await answerWith(thread)
   try {
-    expect(m.get('send-here-thread').textContent).toBe(en('sideChat.sendThread'))
+    expect(m.get('send-here-thread').textContent).toBe(SIDE_CHAT_SEND.thread.en)
     expect(m.get('send-here-more').getAttribute('aria-label')).toBe(en('sideChat.sendElsewhere'))
     await m.click('send-here-thread')
     await m.click('send-here-thread')
@@ -240,7 +240,7 @@ test('a thread: "Send to thread" sends there; cut says so; ▾ has one item, "Se
   try {
     await r.m.click('send-here-more')
     const items = body(r.m).querySelectorAll('[role="menuitem"]')
-    expect(items.map((i) => i.textContent)).toEqual([en('sideChat.sendRoom')])
+    expect(items.map((i) => i.textContent)).toEqual([SIDE_CHAT_SEND.room.en])
     await r.m.click('send-here-room-item')
     await r.m.until(() => r.m.find('send-here-sent'), 'the sent line')
     expect(calls[0]!.body).toEqual({ roomId: team.id, clientMessageId: expect.any(String) })
@@ -261,7 +261,7 @@ test('the server asks first: only the confirm step, with the thread\'s message; 
     // no list, no search, no note: the target, the file row with its switch on, the primary button focused
     expect(body(m).querySelector('[data-testid="share-room-list"]')).toBeNull()
     expect(body(m).querySelector('[data-testid="share-room-note"]')).toBeNull()
-    expect(dialogTitle(m)).toBe(en('sideChat.sendThread'))
+    expect(dialogTitle(m)).toBe(SIDE_CHAT_SEND.thread.en)
     expect(m.get('share-room-to').textContent).toContain('Design review')
     expect(m.get('share-room-thread').textContent).toBe('Ben · Nov 5, 9:00 AMlogo drafts by Friday?')
     expect(m.get('share-room-confirm-send').textContent).toBe(en('shareRoom.sendAttached'))
@@ -292,7 +292,7 @@ test('Esc closes the confirm step too', async () => {
   try {
     await m.click('send-here-room')
     await m.until(() => body(m).querySelector('[data-testid="share-room-confirm"]'), 'the confirm step')
-    expect(dialogTitle(m)).toBe(en('sideChat.sendRoom'))
+    expect(dialogTitle(m)).toBe(SIDE_CHAT_SEND.room.en)
     expect(m.find('share-room-thread')).toBeNull()
     await act(async () => { active(m)!.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
     expect(body(m).querySelector('[data-testid="share-room-confirm"]')).toBeNull()
@@ -313,7 +313,7 @@ test('a thread that is gone: one line under the answer, the room offered instead
     expect(m.get('send-here-error').textContent).toBe(en('sideChat.noThread'))
     expect(m.get('send-here-error').getAttribute('role')).toBe('alert')
     expect(m.find('send-here-thread')).toBeNull()
-    expect(m.get('send-here-room').textContent).toBe(en('sideChat.sendRoom'))
+    expect(m.get('send-here-room').textContent).toBe(SIDE_CHAT_SEND.room.en)
     expect(useUi.getState().toasts).toEqual([])
     await m.click('send-here-room')
     await m.until(() => m.find('send-here-sent'), 'sent to the room')
@@ -479,7 +479,7 @@ test('a long side chat after a reload: older pages are read until the question a
 
 test('a question about a file shows the file by its name, then the question; a quote typed by hand stays as typed', async () => {
   const file = `> 📎 brief.pdf (file_id 019a5f00-0000-7000-8000-000000000502 in this room)\n\nSummarize this file.`
-  const one = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: file }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></MemoryRouter>)
+  const one = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: file }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} sideChat /></MemoryRouter>)
   try {
     expect(one.get('user-quote-file').textContent).toBe('brief.pdf')
     expect(one.get('user-text').textContent).toBe('brief.pdfSummarize this file.')
@@ -488,11 +488,80 @@ test('a question about a file shows the file by its name, then the question; a q
     await one.unmount()
   }
   const typed = '> to be or not to be\nthat is the question'
-  const two = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: typed }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></MemoryRouter>)
+  const two = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: typed }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} sideChat /></MemoryRouter>)
   try {
     expect(two.find('user-quote')).toBeNull()
     expect(two.get('user-text').textContent).toBe(typed)
   } finally {
     await two.unmount()
+  }
+})
+
+const userMessage = (content: string, sideChat: boolean) => (
+  <MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} sideChat={sideChat} /></MemoryRouter>
+)
+const showAll = (m: Mounted) => [...m.container.querySelectorAll('button')].find((b) => b.textContent === en('chat.showAll')) ?? null
+
+test('only a side chat shows the quote block: another chat shows the same text as it was typed', async () => {
+  const content = `> Ben · Nov 5\n> logo drafts?\n\nsummarize`
+  const m = await mount(userMessage(content, false))
+  try {
+    expect(m.find('user-quote')).toBeNull()
+    expect(m.get('user-text').textContent).toBe(content)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('a long quote is folded to its first lines, and 전체 보기 opens all of it; a short one shows whole, with no button', async () => {
+  const long = Array.from({ length: 80 }, (_, i) => `line ${i + 1} of the venue's exhibitor rules, with the booth sizes and the hours`).join(' ')
+  expect(long.length).toBeGreaterThan(4000 - 1000)
+  const m = await mount(userMessage(`> Ben · Nov 5${threadRefToken(ROOT)}\n> ${long}\n\nshorter`, true))
+  try {
+    expect(m.get('user-quote-text').getAttribute('class')).toContain('line-clamp-3')
+    const button = showAll(m)
+    expect(button).not.toBeNull()
+    await m.click(button!)
+    expect(m.get('user-quote-text').getAttribute('class')).not.toContain('line-clamp-3')
+    expect(m.get('user-quote-text').textContent).toBe(long)
+    expect(showAll(m)).toBeNull()
+  } finally {
+    await m.unmount()
+  }
+  const short = await mount(userMessage(`> Ben · Nov 5\n> one\n> two\n> three\n> four\n> five\n\nsummarize`, true))
+  try {
+    expect(short.get('user-quote-text').getAttribute('class')).not.toContain('line-clamp-3')
+    expect(short.get('user-quote-text').textContent).toBe('one\ntwo\nthree\nfour\nfive')
+    expect(showAll(short)).toBeNull()
+  } finally {
+    await short.unmount()
+  }
+})
+
+test('a thread found gone is gone for every answer about that message: each offers the room, other threads stay', async () => {
+  serve()
+  answers = [{ status: 409, body: { error: { code: 'conflict', message: 'gone', params: { reason: 'thread_root' } } } }]
+  signIn()
+  useRooms.setState({ rooms: [team], loaded: true })
+  const other: SendTarget = { rootId: ROOT2, head: 'Cy · Nov 5', text: 'budget?' }
+  const answer = (target: SendTarget, testId: string) => (
+    <div data-testid={testId}>
+      <AssistantMessage m={msg({ role: 'assistant', content: 'an answer', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable canSuggest={false} sendHere={{ roomId: team.id, target, onView: () => {} }} />
+    </div>
+  )
+  const m = await mount(<MemoryRouter>{answer(thread, 'first')}{answer(thread, 'second')}{answer(other, 'third')}</MemoryRouter>)
+  const inside = (testId: string, id: string) => m.get(testId).querySelector(`[data-testid="${id}"]`)
+  try {
+    await m.click(inside('first', 'send-here-thread') as FakeElement)
+    await m.until(() => inside('first', 'send-here-error'), 'the line')
+    expect(inside('first', 'send-here-room')).not.toBeNull()
+    expect(inside('second', 'send-here-thread')).toBeNull()
+    expect(inside('second', 'send-here-room')).not.toBeNull()
+    // (the line is the first answer's: the click was there)
+    expect(inside('second', 'send-here-error')).toBeNull()
+    expect(inside('third', 'send-here-thread')).not.toBeNull()
+  } finally {
+    await m.unmount()
+    useSideChats.getState().reset()
   }
 })

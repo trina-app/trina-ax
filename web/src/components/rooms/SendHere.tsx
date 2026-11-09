@@ -7,7 +7,9 @@
 // reply, or the room at the message). When the server asks first (linked files, material some members cannot see), only
 // the confirm step of "대화방에 보내기" opens (chat/ShareToRoom.tsx ShareConfirm), with the target on top; 취소, ✕ and Esc
 // close it and give the focus back here. A thread that is gone: one short line under the answer (SendHereNote) and the
-// room offered instead; any other failure is that line too, never a toast.
+// room offered instead, for every answer about that message (store/sideChats.ts goneRoots, by the thread's root); any
+// other failure is that line too, never a toast. The button's words are shared (rooms.ts SIDE_CHAT_SEND): the AI names
+// it as the person sees it.
 // Double sends: a guard while one is on its way, and one clientMessageId per click, reused only for that click's confirm
 // and for trying the same again after a failure that may have sent it (no answer, 5xx). Never across clicks: the server
 // gives the first message back for a known id, a deleted one too. Both are kept with the answer (store/sideChats.ts), so
@@ -17,7 +19,7 @@
 import clsx from 'clsx'
 import { Check, ChevronDown, MessageSquareShare } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { uuidv7, type Room } from '@mycel/shared/api'
+import { SIDE_CHAT_SEND, uuidv7, type Room } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { errorText, isApiError } from '../../lib/api'
 import type { SendTarget } from '../../lib/sideChatSend'
@@ -44,8 +46,9 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
   const patch = (p: Partial<SendHereState>) => useSideChats.getState().patchSend(answerId, p)
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
   const roomsLoaded = useRooms((s) => s.loaded)
-  // the thread, unless it turned out to be gone
-  const thread = state.noThread ? null : target
+  // the thread, unless a send found it gone (for every answer about it)
+  const gone = useSideChats((s) => !!target && !!s.goneRoots[target.rootId])
+  const thread = gone ? null : target
   const busy = !!state.sending
   const confirm = useConfirmStep<ConfirmAsk & { to: To }>()
   const box = useRef<HTMLSpanElement>(null)
@@ -94,8 +97,9 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
       const back = focusHere()
       confirm.close()
       // the asked message's thread is gone (deleted, or no longer one I see): the room instead
-      const gone = !!rootId && isApiError(e) && (e.body.params?.reason === 'thread_root' || !!e.body.fields?.['body.threadRootId'])
-      patch({ sending: false, ...(refused ? { attempt: null } : {}), ...(gone ? { noThread: true, error: t('sideChat.noThread') } : { error: errorText(e, locale, t('error.network')) }) })
+      const lost = !!rootId && isApiError(e) && (e.body.params?.reason === 'thread_root' || !!e.body.fields?.['body.threadRootId'])
+      if (lost) useSideChats.getState().rootGone(rootId!)
+      patch({ sending: false, ...(refused ? { attempt: null } : {}), error: lost ? t('sideChat.noThread') : errorText(e, locale, t('error.network')) })
       if (back) requestAnimationFrame(() => control.current?.focus())
     }
   }
@@ -117,14 +121,14 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
         <span ref={box} className="flex items-center" data-testid="send-here">
           <button ref={control} type="button" disabled={busy} aria-busy={busy} onClick={() => void send('thread')} className={clsx(BTN, 'pr-1')} data-testid="send-here-thread">
             <MessageSquareShare size={13} aria-hidden />
-            {t('sideChat.sendThread')}
+            {SIDE_CHAT_SEND.thread[locale]}
           </button>
           <MenuButton
             label={t('sideChat.sendElsewhere')}
             icon={<ChevronDown size={13} aria-hidden />}
             muted
             buttonClassName="touch-hit"
-            items={[{ label: t('sideChat.sendRoom'), icon: <MessageSquareShare size={14} aria-hidden />, onSelect: () => { control.current?.focus(); void send('room') }, testId: 'send-here-room-item' }]}
+            items={[{ label: SIDE_CHAT_SEND.room[locale], icon: <MessageSquareShare size={14} aria-hidden />, onSelect: () => { control.current?.focus(); void send('room') }, testId: 'send-here-room-item' }]}
             testId="send-here-more"
           />
         </span>
@@ -132,7 +136,7 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
         <span ref={box} className="flex items-center" data-testid="send-here">
           <button ref={control} type="button" disabled={busy} aria-busy={busy} onClick={() => void send('room')} className={BTN} data-testid="send-here-room">
             <MessageSquareShare size={13} aria-hidden />
-            {t('sideChat.sendRoom')}
+            {SIDE_CHAT_SEND.room[locale]}
           </button>
         </span>
       )}
@@ -140,7 +144,7 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
       <span role="status" className="sr-only" data-testid="send-here-status">{said}</span>
       {confirm.ask && (
         <ShareConfirm
-          title={t(confirm.ask.to === 'thread' ? 'sideChat.sendThread' : 'sideChat.sendRoom')}
+          title={SIDE_CHAT_SEND[confirm.ask.to][locale]}
           target={<Target room={room} thread={confirm.ask.to === 'thread' ? thread : null} />}
           ask={confirm.ask}
           others={Math.max(0, (room?.memberCount ?? 1) - 1)}

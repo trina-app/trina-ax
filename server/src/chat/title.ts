@@ -85,12 +85,13 @@ function lineTitle(line: string, known?: KnownSecrets): string | null {
  * The placeholder title of a new chat from its first message: the first meaningful line outside code blocks (lines
  * inside them only when there is nothing else), else the name of an uploaded attachment (a team file's name is not
  * used: the title outlives the person's access to the file), else '' (the apps show "New chat" in their language).
- * A room's side chat question about a message or a file (shared rooms.ts sideQuoteOf): the question after the quote,
- * never the quote's header ("Sam · Nov 9, 7:04 PM"); one of its quick questions is "<its word>: <the message's first
- * words, or the file's name>" ("요약: 로고 시안 언제까지…"), in the language it was asked in; files alone: the quote.
+ * In a room's side chat (`sideChat`), a question about a message or a file (shared rooms.ts sideQuoteOf): the question
+ * after the quote, never the quote's header ("Sam · Nov 9, 7:04 PM"); one of its quick questions is "<its word>: <the
+ * message's first words, or the file's name>" ("요약: 로고 시안 언제까지…"), in the language it was asked in; files
+ * alone: the quote. Any other chat: a quote typed by hand is a line like any other.
  */
-export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets): string {
-  const quote = sideQuoteOf(content)
+export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets, sideChat = false): string {
+  const quote = sideChat ? sideQuoteOf(content) : null
   if (quote) {
     const subject = quote.kind === 'file' ? quote.name : placeholderTitle(quote.text, [], known)
     const quick = sideQuickOf(quote.question)
@@ -168,7 +169,7 @@ export function maskStoredTitles(db: Database): number {
   if (done && Number(JSON.parse(done.value)) >= TITLE_SCAN_VERSION) return 0
   let n = 0
   db.transaction(() => {
-    for (const r of db.query("SELECT id, title FROM chats WHERE title <> ''").all() as { id: string; title: string }[]) {
+    for (const r of db.query("SELECT id, title, side_room_id FROM chats WHERE title <> ''").all() as { id: string; title: string; side_room_id: string | null }[]) {
       if (!hasSecret(r.title)) continue
       let title = lineTitle(r.title)
       if (!title) {
@@ -176,7 +177,7 @@ export function maskStoredTitles(db: Database): number {
           .get(r.id) as { content: string; attachments: string } | null
         let atts: Attachment[] = []
         try { atts = first ? JSON.parse(first.attachments) : [] } catch {}
-        title = first ? placeholderTitle(first.content, Array.isArray(atts) ? atts : []) : ''
+        title = first ? placeholderTitle(first.content, Array.isArray(atts) ? atts : [], undefined, !!r.side_room_id) : ''
       }
       db.query('UPDATE chats SET title = ? WHERE id = ?').run(title, r.id)
       n++

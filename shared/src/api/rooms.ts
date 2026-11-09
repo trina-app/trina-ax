@@ -239,6 +239,13 @@ export const SIDE_CHAT_QUICK = {
   },
 } as const satisfies Record<string, { label: Record<Locale, string>; ask: Record<Locale, string> }>
 export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
+/** The one button under a side chat's answer (web components/rooms/SendHere.tsx), in each language: to the asked
+ * message's thread, or to the room. One source for the app and for the AI's side panel instructions (server
+ * chat/prompt.ts sideRoomSection), which name it as the person sees it. */
+export const SIDE_CHAT_SEND = {
+  thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo' },
+  room: { ko: '대화방에 보내기', en: 'Send to room', id: 'Kirim ke ruang', ja: 'ルームに送る', es: 'Enviar a la sala' },
+} as const satisfies Record<string, Record<Locale, string>>
 /** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
  * save_room_file, whose card says where and who will see it) */
 export const SIDE_QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const satisfies readonly SideChatQuick[]

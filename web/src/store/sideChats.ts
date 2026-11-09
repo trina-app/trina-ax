@@ -23,8 +23,6 @@ export interface SideChatState {
 export interface SendHereState {
   /** it went: to the thread (`rootId`) or the room, as this room message; `cut`: only the answer's first part fitted */
   sent?: { to: 'thread' | 'room'; roomId: string; rootId: string | null; messageId: string; cut: boolean }
-  /** the asked message's thread cannot take it (deleted, or no longer seen): the room only from now on */
-  noThread?: boolean
   /** the last failure, one short line under the answer (null: none) */
   error?: string | null
   /** a request of it is on its way (a panel drawn again meanwhile shows the button busy and sends nothing more) */
@@ -42,8 +40,11 @@ interface SideChatsState {
   byRoom: Record<string, SideChatState>
   /** by the answer's id */
   sends: Record<string, SendHereState>
+  /** thread roots found gone (deleted, or no longer one I see) by a send: every answer about one offers the room */
+  goneRoots: Record<string, true>
   patch: (roomId: string, p: Partial<SideChatState>) => void
   patchSend: (answerId: string, p: Partial<SendHereState>) => void
+  rootGone: (rootId: string) => void
   /** the room is gone from my list: its side chat state goes too */
   drop: (roomId: string) => void
   reset: () => void
@@ -52,15 +53,17 @@ interface SideChatsState {
 export const useSideChats = create<SideChatsState>((set) => ({
   byRoom: {},
   sends: {},
+  goneRoots: {},
   patch: (roomId, p) => set((s) => ({ byRoom: { ...s.byRoom, [roomId]: { ...(s.byRoom[roomId] ?? EMPTY), ...p } } })),
   patchSend: (answerId, p) => set((s) => ({ sends: { ...s.sends, [answerId]: { ...s.sends[answerId], ...p } } })),
+  rootGone: (rootId) => set((s) => ({ goneRoots: { ...s.goneRoots, [rootId]: true } })),
   drop: (roomId) => set((s) => {
     if (!(roomId in s.byRoom)) return {}
     const byRoom = { ...s.byRoom }
     delete byRoom[roomId]
     return { byRoom }
   }),
-  reset: () => set({ byRoom: {}, sends: {} }),
+  reset: () => set({ byRoom: {}, sends: {}, goneRoots: {} }),
 }))
 
 /** The room's side chat as it stands (nothing yet: not looked for). */

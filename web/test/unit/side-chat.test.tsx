@@ -7,7 +7,7 @@
 // upload says why and is not sent.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
@@ -175,7 +175,7 @@ test('a side chat\'s answer: one click in words (side-chat-send.test.tsx); as a 
   signIn()
   const a = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', content: 'the plan', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable sendHere={{ roomId: team.id, target: null, onView: () => {} }} /></MemoryRouter>)
   try {
-    expect(a.get('send-here-room').textContent).toBe(en('sideChat.sendRoom'))
+    expect(a.get('send-here-room').textContent).toBe(SIDE_CHAT_SEND.room.en)
     expect(a.find('share-to-room')).toBeNull()
   } finally {
     await a.unmount()

@@ -105,4 +105,8 @@ while its yes is on its way; the send guard and the click's id live with the ans
 while it is still there; older pages are read to find an answer's question; the room list for the count). Two bugs
 found on dev in the same code, fixed here: the question's bubble shows the quote as a quote (shared `sideQuoteOf`), and
 a new side chat's title is the question, or "<quick word>: <the quote's first words>" (server chat/title.ts, with the
-quick questions in one shared table, `SIDE_CHAT_QUICK`).
+quick questions in one shared table, `SIDE_CHAT_QUICK`). After the code review (no MUST): 전체 보기 opens a long quote
+too; the quote block and the quote titles are side chats' only; the AI is given the button's words in the person's
+language (shared `SIDE_CHAT_SEND`); a thread found gone is remembered by its root, for every answer about it. Left for
+later (review NITs): older pages are read for a long side chat with no quote at all; a test of an answer hidden from a
+member in the share's check with a thread target; how the confirm step loads the room list for its member count.

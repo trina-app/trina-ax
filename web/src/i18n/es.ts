@@ -3430,8 +3430,6 @@ export const es: Record<MessageKey, string> = {
   "sideChat.empty": "Pregunte a {name} sobre esta sala. Solo usted ve este chat. Comparta una respuesta con la sala cuando quiera.",
   "sideChat.placeholder": "Pregunte a {name} sobre esta sala…",
   "sideChat.send": "Enviar",
-  "sideChat.sendThread": "Enviar al hilo",
-  "sideChat.sendRoom": "Enviar a la sala",
   "sideChat.sendElsewhere": "Enviar a otro sitio",
   "sideChat.sentThread": "Enviado al hilo",
   "sideChat.sentRoom": "Enviado a la sala",

@@ -157,12 +157,13 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
 
 /** A question as the person reads it: one that runs a skill shows the skill by its title as a chip ("할 일 정리") and
  * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
- * edit keep it). A command no skill of the person's has stays as it was typed. A room's side chat question about a
- * message or a file (shared rooms.ts sideQuoteOf) shows that as a quote on top, as the side chat's box showed it before
- * it went (who, when, its first lines; a file by its name), never its Markdown or the thread it names; the question
- * below it. */
-export function UserText({ content: sent, clamp }: { content: string; clamp: boolean }) {
-  const quote = sideQuoteOf(sent)
+ * edit keep it). A command no skill of the person's has stays as it was typed. In a room's side chat (`quotes`; also
+ * opened as a full chat) a question about a message or a file (shared rooms.ts sideQuoteOf) shows that as a quote on top,
+ * as the side chat's box showed it before it went (who, when, its lines; a file by its name), never its Markdown or the
+ * thread it names; the question below it. Folded (`clamp`, a long question) the quote shows its first 3 lines and 전체
+ * 보기 opens it too. Other chats show a quote typed by hand as it was typed. */
+export function UserText({ content: sent, clamp, quotes = false }: { content: string; clamp: boolean; quotes?: boolean }) {
+  const quote = quotes ? sideQuoteOf(sent) : null
   const content = quote ? quote.question : hideThreadRef(sent)
   const cmd = splitCommand(content)
   const items = useSkillList(!!cmd)
@@ -179,14 +180,15 @@ export function UserText({ content: sent, clamp }: { content: string; clamp: boo
   if (!quote) return text
   return (
     <>
-      <SideQuoteBlock quote={quote} />
+      <SideQuoteBlock quote={quote} clamp={clamp} />
       {text}
     </>
   )
 }
 
-/** The room's message or file a side chat question is about, as a quote at the top of the bubble. */
-function SideQuoteBlock({ quote }: { quote: SideQuote }) {
+/** The room's message or file a side chat question is about, as a quote at the top of the bubble; `clamp`: its first 3
+ * lines (the message is folded: 전체 보기 shows the rest) */
+function SideQuoteBlock({ quote, clamp }: { quote: SideQuote; clamp: boolean }) {
   return (
     <blockquote className="mb-1.5 border-l-2 border-line-strong pl-2 text-xs leading-5" data-testid="user-quote">
       {quote.kind === 'file' ? (
@@ -199,7 +201,7 @@ function SideQuoteBlock({ quote }: { quote: SideQuote }) {
           <p className="font-medium text-ink" data-testid="user-quote-head">
             {quote.author} <span className="font-normal text-faint">{quote.at}</span>
           </p>
-          <p className="line-clamp-3 break-words whitespace-pre-wrap text-muted" data-testid="user-quote-text">{quote.text}</p>
+          <p className={clsx('break-words whitespace-pre-wrap text-muted', clamp && 'line-clamp-3')} data-testid="user-quote-text">{quote.text}</p>
         </>
       )}
     </blockquote>
@@ -287,8 +289,8 @@ export function MessageAuthor({ author }: { author: UserRef | null }) {
 }
 
 /** `showAuthor`: a shared chat, every question shows who asked (MessageAuthor); `canEdit` false: not mine to edit (a
- * shared chat) */
-export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean }) {
+ * shared chat); `sideChat`: a room's side chat, whose questions may quote a room message or file (UserText) */
+export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's
@@ -365,7 +367,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
       ) : (
         m.content && (
           <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-reading leading-7 max-md:leading-reading sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
-            <UserText content={m.content} clamp={!open} />
+            <UserText content={m.content} clamp={!open} quotes={sideChat} />
             {long && (
               <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted hover:text-ink">
                 {open ? t('chat.showLess') : t('chat.showAll')}

@@ -375,7 +375,7 @@ function ChatView({ chatId }: { chatId: string }) {
               if (m.role === 'user')
                 return (
                   <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} />
+                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
                   </ViewerMeta>
                 )
               const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')

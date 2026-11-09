@@ -66,6 +66,11 @@ test('the instructions name the room and its id, say the chat is private and tha
   expect(text).toContain('"Send to thread"')
   expect(text).toContain('"Send to room"')
   expect(text).toContain('thread_id <id> in this room')
+  // the buttons as the person sees them, in their language
+  const ko = sideRoomSection({ id: 'r', kind: 'team', name: 'design' }, 'ko')
+  expect(ko).toContain('"스레드에 보내기"')
+  expect(ko).toContain('"대화방에 보내기"')
+  expect(ko).not.toContain('Send to thread')
   expect(text).not.toContain('<x>')
   expect(sideRoomSection({ id: 'r', kind: 'dm', name: null })).toContain('a direct message room')
   // never in a room session's or a shared project chat's instructions
@@ -75,7 +80,7 @@ test('the instructions name the room and its id, say the chat is private and tha
   expect(allowedSections([{ id: 'sideRoom', text }], null)).toHaveLength(1)
 })
 
-test('the first question about a room message names the side chat after the question, never the quote; a quick question after the quote', async () => {
+test('the first question about a room message names the side chat after the question, never the quote; a quick question after the quote; not in another chat', async () => {
   const { mia, team } = await setup()
   const root = await mia.client.call('POST', `/api/rooms/${team.id}/messages`, { body: 'Venue sent the exhibitor rules.', clientMessageId: `cm-${uuidv7()}`, mentions: [], fileIds: [] })
   const quote = `> mia · Nov 9, 2026, 7:04 PM${threadRefToken(root.id)}\n> Venue sent the exhibitor rules.\n\n`
@@ -86,4 +91,8 @@ test('the first question about a room message names the side chat after the ques
   }
   expect(await titleAfter('What do we need to change?')).toBe('What do we need to change?')
   expect(await titleAfter(SIDE_CHAT_QUICK.summarize.ask.en)).toBe('Summarize: Venue sent the exhibitor…')
+  // the same text in an ordinary chat of hers: its first line, as for any message
+  const plain = await mia.client.call('POST', '/api/chats', {})
+  await mia.client.call('POST', `/api/chats/${plain.id}/messages`, { content: quote + 'What do we need to change?', clientMessageId: `cm-${uuidv7()}` })
+  expect((await mia.client.call('GET', `/api/chats/${plain.id}`)).title).toBe('mia · Nov 9, 2026, 7:04 PM')
 })
