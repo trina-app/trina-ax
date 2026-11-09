@@ -5,7 +5,7 @@
 // scheduled run. A rename by the person ends that for good. Where a title came from is chats.title_source:
 // 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' (made before the column existed; never renamed by the AI).
 import type { Database } from 'bun:sqlite'
-import { hideThreadRef, type Attachment } from '@mycel/shared/api'
+import { hideThreadRef, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, type Attachment } from '@mycel/shared/api'
 import { hasSecret, maskSecrets } from '@mycel/shared'
 import { HIDDEN } from '../integrations/connections/hide'
 
@@ -85,8 +85,18 @@ function lineTitle(line: string, known?: KnownSecrets): string | null {
  * The placeholder title of a new chat from its first message: the first meaningful line outside code blocks (lines
  * inside them only when there is nothing else), else the name of an uploaded attachment (a team file's name is not
  * used: the title outlives the person's access to the file), else '' (the apps show "New chat" in their language).
+ * A room's side chat question about a message or a file (shared rooms.ts sideQuoteOf): the question after the quote,
+ * never the quote's header ("Sam · Nov 9, 7:04 PM"); one of its quick questions is "<its word>: <the message's first
+ * words, or the file's name>" ("요약: 로고 시안 언제까지…"), in the language it was asked in; files alone: the quote.
  */
 export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets): string {
+  const quote = sideQuoteOf(content)
+  if (quote) {
+    const subject = quote.kind === 'file' ? quote.name : placeholderTitle(quote.text, [], known)
+    const quick = sideQuickOf(quote.question)
+    if (quick) return lineTitle(subject ? `${SIDE_CHAT_QUICK[quick.key].label[quick.locale]}: ${subject}` : SIDE_CHAT_QUICK[quick.key].label[quick.locale], known) ?? ''
+    return placeholderTitle(quote.question.trim() ? quote.question : subject, atts, known)
+  }
   const prose: string[] = [], code: string[] = []
   let fence = false, pem = false
   // a side chat's quote names its message's thread for the app (shared rooms.ts threadRefOf): not part of a title

@@ -24,7 +24,7 @@ import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, S
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
+import { SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
 import { formatDate, formatDateTime } from '../../lib/format'
@@ -123,9 +123,10 @@ export function withQuote(seed: SideSeed | null, question: string, time: (iso: s
 /** the questions an empty side chat offers (like Slackbot's): what I missed, what is for me, the latest discussion */
 export const STARTERS = ['catchUp', 'forMe', 'summarize'] as const
 /** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
- * save_room_file, whose card says where and who will see it) */
-export const QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const
-export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave'] as const
+ * save_room_file, whose card says where and who will see it); their words and questions are shared (rooms.ts
+ * SIDE_CHAT_QUICK): the server names a new side chat "<word>: <the quote's first words>" from them */
+export const QUICK_MESSAGE = SIDE_QUICK_MESSAGE
+export const QUICK_FILE = SIDE_QUICK_FILE
 
 /** how many of the room's side chats 🕘 lists */
 export const SIDE_HISTORY_MAX = 30
@@ -451,9 +452,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             {!question && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {(quoted.file ? QUICK_FILE : QUICK_MESSAGE).map((k) => (
-                  <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(`sideChat.ask.${k}`))}
+                  <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(SIDE_CHAT_QUICK[k].ask[locale])}
                     className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid={`side-chat-quick-${k}`}>
-                    {t(`sideChat.quick.${k}`)}
+                    {SIDE_CHAT_QUICK[k].label[locale]}
                   </button>
                 ))}
               </div>

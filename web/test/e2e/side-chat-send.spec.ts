@@ -88,6 +88,26 @@ async function ask(side: Locator, text: string) {
   await side.getByTestId('side-chat-send').click()
 }
 const lastAnswer = (side: Locator) => side.locator('[data-testid="assistant-message"]').last()
+/** the question's bubble: ben's message as a quote (who, when, its text), then the question; no Markdown, no token */
+async function quotedBubble(side: Locator, question = '한 줄로 정리해 줘') {
+  const bubble = side.getByTestId('user-text').first()
+  await expect(bubble.getByTestId('user-quote-head')).toHaveText(/^벤 \d{4}\. \d{1,2}\. \d{1,2}\. (오전|오후) \d{1,2}:\d{2}$/)
+  await expect(bubble.getByTestId('user-quote-text')).toHaveText(ASKED)
+  await expect(bubble).toContainText(question)
+  await expect(bubble).not.toContainText('>')
+  await expect(bubble).not.toContainText('thread_id')
+  // inside the bubble, the question under the quote
+  const [q, b] = [await bubble.getByTestId('user-quote').boundingBox(), await bubble.boundingBox()]
+  expect(q!.x).toBeGreaterThanOrEqual(b!.x)
+  expect(q!.x + q!.width).toBeLessThanOrEqual(b!.x + b!.width + 0.5)
+}
+/** 🕘: the room's side chats by their titles */
+async function historyTitles(side: Locator) {
+  await side.getByTestId('side-chat-history').click()
+  const items = side.getByTestId('side-chat-history-item')
+  await expect(items.first()).toBeVisible()
+  return items
+}
 
 test('an answer about a message goes to its thread with one click; 보기 opens the thread; ✦ brings the side chat back, still sent', async ({ page }) => {
   const { shares, side, content } = await open(page)
@@ -95,7 +115,7 @@ test('an answer about a message goes to its thread with one click; 보기 opens 
   const [head, quoted, blank, asked] = content.split('\n')
   expect(head).toMatch(new RegExp(`^> 벤 · .+ \\(thread_id ${MSG} in this room\\)$`))
   expect([quoted, blank, asked]).toEqual([`> ${ASKED}`, '', '한 줄로 정리해 줘'])
-  await expect(side.getByTestId('user-text')).not.toContainText('thread_id')
+  await quotedBubble(side)
   // (the first answer: a follow-up comes below it)
   const answer = side.locator('[data-testid="assistant-message"]').first()
   await expect(answer.getByTestId('send-here-thread')).toHaveText('스레드에 보내기')
@@ -195,6 +215,7 @@ test.describe('a phone (390 px)', () => {
     const { side } = await open(page, { phone: true, plan: ['confirm', 'sent'] })
     const answer = lastAnswer(side)
     await expect(page.getByTestId('room')).toBeHidden()
+    await quotedBubble(side)
     await expect(answer.getByTestId('send-here-thread')).toBeVisible()
     await shot(page, 'control')
     await answer.getByTestId('send-here-more').click()
@@ -234,4 +255,23 @@ test.describe('a phone (390 px)', () => {
     await page.getByTestId('room-side-chat-button').click()
     await expect(page.getByTestId('room-side-chat').getByTestId('send-here-sent')).toHaveText('대화방에 보냈어요·보기')
   })
+})
+
+test('a side chat is named after its question, never the quote; a quick question after the quote ("요약: …")', async ({ page }) => {
+  const { side } = await open(page)
+  await expect(await historyTitles(side)).toHaveText([/^한 줄로 정리해 줘/])
+  // a new chat, asked with a quick question about the same message
+  await side.getByTestId('side-chat-history').click()
+  await side.getByTestId('side-chat-new').click()
+  const msg = page.getByTestId('room-message').first()
+  await msg.hover()
+  await msg.getByTestId('message-ask-trina').click()
+  await side.getByTestId('side-chat-quick-summarize').click()
+  await expect(side.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1, { timeout: 20_000 })
+  await quotedBubble(side, '이 메시지를 요약해 줘.')
+  const items = await historyTitles(side)
+  await expect(items).toHaveCount(2)
+  await expect(items.first()).toContainText('요약: 로고 시안 언제까지 받을 수 있을까요?')
+  await expect(items.nth(1)).toContainText('한 줄로 정리해 줘')
+  for (const t of await items.allTextContents()) expect(t).not.toMatch(/^벤 · /)
 })

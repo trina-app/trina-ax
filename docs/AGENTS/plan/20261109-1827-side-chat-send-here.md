@@ -100,4 +100,9 @@ refusal is 409 `thread_root`, before the budget (a test exhausts the budget with
 approved rule, recorded in DECISIONS: a later question that quotes a file or a message without a thread sends to the
 room (else a file ask would land in an earlier message's thread). The server's lookup of a known `clientMessageId`
 stays as it is (a unique index stands behind it; the app never reuses an id across clicks). Merged dev with #268 (the
-side chat's round ↑, no "나만 볼 수 있어요"): no conflict.
+side chat's round ↑, no "나만 볼 수 있어요"): no conflict. The independent review's points are fixed (the confirm stays
+while its yes is on its way; the send guard and the click's id live with the answer in the store; the focus moves only
+while it is still there; older pages are read to find an answer's question; the room list for the count). Two bugs
+found on dev in the same code, fixed here: the question's bubble shows the quote as a quote (shared `sideQuoteOf`), and
+a new side chat's title is the question, or "<quick word>: <the quote's first words>" (server chat/title.ts, with the
+quick questions in one shared table, `SIDE_CHAT_QUICK`).

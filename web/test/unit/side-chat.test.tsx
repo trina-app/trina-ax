@@ -7,7 +7,7 @@
 // upload says why and is not sent.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
@@ -355,7 +355,7 @@ test('"Ask Trina about this": the panel opens with the message quoted; a quick b
     const body = calls.find((c) => c.path === `/api/chats/${made}/messages`)!.body as { content: string }
     expect(body.content.startsWith('> acme · ')).toBe(true)
     expect(body.content).toContain('> 5. cloud side: owner-recovery-claimed')
-    expect(body.content.endsWith(en('sideChat.ask.translate'))).toBe(true)
+    expect(body.content.endsWith(SIDE_CHAT_QUICK.translate.ask.en)).toBe(true)
     // (this fake server refuses the send: the quote comes back with the failure, for a second try)
     await m.until(() => !!m.find('side-chat-quote'), 'the quote back after the failed send')
   } finally {
@@ -427,10 +427,10 @@ test('a file of the room: quoted by name and id (the AI opens it with room_file)
     for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
     expect(m.find('side-chat-quick-translate')).toBeNull()
     // 팀 폴더에 저장: through the AI (save_room_file and its card), as a question with the file quoted
-    expect(m.get('side-chat-quick-fileSave').textContent).toBe(en('sideChat.quick.fileSave'))
+    expect(m.get('side-chat-quick-fileSave').textContent).toBe(SIDE_CHAT_QUICK.fileSave.label.en)
     await m.click('side-chat-quick-fileSave')
     await m.until(() => calls.some((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)), 'the question sent')
-    expect((calls.find((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path))!.body as { content: string }).content).toBe(`> 📎 quote.pdf (file_id f-1 in this room)\n\n${en('sideChat.ask.fileSave')}`)
+    expect((calls.find((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path))!.body as { content: string }).content).toBe(`> 📎 quote.pdf (file_id f-1 in this room)\n\n${SIDE_CHAT_QUICK.fileSave.ask.en}`)
   } finally {
     await m.unmount()
   }

@@ -114,13 +114,18 @@ test('an edit keeps the token while the quote\'s header line is the same; a quot
   expect(keepThreadRef('anything', 'no token here')).toBe('anything')
 })
 
-test('a question shows without the token, in its bubble, its copy and its edit box; the edit sends it back with the token', async () => {
+test('a question about a message shows it as a quote (who, when, its lines), then the question: no Markdown, no token; the edit keeps the token', async () => {
   const content = quoteOf(ROOT, 'logo drafts?')
   const edited: string[] = []
   const m = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={(_m, text) => { edited.push(text) }} onSelectBranch={() => {}} /></MemoryRouter>)
   try {
-    expect(m.get('user-text').textContent).toBe(hideThreadRef(content))
+    const quote = m.get('user-quote')
+    expect(quote.localName).toBe('blockquote')
+    expect(m.get('user-quote-head').textContent).toBe('Ben Nov 5')
+    expect(m.get('user-quote-text').textContent).toBe('logo drafts?')
+    expect(m.get('user-text').textContent).toBe('Ben Nov 5logo drafts?summarize')
     expect(m.html()).not.toContain('thread_id')
+    expect(m.html()).not.toContain('&gt; ')
     await m.click('edit-message')
     expect((m.get('edit-input') as unknown as { value: string }).value).toBe(hideThreadRef(content))
     await m.type('edit-input', hideThreadRef(content).replace('summarize', 'shorter'))
@@ -469,5 +474,25 @@ test('a long side chat after a reload: older pages are read until the question a
     await m.unmount()
     useChats.getState().reset()
     useSideChats.getState().reset()
+  }
+})
+
+test('a question about a file shows the file by its name, then the question; a quote typed by hand stays as typed', async () => {
+  const file = `> 📎 brief.pdf (file_id 019a5f00-0000-7000-8000-000000000502 in this room)\n\nSummarize this file.`
+  const one = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: file }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></MemoryRouter>)
+  try {
+    expect(one.get('user-quote-file').textContent).toBe('brief.pdf')
+    expect(one.get('user-text').textContent).toBe('brief.pdfSummarize this file.')
+    expect(one.html()).not.toContain('file_id')
+  } finally {
+    await one.unmount()
+  }
+  const typed = '> to be or not to be\nthat is the question'
+  const two = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: typed }), branch: { index: 0, count: 1, siblings: [] } } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></MemoryRouter>)
+  try {
+    expect(two.find('user-quote')).toBeNull()
+    expect(two.get('user-text').textContent).toBe(typed)
+  } finally {
+    await two.unmount()
   }
 })

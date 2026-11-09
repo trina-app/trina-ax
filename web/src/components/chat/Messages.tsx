@@ -16,10 +16,10 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, skillLabel, type Attachment, type EngineId, type Step, type UserRef } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formAnswers } from '../../lib/skillForm'
@@ -157,19 +157,52 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
 
 /** A question as the person reads it: one that runs a skill shows the skill by its title as a chip ("할 일 정리") and
  * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
- * edit keep it). A command no skill of the person's has stays as it was typed. */
+ * edit keep it). A command no skill of the person's has stays as it was typed. A room's side chat question about a
+ * message or a file (shared rooms.ts sideQuoteOf) shows that as a quote on top, as the side chat's box showed it before
+ * it went (who, when, its first lines; a file by its name), never its Markdown or the thread it names; the question
+ * below it. */
 export function UserText({ content: sent, clamp }: { content: string; clamp: boolean }) {
-  const content = hideThreadRef(sent)
+  const quote = sideQuoteOf(sent)
+  const content = quote ? quote.question : hideThreadRef(sent)
   const cmd = splitCommand(content)
   const items = useSkillList(!!cmd)
   const skill = cmd && items ? skillByName(items, cmd.name) : null
   // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles
-  if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
-  return (
+  const text = !cmd || !skill ? (
+    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
+  ) : (
     <div data-testid="user-text-skill">
       <SkillChip title={skillLabel(skill)} name={skill.name} />
       {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={cmd.rest} /></div>}
     </div>
+  )
+  if (!quote) return text
+  return (
+    <>
+      <SideQuoteBlock quote={quote} />
+      {text}
+    </>
+  )
+}
+
+/** The room's message or file a side chat question is about, as a quote at the top of the bubble. */
+function SideQuoteBlock({ quote }: { quote: SideQuote }) {
+  return (
+    <blockquote className="mb-1.5 border-l-2 border-line-strong pl-2 text-xs leading-5" data-testid="user-quote">
+      {quote.kind === 'file' ? (
+        <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="user-quote-file">
+          <Paperclip size={12} aria-hidden className="shrink-0" />
+          <span className="truncate">{quote.name}</span>
+        </p>
+      ) : (
+        <>
+          <p className="font-medium text-ink" data-testid="user-quote-head">
+            {quote.author} <span className="font-normal text-faint">{quote.at}</span>
+          </p>
+          <p className="line-clamp-3 break-words whitespace-pre-wrap text-muted" data-testid="user-quote-text">{quote.text}</p>
+        </>
+      )}
+    </blockquote>
   )
 }
 

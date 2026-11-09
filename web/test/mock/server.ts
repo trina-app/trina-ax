@@ -66,7 +66,7 @@ import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverSta
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  AiAllowance, ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
@@ -91,6 +91,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
+import { placeholderTitle } from '../../../server/src/chat/title'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
@@ -184,6 +185,10 @@ const dec = new TextDecoder()
 const OWNER_PASSWORD = 'correct horse battery'
 /** the general pack's card news as the server installs it (resources/skill-packs/general/ko/card-news), its form included:
  * a member who joins with the first result's invite lands on it */
+/** A new chat's title: its first prompt's first 30 characters; a room's side chat question about a message or a file as
+ * the team server names it (server/src/chat/title.ts: the question, or "<quick word>: <the quote's first words>") */
+const mockTitle = (prompt: string) => (sideQuoteOf(prompt) ? placeholderTitle(prompt) : prompt.slice(0, 30))
+
 const CARDNEWS_TEXT = '---\nname: card-news\ndescription: 카드뉴스 — 회사 소개서나 자료를 읽고 정사각형 카드뉴스 5장을 만들어요.\nmetadata:\n  title: 카드뉴스\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "blog", "label": "블로그"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 카드뉴스\n'
 /** the general pack's promo video (resources/skill-packs/general/ko/promo-video), its form included: the welcome steps'
  * first result of docs/DECISIONS.md "V", still installed */
@@ -1619,7 +1624,7 @@ export class MockServer {
     if (assistant.status === 'error') chat.lastOutcome = 'error'
     else if (assistant.status === 'done' && assistant.stopReason) chat.lastOutcome = 'paused'
     else delete chat.lastOutcome
-    if (!chat.title) chat.title = prompt.slice(0, 30)
+    if (!chat.title) chat.title = mockTitle(prompt)
     this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
     // "long answer": like an answer that ran over a minute (server/src/chat/runtime.ts LONG_ANSWER_MS): worth telling
@@ -4687,7 +4692,7 @@ export class MockServer {
     s.runner = user.id
     chat.runState = 'running'
     chat.updatedAt = now()
-    if (!chat.title) chat.title = prompt.slice(0, 30)
+    if (!chat.title) chat.title = mockTitle(prompt)
     this.queueRevision++
     this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
     const gen = this.generation
