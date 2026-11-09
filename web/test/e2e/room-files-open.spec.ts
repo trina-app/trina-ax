@@ -4,8 +4,10 @@
 // (image-viewer.spec.ts); the panel and the chip both download. In an answer someone shared with its files attached, a
 // link to a file I cannot open opens the attached copy (no lock); a member who can open the team file gets the team file
 // itself. A right-click on a photo (the thumbnail, the viewer's original) is left to the browser's own menu, for Copy
-// Image. The room and its files are answered through page.route
-// as the team server sends them (rooms-mock.ts; a page inline as text with the sandbox CSP). Every view passes axe.
+// Image. A Hangul file opens as the server's pages (viewers/HwpView through /api/rooms/:id/files/:fileId/hwp-preview)
+// while the HWP preview is on (Me.server.hwpPreview); off, its chip downloads as before. The room and its files are
+// answered through page.route as the team server sends them (rooms-mock.ts; a page inline as text with the sandbox
+// CSP). Every view passes axe.
 // SHOTS_DIR=<folder>: the screenshots (the chips, the panel, the phone sheet; light and dark) go there.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -224,6 +226,72 @@ test('a member who can open the team file gets the team file itself', async ({ p
   await expect(page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]').locator('h1')).toHaveText('acme 덱 (팀 파일)')
   // a team file: "open in Files" is there
   await expect(panel(page).getByRole('button', { name: '파일 화면에서 열기' })).toBeVisible()
+})
+
+test('a Hangul file opens as pages in the panel while the HWP preview is on; off, its chip downloads', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // the mock draws a team file's pages with the repo's pinned renderer (prepare:hwp); the room's address answers with
+  // those pages, as the team server answers it from the same renderer
+  const fixture = fs.readFileSync(path.resolve(import.meta.dirname, '../../../tests/fixtures/hwp/two-pages.hwp'))
+  const up = await page.request.post('/api/files/upload', { multipart: { folder: 'marketing', file: { name: 'room-form.hwp', mimeType: 'application/octet-stream', buffer: fixture } }, headers: { 'x-mycel-csrf': '1' } })
+  expect(up.status()).toBe(201)
+  const hwp = file(601, 'acme-신청서.hwp', 'other', 'application/x-hwp', fixture.length)
+  await routeRoom(page, { members: [BEN], kind: 'team', messages: [{ id: id(1), author: BEN, body: '신청서 양식이에요', extra: { files: [hwp] } }] })
+  const asked: string[] = []
+  await page.route((u) => u.pathname.startsWith(`/api/rooms/${ROOM_ID}/files/`), async (route) => {
+    const u = new URL(route.request().url())
+    if (u.pathname === `/api/rooms/${ROOM_ID}/files/${id(601)}/hwp-preview`) {
+      asked.push(u.search)
+      const r = await route.fetch({ url: `/api/files/hwp-preview?path=${encodeURIComponent('marketing/room-form.hwp')}&page=${u.searchParams.get('page')}` })
+      return route.fulfill({ response: r })
+    }
+    if (u.pathname === `/api/rooms/${ROOM_ID}/files/${id(601)}`) return route.fulfill({ status: 200, body: fixture, headers: { 'content-type': 'application/x-hwp', 'content-disposition': 'attachment; filename="acme-form.hwp"' } })
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":{"code":"not_found","message":"x"}}' })
+  })
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const hwpChip = chip(page, 'acme-신청서.hwp')
+  await expect(hwpChip).toHaveAttribute('data-opens', '')
+  await hwpChip.getByTestId('room-file-open').click()
+  await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-신청서.hwp')
+  const view = panel(page).getByTestId('hwp-view'), img = panel(page).getByTestId('hwp-page')
+  await expect(img).toBeVisible({ timeout: 20_000 })
+  await expect(img).toHaveJSProperty('naturalWidth', 794)
+  await expect(view).toContainText('1 / 2쪽')
+  await audit(page, 'panel with a room HWP')
+  const shots = process.env.SHOTS_DIR
+  if (shots) await page.screenshot({ path: `${shots}/room-hwp-1440-light.png` })
+  const first = await img.getAttribute('src')
+  await panel(page).getByTestId('hwp-next').click()
+  await expect(view).toContainText('2 / 2쪽')
+  await expect(img).not.toHaveAttribute('src', first!)
+  expect(asked).toEqual(['?page=1', '?page=2'])
+  // the panel's download is the room file's
+  const [d] = await Promise.all([page.waitForEvent('download'), panel(page).getByRole('button', { name: '내려받기', exact: true }).first().click()])
+  expect(isRoomDownload(d, 601)).toBe(true)
+  if (shots) {
+    await panel(page).getByRole('button', { name: '닫기' }).click()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await hwpChip.getByTestId('room-file-open').click()
+    await expect(img).toBeVisible({ timeout: 20_000 })
+    await page.screenshot({ path: `${shots}/room-hwp-390-light.png` })
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+  // the plugin off (Me without hwpPreview): the chip is one download button again, and no page is asked for
+  await page.route('**/api/me', async (route) => {
+    const r = await route.fetch()
+    const me = await r.json()
+    delete me.server.hwpPreview
+    return route.fulfill({ response: r, json: me })
+  })
+  await page.reload()
+  await expect(page.getByTestId('room-message')).toHaveCount(1)
+  await expect(hwpChip).not.toHaveAttribute('data-opens', '')
+  await expect(hwpChip.getByTestId('room-file-open')).toHaveCount(0)
+  const [off] = await Promise.all([page.waitForEvent('download'), hwpChip.click()])
+  expect(isRoomDownload(off, 601)).toBe(true)
+  await expect(panel(page)).toHaveCount(0)
+  expect(asked).toHaveLength(2)
 })
 
 test.describe('a phone (390 px)', () => {
