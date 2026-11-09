@@ -17223,3 +17223,47 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   `image-viewer.spec.ts` (a room photo fits the stage left of the column), `room-hover-bar.spec.ts` (the bar walked as
   it is since #247, ✦ included).
 - Version impact: **minor** (a visible UX change; no API or data change).
+
+## Files in the Trina side chat — 📎, paste and drop, as in the AI chat's box (feat/side-chat-attachments, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/rooms/SideChatPanel.tsx` and the AI chat box's files part
+(`web/src/components/chat/ComposerFiles.tsx`, `web/src/lib/teamAttach.ts`), 이유: chat and files are core. Plan
+`docs/AGENTS/plan/20261109-1632-side-chat-attachments.md`.
+
+- **The same parts, not a copy:** the AI chat box's files (`Composer.tsx`) move unchanged into `ComposerFiles.tsx`: the
+  chips kept per person and draft (the `teamAttach` stash), uploads into the chat (chunked when large), the limit (20
+  per message, `composer.tooMany`), ✕, the chip row (a picture as its 64 px `PictureTile`, any other file as its chip,
+  an upload's error beside it), the drop target and the paste. The AI chat's box shows and does what it did. The side
+  chat's box uses them: 📎 (files from this computer; a phone's picker offers the camera itself), a file or picture
+  pasted into the box, files dropped anywhere on the panel (the box shows the drop), the chips above the box.
+- **Where they go:** into the side chat itself (`kind: attachment`, the person's own `users/<me>/.attachments/<chat>/`),
+  as for any chat of theirs; the side chat is never shared (`createChat` refuses a project with `sideRoomId`). A room
+  with no side chat yet gets one from its first file or its first question, through one path (made once however many
+  files and questions come at once, so a file pasted while the first question makes the chat goes into that chat), which
+  the panel shows from then on. A side chat with nothing in it yet (made for a file) is a new chat already: "New chat" is
+  off there, so no empty chat is left in 🕘. No new endpoint, no server change: nothing on the server treats a side
+  chat's attachments apart (the upload checks it is the person's own chat, the message resolves them by chat).
+- **What takes them:** what is typed in the box (or the files alone). A starter or a quick question under a quote goes
+  alone and leaves the files in the box, as it leaves the typed text; an answer to the AI's question is its text alone
+  (the files stay), as in the AI chat's box. Nothing goes while a file is still uploading. Sent, the files leave the box:
+  a send that fails keeps them on the message, with "send again".
+- **Kept per room on this page, like the draft:** the stash key is `side:<room id>`, so the room page's panel and the
+  one beside a file in the viewer show the same files. The stash now tells every box showing a draft (it told one), so
+  a file added or taken out in one shows in the other. Not kept across a reload (the chat shown is not either). Each
+  room remembers the chat its files were uploaded into, and once another chat shows (New chat, 🕘, the chat deleted
+  meanwhile, the room left and joined again) they go.
+- **Share to room is unchanged:** it posts the answer's text (`chat/answer-share.ts`), never the question's uploads. A
+  file goes only when the answer links to it, on the confirm step with how many more people will see it; an answer that
+  used an attachment counts as material the others cannot see (the provenance line).
+- **Left out:** team-folder files (the AI chat's 팀 폴더에서 menu and a team file dragged from the file screen): the
+  side chat is about the room; the full chat has them.
+- **Independent review** (must-fix, fixed): the first question and a file at the same moment each made a side chat (the
+  file then went into the other one and its message could never be sent); now one path makes it. Also taken: an empty
+  chat made for a file no longer left behind by "New chat", the files tied to their chat whatever replaced it, the
+  error line cleared with them, no drop-ring flicker across the panel, tests for an answer to the AI's question, 🕘 and
+  an upload stopped by ✕.
+- Tests: `web/test/unit/side-chat.test.tsx` (📎, paste, ✕ stops the upload, drop, the send body, a failed upload, the
+  limit, the chat made for a first file, a first question and a file at once, a starter alone, an answer alone, New chat
+  and 🕘 drop them, two panels), `web/test/unit/team-attach.test.ts` (two boxes of one draft),
+  `web/test/e2e/side-chat-attachments.spec.ts` and `room-file-viewer.spec.ts` (beside a file in the viewer).
+- Version impact: **minor** (a new ability in the side chat; no API or data change).

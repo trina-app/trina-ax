@@ -7,9 +7,16 @@
 // starts another one with the next question; 🕘 lists the room's side chats (newest first) and opens one. Cards the AI
 // raises (a yes before a change, a question) show under its answer as in the full chat; while it waits for the answer
 // to its question, what I type in the box answers it (lib/askAnswer.ts), as the full chat's box does.
-// Which chat it shows, its draft and its quote are kept per room on this page (store/sideChats.ts): every panel of the
-// room is the same chat. The column around it is components/rooms/RoomSideColumn.tsx: drawn here (`frame`), or by the
-// room page around this (frame={false}).
+// Files and pictures go with a question as in the full chat's box, with its own parts (components/chat/ComposerFiles.tsx):
+// 📎, pasted into the box, or dropped anywhere on the panel; each is uploaded into this side chat at once (my own
+// attachments folder, as in any chat of mine; a side chat not made yet is made by the first file) and shows above the
+// box, a picture as its 64 px square, with ✕. At most 20 per message, the same messages when one fails. They go with what
+// is typed in the box (a starter or quick question goes alone, and an answer to the AI's question is its text alone);
+// "Share to room" sends the answer, never these. No team-folder files here (the full chat has them).
+// Which chat it shows, its draft, its quote and its files are kept per room on this page (store/sideChats.ts; the files in
+// the composer's stash, `side:<room id>`): every panel of the room is the same chat. The files were uploaded into the chat
+// shown, so another chat (New chat, 🕘) drops them. The column around it is components/rooms/RoomSideColumn.tsx: drawn
+// here (`frame`), or by the room page around this (frame={false}).
 import { ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -26,6 +33,7 @@ import { useMeStrict } from '../../store/session'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
+import { ComposerFileList, useComposerFiles, useFileDrop } from '../chat/ComposerFiles'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { ErrorNote, IconButton } from '../ui'
@@ -48,6 +56,35 @@ function findSideChat(roomId: string): Promise<string | null> {
       return id
     })().finally(() => looking.delete(roomId))
     looking.set(roomId, p)
+  }
+  return p
+}
+
+/** the side chat being made for the room's first question or file, per room */
+const making = new Map<string, Promise<string>>()
+/** the chat each room's box files were uploaded into (they go with a question there only) */
+const filesOf = new Map<string, string>()
+/** The side chat a question or a file goes into: the one the panel shows; while it is still looked for, the room's
+ * newest; none, a new side chat of the room, made once however many files and questions come at once (one path for both,
+ * so a file and the first question never make two), which the panel shows from then on. */
+function chatToWrite(roomId: string): Promise<string> {
+  const shown = sideChatOf(useSideChats.getState(), roomId).chatId
+  if (shown) return Promise.resolve(shown)
+  let p = making.get(roomId)
+  if (!p) {
+    p = (async () => {
+      const current = () => sideChatOf(useSideChats.getState(), roomId).chatId
+      let id = shown === undefined ? await findSideChat(roomId) : null
+      if (!current() && !id) {
+        const c = await api.call(API.createChat, { body: { projectId: null, sideRoomId: roomId } })
+        useChats.getState().upsertChat(c)
+        id = c.id
+      }
+      if (!current()) useSideChats.getState().patch(roomId, { chatId: id })
+      // the chat the panel shows by now (another one picked from 🕘 meanwhile: that one)
+      return current() || id!
+    })().finally(() => making.delete(roomId))
+    making.set(roomId, p)
   }
   return p
 }
@@ -111,6 +148,32 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const box = useRef<HTMLTextAreaElement>(null)
   const stick = useRef(true)
   const lastTop = useRef(0)
+  // the box's files (the full chat box's own parts), kept per room like the draft, in every panel of the room
+  const [fileError, setFileError] = useState<string | null>(null)
+  const files = useComposerFiles({
+    userId: me.user.id,
+    draftId: `side:${roomId}`,
+    ensureChat: async () => {
+      const id = await chatToWrite(roomId)
+      filesOf.set(roomId, id)
+      return id
+    },
+    onError: setFileError,
+    reload: false,
+  })
+  const { drag, dropProps } = useFileDrop((all) => void files.addFiles(all))
+  const picker = useRef<HTMLInputElement>(null)
+  // they were uploaded into one chat: once another shows (New chat, 🕘, the chat deleted meanwhile, the room left and
+  // joined again), they go, in every panel of the room
+  const clearFiles = useRef(files.clear)
+  clearFiles.current = files.clear
+  useEffect(() => {
+    const owner = filesOf.get(roomId)
+    if (!owner || chatId === undefined || chatId === owner) return
+    filesOf.delete(roomId)
+    clearFiles.current()
+    setFileError(null)
+  }, [roomId, chatId])
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -156,9 +219,14 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
 
   const fail = (e: unknown) => toast({ level: 'warn', text: errorText(e, locale, t('error.network')) })
+  // what the box sends: its text and its files (all uploaded); an answer to the AI's question is the text alone
+  const canSend = chatId !== undefined && (question ? !!draft.trim() : !busy && !files.uploading && (!!draft.trim() || files.ready.length > 0))
   const send = async (asked?: string) => {
     const text = (asked ?? draft).trim()
-    if (!text || chatId === undefined) return
+    // the box's files go with what is typed in it; a starter or quick question goes alone (and leaves them, as it leaves
+    // the text)
+    const atts = asked === undefined && !question ? files.attachments() : []
+    if ((!text && !atts.length) || chatId === undefined) return
     // the AI waits for the answer to its question: the text answers it (never a new message while its answer runs)
     if (question && chatId) {
       stick.current = true
@@ -171,15 +239,22 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       }
       return
     }
-    if (busy) return
+    if (busy || (asked === undefined && files.uploading)) return
     stick.current = true
     const q = quoted
     if (asked === undefined) setDraft('')
     setQuoted(null)
     try {
       const content = withQuote(q, text, (iso) => formatDateTime(iso, locale))
-      const r = await useChats.getState().send({ chatId, content, attachments: [], author: { id: me.user.id, name: me.user.name }, sideRoomId: roomId })
+      // the room's first question makes its side chat the way a first file does (one path: never two chats)
+      const into = chatId ?? (await chatToWrite(roomId))
+      const r = await useChats.getState().send({ chatId: into, content, attachments: atts, author: { id: me.user.id, name: me.user.name }, sideRoomId: roomId })
       if (r.chatId !== chatId) setChatId(r.chatId)
+      // the files are in the message now (a send that fails keeps them there, with "send again")
+      if (atts.length) {
+        files.clearSent()
+        setFileError(null)
+      }
       await r.sent
     } catch (e) {
       if (asked === undefined) setDraft((d) => d || text)
@@ -231,7 +306,14 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const name = aiName(t)
 
   const body = (
-    <>
+    // files dropped anywhere on the panel go with the next question (the box shows the drop)
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      {...dropProps}
+      // moving between the panel's own parts is not leaving it (the box's drop ring would flicker)
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropProps.onDragLeave() }}
+      data-testid="side-chat-panel"
+    >
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
         <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="side-chat-back">
           <ChevronLeft size={20} aria-hidden />
@@ -248,7 +330,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
         <IconButton tip label={t('sideChat.history')} onClick={() => void toggleHistory()} disabled={historyBusy} aria-expanded={!!history} className={clsx('touch-hit', history && 'bg-hover')} data-testid="side-chat-history">
           <History size={15} aria-hidden />
         </IconButton>
-        <IconButton tip label={t('sideChat.new')} onClick={newChat} disabled={busy || !chatId} className="touch-hit" data-testid="side-chat-new">
+        {/* (a chat with nothing in it yet, made for a file, is a new chat already) */}
+        <IconButton tip label={t('sideChat.new')} onClick={newChat} disabled={busy || !chatId || !messages.length} className="touch-hit" data-testid="side-chat-new">
           <SquarePen size={15} aria-hidden />
         </IconButton>
         <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit max-md:hidden" data-testid="side-chat-close">
@@ -340,11 +423,13 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             )}
           </div>
         )}
-        <div className="rounded-xl border border-line bg-canvas focus-within:border-line-strong">
+        <div className={clsx('rounded-xl border bg-canvas transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-line focus-within:border-line-strong')} data-testid="side-chat-box">
+          <ComposerFileList files={files.files} onRemove={files.removeFile} className="px-3 pt-2.5" />
           <textarea
             ref={box}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onPaste={files.onPaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
@@ -358,16 +443,23 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             className="block max-h-40 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
             data-testid="side-chat-input"
           />
-          <div className="flex items-center justify-between gap-2 px-3 pb-2">
-            <span className="text-xs text-faint" data-testid="side-chat-private">{t('sideChat.private')}</span>
-            <button type="button" onClick={() => void send()} disabled={!draft.trim() || (busy && !question) || chatId === undefined} className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-40" data-testid="side-chat-send">
+          <div className="flex items-center justify-between gap-2 pr-3 pb-2 pl-1.5">
+            <div className="flex min-w-0 items-center gap-1">
+              <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="side-chat-attach">
+                <Paperclip size={15} aria-hidden />
+              </IconButton>
+              <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
+              <span className="truncate text-xs text-faint" data-testid="side-chat-private">{t('sideChat.private')}</span>
+            </div>
+            <button type="button" onClick={() => void send()} disabled={!canSend} className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-40" data-testid="side-chat-send">
               {question ? t('sideChat.answer') : t('sideChat.send')}
             </button>
           </div>
         </div>
+        {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
         <p className="pt-1.5 text-center text-[11px] text-faint" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
-    </>
+    </div>
   )
   if (!frame) return body
   return (
