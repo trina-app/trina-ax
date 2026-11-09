@@ -24,7 +24,7 @@ test('Team skills: a section per group with skills, its current name; the "/" me
   await page.goto('/skills')
   const list = page.getByTestId('skill-list')
   const section = list.getByTestId(`skill-group-${group.id}`)
-  await expect(section.getByRole('heading')).toHaveText(/영업팀 그룹 스킬/)
+  await expect(section.getByRole('heading')).toHaveText(/영업팀 부서 스킬/)
   await expect(section.getByTestId('skill-row')).toHaveCount(1)
   await expect(section.getByTestId('skill-row')).toHaveAttribute('data-path', 'groups/영업팀/skills/offer/SKILL.md')
   // the team's section does not list it; the owner's other group (재무팀) has no skills: no section
@@ -34,7 +34,7 @@ test('Team skills: a section per group with skills, its current name; the "/" me
   // a rename: the section follows (the folder keeps its name)
   expect((await page.request.patch(`/api/admin/groups/${group.id}`, { headers: H, data: { name: '세일즈팀' } })).ok()).toBeTruthy()
   await page.reload()
-  await expect(page.getByTestId(`skill-group-${group.id}`).getByRole('heading')).toHaveText(/세일즈팀 그룹 스킬/)
+  await expect(page.getByTestId(`skill-group-${group.id}`).getByRole('heading')).toHaveText(/세일즈팀 부서 스킬/)
   await expect(page.getByTestId(`skill-group-${group.id}`).getByTestId('skill-row')).toHaveAttribute('data-path', 'groups/영업팀/skills/offer/SKILL.md')
 
   // the "/" menu: the group's name beside the skill
@@ -44,7 +44,7 @@ test('Team skills: a section per group with skills, its current name; the "/" me
   const menu = page.getByTestId('skill-menu')
   await expect(menu.getByRole('option')).toHaveCount(1)
   await expect(menu.getByTestId('skill-group')).toHaveText('세일즈팀')
-  await expect(menu.getByTestId('skill-group')).toHaveAttribute('title', /세일즈팀 그룹의 스킬/)
+  await expect(menu.getByTestId('skill-group')).toHaveAttribute('title', /세일즈팀 부서의 스킬/)
   expect(realErrors(errors)).toEqual([])
 
   // Bob is in no group: no group section, no group skill in the menu
@@ -87,7 +87,7 @@ test('Team skills: a team skill replaced by a group or personal skill of the sam
   await expect(lost.getByTestId('skill-row')).toHaveCount(2)
   await expect(lost.getByTestId('skill-count')).toHaveText('2')
   const est = lost.locator('[data-path="skills/estimate/SKILL.md"]')
-  await expect(est.getByTestId('skill-shadow-note')).toHaveText('Sales 그룹의 같은 이름 스킬이 대신 쓰여요')
+  await expect(est.getByTestId('skill-shadow-note')).toHaveText('Sales 부서의 같은 이름 스킬이 대신 쓰여요')
   await expect(est).toHaveAttribute('data-shadowed', 'group')
   const listed = (await (await page.request.get('/api/skills?shadowed=1')).json()) as { items: { path: string; inputs?: unknown[] }[] }
   expect(listed.items.find((x) => x.path === 'skills/estimate/SKILL.md')?.inputs).toHaveLength(1)

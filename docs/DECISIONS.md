@@ -16209,3 +16209,80 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
   still covers a row with no link and its 읽음 표시.
 - Version impact: **patch** (additive API field; no data change).
+
+## Team folder basics — 전사 공유·부서·프로젝트 on screen, what each folder is for, 양식, the company start in shared/ (feat/team-folder-basics, 2026-11-09, product owner)
+
+넣을 곳: trina-ax `shared/src/folder-labels.ts`, `web/src` (Files, the pickers, `web/src/i18n/ko.ts`),
+`server/src/chat/prompt.ts` and `chat/file-placement.ts`, `server/src/admin/folders.ts`, `server/src/onboarding/`, 이유:
+files, the AI's instructions and onboarding are core. Plan: `docs/AGENTS/plan/20261109-0839-team-folder-basics.md`.
+
+The owner approved these on 2026-11-09. A new team has `groups/`, `projects/`, `shared/`, `skills/` and `users/`, and
+Files showed those English disk names. Onboarding put the company's own material (회사 소개, 브랜드, 회의록, the uploaded
+company files) in `groups/<회사명>/`, which a member who joined another way does not see: two company-wide homes. There
+was no place for forms and templates and no archive convention, and the AI was told which folders it may write but not
+what each one is for.
+
+- **Folder names on screen, not on disk.** One table (`shared/src/folder-labels.ts`, five languages): `shared` →
+  전사 공유 (Company-wide), `groups` → 부서 (Groups), `projects` → 프로젝트, `skills` → 팀 스킬, `users` → 개인, the
+  person's own `users/<id>` → 내 폴더. Only the exact top-level disk names get words (a folder named "Shared" deeper
+  down is that folder's name). The web shows them through `lib/folderLabels.ts` in Files (breadcrumbs, rows, the move
+  and copy toasts, the search scope, the upload lines), the folder picker (move, save to team folder, projects, admin
+  rules), the team-file picker of the message box (its rows, breadcrumbs, path lines; it already named 내 폴더), the
+  message box's team file chips, Home's team files line and the 팀 파일 step; a step line names shared/ the same way
+  (`STEP_PLACE.shared`). A row's hover title stays the disk name. Disk names, API paths, links, drag and drop and every
+  path the AI is given are unchanged. Not changed: the Admin › 폴더 권한 pages (they set rules on paths and show them),
+  the Projects page's folder lines.
+- **"부서" for admin groups in Korean.** Every ko string that names an admin group says 부서 (Admin › 부서, rules, the
+  access views and editor, pickers for AI connections, credentials, integrations and budgets, usage, audit lines, group
+  skills and skill shares, the team link's "들어온 사람이 속할 부서", the room picker's list of groups, the server's ko
+  messages for groups and group folders). The particles follow (부서를, 부서가, 부서로). "그룹 대화" (hand-picked group
+  chats: the room picker's 그룹 대화 만들기 and its name field, notifications, Slack's 1:1·그룹 대화) stays, and so do the
+  server's "자원 그룹" lines (Linux cgroups). The other languages keep their word for groups, which is also their folder
+  label, so each language uses one word for both.
+- **What each folder is for, in the AI's instructions** (`folderPurposeLines`, in the person lines after the folder
+  lists, so a resumed session and a room session get it). One line per top folder with the name the screen shows in
+  the person's language ("shared/ ("전사 공유"): company-wide; everyone in the team can see it…"), the person's own
+  folder by its words, and, when `shared/양식/` (any language's name) is there and readable (in a room: by everyone
+  there), "Forms and templates are in shared/양식/. When you make that kind of document …, start there". Written in
+  English like the rest of the instructions, not the brief's Korean sentence. No team data except that one folder name.
+- **보관, a convention.** The placement rule (`filePlacementRule(move, archive)`) says that when the person asks to tidy
+  up, finished work moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/),
+  made like any new folder, and nothing is deleted unless asked. The word follows the templates folder's language, else
+  the person's. No button, no feature.
+- **projects/ in the loose-file note.** A new file directly in `projects/` (beside the project folders, not in one) gets
+  the server's note like `shared/` (`looseArea`), in the in-app AI and the app connector (`connectors/remote-mcp/upload.ts`,
+  its guide line). `projects/` joins `groups/` and `users/` as a root folder never offered as a place for a loose file.
+  A project's own folder is still where its chats save.
+- **`shared/양식/` for a new team** (`createDefaultFolders` → `ensureTemplatesFolder`): made at the team's creation (setup
+  and the server CLI), named in the team's language (양식, Templates, Templat, テンプレート, Plantillas), inheriting
+  shared/'s rule (no folder row, so the owner checklist's 폴더 권한 step is unchanged). Safe to run again; never a second
+  one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
+  touched (nothing runs it for them). No department folders.
+- **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
+  puts joiners in it; its team room), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
+  (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
+  회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
+  folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
+  shared/ and the other groups' folders, not the team group's own folder. A row without `home` (every team that started
+  before) keeps `groups/<team>/` as its home and its files where they are: no migration, nothing moved; only a team
+  group that is gone and made again starts in shared/.
+- **What reads those paths.** Home's 팀에 준비된 것 count (`skills/examples.ts`: shared/ without the brand folder, for
+  everyone in the team; the block reloads on shared/ changes), the member's 올리기 suggestion (`memberTeamFolder`: the
+  home), 팀 파일 recorded by the run (`onboarding/team-files.ts`: a file in shared/ or a group's folder), the step
+  labels (`placeName`: shared/브랜드, shared/브랜드/이미지 and shared/회의록 by their words), the Files screen's
+  "폴더에서 회사 문서 추천받기" line (the home), the pack skills 회사 소개서, 카드뉴스 and 홍보 영상 (they read
+  shared/브랜드/ first, groups/<team>/브랜드/ for a team that started before; installed copies keep their text). The promo
+  video's picture check already took `shared/<브랜드>/`. Not affected: the company profile (`skills/company-profile.json`),
+  the file ranks (#195, migration 272: names from the person's computer, no team path), the owner checklist, the demo
+  company (it seeds its own files).
+- Tests: `tests/unit/team-folder-basics.test.ts` (the labels table and paths, the step labels, `shared/양식` made once
+  and never twice, the prompt lines with the person's words and the templates line (not in a room that cannot read
+  it, not when hidden), 보관 in the team's language, the loose note for projects/, the team's start in shared/ with
+  Home's count, the member's folder and 팀 파일 landed there, an older row kept); updated: `b-onboarding-team-space`,
+  `b-onboarding-cardnews` (the brand folder in shared/), `b-onboarding-file-rank`, `b-member-contribute` (shared/ is
+  everyone's folder), `b-skill-examples` (now an older row), `b-chat-file-placement`, `remote-mcp-placement`,
+  `remote-mcp-guide`, `step-labels-tools`, `i18n-languages`; web `folder-labels.test.ts`, `team-prepared.test.tsx`,
+  `access-view.test.ts`, `steps-subtasks.test.tsx`; e2e `welcome-team-files.spec.ts`, `team-prepared.spec.ts`,
+  `files.spec.ts` and the specs that read 그룹.
+- Version impact: **minor** (new teams get another layout and folder, the AI places files differently, new words on
+  screen; no API path, no migration).

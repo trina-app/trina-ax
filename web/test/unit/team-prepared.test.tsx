@@ -127,6 +127,9 @@ describe('the rules (no screen)', () => {
     // a count that stopped before it found a document (a folder of many folders): not "nothing prepared" either
     expect(preparedView(full({ skills: [], teamFolder: tf(0, true) }), admin)).toMatchObject({ add: false, shown: false })
     expect(folderLabel('groups/Acme/회사 자료')).toBe('Acme › 회사 자료')
+    // a team that started since docs/DECISIONS.md "Team folder basics": shared/ by its word on screen
+    expect(folderLabel('shared', 'ko')).toBe('전사 공유')
+    expect(folderLabel('shared/회사 자료', 'en')).toBe('Company-wide › 회사 자료')
   })
 })
 

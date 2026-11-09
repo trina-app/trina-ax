@@ -15,7 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, CONTRIBUTE_LIMITS, PPT_SUGGEST_CHARS, SKILL_SHARE_LIMITS, type ContributedSkills, type ShareSkillIn, type SkillSuggestion } from '@mycel/shared/api'
+import { API, CONTRIBUTE_LIMITS, PPT_SUGGEST_CHARS, SKILL_SHARE_LIMITS, teamHome, type ContributedSkills, type ShareSkillIn, type SkillSuggestion } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { landingSkill, readWelcome, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
@@ -41,7 +41,8 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(h.team, LANDING), '---\nname: weekly-notes\ndescription: weekly-notes — this week\'s notes by person\n---\n# Notes\n')
   setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING), shared: { at: '2026-11-08T00:00:00.000Z', skills: [{ path: LANDING, title: '주간 메모' }], landing: LANDING } })
   const g = readWelcome(h.ctx)!.teamGroup!
-  teamFolder = g.folder.replace(/\/+$/, '')
+  // the team's home: shared/ since docs/DECISIONS.md "Team folder basics" (everyone writes it)
+  teamFolder = teamHome(g).replace(/\/+$/, '')
   // bob joined through the team link (its group); alice another way (no group)
   h.ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(g.id, 'bob')
   for (const u of ['dana', 'carol', 'bob']) { socks[u] = await h.ws(u, { windowId: `win-mc-${u}` }); await socks[u]!.next('hello') }
@@ -84,9 +85,9 @@ const dbText = () => {
 }
 
 describe('the contribute line under a member\'s first good run of the landing skill', () => {
-  test('the landing skill is the one the owner shared; bob writes the team folder, alice does not', () => {
+  test('the landing skill is the one the owner shared; the team folder is shared/', () => {
     expect(landingSkill(h.ctx)).toBe(LANDING)
-    expect(teamFolder).toMatch(/^groups\//)
+    expect(teamFolder).toBe('shared')
   })
 
   test('first done run only (not a failed or scheduled one, not a later one); above the PPT; with the team folder bob can write', async () => {
@@ -105,11 +106,19 @@ describe('the contribute line under a member\'s first good run of the landing sk
     expect((await suggestionFor('bob', first))?.kind).toBe('contribute')
   })
 
-  test('alice cannot write a team folder: no files part; on a phone the next suggestion instead', async () => {
+  test('alice joined another way: shared/ is everyone\'s, so it is her folder too; one she cannot write: no files part, on a phone the next suggestion instead', async () => {
     const long = '가'.repeat(PPT_SUGGEST_CHARS)
     const first = answer('alice', { skill: LANDING, content: long })
-    expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: null })
-    expect(await suggestionFor('alice', first, true)).toEqual({ kind: 'ppt', key: 'ppt' })
+    expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: 'shared' })
+    // shared/ read-only for her (an admin's rule) and no group folder of hers she can write
+    const f = h.ctx.db.query("SELECT id FROM folders WHERE path = 'shared'").get() as { id: string }
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_mc_alice', ?, 'user', 'alice', 'read')").run(f.id)
+    try {
+      expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: null })
+      expect(await suggestionFor('alice', first, true)).toEqual({ kind: 'ppt', key: 'ppt' })
+    } finally {
+      h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_mc_alice'").run()
+    }
   })
 
   test('never for an owner or admin, never under another skill or no skill', async () => {

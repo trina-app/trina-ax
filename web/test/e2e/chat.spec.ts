@@ -63,8 +63,8 @@ test('sub-tasks: the sub-agent\'s steps under its row, its latest step while it 
   await row.getByRole('button', { name: /하위 작업 단계 보기/ }).click()
   const kids = row.getByTestId('subtask-steps')
   // the team's folders in words, the path in the tooltip
-  await expect(kids).toContainText('파일 읽기 · 공유 폴더 › contract-1.md')
-  await expect(kids.getByTitle('shared/contract-1.md')).toHaveText('파일 읽기 · 공유 폴더 › contract-1.md')
+  await expect(kids).toContainText('파일 읽기 · 전사 공유 › contract-1.md')
+  await expect(kids.getByTitle('shared/contract-1.md')).toHaveText('파일 읽기 · 전사 공유 › contract-1.md')
   await expect(kids).toContainText('내용 검색 "수수료" · 공유 폴더')
   await expect(kids).toContainText('이 하위 작업의 앞선 단계 3개는 남기지 않았어요')
   expect(realErrors(errors)).toEqual([])

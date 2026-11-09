@@ -3444,7 +3444,7 @@ export class MockServer {
             landing: null,
           }
           const group = b.group ?? null
-          if (group && !writes(c.user, group)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          if (group && !writes(c.user, group)) fail('validation', 400, '이 부서의 스킬 폴더에 넣을 수 있는 부서 멤버만 할 수 있어요.')
           const r: Row = { share, owner: c.user.id, reads: 0, group }
           rows().push(r)
           return forCaller(r, view(r), c.user)
@@ -3459,7 +3459,7 @@ export class MockServer {
         setSkillShareTarget: (c) => {
           const r = rows().find((x) => x.share.id === c.params.id && x.owner === c.user.id) ?? fail('not_found', 404)
           const to = (c.body as { group: string | null }).group
-          if (to && !writes(c.user, to)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          if (to && !writes(c.user, to)) fail('validation', 400, '이 부서의 스킬 폴더에 넣을 수 있는 부서 멤버만 할 수 있어요.')
           if (r.share.candidates.some((x) => x.applied)) fail('conflict', 409, '이미 일부를 넣은 공유 제안은 보낼 곳을 바꿀 수 없어요.')
           r.group = to
           return forCaller(r, read(r), c.user)

@@ -4,9 +4,10 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { ARCHIVE_FOLDER } from '@mycel/shared'
 import { API, Locale } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, filePlacementRule, SUBAGENT_PLACEMENT_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, filePlacementRule, SUBAGENT_PLACEMENT_RULE, templatesFolder, type PromptInput } from '../../server/src/chat/prompt'
 import { areaSubfolders, looseArea, placementNote, plainFolderName, PLACEMENT_FOLDERS_MAX } from '../../server/src/chat/file-placement'
 
 setDefaultTimeout(60_000)
@@ -36,10 +37,12 @@ describe('the rule in the instructions', () => {
   test('every app language: the chat, a resumed session\'s turn context and a room session have it; sub-agents get only the note\'s line', () => {
     expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es'])
     for (const locale of Locale.options) {
-      expect(buildTurnPrompt(h.ctx.files, input(locale))).toContain(RULE)
-      expect(buildTurnContext(h.ctx.files, input(locale))).toContain(RULE)
+      // the archive folder's word follows the templates folder's language (the team's), else the person's
+      const rule = filePlacementRule(true, ARCHIVE_FOLDER[templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))?.locale ?? locale])
+      expect(buildTurnPrompt(h.ctx.files, input(locale))).toContain(rule)
+      expect(buildTurnContext(h.ctx.files, input(locale))).toContain(rule)
       const room = input(locale, { room: { name: 'sales', kind: 'team', members: 3, asker: 'Alice Kim' }, roomReadable: () => true })
-      expect(buildTurnPrompt(h.ctx.files, room)).toContain(RULE)
+      expect(buildTurnPrompt(h.ctx.files, room)).toContain(rule)
       const sub = buildSubagentPrompt(h.ctx.files, input(locale), ['read', 'write', 'move_files'])
       expect(sub).not.toContain('Where files go:')
       expect(sub).toContain(SUBAGENT_PLACEMENT_RULE)
@@ -53,8 +56,11 @@ describe('the rule in the instructions', () => {
     expect(RULE).toContain('list that area')
     expect(RULE).toContain('create one named like the ones already there (same language, letter case and pattern;')
     expect(RULE).toContain('move_files and copy_files need a folder that exists')
-    // nothing loose at the top of shared/, a group's folder or the team root unless asked for exactly that
-    expect(RULE).toContain('Never leave a file loose at the top of shared/, of a group\'s folder or of the team root unless the user asked for exactly that spot')
+    // nothing loose at the top of shared/, a group's folder, projects/ or the team root unless asked for exactly that
+    expect(RULE).toContain('Never leave a file loose at the top of shared/, of a group\'s folder, of projects/ or of the team root unless the user asked for exactly that spot')
+    // finished work goes to 보관 in its own area when the person asks to tidy up (docs/DECISIONS.md "Team folder basics")
+    expect(RULE).toContain('When the user asks to tidy up, finished work (a closed project\'s files, past events, old versions) moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/)')
+    expect(RULE).toContain('nothing is deleted unless the user asks')
     // no duplicate; the server's note is the server's; one line on where it went, and the wider audience said
     expect(RULE).toContain('Move rather than copy')
     expect(RULE).toContain('the server adds a note about it at the end of that save\'s result (only ever about a file you just saved)')
@@ -67,13 +73,16 @@ describe('the rule in the instructions', () => {
     expect(plain).toContain('is the area, not the exact spot')
     expect(plain).toContain('Never leave a file loose at the top of shared/')
     for (const no of ['move_files', 'Move rather than copy', 'README', 'the server adds a note']) expect(plain).not.toContain(no)
-    expect(buildTurnPrompt(h.ctx.files, input('ko', { tools: [] }))).toContain(plain)
+    expect(buildTurnPrompt(h.ctx.files, input('ko', { tools: [] }))).toContain(filePlacementRule(false, ARCHIVE_FOLDER[templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))?.locale ?? 'ko']))
+    expect(plain).toContain('belongs into a "보관" subfolder')
   })
 })
 
 describe('which new files are loose', () => {
-  test('directly in shared/, a group\'s folder or the team root; nothing deeper and nothing personal', () => {
+  test('directly in shared/, projects/, a group\'s folder or the team root; nothing deeper and nothing personal', () => {
     expect(looseArea('shared/quote.html')).toBe('shared')
+    // beside the project folders, not in one (docs/DECISIONS.md "Team folder basics")
+    expect(looseArea('projects/plan.md')).toBe('projects')
     expect(looseArea('groups/sales/quote.html')).toBe('groups/sales')
     expect(looseArea('quote.html')).toBe('')
     for (const p of ['shared/Sales/quote.html', 'groups/sales/Quotes/quote.html', 'users/alice/quote.html', 'users/alice/견적/acme/quote.html', 'skills/x.md', 'projects/falcon/plan.md', 'groups/sales/skills/x.md'])
@@ -198,7 +207,11 @@ describe('the note in a chat turn', () => {
     expect(root.done.content).toContain(`${NOTE} "loose-root.md" was saved directly in the team root`)
     const named = root.done.content.slice(root.done.content.indexOf('Its subfolders'))
     expect(named).toContain('"shared"')
-    for (const no of ['"users"', '"groups"', '"skills"', '".system"']) expect(named).not.toContain(no)
+    for (const no of ['"users"', '"groups"', '"projects"', '"skills"', '".system"']) expect(named).not.toContain(no)
+
+    // directly in projects/, beside the project folders (docs/DECISIONS.md "Team folder basics")
+    const pr = await ask(h, socks.dana!, 'dana', await chat('dana'), fake(write('projects/loose-plan.md')))
+    expect(pr.done.content).toContain(`${NOTE} "projects/loose-plan.md" was saved directly in "projects/"`)
   })
 
   test('a sub-agent\'s loose file: the note goes with the sub-agent\'s own call (the main AI\'s next call has none)', async () => {
