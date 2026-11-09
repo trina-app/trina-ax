@@ -175,7 +175,9 @@ export function ViewerSheet({ onClose, children }: { onClose: () => void; childr
     setDrag(null)
     if (cancelled) return
     const h = heights()
-    const to = sheetSnap(Math.max(0, Math.min(h.full, g.h0 - (e.clientY - g.y0))), h.part, h.full, g.vy)
+    // a finger held still before it lifts sends no move: no flick then
+    const vy = e.timeStamp - g.t > 80 ? 0 : g.vy
+    const to = sheetSnap(Math.max(0, Math.min(h.full, g.h0 - (e.clientY - g.y0))), h.part, h.full, vy)
     if (to === 'closed') onClose()
     else setFull(to === 'full')
   }
@@ -192,6 +194,9 @@ export function ViewerSheet({ onClose, children }: { onClose: () => void; childr
           full ? 'h-[calc(100%-var(--safe-top))]' : 'h-[70%] in-[.keyboard-open]:h-[calc(100%-var(--safe-top))]',
         )}
         style={drag === null ? undefined : { height: drag }}
+        // keys typed in it, its handle's too, are its own (ImageViewer: never a step, a zoom or a copy of the file under it)
+        data-viewer-column=""
+        data-viewer-sheet=""
         data-testid="viewer-sheet"
         data-size={full ? 'full' : 'part'}
       >
@@ -206,7 +211,7 @@ export function ViewerSheet({ onClose, children }: { onClose: () => void; childr
           onPointerMove={onPointerMove}
           onPointerUp={(e) => onPointerUp(e)}
           onPointerCancel={(e) => onPointerUp(e, true)}
-          className="flex h-6 shrink-0 cursor-grab touch-none items-center justify-center outline-none focus-visible:bg-hover"
+          className="touch-hit flex h-6 shrink-0 cursor-grab touch-none items-center justify-center outline-none focus-visible:bg-hover"
           data-testid="viewer-sheet-handle"
         >
           <span aria-hidden className="h-1 w-10 rounded-full bg-line-strong" />

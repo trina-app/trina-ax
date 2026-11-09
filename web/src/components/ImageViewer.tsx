@@ -244,10 +244,11 @@ function Viewer({ open }: { open: ViewerOpen }) {
   // a phone's sheet over the file (the same column), with its own Back
   const sheetOpen = useViewerSheet()
   const sheetOn = sheetOpen && !wide && !!place
-  // the window grew past a phone's width with the sheet open: the column beside the file takes over
+  // open but not drawn (the window grew past a phone's width: the column beside the file takes over; a Forward onto its
+  // entry on a computer or for a picture without a room): closed, so Back and Esc are not spent on it
   useEffect(() => {
-    if (wide && getViewerSheet()) closeViewerSheet()
-  }, [wide])
+    if (sheetOpen && !sheetOn) closeViewerSheet()
+  }, [sheetOpen, sheetOn])
   /** the bar's button that opened the sheet: the focus goes back to it when the sheet closes */
   const sheetFrom = useRef<HTMLElement | null>(null)
   const openSheet = (from: HTMLElement) => {
@@ -279,10 +280,14 @@ function Viewer({ open }: { open: ViewerOpen }) {
   // its ✕), or the sheet closed: focus left on nothing goes back to the button that opened the sheet, else the stage, so
   // the keys keep working and the page's shortcuts stay away
   useLayoutEffect(() => {
+    const from = sheetFrom.current
+    // once: a later step's focus goes to the stage, not back to 💬
+    if (!sheetOn) sheetFrom.current = null
     const a = document.activeElement
     if (!root.current || (a && a !== document.body && root.current.contains(a))) return
-    const from = sheetFrom.current
-    if (!sheetOn && from?.isConnected && root.current.contains(from)) from.focus({ preventScroll: true })
+    // the sheet's own content changed (thread ⇄ Trina): into the sheet, the file under it is out of reach
+    if (sheetOn) root.current.querySelector<HTMLElement>('[data-viewer-sheet] section[data-viewer-column]')?.focus({ preventScroll: true })
+    else if (from?.isConnected && root.current.contains(from)) from.focus({ preventScroll: true })
     else stageRef.current?.focus({ preventScroll: true })
   }, [cur, docMode, gone, column.state.show, column.state.open, columnOn, sheetOn])
 

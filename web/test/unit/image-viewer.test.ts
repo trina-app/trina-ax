@@ -440,6 +440,60 @@ describe('Back closes the viewer', () => {
       globalThis.removeEventListener('popstate', skipLeftEntry)
     }
   })
+  test("closed with its sheet open, then Forward and Back: Forward stops on the sheet's entry, Back goes past both to the page, and leaves no way of going back stuck", () => {
+    start()
+    globalThis.addEventListener('popstate', skipLeftEntry)
+    try {
+      notePage()
+      open()
+      openViewerSheet()
+      closeImageViewer()
+      expect(at).toBe(0)
+      // the two entries stay ahead as Forward entries: Forward crosses the viewer's onto the sheet's, with nothing after
+      globalThis.history.forward()
+      expect(at).toBe(2)
+      // Back: past both, on the page (before, every Back bounced from the viewer's entry to the sheet's)
+      globalThis.history.back()
+      expect(at).toBe(0)
+      // and again: the same, nothing bounces
+      globalThis.history.forward()
+      expect(at).toBe(2)
+      globalThis.history.back()
+      expect(at).toBe(0)
+      // a page pushed from the sheet's entry after a Forward: Back from it goes past both
+      globalThis.history.forward()
+      expect(at).toBe(2)
+      stack = [...stack.slice(0, 3), { idx: 4, key: 'k2' }]
+      at = 3
+      notePage()
+      globalThis.history.back()
+      expect(at).toBe(0)
+    } finally {
+      globalThis.removeEventListener('popstate', skipLeftEntry)
+    }
+  })
+  test('without a sheet: Forward onto a closed viewer\'s entry stays there; a page pushed from it, then Back, goes past it once', () => {
+    start()
+    globalThis.addEventListener('popstate', skipLeftEntry)
+    try {
+      notePage()
+      open()
+      closeImageViewer()
+      globalThis.history.forward()
+      expect(at).toBe(1)
+      stack = [...stack.slice(0, 2), { idx: 4, key: 'k2' }]
+      at = 2
+      notePage()
+      globalThis.history.back()
+      expect(at).toBe(0)
+      // nothing left over: Forward from the page goes on past it to the page on top
+      notePage()
+      globalThis.history.forward()
+      expect(at).toBe(2)
+    } finally {
+      globalThis.removeEventListener('popstate', skipLeftEntry)
+    }
+  })
 })
 
 describe("a phone's sheet and a PDF's thumbnails", () => {

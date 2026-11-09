@@ -387,15 +387,19 @@ test('a Hangul file shows its pages while the HWP preview is on; off, its card, 
 const column = (page: Page) => viewer(page).getByTestId('viewer-column')
 const stageBox = async (page: Page) => (await viewer(page).getByTestId('image-viewer-stage').boundingBox())!
 const sheet = (page: Page) => viewer(page).getByTestId('viewer-sheet')
-/** a finger on the screen (CDP touch events, as a phone sends them): pressed on `on`'s middle, moved by `dx`, `dy` in a
- * few quick moves, lifted */
-async function touchMove(page: Page, on: Locator, dx: number, dy: number) {
+/** a finger on the screen (CDP touch events, as a phone sends them): pressed on `on`'s middle, moved by `dx`, `dy` in
+ * four moves (`gap` ms apart: a slow drag), held still `hold` ms, lifted */
+async function touchMove(page: Page, on: Locator, dx: number, dy: number, o: { gap?: number; hold?: number } = {}) {
   const b = (await on.boundingBox())!
   const x = b.x + b.width / 2
   const y = b.y + b.height / 2
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
-  for (let i = 1; i <= 4; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / 4, y: y + (dy * i) / 4 }] })
+  for (let i = 1; i <= 4; i++) {
+    if (o.gap) await page.waitForTimeout(o.gap)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / 4, y: y + (dy * i) / 4 }] })
+  }
+  if (o.hold) await page.waitForTimeout(o.hold)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await cdp.detach()
 }
@@ -748,6 +752,59 @@ test.describe('a phone (390 px), the conversation', () => {
     await expect(viewer(page)).toHaveCount(0)
     expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}/t/${id(1)}`)
     await expect(page.getByTestId('room-thread')).toBeVisible()
+  })
+
+  test('the sheet keeps the keys and the focus: Tab stays in it, its handle never steps, Esc closes it before the viewer and the focus goes back to 💬; a slow drag and one held before it lifts settle', async ({ page }) => {
+    await openRoom(page)
+    await openChip(timeline(page), 'acme-handbook.pdf')
+    const talk = page.getByTestId('image-viewer-thread')
+    await talk.tap()
+    await expect(column(page).getByTestId('room-message')).toHaveCount(2)
+    const inSheet = () => page.evaluate(() => !!document.activeElement?.closest('[data-viewer-sheet]'))
+    expect(await inSheet()).toBe(true)
+    // Tab and Shift+Tab go round the sheet, never to the file or the bar under it, nor the room behind
+    const handle = page.getByTestId('viewer-sheet-handle')
+    await handle.focus()
+    // from its first control (the handle) Shift+Tab wraps to its last, and Tab from there back to the handle
+    await page.keyboard.press('Shift+Tab')
+    expect(await inSheet()).toBe(true)
+    await expect(handle).not.toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(handle).toBeFocused()
+    for (let i = 0; i < 14; i++) {
+      await page.keyboard.press('Tab')
+      expect(await inSheet()).toBe(true)
+    }
+    // the handle's keys are the sheet's: → does not step to the next file under it
+    await handle.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByTestId('image-viewer-count')).toHaveText('1 / 5')
+    // Enter on the handle: the whole height, and back
+    await page.keyboard.press('Enter')
+    await expect(sheet(page)).toHaveAttribute('data-size', 'full')
+    await page.keyboard.press('Enter')
+    await expect(sheet(page)).toHaveAttribute('data-size', 'part')
+    const sheetHeight = async () => Math.round((await sheet(page).boundingBox())!.height)
+    await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
+    // a slow drag up 100 px: nearer 70 % than the whole height, so back there
+    await touchMove(page, handle, 0, -100, { gap: 120 })
+    await expect(sheet(page)).toHaveAttribute('data-size', 'part')
+    await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
+    // a quick drag down 150 px, held before the finger lifts: no flick, it stays
+    await touchMove(page, handle, 0, 150, { hold: 250 })
+    await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
+    await expect(sheet(page)).toBeVisible()
+    // Esc: the sheet first, the focus back on 💬; Esc again: the viewer
+    await handle.focus()
+    await page.keyboard.press('Escape')
+    await expect(sheet(page)).toHaveCount(0)
+    await expect(talk).toBeFocused()
+    await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(viewer(page)).toHaveCount(0)
+    expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}`)
+    // no entry of the viewer's left: Back leaves the room's page as before (it is the first page here: nothing to go to)
+    expect(await page.evaluate(() => !!(window.history.state as Record<string, unknown> | null)?.__imageViewer)).toBe(false)
   })
 
   test('with the sheet closed a finger still steps through the files (CDP touch); the photo keeps its own gestures', async ({ page }) => {

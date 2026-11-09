@@ -306,6 +306,11 @@ const stateNow = () => window.history.state as HistoryState
 const onOurEntry = () => stateNow()?.[MARK] === token
 const onSheetEntry = () => onOurEntry() && stateNow()?.[SHEET] === token
 const idxOf = (s: HistoryState) => (typeof s?.idx === 'number' ? s.idx : null)
+/** An entry of a viewer's (`mark`: its viewer; `sheet`: the sheet's on top of it), or null: the router's own. */
+type Spot = { mark: unknown; sheet: boolean } | null
+const spotOf = (s: HistoryState): Spot => (s?.[MARK] === undefined ? null : { mark: s[MARK], sheet: s[SHEET] !== undefined && s[SHEET] === s[MARK] })
+/** the entry the page is on as last seen (a push of ours, a page shown, a popstate): where the next popstate came from */
+let here: Spot = null
 
 function onPop() {
   if (!current) return
@@ -322,6 +327,7 @@ function pushEntry() {
   token += 1
   try {
     window.history.pushState({ ...(stateNow() ?? {}), [MARK]: token }, '')
+    here = spotOf(stateNow())
   } catch {
     // a history the page may not change (a sandbox): the viewer still opens, Back just leaves the page as before
   }
@@ -399,6 +405,7 @@ export function openViewerSheet() {
   if (typeof window !== 'undefined' && !backPending && onOurEntry()) {
     try {
       window.history.pushState({ ...(stateNow() ?? {}), [SHEET]: token }, '')
+      here = spotOf(stateNow())
     } catch {
       // a history the page may not change: Back closes the viewer, sheet and all
     }
@@ -415,28 +422,32 @@ export function closeViewerSheet() {
 }
 
 // A viewer's entries are left behind when the page changed while it was open (a notice opened another page on top of
-// it, a link in the sheet). Back from that page would land on them: the same page again, a Back that does nothing. So a
-// popstate that lands on such an entry with no viewer open goes on, the way it came (ImageViewerHost listens; React
-// Router's idx tells the way, and the way is kept across the viewer's and its sheet's: both have the page's idx).
+// it, a link in the sheet), and stay ahead of the page as Forward entries once it closed. Landing on them is the same
+// page again, a Back or Forward that does nothing. So a popstate that lands on such an entry with no viewer open goes
+// on, the way it came (ImageViewerHost listens): from the other entry of the same viewer, the sheet's to the viewer's
+// is back and the viewer's to the sheet's forward (both have the page's idx); from any other entry, React Router's idx
+// tells the way. A Forward with nothing after the sheet's entry stays there, and the next Back goes past both.
 /** the router's entry number of the page last shown (ImageViewerHost notes it on every page change) */
 let shownIdx: number | null = null
-/** the way a skip is going (-1 back, 1 forward) while it crosses more than one left entry */
-let skipping: -1 | 1 | 0 = 0
 export function notePage() {
-  shownIdx = typeof window === 'undefined' ? null : idxOf(stateNow())
+  if (typeof window === 'undefined') return void (shownIdx = null)
+  shownIdx = idxOf(stateNow())
+  here = spotOf(stateNow())
 }
 
 /** For ImageViewerHost's popstate listener (added before any viewer's own, so it runs first). */
 export function skipLeftEntry() {
   const s = stateNow()
-  if (current || backPending || !s?.[MARK]) {
-    skipping = 0
-    return
+  const from = here
+  const at = spotOf(s)
+  here = at
+  if (current || backPending || !at) return
+  let way: -1 | 1 | 0
+  if (from && from.mark === at.mark && from.sheet !== at.sheet) way = from.sheet ? -1 : 1
+  else {
+    const idx = idxOf(s)
+    way = idx === null || shownIdx === null ? 0 : idx < shownIdx ? -1 : 1
   }
-  const idx = idxOf(s)
-  const way = skipping || (idx === null || shownIdx === null ? 0 : idx < shownIdx ? -1 : 1)
-  if (!way) return
-  skipping = way
   if (way < 0) window.history.back()
-  else window.history.forward()
+  else if (way > 0) window.history.forward()
 }

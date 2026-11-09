@@ -17339,7 +17339,8 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
 - **Size:** 70 % of the part of the screen above the keyboard (`--app-h`, lib/viewport.ts; the WebView and Chromium
   shrink it themselves with `interactive-widget=resizes-content`), so the file shows above it. The handle drags it to
   the whole height (under the status bar, `--safe-top`) or down to close (`sheetSnap`: a flick goes its way, a slow drag
-  settles at the nearer height and closes once well below 70 %); a tap or Enter on the handle switches the two heights.
+  settles at the nearer height and closes once well below 70 %; a finger held still 80 ms before it lifts is no flick);
+  a tap or Enter on the handle switches the two heights, and the handle takes taps from a 44 px box (`touch-hit`).
   With the keyboard up (`.keyboard-open`) it takes the whole height above the keyboard, so the thread stays readable
   over the reply box. The reply box keeps its own bottom inset (`--safe-bottom`, 0 with the keyboard up).
 - **Back order:** the sheet adds a history entry of its own on top of the viewer's, a copy of it marked as the sheet's,
@@ -17348,10 +17349,17 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   entry opens it again. ✕, a drag down, a tap on the dimmed file and Esc close the sheet by going back off its entry.
   Closing the viewer with the sheet open goes back off both entries one at a time, each once the last has landed (two
   backs queued at once could land as one or three); a viewer opened meanwhile adds its entry after the last back. A page
-  change while both are open (a link in the sheet) leaves both behind: Back or Forward onto them goes on past both the
-  same way (the way is kept between the two, as the router shows the page under them in between).
+  change while both are open (a link in the sheet) leaves both behind, and a close leaves them ahead as Forward entries:
+  landing on one with no viewer open goes on. From the other entry of the same viewer the way is plain (the sheet's to
+  the viewer's is back, the other way forward); from any other entry React Router's idx tells it. A Forward with nothing
+  after the sheet's entry stays there, and the next Back goes past both: no direction is kept between popstates, which
+  once made every Back bounce back onto the sheet's entry.
 - **Under the sheet** the stage, the bar and the edge arrows are inert and dimmed; the focus goes into the sheet and
-  back to the button that opened it. A picture or file tapped in the sheet's thread opens whole (the sheet gives way).
+  back to the button that opened it (once: a later step's focus goes to the stage). Keys typed in the sheet, its handle
+  included, are its own: never a step, a zoom or a copy of the file under it. `useFocusTrap` (components/ui.tsx) leaves
+  out controls inside an inert part of the dialog, so Tab wraps inside the sheet and a focus that strays behind the
+  dialog comes back to its first control still in reach. A sheet open but not drawn (the window grew past a phone's
+  width, a Forward onto its entry on a computer) closes, so Back and Esc are not spent on it. A picture or file tapped in the sheet's thread opens whole (the sheet gives way).
   Picture gestures (pinch, double tap, swipes) and document stepping (a swipe where nothing scrolls sideways, ‹ › in
   the bar) are unchanged. The stage isolates what is in it: a PDF's sticky toolbar painted over the sheet and its dim.
 - **The phone's bar** leaves out the sender's picture for a room's file or photo (the line under the name says who) and
@@ -17364,13 +17372,22 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   Without the column nothing changes.
 - **Computers, two icons:** 패널에서 열기 shows ⤡ (`Minimize2`, the side panel's own "나란히 보기" after 크게 보기)
   instead of a panel icon, which looked like the column's toggle beside it. No new button.
-- Text in all five languages: 스레드 보기 (with the reply count), and the handle's 위로 펼치기 / 아래로 줄이기.
+- Text in all five languages: 스레드 보기 (with the reply count, "스레드 보기, 답글 3": the number a word of its own, so
+  a voice user can say what they see; axe's label-in-name check reads "1개" as one word), and the handle's 위로 펼치기 /
+  아래로 줄이기.
+- **Independent review** (must-fix, fixed): after a close with the sheet used, Forward then Back bounced between the
+  two left entries for good (a kept skip direction); now the way comes from the entry the popstate came from. Also
+  taken: Tab stuck on, or Shift+Tab leaving through, the inert bar (`useFocusTrap`); ← → and + − 0 on the handle acting
+  on the file under it; a held finger read as a flick; the handle's 44 px target; a sheet open but not drawn; the focus
+  sent back to 💬 on a later step.
 - Tests: `web/test/unit/image-viewer.test.ts` (the sheet's entry: Back closes the sheet, then the viewer; Forward opens
   it again; its ✕ backs off one entry; the viewer closed with it open backs off both, one at a time, never three; a
-  picture from the sheet's thread; left-behind entries skipped both ways; `sheetSnap`; `pdfRailFits`); e2e
+  picture from the sheet's thread; left-behind entries skipped both ways; Forward then Back after a close, with and
+  without the sheet; `sheetSnap`; `pdfRailFits`); e2e
   `room-file-viewer.spec.ts` at 390 px with CDP touch (💬 with the count opens the thread sheet at 70 %, a reply from it
   is in the room's thread, the keyboard up, the handle up, down and closed, a tap beside it, Back twice; ✦ opens Trina
-  in the sheet with the file quoted, 스레드로 돌아가기, ✕, Back twice from a thread page; a swipe still steps, a photo's
-  💬; the two icons at 1440; screenshots), `pdf-lazy-pages.spec.ts` (no rail at 1,280 px beside the column, back with the
+  in the sheet with the file quoted, 스레드로 돌아가기, ✕, Back twice from a thread page; Tab wrapping in the sheet, →
+  and Enter on the handle, a slow drag and a held one, Esc twice with the focus back on 💬; a swipe still steps, a
+  photo's 💬; the two icons at 1440; screenshots), `pdf-lazy-pages.spec.ts` (no rail at 1,280 px beside the column, back with the
   column hidden, there at 1,600 px; a screenshot at 1,280).
 - Version impact: **minor** (a visible UX change; no API or data change).

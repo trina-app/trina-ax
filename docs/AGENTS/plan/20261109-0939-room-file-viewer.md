@@ -317,7 +317,9 @@ What differs from the plan or was found:
   (`--app-h`, `.keyboard-open`). One thing at a time as in step c: no 스레드 · 트리나 switch, "스레드로 돌아가기" in it.
 - **Back:** the sheet has a history entry of its own on top of the viewer's (a copy of it, so the router sees the same
   page). Back closes the sheet, then the viewer; Forward onto it opens it again; closing the viewer with the sheet open
-  goes back off both, one at a time; a page change that left both entries behind is skipped past both, either way.
+  goes back off both, one at a time; entries left behind (a page change) or ahead (after a close) are skipped past both,
+  the way read from the entry the popstate came from (the review found a kept direction looping Back).
+- **Focus:** `useFocusTrap` now leaves out controls in an inert part of a dialog, so Tab wraps inside the sheet.
 - **✦ stays in the viewer:** it no longer closes the viewer for the room page's side chat (`askTrinaInRoom` is the side
   panel's only now).
 - **The bar on a phone** leaves out the sender's picture for a room's file (the line under the name says who), and its
