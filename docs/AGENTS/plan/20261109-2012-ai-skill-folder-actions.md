@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 20:12
 - Branch: `feat/ai-skill-folder-actions`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/skills/folder-actions.ts` new, `server/src/chat/skill-files.ts` new,
   `server/src/skills/guard.ts`, `server/src/skills/changes.ts`, `server/src/skills/text.ts`,
   `server/src/team-files/service.ts`, `server/src/chat/tools.ts`, `server/src/chat/turn.ts`,
@@ -104,4 +104,19 @@ whole `tests/unit` compared with dev, and the web unit tests in Docker.
 
 ## Result
 
-Filled in at the end.
+Built as planned, with what an independent security review (two passes, before the PR) added:
+
+- The card shows every word: a text or a file name with a character a person cannot see there (zero-width,
+  direction, tag characters) is refused; a media file must start like its format (a ".png" holding text is refused).
+- The card's bytes go into place in the move's own step, inside the database transaction with both renames, instead
+  of a swap after the move that could fail open; a renamed skill folder gets its new SKILL.md the same way (the old
+  text kept as a version), so it never stops halfway. Folders, empty ones too, and a script's execute bit are kept.
+- The same-name counts look only at skills and projects the asker reads (a count must not tell a name); Slack threads'
+  chats are refused (an answer may go to a channel); a skills folder moved out of the skill roots records each skill.
+- Accepted for now and written in DECISIONS: a picture's own content is not on the card (only its name and size).
+
+Differs from the plan: the new tool is `skill_files` (one item per call); the old file tools keep refusing and say
+what to use. `fix/ai-refusals-clear` had not landed, so the refusals use their own why / next-step texts in that shape.
+New audit actions `skills.files` and `skills.files_refused` have words on the Admin audit screen (five languages).
+
+Checks: see the PR.
