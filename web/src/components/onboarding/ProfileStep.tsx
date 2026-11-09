@@ -50,10 +50,10 @@ export interface ProfileStepProps {
   onRead?: (website: string) => void
   /** The welcome steps: the review's save goes on too (one button, "저장하고 계속": docs/DECISIONS.md "W5", "W6"), with
    * `extra` above the buttons (the intro files link) and `note` right under the button (what the press puts into the
-   * brand folder). `onSaved` (the brand materials, then the next step) runs after the save while the button is busy;
+   * brand folder, given the website the review holds now). `onSaved` (the brand materials, then the next step) runs after the save while the button is busy;
    * what fails stays on the review with its reason, and the same button saves again and goes on. No toast: the next
    * step says it. Without it (Admin › Team settings, 고치기): the plain 저장. */
-  continueWith?: { label: string; note?: ReactNode; extra?: ReactNode; disabled?: boolean; onSaved: (profile: CompanyProfile) => Promise<void> }
+  continueWith?: { label: string; note?: (website: string) => ReactNode; extra?: ReactNode; disabled?: boolean; onSaved: (profile: CompanyProfile) => Promise<void> }
 }
 
 /** what a draft is read from: the website, or the text the person pasted */
@@ -473,7 +473,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           </Button>
         )}
         <span className="ml-auto max-sm:order-2">{skip}</span>
-        {continueWith?.note && <div className="w-full max-sm:order-1">{continueWith.note}</div>}
+        {continueWith?.note && <div className="w-full max-sm:order-1">{continueWith.note(draft.website)}</div>}
       </div>
     </div>
   )

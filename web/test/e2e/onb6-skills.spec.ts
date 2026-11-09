@@ -10,8 +10,12 @@
 // bring sheet, a member's suggestion sheet); a phone's plain line. The step with own skills only: welcome-skills.spec.ts.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
-import { CSRF_HEADER } from '@mycel/shared/api'
+import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
+import { DICTS } from '../../src/i18n'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+
+/** the product as the catalog and the sources name it beside "트리나에게 묻기" (web/src/lib/tabs.ts namedProduct) */
+const NAMED = PRODUCT_NAMED_AFTER_AI ? DICTS.ko['rooms.aiName'] : PRODUCT.displayName
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const H = { [CSRF_HEADER]: '1' }
@@ -74,7 +78,7 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await toSkillsStep(page, { profile: true })
   await expect(page.getByRole('heading', { name: '팀이 쓸 스킬을 골라 주세요' })).toBeVisible()
   const packs = page.getByTestId('skill-packs')
-  await expect(packs.getByRole('heading', { name: `${PRODUCT.displayName}가 준비한 스킬` })).toBeVisible()
+  await expect(packs.getByRole('heading', { name: `${NAMED}가 준비한 스킬` })).toBeVisible()
   await expect(packs.getByTestId('skill-pack-title')).toHaveText(TITLES)
   expect(await packs.getByTestId('skill-pack-row').evaluateAll((rs) => rs.map((r) => r.getAttribute('data-name')))).toEqual(KEPT)
   await expect(packs.getByTestId('skill-pack-line')).toHaveCount(4)
@@ -107,7 +111,7 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   expect(await picture.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(1280)
   await expect(viewer).not.toContainText('예시를 준비하고 있어요')
   await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '예시커피'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
-  await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${PRODUCT.displayName} 팀이 만들었어요`)
+  await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${NAMED} 팀이 만들었어요`)
   await expect(page.getByRole('dialog')).toContainText("'카드뉴스' 예시")
   await expect(viewer.getByTestId('skill-example-next')).toHaveCount(0)
   await expect(viewer.getByTestId('skill-example-prev')).toHaveCount(0)
@@ -123,7 +127,7 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await expect(viewer.getByTestId('skill-example-body').locator('blockquote')).toContainText('이번 공지에서는 사무실 구독 배송 일정 변경에 대해 자세히 알아보겠습니다')
   await expect(viewer.getByTestId('skill-example-body')).toContainText('지금처럼 수요일에 받고 싶으시면 11월 25일까지 hello@coffee.example로 알려 주세요.')
   await expect(viewer).not.toContainText('예시를 준비하고 있어요')
-  await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${PRODUCT.displayName} 팀이 쓰던 한국어 글쓰기 스킬을 바탕으로 만들었어요`)
+  await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${NAMED} 팀이 쓰던 한국어 글쓰기 스킬을 바탕으로 만들었어요`)
   await expect(viewer.getByTestId('skill-example-original')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(viewer).toHaveCount(0)
@@ -260,7 +264,7 @@ test('Team skills (owner): the kept skills folded under the list, nothing checke
   await page.goto('/skills')
   const fold = page.getByTestId('skill-catalog')
   const toggle = page.getByTestId('skill-catalog-toggle')
-  await expect(toggle).toHaveText(`${PRODUCT.displayName}가 준비한 스킬 · 4개 더`)
+  await expect(toggle).toHaveText(`${NAMED}가 준비한 스킬 · 4개 더`)
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await expect(fold.getByTestId('skill-pack-row')).toHaveCount(0)
   // the search box hides it; emptied, it is back
@@ -285,7 +289,7 @@ test('Team skills (owner): the kept skills folded under the list, nothing checke
   const list = page.getByTestId('skill-list')
   await expect(list.locator('[data-testid="skill-row"][data-path="skills/general/card-news/SKILL.md"]')).toBeVisible()
   await expect(list.locator('[data-testid="skill-row"][data-path="skills/work/humanizer/SKILL.md"]')).toBeVisible()
-  await expect(toggle).toHaveText(`${PRODUCT.displayName}가 준비한 스킬 · 2개 더`)
+  await expect(toggle).toHaveText(`${NAMED}가 준비한 스킬 · 2개 더`)
   await expect(fold.getByTestId('skill-pack-title')).toHaveText(['회사 소개서', '홍보 영상'])
   // 접기, open again, the rest in: the fold is gone
   await page.getByTestId('skill-catalog-fold').click()

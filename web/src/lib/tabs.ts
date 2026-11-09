@@ -54,3 +54,11 @@ export function pageTitleKey(path: string): MessageKey | null {
 export function aiName(t: (key: MessageKey) => string): string {
   return PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.shortName
 }
+
+/** `{product}` for copy that sits beside the AI's name ("트리나에게 묻기"): the ready-made skills ("트리나가 준비한 스킬"),
+ * who made them, and the invite message. Where the product is named after its AI the UI calls it by that name in each
+ * language (as aiName), never by its full name in one place and the AI's in the next; else the product's own
+ * name. */
+export function namedProduct(t: (key: MessageKey) => string): { product: string } {
+  return { product: PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName }
+}

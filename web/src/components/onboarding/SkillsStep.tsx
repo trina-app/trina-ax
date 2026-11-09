@@ -33,6 +33,7 @@ import { api, API, errorText } from '../../lib/api'
 import { answersFileInputs, isDesktop } from '../../lib/desktop'
 import { canPickHandle, canPickInput, droppedFolder, fromFiles, pickClaudeFolder, scanFolder, type ScanDir } from '../../lib/skillScan'
 import { useLocale, useT } from '../../i18n'
+import { namedProduct } from '../../lib/tabs'
 import { holdToasts, toast, type Toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { CONNECTOR_NAME, CopyLine } from '../integrations/AiAppConnect'
@@ -438,7 +439,7 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
   } else if (rows.length) {
     keptPart = (
       <section className="space-y-1" aria-labelledby="skills-packs-title" data-testid="skill-packs">
-        <h3 id="skills-packs-title" className="text-sm font-semibold text-ink">{t('skills.catalog.title')}</h3>
+        <h3 id="skills-packs-title" className="text-sm font-semibold text-ink">{t('skills.catalog.title', namedProduct(t))}</h3>
         <PackRows
           items={rows}
           checked={checked}

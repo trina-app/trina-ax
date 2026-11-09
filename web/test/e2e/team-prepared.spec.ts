@@ -1,12 +1,15 @@
 // What a new member sees first (docs/DECISIONS.md "W6.3"; components/onboarding/TeamPrepared.tsx, GET /api/skills/
 // examples), at 1440 and 390:
 // - a member whose team has the four kept skills and files: "팀에 준비된 것" with three skill rows, "팀 스킬 1개 더" and the
-//   files row (the brand folder not counted); one filled button; 자연스러운 글 fills the box with "/humanizer …:"; another
-//   skill's form over Home and back; 예시; 물어보기 fills the box; on a phone the row's tap and 예시 its own target;
+//   files row (the brand folder not counted); one filled button; 자연스러운 글 fills the box with "/humanizer …:" with the
+//   caret after it (typing or pasting next goes after the command; alone it does not send and the box says to paste the
+//   text); another skill's form over Home and back; 예시; 물어보기 fills the box with the folder by its name; on a phone
+//   the row's tap (it says 써 보기) and 예시 its own target;
 // - a member on a team with nothing, and one outside the team group (a single-use invite): "이렇게 시작해 보세요" and one
-//   filled question (the profile's when one is saved);
+//   filled question (the profile's when one is saved, else what the AI can do for the team: never a path);
 // - a member who chatted before: the skills still show (the files row does not) until they run a team skill;
-// - the owner's own first Home: the block without a filled button; an empty team: "스킬 넣기 · 팀 파일 넣기";
+// - the owner's own first Home: the block without a filled button; an empty team: "스킬 넣기 · 팀 파일 넣기" (팀 스킬 with
+//   the ready-made skills unfolded); the goal card of an empty team someone joined: [스킬 넣기] first, [다시 보내기] quiet;
 // - the invite step (5/5) of an empty team: "지금 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기", the way to 내
 //   스킬 and back to 초대, hidden while "이 사람이 팀장이에요" is ticked; gone once the team has a skill.
 import { expect, test, type Page } from '@playwright/test'
@@ -69,6 +72,10 @@ for (const width of [1440, 390] as const) {
       if (phone) {
         await expect(filled(page)).toHaveCount(0)
         await expect(rows.first()).toHaveAttribute('data-primary', 'true')
+        // each row says what its tap does
+        await expect(rows.first().getByTestId('team-prepared-try-label')).toHaveText('써 보기')
+        await expect(rows.first().getByTestId('team-prepared-try-label')).toBeVisible()
+        await expect(rows.nth(1).getByTestId('team-prepared-try-label')).toBeVisible()
         // 예시 is its own 44px target at the row's end
         const box = await rows.nth(1).getByTestId('team-prepared-example').boundingBox()
         expect(box!.height).toBeGreaterThanOrEqual(44)
@@ -78,10 +85,22 @@ for (const width of [1440, 390] as const) {
         await expect(rows.first().getByTestId('team-prepared-try')).toHaveClass(/(^|\s)bg-accent(\s|$)/)
         await expect(block(page).getByTestId('team-prepared-files')).toContainText('Acme')
       }
-      // 자연스러운 글: the box, no form
+      // 자연스러운 글: the box, no form; alone it does not go, and the box says what to add
+      const box = page.getByTestId('composer-input')
+      const ASK = '/humanizer 아래 글을 자연스럽게 다듬어 줘:\n'
       await rows.first().getByTestId('team-prepared-try').click()
-      await expect(page.getByTestId('composer-input')).toHaveValue('/humanizer 아래 글을 자연스럽게 다듬어 줘:\n')
+      await expect(box).toHaveValue(ASK)
       await expect(page.getByTestId('skill-form')).toHaveCount(0)
+      await expect(page.getByTestId('composer-waits')).toHaveText('다듬을 글을 붙여 넣어 주세요')
+      await expect(page.getByTestId('send')).toBeDisabled()
+      // the caret after the request: what the person pastes or types next follows the command
+      await expect(box).toBeFocused()
+      expect(await box.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd, el.value.length])).toEqual([ASK.length, ASK.length, ASK.length])
+      await page.keyboard.insertText('회의 결과를 공유드립니다.')
+      await page.keyboard.type(' 감사합니다')
+      await expect(box).toHaveValue(`${ASK}회의 결과를 공유드립니다. 감사합니다`)
+      await expect(page.getByTestId('composer-waits')).toHaveCount(0)
+      await expect(page.getByTestId('send')).toBeEnabled()
       // 카드뉴스: its form over Home; ✕ comes back to the block
       await rows.nth(1).getByTestId('team-prepared-try').click()
       const dialog = page.getByRole('dialog')
@@ -97,9 +116,14 @@ for (const width of [1440, 390] as const) {
       await expect(page.getByTestId('skill-example-image')).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('skill-example')).toHaveCount(0)
-      // 물어보기: the question in the box, not sent
+      // 물어보기: the question in the box, not sent; the folder by its name, the left-out folders in words; the caret after it
       await block(page).getByTestId('team-prepared-ask').click()
-      await expect(page.getByTestId('composer-input')).toHaveValue(`${FOLDER} 폴더의 파일 이름과 종류만 보고(브랜드, skills 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘`)
+      const asked = 'Acme 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 내가 먼저 보면 좋을 것 3개를 골라 줘'
+      await expect(box).toHaveValue(asked)
+      await expect(box).toBeFocused()
+      await page.keyboard.type('!')
+      await expect(box).toHaveValue(`${asked}!`)
+      await expect(page.getByTestId('composer-waits')).toHaveCount(0)
       await expect(page).toHaveURL(/\/$/)
       // 팀 스킬 1개 더 › 팀 스킬
       await block(page).getByTestId('team-prepared-more').click()
@@ -113,10 +137,14 @@ for (const width of [1440, 390] as const) {
       await expect(block(page)).toHaveAttribute('data-state', 'ready')
       await expect(block(page).getByRole('heading')).toHaveText('이렇게 시작해 보세요')
       const ready = block(page).getByTestId('team-prepared-ready')
-      await expect(ready).toHaveText('users/bob 폴더에 어떤 파일이 있는지 정리해 줘')
+      const START = '우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘'
+      await expect(ready).toHaveText(START)
+      // the question fits its button (a phone wraps it; it ran past the button's edge before)
+      expect(await ready.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
       await expect(filled(page)).toHaveCount(1)
       await ready.click()
-      await expect(page.getByTestId('composer-input')).toHaveValue('users/bob 폴더에 어떤 파일이 있는지 정리해 줘')
+      await expect(page.getByTestId('composer-input')).toHaveValue(START)
+      await expect(page.getByTestId('send')).toBeEnabled()
       // a single-use invite: outside the team group, whose files exist; a saved profile
       await reset(page)
       await prepare(page, { files: true, outside: true, profile: true })
@@ -158,8 +186,11 @@ for (const width of [1440, 390] as const) {
       await expect(block(page).getByTestId('team-prepared-ready')).toHaveCount(0)
       await expect(block(page).getByTestId('team-prepared-add')).toHaveText('스킬 넣기 · 팀 파일 넣기')
       await expect(filled(page)).toHaveCount(0)
+      // 팀 스킬 with the ready-made skills unfolded
       await block(page).getByTestId('team-prepared-add-skills').click()
-      await expect(page).toHaveURL(/\/skills$/)
+      await expect(page).toHaveURL(/\/skills\?catalog=open$/)
+      await expect(page.getByTestId('skill-catalog-toggle')).toHaveAttribute('aria-expanded', 'true')
+      await expect(page.getByTestId('skill-pack-row')).toHaveCount(4)
       // with the skills in
       await reset(page)
       await prepare(page, { skills: true, files: true })
@@ -209,5 +240,35 @@ test('the invite step of an empty team: one line, the way to 내 스킬 and back
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await expect(page.getByTestId('team-link-message')).toBeVisible()
   await expect(line).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('the goal card of an empty team someone joined: skills come first ([스킬 넣기], filled, opens the catalog), [다시 보내기] stays quiet', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  const start = Date.now() - 86_400_000
+  await call(page, 'POST', '/__test/team-goal', { goal: {
+    state: 'open', target: 3, days: 7, startedAt: new Date(start).toISOString(), endsAt: new Date(start + 7 * 86_400_000).toISOString(), daysLeft: 6,
+    skill: null, reachedAt: null, joined: 1, waiting: { first: '민지', more: 0 },
+  } })
+  await page.goto('/')
+  const card = page.getByTestId('team-goal')
+  await expect(card.getByTestId('team-goal-next')).toHaveText('민지님이 들어왔어요. 팀 스킬을 넣으면 같이 써 볼 수 있어요.')
+  await expect(card).not.toContainText('써 보기 전')
+  // one filled button, [스킬 넣기]; [다시 보내기] beside it, not filled
+  await expect(card.locator('button.bg-accent')).toHaveCount(1)
+  await expect(card.getByTestId('team-goal-add-skills')).toHaveClass(/(^|\s)bg-accent(\s|$)/)
+  await expect(card.getByTestId('team-goal-resend')).toBeVisible()
+  await expect(card.getByTestId('team-goal-resend')).not.toHaveClass(/(^|\s)bg-accent(\s|$)/)
+  await card.getByTestId('team-goal-add-skills').click()
+  await expect(page).toHaveURL(/\/skills\?catalog=open$/)
+  await expect(page.getByTestId('skill-catalog-toggle')).toHaveAttribute('aria-expanded', 'true')
+  // a skill in: the card goes back to the goal's own line and button
+  await call(page, 'POST', '/api/onboarding/packs/work/install', { skills: ['humanizer'] })
+  await page.goto('/')
+  await expect(card.getByTestId('team-goal-next')).toHaveText('민지님이 들어왔어요. 팀 스킬은 아직 써 보기 전이에요.')
+  await expect(card.getByTestId('team-goal-add-skills')).toHaveCount(0)
+  await expect(card.getByTestId('team-goal-resend')).toHaveClass(/(^|\s)bg-accent(\s|$)/)
   expect(realErrors(errors)).toEqual([])
 })
