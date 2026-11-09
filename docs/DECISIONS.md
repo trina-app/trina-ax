@@ -15837,6 +15837,23 @@ page, no migration. Placement: Team AX core (Home, the skills routes, onboarding
 - Version impact: **minor** (a new endpoint and a visible change on a member's first screen and the invite step; no data
   change).
 
+## 알림 미리보기 — the message's first line in a room notification (feat/notification-preview, 2026-11-09)
+
+- **Decision:** a room notification on a device shows the message's first line as its body, behind a per-person switch
+  `NotificationPreferences.messagePreview` (Settings › Notifications › 메시지 미리보기 표시), **on by default**, as
+  Slack, KakaoTalk and WhatsApp do. This amends "알림함의 대화 알림" and "아이폰 알림의 이름", which said a push never
+  shows the text. Off gives the old behaviour exactly.
+- **Where the line comes from:** never the push payload. The push gateway still gets ids only. The browser's service
+  worker reads `room.preview` from its signed-in `GET /api/notifications/:id`; the iPhone extension reads `body` from
+  `POST /api/push/devices/:id/label`; the desktop app takes it from the `room.message` event it already has
+  (`RoomAlertSettings.messagePreview` from `GET /api/rooms` says whether to). All three use the Inbox's rule
+  (rooms/inbox.ts previewLine: the first line with text, plain, at most 200 characters).
+- **Never a line:** a private message (an @트리나 answer only the asker sees), a message with only files (''), a
+  notice the person may no longer read (`roomNoticeOut` returns null, as before), the AI-waits notice.
+- **Why default on:** without the text people open the app for every message to see if it matters; the lock-screen
+  risk is the person's choice to make, and the switch is one tap away.
+- Migration 275 (additive, reader 1): `notification_preferences.message_preview INTEGER NOT NULL DEFAULT 1`.
+
 ## Transparent pictures keep their transparency in thumbnails (fix/transparent-thumbnails, 2026-11-09)
 
 A bug the owner saw: a red seal stamp (a PNG with a transparent background) sent in a team room showed on a black

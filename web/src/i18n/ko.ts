@@ -3539,6 +3539,8 @@ export const ko = {
   "notifications.roomLevel.none": "받지 않음",
   "notifications.roomThreadReplies": "내가 참여한 스레드의 답글",
   "notifications.roomThreadRepliesDesc": "내가 쓰거나 답했거나 멘션된 스레드에 답글이 오면 알려요.",
+  "notifications.messagePreview": "메시지 미리보기 표시",
+  "notifications.messagePreviewDesc": "알림에 메시지 첫 줄을 보여줘요. 끄면 누가 어디에 썼는지만 보여줘요.",
   "notifications.quiet": "방해 금지 시간",
   "notifications.quietDesc": "이 시간에는 푸시도 소리도 없이 조용히 쌓여요. 팀 시간대({tz}) 기준이에요.",
   "notifications.quietFrom": "시작 시간",

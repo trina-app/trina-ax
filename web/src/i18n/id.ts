@@ -3540,6 +3540,8 @@ export const id: Record<MessageKey, string> = {
   "notifications.roomLevel.none": "Tidak ada",
   "notifications.roomThreadReplies": "Balasan di utas yang kamu ikuti",
   "notifications.roomThreadRepliesDesc": "Saat utas yang kamu mulai, kamu balas, atau tempat kamu disebut mendapat balasan.",
+  "notifications.messagePreview": "Tampilkan pratinjau pesan",
+  "notifications.messagePreviewDesc": "Notifikasi menampilkan baris pertama pesan. Matikan untuk hanya menampilkan siapa yang menulis dan di mana.",
   "notifications.quiet": "Jangan ganggu",
   "notifications.quietDesc": "Tanpa push dan suara pada jam ini; semuanya menunggu dengan tenang. Menurut zona waktu tim ({tz}).",
   "notifications.quietFrom": "Jam mulai",

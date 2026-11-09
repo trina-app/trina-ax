@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ROOM_REACTIONS, ROOM_REACTION_NAMES } from '@mycel/shared/api'
 import { notificationsOf } from '../../server/src/notifications/service'
+import { savePreferences } from '../../server/src/notifications/preferences'
 import { pushPathOf } from '../../server/src/notifications/push-events'
 import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { newId } from '../../server/src/db'
@@ -306,7 +307,7 @@ test("a read answers my badge and whether a followed thread's mention is still u
   expect(await mia.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })).toMatchObject({ unreadCount: 0, mentioned: false })
 })
 
-test('a thread notice opens its thread (push path and the notice), names who wrote it, no text in the notice a push opens; a deleted reply takes it', async () => {
+test('a thread notice opens its thread (push path and the notice), names who wrote it, text in the notice a push opens only with the message preview on; a deleted reply takes it', async () => {
   const { mia, nora, send, reply, unreadNotices } = await setup()
   const n = notificationsOf(h.ctx)
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
@@ -317,7 +318,9 @@ test('a thread notice opens its thread (push path and the notice), names who wro
   const [notice] = unreadNotices(nora.id)
   expect(notice).toMatchObject({ event_type: 'room.dm', source_id: r.id })
   expect(pushPathOf(h.ctx, 'room.dm', notice!.id)).toBe(`/rooms/${dm.id}/t/${root.id}`)
-  // the single notice a push opens names who and where, never the text (only the Inbox's list has its first line)
+  // the single notice a push opens names who and where, and the first line only while the message preview is on
+  expect(n.get(nora.id, notice!.id).room?.preview).toBe('LOCK SCREEN MUST NOT SHOW THIS reply')
+  savePreferences(h.ctx.db, nora.id, { messagePreview: false })
   const item = n.get(nora.id, notice!.id)
   expect(item).toMatchObject({ link: 'room', room: { id: dm.id, from: 'MIA', thread: root.id, kind: 'dm', reason: 'reply', message: r.id } })
   expect(JSON.stringify(item)).not.toContain('LOCK SCREEN')

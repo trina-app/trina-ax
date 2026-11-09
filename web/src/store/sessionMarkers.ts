@@ -20,13 +20,13 @@
 //    own (native) badge.
 import { create } from 'zustand'
 import { useMemo } from 'react'
-import { API, plainLabel, type Chat, type Room, type ServerEvent } from '@mycel/shared/api'
+import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEvent } from '@mycel/shared/api'
 import { api } from '../lib/api'
 import { desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
-import { roomTitle, roomWantsMe } from '../lib/rooms'
+import { plainLine, roomTitle, roomWantsMe } from '../lib/rooms'
 import { attentionCount, markerOf, NOTIFY_DELAY_MS, stillWorthTelling, type MarkerReason } from '../lib/sessionMarkers'
 import { t, type MessageKey } from '../i18n'
 import { useChats, type OpenRequest } from './chats'
@@ -168,27 +168,36 @@ export function chatUpdated(ev: Extract<ServerEvent, { type: 'chat.updated' }>, 
 
 // ---------------- rooms ----------------
 type RoomWhy = 'ai' | 'room.mention' | 'room.dm'
-const pendingRoom = new Map<string, { timer: ReturnType<typeof setTimeout>; why: RoomWhy }>()
+const pendingRoom = new Map<string, { timer: ReturnType<typeof setTimeout>; why: RoomWhy; line?: string }>()
 /** the room is on screen in this window and the window is visible */
 const viewingHere = (roomId: string) => useSessionMarkers.getState().visible && useRooms.getState().openRoomId === roomId
 const titleOf = (r: Room) => roomTitle(r, { all: t('rooms.all'), gone: t('rooms.goneUser'), alone: t('rooms.groupAlone'), sep: t('rooms.nameSep'),
   names: (names, n) => (n > 0 ? t('rooms.groupNamesMore', { names, n }) : names) })
 
 const ROOM_WHY: Record<RoomWhy, MessageKey> = { ai: 'rooms.aiWaits', 'room.mention': 'rooms.mentionedYou', 'room.dm': 'rooms.newMessage' }
-function laterRoom(roomId: string, why: RoomWhy) {
+function laterRoom(roomId: string, why: RoomWhy, line?: string) {
   // one per room: the "?" wins over a message told in the same moment, a newer message replaces an older one
   const was = pendingRoom.get(roomId)
   if (was?.why === 'ai' && why !== 'ai') return
   if (was) clearTimeout(was.timer)
-  pendingRoom.set(roomId, { why, timer: setTimeout(() => { pendingRoom.delete(roomId); tellRoom(roomId, why) }, tellTiming.delayMs) })
+  pendingRoom.set(roomId, { why, line, timer: setTimeout(() => { pendingRoom.delete(roomId); tellRoom(roomId, why, line) }, tellTiming.delayMs) })
 }
-function tellRoom(roomId: string, why: RoomWhy) {
+/** The first line of a message as a notification on the computer says it (the server's push does the same, rooms/inbox.ts
+ * previewLine): only for a message the whole room sees, its first line with text, without Markdown marks, one plain
+ * line of at most 200 characters. '' for one with only files. */
+export function noticeLine(m: Pick<RoomMessage, 'body' | 'visibility'>): string {
+  if (m.visibility !== 'room') return ''
+  return plainLabel(m.body.split('\n').map((l) => plainLine(l).trim()).find(Boolean) ?? '', 200)
+}
+function tellRoom(roomId: string, why: RoomWhy, line?: string) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), its AI no longer waiting, or on screen here: nothing
   if (!r || viewingHere(roomId) || (why === 'ai' ? !r.aiWaits : !roomWantsMe(r, useRooms.getState().alerts?.threadReplies ?? true))) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
-  const body = t(ROOM_WHY[why])
+  // the message's first line while my "show message preview" is on (Settings › Notifications), else the generic line
+  const preview = why !== 'ai' && line && useRooms.getState().alerts?.messagePreview === true ? line : ''
+  const body = preview || t(ROOM_WHY[why])
   desktop()?.notify({ title, body, tag: `room-${roomId}`, open: `/rooms/${roomId}` })
   // a message rings the room sound here and the phone's own notification there; only the AI's "?" gets a toast
   if (why === 'ai' && sidebarHidden() && pageVisible()) toast({ level: 'info', text: title, detail: body, ms: 10_000, action: { label: t('marker.open'), primary: true, run: () => navigateTo(`/rooms/${roomId}`) } })
@@ -199,7 +208,7 @@ function tellRoom(roomId: string, why: RoomWhy) {
 export function roomMessage(ev: Extract<ServerEvent, { type: 'room.message' }>, meta: { replay: boolean }) {
   const why = ev.data.notice
   if (!why || meta.replay || !desktop() || viewingHere(ev.data.roomId)) return
-  laterRoom(ev.data.roomId, why)
+  laterRoom(ev.data.roomId, why, noticeLine(ev.data.message))
 }
 /** A room changed, before the rooms store applies it: its AI started waiting on me (a card of my question). */
 export function roomUpdated(ev: Extract<ServerEvent, { type: 'room.updated' }>, meta: { replay: boolean }) {

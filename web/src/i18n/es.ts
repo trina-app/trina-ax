@@ -3500,6 +3500,8 @@ export const es: Record<MessageKey, string> = {
   "notifications.roomLevel.none": "Nada",
   "notifications.roomThreadReplies": "Respuestas en hilos en los que participo",
   "notifications.roomThreadRepliesDesc": "Cuando responden en un hilo que inició, en el que respondió o donde lo mencionaron.",
+  "notifications.messagePreview": "Mostrar vista previa del mensaje",
+  "notifications.messagePreviewDesc": "Las notificaciones muestran la primera línea del mensaje. Desactívelo para mostrar solo quién escribió y dónde.",
   "notifications.quiet": "No molestar",
   "notifications.quietDesc": "Sin push ni sonidos en este horario; todo espera en silencio. Según la zona horaria del equipo ({tz}).",
   "notifications.quietFrom": "Hora de inicio",
