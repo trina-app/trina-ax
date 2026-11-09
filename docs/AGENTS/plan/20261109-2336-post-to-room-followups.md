@@ -47,7 +47,7 @@ unit tests in Docker.
 
 ## Result
 
-Built as planned (PR link added after it opens).
+Built as planned, in https://github.com/trina-app/trina-ax/pull/280.
 - The note's label is "내 이름으로 보일 한마디" (five languages); the tool's description and `note`'s say to write one
   only when the user asked for one or gave its words. `room`'s says it posts to the timeline in a side chat.
 - A first post the person deleted is not found again: the same text gets a new `n` and its own card (the room keeps the
