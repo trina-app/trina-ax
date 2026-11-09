@@ -17,6 +17,7 @@ import { opensWithoutServer, roomFileOpens, roomHwpPreview, roomNoPreview } from
 import { useSession } from '../../src/store/session'
 import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
 import { closeImageViewer, getImageViewer } from '../../src/lib/imageViewer'
+import { roomFileGone, type RoomsData } from '../../src/store/rooms'
 import { installDom, mount, removeDom } from './dom-host'
 import { BEN, CY, ME, message, room } from './rooms-fixtures'
 
@@ -114,9 +115,11 @@ test('a chip\'s name opens the file viewer, its icon downloads; a file with no p
     expect(open.textContent).toContain(en('common.preview'))
     expect(page.get('room-file-download').getAttribute('aria-label')).toBe(en('rooms.downloadFile', { name: 'acme-q4.pdf' }))
     await page.click(open)
-    // the viewer, not the side panel: the document read through the room, with who sent it
+    // the viewer, not the side panel: the document read through the room, with who sent it, where and its message
     expect(getSidePanel()).toBeNull()
-    expect(getImageViewer()?.entry.item).toMatchObject({ kind: 'file', name: 'acme-q4.pdf', file: { source: 'room', roomId: team.id, fileId: pdf.id }, sender: { kind: 'user', user: { id: BEN.id } } })
+    expect(getImageViewer()?.entry.item).toMatchObject({ kind: 'file', name: 'acme-q4.pdf', file: { source: 'room', roomId: team.id, fileId: pdf.id }, sender: { kind: 'user', user: { id: BEN.id } }, room: { roomId: team.id, fileId: pdf.id, messageId: m.id } })
+    // (no room in the store here: no place line)
+    expect(getImageViewer()?.entry.item).not.toHaveProperty('messageId')
     expect(getImageViewer()?.entry.item.card).toBeUndefined()
     // the ZIP: its card at once (nothing to read), with the download
     await page.click(chips[1]!.querySelector('[data-testid="room-file-open"]')!)
@@ -174,4 +177,27 @@ test('a Hangul file has a preview only while the HWP preview is on, within what 
       useSession.setState({ status })
     }
   }
+})
+
+test('a room file is gone once its message, as this window has it, is deleted or no longer has it; one not held is not known to be gone', () => {
+  const pdf = file('acme-q4.pdf')
+  const m = message({ roomId: team.id, seq: 1, author: BEN, body: 'see', files: [pdf] })
+  const reply = message({ roomId: team.id, seq: 2, author: BEN, body: 'and', files: [file('acme.md')], threadRootId: m.id })
+  const data = (messages: RoomMessage[], replies: RoomMessage[] = []): RoomsData => ({
+    rooms: [team], openRoomId: team.id,
+    timeline: { roomId: team.id, messages, nextCursor: null } as RoomsData['timeline'],
+    threadView: { roomId: team.id, rootId: m.id, root: m, replies } as unknown as RoomsData['threadView'],
+  })
+  expect(roomFileGone(data([m]), team.id, m.id, pdf.id)).toBe(false)
+  // deleted: the server empties its files and marks it
+  const deleted = { ...m, body: '', files: [], deletedAt: '2026-11-09T05:00:00.000Z' }
+  expect(roomFileGone({ ...data([deleted]), threadView: null }, team.id, m.id, pdf.id)).toBe(true)
+  // the file taken off it
+  expect(roomFileGone({ ...data([{ ...m, files: [] }]), threadView: null }, team.id, m.id, pdf.id)).toBe(true)
+  // a reply only the open thread holds
+  expect(roomFileGone(data([m], [reply]), team.id, reply.id, reply.files[0]!.id)).toBe(false)
+  expect(roomFileGone(data([m], [{ ...reply, files: [], deletedAt: '2026-11-09T05:00:00.000Z' }]), team.id, reply.id, reply.files[0]!.id)).toBe(true)
+  // an older page the timeline left behind (it went back to the newest), another room: not known, so not gone
+  expect(roomFileGone({ ...data([]), threadView: null }, team.id, m.id, pdf.id)).toBe(false)
+  expect(roomFileGone(data([m]), uuidv7(), m.id, pdf.id)).toBe(false)
 })

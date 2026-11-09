@@ -1,5 +1,6 @@
 // The image viewer: a picture clicked anywhere in the app opens over the whole window, like Slack (docs/DECISIONS.md
 // "One image viewer"). A name, chip or link still opens the side panel; a picture opens this, the panel's own picture too.
+// The one exception: a file chip in a room, DM, group chat or thread opens this too, as a document (the last point).
 // - The picture fits the window and is never drawn larger than itself to fit; its thumbnail shows at once and gives way
 //   to the original when that has loaded. Nothing is painted behind it: a transparent picture sits on the dark backdrop.
 // - Zoom: a click on the picture toggles fit and 100 % (2× for a small one) about the click; ⌘/Ctrl + wheel and a
@@ -36,12 +37,13 @@ import { formatDateTime } from '../lib/format'
 import { aiName } from '../lib/tabs'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAvatarOf, useNameOf } from '../store/people'
+import { roomFileGone, useRooms } from '../store/rooms'
 import { toast } from '../store/ui'
 import { Avatar } from './Avatar'
 import { AiFace } from './rooms/AiFace'
 import { Tooltip } from './Tooltip'
 import { useFocusTrap } from './ui'
-import { ViewerDocument } from './ViewerDocument'
+import { scrollsSideways, ViewerDocument } from './ViewerDocument'
 
 // ---------------- panes and pictures ----------------
 
@@ -54,15 +56,16 @@ export function ImageGroup({ children }: { children: ReactNode }) {
   return <GroupContext.Provider value={group}>{children}</GroupContext.Provider>
 }
 
-/** Who sent the pictures and files inside and when (a message), and where (a room's list), for the viewer's bar. What
- * is not given here comes from the ViewerMeta around it (a message's who and when inside its room's where). */
-export function ViewerMeta({ sender, at, where, children }: ViewerMetaValue & { children: ReactNode }) {
+/** Who sent the pictures and files inside and when (a message, and its id), and where (a room's list), for the viewer's
+ * bar. What is not given here comes from the ViewerMeta around it (a message's who and when inside its room's where). */
+export function ViewerMeta({ sender, at, where, messageId, children }: ViewerMetaValue & { children: ReactNode }) {
   const outer = useContext(MetaContext)
   const kind = sender?.kind ?? outer.sender?.kind
   const user = sender?.kind === 'user' ? sender.user : !sender && outer.sender?.kind === 'user' ? outer.sender.user : null
   const when = at === undefined ? outer.at : at
   const place = where === undefined ? outer.where : where
-  const value = useMemo<ViewerMetaValue>(() => ({ sender: kind === 'ai' ? { kind: 'ai' } : kind === 'user' ? { kind: 'user', user } : undefined, at: when, where: place }), [kind, user, when, place])
+  const message = messageId ?? outer.messageId
+  const value = useMemo<ViewerMetaValue>(() => ({ sender: kind === 'ai' ? { kind: 'ai' } : kind === 'user' ? { kind: 'user', user } : undefined, at: when, where: place, ...(message ? { messageId: message } : {}) }), [kind, user, when, place, message])
   return <MetaContext.Provider value={value}>{children}</MetaContext.Provider>
 }
 
@@ -204,18 +207,21 @@ function Viewer({ open }: { open: ViewerOpen }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const all = useMemo(() => (group ? group.list() : []), [group, version])
   // the one shown: its entry, or the same picture or file drawn anew (its message was drawn again)
-  const found = all.includes(entry) ? entry : all.find((e) => e.item.key === entry.item.key)
-  const cur = found ?? entry
-  const list = all.length ? all : [cur]
-  // a room's picture or file gone from its pane meanwhile (its message deleted): "no longer available", nothing of it
-  // drawn or downloaded; ← → still reach the ones around where it was
-  const gone = !!group && !found && !!cur.item.room
+  const cur = (all.includes(entry) ? entry : all.find((e) => e.item.key === entry.item.key)) ?? entry
+  const list = useMemo(() => (all.length ? all : [cur]), [all, cur])
+  // off the page (its message deleted, or an older page the timeline left): ← → reach the ones around where it was
   const [seen, setSeen] = useState<readonly ViewerEntry[]>([])
   const { index, prev, next } = stepTargets(list, cur, seen)
   useEffect(() => {
     if (index >= 0) setSeen(list)
   }, [index, list])
   const item = cur.item
+  // a room's picture or file whose message was deleted while it is open: "no longer available", nothing of it drawn or
+  // downloaded
+  const room = item.room
+  const gone = useRooms((s) => !!room?.messageId && roomFileGone(s, room.roomId, room.messageId, room.fileId))
+  // a document the read did not find: no download in the bar either (the card has none)
+  const [missing, setMissing] = useState<string | null>(null)
   // a document (or a card in place of the picture): no zoom, no gestures of the picture stage; the page scrolls
   const docMode = item.kind === 'file' || gone
 
@@ -512,8 +518,9 @@ function Viewer({ open }: { open: ViewerOpen }) {
       return
     }
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
-    // a field in a document (a sheet's, a frame's) keeps its own keys
-    if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return
+    // a field, a video or a sound in a document keeps its own keys, and so does a part of it that scrolls sideways (a
+    // wide sheet, a zoomed PDF): ← → scroll it, the edge arrows step
+    if (docMode && e.target instanceof HTMLElement && (e.target.closest('input, textarea, select, video, audio, [contenteditable=""], [contenteditable="true"]') || ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && stageRef.current && scrollsSideways(e.target, stageRef.current)))) return
     const k = e.key
     if (k === 'ArrowLeft' || k === 'ArrowRight') go(k === 'ArrowLeft' ? prev : next)
     // a document's + − 0 are the page's own (its own zoom is in its toolbar)
@@ -591,9 +598,10 @@ function Viewer({ open }: { open: ViewerOpen }) {
           onContextMenu,
         })}
         data-testid="image-viewer-stage"
+        data-viewer-stage=""
       >
         {docMode ? (
-          <ViewerDocument item={item} gone={gone} onSwipe={(dir) => go(dir === 'next' ? next : prev)} />
+          <ViewerDocument item={item} gone={gone} onSwipe={(dir) => go(dir === 'next' ? next : prev)} onMissing={() => setMissing(item.key)} />
         ) : (
           <>
             <div
@@ -685,7 +693,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
             <Copy size={18} />
           </BarButton>
         )}
-        {item.download && !gone && (
+        {item.download && !gone && missing !== item.key && (
           <BarButton label={t('common.download')} onClick={item.download} testId="image-viewer-download">
             <Download size={18} />
           </BarButton>

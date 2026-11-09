@@ -48,12 +48,17 @@ export interface ViewerItem {
   size?: number
   /** a document with no preview here (lib/preview.ts roomNoPreview): its card at once, nothing read */
   card?: 'unsupported' | 'large'
-  /** a file sent in a room: gone from the page while open (its message deleted), it shows "no longer available" */
-  room?: { roomId: string; fileId: string }
+  /** a file sent in a room and its message: once the message is deleted while it is open (store/rooms.ts
+   * roomFileGone), the viewer says it is no longer available */
+  room?: { roomId: string; fileId: string; messageId?: string }
 }
 
-/** The bar's who, when and where, from the message around a picture or file (ViewerMeta in ImageViewer.tsx). */
-export interface ViewerMetaValue { sender?: ViewerSender; at?: string | null; where?: string | null }
+/** The bar's who, when and where, from the message around a picture or file (ViewerMeta in ImageViewer.tsx), and the
+ * message it is in. */
+export interface ViewerMetaValue { sender?: ViewerSender; at?: string | null; where?: string | null; messageId?: string }
+
+/** The meta's parts that go on an item as they are (the message goes into `room`). */
+const shown = ({ messageId: _m, ...rest }: ViewerMetaValue) => rest
 
 export interface ViewerEntry {
   item: ViewerItem
@@ -148,8 +153,8 @@ export function roomItem(roomId: string, f: RoomFile, meta: ViewerMetaValue = {}
     height: f.height,
     download: () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name),
     href: drawable ? inline : null,
-    room: { roomId, fileId: f.id },
-    ...meta,
+    room: { roomId, fileId: f.id, ...(meta.messageId ? { messageId: meta.messageId } : {}) },
+    ...shown(meta),
   }
 }
 
@@ -169,8 +174,8 @@ export function roomFileItem(roomId: string, f: RoomFile, me: Pick<Me, 'server'>
     size: f.size,
     ...(card ? { card } : {}),
     download: () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name),
-    room: { roomId, fileId: f.id },
-    ...meta,
+    room: { roomId, fileId: f.id, ...(meta.messageId ? { messageId: meta.messageId } : {}) },
+    ...shown(meta),
   }
 }
 
@@ -187,14 +192,14 @@ export function attachmentItem(a: Attachment, meta: ViewerMetaValue = {}): Viewe
     height: a.height,
     download: () => startDownload(fileUrl(a.path), a.name),
     href: big || heic ? null : fileUrl(a.path, 'inline'),
-    ...meta,
+    ...shown(meta),
   }
 }
 
 /** A team picture in an answer: the picture on the page is the original already. */
 export function teamImageItem(path: string, name: string, meta: ViewerMetaValue = {}): ViewerItem {
   const inline = fileUrl(path, 'inline')
-  return { key: `team:${path}`, name, thumb: inline, original: inline, download: () => startDownload(fileUrl(path), name), href: inline, ...meta }
+  return { key: `team:${path}`, name, thumb: inline, original: inline, download: () => startDownload(fileUrl(path), name), href: inline, ...shown(meta) }
 }
 
 /** A picture in a message box, not sent yet: drawn from its own bytes; nothing to download or open. */

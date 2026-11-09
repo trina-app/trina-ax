@@ -237,7 +237,7 @@ Filled in step by step; the plan is done when c–e are.
 
 Built as planned without the right column (docs/DECISIONS.md "The room file viewer"). What differs or was found:
 - **Item kinds:** `ViewerItem` gained `kind: 'file'`, its source `file` (the side panel's `PreviewFile`), `size`, `card`
-  and `room: { roomId, fileId }`; not yet `messageId`, `rootId` or `threadable`, which step c adds with the column
+  and `room: { roomId, fileId, messageId }`; not yet `rootId` or `threadable`, which step c adds with the column
   (`ViewerMeta` per message is where they come from). The room's name comes through `ViewerMeta` too (`where`).
 - **The bar** has download, 패널에서 열기 (computers) and ✕; no ⋯ yet. 링크 복사 was left out: the app has room and
   message links (`?m=`), none that opens a file. 새 탭에서 열기 stays for pictures only. The time is the picture
@@ -248,8 +248,9 @@ Built as planned without the right column (docs/DECISIONS.md "The room file view
 - **Phones:** the bar never hides in document mode, ‹ › sit in it around "3 / 7" (the edge arrows would cover text), and
   a swipe steps where nothing under the finger scrolls sideways; picture mode is unchanged. Step e's sheet is still to
   come.
-- **Deleted while open** covers room photos too (the picture is no longer drawn), and ← → reach the nearest files still
-  on the page, from the list as last seen.
+- **Deleted while open** is read from the message in the rooms store (`roomFileGone`), not from the chip leaving the
+  page (the timeline goes back to its newest page on a resync); it covers room photos too, and ← → reach the nearest
+  files still on the page, from the list as last seen. The items carry `room.messageId` for it (step c uses it too).
 - **Shared answers:** a link to the attached copy still opens the side panel (a link, not a chip).
 - **How step c slots in:** the stage spans the window under the bar and the column is centred in it, so the right column
   (`RoomSideColumn`, 400 px) narrows the stage from the right (`right-[var(--viewer-col)]`, the edge arrow moving with

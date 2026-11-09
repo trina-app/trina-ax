@@ -374,7 +374,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       ) : null)}
       {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
       {/* the pictures in it say who sent them and when in the image viewer's bar */}
-      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt}>
+      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id}>
       {ai && !deleted ? (
         <>
           <Markdown text={m.body} className="min-w-0" openable={openable} />
@@ -701,7 +701,8 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
         <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
         <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
-        <span className="sr-only">{t('common.preview')}</span>
+        {/* what the name does: a preview (a file without one opens its card, named by its name alone) */}
+        {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
       <Tooltip label={t('common.download')}>
         <button type="button" onClick={download} aria-label={t('rooms.downloadFile', { name: f.name })} className="touch-hit inline-flex shrink-0 items-center justify-center rounded-r-xl pr-2.5 pl-1.5 text-faint hover:bg-hover hover:text-ink max-md:min-w-11 max-md:px-0" data-testid="room-file-download">
