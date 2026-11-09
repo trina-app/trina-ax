@@ -913,7 +913,7 @@ export class MockServer {
     const folder = s.path.endsWith('/SKILL.md') ? s.path.slice(0, -'/SKILL.md'.length) : s.path
     const levels: { to: { level: 'team' } | { level: 'personal' } | { level: 'group'; groupId: string } | { level: 'project'; projectId: string }; label: string }[] = [
       { to: { level: 'team' }, label: '팀 전체' },
-      ...this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id)).map((g) => ({ to: { level: 'group' as const, groupId: g.id }, label: `${g.name} 그룹` })),
+      ...this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id)).map((g) => ({ to: { level: 'group' as const, groupId: g.id }, label: `${g.name} 부서` })),
       ...this.projectRoots(u).map((r) => ({ to: { level: 'project' as const, projectId: r.p.id }, label: `${r.p.name} 프로젝트 채팅` })),
       { to: { level: 'personal' }, label: '나만' },
     ]
@@ -1053,6 +1053,8 @@ export class MockServer {
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
         ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
+        // the HWP preview, as hwpPreview below answers it: on unless the HWP Preview plugin is installed and turned off
+        ...(this.plugins.installed.some((p) => p.id === 'app.trina.hwp-preview' && !p.enabled) ? {} : { hwpPreview: true as const }),
         features: this.cloud
           ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
           : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
@@ -1340,8 +1342,8 @@ export class MockServer {
       const path = `${project?.folderPath ?? 'projects/x'}/skills/${name}/SKILL.md`
       const after = `---\nname: ${name}\ndescription: 견적 프로젝트용 견적 절차\n---\n1. 요청서를 읽어요\n2. 단가표로 금액을 계산해요\n`
       const wider = this.skillsFor(user).find((x) => x.name === name)
-      const where = wider ? (wider.personal ? '내 스킬' : wider.group ? `${wider.group.name} 그룹` : '팀 전체') : null
-      const fix = wider ? (wider.personal ? '내 것 고치기' : wider.group ? '그룹 것 고치기' : '팀 것 고치기') : ''
+      const where = wider ? (wider.personal ? '내 스킬' : wider.group ? `${wider.group.name} 부서` : '팀 전체') : null
+      const fix = wider ? (wider.personal ? '내 것 고치기' : wider.group ? '부서 것 고치기' : '팀 것 고치기') : ''
       const answer = await ask({
         kind: 'ask_user', origin: 'server', requestId: 'k2', allowText: false, multiple: false,
         question: `프로젝트 "${project?.name ?? ''}"의 스킬로 저장할까요? 이 프로젝트 채팅에서 AI가 따라요.\n\n${path} (새 프로젝트 스킬 "${name}")`,
@@ -2571,14 +2573,16 @@ export class MockServer {
       const all = [...kept, ...others]
       const skills = landing ? [...all.filter((x) => x.path === landing), ...all.filter((x) => x.path !== landing)] : all
       const tg = this.welcome?.teamGroup ?? null
-      const inGroup = !!tg && (c.user.role !== 'member' || c.user.groupIds.includes(tg.id) || !!this.groups.find((g) => g.id === tg.id)?.memberIds.includes(c.user.id))
+      // the team's home: shared/ (everyone) since docs/DECISIONS.md "Team folder basics", else the team group's folder
+      const home = tg ? tg.home ?? tg.folder : null
+      const inGroup = !!tg && (!!tg.home || c.user.role !== 'member' || c.user.groupIds.includes(tg.id) || !!this.groups.find((g) => g.id === tg.id)?.memberIds.includes(c.user.id))
       let teamFolder: { path: string; files: number; more: boolean; without: string[] } | null = null
-      if (tg && inGroup && this.files.get(tg.folder)?.type === 'folder' && this.access(tg.folder, c.user) !== 'none') {
-        const skip = [tg.brandFolder ?? `${tg.folder}/브랜드`, `${tg.folder}/skills`]
+      if (tg && home && inGroup && this.files.get(home)?.type === 'folder' && this.access(home, c.user) !== 'none') {
+        const skip = [tg.brandFolder ?? `${home}/브랜드`, ...(tg.home ? [] : [`${home}/skills`])]
         const system = /^(\.|~\$)|^(thumbs\.db|desktop\.ini)$/i
-        const docs = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && p.startsWith(`${tg.folder}/`) && !skip.some((k) => p === k || p.startsWith(`${k}/`))
-          && !p.slice(tg.folder.length + 1).split('/').some((seg) => system.test(seg)) && this.access(p, c.user) !== 'none').length
-        teamFolder = { path: tg.folder, files: Math.min(docs, 100), more: docs > 100, without: skip.map((k) => k.slice(tg.folder.length + 1)) }
+        const docs = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && p.startsWith(`${home}/`) && !skip.some((k) => p === k || p.startsWith(`${k}/`))
+          && !p.slice(home.length + 1).split('/').some((seg) => system.test(seg)) && this.access(p, c.user) !== 'none').length
+        teamFolder = { path: home, files: Math.min(docs, 100), more: docs > 100, without: skip.map((k) => k.slice(home.length + 1)) }
       }
       const teamNames = mine.filter((x) => x.path.startsWith('skills/')).map((x) => x.name.toLowerCase())
       const ran = (text: string) => { const t = text.trim().toLowerCase(); return teamNames.some((n) => t === `/${n}` || t.startsWith(`/${n} `) || t.startsWith(`/${n}\n`)) }
@@ -2669,8 +2673,8 @@ export class MockServer {
       return { progress: this.welcome }
     },
     // every team's start (server/src/onboarding/welcome.ts): no pack (docs/DECISIONS.md "W6": the record with no paths),
-    // and the team's group (named after the team, the owner in it) with groups/<name>/, its meeting notes folder and its
-    // brand folder, once
+    // and the team's group (named after the team, the owner in it) with groups/<name>/, once; the meeting notes and brand
+    // folders in shared/ (`home`, docs/DECISIONS.md "Team folder basics"); a row recorded before keeps them in the group's
     setupWelcomeTeam: (c) => {
       const at = now()
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
@@ -2682,13 +2686,13 @@ export class MockServer {
         const name = !taken(team) ? team : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team} ${n}`).find((n) => !taken(n)) ?? `${team} ${Date.now()}`
         const g = (this.handlers.createGroup!({ ...c, body: { name, memberIds: [c.user.id] } }) as { body: Group }).body
         const folder = `groups/${g.name}`
-        const notesFolder = `${folder}/${NOTES_FOLDER[this.settings.defaultLocale as keyof typeof NOTES_FOLDER] ?? NOTES_FOLDER.en}`
-        for (const d of ['groups', folder, notesFolder]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        p.teamGroup = { id: g.id, name: g.name, folder, notesFolder }
+        const notesFolder = `shared/${NOTES_FOLDER[this.settings.defaultLocale as keyof typeof NOTES_FOLDER] ?? NOTES_FOLDER.en}`
+        for (const d of ['groups', folder, 'shared', notesFolder]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+        p.teamGroup = { id: g.id, name: g.name, folder, notesFolder, home: 'shared' }
       }
       // the brand folder (docs/DECISIONS.md "N"), also for a group recorded before it
       if (!p.teamGroup.brandFolder) {
-        const brandFolder = `${p.teamGroup.folder}/${this.localized(BRAND_FOLDER)}`
+        const brandFolder = `${p.teamGroup.home ?? p.teamGroup.folder}/${this.localized(BRAND_FOLDER)}`
         this.files.set(brandFolder, this.files.get(brandFolder) ?? { type: 'folder', mtime: at })
         p.teamGroup = { ...p.teamGroup, brandFolder }
       }
@@ -2733,7 +2737,7 @@ export class MockServer {
       if (c.user.role === 'member') fail('forbidden', 403)
       const path = c.body.path as string
       const p = this.welcome
-      if (!p || p.steps.files === 'done' || !path.startsWith('groups/') || this.files.get(path)?.type !== 'file') return { recorded: false }
+      if (!p || p.steps.files === 'done' || !(path.startsWith('groups/') || path.startsWith('shared/')) || this.files.get(path)?.type !== 'file') return { recorded: false }
       p.steps.files = 'done'
       this.welcome = this.welcomeSaved(p, now())
       return { recorded: true }
@@ -3615,7 +3619,7 @@ export class MockServer {
             landing: null,
           }
           const group = b.group ?? null
-          if (group && !writes(c.user, group)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          if (group && !writes(c.user, group)) fail('validation', 400, '이 부서의 스킬 폴더에 넣을 수 있는 부서 멤버만 할 수 있어요.')
           const r: Row = { share, owner: c.user.id, reads: 0, group }
           rows().push(r)
           return forCaller(r, view(r), c.user)
@@ -3630,7 +3634,7 @@ export class MockServer {
         setSkillShareTarget: (c) => {
           const r = rows().find((x) => x.share.id === c.params.id && x.owner === c.user.id) ?? fail('not_found', 404)
           const to = (c.body as { group: string | null }).group
-          if (to && !writes(c.user, to)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          if (to && !writes(c.user, to)) fail('validation', 400, '이 부서의 스킬 폴더에 넣을 수 있는 부서 멤버만 할 수 있어요.')
           if (r.share.candidates.some((x) => x.applied)) fail('conflict', 409, '이미 일부를 넣은 공유 제안은 보낼 곳을 바꿀 수 없어요.')
           r.group = to
           return forCaller(r, read(r), c.user)

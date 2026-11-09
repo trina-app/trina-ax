@@ -182,7 +182,7 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
         <p className="text-sm text-muted">{t('contribute.found', { n: found.skills.length })}</p>
         {found.skills.length > 0 && (
           <fieldset className="min-w-0 rounded-xl border border-line" disabled={sending}>
-            <legend className="sr-only">{t('contribute.title')}</legend>
+            <legend className="sr-only">{t('skills.catalog.bring')}</legend>
             <ul className="max-h-72 overflow-y-auto">
               {found.skills.map((s, i) => {
                 const head = skillHead(s)
@@ -258,7 +258,7 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
   }
 
   return (
-    <Modal open onClose={onClose} width={520} title={t('contribute.title')}>
+    <Modal open onClose={onClose} width={520} title={t('skills.catalog.bring')}>
       <div className="space-y-5" data-testid="contribute-sheet" data-state={sent ? 'sent' : found ? 'list' : 'pick'}>
         {folderInput}
         {body}

@@ -14,7 +14,8 @@
 // Under the lists (docs/DECISIONS.md "W6"; FLOW-v6 §4.2, §6): for owners and admins, the kept skills the team does not
 // have, folded in one line ("트리나가 준비한 스킬 · N개 더": components/skills/PackRows.tsx), nothing pre-checked,
 // [팀에 넣기 · n개] (the rows then move up into the list); hidden while the search box has text, absent when nothing is
-// missing, and a skill shipped later only raises its count (no notice, dot or prompt). Then "내 스킬 가져오기" for
+// missing, and a skill shipped later only raises its count (no notice, dot or prompt). "스킬 넣기" (Home's block, the
+// empty-team line, the goal card) comes with it unfolded (/skills?catalog=open, lib/nav.ts SKILL_CATALOG). Then "내 스킬 가져오기" for
 // everyone on a computer: owners and admins pick a folder and apply it (skills/BringSkillsSheet.tsx), members suggest
 // (skills/ContributeSheet.tsx: 스킬로 제안); on a phone one plain line says it is done on a computer. Nothing adds a skill
 // by itself (docs/DECISIONS.md "DS3").
@@ -26,6 +27,7 @@ import { api, API } from '../lib/api'
 import { answersFileInputs } from '../lib/desktop'
 import { canPickHandle, canPickInput } from '../lib/skillScan'
 import { navigateTo } from '../lib/nav'
+import { namedProduct } from '../lib/tabs'
 import { parentPath } from '../lib/paths'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useT } from '../i18n'
@@ -63,8 +65,9 @@ export const skillSubfolder = (path: string) => {
  * menu shows the same). Never the folder name turned into words. */
 const skillShown = (s: Pick<SkillInfo, 'name' | 'title'>) => { const title = s.title?.trim(); return title && title !== s.name ? title : null }
 
-/** `query`: the page's search box, matched against the name and the description. */
-export function AvailableSkills({ query }: { query: string }) {
+/** `query`: the page's search box, matched against the name and the description. `catalogOpen`: the ready-made skills'
+ * fold starts open ("스킬 넣기" led here). */
+export function AvailableSkills({ query, catalogOpen }: { query: string; catalogOpen?: boolean }) {
   const t = useT()
   const [items, setItems] = useState<Skill[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -93,7 +96,7 @@ export function AvailableSkills({ query }: { query: string }) {
   }, [attempt])
   // never "no skills" for a list that did not load
   if (failed && !items) return <ErrorNote onRetry={() => { setFailed(false); setAttempt((n) => n + 1) }}>{t('error.network')}</ErrorNote>
-  return <AvailableSkillsList items={items} query={query} />
+  return <AvailableSkillsList items={items} query={query} catalogOpen={catalogOpen} />
 }
 
 /** The groups of `items`' group skills, one each, by name (letter case ignored) then id: the server's order
@@ -113,7 +116,7 @@ export function skillProjects(items: readonly Skill[]): { id: string; name: stri
 /** The list without the data load (null: still loading). The team's skills, then one section for each of the person's
  * groups that has skills (titled with the group's current name), then one for each project with skills of its own, then
  * the personal skills. */
-export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | null; query?: string }) {
+export function AvailableSkillsList({ items, query = '', catalogOpen = false }: { items: Skill[] | null; query?: string; catalogOpen?: boolean }) {
   const t = useT()
   const admin = isAdmin(useMe())
   const [running, setRunning] = useState<Skill | null>(null)
@@ -123,7 +126,7 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   // the kept skills the team lacks and the way to bring one's own, under the lists; the catalog hides while searching
   const below = (
     <div className="space-y-1" data-testid="skill-below">
-      {admin && !q && <PackCatalogFold />}
+      {admin && !q && <PackCatalogFold startOpen={catalogOpen} />}
       <BringOwnLine />
     </div>
   )
@@ -162,10 +165,10 @@ function usePicksFolders(): boolean {
 /** "트리나가 준비한 스킬 · N개 더" (owners and admins): the kept skills the team does not have, folded; open, nothing is
  * checked, and [팀에 넣기 · n개] installs what is (the brand action runs first on the server). The rows that went in
  * leave this list for the one above. Absent when nothing is missing; the line says so when the catalog does not load. */
-function PackCatalogFold() {
+function PackCatalogFold({ startOpen = false }: { startOpen?: boolean }) {
   const t = useT()
   const { catalog, failed, reload } = usePackCatalog()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(startOpen)
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<PackInstallOutcome | null>(null)
@@ -197,7 +200,7 @@ function PackCatalogFold() {
         onClick={() => setOpen((x) => !x)}
         data-testid="skill-catalog-toggle"
       >
-        <span className="min-w-0 flex-1">{t('skills.catalog.more', { n: missing.length })}</span>
+        <span className="min-w-0 flex-1">{t('skills.catalog.more', { ...namedProduct(t), n: missing.length })}</span>
         <ChevronDown size={16} className={clsx('shrink-0 text-faint transition', open && 'rotate-180')} aria-hidden />
       </button>
       {open && (

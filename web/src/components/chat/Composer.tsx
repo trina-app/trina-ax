@@ -21,6 +21,10 @@
 // (`queueing` off), someone else's turn holds the send with a line above the text (`hold`, the text stays), files come
 // from the team folder only (`teamFilesOnly`: no upload from this computer, and the menu says why), and a phone keeps
 // the line about who sees the chat under the box (`phoneFooter`).
+// Text put in the box for the person (a chosen suggestion, 자연스러운 글's request, a recovery draft) is focused with the
+// caret at its end, so what they type or paste next follows it (a caret left at the start put a pasted text before
+// "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
+// alone: send waits and a quiet line under the box says what to add.
 import clsx from 'clsx'
 import { ArrowUp, Camera, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
@@ -44,6 +48,7 @@ import { ImageGroup } from '../ImageViewer'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
+import { useFolderWords } from '../../lib/folderLabels'
 import { useMe } from '../../store/session'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton, useMediaQuery } from '../ui'
@@ -100,6 +105,7 @@ export default function Composer({
   queueing = true,
   teamFilesOnly,
   projectId,
+  waitsFor,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -141,8 +147,12 @@ export default function Composer({
   teamFilesOnly?: string
   /** the chat's project: its own skills are in the "/" menu (docs/DECISIONS.md "Project skills") */
   projectId?: string | null
+  /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
+   * …:"): while the box holds only `text` (and no file), nothing is sent and `hint` shows under the box */
+  waitsFor?: { text: string; hint: string }
 }) {
   const t = useT()
+  const words = useFolderWords()
   const locale = useLocale()
   const me = useMe()
   const userId = me?.user.id ?? '-'
@@ -230,7 +240,8 @@ export default function Composer({
       // Do not race a send or voice transcription that will replace the current text.
       if (running || sending || voice.busy) return
       setText((current) => mergeDraft(current, request))
-      taRef.current?.focus()
+      // once the merged text is in the box: the caret after it
+      requestAnimationFrame(() => focusAtEnd(taRef.current))
     },
     focus() {
       taRef.current?.focus()
@@ -258,8 +269,9 @@ export default function Composer({
     // (and again when the box comes back after a recording: the bar stood in its place)
   }, [text, hint, textSize, voice.recording, behindPanel])
 
+  // a box opened with text in it (a chosen suggestion): the caret after the text, never before it
   useEffect(() => {
-    if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
+    if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) focusAtEnd(taRef.current)
   }, [autoFocus])
 
   // an upload / attach finishing goes to whichever composer shows this draft by then (or stays in the stash)
@@ -381,11 +393,14 @@ export default function Composer({
 
   const uploading = files.some((f) => f.status === 'uploading')
   const ready = files.filter((f) => f.status === 'done')
+  // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go, but not one
+  // whose upload failed, which is not sent)
+  const waiting = !!waitsFor && !answering && !ready.length && text.trim() === waitsFor.text.trim()
   // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done. An answer to
   // the AI's question is the text alone (an upload in progress does not hold it up).
   const canSend = answering
     ? !sending && !voice.busy && text.trim().length > 0
-    : !hold && !(running && !queueing) && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
+    : !hold && !waiting && !(running && !queueing) && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
@@ -673,7 +688,7 @@ export default function Composer({
                       <span className="max-w-[180px] truncate font-medium">{f.name}</span>
                     )}
                     {/* the team folder it is in, visible without hovering (phones) */}
-                    {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
+                    {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(folderOf(f.attachment?.path ?? f.path ?? '')) || t('files.root')}</span>}
                   </span>
                   {/* both stay through the whole upload, so a screen reader hears each change */}
                   <span className="flex items-center">
@@ -851,7 +866,9 @@ export default function Composer({
           {!phone && attachControls}
         </div>
         {/* the note under the box: computers only (a phone keeps the bottom for the box and the keyboard) */}
-        {footer && <p className="hidden min-w-0 text-center text-micro break-keep text-faint md:block" data-testid="composer-footer">{footer}</p>}
+        {waiting ? (
+          <p role="status" className="hidden min-w-0 text-center text-micro break-keep text-muted md:block" data-testid="composer-waits">{waitsFor?.hint}</p>
+        ) : footer && <p className="hidden min-w-0 text-center text-micro break-keep text-faint md:block" data-testid="composer-footer">{footer}</p>}
         <div className="flex flex-1 basis-0 items-center justify-end">
           {onEngine && (
             <div className="relative">
@@ -877,7 +894,11 @@ export default function Composer({
       </div>
       )}
       {/* phones: the note a computer has in the row above, when it matters there (who sees a shared chat) */}
-      {phone && phoneFooter && (
+      {phone && waiting ? (
+        <p role="status" className="px-2 pt-1.5 text-center text-micro break-keep text-muted" data-testid="composer-waits">
+          {waitsFor?.hint}
+        </p>
+      ) : phone && phoneFooter && (
         <p className="px-2 pt-1.5 text-center text-micro break-keep text-faint" data-testid="composer-phone-footer">
           {phoneFooter}
         </p>
@@ -911,6 +932,16 @@ function restoreChips(userId: string, draftId: string): Pending[] {
   const saved: Pending[] = loadChips(userId, draftId).map((c) => ({ ...c, status: 'done', progress: null, abort: new AbortController() }))
   if (saved.length) writeStash(userId, draftId, saved)
   return saved
+}
+
+/** Focus the box with the caret after its text (and the end in view): text put there for the person is added to, never
+ * typed or pasted in front of. */
+export function focusAtEnd(ta: HTMLTextAreaElement | null) {
+  if (!ta) return
+  ta.focus()
+  const end = ta.value.length
+  ta.setSelectionRange(end, end)
+  ta.scrollTop = ta.scrollHeight
 }
 
 /** "groups/marketing/brief.md" -> "groups/marketing" */

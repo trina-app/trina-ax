@@ -16,7 +16,7 @@ import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 
-export function NewChatComposer({ projectId, project, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true }: {
+export function NewChatComposer({ projectId, project, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor }: {
   projectId: string | null
   /** the project, when known: whether its new chats are shared, and with how many people */
   project?: Project | null
@@ -31,6 +31,8 @@ export function NewChatComposer({ projectId, project, initialText, resetKey = 0,
   skill?: { name: string; title: string } | null
   /** the "no AI" line above the box (false: Home shows its own card instead) */
   aiLine?: boolean
+  /** `initialText` needs the person's own text after it: not sent alone, this line under the box (Composer `waitsFor`) */
+  waitsFor?: { text: string; hint: string }
 }) {
   const me = useMeStrict()
   const t = useT()
@@ -97,6 +99,7 @@ export function NewChatComposer({ projectId, project, initialText, resetKey = 0,
       phoneFooter={sharedLine}
       teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
       projectId={projectId}
+      waitsFor={waitsFor}
     />
     </>
   )

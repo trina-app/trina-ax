@@ -3,6 +3,7 @@
 import { Loader2, X } from 'lucide-react'
 import { dropFileUpload, useFileUploads } from '../lib/fileUploads'
 import { formatSize } from '../lib/format'
+import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { uploadPercent } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
@@ -12,6 +13,7 @@ import { UploadLabel } from './UploadLabel'
 export default function FileUploads({ here }: { here: string }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const items = useFileUploads((s) => s.items)
   if (!items.length) return null
   return (
@@ -24,7 +26,7 @@ export default function FileUploads({ here }: { here: string }) {
             {u.status === 'uploading' ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : u.status === 'done' ? <span className="text-ok" aria-hidden>✓</span> : <span className="text-danger" aria-hidden>!</span>}
             <span className="min-w-0 flex-1 truncate">
               {/* dropped on a folder row: where it goes */}
-              {u.folder !== here && <span className="text-faint">{baseName(u.folder) || t('files.root')}/</span>}
+              {u.folder !== here && <span className="text-faint">{words.name(u.folder, baseName(u.folder)) || t('files.root')}/</span>}
               {u.name}
             </span>
             {/* both stay through the whole upload, so a screen reader hears each change */}

@@ -37,7 +37,7 @@ export const levelRef = (l: Level): SkillLevel =>
   l.level === 'group' ? { level: 'group', groupId: l.group.id } : l.level === 'project' ? { level: 'project', projectId: l.project.id } : { level: l.level }
 const sameLevel = (a: Level, b: Level) => a.level === b.level && a.root === b.root
 
-/** "팀 전체", "리드 그룹", "견적 프로젝트 채팅", "나만" (names one line, cut at 40). */
+/** "팀 전체", "리드 부서", "견적 프로젝트 채팅", "나만" (names one line, cut at 40). */
 export function levelLabel(l: Level, L: Locale): string {
   const short = (s: string) => { const t = s.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, ' ').trim(); return [...t].length > 40 ? [...t].slice(0, 39).join('') + '…' : t }
   if (l.level === 'group') return st('levelGroup', L, { group: short(l.group.name) })

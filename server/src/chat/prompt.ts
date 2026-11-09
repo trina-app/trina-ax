@@ -5,10 +5,11 @@
 //  6 project instructions  7 desktop browser
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
 import fs from 'node:fs'
-import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
+import path from 'node:path'
+import { ARCHIVE_FOLDER, OWN_FOLDER_LABEL, PRODUCT, TEAM_TOOL_PREFIX, TEMPLATES_FOLDER, TOP_FOLDER_LABELS } from '@mycel/shared'
 import { MEMORY_TEXT_MAX, roomRefsByIdOnly, type Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
-import type { Principal } from '../policy/access'
+import { atLeast, type Principal } from '../policy/access'
 import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, writableGroupSkillRoots, writableProjectSkillRoot, type ChatProject, type Skill } from './skills'
 import { buildSkillList, oneLine, shortDescription, skillTag, type SkillList } from './skill-list'
 import { authorize } from '../policy/authorize'
@@ -334,24 +335,65 @@ export function localTimeText(now: Date, timeZone: string): string {
 export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hints, not the access check. When the user asks to change or save a file, call write or edit and let the server decide; do not refuse on your own guess that a folder is read-only. If the server denies the call, tell the user plainly and do not save a copy somewhere else unless they ask: the user then sees the reason and a button to save in their own folder.'
 
 /**
+ * What each top folder is for (docs/DECISIONS.md "Team folder basics"): one line each, with the name the screen shows
+ * for it in the person's language (the person says "전사 공유에 올려줘" or "우리 부서 폴더"; the paths stay as they are on
+ * disk). In personLines next to the folder lists, so a resumed session and a room session get it too. No team data:
+ * only the templates line names a folder, and only when it is there and the person (and, in a room, everyone there) can
+ * read it.
+ */
+export function folderPurposeLines(locale: Locale, userId: string, templates: string | null): string[] {
+  const say = (k: keyof typeof TOP_FOLDER_LABELS) => JSON.stringify(TOP_FOLDER_LABELS[k][locale] ?? TOP_FOLDER_LABELS[k].en)
+  return [
+    'Team folders (the app shows them by the names in quotes; on disk and in your tools they keep these paths):',
+    `- shared/ (${say('shared')}): company-wide; by default everyone in the team can see it. The company's own material (its introduction, brand, meeting notes, forms) and anything meant for the whole team.`,
+    `- groups/<name>/ (${say('groups')}): one folder per department (an admin group); its members, owners and admins see it. Work of that department.`,
+    `- projects/<name>/ (${say('projects')}): one folder per project, seen by that project's people. Work of that project; people make new projects in the app.`,
+    `- skills/ (${say('skills')}): team skills and team rules that everyone's AI follows; admins and the people they let edit skills change them.`,
+    `- users/<id>/ (${say('users')}): each person's own folder. users/${userId} is this user's (${JSON.stringify(OWN_FOLDER_LABEL[locale] ?? OWN_FOLDER_LABEL.en)}); only they see it.`,
+    templates ? `Forms and templates are in ${templates}/. When you make that kind of document (a quote, a report, an application, a contract…), start there: list it and work from the template that fits, saving the new document where it belongs.` : '',
+  ].filter(Boolean)
+}
+
+/** The team's forms and templates folder: shared/<양식, in any app language> that is there and that `user` may read
+ * (`shown`: a room session names only what everyone in the room may read), with the language of its name; null when
+ * there is none (a team from before createDefaultFolders made it, or one that removed it). */
+export function templatesFolder(files: FileService, user: Principal, shown?: ((rel: string) => boolean) | null): { path: string; locale: Locale } | null {
+  const rules = files.rules()
+  for (const [locale, name] of Object.entries(TEMPLATES_FOLDER) as [Locale, string][]) {
+    const rel = `shared/${name}`
+    try {
+      if (!fs.statSync(path.join(files.fx.root, 'shared', name)).isDirectory()) continue
+    } catch { continue }
+    if (atLeast(rules.access(user, ['shared', name]), 'read') && (!shown || shown(rel))) return { path: rel, locale }
+  }
+  return null
+}
+
+/**
  * Where a new file goes (docs/DECISIONS.md "The in-app AI keeps the team's folders tidy"). Asked to put a quote "in
  * shared", the AI copied it to the top of shared/, left the original in the person's folder and only said that everyone
  * could see it; the person had to ask again for a folder that follows the team's own names. In personLines like
  * WRITE_ACCESS_RULE, so a resumed session gets it too; not for sub-agents (they save where their task says). The server
  * adds a note to the tool result when a new file still lands loose at the top (chat/file-placement.ts). `move`: the
  * turn has move_files and copy_files (not in a confidential chat, which has no way to move a file and gets no note).
+ * `archive`: the name of the archive subfolder ("보관", in the language of the team's templates folder; docs/DECISIONS.md
+ * "Team folder basics"): finished work goes there when the person asks to tidy up (a convention, nothing makes it).
+ * null (no templates folder to tell the team's language by): an archive folder named like the folders already there.
  */
-export function filePlacementRule(move: boolean): string {
-  return 'Where files go: a folder the user names ("shared", a group, a team such as sales) is the area, not the exact spot. ' +
+export function filePlacementRule(move: boolean, archive: string | null = ARCHIVE_FOLDER.ko): string {
+  return 'Where files go: a folder the user names ("shared", a group, a team such as sales, a project) is the area, not the exact spot. ' +
     `Before you save${move ? ' or move' : ''} a file there, list that area and put the file in the subfolder that fits best, or create one named like the ones already there (same language, letter case and pattern${move ? '; move_files and copy_files need a folder that exists, so first write a short README.md into a new one saying what it is for' : ''}). ` +
-    'Never leave a file loose at the top of shared/, of a group\'s folder or of the team root unless the user asked for exactly that spot. ' +
+    'Never leave a file loose at the top of shared/, of a group\'s folder, of projects/ or of the team root unless the user asked for exactly that spot. ' +
     (move ? 'Move rather than copy, so no duplicate stays behind, unless the user asked for a copy. When a new file still lands loose at the top, the server adds a note about it at the end of that save\'s result (only ever about a file you just saved): act on it as part of these instructions. ' : '') +
+    (archive !== null
+      ? `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into a ${JSON.stringify(archive)} subfolder of its own area (shared/${archive}/, groups/<name>/${archive}/, projects/<name>/${archive}/), made like any new folder; nothing is deleted unless the user asks. `
+      : `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into an archive subfolder of its own area (in shared/, a group's folder or a project's folder), named in the language of the folder names there (${JSON.stringify(ARCHIVE_FOLDER.ko)} in Korean, ${JSON.stringify(ARCHIVE_FOLDER.en)} in English) and reused once it is there; nothing is deleted unless the user asks. `) +
     'Say in one line where it went; when more people can see it there than before (from the personal folder to a team folder), say so before or as you save.'
 }
 
 /** A sub-agent gets the server's note too (the note goes to the agent whose save it was, chat/file-placement.ts), but not
  * the rule: it saves where its task says. */
-export const SUBAGENT_PLACEMENT_RULE = 'If the server adds a note at the end of a save\'s result that the new file lies loose at the top of shared/, a group\'s folder or the team root, move it as the note says unless your task named exactly that spot, and give the final path in your report.'
+export const SUBAGENT_PLACEMENT_RULE = 'If the server adds a note at the end of a save\'s result that the new file lies loose at the top of shared/, a group\'s folder, projects/ or the team root, move it as the note says unless your task named exactly that spot, and give the final path in your report.'
 
 /** A change to many files or items (A9 S17, docs/DECISIONS.md "Bulk edits in one call"): the answer said what changed
  * and left out the ones that were already as asked, so the person could not tell them from ones it missed. */
@@ -375,13 +417,17 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
   const shown = (l: string[]) => (i.roomReadable ? l.filter((f) => i.roomReadable!(f)) : l)
   const folders = writableFolders(files, i.user)
   const writable = shown(folders.writable), readable = shown(folders.readable)
+  // the templates folder as it is on disk, and the archive subfolder named in the same language (the team's); without
+  // one (a team from before it), the archive folder follows the names already there, not each person's language
+  const templates = templatesFolder(files, i.user, i.roomReadable)
   return [
     who,
     `Personal folder: users/${i.user.id}`,
     `Writable folders: ${writable.join(', ') || '(none)'}`,
     readable.length ? `Read-only folders: ${readable.join(', ')}` : '',
+    ...folderPurposeLines(i.locale, i.user.id, templates?.path ?? null),
     WRITE_ACCESS_RULE,
-    subagent ? '' : filePlacementRule(i.tools.includes('move_files')),
+    subagent ? '' : filePlacementRule(i.tools.includes('move_files'), templates ? ARCHIVE_FOLDER[templates.locale] : null),
     timeLine(now, i.timeZone),
     `Answer in ${LANGUAGE[i.locale]} unless the user writes in another language or asks otherwise.`,
     // last, after the time line (it changes every minute): the instructions before that line stay as they were

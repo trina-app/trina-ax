@@ -94,12 +94,12 @@ test('an owner\'s connection without group management says to connect again once
   await page.goto('/settings/ai-apps')
   const rows = page.getByTestId('connected-apps').getByTestId('connector-item')
   await expect(rows).toHaveCount(3)
-  await expect(rows.nth(0).getByTestId('connector-reconnect-groups')).toHaveText('그룹 관리를 쓰려면 한 번 다시 연결해 주세요.')
+  await expect(rows.nth(0).getByTestId('connector-reconnect-groups')).toHaveText('부서 관리를 쓰려면 한 번 다시 연결해 주세요.')
   await expect(rows.nth(1).getByTestId('connector-reconnect-groups')).toHaveCount(0)
   // without conversations either: one line for both
   await expect(rows.nth(2).getByTestId('connector-reconnect-groups')).toHaveCount(0)
-  await expect(rows.nth(2).getByTestId('connector-reconnect-rooms')).toHaveText('대화와 그룹 관리를 쓰려면 다시 연결하세요.')
-  await expect(rows.nth(1)).toContainText('팀 그룹 관리')
+  await expect(rows.nth(2).getByTestId('connector-reconnect-rooms')).toHaveText('대화와 부서 관리를 쓰려면 다시 연결하세요.')
+  await expect(rows.nth(1)).toContainText('부서 관리')
   // a member: never
   await page.context().clearCookies()
   await signIn(page, BOB)

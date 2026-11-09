@@ -3,6 +3,7 @@
 // conversion, past its size limit) stays one download button. A shared answer's link to a team file
 // (lib/markdown.ts teamLinkTarget, components/Markdown.tsx): the team file when the viewer may open it now, else the copy
 // that went with the message (RoomMessage.attachedLinks), else the lock; an older message without copies keeps the lock.
+// A Hangul file opens only while the server's HWP preview is on (Me.server.hwpPreview) and within its 20 MB.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -10,7 +11,9 @@ import { uuidv7, type RoomFile, type RoomMessage } from '@mycel/shared/api'
 import { attachedCopies, RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { teamLinkTarget } from '../../src/lib/markdown'
-import { opensWithoutServer } from '../../src/lib/preview'
+import type { Me } from '@mycel/shared/api'
+import { opensWithoutServer, roomFileOpens, roomHwpPreview } from '../../src/lib/preview'
+import { useSession } from '../../src/store/session'
 import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
 import { installDom, mount, removeDom } from './dom-host'
 import { BEN, CY, ME, message, room } from './rooms-fixtures'
@@ -128,4 +131,36 @@ test("a room file's Markdown preview never loads the viewer's team pictures: eac
   expect(fromRoom).toContain('[upload]')
   expect(fromRoom.split('data-testid="team-file-chip"').length - 1).toBe(2)
   expect(fromRoom).toContain('our logo</button>')
+})
+
+test('a Hangul file opens in the panel only while the HWP preview is on, within what it reads; otherwise it downloads', async () => {
+  const on = { server: { version: '0', dev: false, hwpPreview: true } } as unknown as Me
+  const off = { server: { version: '0', dev: false } } as unknown as Me
+  const hwp = file('acme-form.hwp', { size: 300 * 1024 })
+  const hwpx = file('acme-notice.HWPX', { size: 20 * 1024 * 1024 })
+  const big = file('acme-scan.hwp', { size: 20 * 1024 * 1024 + 1 })
+  const zip = file('acme-assets.zip')
+  expect([hwp, hwpx, big, zip].map((f) => roomFileOpens(f, on))).toEqual([true, true, false, false])
+  expect([hwp, hwpx, big, zip].map((f) => roomFileOpens(f, off))).toEqual([false, false, false, false])
+  expect([hwp, hwpx].map((f) => roomFileOpens(f, null))).toEqual([false, false])
+  // the panel's own question (a copy from a shared answer opens there by its link): Hangul and the flag only
+  expect([roomHwpPreview('acme-form.hwp', on), roomHwpPreview('acme-form.hwp', off), roomHwpPreview('acme.docx', on)]).toEqual([true, false, false])
+  const status = useSession.getState().status
+  const m = message({ roomId: team.id, seq: 1, author: BEN, body: '', files: [hwp, big] })
+  for (const [me, opens] of [[on, [true, false]], [off, [false, false]]] as const) {
+    useSession.setState({ status: { kind: 'signed-in', me } } as never)
+    const page = await mount(list([m]))
+    try {
+      const chips = page.container.querySelectorAll('[data-testid="room-file"]')
+      expect(chips.map((c) => c.hasAttribute('data-opens'))).toEqual([...opens])
+      if (opens[0]) {
+        await page.click(page.get('room-file-open'))
+        expect(getSidePanel()).toMatchObject({ kind: 'file', file: { source: 'room', roomId: team.id, fileId: hwp.id, name: 'acme-form.hwp' } })
+      } else expect(chips[0]!.textContent).toContain(en('common.download'))
+    } finally {
+      await page.unmount()
+      closeSidePanel()
+      useSession.setState({ status })
+    }
+  }
 })

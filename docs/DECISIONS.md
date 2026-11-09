@@ -16307,6 +16307,66 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
 
+## Onboarding v6 polish: the caret after a fill, plain copy, one name (fix/onb6-polish, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/chat/Composer.tsx`, `web/src/pages/Home.tsx`, `web/src/components/onboarding/`
+(`TeamPrepared`, `GoalCard`, `InviteStep`, `SkillsStep`, `ProfileStep`), `web/src/components/AvailableSkills.tsx`,
+`web/src/pages/Skills.tsx`, `web/src/pages/Welcome.tsx`, `web/src/lib/` (`tabs.ts`, `team-link.ts`, `nav.ts`), 이유:
+onboarding, Home and the team skills page are core.
+
+A walk through a real build of onboarding v6 ("W6", "W6.3") before the beta found these:
+
+- **The caret goes after text put in the box.** Home starts the box again with the chosen text and focused it with the
+  caret at the start, so a text pasted after 자연스러운 글's 써 보기 landed in front of "/humanizer …" and the command
+  broke. Now a box opened with text (`autoFocus`) and a recovery draft (`prepareDraft`) put the caret after the text
+  (`focusAtEnd`, the end scrolled into view). Phones still do not focus the box by themselves (the keyboard stays down).
+- **A request that needs the person's text is not sent alone** (Composer `waitsFor`). While the box holds only
+  "/humanizer 아래 글을 자연스럽게 다듬어 줘:" (and no file), send is off (the button and Enter) and the note under the box says
+  "다듬을 글을 붙여 넣어 주세요" (`role="status"`). Any text after it, or a file, and it goes. The other fills (물어보기, the
+  ready question, the suggestions) are whole questions and send as they are.
+- **No developer paths or English in the block's questions.** 물어보기 names the folder as people read it and says what
+  it leaves out in words: "예시커피 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 …" (the brand folder by its
+  real name, from `teamFolder.without[0]`), never "groups/…" or "(브랜드, skills 폴더는 빼고)". The AI finds the folder by
+  its name. The ready question without a company profile is no longer "users/<id> 폴더에 …" (`home.example1`, removed):
+  it is a first question that needs no file, "우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘"
+  (`home.prepared.startAsk`). A member's empty 팀 스킬 no longer says "skills/ 폴더": the title already says the owner or
+  an admin adds them; the line says how to suggest one. The AI's own words are not touched, nor the admin-only skill
+  rows' "general ·" and "/card-news" or the MCP dialog's labels (owners and admins who manage skills read those).
+- **An empty team's goal card leads to skills.** With no team skill (GET /api/skills/examples as the owner, the count
+  the invite step's line uses, read again as skills change), "팀 스킬은 아직 써 보기 전이에요" with a filled [다시 보내기]
+  asked members to try what does not exist. The line now says skills come first ("민지님이 들어왔어요. 팀 스킬을 넣으면 같이
+  써 볼 수 있어요.", or "아직 팀 스킬이 없어요. …" when nobody waits), the one filled button is [스킬 넣기], and the card's own
+  button ([다시 보내기], [초대 문구 복사] or [팀원 초대]) stays beside it, quiet. Until the read answers, and when it fails,
+  the card is as before. Phones keep their rule: no [다시 보내기] there.
+- **"스킬 넣기" opens the ready-made skills.** From Home's block, the empty-team line and the goal card it goes to
+  `/skills?catalog=open` (`SKILL_CATALOG`), where the owner's fold "트리나가 준비한 스킬 · N개 더" starts open, nothing
+  ticked.
+- **One name for the product in the copy beside the AI's.** "{product}가 준비한 스킬", "{product} 팀이 만들었어요" (and the two
+  other source lines) and the invite message ("…님이 {product}에서 …") said the product's full name next to "트리나에게
+  묻기" and "트리나가 바로 써요". They now take the name the app gives its AI in each language (`namedProduct`, as
+  `aiName`: 트리나, Trina, トリナ), never a literal; the core edition keeps its product name. Other `{product}` lines
+  (the app, the desktop, plugins, licences) keep the product's name.
+- **Smaller:** the profile step's line under 저장하고 계속 names the website's photos only when there is a website
+  ("저장하면 회사 소개 파일을 팀 브랜드 폴더에 넣어요" without one; it follows the website field of the review as it is typed);
+  a phone's skill row says 써 보기 at its end (its tap's action, as the files row says 물어보기; the filled one's in the
+  accent colour); the ready question wraps inside its button on a phone (it ran past the button's edge: the Button's
+  own `whitespace-nowrap` and height won over the block's); the member's skill sheet is titled "내 스킬 가져오기" like the
+  line that opens it (`contribute.title` removed).
+- Tests: `web/test/unit/composer-fill.test.tsx` (the caret after a fill, a paste after the command, no focus on a phone,
+  send waiting with the note until text follows), `team-prepared.test.tsx`, `goal-card.test.tsx`,
+  `available-skills-install.test.tsx` (the fold open from the start), `welcome.test.tsx` (the brand line with and
+  without a website), `team-link.test.tsx`, `onb6-skills.test.tsx`; the unit DOM now gives a textarea its default value
+  as a browser does (`dom-host.ts`), so a component's effects see the text it mounted with; e2e `team-prepared.spec.ts`
+  (typing and pasting after the fill, send off until then, the folder by its name, the ready question, the phone's 써
+  보기, the open catalog, the empty team's goal card), `states.spec.ts`, `onb6-skills.spec.ts`, `team-skills.spec.ts` (the
+  member's empty 팀 스킬 without "skills/").
+- **Independent review (2026-11-09) fixes.** `/skills?catalog=open` landed on 검토 when suggestions were waiting (the
+  managers' landing ran anyway); a link that opens the catalog now keeps the skills tab, like `?mine=`
+  (`member-contribute.test.tsx`). A failed attachment no longer lifts the wait for the person's own text: only a file
+  that uploaded counts, as only those are sent. Left for later: the write-access retry in a chat still names the
+  member's folder by its path (`files.summary.askOwnFolderPrompt`), which the AI needs to save in the right place.
+- Version impact: **patch** (fixes and copy; no API or data change).
+
 ## One image viewer — a picture opens over the whole window, like Slack (feat/image-viewer, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/lib/imageViewer.ts`, `web/src/lib/zoom.ts` and the places
@@ -16508,6 +16568,152 @@ pins wherever a room allows it.
   back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
   pin ahead of the clock.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
+
+Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:
+"플러그인 기능이면 해". A team file in Hangul (HWP, HWPX) opens as pages in the side panel while the HWP Preview plugin is
+on ("Plugins, stage 1"); the same file sent in a room only downloaded, because the preview took a team path only.
+
+- **Decision:** a room's Hangul file gets the same preview from the same plugin, at
+  `GET /api/rooms/:id/files/:fileId/hwp-preview?page=&cacheId=` (`roomFileHwpPreview`), next to the room file's own
+  address and with the team route's answer (`HwpPreviewPage`). Not `/api/files/hwp-preview` with a room reference: that
+  route's checks are the team folder's, and one route with two kinds of check is easier to get wrong.
+- **The checks are the inline read's**, on every request, before any cache lookup or render, and again after the render
+  (`RoomFiles.hwpSource`, called by `HwpPreviews.pageOf` both times): `RoomFiles.open` (in the room now and not archived;
+  the message visible to me from my join on, never an old answer hidden from me nor someone else's private preview, not
+  deleted; or my own upload not sent yet; else 404, an admin outside the room too) and the download-only list, which is
+  the quarantine list (503 `quarantined`, the inline read's answer: no inline read, no preview). A cached page is served
+  only after these pass, so a page made before someone left, a message was deleted or its bytes went on the list is not
+  served after. The bytes are read through the request's `SearchAdmission` (no link, no hard link, no swap between the
+  check and the read, a quarantined hash refused) and must be the bytes the file was sent with (the row's sha256; else
+  `changed`). Not a Hangul name: `unsupported`, before the renderer.
+- **One renderer, cache and set of limits.** `HwpPreviews` takes a source (`OpenHwpSource`); the team path is one, a
+  room file the other. The engine is resolved per request from the plugin (off, removed, revoked, not usable here: the
+  disabled engine, 503 `unavailable` with reason `disabled`, word for word the team file's answer). The 20 MB input,
+  200 pages, isolation, one render per person and per server (shared with team previews), the 128 MB cache and its
+  invalidation are the team preview's. The cache keys a room file by its room, its id and its sha256 (`room:<room>/<id>`;
+  team paths are `team:<path>` now, so the two never meet); a cache id is still never a capability.
+- **How the web knows: `Me.server.hwpPreview`** (the plugin's package is usable here, `PluginManager.hwpPreviewOn`), as
+  `htmlPdf` tells whether the HTML print can run. The brief asked to reuse the signal the web has for team files; it has
+  none before a click: the team panel always asks and shows the server's "off" notice. Asking first that way for a room
+  file would change what a click does while the plugin is off, which the owner ruled out. With the flag on, a room's
+  Hangul chip opens the panel (within the 20 MB the preview reads; a larger one downloads as before); off or absent, the
+  chip downloads and the panel shows its "cannot preview" card, as before. `Me` is read at sign-in, so a plugin turned
+  on shows after a reload; one turned off while the page is open shows the team file's "off" notice with the download.
+- **Download-only in the viewer:** `HwpView` shows the server's download-only words with the download (no retry), for a
+  room file and for a team file (a team file showed "cannot be used on this server" before).
+- **Not here:** the new file viewer (plan steps b–e) uses this route when it lands; HEIC previews of room files.
+- **Words:** no new strings.
+- **Independent review (security, tried to break it):** no must-fix; no page, page count, hash, cache hit or telling
+  answer for someone who cannot read the file inline. The cases it asked to guard are now tests (a late joiner, leaving
+  after a cached page, an archived room, links, the shared per-person render, over 20 MB, outsiders and held files with
+  the plugin off). Left as is: with the plugin off the file is still read before "disabled" (as the team route; the web
+  asks only while the flag is on), and the flag does not run the renderer's own isolation and binary checks, so on a
+  server where the plugin is on but cannot run the chip opens the panel's notice with the download.
+- Tests: `tests/unit/b-rooms-hwp-preview.test.ts` (a member's pages with no browser cache, one render for two people, a
+  cache id reused and a guessed one refused, pages out of range; not a member, an admin outside, another room's
+  address, no session, a cached page's id for an outsider; my unsent upload mine only; a hidden old answer's file,
+  another person's private preview's file, a deleted message's file; a late joiner, leaving after a cached page, an
+  archived room; a download-only file refused before the renderer and after a page of it was cached; a message deleted
+  during the render; changed bytes, a hard link, a symbolic link; one render per person across team and room; over
+  20 MB; not Hangul; the plugin off for a room and a team file alike, outsiders and held files answered first, and
+  `Me.server.hwpPreview` following it; a team file's preview), the permission matrix
+  (`roomFileHwpPreview`: the DM's two people pass the room checks, everyone else 404), `hwp-preview.test.ts`,
+  `web/test/unit/room-files-open.test.tsx` (the chip opens only with the flag and within the limit), e2e
+  `room-files-open.spec.ts` (the room's HWP in the panel, a page step; the chip downloads with the plugin off).
+- Version impact: **minor** (a new endpoint and `Me.server.hwpPreview`; no data change).
+
+## Team folder basics — 전사 공유·부서·프로젝트 on screen, what each folder is for, 양식, the company start in shared/ (feat/team-folder-basics, 2026-11-09, product owner)
+
+넣을 곳: trina-ax `shared/src/folder-labels.ts`, `web/src` (Files, the pickers, `web/src/i18n/ko.ts`),
+`server/src/chat/prompt.ts` and `chat/file-placement.ts`, `server/src/admin/folders.ts`, `server/src/onboarding/`, 이유:
+files, the AI's instructions and onboarding are core. Plan: `docs/AGENTS/plan/20261109-0839-team-folder-basics.md`.
+
+The owner approved these on 2026-11-09. A new team has `groups/`, `projects/`, `shared/`, `skills/` and `users/`, and
+Files showed those English disk names. Onboarding put the company's own material (회사 소개, 브랜드, 회의록, the uploaded
+company files) in `groups/<회사명>/`, which a member who joined another way does not see: two company-wide homes. There
+was no place for forms and templates and no archive convention, and the AI was told which folders it may write but not
+what each one is for.
+
+- **Folder names on screen, not on disk.** One table (`shared/src/folder-labels.ts`, five languages): `shared` →
+  전사 공유 (Company-wide), `groups` → 부서 (Groups), `projects` → 프로젝트, `skills` → 팀 스킬, `users` → 개인, the
+  person's own `users/<id>` → 내 폴더. Only the exact top-level disk names get words (a folder named "Shared" deeper
+  down is that folder's name). The web shows them through `lib/folderLabels.ts` in Files (breadcrumbs, rows, the move
+  and copy toasts, the search scope, the upload lines), the folder picker (move, save to team folder, projects, admin
+  rules), the team-file picker of the message box (its rows, breadcrumbs, path lines; it already named 내 폴더), the
+  message box's team file chips, Home's team files line and the 팀 파일 step; a step line names shared/ the same way
+  (`STEP_PLACE.shared`). A row's hover title stays the disk name. At the team root the five come first in a fixed order,
+  전사 공유, 부서, 프로젝트, 팀 스킬, 개인 (`topFoldersFirst`: Files, the folder picker and the team-file picker), then the
+  rest as the server lists it; a deeper folder keeps that sorting (display only: the API's order and pages do not
+  change). Disk names, API paths, links, drag and drop and every path the AI is given are unchanged. Not changed: the Admin › 폴더 권한 pages (they set rules on paths and show them),
+  the Projects page's folder lines.
+- **"부서" for admin groups in Korean.** Every ko string that names an admin group says 부서 (Admin › 부서, rules, the
+  access views and editor, pickers for AI connections, credentials, integrations and budgets, usage, audit lines, group
+  skills and skill shares, the team link's "들어온 사람이 속할 부서", the room picker's list of groups, the server's ko
+  messages for groups and group folders). The particles follow (부서를, 부서가, 부서로). "그룹 대화" (hand-picked group
+  chats: the room picker's 그룹 대화 만들기 and its name field, notifications, Slack's 1:1·그룹 대화) stays, and so do the
+  server's "자원 그룹" lines (Linux cgroups). The other languages keep their word for groups, which is also their folder
+  label, so each language uses one word for both.
+- **What each folder is for, in the AI's instructions** (`folderPurposeLines`, in the person lines after the folder
+  lists, so a resumed session and a room session get it). One line per top folder with the name the screen shows in
+  the person's language ("shared/ ("전사 공유"): company-wide; everyone in the team can see it…"), the person's own
+  folder by its words, and, when `shared/양식/` (any language's name) is there and readable (in a room: by everyone
+  there), "Forms and templates are in shared/양식/. When you make that kind of document …, start there". Written in
+  English like the rest of the instructions, not the brief's Korean sentence. No team data except that one folder name.
+- **보관, a convention.** The placement rule (`filePlacementRule(move, archive)`) says that when the person asks to tidy
+  up, finished work moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/),
+  made like any new folder, and nothing is deleted unless asked. The word follows the templates folder's language (the
+  team's); a team without one is told to name it like the folders already there ("보관" in Korean, "Archive" in
+  English), so members who read the app in different languages do not make one each. No button, no feature.
+- **projects/ in the loose-file note.** A new file directly in `projects/` (beside the project folders, not in one) gets
+  the server's note like `shared/` (`looseArea`), in the in-app AI and the app connector (`connectors/remote-mcp/upload.ts`,
+  its guide line). Its note names the project folders and never suggests a new folder in `projects/` (people make
+  projects in the app; a folder there would look like one and not be one). `projects/` joins `groups/` and `users/` as a
+  root folder never offered as a place for a loose file. A project's own folder is still where its chats save.
+- **`shared/양식/` for a new team** (`createDefaultFolders` → `ensureTemplatesFolder`): made at the team's creation (setup
+  and the server CLI), named in the team's language (양식, Templates, Templat, テンプレート, Plantillas), inheriting
+  shared/'s rule (no folder row, so the owner checklist's 폴더 권한 step is unchanged). Safe to run again; never a second
+  one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
+  touched (nothing runs it for them). No department folders.
+- **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
+  puts joiners in it; its team room), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
+  (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
+  회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
+  folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
+  shared/ and the other groups' folders, not the team group's own folder. A row without `home` (every team that started
+  before) keeps `groups/<team>/` as its home and its files where they are: no migration, nothing moved; only a team
+  group that is gone and made again starts in shared/. After a rollback, an older build that runs the team's start
+  again re-saves the row without `home` (it does not know the field) and makes `groups/<team>/브랜드/` beside the
+  recorded `shared/회의록/`; rolled forward, that row reads as an older team's. Nothing is lost; the material is in two
+  places until someone moves it.
+- **What reads those paths.** Home's 팀에 준비된 것 count (`skills/examples.ts`: shared/ without the brand folder, for
+  everyone in the team; the block reloads on shared/ changes), the member's 올리기 suggestion (`memberTeamFolder`: the
+  home), 팀 파일 recorded by the run (`onboarding/team-files.ts`: a file in shared/ or a group's folder), the step
+  labels (`placeName`: shared/브랜드, shared/브랜드/이미지 and shared/회의록 by their words), the Files screen's
+  "폴더에서 회사 문서 추천받기" line (the home), the pack skills 회사 소개서, 카드뉴스 and 홍보 영상 (they read
+  shared/브랜드/ first, groups/<team>/브랜드/ for a team that started before; installed copies keep their text). The promo
+  video's picture check already took `shared/<브랜드>/`. Not affected: the company profile (`skills/company-profile.json`),
+  the file ranks (#195, migration 272: names from the person's computer, no team path), the owner checklist, the demo
+  company (it seeds its own files).
+- Tests: `tests/unit/team-folder-basics.test.ts` (the labels table and paths, the step labels, `shared/양식` made once
+  and never twice, the prompt lines with the person's words and the templates line (not in a room that cannot read
+  it, not when hidden), 보관 in the team's language, the loose note for projects/, the team's start in shared/ with
+  Home's count, the member's folder and 팀 파일 landed there, an older row kept); updated: `b-onboarding-team-space`,
+  `b-onboarding-cardnews` (the brand folder in shared/), `b-onboarding-file-rank`, `b-member-contribute` (shared/ is
+  everyone's folder), `b-skill-examples` (now an older row), `b-chat-file-placement`, `remote-mcp-placement`,
+  `remote-mcp-guide`, `step-labels-tools`, `i18n-languages`; web `folder-labels.test.ts`, `team-prepared.test.tsx`,
+  `access-view.test.ts`, `steps-subtasks.test.tsx`; e2e `welcome-team-files.spec.ts`, `team-prepared.spec.ts`,
+  `files.spec.ts` and the specs that read 그룹.
+- **Independent review (2026-11-09), fixed:** the archive word fell back to each person's language on teams without a
+  templates folder; the purpose lines said everyone sees shared/ (now "by default") and only admins change skills (now
+  also the people they let edit skills), and pointed at the User line's groups, which a room session has none of; the
+  projects/ note could suggest a new folder there; the 팀 파일 step's who-sees-it count could be overwritten by a slower
+  answer for the place chosen before; the handover note said "팀 부서" for the team group (now "팀원으로 들어가요").
+  Kept: the rollback effect above.
+- Version impact: **minor** (new teams get another layout and folder, the AI places files differently, new words on
+  screen; no API path, no migration).
+
 ## Project skills — a fourth level only a project's chats use (feat/project-skills, 2026-11-09, product owner)
 
 - **Why:** a team asked the AI, in a project chat, to move a lead group's quoting skills into the project. Skills had
@@ -16551,7 +16757,7 @@ pins wherever a room allows it.
 - **Moving between levels:** one action, `skills/move.ts`, for the AI's `move_skill` and the Skills page's
   **옮기기…**. Write on both places, no skill of that name at the target, a SKILL.md folder for a project, and for a
   project no wider skill of the name. A skills folder that is not there yet (a project's first skill, a person's first
-  own skill) is made, with no rules of its own. The card says who gains and who loses it with counts ("리드 그룹 6명 →
+  own skill) is made, with no rules of its own. The card says who gains and who loses it with counts ("리드 부서 6명 →
   견적 프로젝트 채팅 4명"), who may change it there ("옮기면 9명이 고칠 수 있어요") and lists every file; its yes is bound to
   a hash of every file, the target, who gets it and who may change it there, checked again as it moves (anything
   different: refused, look again).

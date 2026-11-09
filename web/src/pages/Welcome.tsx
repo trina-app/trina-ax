@@ -331,8 +331,9 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
   const keepSite = (site: string) => {
     if (site !== useWelcome.getState().progress?.site) void useWelcome.getState().update({ site }).catch(() => {})
   }
-  // the line right under "저장하고 계속" (the saved state's, and the review's in the steps): what the press writes
-  const brandLine = <p className="text-label leading-5 text-muted" data-testid="welcome-brand-line">{t('welcome.brand.line')}</p>
+  // the line right under "저장하고 계속" (the saved state's, and the review's in the steps): what the press writes, the
+  // website's photos only when there is a website
+  const brandLine = (website: string) => <p className="text-label leading-5 text-muted" data-testid="welcome-brand-line">{t(website.trim() ? 'welcome.brand.line' : 'welcome.brand.lineNoSite')}</p>
 
   if (saved === undefined) return <Skeleton lines={4} />
   if (!saved)
@@ -365,7 +366,7 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
           {t('welcome.profile.save')}
         </Button>
         <span className="ml-auto max-sm:order-3 max-sm:ml-0 max-sm:w-full max-sm:text-center"><Later onClick={onSkip} disabled={busy || stepBusy} /></span>
-        <div className="w-full max-sm:order-2">{brandLine}</div>
+        <div className="w-full max-sm:order-2">{brandLine(saved.website)}</div>
       </div>
     </div>
   )
@@ -425,8 +426,9 @@ interface Picked {
   error?: string
 }
 
-/** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6"): picked files go up at once into the team's brand folder
- * (groups/<team>/브랜드/, only this team sees it; the team's start first when it is missing), each on its own, a name
+/** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6", "Team folder basics"): picked files go up at once into the
+ * team's brand folder (shared/브랜드/, everyone in the team sees it; groups/<team>/브랜드/ on a team that started before;
+ * the team's start first when it is missing), each on its own, a name
  * already there renamed; 회사 소개서, 카드뉴스 and 홍보 영상 read them, and no 회사 소개.md is written beside them. */
 function useIntroFiles(progress: WelcomeProgress) {
   const t = useT()

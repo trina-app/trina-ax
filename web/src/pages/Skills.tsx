@@ -8,7 +8,8 @@
 // Members contribute (docs/DECISIONS.md "MC"): 검토 groups the suggestions by person, so three members give three
 // groups; a skill folder from a member's computer reads as such (its app, its files, a path on their computer, a team
 // skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
-// line of a batch) opens 검토 at that person.
+// line of a batch) opens 검토 at that person. /skills?catalog=open ("스킬 넣기" on Home and in the goal card) opens the
+// ready-made skills the team lacks, unfolded, for owners and admins.
 import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -86,17 +87,17 @@ export default function Skills() {
     void load()
     return skillsChanged.on(() => void load())
   }, [load])
-  // a link to "my suggestions" chose the tab (its ?mine= is gone from the address by then)
-  const linkedMine = useRef(!!params.get('mine'))
+  // a link chose the tab: "my suggestions" (its ?mine= is gone from the address by then) or 스킬 넣기's open catalog
+  const linkedTab = useRef(!!params.get('mine') || params.get('catalog') === 'open')
   // first visit: managers land on what waits for them
   useEffect(() => {
-    if (overview && !linkedMine.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
+    if (overview && !linkedTab.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview === null])
   // a banner's link while already on this page; ?mine= goes once applied, like ?review=, so the same link works again
   useEffect(() => {
     if (params.get('mine')) {
-      linkedMine.current = true
+      linkedTab.current = true
       setTab('mine')
       const next = new URLSearchParams(params)
       next.delete('mine')
@@ -156,7 +157,7 @@ export default function Skills() {
         {!overview && !error && <Skeleton lines={5} />}
         {overview && (
           <TabPanel base={panels} value={current}>
-            {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} />}
+            {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} catalogOpen={params.get('catalog') === 'open'} />}
             {current === 'review' && (
               <>
                 {/* phones: each row already says the folder it goes into */}

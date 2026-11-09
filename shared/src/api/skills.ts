@@ -343,7 +343,7 @@ export type SkillLevel = z.infer<typeof SkillLevel>
  * offered); `token` binds a move to the files and the target as shown (every file's hash). */
 export const SkillMoveTarget = z.object({
   to: SkillLevel,
-  /** "팀 전체", "리드 그룹", "견적 프로젝트 채팅", "나만" */
+  /** "팀 전체", "리드 부서", "견적 프로젝트 채팅", "나만" */
   label: z.string(),
   people: z.number().int().nonnegative(),
   gained: z.number().int().nonnegative(),

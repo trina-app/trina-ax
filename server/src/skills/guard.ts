@@ -2,7 +2,7 @@
 // groups/<folder>/skills/ the skills every member of that group's AI follows (docs/DECISIONS.md "Group skills"), and
 // projects/<name>/skills/ the skills a team project's chats follow (docs/DECISIONS.md "Project skills"). The AI never
 // saves there on its own: before write / edit / make_file (or any other AI tool) places a file in a skill root, the chat
-// turn shows the person a server card ("팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요", for a group "그룹 '영업팀'의
+// turn shows the person a server card ("팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요", for a group "부서 '영업팀'의
 // 스킬로 저장할까요?", for a project "프로젝트 '견적'의 스킬로 저장할까요?", TurnExec.confirmSkillWrite) and keeps an
 // approval for exactly those bytes. The file layer refuses every AI-side write there without a matching approval
 // (requireSkillApproval), so a tool that forgets to ask, a scheduled run (nobody to ask) or a changed file between the
