@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { WelcomeProgress } from '@mycel/shared/api'
 import { t as tNow, useT } from '../../i18n'
+import { SKILL_CATALOG } from '../../lib/nav'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
@@ -59,7 +60,7 @@ export interface InviteStepProps {
    * says it opens first, with 바꾸기 */
   shared?: InviteShared | null
   /** the welcome steps: the empty-team line's links open 내 스킬 and 팀 파일 there (the next step after each is this one
-   * again); absent: they go to 팀 스킬 and 파일 */
+   * again); absent: they go to 팀 스킬 (the ready-made skills unfolded) and 파일 */
   steps?: EmptyTeamSteps
 }
 
@@ -113,7 +114,7 @@ export function EmptyTeamLine({ steps }: { steps?: EmptyTeamSteps }) {
       <span aria-hidden> · </span>
       {steps
         ? <button type="button" className={link} onClick={steps.skills} data-testid="invite-empty-skills">{t('home.prepared.addSkills')}</button>
-        : <Link to="/skills" className={link} data-testid="invite-empty-skills">{t('home.prepared.addSkills')}</Link>}
+        : <Link to={SKILL_CATALOG} className={link} data-testid="invite-empty-skills">{t('home.prepared.addSkills')}</Link>}
       <span aria-hidden> · </span>
       {steps
         ? <button type="button" className={link} onClick={steps.files} data-testid="invite-empty-files">{t('home.prepared.addFiles')}</button>

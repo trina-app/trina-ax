@@ -2,15 +2,18 @@
 // components/onboarding/TeamPrepared.tsx, GET /api/skills/examples), rendered and clicked against a small fake of the
 // server, per persona:
 // - a member with skills and files: 3 skill rows in the server's order and "팀 스킬 N개 더", the files row; ONE filled
-//   button (the first 써 보기); 자연스러운 글 fills the box with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" (no form); another
-//   skill opens its form over Home and 취소 comes back; 예시 opens the viewer; 물어보기 fills the box with the folder;
+//   button (the first 써 보기); 자연스러운 글 fills the box with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" (no form) and the
+//   line the box shows while nothing follows it; another skill opens its form over Home and 취소 comes back; 예시 opens
+//   the viewer; 물어보기 fills the box with the folder by its name ("Acme 폴더", never "groups/Acme"), the brand and
+//   skills folders left out in words;
 // - files only: 물어보기 is the filled one; skills only: the first 써 보기, no files row;
-// - nothing: "이렇게 시작해 보세요" with one filled question (the profile's, else the person's own folder), and the "no team
-//   folder" line when they can open none; a phone gets the same question;
+// - nothing: "이렇게 시작해 보세요" with one filled question (the profile's, else what the AI can do for the team: never a
+//   path), and the "no team folder" line when they can open none; a phone gets the same question;
 // - chats before this (no team skill run): the skills still show, the files row does not; after a team skill run: gone;
 // - no AI (a member): rows and 예시, no 써 보기 / 물어보기 / question;
-// - owners and admins: no filled button; nothing prepared: "스킬 넣기 · 팀 파일 넣기", no question;
-// - a phone: a skill row's tap is 써 보기, 예시 its own target; the files row is one row;
+// - owners and admins: no filled button; nothing prepared: "스킬 넣기 · 팀 파일 넣기" (팀 스킬 with the ready-made skills
+//   unfolded, 파일), no question;
+// - a phone: a skill row's tap is 써 보기 and says so at its end, 예시 its own target; the files row is one row;
 // - a failed read: one "다시 불러오기", never the empty state; a skill change reads again;
 // - the invite step's line: an empty team only, its links (the welcome steps' or the pages'), never for a member.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
@@ -18,7 +21,7 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { PreparedSkill, TeamPrepared as Data } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
-import { folderLabel, preparedView, TeamPrepared } from '../../src/components/onboarding/TeamPrepared'
+import { filesQuestion, folderLabel, preparedView, TeamPrepared } from '../../src/components/onboarding/TeamPrepared'
 import { EmptyTeamLine, InviteStep } from '../../src/components/onboarding/InviteStep'
 import { useHandover } from '../../src/store/handover'
 import { skillsChanged } from '../../src/store/live'
@@ -92,11 +95,14 @@ afterAll(() => {
 })
 
 let composed: string[] = []
+/** the line each fill asks the box to show while nothing follows the request (undefined: none) */
+let waits: (string | undefined)[] = []
 const open = async (o: { role?: 'owner' | 'admin' | 'member'; firstTime?: boolean; readOnly?: boolean; phone?: boolean } = {}) => {
   signIn(o.role ?? 'member')
   g.matchMedia = media(!!o.phone)()
   composed = []
-  return mount(<MemoryRouter><TeamPrepared firstTime={o.firstTime ?? true} readOnly={o.readOnly} onCompose={(t) => composed.push(t)} /></MemoryRouter>)
+  waits = []
+  return mount(<MemoryRouter><TeamPrepared firstTime={o.firstTime ?? true} readOnly={o.readOnly} onCompose={(t, w) => { composed.push(t); waits.push(w) }} /></MemoryRouter>)
 }
 /** the filled (primary) buttons inside the block */
 const filled = (m: Mounted) => m.get('team-prepared').querySelectorAll('button').filter((b) => /(^|\s)bg-accent(\s|$)/.test(b.className))
@@ -130,6 +136,17 @@ describe('the rules (no screen)', () => {
     // a team that started since docs/DECISIONS.md "Team folder basics": shared/ by its word on screen
     expect(folderLabel('shared', 'ko')).toBe('전사 공유')
     expect(folderLabel('shared/회사 자료', 'en')).toBe('Company-wide › 회사 자료')
+    // 물어보기's question: the folder as people read it, the left-out folders in words; never a path or "skills"
+    const q = filesQuestion(ko, tf(3))
+    expect(q).toBe('Acme 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 내가 먼저 보면 좋을 것 3개를 골라 줘')
+    for (const l of ['ko', 'en', 'ja', 'es', 'id'] as const) {
+      const text = filesQuestion((k, p) => translate(l, k, p), tf(3))
+      expect({ l, path: text.includes('groups/'), brand: text.includes('브랜드'), folder: text.includes('Acme') }).toEqual({ l, path: false, brand: true, folder: true })
+    }
+    expect(q).not.toContain('skills')
+    // shared/ (a team that started since "Team folder basics") by its word in the screen's language
+    expect(filesQuestion(ko, { path: 'shared', without: ['브랜드'] }, 'ko')).toBe('전사 공유 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 내가 먼저 보면 좋을 것 3개를 골라 줘')
+    expect(filesQuestion((k, p) => translate('en', k, p), { path: 'shared', without: ['Brand'] }, 'en')).toContain('in the Company-wide folder')
   })
 })
 
@@ -158,6 +175,8 @@ describe('a member', () => {
       await m.click(rows(m)[0]!.querySelector('[data-testid="team-prepared-try"]')!)
       expect(composed).toEqual([`/humanizer ${ko('home.prepared.humanizerAsk')}\n`])
       expect(composed[0]).toBe('/humanizer 아래 글을 자연스럽게 다듬어 줘:\n')
+      // the box waits for the person's text: this line under it until something follows the request
+      expect(waits).toEqual(['다듬을 글을 붙여 넣어 주세요'])
       expect(m.find('skill-form')).toBeNull()
     } finally { await m.unmount() }
   })
@@ -186,8 +205,11 @@ describe('a member', () => {
       expect(m.get('skill-example').getAttribute('data-name')).toBe('humanizer')
       expect(m.get('skill-example-source').getAttribute('data-kind')).toBe('team_writing')
       await m.click('team-prepared-ask')
-      expect(composed).toEqual([ko('home.prepared.filesAsk', { path: FOLDER, skip: '브랜드, skills' })])
-      expect(composed[0]).toBe('groups/Acme 폴더의 파일 이름과 종류만 보고(브랜드, skills 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘')
+      expect(composed).toEqual([ko('home.prepared.filesAsk', { folder: 'Acme', brand: '브랜드' })])
+      expect(composed[0]).toBe('Acme 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 내가 먼저 보면 좋을 것 3개를 골라 줘')
+      expect(composed[0]).not.toContain(FOLDER)
+      // a whole question: it can go as it is
+      expect(waits).toEqual([undefined])
     } finally { await m.unmount() }
   })
 
@@ -213,7 +235,7 @@ describe('a member', () => {
     } finally { await m.unmount() }
   })
 
-  test('nothing prepared: "이렇게 시작해 보세요" and one filled question (the profile\'s, else their own folder); the "no team folder" line', async () => {
+  test('nothing prepared: "이렇게 시작해 보세요" and one filled question (the profile\'s, else what the AI can do for the team, no path); the "no team folder" line', async () => {
     data = full({ skills: [], teamFolder: null, hasProfile: true })
     let m = await open()
     try {
@@ -231,7 +253,11 @@ describe('a member', () => {
     m = await open({ phone: true })
     try {
       await m.until(() => m.find('team-prepared-ready'), 'the question')
-      expect(m.get('team-prepared-ready').textContent).toBe(ko('home.example1', { folder: 'users/minji' }))
+      expect(m.get('team-prepared-ready').textContent).toBe(ko('home.prepared.startAsk'))
+      expect(m.get('team-prepared-ready').textContent).toBe('우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘')
+      expect(m.get('team-prepared-ready').textContent).not.toContain('users/')
+      await m.click('team-prepared-ready')
+      expect(composed).toEqual([ko('home.prepared.startAsk')])
       await m.settle(40)
       expect(m.find('team-prepared-no-folders')).toBeNull()
     } finally { await m.unmount() }
@@ -274,6 +300,10 @@ describe('a member', () => {
       const tap = first.querySelector('[data-testid="team-prepared-try"]')!
       expect(tap.getAttribute('aria-label')).toBe(ko('home.prepared.tryNamed', { title: '자연스러운 글' }))
       expect(tap.textContent).toContain('자연스러운 글')
+      // the row says what its tap does, at its end (the first row's in the accent colour: the member's filled one)
+      expect(tap.querySelector('[data-testid="team-prepared-try-label"]')!.textContent).toBe(ko('home.prepared.try'))
+      expect(tap.querySelector('[data-testid="team-prepared-try-label"]')!.className).toContain('text-accent-text')
+      expect(rows(m)[1]!.querySelector('[data-testid="team-prepared-try-label"]')!.className).toContain('text-muted')
       expect(first.querySelector('[data-testid="team-prepared-example"]')!.className).toContain('max-md:min-h-11')
       await m.click(tap)
       expect(composed).toEqual(['/humanizer 아래 글을 자연스럽게 다듬어 줘:\n'])
@@ -316,7 +346,8 @@ describe('owners and admins', () => {
       try {
         await m.until(() => m.find('team-prepared-add'), 'the links')
         expect(m.find('team-prepared-ready')).toBeNull()
-        expect(m.get('team-prepared-add-skills').getAttribute('href')).toBe('/skills')
+        // 팀 스킬 with the ready-made skills unfolded
+        expect(m.get('team-prepared-add-skills').getAttribute('href')).toBe('/skills?catalog=open')
         expect(m.get('team-prepared-add-files').getAttribute('href')).toBe('/files')
         expect(m.get('team-prepared-add').textContent).toBe(`${ko('home.prepared.addSkills')} · ${ko('home.prepared.addFiles')}`)
         expect(filled(m)).toEqual([])
@@ -347,7 +378,7 @@ describe('the invite step\'s empty-team line', () => {
     m = await line('owner')
     try {
       await m.until(() => m.find('invite-empty-team'), 'the line')
-      expect(m.get('invite-empty-skills').getAttribute('href')).toBe('/skills')
+      expect(m.get('invite-empty-skills').getAttribute('href')).toBe('/skills?catalog=open')
       expect(m.get('invite-empty-files').getAttribute('href')).toBe('/files')
     } finally { await m.unmount() }
   })

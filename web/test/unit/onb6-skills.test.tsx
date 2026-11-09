@@ -26,10 +26,13 @@ import { PackRows } from '../../src/components/skills/PackRows'
 import { BringSkillsSheet } from '../../src/components/skills/BringSkillsSheet'
 import { useUi } from '../../src/store/ui'
 import { useWelcome } from '../../src/store/welcome'
+import { namedProduct } from '../../src/lib/tabs'
 import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 
 const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
+/** the product as the catalog and the sources name it beside "트리나에게 묻기" (tabs.ts namedProduct) */
+const PRODUCT_KO = namedProduct(ko)
 const t = ko as unknown as ReturnType<typeof useT>
 const json = (status: number, body: unknown) => new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const failed = (message: string) => json(500, { error: { code: 'internal', message } })
@@ -195,7 +198,7 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
     computer()
     const m = await step()
     try {
-      expect(text(m, 'skill-packs')).toContain(ko('skills.catalog.title'))
+      expect(text(m, 'skill-packs')).toContain(ko('skills.catalog.title', PRODUCT_KO))
       expect(packRows().map((r) => r.getAttribute('data-name'))).toEqual(['intro-deck', 'card-news', 'promo-video', 'humanizer'])
       expect(checkedNames()).toEqual(['intro-deck', 'card-news', 'promo-video'])
       // checkbox · title · one line · 예시
@@ -520,7 +523,7 @@ describe('the example viewer', () => {
       expect(text(m, 'skill-example-body')).toBe(`회사 소개서 한 줄${ko('skillPack.preparing')}`)
       expect(m.find('skill-example-fictional')).toBeNull()
       expect(m.get('skill-example-source').getAttribute('data-kind')).toBe('team')
-      expect(text(m, 'skill-example-source')).toBe(ko('skillPack.source.team'))
+      expect(text(m, 'skill-example-source')).toBe(ko('skillPack.source.team', PRODUCT_KO))
       await key(viewer(m), 'Escape')
       // the cards: an image loading, then failing
       await m.click(exampleOf('card-news'))
@@ -543,7 +546,7 @@ describe('the example viewer', () => {
       expect(m.get('skill-example-body').querySelector('strong')!.textContent).toBe('Before:')
       expect(text(m, 'skill-example-fictional')).toBe(ko('skillPack.fictional', { company: 'Example Coffee' }))
       expect(m.get('skill-example-source').getAttribute('data-kind')).toBe('adapted')
-      expect(text(m, 'skill-example-source')).toContain(ko('skillPack.source.adapted', { author: 'Siqi Chen', project: 'humanizer', license: 'MIT' }))
+      expect(text(m, 'skill-example-source')).toContain(ko('skillPack.source.adapted', { ...PRODUCT_KO, author: 'Siqi Chen', project: 'humanizer', license: 'MIT' }))
       const link = m.get('skill-example-original')
       expect(link.getAttribute('href')).toBe('https://github.com/blader/humanizer')
       expect(link.getAttribute('target')).toBe('_blank')
@@ -578,7 +581,7 @@ describe('the example viewer', () => {
     try {
       await m.click(exampleOf('humanizer'))
       expect(m.get('skill-example-source').getAttribute('data-kind')).toBe('team_writing')
-      expect(text(m, 'skill-example-source')).toBe(ko('skillPack.source.teamWriting'))
+      expect(text(m, 'skill-example-source')).toBe(ko('skillPack.source.teamWriting', PRODUCT_KO))
       expect(m.find('skill-example-original')).toBeNull()
     } finally { await m.unmount() }
   })

@@ -208,15 +208,27 @@ export class FakeElement extends FakeNode {
 }
 
 /** value and checked as properties on the prototype, so React's value tracker can wrap them */
+const values = new WeakMap<FakeElement, unknown>()
 for (const [prop, attr] of [['value', 'value'], ['checked', 'checked']] as const) {
-  const store = new WeakMap<FakeElement, unknown>()
+  const store = prop === 'value' ? values : new WeakMap<FakeElement, unknown>()
   Object.defineProperty(FakeElement.prototype, prop, {
     configurable: true,
     get(this: FakeElement) { return store.has(this) ? store.get(this) : prop === 'checked' ? this.hasAttribute(attr) : this.getAttribute(attr) ?? '' },
     set(this: FakeElement, v: unknown) { store.set(this, prop === 'checked' ? !!v : String(v)) },
   })
 }
-for (const prop of ['defaultValue', 'defaultChecked', 'multiple', 'selected', 'name', 'placeholder', 'tabIndex', 'htmlFor', 'autofocus', 'selectionStart', 'selectionEnd']) {
+/** a <textarea>'s default value is its text, and its value until a script or the person sets one (React mounts a
+ * textarea with text through defaultValue, so its value is there when the component's effects run, as in a browser) */
+const defaults = new WeakMap<FakeElement, unknown>()
+Object.defineProperty(FakeElement.prototype, 'defaultValue', {
+  configurable: true,
+  get(this: FakeElement) { return defaults.get(this) },
+  set(this: FakeElement, v: unknown) {
+    defaults.set(this, v)
+    if (this.localName === 'textarea' && !values.has(this)) values.set(this, String(v ?? ''))
+  },
+})
+for (const prop of ['defaultChecked', 'multiple', 'selected', 'name', 'placeholder', 'tabIndex', 'htmlFor', 'autofocus', 'selectionStart', 'selectionEnd']) {
   if (!(prop in FakeElement.prototype)) Object.defineProperty(FakeElement.prototype, prop, { configurable: true, writable: true, value: undefined })
 }
 

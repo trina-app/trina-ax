@@ -331,8 +331,9 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
   const keepSite = (site: string) => {
     if (site !== useWelcome.getState().progress?.site) void useWelcome.getState().update({ site }).catch(() => {})
   }
-  // the line right under "저장하고 계속" (the saved state's, and the review's in the steps): what the press writes
-  const brandLine = <p className="text-label leading-5 text-muted" data-testid="welcome-brand-line">{t('welcome.brand.line')}</p>
+  // the line right under "저장하고 계속" (the saved state's, and the review's in the steps): what the press writes, the
+  // website's photos only when there is a website
+  const brandLine = (website: string) => <p className="text-label leading-5 text-muted" data-testid="welcome-brand-line">{t(website.trim() ? 'welcome.brand.line' : 'welcome.brand.lineNoSite')}</p>
 
   if (saved === undefined) return <Skeleton lines={4} />
   if (!saved)
@@ -365,7 +366,7 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
           {t('welcome.profile.save')}
         </Button>
         <span className="ml-auto max-sm:order-3 max-sm:ml-0 max-sm:w-full max-sm:text-center"><Later onClick={onSkip} disabled={busy || stepBusy} /></span>
-        <div className="w-full max-sm:order-2">{brandLine}</div>
+        <div className="w-full max-sm:order-2">{brandLine(saved.website)}</div>
       </div>
     </div>
   )

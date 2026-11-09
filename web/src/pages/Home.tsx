@@ -64,7 +64,8 @@ export default function Home() {
   const elsewhere = phone && isLanding(location) && landingPath(true) !== '/'
   // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere)
   const resuming = useResumeOnLanding(isLanding(location) && !elsewhere)
-  const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (prompt ? { text: prompt, n: 0 } : null))
+  // `waits`: the line under the box while it holds only `text` (a request that needs the person's own text after it)
+  const [preset, setPreset] = useState<{ text: string; n: number; waits?: string } | null>(() => (prompt ? { text: prompt, n: 0 } : null))
 
   useEffect(() => {
     if (!projectId) return setProject(null)
@@ -85,8 +86,8 @@ export default function Home() {
   const noAi = extras && ai.loaded && !ai.usable
   const suggest = extras && !projectId && ai.loaded && ai.usable
   const admin = isAdmin(me)
-  /** a suggestion chosen: into the box (focused), never sent */
-  const choose = (text: string) => setPreset({ text, n: (preset?.n ?? 0) + 1 })
+  /** a suggestion chosen: into the box (focused, the caret after it), never sent */
+  const choose = (text: string, waits?: string) => setPreset({ text, n: (preset?.n ?? 0) + 1, waits })
   // whether "팀에 준비된 것" shows skill rows (null: not known yet): 「자주 쓰는 스킬」 waits for the answer and stays out
   // while they show, so two lists of skills never sit side by side
   const [skillRows, setSkillRows] = useState<boolean | null>(null)
@@ -127,6 +128,7 @@ export default function Home() {
               // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
               autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
               aiLine={!noAi}
+              waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
             />
           </div>
           <div className="max-md:pb-6 md:contents" data-testid="home-tail">

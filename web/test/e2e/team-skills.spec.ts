@@ -624,5 +624,7 @@ test('no skill to use yet: the tab says so, who puts skills in, and how one gets
   await expect(page.getByTestId('skill-list')).toHaveCount(0)
   // a member: the owner or an admin puts the team skills in (docs/DECISIONS.md "W6")
   await expect(page.getByText('아직 팀 스킬이 없어요 · 팀장이나 관리자가 넣으면 여기에 보여요')).toBeVisible()
-  await expect(page.getByText('"스킬로 제안"을 눌러 제안할 수 있어요')).toBeVisible()
+  // how one gets there, without the folder path ("skills/ 폴더")
+  await expect(page.getByTestId('skill-none-member')).toHaveText('채팅 답변 아래나 내 폴더의 파일 메뉴에서 "스킬로 제안"을 눌러 팀에 스킬을 제안할 수 있어요.')
+  await expect(page.locator('main')).not.toContainText('skills/')
 })
