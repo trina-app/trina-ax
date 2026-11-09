@@ -794,6 +794,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **사진**(png·jpg·heic·tiff·webp 등): read에서만 인식한다. grep 글자 캐시에는 넣지 않는다(사진 폴더 하나에 몇 분). 투명 배경 이미지는 흰 바탕에 그려서 인식(아니면 빈 결과).
 - **격리**: 다른 변환기와 같은 sandbox-exec 프로필. 단 변환기 자기 폴더의 **목록**(literal, 안의 파일 내용 아님)은 읽게 했다: Vision은 실행 파일 옆을 보며, 도우미가 거부된 폴더(홈 아래 저장소 등)에 있으면 오류 없이 빈 결과를 낸다(직접 확인).
 
+
 ## 쉬운 비밀번호: 8자 규칙, 외우기 쉬운 임시 비밀번호, 첫 로그인 한 번 입력 (feat/easy-passwords, 2026-10-21)
 
 소유자 요청(첫 시범 고객의 윈도우 데스크 준비 중): "비밀번호 8자리 이상, 임시 비밀번호는 외울 수 있는 단어로 8자리 정도, 첫 로그인 뒤 바꿀 때 비밀번호를 또 입력하는 게 불편, 직접 추가할 때 임시 비밀번호를 정할 수 있게 기본값 하나 넣어 두고."
@@ -965,6 +966,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **색인**: `<data>/semantic.db`(app.db와 따로). 일반 글 파일과 grep 글자 캐시의 문서(office·PDF·한글, OCR 포함)를 약 800자 조각으로, 파일 mtime·크기로 새 것만 다시. 점 폴더(.system: 휴지통·기록·백업)는 넣지 않는다. 질의 직전 3초, 그 밖에는 5분마다 뒤에서(최대 1분) 따라잡는다. 질의는 메모리에 올린 벡터를 전부 비교(작은 팀 기준).
 - **끄기·없는 곳**: `MYCEL_SEMANTIC=off`(2026-11-01부터 기본 꺼짐, 켜려면 `on`: 맨 아래 "Search by meaning off by default"). onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
 - **번들**: 서버 빌드에서 `@huggingface/transformers`는 external(Bun.build가 네이티브 모듈 경로를 이 저장소 절대 경로로 박았다), `scripts/vendor-semantic.ts`가 서버 옆 `node_modules`에 darwin-arm64만 남겨 복사(약 76 MB, onnxruntime-web 제외). 사무실 모드 zip +25 MB. 사무실 모드 갱신 설치에서 Claude로 끝까지 확인.
+
 
 ## 사무실 모드 자동 업데이트 (feat/auto-update, 2026-10-21)
 
@@ -1651,6 +1653,7 @@ file tools only had `write` (text) for putting bytes anywhere.
   `tests/unit/i-wiring.test.ts` (an attached image moved from a real turn after the server's card).
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
 
+
 ## External-service connections: MCP servers and HTTP APIs (feat/integrations-server, 2026-10-28)
 
 The founder gave the AI an API key for AI PM (a REST API with a Bearer token) and asked it to keep using it; it could
@@ -1676,6 +1679,7 @@ not: there was nowhere to keep a person's key and no tool that sends an authenti
 - Tests: `tests/unit/c-integrations-{api,tools,oauth}.test.ts`, `tests/lib/fake-services.ts`, the real turn in
   `tests/unit/i-wiring.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
 
 ## Chat titles: a safe placeholder, then the answering AI names the chat (feat/chat-titles, 2026-10-28)
 
@@ -1827,6 +1831,7 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   not copy; `tests/unit/d-web.test.ts` covers how the server sends them.
 - A server picks this up with an ordinary app update (the files are part of `web/`); no reinstall or root step.
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
+
 
 ## 2026-10-29 — Scheduled task dates and one-time task resumption (QA B-W12-1, B-W12-2)
 
@@ -1989,6 +1994,7 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   H.264/AAC MP4 and AAC M4A) and removed after the tests.
 - Needed in the core too (potenlab/team-ax): the same classification change; nothing here is Trina-specific.
 
+
 ## Refresh members after account deletion (QA R2 integration, 2026-10-29)
 
 - A successful DELETE returns 204/undefined, which the old result guard confused with an action failure.
@@ -2027,14 +2033,17 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - A connection version change while a write approval is pending invalidates that approval for both MCP and HTTP. This includes a new deny policy, changed credentials and access rules, even when the URL stays the same. The user must start a new call against the current configuration.
 - Regression tests reproduce both failures before the fixes and assert that refused calls send no request.
 
+
 ## PowerPoint distribution notices (2026-10-29)
 
 The package notice collector now includes subject-prefixed copyright/notice files under `licenses/`, so `@aiden0z/pptx-renderer`'s `licenses/ECMA-text-copyright-notice.txt` is included unchanged in built distribution inventories. Path, symlink and content checks still apply. A fixture verifies byte preservation and inventory validation; the built web artifact verifies the actual dependency notice.
+
 
 ## Immediate identity and audience rechecks (2026-10-29)
 
 - Desktop browser calls require a fresh successful identity check. A five-second cached check let a newly signed-in person use the previous person's cookies and allowed sites; the regression now switches immediately, without its former six-second wait. Offline/invalid identity checks or failed storage clearing refuse the AI browser call, and the owner marker advances only after clearing succeeds. Normal desktop data remains per team; changing people clears that team's embedded browser sessions.
 - AI file moves/copies retain a fingerprint of each item's source and destination reader sets and recheck before each mutation. A change during a confirmation (including account activation with permissions unchanged) refuses that item and requires a new call. Actual source/destination permissions and filesystem chains are still checked per item. New regressions verify both operations and refuse symlink sources/destinations for move/copy/rename.
+
 
 ## File-tool skills aliases (2026-10-29)
 
@@ -3054,6 +3063,7 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
   snapshots, then delete only search lease rows offline. Never erase artifact identities.
   The default remains off; real CLI/host qualification and customer notice still gate enablement.
 
+
 ## Skills: folder permissions and personal skills (issue #10, 2026-10-30)
 
 Before this change, the skill list already used the folder rules of the reader, but nobody could keep a skill for
@@ -3893,6 +3903,7 @@ asks once per domain ("Yes, and don't ask again for this domain").
   confidential chat; DNS stub: no lookup before the decision, office answer refused after it, private literal before
   any card; a sub-agent opening the site without a card), `p0-exfil-server.test.ts` (adjusted to the choice card),
   `web/test/e2e/exfil-followups.spec.ts`.
+
 
 ## Exit address on every install (fix/pre-0212, 2026-10-30)
 
@@ -4744,6 +4755,7 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row (not when the chat
   was locked confidential during the read: nothing more goes to OpenRouter from it). No transcript words. Voice input
   has no audit row and none was added.
+
 
 ## Anthropic-compatible gateway (feat/anthropic-gateway, 2026-11-01)
 
@@ -8181,6 +8193,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `onboarding_notices`. It would skip main's 222 (dev environment run state) and stop on 231 ("table already exists"),
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
+
 
 ## 대화방 v1 — team chat rooms, people to people (feat/team-rooms, 2026-11-05)
 
@@ -11854,6 +11867,7 @@ An independent review found one hole and several gaps. What changed, and why:
   saving its token (409) is neither recorded nor told.
 - **No notice for a save that changes nothing** (the same address, model, name, and no new key).
 
+
 ## Push: say why, the desktop app's own row, and the web ask (fix/push-errors, 2026-11-07)
 
 The owner clicked "이 기기에서 알림 받기" and got "푸시 설정을 저장하지 못했어요. 연결 상태를 확인하고 다시 시도해
@@ -12690,6 +12704,7 @@ asked for the mic on the right, as in ChatGPT ("마이크 버튼은 오른쪽에
   the box; on a phone "+" stays inside the box on the left.
 - Only the place changed: the same VoiceMic (size, a 44 px tap area on phones, the admin's hint while voice input is
   off), the same recording bar (VoiceBar) and keys (Space held to talk, Esc to cancel).
+
 
 ## AI 앱에서 대화 읽고 쓰기 — AI apps read and write my conversations (feat/mcp-rooms, 2026-11-07, product owner)
 
@@ -15897,21 +15912,6 @@ square. Placement: Team AX core (`server/src/uploads/image.ts`, `server/src/room
   (a seal stamp in a room, light and dark: nothing painted behind it).
 - Version impact: **patch** (a fix; no API or data change).
 
-## 읽음으로 표시 — "Mark as read" on a room notification (feat/notification-mark-read, 2026-11-09)
-
-- **Decision:** a room notification gets one button, **Mark as read**, where the system shows buttons: Web Push
-  (Chrome, Edge, Android) and the Mac desktop app (Electron's notification actions are macOS only). It moves my read
-  position to that message (`markRoomRead`, or `markRoomThreadRead` for a reply in a thread), as opening the room
-  would, so the room's notices count as read too; nothing opens. The AI-waits notice has no button (a question to
-  answer).
-- **Where the place comes from:** Web Push: the `seq` (new) and the thread of the single signed-in notice
-  (`GET /api/notifications/:id`), stored with the notification at show time, never from the payload. Desktop: the
-  `room.message` event; the page gives `read: "<room>[/<thread root>]@<seq>"`, the main process checks its shape
-  (`readTokenOf`) and gives it back through `bridge:read`, and the page calls the API as itself.
-- **Words:** the server's (`/api/push` `messages.markRead`) for Web Push, the desktop app's own i18n for the Mac.
-- **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
-  yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
-
 ## Desktop: a right-click menu; a pasted picture shows as one above the box (fix/image-copy-paste-preview, 2026-11-09)
 
 Two things the owner met in team rooms: in the Mac app a right-click on a photo to copy it did nothing, and a picture
@@ -15971,3 +15971,18 @@ boxes); no contract, setting or data change.
   ends, ✕, then attached / sent; a refused room send comes back with the photo's thumbnail) and
   `room-files-open.spec.ts` (the right-click reaches the browser's menu on the thumbnail and the panel's original).
 - Version impact: **patch** (a fix; no API or data change).
+
+## 읽음으로 표시 — "Mark as read" on a room notification (feat/notification-mark-read, 2026-11-09)
+
+- **Decision:** a room notification gets one button, **Mark as read**, where the system shows buttons: Web Push
+  (Chrome, Edge, Android) and the Mac desktop app (Electron's notification actions are macOS only). It moves my read
+  position to that message (`markRoomRead`, or `markRoomThreadRead` for a reply in a thread), as opening the room
+  would, so the room's notices count as read too; nothing opens. The AI-waits notice has no button (a question to
+  answer).
+- **Where the place comes from:** Web Push: the `seq` (new) and the thread of the single signed-in notice
+  (`GET /api/notifications/:id`), stored with the notification at show time, never from the payload. Desktop: the
+  `room.message` event; the page gives `read: "<room>[/<thread root>]@<seq>"`, the main process checks its shape
+  (`readTokenOf`) and gives it back through `bridge:read`, and the page calls the API as itself.
+- **Words:** the server's (`/api/push` `messages.markRead`) for Web Push, the desktop app's own i18n for the Mac.
+- **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
+  yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
