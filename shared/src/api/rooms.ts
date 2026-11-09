@@ -168,6 +168,22 @@ export const roomRefsByIdOnly = (text: string) => text.replace(ROOM_REF_RE, (_al
 /** The message as people read it: each token as "#<title>" (lists, titles, a text box to edit it in). */
 export const plainRoomRefs = (text: string) => text.replace(ROOM_REF_RE, (_all, title: string) => `#${title}`)
 
+/**
+ * The thread a side chat question is about (docs/DECISIONS.md "Trina side chat: send here"): a question about a room
+ * message (web SideChatPanel withQuote) starts with the message quoted, and the quote's header line ("> <who> · <when>")
+ * ends with ` (thread_id <id> in this room)`, the message's thread root (its own id, or its thread's first message), only
+ * when that message can have a thread. Like the file quote's `file_id`, the AI reads it as is (room_read's `thread`). The
+ * app hides it wherever it shows the question, and an answer of the side chat goes to that thread with one click. Only
+ * the first line of a message counts: the quote is always at the top.
+ */
+const THREAD_REF_RE = /^(> [^\n]*?) \(thread_id ([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}) in this room\)(?=\n|$)/
+/** The token at the end of a quote's header line. */
+export const threadRefToken = (rootId: string) => ` (thread_id ${rootId} in this room)`
+/** The thread root a question's quote names, or null. */
+export const threadRefOf = (text: string): string | null => THREAD_REF_RE.exec(text)?.[2] ?? null
+/** The question as people read it: the quote's header without the token. */
+export const hideThreadRef = (text: string): string => text.replace(THREAD_REF_RE, '$1')
+
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
  * (`?thumb=1`: an image's small preview when `thumb` is true). */

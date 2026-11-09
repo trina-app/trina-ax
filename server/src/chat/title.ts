@@ -5,7 +5,7 @@
 // scheduled run. A rename by the person ends that for good. Where a title came from is chats.title_source:
 // 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' (made before the column existed; never renamed by the AI).
 import type { Database } from 'bun:sqlite'
-import type { Attachment } from '@mycel/shared/api'
+import { hideThreadRef, type Attachment } from '@mycel/shared/api'
 import { hasSecret, maskSecrets } from '@mycel/shared'
 import { HIDDEN } from '../integrations/connections/hide'
 
@@ -89,7 +89,8 @@ function lineTitle(line: string, known?: KnownSecrets): string | null {
 export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets): string {
   const prose: string[] = [], code: string[] = []
   let fence = false, pem = false
-  for (const raw of content.split(/\r?\n/)) {
+  // a side chat's quote names its message's thread for the app (shared rooms.ts threadRefOf): not part of a title
+  for (const raw of hideThreadRef(content).split(/\r?\n/)) {
     const l = raw.trim()
     if (/^(?:```|~~~)/.test(l)) { fence = !fence; continue }
     // a pasted private key: every line up to its END line

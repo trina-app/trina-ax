@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, type Step } from '@mycel/shared/api'
+import { API, threadRefToken, type Step } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
 import { AI_TITLE_MAX, PLACEHOLDER_MAX, TITLE_SCAN_KEY, cleanAiTitle, graphemes, hideTitle, maskStoredTitles, placeholderTitle } from '../../server/src/chat/title'
 import { HIDDEN } from '../../server/src/integrations/connections/hide'
@@ -77,6 +77,12 @@ describe('placeholder from the first message', () => {
     expect(placeholderTitle(' \n\n---\n👍')).toBe('')
     expect(placeholderTitle('', [{ name: 'report-2026.pdf', source: 'upload' }])).toBe('report-2026.pdf')
     expect(placeholderTitle('', [{ name: 'salaries-2026.xlsx', source: 'team' }])).toBe('')
+  })
+
+  test("a side chat's quote: the thread it names is the app's, never part of the title", () => {
+    const q = `> Ben · 11/10, 3:00 PM${threadRefToken('019a5f00-0000-7000-8000-000000000001')}\n> logo drafts by Friday?\n\nOne line, please`
+    expect(placeholderTitle(q)).toBe('Ben · 11/10, 3:00 PM')
+    expect(placeholderTitle(q)).not.toContain('thread_id')
   })
 })
 
