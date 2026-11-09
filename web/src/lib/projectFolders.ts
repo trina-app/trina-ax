@@ -27,16 +27,15 @@ export function projectsByFolder(items: readonly Project[]): Map<string, Project
   return out
 }
 
-export type FolderProjectAction = { kind: 'open'; project: Project } | { kind: 'make' } | null
+export type FolderProjectAction = { kind: 'open'; project: Project } | null
 
 /**
- * What a row of the Files page offers about projects: a folder that already is a project the person can see opens it;
- * a folder they can write can become one; anything else offers nothing. (A folder they can write is one they can read,
- * so its project, if any, is always among the ones they see.)
+ * What a row of the Files page offers about projects: a folder that is a project the person can see opens it. Nothing
+ * else: new projects are made on the Projects page, always in a new projects/<name> (docs/DECISIONS.md "Projects live
+ * only in projects/"), never on an existing folder.
  */
-export function folderProjectAction(e: Pick<FileEntry, 'type' | 'path' | 'access'>, byFolder: ReadonlyMap<string, Project>): FolderProjectAction {
+export function folderProjectAction(e: Pick<FileEntry, 'type' | 'path'>, byFolder: ReadonlyMap<string, Project>): FolderProjectAction {
   if (e.type !== 'folder') return null
   const project = byFolder.get(e.path.normalize('NFC'))
-  if (project) return { kind: 'open', project }
-  return e.access === 'write' ? { kind: 'make' } : null
+  return project ? { kind: 'open', project } : null
 }

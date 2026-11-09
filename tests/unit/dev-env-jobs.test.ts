@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { setBoxdClient, type BoxdClient, type BoxdResult } from '../../server/src/devenv/boxd'
 import { JOB_MAX_AGE_MS, jobResultsForAI, jobRuns, pollJobs, pollStops, purgeOldJobs, runningJobs, startJob } from '../../server/src/devenv/jobs'
 import { newConsent, OFF_SETTING, saveDevEnvSetting } from '../../server/src/devenv/setting'
@@ -67,7 +68,7 @@ const clear = () => {
 beforeAll(async () => {
   process.env.MYCEL_DEV_ENV = '1'
   h = await startHarness({ name: 'dev-env-jobs' })
-  projectId = (await h.api('alice').call(API.createProject, { body: { name: 'Render', folderPath: FOLDER, instructions: '' } })).id
+  projectId = (await oldProject(h, 'alice', { name: 'Render', folderPath: FOLDER, instructions: '' })).id
   chatId = (await h.api('alice').call(API.createChat, { body: { projectId } })).id
   saveDevEnvSetting(h.ctx.db, projectId, { ...OFF_SETTING, enabled: true, consent: newConsent({ id: 'carol', name: 'Carol Park' }) })
   setBoxdClient(fakeBoxd)

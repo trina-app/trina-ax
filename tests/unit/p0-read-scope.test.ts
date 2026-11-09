@@ -9,6 +9,7 @@ import { API } from '@mycel/shared/api'
 import { readScope, sourceOf, widening } from '../../server/src/chat/read-scope'
 import { RuleSet } from '../../server/src/policy/access'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 
 setDefaultTimeout(40_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -111,7 +112,7 @@ describe('the AI saves what it read', () => {
   })
 
   test('project instructions on a finance folder count as read: saving into shared/ from that project asks', async () => {
-    const proj = await h.api('bob').call(API.createProject, { body: { name: 'Budget', folderPath: 'groups/finance', instructions: 'Numbers are in budget.md.' } })
+    const proj = await oldProject(h, 'bob', { name: 'Budget', folderPath: 'groups/finance', instructions: 'Numbers are in budget.md.' })
     const chat = await h.api('bob').call(API.createChat, { body: { projectId: proj.id } })
     const r = await h.api('bob').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'write', args: { file_path: 'shared/from-project.md', content: 'x' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await bob.next('turn.request', (f) => f.data.turnId === r.turnId)
