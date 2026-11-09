@@ -8,6 +8,7 @@ import path from 'node:path'
 import { FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
 import { AUTH_MESSAGES } from '../../server/src/auth/messages'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { legacyProject } from '../lib/legacy-project'
 
 let h: Harness
 let owner: Client
@@ -39,8 +40,9 @@ beforeAll(async () => {
   await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo/closed', rules: [rule('everyone', null, 'none')] })
   await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [rule('everyone', null, 'none'), rule('group', ops, 'read')] })
   // a team project, and alice's personal project and file (their names must never reach an admin)
-  await alice.client.call('POST', '/api/projects', { name: 'Apollo', folderPath: 'projects/apollo', instructions: '' })
-  await alice.client.call('POST', '/api/projects', { name: 'Alice-private-plan-7c1', folderPath: 'users/alice', instructions: '' })
+  // made as builds before "Projects live only in projects/" made them on existing folders (tests/lib/legacy-project.ts)
+  legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Apollo', folderPath: 'projects/apollo' })
+  legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Alice-private-plan-7c1', folderPath: `users/${alice.id}` })
   fs.writeFileSync(path.join(h.ctx.files.fx.root, 'users', 'alice', 'Alice-secret-name-3e9.md'), 'x')
   fs.mkdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice', 'Alice-private-folder-5d2'), { recursive: true })
   fs.writeFileSync(path.join(h.ctx.files.fx.root, 'shared', 'plain-file.md'), 'x')

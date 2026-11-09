@@ -16,6 +16,7 @@ import { issuePreview, previewFetch } from '../../server/src/devenv/preview'
 import { mayUseBox, newConsent, OFF_SETTING, saveDevEnvSetting } from '../../server/src/devenv/setting'
 import { notificationsOf, notifyDevEnv } from '../../server/src/notifications/service'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { WORK } from '../lib/env'
 
 setDefaultTimeout(30_000)
@@ -27,8 +28,7 @@ const listed = async (who: string) => (await h.api(who).call(API.listProjects)).
 const status = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof ApiError ? e.status : 0))
 const get = (who: string, id: string) => status(h.api(who).call(API.getProject, { params: { id } }))
 const row = (id: string) => h.rt().store.projectRow(id)!
-const project = (who: string, folderPath: string, name: string, instructions = '') =>
-  h.api(who).call(API.createProject, { body: { name, folderPath, instructions, scope: 'team', participants: [] } })
+const project = (who: string, folderPath: string, name: string, instructions = '') => oldProject(h, who, { name, folderPath, instructions })
 /** a finance-only folder under shared/ (everyone else: nothing) */
 function financeOnly(dir: string, id: string) {
   fs.mkdirSync(path.join(h.team, dir), { recursive: true })
@@ -60,8 +60,11 @@ describe('a purge does not bring the project back', () => {
     }
     // the admins still see it, to delete it or point it at a folder; pointed at one, its readers see it again
     expect(await listed('carol')).toContain('Purged plan')
-    fs.mkdirSync(path.join(h.team, 'shared/s1-new'), { recursive: true })
-    await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'shared/s1-new' } })
+    // (only to an existing projects/<name>: docs/DECISIONS.md "Projects live only in projects/"; marketing reads this one)
+    fs.mkdirSync(path.join(h.team, 'projects/s1-new'), { recursive: true })
+    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_s1_new', 'projects/s1-new')").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_s1_new', 'f_s1_new', 'group', 'marketing', 'read')").run()
+    await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/s1-new' } })
     expect(row(p.id).trashed_with).toBeNull()
     expect(await listed('alice')).toContain('Purged plan')
   })
@@ -213,21 +216,23 @@ describe('trashed folders inside and above a project', () => {
 
 describe('an admin points a project whose folder is in the trash', () => {
   test('at the folder now at the same path: the project is in place again, seen by that folder\'s readers', async () => {
-    fs.mkdirSync(path.join(h.team, 'shared/same'), { recursive: true })
-    const p = await project('alice', 'shared/same', 'Same plan')
-    await trash('carol', 'shared/same')
-    fs.mkdirSync(path.join(h.team, 'shared/same'), { recursive: true })
+    const p = await project('carol', 'projects/same', 'Same plan')
+    await trash('carol', 'projects/same')
+    // the folder now at that path: alice writes it
+    fs.mkdirSync(path.join(h.team, 'projects/same'), { recursive: true })
+    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_same_new', 'projects/same')").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_same_new', 'f_same_new', 'user', 'alice', 'write')").run()
     expect(await h.api('carol').call(API.getProject, { params: { id: p.id } })).toMatchObject({ inTrash: true })
-    await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'shared/same' } })
-    expect(row(p.id)).toMatchObject({ folder_path: 'shared/same', trashed_with: null })
+    await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/same' } })
+    expect(row(p.id)).toMatchObject({ folder_path: 'projects/same', trashed_with: null })
     expect(await get('alice', p.id)).toBe(200)
   })
 
   test('deleting it, or pointing it elsewhere, leaves the rule-less row of the folder now at its old path alone', async () => {
     for (const how of ['delete', 'repoint'] as const) {
-      const dir = `shared/dm-${how}`
+      const dir = `projects/dm-${how}`
       fs.mkdirSync(path.join(h.team, dir), { recursive: true })
-      const p = await project('alice', dir, `Marker ${how}`)
+      const p = await project('carol', dir, `Marker ${how}`)
       await trash('carol', dir)
       fs.mkdirSync(path.join(h.team, dir), { recursive: true })
       // the folder now there has a rule-less row of its own (an admin's "follow the folder above")
@@ -256,10 +261,10 @@ describe('an admin edits a project whose folder is in the trash (review round 4)
   })
 
   test('pointing it at a folder that is not there is refused, also its old path; nothing is made', async () => {
-    financeOnly('shared/fin2', 'fin2')
-    const p = await project('bob', 'shared/fin2', 'Finance plan 2', 'SECRET-3')
-    await trash('carol', 'shared/fin2')
-    for (const to of ['shared/fin2', 'shared/fin2-new']) {
+    financeOnly('projects/fin2', 'fin2')
+    const p = await project('bob', 'projects/fin2', 'Finance plan 2', 'SECRET-3')
+    await trash('carol', 'projects/fin2')
+    for (const to of ['projects/fin2', 'projects/fin2-new']) {
       const r = await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'SECRET-4', folderPath: to } }).then(() => null, (e: ApiError) => e)
       expect(r?.status).toBe(409)
       expect(r?.body.params).toEqual({ reason: 'project_folder_missing' })

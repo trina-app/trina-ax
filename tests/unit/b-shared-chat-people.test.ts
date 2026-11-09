@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, CHAT_PEOPLE_SHOWN, type Chat } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { chatPeople } from '../../server/src/chat/shared'
 
 setDefaultTimeout(60_000)
@@ -19,7 +20,7 @@ let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'b-shared-chat-people', turnTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  const p = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })
+  const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })
   projectId = p.id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })

@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { addTestPerson } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { recordOlderAnswers, WITHHELD_ANSWER } from '../../server/src/chat/shared'
@@ -32,7 +33,7 @@ beforeAll(async () => {
   h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('gina', 'gina', 'Gina Han', 'member')").run()
   addTestPerson('gina', { id: 'gina', name: 'Gina Han', role: 'member', locale: 'en' })
   for (const u of ['alice', 'bob', 'carol', 'erin', 'gina']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  projectId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })).id
+  projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
@@ -255,7 +256,7 @@ describe("a group's skills in a shared chat are its members' only (as in a room)
     const abs = path.join(h.team, folder, 'skills/brief-writer.md')
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, '---\nname: GROUP-BRIEF-SKILL\ndescription: write a brief\n---\nGROUP-SKILL-BODY-55\n')
-    const p = await h.api('alice').call(API.createProject, { body: { name: 'Briefs', folderPath: folder, scope: 'team', participants: [], instructions: '' } })
+    const p = await oldProject(h, 'alice', { name: 'Briefs', folderPath: folder, instructions: '' })
     await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     // alice, erin, carol and dana see it; carol and dana read the folder but are not in the group

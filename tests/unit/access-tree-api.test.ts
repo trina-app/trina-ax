@@ -10,6 +10,7 @@ import { MAX_DEPTH } from '../../server/src/policy/names'
 import { OPEN_LEVELS, OPEN_ROWS } from '../../server/src/admin/access-tree'
 import { newId } from '../../server/src/db'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { legacyProject } from '../lib/legacy-project'
 
 let h: Harness
 let owner: Client
@@ -47,8 +48,9 @@ beforeAll(async () => {
   await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo', rules: [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('everyone', null, 'none')] })
   await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo/drafts', rules: [rule('user', 'bob', 'write')] })
   await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [rule('everyone', null, 'none'), rule('group', ops, 'read')] })
-  await alice.client.call('POST', '/api/projects', { name: 'Apollo', folderPath: 'projects/apollo', instructions: '' })
-  await alice.client.call('POST', '/api/projects', { name: 'Alice-private-plan-7c1', folderPath: 'users/alice', instructions: '' })
+  // made as builds before "Projects live only in projects/" made them on existing folders (tests/lib/legacy-project.ts)
+  legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Apollo', folderPath: 'projects/apollo' })
+  legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Alice-private-plan-7c1', folderPath: `users/${alice.id}` })
   const root = h.ctx.files.fx.root
   fs.mkdirSync(path.join(root, 'users', 'alice', 'Alice-private-folder-5d2'), { recursive: true })
   fs.mkdirSync(path.join(root, 'shared', 'notes', 'deep'), { recursive: true })

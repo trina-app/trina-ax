@@ -3,9 +3,12 @@
 // so the folder stayed locked for good, its author's own included, and one member could lock a teammate's folder that
 // way. Now a rule-less row counts only while a project uses that folder, and it is dropped with the last project
 // (delete, repoint, share). Rule folders, group folders, shared/ and skills/ stay admin-only.
+// No route makes a project on an existing folder any more (docs/DECISIONS.md "Projects live only in projects/"); the
+// projects older builds made there keep working, so these are made as those builds made them (tests/lib/legacy-project.ts).
 // Fixture: alice, erin = marketing (groups/marketing write); bob = finance; carol = admin; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
+import { legacyProject } from '../lib/legacy-project'
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('sec-r2-project-unlock') })
@@ -15,7 +18,7 @@ const q = (o: Record<string, string>) => '?' + new URLSearchParams(o).toString()
 const mkdir = (who: Who, p: string) => A.json('/api/files/mkdir', { as: who, ...jsonBody({ path: p }) })
 const move = (who: Who, from: string, to: string) => A.json('/api/files/move', { as: who, ...jsonBody({ from, to }) })
 const trash = (who: Who, p: string) => A.json('/api/files' + q({ path: p }), { as: who, method: 'DELETE' })
-const create = async (who: Who, folderPath: string) => { const r = await A.json('/api/projects', { as: who, ...jsonBody({ name: 'P ' + folderPath, folderPath }) }); expect(r.status).toBe(201); return r.body.id as string }
+const create = async (who: Who, folderPath: string) => legacyProject(A.ctx.db, A.team, who, { name: 'P ' + folderPath, folderPath })
 const remove = async (who: Who, id: string) => expect((await A.json(`/api/projects/${id}`, { as: who, method: 'DELETE' })).status).toBe(204)
 const row = (p: string) => A.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p)
 
@@ -45,8 +48,8 @@ describe('a project folder is admin-only while the project lasts, and only then'
   test('two projects on one folder (made before one project per folder): it stays locked until the last one goes', async () => {
     expect((await mkdir('alice', 'shared/two')).status).toBe(201)
     const a = await create('alice', 'shared/two')
-    // a second project on the folder is refused now (tests/security/project-is-folder.test.ts); older rows stay
-    expect((await A.json('/api/projects', { as: 'erin', ...jsonBody({ name: 'P again', folderPath: 'shared/two' }) })).status).toBe(409)
+    // no project is made on an existing folder now (tests/security/r1-project-create.test.ts); older rows stay
+    expect((await A.json('/api/projects', { as: 'erin', ...jsonBody({ name: 'P again', folderPath: 'shared/two' }) })).status).toBe(400)
     const b = '01900000-0000-7000-8000-0000000000b2'
     A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by) VALUES (?, 'P old', 'shared/two', '', 'erin')").run(b)
     await remove('alice', a)
@@ -54,16 +57,6 @@ describe('a project folder is admin-only while the project lasts, and only then'
     expect((await move('alice', 'shared/two', 'shared/two-x')).status).toBe(403)
     await remove('erin', b)
     expect((await move('alice', 'shared/two', 'shared/two-x')).status).toBe(200)
-  })
-
-  test('an admin repoints a project: the old folder is free, the new one is the project\'s (admin-only)', async () => {
-    expect((await mkdir('alice', 'shared/old-home')).status).toBe(201)
-    expect((await mkdir('alice', 'shared/new-home')).status).toBe(201)
-    const id = await create('alice', 'shared/old-home')
-    expect((await A.json(`/api/projects/${id}`, { as: 'carol', ...jsonBody({ folderPath: 'shared/new-home' }, 'PATCH') })).status).toBe(200)
-    expect(row('shared/old-home')).toBeNull()
-    expect((await move('alice', 'shared/old-home', 'shared/old-home-2')).status).toBe(200)
-    expect((await move('alice', 'shared/new-home', 'shared/new-home-2')).status).toBe(403)
   })
 
   test('a row that still means something stays: a group folder\'s rules, a stale marker counts for nothing', async () => {

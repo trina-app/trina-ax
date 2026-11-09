@@ -13,6 +13,7 @@ import path from 'node:path'
 import { API, ApiError, type Chat, type Message, type ServerFrame } from '@mycel/shared/api'
 import { FILE_TOOLS } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
 import { sharedChatAudienceCovers, sharedTranscriptText, unshareUncheckedChats } from '../../server/src/chat/shared'
@@ -36,7 +37,7 @@ let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'b-shared-chats', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'carol', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  const p = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: 'Falcon project notes.' } })
+  const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'Falcon project notes.' })
   projectId = p.id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
@@ -95,7 +96,7 @@ describe('the project setting', () => {
       expect([s.status, s.body.params?.reason]).toEqual([409, 'safe_ops'])
     } finally { delete process.env.MYCEL_SAFE_OPS_1A }
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
-    const atlas = await h.api('dana').call(API.createProject, { body: { name: 'Atlas', folderPath: 'projects/atlas', scope: 'team', participants: [], instructions: '' } })
+    const atlas = await oldProject(h, 'dana', { name: 'Atlas', folderPath: 'projects/atlas', instructions: '' })
     db().query("UPDATE projects SET trashed_with = 'trash-1' WHERE id = ?").run(atlas.id)
     const t = await errOf(h.api('dana').call(API.updateProject, { params: { id: atlas.id }, body: { shareChats: true } }))
     expect([t.status, t.body.params?.reason]).toEqual([409, 'project_in_trash'])
@@ -481,7 +482,7 @@ describe('what each viewer sees', () => {
 describe('around shared chats', () => {
   // (the trash and its events in detail: b-shared-chat-trash.test.ts)
   test("deleting a project moves its shared chats to their creators' trash and keeps its private ones without project", async () => {
-    const p = await h.api('dana').call(API.createProject, { body: { name: 'Temp', folderPath: 'shared/temp-share', scope: 'team', participants: [], instructions: '' } })
+    const p = await oldProject(h, 'dana', { name: 'Temp', folderPath: 'shared/temp-share', instructions: '' })
     await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     const shared = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
     db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
@@ -549,7 +550,7 @@ describe('review fixes', () => {
   })
 
   test('a session is not resumed once someone who joined the project could not see what it read', async () => {
-    const p = await h.api('alice').call(API.createProject, { body: { name: 'Campaigns', folderPath: 'groups/marketing/campaigns', scope: 'team', participants: [], instructions: '' } })
+    const p = await oldProject(h, 'alice', { name: 'Campaigns', folderPath: 'groups/marketing/campaigns', instructions: '' })
     await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     // everyone who sees the project reads marketing now: no card
