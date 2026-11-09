@@ -58,6 +58,9 @@ export const FILE_STEP_VERB: Record<string, T> = {
   room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat"),
   room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat"),
   save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat"),
+  // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
+  // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
+  post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala'),
   // a room's own AI session opens one of the room's threads (an id means nothing to the person: the verb alone)
   room_thread: t('스레드 읽기', 'Read thread', 'Baca utas', "スレッドを読む", "Leer hilo"),
   // a room's own AI session finds and reads the shared project chats the asker may view (server/src/chat/room-project-chats.ts):
@@ -239,6 +242,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}` : verb! }
+    case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })

@@ -2,6 +2,7 @@
 // (file_path / pattern / old_string ...) so the model uses them exactly like the built-ins.
 import { z } from 'zod'
 import { HwpPage } from './hwp'
+import { ANSWER_NOTE_MAX, ROOM_MESSAGE_MAX } from './api/rooms'
 
 const relPath = z.string().max(4096).describe('Path relative to the team folder root, e.g. "shared/notes.md". No absolute paths.')
 const optRelPath = relPath.optional()
@@ -292,6 +293,14 @@ export const SaveRoomFileInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id from room_read ("file_id=…"); a name is not taken, as two files may share one.'),
   save_as: saveAs,
 })
+/** post_to_room in a person's own chat (server/src/chat/post-to-room.ts): a message to one of their rooms, or a reply in
+ * a thread there, posted as theirs after their yes on the server's card */
+export const PostToRoomInput = z.strictObject({
+  room: z.string().min(1).max(200).optional().describe('The room: its room_id (best: from rooms or room_read, or a #[name](room:<id>) the user picked), its name, or the other person\'s name for a 1:1 chat. In a chat opened from a room\'s side panel, leave it out to post to that room (or to the thread of the message the question quoted).'),
+  text: z.string().min(1).max(ROOM_MESSAGE_MAX).describe('Everything to post, as it should read in the room (Markdown): the summary or answer itself, written for the room, not a remark about it. The user sees all of it on the card. With the note at most 10,000 characters.'),
+  note: z.string().min(1).max(ANSWER_NOTE_MAX).optional().describe('One line of the user\'s own before it (e.g. "Sharing the summary"), only when they asked for one.'),
+  thread_id: z.string().min(1).max(100).optional().describe('Post as a reply in this message\'s thread: the id of the thread\'s first message (from room_read, or the thread_id in a question that quotes a message).'),
+})
 /** save_room_file in a room's own AI session (rooms/ai.ts): a copy of a file sent in this room */
 export const SaveRoomFileHereInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>); a name is not taken, as two files may share one.'),
@@ -336,6 +345,7 @@ export const OTHER_TOOLS = {
   room_read: { input: RoomReadInput, output: TextOutput },
   room_file: { input: RoomFileInput, output: TextOutput },
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
+  post_to_room: { input: PostToRoomInput, output: TextOutput },
   room_thread: { input: RoomThreadHereInput, output: TextOutput },
   project_chats: { input: ProjectChatsInput, output: TextOutput },
   project_chat: { input: ProjectChatInput, output: TextOutput },

@@ -183,6 +183,19 @@ export const threadRefToken = (rootId: string) => ` (thread_id ${rootId} in this
 export const threadRefOf = (text: string): string | null => THREAD_REF_RE.exec(text)?.[2] ?? null
 /** The question as people read it: the quote's header without the token. */
 export const hideThreadRef = (text: string): string => text.replace(THREAD_REF_RE, '$1')
+/** Does a side chat question start with a quote (a message or a file of the room asked about)? */
+export const quotesRoom = (content: string) => content.startsWith('> ')
+/**
+ * Where an answer of a side chat goes (docs/DECISIONS.md "Trina side chat: send here"), from the questions above it on its
+ * branch, the nearest first: the first that quotes something decides, its token's thread, or the room (null) when it has
+ * none (a file, a message that cannot have a thread, an older chat); a follow-up without a quote keeps what an earlier
+ * one said. No question quotes anything: the room. One rule for the button under an answer (web lib/sideChatSend.ts) and
+ * the AI's post_to_room (server chat/post-to-room.ts).
+ */
+export function nearestThreadOf(questionsNearestFirst: Iterable<string>): string | null {
+  for (const q of questionsNearestFirst) if (quotesRoom(q)) return threadRefOf(q)
+  return null
+}
 
 /** The quote a side chat question starts with (web SideChatPanel withQuote), as people read it: a message (who, when, its
  * lines) or a file sent in the room (its name), then the question asked about it ('' when files went alone). null: the
