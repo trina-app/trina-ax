@@ -93,6 +93,8 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   const t = useT()
   const locale = useLocale()
   const [thumbFailed, setThumbFailed] = useState(false)
+  // the soft box holds the place while the thumbnail loads; then a picture with transparency sits on the page itself
+  const [thumbLoaded, setThumbLoaded] = useState(false)
   const team = a.source === 'team'
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
@@ -105,8 +107,8 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
     return (
       // the same box as a file card, so a tiny or a large image keeps the row even; the image fills it (cropped)
       <Tooltip label={t('common.previewNamed', { name: a.name })}>
-        <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line bg-subtle sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
-          <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onError={() => setThumbFailed(true)} className="block h-full w-full object-cover" />
+        <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
+          <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onLoad={() => setThumbLoaded(true)} onError={() => setThumbFailed(true)} className={clsx('block h-full w-full object-cover', !thumbLoaded && 'bg-subtle')} />
         </button>
       </Tooltip>
     )

@@ -15854,3 +15854,63 @@ page, no migration. Placement: Team AX core (Home, the skills routes, onboarding
   risk is the person's choice to make, and the switch is one tap away.
 - Migration 275 (additive, reader 1): `notification_preferences.message_preview INTEGER NOT NULL DEFAULT 1`.
 
+||||||| 59b9fe47
+
+
+## Transparent pictures keep their transparency in thumbnails (fix/transparent-thumbnails, 2026-11-09)
+
+A bug the owner saw: a red seal stamp (a PNG with a transparent background) sent in a team room showed on a black
+square. Placement: Team AX core (`server/src/uploads/image.ts`, `server/src/rooms/files.ts`,
+`server/src/uploads/attachments.ts`, two web components); no contract change, no migration, two settings rows.
+
+- **Why black.** Room and chat-attachment thumbnails were always JPEG (ffmpeg's mjpeg: 640 px in rooms, 320 px for
+  attachments). JPEG has no alpha, so ffmpeg flattened the see-through pixels to black. The metadata cleaning that runs
+  before a room thumbnail (`cleanImage` with PHOTO) was checked and keeps transparency: a PNG's alpha channel is in its
+  picture data and `tRNS` is on the keep-list, a WebP keeps `ALPH`, VP8L's own alpha and the VP8X alpha flag. GIFs are
+  not cleaned.
+- **A PNG thumbnail when the picture has see-through pixels, a JPEG one otherwise** (`makeThumbnail`). `mayHaveAlpha`
+  reads the first bytes: a PNG of colour type 4 or 6 or with `tRNS`, a WebP with the VP8X alpha flag or VP8L's
+  alpha bit, any GIF. Only those get a first ffmpeg run that writes the alpha plane at the thumbnail's size
+  (`format=rgba,alphaextract`, raw, one byte a pixel); any byte under 255 makes the thumbnail an RGBA PNG, scaled
+  premultiplied (`premultiply` / `unpremultiply`: with straight alpha the black of the see-through pixels bled into
+  the edges, a dark outline round a red stamp). An alpha channel with nothing see-through (macOS screenshots are RGBA)
+  keeps a JPEG: a 640 px PNG of a UI screenshot was 56 KB against 20 KB. When that first run fails the JPEG one is
+  made, as before. Cost: such an upload is decoded twice (a 5K screenshot about 500 ms instead of 250 ms), and a
+  noisy transparent photo's 640 px PNG can be several hundred KB.
+- **PNG, not WebP**: the PNG encoder is part of every ffmpeg, libwebp is optional (the dev Mac's Homebrew ffmpeg 8.1
+  has no WebP encoder), and iOS Safari before 14 shows no WebP. Every picture still comes on stdout, never as a file
+  in the converter's folder (tools/isolate.ts), and is written under a temporary name and renamed.
+- **Names and types.** Rooms: `<id>.thumb.png` or `<id>.thumb.jpg` beside the file (`room_files.thumb` stays 0/1, its
+  CHECK allows nothing else); `?thumb=1` sends the PNG when there is one, else the JPEG, named `<name>.png` or
+  `<name>.jpg`, so `streamFile` says `image/png` or `image/jpeg`. Attachments: `thumb_path` is `thumbs/<id>.png` or
+  `thumbs/<id>.jpg`, and the served name takes its ending. The start's `reconcile` and both sweeps know both endings
+  (else a PNG thumbnail would be set aside as an orphan, or deleted as one without a row), and deleting a room file
+  removes both.
+- **Thumbnails made before.** An old `.jpg` is served as it was. Once, a minute after start, in the background (one at
+  a time, below interactive work), each room picture and image attachment whose thumbnail is still a JPEG and whose
+  original may have alpha is looked at again (`refreshThumbs`, `transparentOnly`); a transparent one gets its PNG and
+  the JPEG goes. Done is kept in settings (`rooms.thumbsTransparent`, `attachments.thumbsTransparent`); a stop on
+  close leaves it unset, so the next start goes on. Passed over: a file on the download-only list, an attachment whose
+  file is no longer the bytes attached (sha256) or that its sender can no longer read, a picture ffmpeg cannot read
+  (it keeps its JPEG). Not run, and not marked done, while there is no ffmpeg or the room files folder or the team
+  folder is missing or empty (a share not mounted yet). A picture's first bytes are read before an attachment is
+  hashed, so JPEG and HEIC photos are not read through. Not chosen: making it again on first read (the first person
+  to look would still see black, and a read would start ffmpeg). Going back to an older build: its start moves
+  `.thumb.png` files aside as orphans and its sweep deletes `thumbs/<id>.png`, so those pictures show their original
+  when it is 2 MB or less and a file card otherwise; coming back to this build does not make them again.
+- **The web paints nothing behind a loaded picture.** The room image's button and the chat attachment's box had
+  `bg-subtle` behind the picture: a place-holder while it loads, but behind a transparent picture afterwards (#2b2a27
+  in dark mode, a grey square). The soft box now shows only until the picture loads; then the picture sits on the
+  message and the page, light and dark. The 1 px frame stays. The file panel's preview draws the original, with no
+  background.
+- **The phone app** (`mobile/`) is a WebView of the web app: thumbnails are the web's `<img>`, and its downloads are the
+  originals (`download=1`). Nothing there expects a JPEG; no change.
+- Tests: `tests/unit/transparent-thumbnails.test.ts` (which first bytes may have alpha; a PNG with see-through pixels →
+  a PNG thumbnail whose corner pixel is transparent; a JPEG and an opaque RGBA PNG → JPEG; `transparentOnly`; rooms and
+  attachments: the type and name served, an old `.jpg` still served, reconcile and the sweep keep both kinds, the
+  one-time refresh, its stop and its settings row, a changed attachment passed over),
+  `tests/unit/sec-converter-output-links.test.ts` (the new return value; a picture that may have alpha: neither run
+  takes a planted `thumb.png` or `thumb.jpg`), `web/test/unit/room-messages.test.tsx` and
+  `web/test/unit/attachment-thumb.test.tsx` (the soft box only while loading), e2e `room-transparent-image.spec.ts`
+  (a seal stamp in a room, light and dark: nothing painted behind it).
+- Version impact: **patch** (a fix; no API or data change).
