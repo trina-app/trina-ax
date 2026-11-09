@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 16:32
 - Branch: `feat/side-chat-attachments`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/components/rooms/SideChatPanel.tsx`, the AI chat box's attachment part). Why: chat
   and files are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new ability in the side chat's box; no API, setting or data change.
@@ -69,4 +69,9 @@ above and the full web e2e once.
 
 ## Result
 
-Filled in at the end.
+Built as planned, in #265. The AI chat box's files part is `web/src/components/chat/ComposerFiles.tsx` (the chips, uploads,
+limit, chip row, drop and paste), used by `Composer.tsx` unchanged and by `SideChatPanel.tsx`; `lib/teamAttach.ts` tells
+every box showing a draft. Differences from the plan, from the independent review: the room's first question and its
+first file make the side chat through one path (they had raced into two chats); each room remembers the chat its files
+went into, and they go once another chat shows; "New chat" is off on a side chat with nothing in it yet (made for a
+file), so no empty chat is left in 🕘. No server change, no new string.
