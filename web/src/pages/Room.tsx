@@ -35,6 +35,9 @@ import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
+import { SideChatPanel } from '../components/rooms/SideChatPanel'
+import { AiFace } from '../components/rooms/AiFace'
+import { aiName } from '../lib/tabs'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
@@ -96,6 +99,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
   const [missing, setMissing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
+  // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), where a thread opens: one of
+  // the two at a time (a thread that opens closes it)
+  const [sideOpen, setSideOpen] = useState(false)
+  useEffect(() => { if (threadId) setSideOpen(false) }, [threadId])
   // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not
   const [focusThread, setFocusThread] = useState(false)
   const location = useLocation()
@@ -252,7 +259,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
 
   return (
     <div className="flex h-full" data-testid="room-page">
-    <div className={clsx('flex h-full min-w-0 flex-1 flex-col', threadId && 'max-md:hidden')} data-testid="room">
+    <div className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4">
         <Tooltip label={t('tabs.back')}>
           <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
@@ -293,6 +300,12 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           <IconButton tip label={t('rooms.threadsUnread', { n: room!.threadsUnread })} className="touch-hit relative shrink-0" onClick={() => openThread(nextThread)} data-testid="room-next-thread">
             <MessagesSquare size={16} aria-hidden />
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
+          </IconButton>
+        )}
+        {room && (
+          <IconButton tip label={t('sideChat.open', { name: aiName(t) })} className={clsx('touch-hit shrink-0', sideOpen && 'bg-hover')} aria-pressed={sideOpen}
+            onClick={() => { if (sideOpen) setSideOpen(false); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">
+            <AiFace size={22} />
           </IconButton>
         )}
         {/* the room's one setting, right here: the bell shows how it is now and opens its four levels; then the room's
@@ -346,6 +359,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
     </div>
+    {sideOpen && !threadId && <SideChatPanel key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} onClose={() => setSideOpen(false)} />}
     {threadId && <ThreadPanel key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} focusBox={focusThread} highlight={target} />}
     </div>
   )

@@ -94,6 +94,8 @@ export interface SendInput {
   clientMessageId?: string
   /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
   onConflict?: () => void
+  /** a new chat is a side chat of this room (✦ Trina, components/rooms/SideChatPanel.tsx) */
+  sideRoomId?: string
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
@@ -383,7 +385,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       let chatId = o.chatId
       if (!chatId) {
-        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined } })
+        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}) } })
         if (session !== generation) throw new Error('Session changed while creating the chat')
         get().upsertChat(chat)
         chatId = chat.id

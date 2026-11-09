@@ -7,7 +7,7 @@
   `server/src/chat/project-access.ts`, `server/src/admin/` (settings, users, groups), `server/src/team-files/service.ts`,
   `shared/src/api/`, `web/src/components/ProjectForm.tsx`, `web/src/pages/Projects.tsx`, `web/src/pages/Files.tsx`,
   Admin › Team settings). Why: projects, folder permissions and files are core (see docs/REPOSITORY-RULES.md)
-- Version impact: minor. New endpoints, a team setting and an add-only migration (277); creating a project on an
+- Version impact: minor. New endpoints, a team setting and an add-only migration (278); creating a project on an
   existing folder and the old share copy are refused (older clients get a 400 that says where projects go).
 
 ## Goal
@@ -79,7 +79,7 @@ project skills themselves (feat/project-skills).
 - Two writers (Admin › Folder permissions and the project screen): both go through `replaceRules` + `rulesHash` +
   `afterAccessChange`, so neither undoes the other unseen.
 - Coordination: feat/project-skills changes skills files; this branch does not touch them (skills are counted by path).
-- One add-only migration, 277 (`projects.folder_made`), added after the review; feat/project-skills takes 276. No data
+- One add-only migration, 278 (`projects.folder_made`), added after the review (dev took 276 and 277 meanwhile). No data
   migration of older projects. Five app languages, phone and desktop, light and dark.
 
 ## Tests
@@ -95,7 +95,7 @@ group deletion, `TeamSettings.projectCreators`, the dialog's picker and "볼 수
 share dialog, Files without "프로젝트로 만들기", the Team settings switch, five languages, docs.
 
 Changed from the plan:
-- **Migration 277** (`projects.folder_made`, add-only), after the independent review: a member's project made by an older
+- **Migration 278** (`projects.folder_made`, add-only), after the independent review: a member's project made by an older
   build on an existing admin-ruled `projects/<name>` would otherwise have let that member rewrite or trash it. Only a
   folder the server made is its creator's; admins change any.
 - The access answer gives a member the count only (no rules hash) for a project they may not change, and names rule

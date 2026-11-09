@@ -30,6 +30,7 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { sideRoomOf } from './side-room'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
@@ -565,13 +566,15 @@ export class TurnExec {
     const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
     const shared = this.shared ? { project: this.shared.project.name, audience: audienceOf(rt.db, rt.files, this.shared.project).length, asker: this.principal.name } : null
+    // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
+    const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId)
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나") or of a shared project chat
       memories: this.room || this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
       history: fresh ? rt.history(userMsg.parent_id, !!this.room, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
-      room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared,
+      room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared, sideRoom,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]

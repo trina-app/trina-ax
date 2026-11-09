@@ -7,10 +7,12 @@
 // Shared project chats (docs/DECISIONS.md "Shared project chats"): the setting is in the edit dialog (ProjectForm), the
 // list is "채팅" (my chats there and every shared chat of the project I can see, those with the people icon and the
 // faces of who wrote in them: ProjectChatRow; it follows chat events, so another person's new chat shows at once), the
-// box says who sees a new chat, and deleting the project says its shared chats go to their creators' trash.
+// box says who sees a new chat, and deleting the project says its shared chats go to their creators' trash. My pinned
+// chats there come first, the most recently pinned first, with the sidebar's pin before the title (docs/DECISIONS.md
+// "Pinned chats"; pinning is the sidebar row's "···").
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 링크 복사 for everyone.
-import { FileText, FolderKanban, Folder, Link2, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
+import { FileText, FolderKanban, Folder, Link2, Pencil, Pin, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
@@ -37,6 +39,13 @@ import { AccessSummary, ParticipantPicker, participantKey, summaryNames, useAcce
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
 import { useFocusAfterRemove } from './admin/common'
+
+/** A project's chats as its page lists them: my pinned ones first (the most recently pinned first, as the server's first
+ * page has them), then the newest. */
+const chatOrder = (a: Chat, b: Chat) =>
+  a.pinnedAt || b.pinnedAt
+    ? (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
+    : a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : -1
 
 /** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
 const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
@@ -238,6 +247,7 @@ export function ProjectChatRow({ chat: c }: { chat: Chat }) {
   return (
     <Link ref={row} to={`/c/${c.id}`} className="group -mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
       <span className="flex min-w-0 flex-1 items-center gap-2">
+        {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
         {c.shared && <SharedIcon className="text-faint" />}
         <span className="truncate">{c.title || t('chat.untitled')}</span>
       </span>
@@ -305,7 +315,7 @@ export function ProjectHome() {
       const rest = cur.filter((c) => c.id !== chatId)
       if (change === 'deleted' || change === 'purged' || !chat || chat.deletedAt || chat.projectId !== projectId) return old ? rest : cur
       const next = old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
-      return [next, ...rest].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : -1))
+      return [next, ...rest].sort(chatOrder)
     })
   }), [projectId])
 

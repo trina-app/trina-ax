@@ -15,7 +15,7 @@ import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/ru
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
 import { frequentQuestions } from '../chat/frequent-questions'
 import { hideTitle } from '../chat/title'
-import { notInternalChat } from '../chat/internal-chats'
+import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, lookupFolder, mayEditProject, projectFolderName, projectPaths } from '../chat/projects'
@@ -31,6 +31,7 @@ import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type 
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { shareAnswerToRoom } from '../chat/answer-share'
+import { roomsOf } from '../rooms/service'
 import { shareChat } from '../chat/share-chat'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -40,6 +41,7 @@ import { Audiences, accountSeesProject, chatFor, chatPeople, chatView, isSharedR
 import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
+import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -187,6 +189,8 @@ export const chatsRoutes: RouteModule = {
         // of their own)
         where.push('deleted_at IS NULL', "(user_id = ? OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?)))"); args.push(me, me)
       }
+      // a room's side panel (✦ Trina): my own chats opened from it (never a shared chat)
+      if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
       const q = query.q?.trim()
       if (q) {
         const like = `%${likeEscape(q)}%`
@@ -195,6 +199,13 @@ export const chatsRoutes: RouteModule = {
       }
       const cur = decodeCursor(query.cursor, ['u', 'id'])
       if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
+      // my pinned chats first (chat/pins.ts): the first page of my list, and of a project's page, starts with the ones of
+      // that list, the most recently pinned first; every page leaves them out of the rest. Not in a search or the trash
+      // (a chat in the trash has no pin). My list's first page also drops my pins of chats I can no longer see.
+      const pinsFirst = !q && !query.trash
+      const pinWhere = [...where], pinArgs = [...args]
+      if (pinsFirst) { where.push('id NOT IN (SELECT chat_id FROM chat_pins WHERE user_id = ?)'); args.push(me) }
+      if (pinsFirst && !cur && !query.projectId) dropUnseenPins(rt, me)
       // a shared chat only while I see its project now (its creator too): pages are read until one is full. A search
       // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts).
       // In the trash only what I may restore (chatFor 'manage'): its creator, or an editor of its project now
@@ -239,11 +250,20 @@ export const chatsRoutes: RouteModule = {
       const more = out.length > limit
       const items = out.slice(0, limit)
       const lastItem = items[items.length - 1]
+      let pinned: ChatRow[] = []
+      if (pinsFirst && !cur) {
+        const pins = pinsOf(ctx.db, me)
+        if (pins.size) {
+          const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${pinWhere.join(' AND ')} AND id IN (SELECT value FROM json_each(?))`).all(...pinArgs, JSON.stringify([...pins.keys()])) as ChatRow[]
+          pinned = rows.filter(visible).sort((a, b) => pins.get(b.id)!.localeCompare(pins.get(a.id)!) || b.id.localeCompare(a.id))
+        }
+      }
       const hide = redactorFor(ctx, me).hide
       // a project's page: who wrote in each of its shared chats listed here (all of them visible to me, above), in one
       // query for the page
-      const people = query.projectId && !query.trash ? chatPeople(ctx.db, items.filter(isSharedRow).map((r) => r.id)) : undefined
-      return { items: items.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}), ...(people ? { people } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
+      const page = [...pinned, ...items]
+      const people = query.projectId && !query.trash ? chatPeople(ctx.db, page.filter(isSharedRow).map((r) => r.id)) : undefined
+      return { items: page.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}), ...(people ? { people } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
     })
 
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
@@ -253,6 +273,12 @@ export const chatsRoutes: RouteModule = {
       // a chat made in a project that shares its chats is a shared chat, from its first moment and for good (never a
       // personal project, never while safe operations are on: chat/shared.ts sharesNewChats)
       let shared = false
+      // a side chat of a room (✦ Trina): mine alone, and only of a room I am in now (the same 404 as a room that is not
+      // there)
+      if (body.sideRoomId) {
+        if (body.projectId) fail('validation', undefined, { fields: { 'body.projectId': 'side_chat_no_project' } })
+        roomsOf(ctx).mine(auth.user.id, body.sideRoomId)
+      }
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
@@ -265,8 +291,8 @@ export const chatsRoutes: RouteModule = {
       // a title given here is the person's own (the AI does not rename it); none: the first message gives one
       // a stored connection secret or a secret-looking part is never kept in a title (QA B-W5-1, SEC-16, B-W47-3)
       const title = hideTitle(body.title?.trim() ?? '', redactorFor(ctx, auth.user.id).hide)
-      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, shared_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now, shared ? now : null)
+      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, shared_at, side_room_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now, shared ? now : null, body.sideRoomId ?? null)
       rt.publishChat(auth.user.id, id, 'created')
       return chatOut(rt, auth.user.id, rt.store.chatRow(id)!)
     })
@@ -334,7 +360,11 @@ export const chatsRoutes: RouteModule = {
       rt.stopChat(chat.id)
       const now = new Date()
       // who deleted it: a shared chat is in their trash too while they may restore it (listChats)
-      ctx.db.query('UPDATE chats SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(now.toISOString(), auth.user.id, chat.id)
+      ctx.db.transaction(() => {
+        ctx.db.query('UPDATE chats SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(now.toISOString(), auth.user.id, chat.id)
+        // in the trash it is in nobody's list: everyone's pin of it goes (restored, it comes back unpinned)
+        dropChatPins(ctx.db, [chat.id])
+      })()
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
@@ -348,6 +378,27 @@ export const chatsRoutes: RouteModule = {
         rt.publishChat(auth.user.id, chat.id, 'restored')
       }
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
+    })
+
+    // "상단에 고정" / "고정 해제" (chat/pins.ts): any chat I may view, mine only; only my own windows hear it (a shared
+    // chat's other people never learn of my pin). Not the server's own drafts: they are in no list (chat/internal-chats.ts)
+    const notDraft = (a: ChatAccess) => { if (isInternalChat(ctx.db, a.row.id)) fail('not_found') }
+    const pinned = (me: string, id: string) => {
+      const chat = chatOut(rt, me, rt.store.chatRow(id)!)
+      rt.hub.publish(me, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat } })
+      return chat
+    }
+    kit.handle(API.pinChat, ({ c, params, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      notDraft(a)
+      if (rt.store.pinnedAt(auth.user.id, a.row.id)) return chatOut(rt, auth.user.id, a.row)
+      pin(rt, auth.user.id, a.row.id, c.get('locale'))
+      return pinned(auth.user.id, a.row.id)
+    })
+    kit.handle(API.unpinChat, ({ c, params, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      notDraft(a)
+      return unpin(ctx.db, auth.user.id, a.row.id) ? pinned(auth.user.id, a.row.id) : chatOut(rt, auth.user.id, a.row)
     })
 
     // ---------------- messages ----------------
@@ -514,7 +565,7 @@ export const chatsRoutes: RouteModule = {
       // with instructions"). The creator wrote this first version of the instructions: the turns of anyone else count
       // them as outside content (chat/runtime.ts projectTaints).
       const seen = (f: string) => canRead(ctx.files, p, f)
-      // folder_made: the server made this team project's folder (its creator's to change who sees it; migration 277)
+      // folder_made: the server made this team project's folder (its creator's to change who sees it; migration 278)
       const insert = (folder: string, made = false) => {
         assertFolderFree(db, ctx.files.fx.caseInsensitive, folder, locale, { mayName: seen })
         db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,?)')
@@ -743,6 +794,8 @@ export const chatsRoutes: RouteModule = {
         for (const x of purged) rt.purgeChat(x.id)
         // one already in the trash keeps its time there (and who put it there)
         for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, auth.user.id, x.id)
+        // in the trash: nobody's pin of them stays (chat/pins.ts)
+        dropChatPins(ctx.db, kept.map((x) => x.id))
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
         // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the

@@ -1622,8 +1622,13 @@ export class MockServer {
       const trash = c.query.trash === '1' || c.query.trash === 'true'
       let list = this.chats.filter((x) => !!x.deletedAt === trash)
       if (c.query.projectId) list = list.filter((x) => x.projectId === c.query.projectId)
+      if (c.query.sideRoomId) list = list.filter((x) => x.sideRoomId === c.query.sideRoomId)
       if (q) list = list.filter((x) => x.title.toLowerCase().includes(q) || this.messages.some((m) => m.chatId === x.id && m.content.toLowerCase().includes(q)))
-      return { items: [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)), nextCursor: null }
+      const newest = [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+      // pinned chats first (server/src/routes/chats.ts listChats), not in a search or the trash
+      if (q || trash) return { items: newest, nextCursor: null }
+      const pins = newest.filter((x) => x.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
+      return { items: [...pins, ...newest.filter((x) => !x.pinnedAt)], nextCursor: null }
     },
     chatEngines: (c) => {
       const e = this.enginesResponse()
@@ -1635,7 +1640,7 @@ export class MockServer {
     },
     createChat: (c) => {
       this.guardEngine('createChat', c.user, c.body, { engine: this.settings.defaultEngine, model: this.settings.defaultModel })
-      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', ...(c.body.sideRoomId ? { sideRoomId: c.body.sideRoomId } : {}) }
       this.chats.push(chat)
       return { status: 201, body: chat }
     },
@@ -1655,7 +1660,26 @@ export class MockServer {
     deleteChat: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       chat.deletedAt = now()
+      delete chat.pinnedAt
       return { id: chat.id, deletedAt: chat.deletedAt, purgeAt: new Date(Date.now() + 7 * 86400_000).toISOString() }
+    },
+    // "상단에 고정" / "고정 해제" (server/src/chat/pins.ts). The mock keeps one pin per chat, on the chat itself (the
+    // server's are each person's own, tests/unit/b-chat-pins.test.ts)
+    pinChat: (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt) ?? fail('not_found', 404)
+      if (!chat.pinnedAt) {
+        chat.pinnedAt = now()
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
+      return chat
+    },
+    unpinChat: (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt) ?? fail('not_found', 404)
+      if (chat.pinnedAt) {
+        delete chat.pinnedAt
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
+      return chat
     },
     markChatSeen: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)

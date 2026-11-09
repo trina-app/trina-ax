@@ -15987,6 +15987,36 @@ boxes); no contract, setting or data change.
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
 
+## Trina side chat (트리나 사이드 채팅) — a private side chat beside a room (feat/trina-side-chat, 2026-11-09, product owner)
+
+- **Decision (option A of the "Trina side chat: decision" doc, 2026-11-09):** people ask @트리나 about a room in a
+  private side chat beside it, and share an answer to the room on purpose. PR 1 (this one) adds the side chat; @트리나
+  in the room's timeline stays as it is. PR 2 removes @트리나 from rooms and DMs (the composer and the "@" list) and
+  decides what happens to old private previews.
+- **Model: the side chat is an ordinary chat of the person** (`chats.side_room_id`, migration 276), not a room
+  message. Rooms gain no private messages, so the timeline, threads, unread counts, badges, notices, the Inbox, room
+  search and other members' AI context are untouched. The AI already reads rooms from a person's own chat with its
+  room tools (chat/room-tools.ts: the person's own view, read scope, the change cards after reading a room), and the
+  answer goes to the room only through "대화방에 보내기" (chat/answer-share.ts), which already checks linked files and
+  material some members cannot see.
+- **The AI is told the room** (chat/prompt.ts sideRoomSection, chat/side-room.ts) while the person is still in the
+  room and it is not archived: its kind, name and id, that "this discussion" means it, that it reads it with room_read,
+  and that nothing it writes goes to the room. Never in a room session's or a shared project chat's instructions (the
+  allowlists say false). After the person leaves the room the chat stays theirs, as an ordinary chat.
+- **API:** `CreateChatBody.sideRoomId` (the person must be in the room: else the same 404 as a room that is not there;
+  never with a project), `ListChatsQuery.sideRoomId` (the person's own side chats of that room, newest first),
+  `Chat.sideRoomId`. No new endpoint.
+- **Web:** the ✦ button in the room header (components/rooms/SideChatPanel.tsx) opens the panel where a thread opens,
+  one of the two at a time. It opens the room's newest side chat; "New chat" starts another with the next question;
+  "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
+  raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
+  answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
+  the dialog starts with this room picked. In the chat history a side chat shows its room ("# design") after its
+  title, while I am in that room.
+- **Defaults for the doc's open questions (to confirm):** old private previews stay inline (PR 2); the room context is
+  what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
+  the whole screen like a thread. Side chats are also listed in the person's chat history.
+
 ## 내 AI 채팅에서 대화방 파일 저장 — the AI chat saves a room's file into the team folder (feat/room-file-to-team, 2026-11-09, product owner)
 
 Amends "내 AI 채팅에서 대화방 읽기" and "Files sent in the room" ("대화방의 트리나"). The owner, in the AI chat: "leads 채널에 올린
@@ -16243,7 +16273,7 @@ edit screen. A review before building asked for eight changes, all built:
   kept. Participants are changed only for a project in `projects/<name>` whose folder is in place.
 - **Only a folder the server made is the creator's** (independent review, must-fix). Older builds let a member make a
   project on an existing `projects/<name>` an admin had made with rules; that member is its creator. `projects.folder_made`
-  (migration 277, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
+  (migration 278, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
   points the project at an existing folder. A member changes participants, or trashes the folder with the project, only
   when it is 1; admins change any `projects/<name>` project. For a project a member may not change, the access answer
   gives them the count only (no names of an admin's rules, and no rules hash: an unsalted hash would let them confirm a
@@ -16280,3 +16310,70 @@ edit screen. A review before building asked for eight changes, all built:
   chats, the rules-hash race with Admin, the deleted creator, share and delete), the permission matrix's new rows,
   `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`. Suites about what a project does
   make older projects the way older builds did (`tests/lib/legacy-project.ts`).
+
+## CI unit tests in shards (ci/shard-unit-tests, 2026-11-09)
+
+- **Why:** of the ~35 minutes of the one CI job, ~30 were the unit tests (about 440 files, one after another). Every
+  PR waited for them.
+- **Decision:** the unit tests run as 5 jobs at once (`unit`, a matrix), beside `static` (typecheck, docs, native
+  build, go test, the pinned browser) and `other` (fast fuzz, web tests and build, relay). scripts/ci/unit-shard.ts
+  splits the files by their times in an earlier CI run (scripts/ci/unit-times.json): the longest first, each to the
+  shard with the least time so far, a new file counted as the median. Expected: about 6 minutes of tests per shard,
+  about 10 minutes per run.
+- **The required check stays:** the last job keeps the old name, "typecheck, native, unit, fast fuzz, web, relay",
+  which the default branch's ruleset requires and release.yml's test waits for; it passes only when every job passed.
+- **Cost:** public repository, standard runners: no charge. Each run now holds 8 jobs at a time (the organisation's
+  free plan allows about 20 at once); 5 shards, not more, for that.
+- **Caches** (actions/cache): pandoc's package by version, bun's package store by bun.lock, and the pinned rhwp CLI
+  by resources/hwp/manifest.json (prepare:hwp still checks its sha256). A cached run does not reach GitHub releases or
+  the npm registry for them (GitHub's anonymous downloads gave HTTP 504 on 2026-11-09); a miss downloads as before.
+- **Refresh the times** when the split drifts: `bun scripts/ci/unit-shard.ts --times <the unit step's log>`.
+
+## Pinned chats — 상단에 고정 in 트리나 기록 (feat/pin-chats, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/chat/pins.ts`, `server/src/routes/chats.ts`, migration 277, `shared/src/api/chats.ts`,
+`web/src/components/Sidebar.tsx`, `web/src/pages/Projects.tsx`), 이유: chats and their list are core. Plan:
+`docs/AGENTS/plan/20261109-0825-pin-chats.md`.
+
+The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자." A chat row's "···" in the sidebar's 트리나 기록 has
+**상단에 고정** / **고정 해제**, and pinned chats stay at the top of the list.
+
+- **A pin is the person's own.** One row per person and chat, `chat_pins(user_id, chat_id, pinned_at)` (migration 277),
+  not a column on chats. A shared project chat someone else made can be pinned too, for the one who pinned it only:
+  `Chat.pinnedAt` is worked out per viewer (`ChatStore.toChat`'s `viewer`, from `chatView` and `publishChat`), so a
+  shared chat's `chat.updated` carries each person's own pin, and nobody else hears of a pin or an unpin.
+- **Who may pin.** Anyone who may view the chat (`chatFor` 'view', not in the trash; 404 otherwise, as every chat route;
+  also 404 for the server's own draft chats, which are in no list).
+  Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned when not
+  pinned: no change. At most 50 pins (409 `chat_pins_full`, "상단에 고정은 50개까지 할 수 있어요…"), so the first page
+  that carries them all stays bounded; pins of chats the person no longer sees do not count.
+- **What takes a pin away.** The trash: a delete drops everyone's pin of the chat (also a deleted project's shared chats
+  going to their creators' trash); restored, it comes back unpinned. A purge: the foreign key's cascade. A deleted
+  person: their pins go in the delete's transaction (the users row stays as a tombstone, so the cascade never runs). A
+  chat the person can no longer see (a shared chat whose project they lost, one that stopped being shared and is
+  someone else's now): not shown, and its pin is dropped when their chat list's first page is read (`dropUnseenPins`).
+  A pin is not dropped at the moment access goes; regaining access before the list is read keeps it.
+- **The order.** `GET /api/chats` without a search or the trash (my list, and a project's page with `projectId`): the
+  first page starts with my pinned chats of that list, the most recently pinned first, and every page leaves them out of
+  the rest, so paging still gives each chat once. A pinned shared chat shows in my list only when it would anyway (I
+  made it or wrote in it). A search and the trash keep their order and mark the pins. Older clients see the pinned
+  chats on the first page and sort them by date as before. ⌘K's 최근 reads the same first page: it now sorts by date
+  before it takes the newest eight, so old pins do not push the recent chats out.
+- **The sidebar (lean).** No header of their own: a 12 px pin before the title (named 고정됨 for screen readers, as the
+  shared chat's people icon is named) on pinned rows. On a computer the short list has at most ten pins, the most
+  recently pinned first, then the five latest of the others and the chat on screen; "모두 보기" and the phone's drawer
+  have every pin first, then the date groups (the filters apply to pins too; a pinned chat that does not pass them is not
+  shown). "답 필요 N" counts what neither part shows. The project page lists my pins there first with the same pin.
+  Not built: drag to reorder (no manual order), pinning from the chat's title menu or from the project page's rows.
+- **The row menu.** 상단에 고정 / 고정 해제 is the first item of every row's "···" (the shared row menu of #221/#241, so
+  right-click, long press and the phone's sheet work too), with the pin and pin-off icons. A shared chat I may neither
+  rename nor delete used to have no "···"; it now has one, with only the pin.
+- **Live.** A pin or unpin answers the chat and sends `chat.updated` ('updated') to the person's own windows only.
+- Tests: `tests/unit/b-chat-pins.test.ts` (pin, unpin, idempotent, my windows only; the order and its pages, a project's
+  page, a search, the trash; a shared chat's pin per viewer, also on a later turn's events; lost access hides and drops
+  it; delete, restore, purge, a deleted project, a deleted person; the cap), the security permission matrix (only the
+  chat's person), `web/test/unit/sidebar.test.tsx` (the menu items, the order and the cap, the drawer, pin and unpin from
+  the menu), `web/test/unit/search-room-messages.test.tsx` (⌘K's 최근 by date with nine pins), e2e `chat-pins.spec.ts`
+  (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
+  a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).

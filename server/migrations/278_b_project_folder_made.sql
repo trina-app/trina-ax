@@ -6,5 +6,5 @@
 --     server made is the creator's to change who sees it, or to put in the trash with it; admins change any.
 -- Additive only (reader 1): an older build ignores the column. Existing rows stay 0: their folders' rules are the
 -- admins' to change, as before.
--- Numbered 277: 275 is the highest on dev, and feat/project-skills takes 276.
+-- Numbered 278: 277 (chat_pins) is the highest on dev.
 ALTER TABLE projects ADD COLUMN folder_made INTEGER NOT NULL DEFAULT 0;

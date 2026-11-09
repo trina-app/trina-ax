@@ -176,7 +176,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const c = await chat(page, 'Competitor notes')
       await page.goto('/')
       let { row, menu } = await rowMenu(page, 'Competitor notes')
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['chat.project.add'], t['common.delete']])
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
       await audit(page, 'chat row menu open')
       await menu.getByRole('menuitem', { name: t['chat.project.add'] }).click()
       const dialog = page.getByRole('dialog', { name: t['chat.project.title'] })
@@ -207,8 +207,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await chat(page, 'Competitor notes')
       await page.goto('/')
       const { menu } = await rowMenu(page, 'Launch plan (shared)')
-      // mine: rename and delete, never the move
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['common.delete']])
+      // mine: the pin, rename and delete, never the move
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['chat.rename'], t['common.delete']])
       await expect(menu.getByTestId('chat-row-move')).toHaveCount(0)
       await audit(page, 'shared chat row menu open')
     })
