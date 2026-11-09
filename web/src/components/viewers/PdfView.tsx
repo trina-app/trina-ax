@@ -2,8 +2,9 @@
 // Lazy pages (docs/DECISIONS.md "Lazy PDF pages", the window math in lib/pdfPages.ts): every page has a placeholder of
 // its own size (page 1's until pdf.js has read the others', in the background), and only the pages within 1.5 screens
 // of the visible part of the scroll box get a canvas and a text layer; pages further away are released, so a 60-page
-// file holds a few canvases. A canvas has at most twice the screen's pixels and is at most 4,096 px wide (zoom beyond
-// that scales it). Used everywhere a PDF is previewed: the side panel, 크게 보기 and the room file viewer.
+// file holds a few canvases, and pdf.js is told to drop what it kept for a page that left. A canvas has at most twice
+// the screen's pixels, 4,096 px of width and 16.7 megapixels (Safari's limit on iPhone and iPad); beyond, it is scaled.
+// Used everywhere a PDF is previewed: the side panel, 크게 보기 and the room file viewer.
 // `startPage` (an answer's source, a link with &page=N): the panel opens at that page and keeps it at the top while the
 // pages' sizes come in, until the person scrolls themselves. A link inside the file to one of its pages goes there.
 // A toolbar above the pages zooms in and out (small text on a phone) and goes back to the panel width; the place being
@@ -13,7 +14,7 @@
 // view, the current page is marked and kept in view as the pages scroll, and a click (or ↑ ↓ Home End on one) goes to
 // that page; the toolbar then says where the reader is ("3 / 60").
 // A file that pdf.js cannot read shows a plain notice and a Download button, never the parser's own message.
-import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { Document, Page, pdfjs } from 'react-pdf'
@@ -37,6 +38,8 @@ const OPTIONS = pdfjsDataOptions(location.origin, pdfjs.version)
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3]
 /** the widest canvas drawn, in device pixels: zoomed in beyond it, the page is scaled */
 const MAX_CANVAS = 4096
+/** the largest canvas, in device pixels: Safari on iPhone and iPad draws nothing on a larger one (a long receipt) */
+const MAX_PIXELS = 16_777_216
 /** the rail's page pictures, px wide */
 const THUMB_W = 96
 /** pages whose size pdf.js reads at once, after the first */
@@ -79,18 +82,19 @@ function usePageSizes(pdf: PDFDocumentProxy | null, onError: (message: string) =
       if (!live) return
       put(Array.from({ length: pdf.numPages }, () => first))
       for (let from = 2; from <= pdf.numPages; from += SIZE_BATCH) {
-        const got = await Promise.all(Array.from({ length: Math.min(SIZE_BATCH, pdf.numPages - from + 1) }, (_, k) => pdf.getPage(from + k)))
+        // a page pdf.js cannot read keeps page 1's size (drawing it shows the notice); the others go on
+        const got = await Promise.allSettled(Array.from({ length: Math.min(SIZE_BATCH, pdf.numPages - from + 1) }, (_, k) => pdf.getPage(from + k)))
         if (!live) return
         let next: PageSize[] | null = null
-        got.forEach((p, k) => {
-          const s = sizeOf(p)
+        got.forEach((r, k) => {
+          if (r.status !== 'fulfilled') return
+          const s = sizeOf(r.value)
           const i = from - 1 + k
           if (s.width !== all.current[i].width || s.height !== all.current[i].height) (next ??= all.current.slice())[i] = s
         })
         if (next) put(next)
       }
     }
-    // a later page pdf.js cannot read keeps page 1's size; drawing it shows the notice
     read().catch((e: unknown) => console.warn('PDF page sizes:', e instanceof Error ? e.message : e))
     return () => {
       live = false
@@ -165,10 +169,11 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     const current = pinned.current?.page ?? currentPage(now, v)
     setShown((s) => (s.first === w.first && s.last === w.last && s.current === current ? s : { ...w, current }))
   }, [box, viewOf])
-  /** scrolls so that the view's top is at `top` (the page column's coordinates) */
+  /** scrolls so that the view's top is at `top` (the page column's coordinates); not by less than a pixel, which on
+   * a phone would stop a flick for nothing (pages below the view changed size) */
   const scrollTo = useCallback((top: number) => {
     const v = viewOf()
-    if (v && box) box.scrollTop += top - v.top
+    if (v && box && Math.abs(top - v.top) >= 1) box.scrollTop += top - v.top
   }, [box, viewOf])
   const goTo = useCallback((page: number) => {
     if (!box || page < 0 || page >= laidOut.current.layout.tops.length) return
@@ -177,6 +182,9 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     pinned.current = { page, top: box.scrollTop }
     update()
   }, [box, scrollTo, update])
+  // react-pdf keeps the first onItemClick it is given (when nothing is laid out yet): it calls the latest goTo through this
+  const goToNow = useRef(goTo)
+  goToNow.current = goTo
   // the pages changed size (zoom, the panel's width, a page's own size known): the place being read stays at the top,
   // and the middle of a zoomed page stays in the middle
   useLayoutEffect(() => {
@@ -218,7 +226,8 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
 
   const wide = useMediaQuery('(min-width: 1024px)')
   const rail = thumbnails && wide && pages > 1 ? thumbnails : null
-  const ratio = Math.min(window.devicePixelRatio || 1, 2, MAX_CANVAS / pageWidth)
+  // a page's canvas, in device pixels per CSS pixel: the screen's (2 at most), within the width and area limits
+  const ratioFor = (height: number) => Math.min(window.devicePixelRatio || 1, 2, MAX_CANVAS / pageWidth, Math.sqrt(MAX_PIXELS / (pageWidth * height)))
 
   // the same notice and button as a format with no preview (FileBody "preview-unsupported")
   if (error)
@@ -242,7 +251,7 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
         onLoadSuccess={setPdf}
         onLoadError={(e) => fail(e.message)}
         // a link in the file to one of its pages: the page may not be drawn, so it is scrolled to here
-        onItemClick={({ pageNumber }) => goTo(pageNumber - 1)}
+        onItemClick={({ pageNumber }) => goToNow.current(pageNumber - 1)}
         loading={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}
       >
         {pages > 0 && (
@@ -272,14 +281,15 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
         {/* mx-auto on each page, not items-center: items-center would cut off the left edge of a page wider than the
             panel. Each page is a placeholder of its size; the pages near the view draw in it (data-drawn) */}
         {pages > 0 && (
-          <div ref={holder} className="flex flex-col gap-3 px-4 py-3" data-start-page={target ?? undefined} data-current-page={ready ? shown.current + 1 : undefined}>
+          // data-keeps-place: the side panel leaves the scroll position to it when its width changes (FilePanel)
+          <div ref={holder} className="flex flex-col gap-3 px-4 py-3" data-start-page={target ?? undefined} data-current-page={ready ? shown.current + 1 : undefined} data-keeps-place="">
             {layout.heights.map((h, i) => {
               const drawn = i >= shown.first && i <= shown.last
               return (
                 <div key={i} data-page={i + 1} data-drawn={drawn ? '' : undefined} style={{ width: pageWidth, height: h }} className={clsx('mx-auto shrink-0 bg-white', target === i + 1 ? 'shadow-sm ring-2 ring-accent' : 'shadow-sm ring-1 ring-line')}>
                   {/* read in an effect, not through Suspense: a page coming into view shows its blank placeholder,
                       not the whole file's "loading", and is not held back by React's reveal throttle (~300 ms) */}
-                  {drawn && <Page pageNumber={i + 1} width={pageWidth} devicePixelRatio={ratio} suspense={false} loading={null} error={null} onLoadSuccess={(p) => note(i, p)} onLoadError={(e) => fail(e.message)} onRenderError={(e) => fail(e.message)} />}
+                  {drawn && <LeanPage pageNumber={i + 1} width={pageWidth} devicePixelRatio={ratioFor(h)} suspense={false} loading={null} error={null} onLoadSuccess={(p) => note(i, p)} onLoadError={(e) => fail(e.message)} onRenderError={(e) => fail(e.message)} />}
                 </div>
               )
             })}
@@ -288,6 +298,23 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
         {rail && createPortal(<Thumbnails sizes={sizes} current={shown.current} onPick={goTo} />, rail)}
       </Document>
     </Boundary>
+  )
+}
+
+/** react-pdf's Page, which tells pdf.js to drop what it kept for the page (its drawing commands, decoded pictures) when
+ * it leaves; react-pdf itself only releases the canvas. pdf.js waits while a drawing of the same page still runs (the
+ * page and its thumbnail share it). */
+function LeanPage({ onLoadSuccess, ...props }: ComponentProps<typeof Page>) {
+  const loaded = useRef<PDFPageProxy | null>(null)
+  useEffect(() => () => void loaded.current?.cleanup(), [])
+  return (
+    <Page
+      {...props}
+      onLoadSuccess={(p) => {
+        loaded.current = p
+        onLoadSuccess?.(p)
+      }}
+    />
   )
 }
 
@@ -340,7 +367,8 @@ function Thumbnails({ sizes, current, onPick }: { sizes: PageSize[]; current: nu
     list.current?.querySelector<HTMLElement>(`[data-thumb="${page + 1}"] button`)?.focus({ preventScroll: true })
   }
   return (
-    <nav ref={list} aria-label={t('pdfView.pages')} className="relative h-full w-32 overflow-y-auto overscroll-contain px-2.5 py-2 [scrollbar-width:thin]" data-testid="pdf-thumbnails">
+    // a touch on the rail is the rail's: React would pass it on (through the portal) to the column's swipe, which steps
+    <nav ref={list} aria-label={t('pdfView.pages')} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()} className="relative h-full w-32 overflow-y-auto overscroll-contain px-2.5 py-2 [scrollbar-width:thin]" data-testid="pdf-thumbnails">
       <ol className="flex flex-col gap-1">
         {sizes.map((s, i) => (
           <li key={i} data-thumb={i + 1}>
@@ -355,7 +383,7 @@ function Thumbnails({ sizes, current, onPick }: { sizes: PageSize[]; current: nu
               data-testid="pdf-thumb"
             >
               <span style={{ width: THUMB_W, height: pageHeight(s, THUMB_W) }} className="block overflow-hidden bg-white ring-1 ring-white/10">
-                {near.has(i) && <Page pageNumber={i + 1} width={THUMB_W} devicePixelRatio={ratio} suspense={false} loading={null} error={null} renderTextLayer={false} renderAnnotationLayer={false} _className="react-pdf__Thumbnail__page" _enableRegisterUnregisterPage={false} />}
+                {near.has(i) && <LeanPage pageNumber={i + 1} width={THUMB_W} devicePixelRatio={ratio} suspense={false} loading={null} error={null} renderTextLayer={false} renderAnnotationLayer={false} _className="react-pdf__Thumbnail__page" _enableRegisterUnregisterPage={false} />}
               </span>
               <span className={clsx('text-xs tabular-nums', i === current ? 'font-medium text-white' : 'text-white/60')}>{i + 1}</span>
             </button>

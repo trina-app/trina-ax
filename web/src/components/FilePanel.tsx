@@ -117,7 +117,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   }
 
   // the viewers fit the panel's width. When it changes (크게 보기, the divider, the window) the pages grow or shrink: the
-  // place being read, as a share of the scroll height, is brought back while they settle (until the person scrolls)
+  // place being read, as a share of the scroll height, is brought back while they settle (until the person scrolls).
+  // A body that keeps its own place (a PDF, viewers/PdfView: `data-keeps-place`) is left to do it
   useLayoutEffect(() => {
     const el = body.current
     if (!el) return
@@ -144,7 +145,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       setWidth(el.clientWidth)
       if (el.clientWidth === last) return
       last = el.clientWidth
-      if (share <= 0) return
+      if (share <= 0 || el.querySelector('[data-keeps-place]')) return
       until = performance.now() + 800
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(settle)

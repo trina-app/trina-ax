@@ -4,7 +4,8 @@
 // viewer on a computer a rail of page pictures sits left of the document: drawn as they come into view, the current page
 // marked and following the scroll, a click (or ↑ ↓) goes to that page, and the toolbar says "3 / 60". A one-page PDF
 // has no rail, a phone has none, and the side panel has none. Zoom keeps the page being read at the top, and the text of
-// a drawn page can be selected and copied. The room is answered through page.route (rooms-mock.ts).
+// a drawn page can be selected and copied; a link inside the file goes to its page even when that page is not drawn.
+// The room is answered through page.route (rooms-mock.ts).
 // SHOTS_DIR=<folder>: the viewer mid-document at 1440 light and dark, and at 390 light.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
@@ -17,7 +18,13 @@ test.use({ serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
 const BEN = { id: 'ben', name: '벤' }
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
 const PAGES = 60
-const SIXTY = Buffer.from(makePagedPdf(Array.from({ length: PAGES }, (_, i) => [`acme page ${i + 1}`, ...Array.from({ length: 44 }, (_, k) => `line ${k + 1} of page ${i + 1}: the quick brown fox jumps over the lazy dog`)])))
+// page 1's second line is a link inside the file to page 45, as a table of contents has
+const SIXTY = Buffer.from(
+  makePagedPdf(
+    Array.from({ length: PAGES }, (_, i) => [`acme page ${i + 1}`, ...(i === 0 ? ['contents: go to page 45'] : []), ...Array.from({ length: 44 }, (_, k) => `line ${k + 1} of page ${i + 1}: the quick brown fox jumps over the lazy dog`)]),
+    { links: [{ page: 1, line: 1, to: 45 }] },
+  ),
+)
 const ONE = Buffer.from(makePdf(['acme one page', 'Only this page.']))
 const FILES = new Map([
   [id(901), { name: 'acme-60.pdf', body: SIXTY }],
@@ -94,8 +101,11 @@ test('a 60-page PDF in the viewer: every page has its place, a few are drawn; th
   await expect(rail(page)).toBeVisible()
   await expect(rail(page)).toHaveAccessibleName('페이지 목록')
   await expect(rail(page).getByTestId('pdf-thumb')).toHaveCount(PAGES)
+  // the column stays centred where it was (as without the rail), the rail right beside it
   const [r, b] = await Promise.all([rail(page).boundingBox(), body(page).boundingBox()])
+  expect(b).toMatchObject({ x: 240, width: 960 })
   expect(r!.x + r!.width).toBeLessThanOrEqual(b!.x + 1)
+  expect(r!.x + r!.width).toBeGreaterThan(b!.x - 20)
   await expect(rail(page).locator('canvas').first()).toBeVisible()
   expect(await rail(page).locator('canvas').count()).toBeLessThanOrEqual(20)
   expect(await drawn(rail(page)).count()).toBe(0)
@@ -105,8 +115,15 @@ test('a 60-page PDF in the viewer: every page has its place, a few are drawn; th
   await expect(pageInfo(page)).toHaveText(`1 / ${PAGES}`)
   await audit(page, 'viewer with page thumbnails')
 
+  // a link inside the file (page 1's contents line) to page 45, which is not drawn: it goes there
+  await expect(body(page).locator('[data-page="45"] canvas')).toHaveCount(0)
+  await body(page).locator('[data-page="1"] .annotationLayer a').first().click()
+  await expect(pageInfo(page)).toHaveText(`45 / ${PAGES}`)
+  await expect.poll(async () => Math.abs((await belowToolbar(body(page), 45)) - 12)).toBeLessThanOrEqual(2)
+  await expect(body(page).locator('[data-page="45"] canvas')).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '파일 보기: acme-60.pdf' })).toBeVisible()
+
   // a thumbnail's click: that page at the top, drawn, the current one in the rail and the toolbar
-  await rail(page).evaluate((el) => el.scrollBy(0, 40 * 160))
   await thumb(page, 40).click()
   await expect(pageInfo(page)).toHaveText(`40 / ${PAGES}`)
   await expect(thumb(page, 40)).toHaveAttribute('aria-current', 'page')
@@ -209,6 +226,11 @@ test('the side panel (패널에서 열기): a few canvases for the 60 pages, no 
   await expect.poll(current).toBeGreaterThan(25)
   await expect(panel.locator('[data-page="1"] canvas')).toHaveCount(0)
   await expect.poll(() => drawn(panel).count()).toBeLessThanOrEqual(6)
+  // the link inside the file, back at the top: it goes to page 45
+  await scroller.evaluate((el) => el.scrollTo(0, 0))
+  await panel.locator('[data-page="1"] .annotationLayer a').first().click()
+  await expect.poll(current).toBe(45)
+  await expect(panel.locator('[data-page="45"] canvas')).toBeVisible()
   // zoom in: the page being read stays where it was
   const reading = await current()
   const before = await belowToolbar(panel, reading)

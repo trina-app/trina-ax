@@ -129,12 +129,13 @@ function DocumentBody({ item, file: given, onSwipe, onMissing }: { item: ViewerI
   // the read's own words (a file not found has nothing to download), in the same scroll box, so the focus stays
   const card = renderer === 'card' || renderer === 'error'
 
-  // the side panel's shape: a surface, and in it the scroll box FileBody fills (a sheet keeps its tabs in view); a PDF's
-  // thumbnails on its left, the two centred together
+  // the side panel's shape: a surface, and in it the scroll box FileBody fills (a sheet keeps its tabs in view). A PDF's
+  // thumbnails go on its left, with a space as wide on its right, so the column stays centred where it was; where the
+  // stage is too narrow the space gives way first, then the column narrows
   return (
     <div className="flex h-full w-full justify-center">
-      <div ref={setRail} className="h-full shrink-0 empty:hidden" data-testid="file-viewer-rail" />
-      <div className={card ? 'h-full w-full' : 'h-full w-full max-w-[960px] min-w-0 bg-surface text-ink'}>
+      <div ref={setRail} className="peer h-full shrink-0 empty:hidden" data-testid="file-viewer-rail" />
+      <div className={card ? 'h-full w-full' : 'h-full max-w-[960px] min-w-0 basis-[960px] bg-surface text-ink'}>
         <div
           ref={setBox}
           tabIndex={0}
@@ -153,6 +154,7 @@ function DocumentBody({ item, file: given, onSwipe, onMissing }: { item: ViewerI
           )}
         </div>
       </div>
+      <div aria-hidden className="w-32 min-w-0 shrink-[1000] peer-empty:hidden" />
     </div>
   )
 }
