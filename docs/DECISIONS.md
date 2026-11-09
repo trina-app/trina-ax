@@ -17410,17 +17410,22 @@ all of it on the Files screen. The plan ("B1") was narrowed by the security revi
     the asker can read; the rest counted) and how many people stop getting them; who stops is named only to the owner,
     admins and a project's creator for its project (`seesWho`, as `move_skill`), counts for everyone else; who gains or
     loses the files is counted.
-  - **I**: images, audio, video and fonts (by extension and by their first bytes: a "picture" that is text, in UTF-8,
-    UTF-16 or anything else, is refused), and SKILL.md folders, going into a skill root at an exact target that is not
-    there. A SKILL.md folder goes right into the
-    skills folder and must load there. The card shows the full text of every text file in it (refused above 60,000
-    characters, never cut; a text or a file name with a character a person cannot see there, zero-width, direction or
-    tag characters, is refused: the card shows every word), who newly gets it, who may change it and who of them is
-    new, and the same name elsewhere: for how many of the people who get it a project skill of that name would be
-    hidden, or (into a project) a wider skill of that name runs instead. Those counts look only at skills and projects
-    the asker can read themselves (never someone's own skills), so a count tells no name. A single `.md` (a team rule or a single-file
-    skill), any other text file on its own, an instruction file name (CLAUDE.md, AGENTS.md, GEMINI.md), Office files
-    and PDFs are refused: no team rule is ever made by a file action.
+  - **I**: a SKILL.md folder of text files going into a skill root at an exact target that is not there. It goes
+    right into the skills folder and must load there. The card shows the full text of every file in it (refused above
+    60,000 characters, never cut; a text or a file name with a character a person cannot see there, zero-width,
+    direction or tag characters, is refused: the card shows every word), who newly gets it, who may change it and who
+    of them is new, and the same name elsewhere: for how many of the people who get it a project skill of that name
+    would be hidden, or (into a project) a wider skill of that name runs instead. Those counts look only at skills and
+    projects the asker can read themselves (never someone's own skills), so a count tells no name.
+  - **Cut: nothing that is not text goes in** (product owner, 2026-11-10, after the review). No picture, sound,
+    video, font, Office file, PDF or any other file that is not text goes into a skill folder through the AI, on its
+    own or inside a SKILL.md folder: its content could not be shown on the card, and words drawn into a picture reach
+    the AI when it reads it (vision, OCR). The refusal says why and gives the user the next step in their language
+    ("스킬 폴더에 그림을 넣으려면 파일 화면에서 직접 올려 주세요."): a person uploads it on the Files screen. A thumbnail on the card
+    could bring pictures back later, as a change of its own. Nor does a single file go in: a .md on its own is a team
+    rule or a single-file skill (no team rule is ever made by a file action), and any other text is written with write /
+    edit, where the card shows it. Instruction file names (CLAUDE.md, AGENTS.md, GEMINI.md) are refused anywhere in
+    the folder.
   - **Refused**: moves within or between skill folders (`skills/hr/x` to `skills/x` is "team to team" but reaches the
     whole team; a whole skill goes with `move_skill`), the person's own skills folder (`move_skill`), `groups/` and
     `projects/` themselves, folders that would switch a group's or project's skills on (cut by the review: switching on
@@ -17437,7 +17442,7 @@ all of it on the Files screen. The plan ("B1") was narrowed by the security revi
   exactly that operation (person, turn, action, both paths; `onExists: 'fail'`, never a " (2)"), once, and plans the
   action again right before the rename or copy: a file added or changed after the card refuses it. "I" places the bytes
   the card showed as new files, so a dev-environment job that kept the old file open cannot change the skill after the
-  yes; they go into place in the move's own step (the database part and both renames happen together or not at all),
+  yes (for "I", text only); they go into place in the move's own step (the database part and both renames happen together or not at all),
   and a skill's folder renamed gets its SKILL.md with the new name line the same way, the old text kept as a version.
   A script keeps its execute bit. Without such a grant the service refuses every AI turn's move or copy into or out of
   a skill folder (a copy out too, now), as before.
@@ -17448,20 +17453,11 @@ all of it on the Files screen. The plan ("B1") was narrowed by the security revi
   roots records each skill in it too. Before, only a project's switch-on was recorded, without a notice.
 - **Independent review (2026-11-10)** before the PR: hidden characters on the card (fixed), a text named like a picture,
   a placement that could fail open, a rename that could stop halfway, counts that told names, per-skill records for a
-  skills folder moved out, Slack chats, a cleanup or an undo that could fail open after the move (all fixed). Accepted
-  for now: a picture's own content is not shown on the card, only its name and size (it must be a real picture of a
-  known format, but words drawn into it reach the AI when it reads the picture, by vision or OCR; the AI reads a
-  skill's picture only when its SKILL.md, shown in full, says so). A thumbnail or the picture's text on the card is a
-  follow-up. Also: an empty skills folder made as a dev-environment mount point counts as a folder holding skills while
-  a run lives, and a person's move into a skill folder on the Files screen is recorded per folder, not per skill.
-- **Approvals for skill saves are one-shot** (review M1): the save's check uses its approval up, the chat turn drops
-  it when the call ends either way, and the "already confirmed" shortcut is gone. `make_file`'s card and approval are
-  for the path it saves (`skills/x.md` as docx is `skills/x.md.docx`); before, the approval stayed at `skills/x.md`
-  for the rest of the turn.
-- **Dev-environment runs** (review S8): the person's own skills folder and the skills folder of the group's or
-  project's folder a run starts in are on the run's no-write list; a start folder in a skill folder, or `groups/` or
-  `projects/` themselves, writes no team folder. An absent skills folder is made as an srt mount point for the run's
-  life and removed after if still empty (a command could otherwise make it and write a skill).
+  skills folder moved out, Slack chats, a cleanup or an undo that could fail open after the move (all fixed). It also
+  found that a picture's own content was not on the card; rather than accept that, pictures and every other non-text
+  file going in were cut (above). Left: an empty skills folder made as a dev-environment mount point counts as a folder
+  holding skills while a run lives, and a person's move into a skill folder on the Files screen is recorded per folder,
+  not per skill.
 - Tests: `tests/unit/skill-files.test.ts` (an attack for each MUST), `dev-env-srt.test.ts` (the no-write list and the
   mount points), `c-file-moves`, `move-skill`, `project-skills`.
 - Version impact: patch (a new AI tool behind a card, stricter checks; no HTTP API change, no migration).

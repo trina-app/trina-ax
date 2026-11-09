@@ -9,11 +9,12 @@
 //   O  files, skills or rules leaving a skill root: moved out, the skills folder itself renamed, a group's or a
 //      project's folder moved out of its place (its skills stop), or a file copied out. The card names the skills and
 //      how many people lose them, and who gains or loses the files.
-//   I  media files (images, audio, video, fonts) and SKILL.md folders going into a skill root, at an exact target that
-//      is not there yet. The card shows every word of every text file the AI would follow, who newly gets it and may
-//      change it, and the same name elsewhere (counted for each person who gets it, named only where the asker can read
-//      it). A single .md (a team rule), any other text file alone, an instruction file name, Office files, PDFs and text
-//      past the card's limit are refused.
+//   I  a SKILL.md folder of text files going into a skill root, at an exact target that is not there yet. The card
+//      shows every word of every file the AI would follow, who newly gets it and may change it, and the same name
+//      elsewhere (counted for each person who gets it, named only where the asker can read it). Nothing that is not
+//      text goes in (pictures, media, Office files, PDFs: cut by the product owner, a person uploads them on the Files
+//      screen), nor a file on its own (a .md is a team rule or a skill; other text is write / edit's), an instruction
+//      file name, or text past the card's limit.
 // Everything else is refused before any card, with the reason and what to do instead (move_skill for a whole skill to
 // another level, write / edit for text, the Files screen for the rest). Moves that would switch a group's or a
 // project's skills on, groups/ and projects/ themselves and the person's own skills folder are among them.
@@ -92,22 +93,22 @@ export interface FolderPlan {
   rename: { name: string; entry: string; text: string; oldSha: string } | null
   token: string
 }
-export interface FolderRefused { refused: { why: string; next: string } }
+export interface FolderRefused { refused: { why: string; next: string; say?: 'fileMediaNext' } }
 
 /** The card shows the text in full: more than this many characters in all is refused, never cut. */
 export const FOLDER_TEXT_MAX = 60_000
 /** A folder this large is moved on the Files screen. */
 export const FOLDER_MAX_FILES = 500
 export const FOLDER_MAX_BYTES = 50 * 1024 * 1024
-/** Media that may go into a skill folder: no text for the AI to follow in them (checked by their bytes too). */
-const MEDIA = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'ico', 'avif', 'mp3', 'm4a', 'wav', 'ogg', 'oga', 'flac', 'aac', 'opus', 'mp4', 'm4v', 'mov', 'webm', 'avi', 'mkv', 'woff', 'woff2', 'ttf', 'otf'])
 const INSTRUCTION = /^(CLAUDE|AGENTS|GEMINI)\.md$/i
 
 const FILES = 'the user can do it on the Files screen'
 const ADMIN = 'an admin can do it on the Files screen'
 
-class Refuse extends Error { constructor(readonly why: string, readonly next: string = FILES) { super(why) } }
-const refuse = (why: string, next?: string): never => { throw new Refuse(why, next) }
+/** `say`: a next step the user is told in their own language (skills/text.ts), besides `next` for the AI */
+type Say = 'fileMediaNext'
+class Refuse extends Error { constructor(readonly why: string, readonly next: string = FILES, readonly say?: Say) { super(why) } }
+const refuse = (why: string, next?: string, say?: Say): never => { throw new Refuse(why, next, say) }
 
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
 const clean = (p: string) => p.normalize('NFC').split('/').filter((s) => s !== '' && s !== '.').join('/')
@@ -151,36 +152,6 @@ export function hiddenChars(text: string): boolean {
     return true
   }
   return false
-}
-
-/** The bytes a media file of extension `x` starts with (review S2: a ".png" holding text, in UTF-16 or Latin-1, is no
- * picture). */
-export function mediaBytes(x: string, b: Buffer): boolean {
-  const at = (off: number, sig: string | number[]) => { const want = typeof sig === 'string' ? Buffer.from(sig, 'latin1') : Buffer.from(sig); return b.length >= off + want.length && b.subarray(off, off + want.length).equals(want) }
-  const riff = (kind: string) => at(0, 'RIFF') && at(8, kind)
-  const ftyp = at(4, 'ftyp')
-  switch (x) {
-    case 'png': return at(0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-    case 'jpg': case 'jpeg': return at(0, [0xff, 0xd8, 0xff])
-    case 'gif': return at(0, 'GIF87a') || at(0, 'GIF89a')
-    case 'webp': return riff('WEBP')
-    case 'bmp': return at(0, 'BM')
-    case 'tif': case 'tiff': return at(0, [0x49, 0x49, 0x2a, 0x00]) || at(0, [0x4d, 0x4d, 0x00, 0x2a])
-    case 'ico': return at(0, [0x00, 0x00, 0x01, 0x00])
-    case 'heic': case 'heif': case 'avif': case 'mp4': case 'm4v': case 'mov': case 'm4a': return ftyp
-    case 'mp3': return at(0, 'ID3') || (b.length > 1 && b[0] === 0xff && (b[1]! & 0xe0) === 0xe0)
-    case 'aac': return b.length > 1 && b[0] === 0xff && (b[1]! & 0xf6) === 0xf0
-    case 'wav': return riff('WAVE')
-    case 'avi': return riff('AVI ')
-    case 'ogg': case 'oga': case 'opus': return at(0, 'OggS')
-    case 'flac': return at(0, 'fLaC')
-    case 'webm': case 'mkv': return at(0, [0x1a, 0x45, 0xdf, 0xa3])
-    case 'woff': return at(0, 'wOFF')
-    case 'woff2': return at(0, 'wOF2')
-    case 'ttf': return at(0, [0x00, 0x01, 0x00, 0x00]) || at(0, 'true')
-    case 'otf': return at(0, 'OTTO')
-    default: return false
-  }
 }
 
 /** text the AI could follow: no NUL byte at the start and valid UTF-8 */
@@ -365,7 +336,7 @@ function leaving(ctx: AppContext, user: Principal, rules: RuleSet, from: string,
  * English, for the AI) and what to do instead. Nothing changes. */
 export function planFolderAction(ctx: AppContext, user: Principal, a: FolderActionInput): FolderPlan | FolderRefused {
   try { return plan(ctx, user, a) } catch (e) {
-    if (e instanceof Refuse) return { refused: { why: e.why, next: e.next } }
+    if (e instanceof Refuse) return { refused: { why: e.why, next: e.next, ...(e.say ? { say: e.say } : {}) } }
     if (e instanceof FileError) {
       if (e.key === 'ruleFolder') return { refused: { why: 'only an admin or the owner may move or rename a group\'s or project\'s folder, or a folder with folder permissions (or one holding such a folder)', next: ADMIN } }
       if (e.key === 'exists') return { refused: { why: 'something is already at that place; nothing is put next to it under another name', next: 'ask the user for another name or folder' } }
@@ -510,63 +481,58 @@ function out(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionIn
   return finish({ kind: 'out', action: a.action, holder: !!skillsDir, from, to, isDir, files, texts: [], skills, level, lostIds, gainedIds: [], editorIds: [], editorsGainedIds: [], seeAdded, seeLost, narrowed, shadow: null, hiddenFor: 0, rename: null })
 }
 
-/** I: a media file or a SKILL.md folder into a skill root. */
+/** The next step when a file that is not text would go into a skill folder (the product owner, 2026-11-10: no picture,
+ * media or any other non-text file goes in through the AI; a person uploads it on the Files screen). Said to the user in
+ * their language (skills/text.ts fileMediaNext). */
+const MEDIA_NEXT = 'the user can upload it into the skill folder themselves on the Files screen; tell them so in their words'
+
+/** I: a SKILL.md folder of text files into a skill root. Nothing but text goes in: every word of it is on the card. A
+ * single file never does (a .md on its own is a team rule or a skill; other text is written with write / edit), nor a
+ * picture, media or any other file that is not text (cut by the product owner: its content would not be on the card). */
 function into(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionInput, from: string, to: string, isDir: boolean, narrowed: number): FolderPlan {
   const rf = rootFolder(to)!
+  if (!isDir) {
+    const n = nameOf(to)
+    const x = ext(from)
+    if (INSTRUCTION.test(n) || n === 'SKILL.md') refuse(`'${n}' is the name of a file the AI follows as instructions`, 'write it with write / edit, where the user sees every word on the card')
+    if (x === 'md' || x === 'markdown') refuse('a .md file on its own in a skill folder is a team rule or a skill the AI follows; file actions never make one', 'write it with write (the user sees every word on the card), or put it in a SKILL.md folder and bring the folder in')
+    let text = false
+    try { text = looksText(readRegular(path.join(ctx.files.fx.root, ...from.split('/')), FOLDER_MAX_BYTES).bytes) } catch { text = false }
+    if (text) refuse('a text file goes into a skill folder only written with write / edit, where the user sees every word on the card', 'write it with write / edit')
+    refuse('the AI does not put pictures, media or any other file that is not text into a skill folder: its content would not be on the card', MEDIA_NEXT, 'fileMediaNext')
+  }
   const level = levelAt(ctx, to)
   if (!level) refuse(`no group or live project uses ${rf}, so no AI would follow what goes there`, 'pick the skills folder of the team, one of the user\'s groups or a project; a folder that is not a project yet is made one with Projects › New project')
+  // a SKILL.md folder, right in the skills folder, under the name it goes by
+  if (parentOf(to) !== rf) refuse(`a skill goes right into the skills folder (to_folder '${rf}'), not into another folder in it`, 'call skill_files again with that to_folder')
   const files = walk(ctx, user, rules, from)
   const after = a.action === 'copy' ? rules : rulesAfterMove(ctx, from, to)
   // a copy lands without the folder rules inside the source: what they hide would reach more people
-  if (a.action === 'copy' && isDir && rules.ruleFolders().some((f) => under(f, from) && f !== from)) refuse('a folder inside it has folder permissions of its own, which a copy would not keep', 'move it instead, or the user can do it on the Files screen')
+  if (a.action === 'copy' && rules.ruleFolders().some((f) => under(f, from) && f !== from)) refuse('a folder inside it has folder permissions of its own, which a copy would not keep', 'move it instead, or the user can do it on the Files screen')
+  const manifest = files.find((f) => f.path === `${from}/SKILL.md`)
+  if (!manifest) refuse('a folder goes into a skill folder only as a skill: a SKILL.md at its top', 'write a SKILL.md for it first (write, with the user\'s card), or the user can do it on the Files screen')
   const texts: { path: string; text: string }[] = []
-  const skills: SkillTouched[] = []
-  const rel = (f: FileHash) => (isDir ? to + f.path.slice(from.length) : to)
-  if (!isDir) {
-    const f = files[0]!
-    const x = ext(from)
-    if (INSTRUCTION.test(nameOf(to)) || nameOf(to) === 'SKILL.md') refuse(`'${nameOf(to)}' is the name of a file the AI follows as instructions`, 'write it with write / edit, where the user sees every word on the card')
-    if (x === 'md' || x === 'markdown') refuse('a .md file on its own in a skill folder is a team rule or a skill the AI follows; file actions never make one', 'write it with write (the user sees every word on the card), or put it in a SKILL.md folder and bring the folder in')
-    if (!MEDIA.has(x)) refuse(`only images, audio, video and fonts go into a skill folder on their own, and this is a .${x || '(no extension)'} file${looksText(f.bytes) ? ' of text the AI would read' : ''}`, looksText(f.bytes) ? 'write text with write / edit (the user confirms every word on a card)' : FILES)
-    if (looksText(f.bytes) || !mediaBytes(x, f.bytes)) refuse(`it is named like a .${x} file but is not one (it may hold text the AI would read)`, 'write text with write / edit (the user confirms every word on a card)')
-    const pkg = packageOf(ctx, join(parentOf(to), 'x'))
-    if (pkg) {
-      const entry = `${pkg}/SKILL.md`
-      let b: Buffer | undefined
-      try { b = readRegular(path.join(ctx.files.fx.root, ...entry.split('/')), 128 * 1024).bytes } catch { b = undefined }
-      skills.push({ name: entryName(entry, b), entry, kind: 'skill', effect: 'changes', followers: followers(ctx, after, level, entry), readable: atLeast(rules.access(user, segsOf(entry)), 'read') })
-    }
-  } else {
-    // a SKILL.md folder, right in the skills folder, under the name it goes by
-    if (parentOf(to) !== rf) refuse(`a skill goes right into the skills folder (to_folder '${rf}'), not into another folder in it`, 'call skill_files again with that to_folder')
-    const manifest = files.find((f) => f.path === `${from}/SKILL.md`)
-    if (!manifest) refuse('a folder goes into a skill folder only as a skill: a SKILL.md at its top', 'write a SKILL.md for it first (write, with the user\'s card), or the user can do it on the Files screen')
-    let chars = 0
-    for (const f of files) {
-      const n = nameOf(f.path)
-      if (INSTRUCTION.test(n)) refuse(`'${f.path}' is an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md); it is not put into a skill folder`, 'take it out of the folder first, or the user can do it on the Files screen')
-      if (looksText(f.bytes)) {
-        const t = f.bytes.toString('utf8')
-        // every word on the card: no character a person cannot see there (review MUST 1)
-        if (hiddenChars(t)) refuse(`'${f.path}' holds characters a person cannot see on the card (zero-width, direction or tag characters), so it cannot be shown in full`, 'take them out with edit first (the file is the user\'s), or the user can do it on the Files screen')
-        chars += t.length; texts.push({ path: rel(f), text: t }); continue
-      }
-      if (!MEDIA.has(ext(n)) || !mediaBytes(ext(n), f.bytes)) refuse(`'${f.path}' is ${MEDIA.has(ext(n)) ? `named like a .${ext(n)} file but is not one` : `a .${ext(n) || '(no extension)'} file`}; a skill folder takes text files (shown in full on the card), images, audio, video and fonts`, FILES)
-    }
-    if (chars > FOLDER_TEXT_MAX) refuse(`its text files are too long to show in full on one card (${chars} characters, at most ${FOLDER_TEXT_MAX})`, FILES)
-    const entry = `${to}/SKILL.md`
-    const text = manifest!.bytes.toString('utf8')
-    const problem = skillFileProblem(ctx.files.fx.root, entry, text)
-    if (problem) refuse(`its SKILL.md would not load there (${problem}): a skill's folder and its name: line must match`, 'fix the SKILL.md header with edit first, or rename the folder to its name')
-    const name = entryName(entry, manifest!.bytes)
-    skills.push({ name, entry, kind: 'skill', effect: 'new', followers: followers(ctx, after, level, entry), readable: true })
+  let chars = 0
+  for (const f of files) {
+    if (INSTRUCTION.test(nameOf(f.path))) refuse(`'${f.path}' is an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md); it is not put into a skill folder`, 'take it out of the folder first, or the user can do it on the Files screen')
+    if (!looksText(f.bytes)) refuse(`'${f.path}' is not a text file, and the AI does not put pictures, media or any other file that is not text into a skill folder: its content would not be on the card`, MEDIA_NEXT, 'fileMediaNext')
+    const t = f.bytes.toString('utf8')
+    // every word on the card: no character a person cannot see there (review MUST 1)
+    if (hiddenChars(t)) refuse(`'${f.path}' holds characters a person cannot see on the card (zero-width, direction or tag characters), so it cannot be shown in full`, 'take them out with edit first (the file is the user\'s), or the user can do it on the Files screen')
+    chars += t.length
+    texts.push({ path: to + f.path.slice(from.length), text: t })
   }
-  const entry = skills[0]?.entry
-  const gainedIds = isDir ? skills[0]!.followers : []
+  if (chars > FOLDER_TEXT_MAX) refuse(`its text files are too long to show in full on one card (${chars} characters, at most ${FOLDER_TEXT_MAX})`, FILES)
+  const entry = `${to}/SKILL.md`
+  const problem = skillFileProblem(ctx.files.fx.root, entry, manifest!.bytes.toString('utf8'))
+  if (problem) refuse(`its SKILL.md would not load there (${problem}): a skill's folder and its name: line must match`, 'fix the SKILL.md header with edit first, or rename the folder to its name')
+  const name = entryName(entry, manifest!.bytes)
+  const gainedIds = followers(ctx, after, level, entry)
+  const skills: SkillTouched[] = [{ name, entry, kind: 'skill', effect: 'new', followers: gainedIds, readable: true }]
   const editorIds = editors(ctx, after, to)
   const before = editors(ctx, rules, from)
   const editorsGainedIds = editorIds.filter((x) => !before.includes(x))
-  const checked = isDir ? nameCheck(ctx, user, after, level!, skills[0]!.name, gainedIds, entry) : { shadow: null, hiddenFor: 0 }
+  const checked = nameCheck(ctx, user, after, level!, name, gainedIds, entry)
   const sb = readers(ctx, rules, from, user.id), sa = readers(ctx, after, to, user.id)
   const seeAdded = sa.filter((x) => !sb.includes(x)), seeLost = a.action === 'copy' ? [] : sb.filter((x) => !sa.includes(x))
   return finish({ kind: 'in', action: a.action, holder: false, from, to, isDir, files, texts, skills, level, lostIds: [], gainedIds, editorIds, editorsGainedIds, seeAdded, seeLost, narrowed, ...checked, rename: null })

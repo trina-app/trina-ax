@@ -26,7 +26,7 @@ import type { TurnExec } from './turn'
 
 export const SKILL_FILES_TOOL = 'skill_files'
 
-export const SKILL_FILES_DESCRIPTION = 'Move, copy or rename one file or folder that touches a skill folder (skills/, a group\'s or a project\'s skills: what people\'s AI follows), when the user asks: rename a group\'s or a project\'s folder that holds skills (e.g. projects/quotes to "quotes-2026"; only when nobody gains or loses anything) or a skill\'s own folder (its SKILL.md name line changes with it); take files, skills or rules out of a skill folder (move, a file copied out, or the skills folder renamed; the card says who stops getting them); or put an image, audio, video, font or a whole SKILL.md folder into one (the card shows every word the AI would follow and who gets it). One item per call. Nothing changes until the user says yes on the server\'s card; you do not need to ask first. A whole skill to another level goes with move_skill, a text file or rule in a skill folder with write / edit. Everything else is refused with the reason: tell the user that in their words, with the next step it gives.'
+export const SKILL_FILES_DESCRIPTION = 'Move, copy or rename one file or folder that touches a skill folder (skills/, a group\'s or a project\'s skills: what people\'s AI follows), when the user asks: rename a group\'s or a project\'s folder that holds skills (e.g. projects/quotes to "quotes-2026"; only when nobody gains or loses anything) or a skill\'s own folder (its SKILL.md name line changes with it); take files, skills or rules out of a skill folder (move, a file copied out, or the skills folder renamed; the card says who stops getting them); or put a whole SKILL.md folder of text files into one (the card shows every word the AI would follow and who gets it). Never a picture, media or any other file that is not text into a skill folder: the user uploads those on the Files screen. One item per call. Nothing changes until the user says yes on the server\'s card; you do not need to ask first. A whole skill to another level goes with move_skill, a text file or rule in a skill folder with write / edit. Everything else is refused with the reason: tell the user that in their words, with the next step it gives.'
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
@@ -81,7 +81,8 @@ export function skillFilesTool(exec: TurnExec) {
       let user
       try { user = exec.livePrincipal() } catch { return bad('Access denied: this account is disabled.', 'denied: account disabled') }
       const plan = planFolderAction(ctx, user, a)
-      if ('refused' in plan) return bad(`Not ${verb}. Why: ${neutralizeTags(plan.refused.why)}. Next step: ${neutralizeTags(plan.refused.next)}.`, `refused: ${clip(plan.refused.why, 80)}`)
+      // a next step the user hears in their own language: given to the AI as it is to be said
+      if ('refused' in plan) return bad(`Not ${verb}. Why: ${neutralizeTags(plan.refused.why)}. Next step: ${neutralizeTags(plan.refused.next)}.${plan.refused.say ? ` Say it as: "${st(plan.refused.say, spec.locale)}"` : ''}`, `refused: ${clip(plan.refused.why, 80)}`)
       if (plan.kind === 'in' && exec.roomsSeen) return bad(nothing('this chat read a team chat room (other people\'s words), so nothing is put into a skill folder from it', 'the user can ask in a new chat, or do it on the Files screen'), 'refused: into skills after a room read')
       const L = spec.locale
       // names only now, after every check passed (S3), and only where the person may see who is there (seesWho)
@@ -144,10 +145,8 @@ export function skillFilesTool(exec: TurnExec) {
       if (!p.skills.length) lines.push(st('fileNoSkill', L))
     } else {
       lines.push(st(p.action === 'copy' ? 'fileInCopy' : 'fileInMove', L, { where: p.level ? levelFolder(p.level, L) : p.to, ...fromTo }))
-      const s = p.skills[0]
-      if (s?.effect === 'new') lines.push(st('fileInNew', L, { name: s.name, n: String(s.followers.length) }))
-      else if (s) lines.push(st('fileInAsset', L, { name: s.name, n: String(s.followers.length) }))
-      else lines.push(st('fileNoSkill', L))
+      const s = p.skills[0]!
+      lines.push(st('fileInNew', L, { name: s.name, n: String(s.followers.length) }))
       lines.push(st(p.editorsGainedIds.length ? 'fileEditorsNew' : 'fileEditors', L, { n: String(p.editorIds.length), gained: String(p.editorsGainedIds.length) }))
     }
     if (p.shadow) lines.push(st('fileShadow', L, { n: String(p.shadow.people), where: p.shadow.projects.length ? ` (${p.shadow.projects.map((x) => st('whereProject', L, { project: x })).join(', ')})` : '' }))

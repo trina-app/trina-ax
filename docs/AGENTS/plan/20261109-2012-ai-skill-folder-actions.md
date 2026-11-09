@@ -34,12 +34,13 @@ token is checked again inside the file service right before the rename or copy. 
   group or project folder moved out of its place). The card names the skills and how many people lose them (names only
   for the owner, admins and a project's creator, as `move_skill`), and who gains or loses the files. Recorded as
   `skills.change`.
-- **I**: binary media files (images, audio, video, fonts) and SKILL.md folders going into a skill root. The card shows
-  the full text of every text file, readers and editors gained, the same name elsewhere (counted per person, named
-  only where the asker can read it), and the exact target, which must not exist. A single `.md` (a team rule), any
-  text file on its own, an instruction file name (CLAUDE.md, AGENTS.md, GEMINI.md), Office files and PDFs, and text
-  above the card's limit are refused. The bytes placed are the bytes the card showed, as new files (a process that
-  held the old file open cannot change it afterwards).
+- **I**: a SKILL.md folder of text files going into a skill root. The card shows the full text of every file, readers
+  and editors gained, the same name elsewhere (counted per person, named only where the asker can read it), and the
+  exact target, which must not exist. The bytes placed are the bytes the card showed, as new files (a process that
+  held the old file open cannot change it afterwards). Cut after the review (product owner): no picture, media or any
+  other file that is not text goes in, on its own or in the folder; the refusal tells the user to upload it on the
+  Files screen. A single `.md` (a team rule), any other single file, instruction file names and text above the card's
+  limit are refused too.
 
 Everything else is refused up front with a reason and the Files screen as the next step: moves within or between skill
 folders (`move_skill` for a whole skill to another level), deletes, folders that would switch project or group skills
@@ -107,13 +108,15 @@ whole `tests/unit` compared with dev, and the web unit tests in Docker.
 Built as planned, with what an independent security review (two passes, before the PR) added:
 
 - The card shows every word: a text or a file name with a character a person cannot see there (zero-width,
-  direction, tag characters) is refused; a media file must start like its format (a ".png" holding text is refused).
+  direction, tag characters) is refused.
 - The card's bytes go into place in the move's own step, inside the database transaction with both renames, instead
   of a swap after the move that could fail open; a renamed skill folder gets its new SKILL.md the same way (the old
   text kept as a version), so it never stops halfway. Folders, empty ones too, and a script's execute bit are kept.
 - The same-name counts look only at skills and projects the asker reads (a count must not tell a name); Slack threads'
   chats are refused (an answer may go to a channel); a skills folder moved out of the skill roots records each skill.
-- Accepted for now and written in DECISIONS: a picture's own content is not on the card (only its name and size).
+- Cut after the review, by the product owner: no picture, media or any other file that is not text goes into a skill
+  folder through the AI (its content could not be shown on the card); the refusal tells the user, in their language,
+  to upload it on the Files screen. A thumbnail on the card could bring pictures back later, as its own change.
 
 Differs from the plan: the new tool is `skill_files` (one item per call); the old file tools keep refusing and say
 what to use. `fix/ai-refusals-clear` had not landed, so the refusals use their own why / next-step texts in that shape.
