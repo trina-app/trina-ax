@@ -728,6 +728,8 @@ test.describe('a phone (390 px), the conversation', () => {
     await expect(column(page)).toHaveAttribute('data-show', 'trina')
     await expect(column(page).getByTestId('side-chat-quote-file')).toHaveText('acme-reply.md')
     await expect(column(page).getByTestId('side-chat-quick-fileSave')).toBeVisible()
+    // the box asks about the file, not "this message"
+    await expect(column(page).getByTestId('side-chat-input')).toHaveAttribute('placeholder', '이 파일에 대해 트리나에게 묻기…')
     await expect(column(page).getByTestId('side-chat-close')).toBeVisible()
     await expect(column(page).getByTestId('side-chat-back')).toHaveCount(0)
     await audit(page, 'viewer with Trina in the sheet on a phone')

@@ -3492,6 +3492,7 @@ export const ko = {
   "sideChat.askAbout": "트리나에게 이 메시지 묻기",
   "sideChat.quoteRemove": "인용 빼기",
   "sideChat.placeholderQuoted": "이 메시지에 대해 {name}에게 묻기…",
+  "sideChat.placeholderQuotedFile": "이 파일에 대해 {name}에게 묻기…",
   "sideChat.quick.translate": "번역",
   "sideChat.quick.summarize": "요약",
   "sideChat.quick.explain": "설명",

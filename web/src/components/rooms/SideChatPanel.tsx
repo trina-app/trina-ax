@@ -307,6 +307,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }
   const onSelectBranch = (id: string) => { if (chatId) void useChats.getState().selectBranch(chatId, id).catch(fail) }
   const name = aiName(t)
+  // what the box asks: the answer to the AI's question, or about the file or message quoted, or about the room
+  const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t('sideChat.placeholder', { name })
 
   const body = (
     // files dropped anywhere on the panel go with the next question (the box shows the drop)
@@ -443,8 +445,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             }}
             rows={2}
             maxLength={20_000}
-            placeholder={question ? t('sideChat.answerPlaceholder', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t('sideChat.placeholder', { name })}
-            aria-label={question ? t('sideChat.answerPlaceholder', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t('sideChat.placeholder', { name })}
+            placeholder={boxLabel}
+            aria-label={boxLabel}
             className="block max-h-40 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
             data-testid="side-chat-input"
           />

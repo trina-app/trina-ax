@@ -17372,6 +17372,8 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   Without the column nothing changes.
 - **Computers, two icons:** 패널에서 열기 shows ⤡ (`Minimize2`, the side panel's own "나란히 보기" after 크게 보기)
   instead of a panel icon, which looked like the column's toggle beside it. No new button.
+- **The side chat's box with a file quoted** says "이 파일에 대해 트리나에게 묻기…" (`sideChat.placeholderQuotedFile`), not
+  "이 메시지에 대해…": ✦ in the viewer and "Ask Trina about this file" in the preview quote a file, not a message.
 - Text in all five languages: 스레드 보기 (with the reply count, "스레드 보기, 답글 3": the number a word of its own, so
   a voice user can say what they see; axe's label-in-name check reads "1개" as one word), and the handle's 위로 펼치기 /
   아래로 줄이기.

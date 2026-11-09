@@ -3453,6 +3453,7 @@ export const es: Record<MessageKey, string> = {
   "sideChat.askAbout": "Preguntar a Trina sobre esto",
   "sideChat.quoteRemove": "Quitar la cita",
   "sideChat.placeholderQuoted": "Pregunte a {name} sobre este mensaje…",
+  "sideChat.placeholderQuotedFile": "Pregunte a {name} sobre este archivo…",
   "sideChat.quick.translate": "Traducir",
   "sideChat.quick.summarize": "Resumir",
   "sideChat.quick.explain": "Explicar",

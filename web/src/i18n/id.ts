@@ -3493,6 +3493,7 @@ export const id: Record<MessageKey, string> = {
   "sideChat.askAbout": "Tanya Trina soal pesan ini",
   "sideChat.quoteRemove": "Hapus kutipan",
   "sideChat.placeholderQuoted": "Tanya {name} soal pesan ini…",
+  "sideChat.placeholderQuotedFile": "Tanya {name} soal file ini…",
   "sideChat.quick.translate": "Terjemahkan",
   "sideChat.quick.summarize": "Ringkas",
   "sideChat.quick.explain": "Jelaskan",

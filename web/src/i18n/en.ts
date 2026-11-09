@@ -3493,6 +3493,7 @@ export const en: Record<MessageKey, string> = {
   "sideChat.askAbout": "Ask Trina about this",
   "sideChat.quoteRemove": "Remove the quote",
   "sideChat.placeholderQuoted": "Ask {name} about this message…",
+  "sideChat.placeholderQuotedFile": "Ask {name} about this file…",
   "sideChat.quick.translate": "Translate",
   "sideChat.quick.summarize": "Summarize",
   "sideChat.quick.explain": "Explain",

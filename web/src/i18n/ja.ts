@@ -3453,6 +3453,7 @@ export const ja: Record<MessageKey, string> = {
   "sideChat.askAbout": "このメッセージをトリナに聞く",
   "sideChat.quoteRemove": "引用を外す",
   "sideChat.placeholderQuoted": "このメッセージについて{name}に質問…",
+  "sideChat.placeholderQuotedFile": "このファイルについて{name}に質問…",
   "sideChat.quick.translate": "翻訳",
   "sideChat.quick.summarize": "要約",
   "sideChat.quick.explain": "説明",
