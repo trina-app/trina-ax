@@ -31,7 +31,7 @@ describe('B turns use C tools', () => {
   test('a web turn is offered the file tools, B tools and every C tool (set_title: a new chat\'s first message)', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
-    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'connect_service', 'copy_files', 'edit', 'edit_files', 'edit_hwp', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list', 'make_file', 'move_files', 'move_skill', 'promo_video', 'read', 'remember', 'rename_file', 'room_file', 'room_read', 'rooms', 'save_room_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'skill', 'web_fetch', 'write'])
+    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'connect_service', 'copy_files', 'delete_files', 'edit', 'edit_files', 'edit_hwp', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list', 'make_file', 'move_files', 'move_skill', 'promo_video', 'read', 'remember', 'rename_file', 'room_file', 'room_read', 'rooms', 'save_room_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'skill', 'web_fetch', 'write'])
   })
 
   test('Hangul writing follows the HWP plugin in a turn: off, no edit_hwp and no .hwpx in the instructions, make_file .hwpx refused before any card; on again, both back', async () => {

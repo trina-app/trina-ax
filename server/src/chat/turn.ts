@@ -31,6 +31,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
+import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
@@ -224,6 +225,10 @@ export class TurnExec {
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
    * project's, the rollback guard) whose read scope still holds what their turns read */
   private othersWrote = false
+  /** other people's messages are in this chat (othersWrote, set when the turn starts): delete_files refuses there */
+  get otherAuthors(): boolean { return this.othersWrote }
+  /** a question asked from Slack or a chat of a Slack thread (slackChat): delete_files refuses there */
+  get fromSlack(): boolean { return this.slackChat }
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -1684,6 +1689,10 @@ export class TurnExec {
       if (folder.length < 2 || ((folder[0] === 'groups' || folder[0] === 'users') && folder.length < 3)) return null
       if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
       if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(folder)) return null
+      // a path an AI turn just put in the trash (delete_files) is not a new file: writing it again without a card
+      // would replace what the person agreed to remove with something they never saw. Rooms do not get delete_files
+      // (rooms/ai-tools.ts ROOM_TOOLS); this keeps it so if that ever changes, and for a trash from the person's own chat
+      if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
       if (!everyoneWrites(this.rt.db, fx, rules, this.room.roomId, r.rel)) return null
       return { segs, isNew: !r.exists, exists: r.existing >= folder.length }
     } catch { return null }
@@ -2263,12 +2272,29 @@ export class TurnExec {
   }
 
   // ---------------- people answering (ask_user, browser site) ----------------
+  /** An open card no other card of this turn may join (`exclusive`: delete_files, chat/delete-files.ts, one destructive
+   * card at a time): settles when it closes. A card asked meanwhile (a parallel ask_user, move card, skill card) waits
+   * for it, then opens with its full time; the delete tool itself refuses while any card is open. */
+  private exclusiveCard: Promise<void> | null = null
+
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
-  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
+  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<unknown> {
     if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) return Promise.resolve(null)
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') return Promise.resolve(null)
+    const held = this.exclusiveCard
+    if (held) {
+      return held.then(() => this.waitForPerson('expiresAt' in request && request.expiresAt ? { ...request, expiresAt: new Date(Date.now() + o.timeoutMs).toISOString() } as TurnRequest : request, o))
+    }
+    const shown = this.showCard(request, o)
+    if (o.exclusive) {
+      const closed: Promise<void> = shown.then(() => undefined, () => undefined).then(() => { if (this.exclusiveCard === closed) this.exclusiveCard = null })
+      this.exclusiveCard = closed
+    }
+    return shown
+  }
+  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.remainingWallMs() <= 0) this.expireWall()
