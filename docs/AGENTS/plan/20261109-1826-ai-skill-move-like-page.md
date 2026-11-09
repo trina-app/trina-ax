@@ -96,4 +96,4 @@ the person's own skills (follow-up), `copy_files`'s reason when a skill folder i
 file).
 
 Checks: typecheck, `check:i18n`, `check:docs`, `docs:api` clean; `tests/unit` 53 failures, the same 53 as on dev; the
-permission matrix's 3 failures are dev's (since #267); web unit in Docker and the skills e2e specs pass. PR: PR_LINK.
+permission matrix's 3 failures are dev's (since #267); web unit in Docker and the skills e2e specs pass. PR: https://github.com/trina-app/trina-ax/pull/269.
