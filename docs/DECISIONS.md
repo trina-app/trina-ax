@@ -16020,14 +16020,25 @@ copy it (`write` saves text), so it asked for the PDF again. A room's own @트�
   wider-audience need is known before the rooms-seen card (own chat) or the room card (room session). Both needed: the
   wider-audience card alone, with the rooms-seen line in front in the own chat and the call's details (the file by its
   name, its room as the person sees it in the own chat ("#leads"), sender, time and size; where it goes); its yes saves
-  it. The owner's request is exactly that card and one yes. Only one of them: that one. In an own chat that read no room,
-  nothing (a place no wider than the room) or the wider-audience card. The room session's save had two cards until now.
+  it. The owner's request is exactly that card and one yes. Only one of them: that one. The own chat's call marks the
+  chat (`markRoomsSeen`) before it looks anything up, a refused call too, so every save there asks one card, also first
+  thing in a new chat (a file id planted in a team file or a page copies nothing unasked). The room session's save had
+  two cards until now.
 - **No silent overwrite:** as save_url and make_file, a file already at the target that was not read in this turn is
   kept and the copy goes next to it (a conflict copy, told to the AI); one read in this turn is updated with a version.
 - **Room sessions:** no "이 방에서는 항상 허용" for a copy. "대화방에서 새 파일은 미리 허용" left save_room_file out of grants
   on purpose (copies, moves, save_url); the room card keeps its two buttons. Not widened here.
-- **Audit:** a save names the saved team path (it is a team file now); a refusal in the own chat is audited without its
-  words ("refused: access denied"), since they name the room's file; no room, person or file id anywhere.
+- **Audit:** a save names the saved team path (it is a team file now); a refusal is audited without its words
+  ("refused: access denied", or the error's code), since they name the room file's place; no room, person or file id
+  anywhere. In a room session that was the refusal's text until now.
+- **Independent review (security, tried to break it):** two leaks fixed, both from the new refusal before the card.
+  In a room session, a refused place (read-only, hidden) told the AI what is there before `noteRoomTool` ran, so the
+  answer went to the whole room: a refusal about the place now counts save_as as a name read (`place`), and such an
+  answer stays private for a member who cannot see it. In the own chat, a refusal could show room names (several match
+  the name) or the file's name before the chat was marked as one that read rooms: the call now marks it first. Also: the
+  card's place is the place written (`plannedTargets`: a folder made where save_as named a file while the card waited
+  refuses the save). Left as is: a leading "/" in save_as is dropped (as before); a call whose input fails the schema
+  still gets the card before its error (as every tool).
 - **Words:** no new strings. The step and the card reuse "대화방 파일 저장" and the cards' strings in the five languages.
   The instructions (`ROOMS_RULE`) and `room_file`'s description say a room file can be saved as it is, and not to ask for
   it again; `room_file`'s notes for video, audio and scanned PDF pages point to save_room_file in a chat (the connector
@@ -16037,9 +16048,11 @@ copy it (`write` saves text), so it asked for the PDF again. A room's own @트�
   path; until then it reads room files only.
 - Tests: `tests/unit/b-chat-rooms-save.test.ts` (offered and in the instructions; a member's PDF from a team room into a
   new folder in shared/ with one card naming the room, the same bytes, the step, the audit line and the file event; the
-  same file again next to a changed one; a "no"; into one's own folder before a room read without a card, then the
-  rooms-seen card; a non-member like an unknown room; a hidden answer's file, another's private preview and a name
-  refused, the preview's owner may save; a read-only target, a held file, skills/ and CLAUDE.md refused before any
-  card; a planted request in a room needs the yes), `b-rooms-ai-files.test.ts` (one card into shared/; the room card,
-  two buttons, into one's own folder), `b-chat-rooms` and `b-codex-rooms` (the tool in the own chat's list).
+  same file again next to a changed one; a "no"; into one's own folder first thing in a new chat, the rooms-seen card
+  alone; a refusal marks the chat; a place changed while the card waited; a non-member like an unknown room; a hidden
+  answer's file, another's private preview and a name refused, the preview's owner may save; a read-only target, a
+  held file, skills/ and CLAUDE.md refused before any card; a planted request in a room needs the yes),
+  `b-rooms-ai-files.test.ts` (one card into shared/; the room card, two buttons, into one's own folder; a refused place
+  keeps the answer private), `b-chat-rooms`, `b-codex-rooms`, `b-chat`, `b-browser`, `i-wiring` (the tool in the own
+  chat's list).
 - Version impact: **minor** (a new tool in the AI chat; no API, setting or data change).

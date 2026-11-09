@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 06:24
 - Branch: `feat/room-file-to-team`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/room-tools.ts`, `server/src/chat/tools.ts`, `server/src/chat/turn.ts`,
   `server/src/chat/prompt.ts`, `shared/src/tools.ts`). Why: chat, permissions and files are core (see
   docs/REPOSITORY-RULES.md)
@@ -31,8 +31,8 @@ In:
 - One card per call (as PR #198 for write and make_file): a tool may say where it saves and what it reads (`Tool.widen`),
   so the wider-audience need, with the room as the source of the bytes, is known before the rooms-seen card (own chat)
   or the room card (room session). When both are needed the wider-audience card alone is asked, with what the call
-  saves; its yes is the call's yes. A save into a folder no wider than the room in a chat that read rooms gets the
-  rooms-seen card; in a chat that read no room, nothing or the wider-audience card.
+  saves; its yes is the call's yes. A save into a folder no wider than the room gets the rooms-seen card (the call
+  marks the chat first, so even the first call in a new chat asks).
 - The card names the file with its room (own chat), its sender, time and size.
 - Prompt lines and tool descriptions: the AI knows it can save a room file (ROOMS_RULE, room_file's hints for video,
   audio and scanned PDFs).
@@ -68,4 +68,13 @@ words on screen (the card and step reuse existing strings in the five languages)
 
 ## Result
 
-Filled in at the end.
+Built as planned: `save_room_file` in the person's own chat, one shared path with the room session's, `Tool.widen` for
+one card per call (the room session's save went from two cards to one), prompt and descriptions.
+
+Changed after the independent security review: a refusal about the place in a room session counts save_as as a name
+read (the answer stays private for a member who cannot see that place; before, the refusal's words reached the room);
+the own chat's call marks the chat before it looks anything up (a refusal could show room names to an unmarked chat),
+so every save there asks one card; the place the card named is the place written; refusal audit lines never quote the
+refusal. The MCP connector stays out (no card there); no grants for room file copies.
+
+PR: not opened (the GitHub account was suspended at the time); branch `feat/room-file-to-team`.

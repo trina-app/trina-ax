@@ -197,6 +197,21 @@ describe('saving a copy', () => {
     expect(fs.existsSync(path.join(h.team, 'shared', png.name))).toBe(false)
   })
 
+  test('a place refused before the card still counts as a name read: an answer about a folder some members cannot see stays private', async () => {
+    // bob (finance) may read projects/falcon, but not write it; erin may not see it at all
+    const roomId = await teamRoom(['bob', 'erin'])
+    const pdf = await upload('bob', roomId, 'probe.pdf', makePdf(['probe']))
+    const q = await send('bob', roomId, `@트리나 save\n${fake({ tool: 'save_room_file', args: { file: pdf.id, save_as: 'projects/falcon/plan.md' }, sayResult: true }, { say: ' | ' }, { tool: 'save_room_file', args: { file: pdf.id, save_as: 'projects/falcon/nothere.md' }, sayResult: true })}`, { fileIds: [pdf.id] })
+    const run = await done('bob', q)
+    expect(run.state).toBe('done')
+    expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === run.turnId)).toBe(false)
+    // the refusals say what is there for bob ("read-only"): his answer is his alone, erin never reads it
+    expect((await answerTo('bob', roomId, q))?.body).toContain('read-only')
+    expect((await answerTo('erin', roomId, q))?.body ?? '').not.toContain('projects/falcon')
+    // the audit lines never quote the refusal (it names the room file's place)
+    for (const e of events(run.turnId).filter((x) => x.tool === 'save_room_file')) expect(e).toMatchObject({ ok: 0, summary: 'save_room_file -> refused: access denied' })
+  })
+
   test('never under skills/ nor as an instruction file: refused without a card', async () => {
     const roomId = await teamRoom(['alice', 'erin'])
     for (const save_as of ['skills/new-rule.md', 'shared/CLAUDE.md']) {
