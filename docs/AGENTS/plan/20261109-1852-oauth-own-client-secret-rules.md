@@ -2,6 +2,7 @@
 
 - Date (UTC): 2026-11-09 18:52
 - Branch: `fix/oauth-own-client-secret-rules`
+- PR: https://github.com/trina-app/trina-ax/pull/270
 - Status: done
 - Where: trina-ax core (`server/src/integrations/connections/`, `web/src/lib/integrations.ts`, `web/src/i18n/`, docs).
   Why: fixes to the own-app sign-in of #267, which is core (see docs/REPOSITORY-RULES.md)
