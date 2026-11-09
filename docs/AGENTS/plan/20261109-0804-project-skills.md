@@ -125,6 +125,10 @@ Different from the first draft, and why:
 - A scheduled run whose project is gone is skipped and the task paused, with its own add-only table (migration 279):
   `schedule_outcomes` has a fixed CHECK list. 276-278 were taken on dev while this was built.
 - A side chat beside a room gets project skills only when it belongs to the project (it is made without one).
+- After "Projects live only in projects/" (#257): sharing a personal project copies its `skills/` into the new
+  `projects/<name>`, so the share asks first; repoint is an admin's, for a project whose folder is gone, to a folder no
+  project uses, so it still asks; making a project never switches skills on (always a new, empty folder). Migration
+  279 applies on a database that already has #257's 280.
 - Project skill uses are not recorded in Admin › Usage (as personal skills); left for later.
 
 Tests and their counts are in PR #248.
