@@ -6,7 +6,7 @@
 // touch screens (they have the long-press sheet), on event lines or on deleted messages (RoomMessages decides).
 import clsx from 'clsx'
 import { EllipsisVertical, MessageSquareText } from 'lucide-react'
-import { AiFace } from './AiFace'
+import { AiMark } from './AiFace'
 import type { RoomMessage, RoomReactionEmoji } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
@@ -62,7 +62,7 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, o
       {onAsk && (
         <Tooltip label={t('sideChat.askAbout')}>
           <button type="button" aria-label={t('sideChat.askAbout')} onClick={onAsk} className={BTN} data-testid="message-ask-trina">
-            <AiFace size={22} className="size-5!" />
+            <AiMark place="bar" />
           </button>
         </Tooltip>
       )}
