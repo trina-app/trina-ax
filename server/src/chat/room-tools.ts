@@ -435,13 +435,15 @@ function saveTarget(exec: TurnExec, a: SaveArgs, inRoom: boolean): SaveRefusal |
 const refusedSummary = (e: Denied | ToolError) => `save_room_file -> refused: ${e instanceof Denied ? 'access denied' : e.code}`
 
 /** What a call's widen hook found as its target, by its arguments, for the call: the card named that place, so a save
- * whose place changed while the card waited (a folder made where save_as named a file) is not made there. */
+ * whose place changed while the card waited (a folder made where save_as named a file) is not made there. Kept for the
+ * turn (one entry per distinct call), so the same call twice is checked each time; a call widen found nothing for has
+ * no entry. */
 function plannedTargets() {
   const m = new Map<string, string>()
   const key = (args: unknown) => { try { return JSON.stringify(args ?? null) } catch { return '' } }
   return {
-    note: (args: unknown, w: WidenOf | undefined) => { if (w) m.set(key(args), w.target); return w },
-    take: (args: unknown) => { const k = key(args), t = m.get(k); m.delete(k); return t },
+    note: (args: unknown, w: WidenOf | undefined) => { if (w) m.set(key(args), w.target); else m.delete(key(args)); return w },
+    take: (args: unknown) => m.get(key(args)),
   }
 }
 type SaveRefusal = { text: string; summary: string; place?: true }
