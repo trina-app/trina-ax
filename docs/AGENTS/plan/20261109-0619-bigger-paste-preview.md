@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 06:19
 - Branch: `fix/bigger-paste-preview`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/components/ChipThumb.tsx`, `web/src/components/rooms/RoomComposer.tsx`,
   `web/src/components/chat/Composer.tsx`). Why: the message boxes are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bigger picture above the box; no API, setting or data change.
@@ -45,4 +45,15 @@ e2e specs (`composer-paste-preview`, `chat`, `upload-progress`, `room-mention-al
 
 ## Result
 
-Filled in at the end.
+Built as planned. What differs or was found:
+- The spinner sits on a small dark pill over a picture a shade darker: a white spinner on a plain dark wash was lost on
+  the light parts of a picture. The AI chat's percent shows in the pill when it is known; its "준비 중" / "마무리 중"
+  do not (too wide for 64 px in some languages). Screen readers hear "첨부하는 중" as before.
+- The ✕ dot stands 6 px out of the corner; the row item keeps that room so it touches neither the box's edge nor the
+  next picture. Its tap area is an `::after` (36 px, 44 px on phones), reaching further out to the right than over the
+  picture, not `touch-hit`, which sets `position: relative` on phones.
+- After review: the AI chat's empty alert line no longer adds a gap after each picture (14 px between pictures in both
+  boxes), a picture that cannot be drawn keeps its name for screen readers, and the spec checks a file chip on a
+  picture's row and which picture a ✕ took out.
+- Screenshots: the room's box with one pasted picture at 1440 light, the AI chat's box with three at 390 light; also
+  checked dark at 390, a failed upload and a HEIC fallback.
