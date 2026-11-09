@@ -1,15 +1,19 @@
-// The image viewer's state (components/ImageViewer.tsx): which picture is open, the pictures of the pane it was opened
-// from, and the history entry that lets Back close it. docs/DECISIONS.md "One image viewer".
+// The image viewer's state (components/ImageViewer.tsx): which picture or file is open, the pictures and files of the
+// pane it was opened from, and the history entry that lets Back close it. docs/DECISIONS.md "One image viewer" and "The
+// room file viewer".
 // A pane (the room's timeline, a thread, the AI chat, a message box's pictures) is an ImageGroup: each picture in it
 // registers itself (useViewerItem), and next/previous walks the group's pictures in the order they are on the page,
-// which is message order. Only pictures drawn on the page are in it: a file someone may not open is drawn as a lock, a
-// hidden answer as a line, so they never are. A picture outside any group opens alone.
+// which is message order. In a room, DM, group chat or thread the file chips register too (roomFileItem: a document
+// drawn by FileBody, or its card), so ← → walks pictures and documents together. Only what is drawn on the page is in
+// it: a file someone may not open is drawn as a lock, a hidden answer as a line, so they never are. A picture outside
+// any group opens alone.
 // Every address is one of the app's own, with its checks (a room file through the room, a team file by its path): no
 // new address is made here.
 import { useSyncExternalStore } from 'react'
-import { API, type Attachment, type RoomFile, type UserRef } from '@mycel/shared/api'
+import { API, type Attachment, type Me, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, fileUrl, roomFileUrl, startDownload, thumbnailUrl } from './api'
-import { opensWithoutServer, previewLimit, serverPreview } from './preview'
+import { opensWithoutServer, previewKind, previewLimit, roomNoPreview, serverPreview } from './preview'
+import { roomPreview, type PreviewFile } from './sidePanel'
 
 /** who sent the picture, for the bar: a person (null: one no longer known) or the AI */
 export type ViewerSender = { kind: 'user'; user: UserRef | null } | { kind: 'ai' }
@@ -33,10 +37,23 @@ export interface ViewerItem {
   href?: string | null
   sender?: ViewerSender
   at?: string | null
+  /** where it was sent, for the bar ("#마케팅에서"; ViewerMeta in RoomMessages) */
+  where?: string | null
+  /** 'file': a document on the document stage (components/ViewerDocument.tsx: FileBody, the side panel's body, or the
+   * file's card); absent: a picture on the picture stage */
+  kind?: 'file'
+  /** a document's source, read as the side panel reads it (a room's file through the room) */
+  file?: PreviewFile
+  /** its size, for the card */
+  size?: number
+  /** a document with no preview here (lib/preview.ts roomNoPreview): its card at once, nothing read */
+  card?: 'unsupported' | 'large'
+  /** a file sent in a room: gone from the page while open (its message deleted), it shows "no longer available" */
+  room?: { roomId: string; fileId: string }
 }
 
-/** The bar's who and when, from the message around a picture (ViewerMeta in ImageViewer.tsx). */
-export interface ViewerMetaValue { sender?: ViewerSender; at?: string | null }
+/** The bar's who, when and where, from the message around a picture or file (ViewerMeta in ImageViewer.tsx). */
+export interface ViewerMetaValue { sender?: ViewerSender; at?: string | null; where?: string | null }
 
 export interface ViewerEntry {
   item: ViewerItem
@@ -92,6 +109,29 @@ export function orderEntries(entries: readonly ViewerEntry[]): ViewerEntry[] {
     .sort((a, b) => (a.el === b.el ? 0 : a.el.compareDocumentPosition(b.el) & 4 ? -1 : 1))
 }
 
+/** The one shown and the ones before and after it in the pane's list. One gone from the page meanwhile (its message
+ * deleted) keeps its place: `before` is the list as it was when it was last on it, and the nearest ones around it there
+ * that are still on the page (the same entry, or the same picture or file drawn anew) are the steps. */
+export function stepTargets(list: readonly ViewerEntry[], cur: ViewerEntry, before: readonly ViewerEntry[] = []): { index: number; prev: ViewerEntry | null; next: ViewerEntry | null } {
+  const i = list.indexOf(cur)
+  if (i >= 0) return { index: i, prev: list[i - 1] ?? null, next: list[i + 1] ?? null }
+  const byKey = new Map(list.map((e) => [e.item.key, e]))
+  const still = (e: ViewerEntry | undefined) => (!e ? null : list.includes(e) ? e : (byKey.get(e.item.key) ?? null))
+  const j = before.indexOf(cur)
+  let prev: ViewerEntry | null = null
+  let next: ViewerEntry | null = null
+  for (let k = j - 1; j >= 0 && k >= 0 && !prev; k--) prev = still(before[k])
+  for (let k = j + 1; j >= 0 && k < before.length && !next; k++) next = still(before[k])
+  return { index: -1, prev, next }
+}
+
+/** A finger's swipe on a document (phones): sideways, clearly more than up or down, and quick enough; anything else is
+ * the document's own scroll. */
+export function documentSwipe(dx: number, dy: number, ms: number): 'next' | 'prev' | null {
+  if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy) || ms > 700) return null
+  return dx < 0 ? 'next' : 'prev'
+}
+
 // ---------------- the pictures ----------------
 
 /** A photo sent in a room: its thumbnail, then the original through the room (its members, on every read). A picture the
@@ -108,6 +148,28 @@ export function roomItem(roomId: string, f: RoomFile, meta: ViewerMetaValue = {}
     height: f.height,
     download: () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name),
     href: drawable ? inline : null,
+    room: { roomId, fileId: f.id },
+    ...meta,
+  }
+}
+
+/** A file sent in a room, from its chip (a document, a sheet, slides, a Hangul file, text, audio or video, or one with
+ * no preview here). A picture the browser draws that has no thumbnail is a picture all the same (roomItem). Any other
+ * file is a document: read through the room as the side panel reads it (lib/sidePanel.ts roomPreview) and drawn by
+ * FileBody, or its card at once when it has no preview here (`card`: nothing is read). The download is the room's. */
+export function roomFileItem(roomId: string, f: RoomFile, me: Pick<Me, 'server'> | null | undefined, meta: ViewerMetaValue = {}): ViewerItem {
+  if (previewKind(f.name) === 'image' && opensWithoutServer(f)) return roomItem(roomId, f, meta)
+  const card = roomNoPreview(f, me)
+  return {
+    kind: 'file',
+    key: `room:${roomId}:${f.id}`,
+    name: f.name,
+    original: null,
+    file: roomPreview(roomId, f),
+    size: f.size,
+    ...(card ? { card } : {}),
+    download: () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name),
+    room: { roomId, fileId: f.id },
     ...meta,
   }
 }

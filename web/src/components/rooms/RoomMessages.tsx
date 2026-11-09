@@ -7,12 +7,12 @@
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
-// list shows a thread's root and replies (variant). A photo's thumbnail opens the image viewer (components/
-// ImageViewer.tsx: the whole window, zoom, the pane's other pictures by ← →; the page's ImageGroup is the timeline or
-// the thread); any other file opens by its chip in the side panel (a full-screen sheet on phones), and the chip has a
-// small download icon of its own; a file the panel cannot show (no viewer for it, or past its size limit) is a chip that
-// downloads. Both read the room's copy through the room (lib/sidePanel.ts roomPreview, lib/imageViewer.ts roomItem)
-// and have the download too.
+// list shows a thread's root and replies (variant). A photo's thumbnail and a file chip's name open the viewer
+// (components/ImageViewer.tsx, like Slack's: the whole window, the pane's other pictures and files by ← →; the page's
+// ImageGroup is the timeline or the thread; docs/DECISIONS.md "The room file viewer"): a photo with its zoom, a
+// document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
+// small download icon of its own. Both read the room's copy through the room (lib/imageViewer.ts roomItem,
+// roomFileItem) and have the download too; the viewer's bar says who sent it, when and where.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
@@ -37,7 +37,7 @@ import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, 
 import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
-import { openFilePreview, roomPreview, type PreviewFile } from '../../lib/sidePanel'
+import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
@@ -56,7 +56,8 @@ import { LinkedText } from './MessageText'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
 import { useViewerItem, ViewerMeta } from '../ImageViewer'
-import { roomItem } from '../../lib/imageViewer'
+import { roomFileItem, roomItem } from '../../lib/imageViewer'
+import { useRoomTitle } from './RoomIcon'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -167,8 +168,10 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const orphans = variant === 'root' ? [] : ended.filter((r) => !loaded.has(r.questionId) && (r.threadRootId ?? null) === place).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
   // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
   const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
+  const where = useViewerWhere(roomId)
 
   return (
+    <ViewerMeta where={where}>
     <div ref={list} data-testid="room-messages">
       {runs.map((run, i) => {
         const first = run.messages[0]!
@@ -233,7 +236,19 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
         </div>
       )}
     </div>
+    </ViewerMeta>
   )
+}
+
+/** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
+ * 대화에서" (the room's name as the sidebar shows it). */
+function useViewerWhere(roomId: string): string | null {
+  const t = useT()
+  const title = useRoomTitle()
+  const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
+  if (!room) return null
+  const name = title(room)
+  return room.kind === 'dm' ? t('viewer.inDm', { name }) : room.kind === 'group' ? t('viewer.inGroup', { room: name }) : t('viewer.inRoom', { room: name })
 }
 
 /** "가나님이 방 이름을 '주간 회의'로 바꿨어요": the names as the directory has them now, the room name as plain text. */
@@ -667,35 +682,25 @@ function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
   )
 }
 
-/** A file under a message: its name and size open it in the side panel, and a small download icon sits at its end (on
- * phones 44px wide, so its tap area never reaches over the name; touch-hit gives the height). A file
- * the panel cannot show is one button that downloads, as before (a Hangul file opens only while the HWP preview is on:
- * lib/preview.ts roomFileOpens). Each button is named by the words on it first (the
- * name and size), then what it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
+/** A file under a message: its name and size open it in the viewer, in the pane's list with its pictures (a document as
+ * the side panel draws it; one with no preview here, such as a ZIP, a Hangul file while the HWP preview is off or one
+ * past the preview limit, as its card with the download: `data-opens` marks a chip with a preview, lib/preview.ts
+ * roomFileOpens), and a small download icon sits at its end (on phones 44px wide, so its tap area never reaches over
+ * the name; touch-hit gives the height). Each button is named by the words on it first (the name and size), then what
+ * it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
 function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
+  const viewer = useViewerItem((meta) => roomFileItem(roomId, f, me, meta))
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
-  const label = (
-    <>
-      <FileText size={15} className="shrink-0 text-muted" aria-hidden />
-      <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
-      <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
-    </>
-  )
-  if (!roomFileOpens(f, me))
-    return (
-      <button type="button" onClick={download} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
-        {label}
-        <Download size={13} className="shrink-0 text-faint" aria-hidden />
-        <span className="sr-only">{t('common.download')}</span>
-      </button>
-    )
+  const opens = roomFileOpens(f, me)
   return (
-    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens="">
-      <button type="button" onClick={() => openFilePreview(roomPreview(roomId, f))} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
-        {label}
+    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined}>
+      <button type="button" ref={viewer.ref} onClick={viewer.open} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
+        <FileText size={15} className="shrink-0 text-muted" aria-hidden />
+        <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
+        <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
         <span className="sr-only">{t('common.preview')}</span>
       </button>
       <Tooltip label={t('common.download')}>

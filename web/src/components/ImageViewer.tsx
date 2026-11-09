@@ -17,12 +17,18 @@
 // - Esc, ✕, a click on the backdrop, a swipe down and Back close it; focus goes back to the picture that opened it.
 // - It is on the team page itself (a portal on <body>, never a frame): the desktop app's 이미지 복사 copies the original,
 //   which is then the only picture under the pointer.
+// - Files sent in a room, DM, group chat or thread open here too, from their chip's name (docs/DECISIONS.md "The room
+//   file viewer"): a document on the document stage (components/ViewerDocument.tsx: FileBody, the side panel's body, in
+//   a reading column that scrolls; or the file's card), in the same list as the pictures. The bar then also says where
+//   it was sent, and has 패널에서 열기 (the side panel, beside the conversation) instead of the zoom, 복사 and the new tab.
+//   The right side of the stage is left free for the thread and Trina column that comes next.
 import clsx from 'clsx'
-import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Minus, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Minus, PanelRight, Plus, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { closeImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, useImageViewer, ViewerGroup, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { closeImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, stepTargets, useImageViewer, ViewerGroup, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
 import { canCopyImage, copyImage, isCopyKey, type CopyFailure, type PickPicture } from '../lib/copyImage'
 import { clientKind } from '../lib/desktop'
@@ -35,6 +41,7 @@ import { Avatar } from './Avatar'
 import { AiFace } from './rooms/AiFace'
 import { Tooltip } from './Tooltip'
 import { useFocusTrap } from './ui'
+import { ViewerDocument } from './ViewerDocument'
 
 // ---------------- panes and pictures ----------------
 
@@ -47,11 +54,15 @@ export function ImageGroup({ children }: { children: ReactNode }) {
   return <GroupContext.Provider value={group}>{children}</GroupContext.Provider>
 }
 
-/** Who sent the pictures inside and when (a message), for the viewer's bar. */
-export function ViewerMeta({ sender, at, children }: ViewerMetaValue & { children: ReactNode }) {
-  const kind = sender?.kind
-  const user = sender?.kind === 'user' ? sender.user : null
-  const value = useMemo<ViewerMetaValue>(() => ({ sender: kind === 'ai' ? { kind: 'ai' } : kind === 'user' ? { kind: 'user', user } : undefined, at }), [kind, user, at])
+/** Who sent the pictures and files inside and when (a message), and where (a room's list), for the viewer's bar. What
+ * is not given here comes from the ViewerMeta around it (a message's who and when inside its room's where). */
+export function ViewerMeta({ sender, at, where, children }: ViewerMetaValue & { children: ReactNode }) {
+  const outer = useContext(MetaContext)
+  const kind = sender?.kind ?? outer.sender?.kind
+  const user = sender?.kind === 'user' ? sender.user : !sender && outer.sender?.kind === 'user' ? outer.sender.user : null
+  const when = at === undefined ? outer.at : at
+  const place = where === undefined ? outer.where : where
+  const value = useMemo<ViewerMetaValue>(() => ({ sender: kind === 'ai' ? { kind: 'ai' } : kind === 'user' ? { kind: 'user', user } : undefined, at: when, where: place }), [kind, user, when, place])
   return <MetaContext.Provider value={value}>{children}</MetaContext.Provider>
 }
 
@@ -187,24 +198,36 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const { group, entry, opener, openerKey } = open
 
-  // the pane's pictures, kept current while open (a new photo in the room adds to the count)
+  // the pane's pictures and files, kept current while open (a new photo in the room adds to the count)
   const subscribe = useCallback((l: () => void) => group?.subscribe(l) ?? (() => {}), [group])
   const version = useSyncExternalStore(subscribe, () => group?.version ?? 0)
-  const list = useMemo(() => {
-    const all = group ? group.list() : []
-    return all.length ? all : [entry]
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group, entry, version])
-  // the picture shown: its entry, or the same picture drawn anew (its message was drawn again)
-  const cur = list.includes(entry) ? entry : (list.find((e) => e.item.key === entry.item.key) ?? entry)
-  const index = list.indexOf(cur)
-  const prev = index > 0 ? list[index - 1]! : null
-  const next = index >= 0 && index < list.length - 1 ? list[index + 1]! : null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const all = useMemo(() => (group ? group.list() : []), [group, version])
+  // the one shown: its entry, or the same picture or file drawn anew (its message was drawn again)
+  const found = all.includes(entry) ? entry : all.find((e) => e.item.key === entry.item.key)
+  const cur = found ?? entry
+  const list = all.length ? all : [cur]
+  // a room's picture or file gone from its pane meanwhile (its message deleted): "no longer available", nothing of it
+  // drawn or downloaded; ← → still reach the ones around where it was
+  const gone = !!group && !found && !!cur.item.room
+  const [seen, setSeen] = useState<readonly ViewerEntry[]>([])
+  const { index, prev, next } = stepTargets(list, cur, seen)
+  useEffect(() => {
+    if (index >= 0) setSeen(list)
+  }, [index, list])
   const item = cur.item
+  // a document (or a card in place of the picture): no zoom, no gestures of the picture stage; the page scrolls
+  const docMode = item.kind === 'file' || gone
 
   const close = useCallback(() => closeImageViewer(), [])
   const back = opener?.isConnected ? opener : (list.find((e) => e.item.key === openerKey)?.el ?? null)
   useFocusTrap(root, true, close, back)
+  // a step drew other controls (the last one's arrow, a document's body): focus left on nothing goes back to the stage,
+  // so the keys keep working
+  useLayoutEffect(() => {
+    const a = document.activeElement
+    if (root.current && (!a || a === document.body || !root.current.contains(a))) stageRef.current?.focus({ preventScroll: true })
+  }, [cur, docMode, gone])
 
   const [pic, setPic] = useState<Pic>(() => freshPic(cur))
   let p = pic
@@ -235,7 +258,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const zoomed = !!v && !!natural && isZoomed(v, natural, stage)
   const showThumb = !!thumb && p.state !== 'shown'
   // something to copy: the original (drawn, or loading), or the thumbnail shown in its place
-  const copyOn = ((!!original && p.state !== 'failed') || !!thumb) && canCopyImage()
+  const copyOn = !docMode && ((!!original && p.state !== 'failed') || !!thumb) && canCopyImage()
   const origEl = useRef<HTMLImageElement | null>(null)
   const thumbEl = useRef<HTMLImageElement | null>(null)
   const pick: PickPicture = async () => {
@@ -291,8 +314,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
   }
 
   // the latest values for the native listeners and the gesture handlers
-  const live = useRef({ v, natural, stage, zoomed, setView, close, go, prev, next })
-  live.current = { v, natural, stage, zoomed, setView, close, go, prev, next }
+  const live = useRef({ v, natural, stage, zoomed, setView, close, go, prev, next, docMode })
+  live.current = { v, natural, stage, zoomed, setView, close, go, prev, next, docMode }
 
   // ---- pointer: click, drag, pinch, swipe, taps ----
   const pointers = useRef(new Map<number, Point>())
@@ -431,7 +454,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       const L = live.current
-      if (!L.v || !L.natural) return
+      if (!L.v || !L.natural || L.docMode) return
       const r = el.getBoundingClientRect()
       const at = { x: e.clientX - r.left, y: e.clientY - r.top }
       if (e.ctrlKey || e.metaKey) {
@@ -446,13 +469,13 @@ function Viewer({ open }: { open: ViewerOpen }) {
     let base = 1
     type GestureEvt = Event & { scale: number; clientX: number; clientY: number }
     const onGestureStart = (e: Event) => {
-      // iOS sends these beside the touch pointers: the pointers' pinch is the one used there
-      if (pointers.current.size) return
+      // iOS sends these beside the touch pointers: the pointers' pinch is the one used there; a document is the page's own
+      if (pointers.current.size || live.current.docMode) return
       e.preventDefault()
       base = live.current.v?.scale ?? 1
     }
     const onGestureChange = (e: Event) => {
-      if (pointers.current.size) return
+      if (pointers.current.size || live.current.docMode) return
       e.preventDefault()
       const g = e as GestureEvt
       const r = el.getBoundingClientRect()
@@ -489,8 +512,12 @@ function Viewer({ open }: { open: ViewerOpen }) {
       return
     }
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
+    // a field in a document (a sheet's, a frame's) keeps its own keys
+    if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return
     const k = e.key
     if (k === 'ArrowLeft' || k === 'ArrowRight') go(k === 'ArrowLeft' ? prev : next)
+    // a document's + − 0 are the page's own (its own zoom is in its toolbar)
+    else if (docMode) return
     else if (k === '+' || k === '=') step(1)
     else if (k === '-' || k === '_') step(-1)
     else if (k === '0') fit()
@@ -524,15 +551,25 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const count = list.length > 1 && index >= 0 ? t('viewer.count', { n: index + 1, total: list.length }) : null
   const note = !original && !item.blob ? (thumb ? t('viewer.thumbOnly') : t('viewer.noPicture')) : p.state === 'failed' ? (thumb ? t('viewer.failed') : t('viewer.noPicture')) : null
 
+  // 패널에서 열기: the side panel beside the conversation, with its own actions (computers: on a phone both are the
+  // whole screen)
+  const toPanel = item.file && !gone ? () => {
+    closeImageViewer()
+    openFilePreview(item.file!)
+  } : null
+  const stepLabel = (e: ViewerEntry | null, dir: 'prev' | 'next') => t(e?.item.kind === 'file' ? (dir === 'prev' ? 'viewer.prevFile' : 'viewer.nextFile') : dir === 'prev' ? 'viewer.prev' : 'viewer.next')
+  const barsOn = docMode || bars
+
   return (
     <div
       ref={root}
       role="dialog"
       aria-modal="true"
-      aria-label={t('viewer.label', { name: item.name })}
+      aria-label={t(item.kind === 'file' ? 'viewer.fileLabel' : 'viewer.label', { name: item.name })}
       onKeyDown={onKeyDown}
-      className="fixed inset-0 z-[55] overflow-hidden text-white select-none"
+      className={clsx('fixed inset-0 z-[55] overflow-hidden text-white', !docMode && 'select-none')}
       data-testid="image-viewer"
+      data-mode={docMode ? 'file' : 'image'}
       data-zoomed={zoomed ? '' : undefined}
     >
       {/* the page behind shows only while a swipe down is closing it */}
@@ -541,92 +578,124 @@ function Viewer({ open }: { open: ViewerOpen }) {
         ref={stageRef}
         tabIndex={-1}
         data-autofocus
-        className="absolute inset-x-0 top-0 bottom-0 touch-none overflow-hidden outline-none md:top-14"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={(e) => onPointerUp(e)}
-        onPointerCancel={(e) => onPointerUp(e, true)}
-        onContextMenu={onContextMenu}
+        className={clsx(
+          'absolute inset-x-0 bottom-0 outline-none',
+          // a document sits under the bar on a phone too (the bar does not hide there), and scrolls as a page does
+          docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 touch-none overflow-hidden md:top-14',
+        )}
+        {...(docMode ? {} : {
+          onPointerDown,
+          onPointerMove,
+          onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => onPointerUp(e),
+          onPointerCancel: (e: React.PointerEvent<HTMLDivElement>) => onPointerUp(e, true),
+          onContextMenu,
+        })}
         data-testid="image-viewer-stage"
       >
-        <div
-          className={clsx('absolute top-0 left-0 origin-top-left', !ready && 'invisible', p.ease && !swipe && 'transition-transform duration-200 ease-out')}
-          style={natural && v ? { width: natural.width, height: natural.height, transform: `translate(${v.x + (swipe?.dx ?? 0)}px, ${v.y + swipeY}px) scale(${v.scale})` } : undefined}
-          data-testid="image-viewer-picture"
-        >
-          {showThumb && (
-            <img
-              key={`t:${p.id}`}
-              ref={thumbEl}
-              src={thumb!}
-              alt=""
-              aria-hidden
-              draggable={false}
-              onLoad={(e) => onThumbLoad(e.currentTarget)}
-              className="pointer-events-none absolute inset-0 size-full"
-              data-testid="image-viewer-thumb"
-            />
-          )}
-          {original && p.state !== 'failed' && (
-            <img
-              key={`o:${p.id}:${original}`}
-              ref={origEl}
-              src={original}
-              alt={item.name}
-              draggable={false}
-              onLoad={(e) => onOriginalLoad(e.currentTarget)}
-              onError={() => setPic((q) => (q.entry === cur ? { ...q, state: 'failed' } : q))}
-              className={clsx('absolute inset-0 size-full', p.state !== 'shown' && 'opacity-0')}
-              data-testid="image-viewer-original"
-              data-state={p.state}
-            />
-          )}
-        </div>
-        {(note || (p.state === 'loading' && original)) && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-[calc(1rem+var(--safe-bottom))] flex justify-center px-4">
-            {note ? (
-              <p className="rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white/85" role="status" data-testid="image-viewer-note">{note}</p>
-            ) : (
-              <Loader2 size={18} className="animate-spin text-white/70" aria-label={t('common.loading')} />
+        {docMode ? (
+          <ViewerDocument item={item} gone={gone} onSwipe={(dir) => go(dir === 'next' ? next : prev)} />
+        ) : (
+          <>
+            <div
+              className={clsx('absolute top-0 left-0 origin-top-left', !ready && 'invisible', p.ease && !swipe && 'transition-transform duration-200 ease-out')}
+              style={natural && v ? { width: natural.width, height: natural.height, transform: `translate(${v.x + (swipe?.dx ?? 0)}px, ${v.y + swipeY}px) scale(${v.scale})` } : undefined}
+              data-testid="image-viewer-picture"
+            >
+              {showThumb && (
+                <img
+                  key={`t:${p.id}`}
+                  ref={thumbEl}
+                  src={thumb!}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  onLoad={(e) => onThumbLoad(e.currentTarget)}
+                  className="pointer-events-none absolute inset-0 size-full"
+                  data-testid="image-viewer-thumb"
+                />
+              )}
+              {original && p.state !== 'failed' && (
+                <img
+                  key={`o:${p.id}:${original}`}
+                  ref={origEl}
+                  src={original}
+                  alt={item.name}
+                  draggable={false}
+                  onLoad={(e) => onOriginalLoad(e.currentTarget)}
+                  onError={() => setPic((q) => (q.entry === cur ? { ...q, state: 'failed' } : q))}
+                  className={clsx('absolute inset-0 size-full', p.state !== 'shown' && 'opacity-0')}
+                  data-testid="image-viewer-original"
+                  data-state={p.state}
+                />
+              )}
+            </div>
+            {(note || (p.state === 'loading' && original)) && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-[calc(1rem+var(--safe-bottom))] flex justify-center px-4">
+                {note ? (
+                  <p className="rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white/85" role="status" data-testid="image-viewer-note">{note}</p>
+                ) : (
+                  <Loader2 size={18} className="animate-spin text-white/70" aria-label={t('common.loading')} />
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 
       <div
         className={clsx(
           'absolute inset-x-0 top-0 flex items-center gap-1 px-3 transition-opacity md:h-14 md:border-b md:border-white/10 md:bg-[#161615] md:pr-2',
-          'max-md:bg-gradient-to-b max-md:from-black/80 max-md:to-transparent max-md:pt-[calc(var(--safe-top)+0.5rem)] max-md:pb-6',
-          !bars && 'max-md:invisible max-md:opacity-0',
+          docMode
+            ? 'max-md:h-[calc(var(--safe-top)+3.75rem)] max-md:border-b max-md:border-white/10 max-md:bg-[#161615] max-md:pt-[var(--safe-top)]'
+            : 'max-md:bg-gradient-to-b max-md:from-black/80 max-md:to-transparent max-md:pt-[calc(var(--safe-top)+0.5rem)] max-md:pb-6',
+          !barsOn && 'max-md:invisible max-md:opacity-0',
         )}
         data-testid="image-viewer-bar"
       >
         <Who sender={item.sender} />
         <div className="ml-1.5 min-w-0 flex-1">
           <p className="truncate text-sm font-medium" data-testid="image-viewer-name">{item.name}</p>
-          <SentLine sender={item.sender} at={item.at} />
+          <SentLine sender={item.sender} at={item.at} where={item.where} />
         </div>
-        {count && <span className="mx-2 shrink-0 text-xs text-white/70 tabular-nums" data-testid="image-viewer-count">{count}</span>}
-        <div className="mr-1 flex shrink-0 items-center max-md:hidden">
-          <BarButton label={t('viewer.zoomOut')} onClick={() => step(-1)} disabled={!zoomed} testId="image-viewer-zoom-out">
-            <Minus size={16} />
+        {/* a phone's document steps from the bar (the edge arrows would sit on its text), or by a swipe */}
+        {docMode && prev && (
+          <BarButton label={stepLabel(prev, 'prev')} onClick={() => go(prev)} testId="image-viewer-bar-prev" className="md:hidden">
+            <ChevronLeft size={20} />
           </BarButton>
-          <span className="min-w-11 text-center text-xs text-white/75 tabular-nums" data-testid="image-viewer-zoom">{pct === null ? '' : t('viewer.zoomLevel', { n: pct })}</span>
-          <BarButton label={t('viewer.zoomIn')} onClick={() => step(1)} disabled={!v || v.scale >= 3.999} testId="image-viewer-zoom-in">
-            <Plus size={16} />
+        )}
+        {count && <span className="mx-2 shrink-0 text-xs text-white/70 tabular-nums max-md:mx-0.5" data-testid="image-viewer-count">{count}</span>}
+        {docMode && next && (
+          <BarButton label={stepLabel(next, 'next')} onClick={() => go(next)} testId="image-viewer-bar-next" className="md:hidden">
+            <ChevronRight size={20} />
           </BarButton>
-        </div>
+        )}
+        {!docMode && (
+          <div className="mr-1 flex shrink-0 items-center max-md:hidden">
+            <BarButton label={t('viewer.zoomOut')} onClick={() => step(-1)} disabled={!zoomed} testId="image-viewer-zoom-out">
+              <Minus size={16} />
+            </BarButton>
+            <span className="min-w-11 text-center text-xs text-white/75 tabular-nums" data-testid="image-viewer-zoom">{pct === null ? '' : t('viewer.zoomLevel', { n: pct })}</span>
+            <BarButton label={t('viewer.zoomIn')} onClick={() => step(1)} disabled={!v || v.scale >= 3.999} testId="image-viewer-zoom-in">
+              <Plus size={16} />
+            </BarButton>
+          </div>
+        )}
         {copyOn && (
           <BarButton label={t('common.copy')} onClick={copy} testId="image-viewer-copy">
             <Copy size={18} />
           </BarButton>
         )}
-        {item.download && (
+        {item.download && !gone && (
           <BarButton label={t('common.download')} onClick={item.download} testId="image-viewer-download">
             <Download size={18} />
           </BarButton>
         )}
-        {item.href && browser && p.state !== 'failed' && (
+        {toPanel && (
+          <BarButton label={t('viewer.openInPanel')} onClick={toPanel} testId="image-viewer-panel" className="max-md:hidden">
+            <PanelRight size={18} />
+          </BarButton>
+        )}
+        {!docMode && item.href && browser && p.state !== 'failed' && (
           <Tooltip label={t('viewer.openOriginal')}>
             <a href={item.href} target="_blank" rel="noopener noreferrer" aria-label={t('viewer.openOriginal')} className={BAR_BUTTON} data-testid="image-viewer-open">
               <ExternalLink size={18} aria-hidden />
@@ -639,12 +708,12 @@ function Viewer({ open }: { open: ViewerOpen }) {
       </div>
 
       {prev && (
-        <EdgeButton side="left" label={t('viewer.prev')} onClick={() => go(prev)} hidden={!bars}>
+        <EdgeButton side="left" label={stepLabel(prev, 'prev')} onClick={() => go(prev)} hidden={!barsOn} phone={!docMode}>
           <ChevronLeft size={24} />
         </EdgeButton>
       )}
       {next && (
-        <EdgeButton side="right" label={t('viewer.next')} onClick={() => go(next)} hidden={!bars}>
+        <EdgeButton side="right" label={stepLabel(next, 'next')} onClick={() => go(next)} hidden={!barsOn} phone={!docMode}>
           <ChevronRight size={24} />
         </EdgeButton>
       )}
@@ -656,18 +725,19 @@ function Viewer({ open }: { open: ViewerOpen }) {
 
 const BAR_BUTTON = 'touch-hit inline-flex size-10 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent max-md:size-11'
 
-function BarButton({ label, onClick, disabled, testId, children }: { label: string; onClick: () => void; disabled?: boolean; testId: string; children: ReactNode }) {
+function BarButton({ label, onClick, disabled, testId, className, children }: { label: string; onClick: () => void; disabled?: boolean; testId: string; className?: string; children: ReactNode }) {
   return (
     <Tooltip label={label}>
-      <button type="button" aria-label={label} onClick={onClick} disabled={disabled} className={BAR_BUTTON} data-testid={testId}>
+      <button type="button" aria-label={label} onClick={onClick} disabled={disabled} className={clsx(BAR_BUTTON, className)} data-testid={testId}>
         {children}
       </button>
     </Tooltip>
   )
 }
 
-/** a round arrow at the stage's edge (shown and hidden with the bar on a phone) */
-function EdgeButton({ side, label, onClick, hidden, children }: { side: 'left' | 'right'; label: string; onClick: () => void; hidden: boolean; children: ReactNode }) {
+/** a round arrow at the stage's edge (shown and hidden with the bar on a phone; `phone` false: a computer's only, as a
+ * document's text would sit under it on a phone) */
+function EdgeButton({ side, label, onClick, hidden, phone = true, children }: { side: 'left' | 'right'; label: string; onClick: () => void; hidden: boolean; phone?: boolean; children: ReactNode }) {
   return (
     <Tooltip label={label}>
       <button
@@ -678,6 +748,7 @@ function EdgeButton({ side, label, onClick, hidden, children }: { side: 'left' |
           'absolute top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white/90 transition hover:bg-black/80 hover:text-white md:mt-7',
           side === 'left' ? 'left-3' : 'right-3',
           hidden && 'max-md:invisible max-md:opacity-0',
+          !phone && 'max-md:hidden',
         )}
         data-testid={`image-viewer-${side === 'left' ? 'prev' : 'next'}`}
       >
@@ -695,19 +766,21 @@ function Who({ sender }: { sender?: ViewerSender }) {
   return user ? <Avatar user={user} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-white/15" />
 }
 
-/** "가나 · 2026. 11. 9. 오후 2:10": who sent it and when, where known */
-function SentLine({ sender, at }: { sender?: ViewerSender; at?: string | null }) {
+/** "가나 · 2026. 11. 9. 오후 2:10 · #마케팅에서": who sent it, when and where, where known */
+function SentLine({ sender, at, where }: { sender?: ViewerSender; at?: string | null; where?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
   const who = sender?.kind === 'ai' ? aiName(t) : sender?.kind === 'user' ? (nameOf(sender.user) ?? t('rooms.goneUser')) : null
   const when = at ? formatDateTime(at, locale) : null
-  if (!who && !when) return null
+  if (!who && !when && !where) return null
   return (
     <p className="truncate text-xs text-white/65" data-testid="image-viewer-sent">
       {who}
       {who && when && ' · '}
       {when && <time dateTime={at!}>{when}</time>}
+      {(who || when) && where && ' · '}
+      {where && <span data-testid="image-viewer-where">{where}</span>}
     </p>
   )
 }

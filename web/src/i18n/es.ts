@@ -4319,4 +4319,12 @@ export const es: Record<MessageKey, string> = {
   "viewer.copyTooBig": "La imagen es demasiado grande para copiarla. Descárgala.",
   "viewer.copyNotLoaded": "La imagen no se cargó.",
   "viewer.copyError": "Vuelve a intentarlo. Si sigue fallando, descárgala.",
+  "viewer.fileLabel": "Archivo: {name}",
+  "viewer.prevFile": "Archivo anterior",
+  "viewer.nextFile": "Archivo siguiente",
+  "viewer.openInPanel": "Abrir en el panel lateral",
+  "viewer.inRoom": "en #{room}",
+  "viewer.inGroup": "en {room}",
+  "viewer.inDm": "en tus mensajes directos con {name}",
+  "viewer.gone": "Este archivo ya no está disponible: su mensaje se eliminó.",
 }

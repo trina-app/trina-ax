@@ -4359,4 +4359,12 @@ export const id: Record<MessageKey, string> = {
   "viewer.copyTooBig": "Gambarnya terlalu besar untuk disalin. Unduh saja.",
   "viewer.copyNotLoaded": "Gambar tidak termuat.",
   "viewer.copyError": "Coba lagi. Kalau masih gagal, unduh saja.",
+  "viewer.fileLabel": "File: {name}",
+  "viewer.prevFile": "File sebelumnya",
+  "viewer.nextFile": "File berikutnya",
+  "viewer.openInPanel": "Buka di panel samping",
+  "viewer.inRoom": "di #{room}",
+  "viewer.inGroup": "di {room}",
+  "viewer.inDm": "di pesan langsung dengan {name}",
+  "viewer.gone": "File ini tidak tersedia lagi: pesannya sudah dihapus.",
 }
