@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 19:52
 - Branch: `feat/fewer-cards-after-room-read`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat`, `server/src/rooms`). Why: the room-read change card is a core permission rule
   (docs/REPOSITORY-RULES.md).
 - Version impact: minor (fewer cards after a room read, a reversed decision, one additive migration; no API change)
@@ -80,4 +80,16 @@ the room cards.
 
 ## Result
 
-Filled in at the end.
+Built as planned, with these differences:
+
+- **save_url keeps its card** in the own folder (its file name follows the downloaded bytes, so "new" is not known
+  before it runs). Flow e goes 3 → 2, not 0.
+- **The own chat's outside mark lasts until a new session**, not one answer: an own chat's session carries earlier
+  answers. `rooms` (the list of rooms) counts as outside too.
+- **The wider-audience card's yes covers that call only**, as in a room; [이번만 허용] on the room card is what covers
+  the folder. A folder wider than the rooms read takes two cards for several files (b, f).
+- **Independent security review**: one must-fix (edit_hwp's output judged on the raw path: `x.hwp/` overwrote x.hwp; also
+  in a room session's grant on dev) and five should-fixes, all fixed and re-checked: the mark follows the bytes
+  (`file_events.sha256`, new index), older own chats are marked from their answers' steps, an attached own file counts,
+  `rooms` counts as outside, and a project's folder still asks (its dev environment may run a new file by name).
+- Cards in the audit's six flows: a 1 → 0, b 1 → 1, c 4 → 4 (change 3), d 3 → 3, e 3 → 2, f 5 → 1.
