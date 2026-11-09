@@ -38,6 +38,7 @@ import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
+import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
@@ -367,12 +368,25 @@ function ChatView({ chatId }: { chatId: string }) {
           {olderBusy && <Loader2 size={16} className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
           {loading && <Skeleton lines={6} />}
           {loadError && !loading ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
-          {messages.map((m, i) => {
-            if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} />
-            const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
-            const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
-          })}
+          {/* the chat's pictures (attachments and answers' pictures, this branch): ← → in the image viewer walks through
+              these; each says who sent it and when */}
+          <ImageGroup>
+            {messages.map((m, i) => {
+              if (m.role === 'user')
+                return (
+                  <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? me.user }} at={m.createdAt}>
+                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} />
+                  </ViewerMeta>
+                )
+              const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
+              const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
+              return (
+                <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+                </ViewerMeta>
+              )
+            })}
+          </ImageGroup>
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>

@@ -16306,3 +16306,73 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
   a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## One image viewer — a picture opens over the whole window, like Slack (feat/image-viewer, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/lib/imageViewer.ts`, `web/src/lib/zoom.ts` and the places
+that open a picture, 이유: rooms, chat and file previews are core. Plan: `docs/AGENTS/plan/20261109-0817-image-viewer.md`.
+
+The owner, on a screenshot: a picture clicked in a room opened in the right-hand panel, small, with no zoom; a screenshot
+of a web page could not be read. Pictures should open like Slack, across the app.
+
+- **The rule, app-wide: a picture opens the viewer; a name, chip or link opens the panel.** Pictures: a room or thread
+  photo's thumbnail, an AI chat attachment's, a team picture in an answer (AI chat, a room's AI answer, a shared answer,
+  and Markdown elsewhere: a `.md` file in the panel, an artifact, project instructions, skills), a picture in either
+  message box (the room's box now opens its pictures too, like the AI chat's), and the picture the file panel shows
+  (Files, FileView, links and sources keep opening the panel, with its actions; its picture opens the viewer alone). Not
+  pictures: file chips (an image without a thumbnail too), links, the deck stepper, the skill example's own dialog,
+  artifacts' frames (a frame cannot and should not open the page's viewer), external pictures (never loaded).
+- **No new address.** A room photo: its thumbnail, then `GET /api/rooms/:id/files/:fileId` inline (the member and
+  message check on every read), download `?download=1`. An attachment: its thumbnail, then the team file by its path
+  (`/api/files/download?disposition=inline`), a HEIC photo as `/api/files/preview`. An answer's team picture is the
+  original already. A box's picture and the panel's picture are drawn from the bytes the page has. A picture the panel
+  could not show either (a HEIC sent in a room, anything over the 20 MB image preview limit) keeps its thumbnail, with a
+  line saying so and the download.
+- **Loading and transparency.** The thumbnail is drawn at once at the original's stored size (when its shape matches,
+  else its own), under the original, which is decoded before it shows; then the thumbnail is removed. Nothing else is
+  painted behind the picture (fix/transparent-thumbnails): a transparent one sits on the dark backdrop, no checkerboard.
+  The backdrop is opaque; the page shows through only while a swipe down is closing it.
+- **Zoom, hand-written** (`lib/zoom.ts`, pure and unit-tested; Pointer Events and one CSS transform): fitted = the whole
+  picture in the stage at most 100 %, centred; a click toggles fitted and 100 % (2× the fitted size for a picture already
+  shown at 80 % or more) about the click; ⌘/Ctrl + wheel and Chromium's trackpad pinch (wheel + ctrlKey, a non-passive
+  listener so the page never zooms) and Safari's `gesture*` events zoom about the pointer; a drag of 4 px or more pans and
+  is no click; + − 0 and the bar's − / % / + step by 1.5×, stopping at 100 % on the way; 400 % at most. Not chosen: a
+  library (react-zoom-pan-pinch, yet-another-react-lightbox, PhotoSwipe: MIT, roughly 10–25 kB gzipped each), which
+  brings its own DOM, styles and item model to bend to the app's bar, words, focus trap and the one-picture rule below.
+- **Next / previous: the pane that was clicked** (`ImageGroup`): the room's timeline (replies also sent to the room
+  included), the thread panel (its root and replies), the AI chat (this branch: attachments and answers' pictures), a
+  message box's row. Each picture registers itself and the list is the pane's pictures in page order, which is message
+  order; only pictures drawn on the page are in it, so a file someone may not open (a lock), a withheld answer or an
+  unavailable attachment never is. It never crosses into another thread or loads older messages. A picture outside any
+  pane opens alone. The list follows the pane while open ("3 / 8" when a photo arrives).
+- **The bar**: the sender's picture (the AI's mark for an answer), the file's name, who and when (where known: not for a
+  picture not sent yet), "3 / 7", − % + (computers), download, the original in a new tab, ✕. Always shown on a computer;
+  on a phone it overlays the picture and a tap shows or hides it with the arrows. The new tab is for a plain browser only:
+  the desktop app and the phone app would open the system browser, which is not signed in.
+- **Phones**: pinch about the fingers, double tap to toggle, one finger pans when zoomed; when not zoomed a swipe down
+  (past a fifth of the height, or a flick) closes and a swipe sideways steps (added to the brief: the arrows hide with
+  the bar). `touch-action: none` on the stage.
+- **Back closes it.** Opening pushes one history entry at the same address with the router's state copied (React
+  Router's `idx`, `key`, `usr`), so the router, `lib/back.ts` and deep links see the page they saw; a `popstate` that
+  leaves the entry closes the viewer (the browser's Back, Android's back through the phone app's WebView, iOS's edge
+  swipe). ✕, Esc, the backdrop and a swipe call `history.back()` while that entry is the current one, so none is left
+  behind; stepping to another picture adds none. A page change while it is open (a notice) closes it without going back.
+  The router re-renders on that `popstate` with the same location key, so effects keyed on the pathname or the key do
+  not run again. Left over: after a page change or a reload with the viewer open, one Back lands on the same page again.
+- **The desktop app's 이미지 복사** (fix/image-copy-paste-preview) copies the picture under the pointer
+  (`copyImageAt`): the viewer is a portal on the team page's `<body>`, never a frame, the thumbnail takes no pointer and
+  is gone once the original is there, so the original is what is copied and what 이미지 저장… saves. A right-click is
+  left to the browser or the app (no zoom, no close).
+- **Focus and screen readers**: `role="dialog"`, `aria-modal`, named "이미지 보기: {name}"; the app's `useFocusTrap`
+  (Tab stays inside, Esc closes); focus starts on the stage (the keys work at once, no button ring) and goes back to the
+  picture that opened it, found again by its key when its message was drawn anew. The name and "3 / 7" are announced
+  on a step. Reduced motion: the eases are CSS transitions, which index.css already turns off.
+- Tests: `web/test/unit/image-zoom.test.ts` (fit never upscales, the click target, zoom about a point, the pan's limits,
+  steps, wheel, pinch, swipes, the layout size before the original), `web/test/unit/image-viewer.test.ts` (page order,
+  pictures off the page, a group's notices, each kind's addresses, Back: one entry with the router's state, ✕ goes back,
+  Back closes, a page change does not go back, a step adds none), e2e `image-viewer.spec.ts` (a room photo fitted with
+  its bar and download, no upscale, click zoom about its point, drag, ⌘/Ctrl + wheel, keys, ← → with focus back after
+  Esc, backdrop, ✕ and Back, the right-click on the original on the page itself, an AI chat attachment, a box's picture
+  and the file panel's picture, a phone's swipe sideways and down; screenshots), `room-files-open.spec.ts` (the photo
+  opens the viewer over the panel; the right-click there reaches the original).
+- Version impact: **minor** (a visible UX change; no API or data change).
