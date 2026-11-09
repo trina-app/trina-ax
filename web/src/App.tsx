@@ -22,6 +22,7 @@ import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './compon
 import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
+import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
@@ -247,6 +248,7 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <ImageViewerHost />
         <Toaster />
       </AnnounceProvider>
     </BrowserRouter>

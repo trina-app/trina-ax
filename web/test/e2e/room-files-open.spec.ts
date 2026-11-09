@@ -1,9 +1,10 @@
 // Room files open on click (components/rooms/RoomMessages.tsx FileChip, FilePanel's room source): a chip opens its file
 // in the side panel (a full-screen sheet on phones), drawn by the app's own viewers: an HTML page only in the sandbox
-// frame (opaque origin: its script cannot reach the app), a PDF, a photo, Markdown; the panel and the chip both download.
-// In an answer someone shared with its files attached, a link to a file I cannot open opens the attached copy (no lock);
-// a member who can open the team file gets the team file itself. A right-click on a photo (the thumbnail, the panel's
-// original) is left to the browser's own menu, for Copy Image. The room and its files are answered through page.route
+// frame (opaque origin: its script cannot reach the app), a PDF, Markdown; a photo's thumbnail opens the image viewer
+// (image-viewer.spec.ts); the panel and the chip both download. In an answer someone shared with its files attached, a
+// link to a file I cannot open opens the attached copy (no lock); a member who can open the team file gets the team file
+// itself. A right-click on a photo (the thumbnail, the viewer's original) is left to the browser's own menu, for Copy
+// Image. The room and its files are answered through page.route
 // as the team server sends them (rooms-mock.ts; a page inline as text with the sandbox CSP). Every view passes axe.
 // SHOTS_DIR=<folder>: the screenshots (the chips, the panel, the phone sheet; light and dark) go there.
 import fs from 'node:fs'
@@ -131,10 +132,13 @@ test('a chip opens its file in the panel: the page only in the sandbox frame, a 
   await chip(page, 'acme-handbook.pdf').getByTestId('room-file-open').click()
   await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-handbook.pdf')
   await expect(panel(page).locator('.react-pdf__Page canvas').first()).toBeVisible({ timeout: 15_000 })
-  // the photo, from its thumbnail
+  // the photo, from its thumbnail: over the whole window in the image viewer, the panel left as it was under it
   await page.getByTestId('room-image').click()
-  await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-logo.png')
-  await expect(panel(page).getByRole('img', { name: 'acme-logo.png' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
+  await expect(page.getByTestId('image-viewer-original')).toHaveAttribute('data-state', 'shown')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('image-viewer')).toHaveCount(0)
+  await expect(panel(page).getByTestId('file-panel-title')).toHaveText('acme-handbook.pdf')
   // Markdown
   await chip(page, 'acme-notes.md').getByTestId('room-file-open').click()
   await expect(panel(page).getByRole('heading', { name: 'acme 회의 메모' })).toBeVisible()
@@ -148,7 +152,7 @@ test('a chip opens its file in the panel: the page only in the sandbox frame, a 
   expect(served).toEqual(expect.arrayContaining(['acme-deck.html', 'acme-handbook.pdf', 'acme-logo.png?thumb=1', 'acme-logo.png', 'acme-notes.md']))
 })
 
-test("a right-click on a photo reaches the browser's own menu (Copy Image): on the message and on the panel's original", async ({ page }) => {
+test("a right-click on a photo reaches the browser's own menu (Copy Image): on the message and on the viewer's original", async ({ page }) => {
   await openRoom(page)
   // registered last on the window: what the app did with the right-click by the time it got there (then no menu here)
   await page.evaluate(() => {
@@ -165,13 +169,13 @@ test("a right-click on a photo reaches the browser's own menu (Copy Image): on t
   await page.getByTestId('room-image').locator('img').click({ button: 'right' })
   await expect.poll(menus).toHaveLength(1)
   expect((await menus())[0]).toMatchObject({ tag: 'IMG', prevented: false, src: expect.stringContaining(`/files/${id(503)}?thumb=1`) })
-  // the panel shows the original, drawn from its own bytes: copying there copies the original
+  // the image viewer shows the original, read through the room: copying there copies the original
   await page.getByTestId('room-image').click()
-  const original = panel(page).getByRole('img', { name: 'acme-logo.png' })
-  await expect(original).toBeVisible()
+  const original = page.getByTestId('image-viewer-original')
+  await expect(original).toHaveAttribute('data-state', 'shown')
   await original.click({ button: 'right' })
   await expect.poll(menus).toHaveLength(2)
-  expect((await menus())[1]).toMatchObject({ tag: 'IMG', prevented: false, src: expect.stringMatching(/^blob:/) })
+  expect((await menus())[1]).toMatchObject({ tag: 'IMG', prevented: false, src: expect.stringMatching(new RegExp(`/files/${id(503)}$`)) })
 })
 
 test('download from the chip and from the panel', async ({ page }) => {

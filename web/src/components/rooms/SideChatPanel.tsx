@@ -24,6 +24,7 @@ import { useMeStrict } from '../../store/session'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
+import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { PanelDivider } from '../PanelDivider'
 import { ErrorNote, IconButton } from '../ui'
 import { AiFace } from './AiFace'
@@ -222,13 +223,20 @@ export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; 
               <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
             </div>
           )}
-          {!history && chatId && messages.map((m, i) =>
-            m.role === 'user' ? (
-              <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
-            ) : (
-              <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} shareRoomId={roomId} canSuggest={false} />
-            ),
-          )}
+          {/* its pictures are one pane of the image viewer (← →), each with who sent it and when, like the AI chat's */}
+          <ImageGroup>
+            {!history && chatId && messages.map((m, i) =>
+              m.role === 'user' ? (
+                <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? me.user }} at={m.createdAt}>
+                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
+                </ViewerMeta>
+              ) : (
+                <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} shareRoomId={roomId} canSuggest={false} />
+                </ViewerMeta>
+              ),
+            )}
+          </ImageGroup>
         </div>
       </div>
       <div className="shrink-0 px-4 pb-[max(0.75rem,var(--safe-bottom))]">

@@ -40,6 +40,8 @@ import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '..
 import { pastedFiles } from '../../lib/paste'
 import { UploadLabel } from '../UploadLabel'
 import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ImageGroup } from '../ImageViewer'
+import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
@@ -604,6 +606,8 @@ export default function Composer({
       >
         {files.length > 0 && (
           // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
+          // the box's pictures: ← → in the image viewer walks through these
+          <ImageGroup>
           <ul className="flex flex-wrap items-center gap-2 px-4 pt-3" aria-label={t('composer.attachments')}>
             {files.map((f) => {
               const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
@@ -621,7 +625,8 @@ export default function Composer({
                       failed={f.status === 'failed'}
                       removeLabel={t('composer.removeAttachment', { name: f.name })}
                       onRemove={() => removeFile(f)}
-                      onOpen={canOpen ? open : undefined}
+                      // its own bytes in the image viewer; a HEIC photo, once uploaded, as the server's JPEG
+                      item={!canOpen ? null : serverPreview(f.name) && f.attachment ? attachmentItem(f.attachment) : localItem(f.id, f.file, f.name)}
                     />
                     <span className="sr-only" role="status">
                       {f.status === 'uploading' && t('composer.attaching', { name: f.name })}
@@ -698,6 +703,7 @@ export default function Composer({
               )
             })}
           </ul>
+          </ImageGroup>
         )}
 
         {voice.recording ? (

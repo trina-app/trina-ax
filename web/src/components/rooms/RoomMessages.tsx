@@ -7,10 +7,12 @@
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
-// list shows a thread's root and replies (variant). Files open in the side panel (a full-screen sheet on phones): a
-// photo by its thumbnail, any other file by its chip, which has a small download icon of its own; a file the panel
-// cannot show (no viewer for it, or past its size limit) is a chip that downloads. The panel reads the room's copy
-// through the room (lib/sidePanel.ts roomPreview) and has the download too.
+// list shows a thread's root and replies (variant). A photo's thumbnail opens the image viewer (components/
+// ImageViewer.tsx: the whole window, zoom, the pane's other pictures by ← →; the page's ImageGroup is the timeline or
+// the thread); any other file opens by its chip in the side panel (a full-screen sheet on phones), and the chip has a
+// small download icon of its own; a file the panel cannot show (no viewer for it, or past its size limit) is a chip that
+// downloads. Both read the room's copy through the room (lib/sidePanel.ts roomPreview, lib/imageViewer.ts roomItem)
+// and have the download too.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
@@ -53,6 +55,8 @@ import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { LinkedText } from './MessageText'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
+import { useViewerItem, ViewerMeta } from '../ImageViewer'
+import { roomItem } from '../../lib/imageViewer'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -350,6 +354,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
         <p className="mb-0.5 text-xs text-faint" data-testid="room-also-sent">{t('rooms.alsoSent')}</p>
       ) : null)}
       {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
+      {/* the pictures in it say who sent them and when in the image viewer's bar */}
+      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt}>
       {ai && !deleted ? (
         <>
           <Markdown text={m.body} className="min-w-0" openable={openable} />
@@ -382,6 +388,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
           {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}
         </>
       )}
+      </ViewerMeta>
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
       {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine m={m} onOpen={() => onThread(m.id)} />}
       {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same
@@ -630,21 +637,29 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
 }
 
 function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
-  const t = useT()
   return (
     <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
-          <Tooltip key={f.id} label={t('rooms.openImage', { name: f.name })}>
-            <button type="button" onClick={() => openFilePreview(roomPreview(roomId, f))} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image">
-              <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
-            </button>
-          </Tooltip>
+          <RoomPicture key={f.id} roomId={roomId} f={f} />
         ) : (
           <FileChip key={f.id} roomId={roomId} f={f} />
         ),
       )}
     </div>
+  )
+}
+
+/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
+function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
+  const t = useT()
+  const viewer = useViewerItem((meta) => roomItem(roomId, f, meta))
+  return (
+    <Tooltip label={t('rooms.openImage', { name: f.name })}>
+      <button type="button" ref={viewer.ref} onClick={viewer.open} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image">
+        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+      </button>
+    </Tooltip>
   )
 }
 

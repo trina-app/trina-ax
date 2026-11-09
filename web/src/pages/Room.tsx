@@ -30,6 +30,7 @@ import { MembersDialog } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { RoomMessages } from '../components/rooms/RoomMessages'
+import { ImageGroup } from '../components/ImageViewer'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
@@ -324,8 +325,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             </div>
           )}
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
-          <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} highlight={threadId ? null : target} />
-          <RoomAiStatus roomId={roomId} />
+          {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
+          <ImageGroup>
+            <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} highlight={threadId ? null : target} />
+            <RoomAiStatus roomId={roomId} />
+          </ImageGroup>
           {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
         </div>
       </div>

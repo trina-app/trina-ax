@@ -29,6 +29,8 @@ import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
 import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ImageGroup } from '../ImageViewer'
+import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
@@ -227,7 +229,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </div>
         )}
         {files.length > 0 && (
-          // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
+          // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height; the box's
+          // pictures are one pane of the image viewer (← →)
+          <ImageGroup>
           <ul className="flex flex-wrap items-center gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
             {files.map((f) =>
               picture(f) ? (
@@ -242,6 +246,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     failed={f.status === 'failed'}
                     removeLabel={t('rooms.removeFile', { name: f.file.name })}
                     onRemove={() => removeFile(f)}
+                    // its own bytes in the image viewer, or the room's copy the server gave back
+                    item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
                   />
                   <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} title={f.error}>
                     {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
@@ -261,6 +267,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               ),
             )}
           </ul>
+          </ImageGroup>
         )}
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves

@@ -1,6 +1,7 @@
 // Answer Markdown (GFM + math + Mermaid + highlighted code), ported from Saram's ui.tsx / markdownExtras.tsx and
 // extended from chat-proto: code blocks with language colours, copy and download; tables that copy into
-// Sheets/Excel; links to team files open the preview panel; external images never load by themselves.
+// Sheets/Excel; links to team files open the preview panel, their pictures the image viewer; external images never load
+// by themselves.
 import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
@@ -23,6 +24,8 @@ import { useT } from '../i18n'
 import { toast } from '../store/ui'
 import { useCopy, useEdgeFade } from './ui'
 import { Tooltip } from './Tooltip'
+import { useViewerItem } from './ImageViewer'
+import { teamImageItem } from '../lib/imageViewer'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -292,14 +295,16 @@ function LockedFile({ children }: { children: ReactNode }) {
   )
 }
 
-/** An image on the team server (answers, shared browser screenshots). A click opens the preview panel. In a room, one
- * the viewer may not open is its name after a lock, or a link to its copy when that went with the message (the copy's
- * thumbnail is under the message already). */
+/** An image on the team server (answers, shared browser screenshots). A click opens the image viewer (with the other
+ * pictures of its chat or room by ← →; elsewhere alone). In a room, one the viewer may not open is its name after a
+ * lock, or a link to its copy when that went with the message (the copy's thumbnail is under the message already). */
 export function TeamImage({ path, alt, className }: { path: string; alt?: string; className?: string }) {
   const t = useT()
   const [failed, setFailed] = useState(false)
   const target = useLinkTarget(path)
   const asLink = useContext(TeamImagesAsLinks)
+  const drawn = target.kind === 'team' && !asLink && isDisplayableImagePath(path) && !failed
+  const viewer = useViewerItem(drawn ? (meta) => teamImageItem(path, alt || baseName(path) || t('md.image'), meta) : null)
   if (target.kind === 'locked') return <LockedFile>{alt || baseName(path) || t('md.image')}</LockedFile>
   if (target.kind === 'copy') return <TeamFileLink path={path}>{alt || target.copy.name}</TeamFileLink>
   if (asLink) return <TeamFileLink path={path}>{alt || baseName(path) || t('md.image')}</TeamFileLink>
@@ -311,7 +316,7 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
     )
   return (
     <Tooltip label={t('md.openImage', { name: alt || baseName(path) })}>
-      <button type="button" className="not-prose my-2 inline-block" onClick={() => openTeamFile(path)} aria-label={t('md.openImage', { name: alt || baseName(path) })}>
+      <button type="button" ref={viewer.ref} className="not-prose my-2 inline-block" onClick={viewer.open} aria-label={t('md.openImage', { name: alt || baseName(path) })} data-testid="md-image">
         <img src={fileUrl(path, 'inline')} alt={alt ?? ''} loading="lazy" onError={() => setFailed(true)} className={className ?? 'max-h-80 rounded-lg border border-line'} />
       </button>
     </Tooltip>
