@@ -3540,6 +3540,8 @@ export const en: Record<MessageKey, string> = {
   "notifications.roomLevel.none": "Nothing",
   "notifications.roomThreadReplies": "Replies in threads I'm part of",
   "notifications.roomThreadRepliesDesc": "When a thread I started, replied in or was mentioned in gets a reply.",
+  "notifications.messagePreview": "Show message preview",
+  "notifications.messagePreviewDesc": "Notifications on this device show the first line of the message. Turn off to show only who wrote and where.",
   "notifications.quiet": "Do not disturb",
   "notifications.quietDesc": "No pushes or sounds during these hours; they wait quietly. In the team's time zone ({tz}).",
   "notifications.quietFrom": "Start time",

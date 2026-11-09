@@ -3500,6 +3500,8 @@ export const ja: Record<MessageKey, string> = {
   "notifications.roomLevel.none": "通知しない",
   "notifications.roomThreadReplies": "参加しているスレッドへの返信",
   "notifications.roomThreadRepliesDesc": "自分が始めた・返信した・メンションされたスレッドに返信が来たら通知します。",
+  "notifications.messagePreview": "メッセージのプレビューを表示",
+  "notifications.messagePreviewDesc": "通知にメッセージの最初の行を表示します。オフにすると、送信者と場所だけを表示します。",
   "notifications.quiet": "おやすみモード",
   "notifications.quietDesc": "この時間はプッシュも通知音もなく、静かに届きます。チームのタイムゾーン({tz})基準です。",
   "notifications.quietFrom": "開始時刻",

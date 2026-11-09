@@ -8,6 +8,7 @@ import crypto from 'node:crypto'
 import { plainLabel } from '@mycel/shared/api'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { notificationsOf } from '../../server/src/notifications/service'
+import { savePreferences } from '../../server/src/notifications/preferences'
 import { roomsOf } from '../../server/src/rooms/service'
 import { noticeWanted } from '../../server/src/rooms/alerts'
 import { COUNT_MAX, plainMarkdown, previewLine } from '../../server/src/rooms/inbox'
@@ -70,7 +71,7 @@ test('rows are mentions and replies in threads I follow; a DM or a "모든 메�
   expect(n.list(nora.id, {}).unreadCount).toBe(0)
 })
 
-test('a row says who, where and why with the first line; the notice a push opens has no text but its title', async () => {
+test('a row says who, where and why with the first line; the notice a push opens has the line only while the person\'s message preview is on', async () => {
   const { mia, nora, otto, n, team, send, reply, rows } = await setup()
   const m = await send(mia.client, team.id, '\n  내일   회의 자료\n둘째 줄은 안 보여요', { mentions: [nora.id] })
   const [row] = rows()
@@ -79,7 +80,11 @@ test('a row says who, where and why with the first line; the notice a push opens
   } })
   expect(row!.room!.thread).toBeUndefined()
   expect(row!.room!.label).toBeUndefined()
-  // the single notice (GET /api/notifications/:id, what a push opens): who and where as the title, no text
+  // the single notice (GET /api/notifications/:id, what a push opens): who and where as the title, and the first line
+  // as the body while the message preview is on (the default)
+  expect(n.get(nora.id, row!.id).room!.preview).toBe('내일 회의 자료')
+  // off: no text
+  savePreferences(h.ctx.db, nora.id, { messagePreview: false })
   const one = n.get(nora.id, row!.id)
   expect(one.room).toMatchObject({ id: team.id, from: 'MIA', reason: 'mention', message: m.id })
   expect(one.room!.label).toMatch(/^MIA · #design$/)

@@ -433,6 +433,28 @@ describe('this window: /seen, notifications and toasts', () => {
       expect(went).toEqual([`/rooms/${dm.id}`])
     })
 
+    test('my message preview on: the body is the message\'s first line (plain, one line); a private message or one with only files: the generic line', async () => {
+      const dm = room({ kind: 'dm', name: null, groupId: null, peers: [BEN], unreadCount: 2 })
+      const team = room({ kind: 'team', name: 'acme-design', unreadCount: 1, mentioned: true })
+      const files = room({ kind: 'group', name: 'lunch', unreadCount: 1 })
+      useRooms.setState({ rooms: [dm, team, files], alerts: { threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: 'UTC', messagePreview: true } })
+      dispatch(msg(dm.id, 'room.dm', { body: '\n  **see** the\u202e plan\nsecond line' }))
+      dispatch(msg(team.id, 'room.mention', { body: 'private words', visibility: 'private' }))
+      dispatch(msg(files.id, 'room.dm', { body: '' }))
+      await wait(80)
+      expect(notified).toEqual([
+        { title: 'Ben', body: 'see the plan', tag: `room-${dm.id}`, open: `/rooms/${dm.id}` },
+        { title: 'acme-design', body: '나를 언급한 메시지가 있어요', tag: `room-${team.id}`, open: `/rooms/${team.id}` },
+        { title: 'lunch', body: '새 메시지가 왔어요', tag: `room-${files.id}`, open: `/rooms/${files.id}` },
+      ])
+      // off: the generic line
+      notified.length = 0
+      useRooms.setState({ alerts: { ...useRooms.getState().alerts!, messagePreview: false } })
+      dispatch(msg(dm.id, 'room.dm', { body: 'hello' }))
+      await wait(80)
+      expect(notified).toEqual([{ title: 'Ben', body: '새 메시지가 왔어요', tag: `room-${dm.id}`, open: `/rooms/${dm.id}` }])
+    })
+
     test('the page never decides a notice itself (MUST 3): a DM message without the server\'s mark, a replay, one read meanwhile are not told', async () => {
       const team = room({ kind: 'team', name: 'acme-design', unreadCount: 1, mentioned: true })
       const off = room({ kind: 'dm', name: null, groupId: null, peers: [BEN], unreadCount: 3 })

@@ -22,7 +22,7 @@ export function roomNotifyOut(kind: string, m: { muted: number; notify_level?: s
 }
 /** What the app needs besides the levels to decide its sound (GET /api/rooms `alerts`). */
 export function alertSettings(db: Database, prefs: Preferences): RoomAlertSettings {
-  return { threadReplies: prefs.roomThreadReplies, quietHours: prefs.quietHours, timeZone: teamTimeZone(db) }
+  return { threadReplies: prefs.roomThreadReplies, quietHours: prefs.quietHours, timeZone: teamTimeZone(db), messagePreview: prefs.messagePreview }
 }
 /** Set my level for a room (null: my default), muted in step. */
 export function setOwnLevel(db: Database, roomId: string, userId: string, level: RoomNotifyLevel | null) {

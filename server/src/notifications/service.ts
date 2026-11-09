@@ -395,10 +395,11 @@ export class Notifications {
     // the handover's: what each row offers is read now (admin/handover-notices.ts)
     if (isHandoverEvent(row.event_type)) return handoverNoticeOut(this.ctx, row)
     // a room notice links to the room (a reply: its thread) and says who wrote what where while the person is still in
-    // the room and may read the message (rooms/inbox.ts); the first line of the message only in the Inbox's list
+    // the room and may read the message (rooms/inbox.ts); the first line of the message in the Inbox's list, and in the
+    // single notice a push opens while the person's messagePreview is on
     if (isRoomEvent(row.event_type)) {
       const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, outcome: null }
-      const room = 'group' in row ? roomRowOut(this.ctx.db, row) : roomNoticeOut(this.ctx.db, row, this.locale(row.user_id))
+      const room = 'group' in row ? roomRowOut(this.ctx.db, row) : roomNoticeOut(this.ctx.db, row, this.locale(row.user_id), { preview: getPreferences(this.ctx.db, row.user_id).messagePreview })
       return room ? { ...base, link: 'room', room } : { ...base, link: null }
     }
     // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting. The

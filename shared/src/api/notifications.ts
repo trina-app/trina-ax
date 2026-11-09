@@ -15,6 +15,9 @@ export const NotificationPreferences = z.object({
   roomMessages: z.boolean().optional(),
   roomLevel: RoomNotifyDefault.optional(),
   roomThreadReplies: z.boolean().optional(),
+  /** a room notification on a device (a push, the desktop app) shows the message's first line (default on); off: who
+   * and where only, with the generic line. Older servers omit it (they never show the text). */
+  messagePreview: z.boolean().optional(),
   quietHours: QuietHours.optional(),
 })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
@@ -107,9 +110,10 @@ export const InboxNotification = z.object({
    * characters, '' for one with only files, then `files`) and time (`at`), and the message to open it at (`message`: the
    * first of them, the first unread one while unread). Names and the line are one plain line (plainLabel). The kind and
    * name of the room (name null: a DM, or a group chat without a name of its own); the reason (the strongest of the row:
-   * mention, everyone ("@전체"), reply, message). `preview` only in the Inbox's list; `label` ("민준 · #마케팅 › 스레드",
-   * a DM "민준", in the person's language) only in the single notice a push opens, for the notification's title: never
-   * the message's text there. */
+   * mention, everyone ("@전체"), reply, message). `preview` in the Inbox's list, and in the single notice a push opens
+   * only while the person's messagePreview is on (the notification's body; never for a private message); `label`
+   * ("민준 · #마케팅 › 스레드", a DM "민준", in the person's language) only in the single notice a push opens, for the
+   * notification's title. */
   room: z.object({
     id: z.string(), from: z.string().nullable(), thread: z.string().optional(),
     kind: RoomKind.optional(),

@@ -176,9 +176,11 @@ self.addEventListener('push', event => {
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
-      // a room notice says who and where in its title; the body stays the generic line
+      // a room notice says who and where in its title; the body is the message's first line when the server sends it
+      // (the person's "show message preview" is on, a message the whole room sees), else the generic line
       const shownTitle = (roomId && roomTitle(item.room?.label)) || title
-      await self.registration.showNotification(shownTitle, { body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}) } : { notificationId: payload.notificationId, ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
+      const preview = roomId && typeof item.room?.preview === 'string' ? item.room.preview.replace(/[\p{Cc}\u2028\u2029]/gu, ' ').trim().slice(0, 200) : ''
+      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}) } : { notificationId: payload.notificationId, ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return

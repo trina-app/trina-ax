@@ -146,7 +146,7 @@ export class PushService {
   }
   /** The iPhone app's notification extension asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
    * 이름"): who and where, the same title as a browser push (rooms/inbox.ts roomNoticeOut), in the person's language, and
-   * the generic line; never the message's text. No session: the label key from registration is the proof. Only for a
+   * the message's first line while the person's messagePreview is on (else the generic line). No session: the label key from registration is the proof. Only for a
    * notice of this device's person that was queued for this device, still unread, still wanted by the room's level and
    * still the person's to read (the room left or hidden, the message deleted or a private preview: nothing). Every
    * failure gets the same empty answer, and nothing is logged. */
@@ -169,9 +169,10 @@ export class PushService {
     if(!notice||!eventEnabled(getPreferences(db,row.user_id),notice.event_type)||!noticeWanted(db,notice.id,now))return none
     const locale=getUser(db,row.user_id)?.locale??teamDefaultLocale(db)
     // the Inbox's and a browser push's rule of what the person may still see of the notice's message
-    const room=roomNoticeOut(db,notice,locale),title=room?.label?plainLabel(room.label,120):''
+    const room=roomNoticeOut(db,notice,locale,{preview:getPreferences(db,row.user_id).messagePreview}),title=room?.label?plainLabel(room.label,120):''
     if(!room||!title||!ID.test(room.id))return none
-    return{title,body:TEXT[notice.event_type][locale],roomId:room.id,...(room.thread&&ID.test(room.thread)?{threadId:room.thread}:{})}
+    // the message's first line while the person's messagePreview is on (never a private message's), else the generic line
+    return{title,body:room.preview||TEXT[notice.event_type][locale],roomId:room.id,...(room.thread&&ID.test(room.thread)?{threadId:room.thread}:{})}
   }
   /** At most LABEL_PER_MINUTE label answers a minute for one device. */
   private admitLabel(id:string,now:number){
