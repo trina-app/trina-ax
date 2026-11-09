@@ -124,6 +124,31 @@ export function dropProjectMarker(db: Database, p: string): void {
   dropFolderRow(db, f.id)
 }
 
+/** projects/<name>: a team project folder whose participants its edit screen manages (one name below projects/;
+ * chat/project-access.ts). */
+export const isProjectsFolder = (p: string): boolean => { const s = p.split('/'); return s.length === 2 && s[0] === 'projects' && !!s[1] }
+
+/** The folders that hold a rule of this subject (for keepProjectFloors). */
+export const foldersWithRuleOf = (db: Database, subjectType: 'user' | 'group', id: string): string[] =>
+  (db.query('SELECT DISTINCT folder_id FROM folder_rules WHERE subject_type = ? AND subject_id = ?').all(subjectType, id) as { folder_id: string }[]).map((r) => r.folder_id)
+
+/**
+ * Deleting a person or a group takes their rules away: a project folder in projects/ is never left with none (that
+ * would open it to whoever reads the folder above; docs/DECISIONS.md "Projects live only in projects/"). Call inside the
+ * transaction, after the delete, with foldersWithRuleOf() from before it: each that a project uses and that has no rule
+ * left gets "everyone: none", so the project fails closed to the owner and admins.
+ */
+export function keepProjectFloors(db: Database, folderIds: readonly string[], actor: string | null): void {
+  const now = new Date().toISOString()
+  for (const id of folderIds) {
+    const f = getFolder(db, id)
+    if (!f || !isProjectsFolder(f.path)) continue
+    if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(id)) continue
+    if (!db.query('SELECT 1 FROM projects WHERE folder_path = ? LIMIT 1').get(f.path)) continue
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?, ?, 'everyone', NULL, 'none', ?, ?)").run(newId(), id, actor, now)
+  }
+}
+
 /** Rules must name existing subjects, at most once each. */
 export function validateRules(db: Database, rules: readonly FolderRuleInput[], locale: Locale, field = 'body.rules'): void {
   const seen = new Set<string>()

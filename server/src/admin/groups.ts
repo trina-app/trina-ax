@@ -12,7 +12,7 @@ import { fail } from '../http/errors'
 import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
-import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath, type SeenStates } from './folders'
+import { afterAccessChange, captureState, ensureFolderRow, foldersWithRuleOf, keepProjectFloors, resolveFolderPath, type SeenStates } from './folders'
 import { notifyTemplateOffers } from '../notifications/service'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
 
@@ -149,7 +149,10 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
   const before = captureState(ctx.db)
   let pruned: Pruned[] = []
   ctx.db.transaction(() => {
+    const ruled = foldersWithRuleOf(ctx.db, 'group', id)
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    // a project folder in projects/ never ends with no rules (admin/folders.ts keepProjectFloors)
+    keepProjectFloors(ctx.db, ruled, actorId)
     ctx.db.query('DELETE FROM groups WHERE id = ?').run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // team connections' and templates' rules: a group nobody can see any more would block every later change of them

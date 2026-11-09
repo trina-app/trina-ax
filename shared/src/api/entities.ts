@@ -666,6 +666,10 @@ export const TeamSettings = z.object({
    * one folder, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). Off: the card never offers it and the grants people
    * made are ignored (kept: they work again when it is turned back on, if nothing else changed) */
   roomAlwaysAllow: z.boolean(),
+  /** who may make team projects (a new projects/<name> folder with the people they choose; docs/DECISIONS.md "Projects
+   * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
+   * Personal projects are never limited. */
+  projectCreators: z.enum(['members', 'admins']),
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),

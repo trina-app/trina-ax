@@ -19,7 +19,7 @@ import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser,
 import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
 import { existingCredentialsOf } from '../credentials/store'
-import { afterAccessChange, captureState, resetEngineSessions } from './folders'
+import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
@@ -273,7 +273,11 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
       .run(now, `${target.username}#deleted-${Date.parse(now).toString(36)}`, id)
     ctx.db.query('DELETE FROM group_members WHERE user_id = ?').run(id)
+    // their rules go; a project folder in projects/ keeps "everyone: none" when they were its last rule (the creator of a
+    // project nobody else was added to: it fails closed to the owner and admins)
+    const ruled = foldersWithRuleOf(ctx.db, 'user', id)
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    keepProjectFloors(ctx.db, ruled, auth.user.id)
     ctx.db.query('DELETE FROM password_resets WHERE user_id = ?').run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ?").run(id)
     // external-service connections: their own go with them (keys included), and they leave team connections' rules

@@ -51,6 +51,9 @@ export const Me = z.object({
     /** days a deleted chat stays in the chat trash, and days a deleted account's chats and memories stay (Admin > Team
      * settings chatTrashRetentionDays; the purge uses the current value). Absent (older server) = the default, 7. */
     chatTrashRetentionDays: z.number().int().min(1).max(365).optional(),
+    /** who may make team projects (Admin > Team settings projectCreators): a member sees "팀 프로젝트" only with
+     * 'members'. Absent (older server) = admins only. */
+    projectCreators: z.enum(['members', 'admins']).optional(),
     /** the team's address for its members, an origin (https://acme.trina.app): what a new device puts in the app
      * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows
      * (server/src/system/connection.ts teamAddressOf), never the address the page was opened at (over the office
