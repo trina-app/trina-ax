@@ -2055,6 +2055,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.skills.change': 'Team skill changed',
   'audit.act.skills.move': 'Skill moved',
   'audit.act.skills.move_refused': 'Skill move declined',
+  'audit.act.files.ai_trash': 'AI move to trash',
   'audit.act.schedule.project_gone': 'Scheduled task skipped (its project is gone for its owner)',
   'audit.act.skills.ai_write_refused': 'AI save to team skills declined',
   'audit.act.skills.suggest': 'Skill suggested',

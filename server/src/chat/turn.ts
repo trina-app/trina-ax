@@ -31,6 +31,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
+import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
@@ -224,6 +225,10 @@ export class TurnExec {
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
    * project's, the rollback guard) whose read scope still holds what their turns read */
   private othersWrote = false
+  /** other people's messages are in this chat (othersWrote, set when the turn starts): delete_files refuses there */
+  get otherAuthors(): boolean { return this.othersWrote }
+  /** a question asked from Slack or a chat of a Slack thread (slackChat): delete_files refuses there */
+  get fromSlack(): boolean { return this.slackChat }
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -1684,6 +1689,10 @@ export class TurnExec {
       if (folder.length < 2 || ((folder[0] === 'groups' || folder[0] === 'users') && folder.length < 3)) return null
       if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
       if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(folder)) return null
+      // a path an AI turn just put in the trash (delete_files) is not a new file: writing it again without a card
+      // would replace what the person agreed to remove with something they never saw. Rooms do not get delete_files
+      // (rooms/ai-tools.ts ROOM_TOOLS); this keeps it so if that ever changes, and for a trash from the person's own chat
+      if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
       if (!everyoneWrites(this.rt.db, fx, rules, this.room.roomId, r.rel)) return null
       return { segs, isNew: !r.exists, exists: r.existing >= folder.length }
     } catch { return null }

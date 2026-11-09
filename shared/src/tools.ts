@@ -137,6 +137,14 @@ export const RenameFileInput = z.strictObject({
   new_name: z.string().min(1).max(255).describe('The new name only (no folder): it stays in the same folder'),
 })
 export const RenameFileOutput = z.object({ path: z.string() })
+/** The AI's delete_files (server/src/chat/delete-files.ts): items go to the team trash after the person's yes on the
+ * server's card. Never part of FILE_TOOLS: the app connector (connectors/remote-mcp/tools.ts) lists those, and it has
+ * no card. At most 200 entries per call, counted inside folders (the server walks them). */
+export const DELETE_FILES_MAX = 200
+export const DeleteFilesInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(DELETE_FILES_MAX).describe('Files or folders to move to the team trash, e.g. ["users/<you>/downloads/old.zip"]. Everything inside a folder counts: at most 200 files and folders in all.'),
+})
+export const DeleteFilesOutput = z.object({ trashed: z.array(z.object({ path: z.string(), trashId: z.string(), purgeAt: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
 
 export const ArtifactInput = z.strictObject({
   action: z.enum(['create', 'update', 'rewrite']),
@@ -300,6 +308,7 @@ export const OTHER_TOOLS = {
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
   rename_file: { input: RenameFileInput, output: RenameFileOutput },
+  delete_files: { input: DeleteFilesInput, output: DeleteFilesOutput },
   edit_files: { input: EditFilesInput, output: TextOutput },
   artifact: { input: ArtifactInput, output: ArtifactOutput },
   remember: { input: RememberInput, output: RememberOutput },
