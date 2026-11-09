@@ -892,7 +892,7 @@ describe('the instructions of a room session', () => {
       const seen = await answerTo('erin', roomId, q)
       expect(seen?.visibility).toBe('room')
       expect(seen!.body).toContain('User: Alice Kim (id alice)')
-      for (const canary of ['ALICE-PRIVATE-LAWYER-MAIL', 'ZZ-LAYOFF-COMMITTEE', 'Connected services', 'remember', 'drive_']) expect({ canary, in: seen!.body.includes(canary) }).toEqual({ canary, in: false })
+      for (const canary of ['ALICE-PRIVATE-LAWYER-MAIL', 'ZZ-LAYOFF-COMMITTEE', 'Connected services', 'remember', 'drive_', 'delete_files']) expect({ canary, in: seen!.body.includes(canary) }).toEqual({ canary, in: false })
     } finally {
       h.ctx.db.query("DELETE FROM integrations WHERE id = 'n1conn'").run()
       await h.api('dana').call(API.deleteGroup, { params: { id: g.id } })

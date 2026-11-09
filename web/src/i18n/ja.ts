@@ -2021,6 +2021,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.skills.change': "チームスキルを変更",
   'audit.act.skills.move': 'スキルを移動',
   'audit.act.skills.move_refused': 'スキルの移動を拒否',
+  'audit.act.files.ai_trash': 'AIによるゴミ箱への移動',
   'audit.act.skills.copy': 'スキルをコピー',
   'audit.act.skills.files': 'AIがスキルフォルダーのファイルを変更',
   'audit.act.skills.files_refused': 'スキルフォルダーの変更を拒否',

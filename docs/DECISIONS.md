@@ -36,7 +36,7 @@
 - **충돌 알림**: 서버 안 이벤트(`FileService.events`의 `'conflict'`)와 `file_events`에 더해, 실시간 `files.conflict {path, copyPath, by}`를 저장한 사람과 먼저 바꾼 사람 두 명에게 보낸다(4번 탭 PUT content "두 사람에게 알린다"). 보내기 직전에 그 사람이 원본과 사본을 둘 다 읽을 수 있는지 다시 확인하고(사본 이름에 저장한 사람 이름이 들어 있다), 내용은 싣지 않는다. 웹은 '사본 열기'가 달린 알림을 띄운다. PUT /api/files/content는 설계의 409 + conflictCopyPath 대신 지금처럼 200 `{conflict:true, path:<사본>}`을 돌려준다(편집기가 저장 결과로 다루기 쉬워서, 보안 검토 r1에서 기록).
 - **턴당 쓰기 한도 50MB·200파일**(디스크 채우기 방지, 7번 탭).
 - **오피스 파일은 `write`로 쓸 수 없다**(`make_file`은 나중). 사람의 파일 화면 저장(`humanSave`)은 같은 규칙(해시 기준 충돌)을 쓴다.
-- **삭제 도구는 AI에게 주지 않았다.** 서버 함수 `deleteFile`/`restoreTrash`만 있고(휴지통 30일, 되돌리기는 원래 경로에 쓰기 권한이 있을 때만) 테스트로 확인했다. AI용 삭제를 줄지는 Stage 2에서 정한다.
+- **AI의 삭제는 `delete_files` 하나, 휴지통으로만**(2026-11-09, 아래 "AI가 휴지통으로 옮기기"). 파일 화면의 삭제와 같은 `TeamFiles.remove`를 부르고(`FileService.deleteFile`은 쓰지 않는다: 30일 고정, 관리 폴더 확인·알림·세션 정리 없음), 사람이 서버 카드에서 "예"를 눌러야 하며 그 "예"는 카드가 보여 준 목록(디스크의 각 항목, 볼 수 있는 사람, 휴지통 보관 일수)에 묶인다. 사람의 개인 채팅에서만, 한 번에 200개(폴더 안까지 센다)까지, 최상위·관리·스킬·남의 폴더와 첨부·플러그인·업로드 링크 대상은 관리자에게도 막는다.
 
 ## grep / glob
 
@@ -17615,3 +17615,68 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   (store/sideChats.ts `goneRoots`, by the root's id): each offers the room; answers about other messages keep theirs.
 - **Not in this version:** "대화방에도 보내기" on a thread send; a file's thread (a file ask goes to the room); the note; a
   toast; a server column for the asked message.
+
+## AI가 휴지통으로 옮기기 — delete_files behind a server card (feat/ai-delete-files, 2026-11-09, product owner)
+
+- **Why:** asked "다운로드 폴더 임시 파일 지워줘", the AI answered "삭제할 수 없어요" with no reason (refusal audit B8), and
+  the tidy-up rule even read as if it could. The owner approved the direction (refusals to cards, part B2) on the
+  condition of no security problem; the security reviewer amended the design, followed here.
+- **The trash, never a hard delete:** the tool calls `TeamFiles.remove`, the Files screen's own delete (managed-folder
+  checks, the team's `trashRetentionDays`, publishing, `dropSessionsOf`), never `FileService.deleteFile` (30 days fixed,
+  none of those). The person restores on Files › 휴지통 until the purge date; an admin can empty the trash earlier and
+  the card says so.
+- **Never, for any role, admins and the owner included** (`TeamFiles.aiTrashRefusal`, on top of `assertMovable`):
+  the team root and top-level folders; group, project and rule folders and any folder holding one (`managedInside`);
+  skill roots (`skills/`, `groups/*/skills`, `projects/*/skills`, `users/*/skills`), the folders that hold them by path
+  (`groups/<g>`, `projects/<p>`, `users/<id>`) and anything in them; `users/<someone else>`; `.system`; `.attachments`;
+  a plugin's folder or one holding it; the target of an open connector upload link (the only stored link bound to a
+  team path: `share_file` links are checked per viewer and grant nothing). **Stricter than the review asked:** hidden
+  items, instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) and a live project's
+  folder or one holding it, personal projects included (`managedInside` leaves `users/` out) are refused too.
+- **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
+  folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
+  card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
+- **Limits and paths:** at most 200 entries per call, counted inside folders, the listed items included, by a walk that
+  stops at the cap (`ai-trash.ts stampTree`; never `treeSize`, which stops silently at 200,000). Paths resolve like every
+  file tool (`authorize`/`parseInput`: no absolute paths, `~`, URLs, backslashes, `..`, invisible or look-alike
+  characters; the actual letter case and Unicode form on disk); duplicates and items inside a listed folder go once.
+  **Stricter:** one refused path refuses the whole call before any card, with each reason, so the card shows only a call
+  that runs exactly as asked.
+- **The yes is bound to a manifest** (`TeamFiles.planAiTrash`): every entry's path, kind, device, inode, size and
+  modification time (a folder's own times are left out: its move rewrites `..`); a hash of who of the other active people
+  reads and writes each item and their role; the trash setting. After the yes, `trashAiPlan` checks every item again
+  in one synchronous block, so no other call of this server (a `move_files` of the same answer, which needs no card
+  within the same audience) runs between the check and the moves; anything changed stops the whole call. `remove()`
+  checks the item again right before `moveIntoTrash` and where it went, in the same synchronous block; a folder that a
+  writer outside this process changed meanwhile (dev-environment jobs, `devenv/srt/access.ts`) goes back and the call
+  says "changed, ask again". When something took its place meanwhile it cannot go back without replacing that: it stays
+  in the trash with its row (nothing lost, restorable) and the result says so.
+- **Who may use it:** only the person's own chat with the person there. Refused up front with the reason and a next step,
+  before any card: a scheduled run, an approved template run, a room, a shared project chat, a chat other people wrote
+  in (`othersWrote`), a confidential chat, a draft or judge chat, and a sub-agent (`PARENT_ONLY_TOOLS`, and the server
+  refuses a call that comes with a sub-agent's turn state). **Stricter:** also a chat that holds room messages
+  (`rooms_seen`: other people's words; refused before the rooms card, so no earlier answer of that card covers it) and a
+  chat asked from Slack. Not offered at all in rooms, shared, confidential and draft chats (allowlists). Never in
+  `FILE_TOOLS`, which the app connector lists with no card (a test checks the connector).
+- **The card shows exactly what runs:** every path in full in `details` (a folder with its files and folders), the other
+  people whose files these are as the file history shows them to the asker (no new names), "N명이 더 이상 볼 수 없어요"
+  and how many of those cannot restore it (readers without write do not see it in the trash), the purge date from the
+  setting in the team's time zone. No earlier answer, room grant, "always allow" or approval cache covers it.
+- **Card fatigue:** at most 2 delete cards per answer; after a "no" (or no answer) no more deletes in that answer; a
+  delete card opens only when no other card of the turn is open (refused, not queued), and while it is open any other
+  card of the turn (a parallel ask_user, move or skill card) waits and opens after it with its full time
+  (`TurnExec.waitForPerson` `exclusive`). The list on the card is never folded: the AI picks its order.
+- **Audit:** one `files.ai_trash` row per call (refused, invalid input, declined, no answer, trashed, changed, partial,
+  failed) with the card's request id, the turn id, the paths and the trash ids. Once an item is in the trash with its
+  row, a failing follow-up (a listener, the session reset) is logged and the call still reports it as trashed.
+- **Independent review** (before the PR): no bypass found; its should-fix (other cards could open beside a delete card)
+  and nits (post-commit errors, audit rows for every call, the folded list, on-disk names in refusals, personal project
+  folders) are fixed as above. Not offered in an approved template run at all. The file event of each item says `tool: delete_files`.
+- **Room grants:** a path an AI turn put in the trash (still there) is never a "new" file for a room's grant
+  (`roomGrantTarget`); rooms do not get the tool, this keeps it so.
+- **Prompt:** the tidy-up rule says deletes happen only when asked, with `delete_files` where the turn has it and "you
+  cannot delete here; the Files screen" where it does not; `DELETE_RULE` says when to use it.
+- Out of scope: skill folders (a later change with the skill cards), rooms, restore by the AI.
+- Tests: `tests/unit/ai-delete-files.test.ts`, `remote-mcp-tools.test.ts` (the connector), `b-shared-chats.test.ts`,
+  `b-rooms-ai.test.ts`, `i-wiring.test.ts` (tool lists).
+- Version impact: **minor** (a new AI tool and card; no HTTP API, setting or data change).
