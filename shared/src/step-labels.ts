@@ -5,6 +5,7 @@
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
+import { TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { maskSecrets } from './secrets'
 
@@ -249,11 +250,12 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** The team's well-known folders by name in a step line (docs/DECISIONS.md "W2"): "파일 읽기 · 브랜드 이미지 폴더 ›
  * 홈페이지-6.jpg", not "groups/<team>/브랜드/이미지/홈페이지-6.jpg", which a phone cut before the file's name. */
 export const STEP_PLACE = {
-  /** groups/<team>/브랜드/이미지/ (the brand folder's images folder, named in the team's language) */
+  /** groups/<team>/브랜드/이미지/ or shared/브랜드/이미지/ (the brand folder's images folder, named in the team's
+   * language) */
   brandImages: t('브랜드 이미지 폴더', 'Brand images folder', 'Folder gambar merek', "ブランド画像フォルダー", "Carpeta de imágenes de marca"),
-  /** groups/<team>/브랜드/ */
+  /** groups/<team>/브랜드/ or shared/브랜드/ */
   brand: t('브랜드 폴더', 'Brand folder', 'Folder merek', "ブランドフォルダー", "Carpeta de marca"),
-  /** groups/<team>/회의록/ */
+  /** groups/<team>/회의록/ or shared/회의록/ */
   notes: t('회의록 폴더', 'Meeting notes folder', 'Folder notulen rapat', "議事録フォルダー", "Carpeta de actas"),
   /** groups/<team>/: the team's folder, by the team's name */
   team: t('{team} 폴더', '{team} folder', 'Folder {team}', "{team}フォルダー", "Carpeta {team}"),
@@ -261,8 +263,8 @@ export const STEP_PLACE = {
   attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos"),
   /** users/<id>/: an answer only ever reaches the person's own */
   own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta"),
-  /** shared/: the whole team's */
-  shared: t('공유 폴더', 'Shared folder', 'Folder bersama', "共有フォルダー", "Carpeta compartida"),
+  /** shared/: the whole team's, by the name the file screen gives it (shared/src/folder-labels.ts) */
+  shared: TOP_FOLDER_LABELS.shared,
 } satisfies Record<string, T>
 
 const nfcSet = (names: Record<Locale, string>) => new Set(Object.values(names).map((n) => n.normalize('NFC')))
@@ -285,7 +287,12 @@ export function placeName(path: string, locale: Locale): string | null {
     return say('team', 2, { team: a })
   }
   if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : say('own', 2)
-  if (top === 'shared') return say('shared', 1)
+  if (top === 'shared') {
+    // the team's start puts the brand and meeting notes folders here since docs/DECISIONS.md "Team folder basics"
+    if (a && BRAND_NAMES.has(a)) return b && IMAGES_NAMES.has(b) ? say('brandImages', 3) : say('brand', 2)
+    if (a && NOTES_NAMES.has(a)) return say('notes', 2)
+    return say('shared', 1)
+  }
   return null
 }
 

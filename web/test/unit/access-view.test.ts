@@ -34,7 +34,7 @@ describe('level', () => {
 describe('reasons, in words', () => {
   test('a rule on this folder names who it is for and what it gives', () => {
     const f = row('groups/Sales', { access: 'write', kinds: ['group', 'rules'], reason: rule('groups/Sales', 'group', [{ subjectType: 'group', subjectId: 'g1', access: 'write' }]) })
-    expect(why(ko, f)).toBe('이 폴더의 규칙 · Sales 그룹: 읽기·쓰기')
+    expect(why(ko, f)).toBe('이 폴더의 규칙 · Sales 부서: 읽기·쓰기')
     expect(why(en, f)).toBe('Rule on this folder · Group Sales: Read & write')
   })
 
@@ -50,7 +50,7 @@ describe('reasons, in words', () => {
     const p = row('finance', { access: 'read', reason: rule('finance', 'user', [{ subjectType: 'user', subjectId: 'bob', access: 'read' }]) })
     expect(why(ko, p)).toBe('이 폴더의 규칙 · Bob 님: 읽기')
     const g = row('finance', { access: 'write', reason: rule('finance', 'group', [{ subjectType: 'group', subjectId: 'g2', access: 'write' }, { subjectType: 'group', subjectId: 'g1', access: 'read' }]) })
-    expect(why(ko, g)).toBe('이 폴더의 규칙 · 재무팀 그룹: 읽기·쓰기')
+    expect(why(ko, g)).toBe('이 폴더의 규칙 · 재무팀 부서: 읽기·쓰기')
   })
 
   test('a rule that gives nothing says so', () => {
@@ -288,8 +288,8 @@ describe('the folder tree (by folder)', () => {
   test('risks, kinds and the lock, in words', () => {
     expect(riskTexts(ko, { risks: ['everyone-writes'] })).toEqual(['팀 전체가 고칠 수 있어요'])
     expect(riskTexts(ko, { risks: ['skills-everyone-writes'] })).toEqual(['모든 사람의 AI가 따르는 지침을 팀 전체가 고칠 수 있어요'])
-    expect(riskTexts(ko, { risks: ['root-everyone'] }, true)[0]).toContain('그룹·프로젝트 폴더')
-    expect(kindText(ko, node('groups/a', [], { kinds: ['rules', 'group'] }))).toBe('그룹 폴더')
+    expect(riskTexts(ko, { risks: ['root-everyone'] }, true)[0]).toContain('부서·프로젝트 폴더')
+    expect(kindText(ko, node('groups/a', [], { kinds: ['rules', 'group'] }))).toBe('부서 폴더')
     expect(kindText(ko, node('projects/apollo', [], { kinds: ['project'], projects: [{ id: 'p', name: 'Apollo' }] }))).toBe('프로젝트 Apollo')
     expect(kindText(ko, node('projects/x', [], { kinds: ['project'], projects: [{ id: 'p', name: 'A' }, { id: 'q', name: 'B' }] }))).toBe('프로젝트 2개')
     expect(kindText(ko, node('connected/nas', [], { kinds: ['connected'] }))).toBe('연결 폴더')

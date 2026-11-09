@@ -5,10 +5,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { PRODUCT } from '@mycel/shared'
 import type { TeamLinkResponse } from '@mycel/shared/api'
 import { DICTS, LOCALES, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { joinNext, readJoinToken, teamLinkMessage } from '../../src/lib/team-link'
+import { namedProduct } from '../../src/lib/tabs'
 import { JoinForm, TeamJoin } from '../../src/pages/Auth'
 import { forgetPatched, linkDiffers, markPatched, TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
@@ -20,6 +20,9 @@ const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
 const URL_ = `https://acme.example/join#t=${TOKEN}`
 const loc = (href: string) => { const u = new URL(href, 'https://acme.example'); return { pathname: u.pathname, search: u.search, hash: u.hash } }
 const noop = () => {}
+/** the product as the message names it in each language: the AI's name where the product is named after it ("트리나에서",
+ * as beside "트리나에게 묻기"; tabs.ts namedProduct), else the product's name */
+const named = (l: Parameters<typeof translate>[0]) => namedProduct((k) => translate(l, k)).product
 
 describe('the address', () => {
   test('the token comes from the fragment only, and the clean address keeps everything else', () => {
@@ -43,15 +46,15 @@ describe('the address', () => {
 describe('the ready-made message', () => {
   test('Korean: who invites, to which team, the product, the link; with a skill, the skill too', () => {
     const t = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
-    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_ })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme 마케팅에 함께하자고 초대했어요. 링크로 바로 들어올 수 있어요: ${URL_}`)
-    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구' })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme 마케팅에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_ })).toBe(`김하나님이 ${named('ko')}에서 Acme 마케팅에 함께하자고 초대했어요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구' })).toBe(`김하나님이 ${named('ko')}에서 Acme 마케팅에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
   })
   test('every language names the person, the team, the product, the skill and ends with the whole link', () => {
     for (const { id } of LOCALES) {
       const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
       for (const skill of [null, 'ad-copy']) {
         const m = teamLinkMessage(t, { name: 'Ana', team: 'Acme Sales', url: URL_, skill })
-        expect({ id, m: m.endsWith(URL_) && m.includes('Ana') && m.includes('Acme Sales') && m.includes(PRODUCT.displayName) && (!skill || m.includes(skill)) }).toEqual({ id, m: true })
+        expect({ id, m: m.endsWith(URL_) && m.includes('Ana') && m.includes('Acme Sales') && m.includes(named(id)) && (!skill || m.includes(skill)) }).toEqual({ id, m: true })
       }
     }
   })
@@ -65,8 +68,8 @@ describe('the ready-made message', () => {
 describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
   const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
   test('Korean: "본인 AI 계정이 필요해요" before the link sentence, with and without a skill; never without ownAi', () => {
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리', ownAi: true })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme에 함께하자고 초대했어요. '할 일 정리' 스킬을 같이 써 보자고 해요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, ownAi: true })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme에 함께하자고 초대했어요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리', ownAi: true })).toBe(`김하나님이 ${named('ko')}에서 Acme에 함께하자고 초대했어요. '할 일 정리' 스킬을 같이 써 보자고 해요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, ownAi: true })).toBe(`김하나님이 ${named('ko')}에서 Acme에 함께하자고 초대했어요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
     expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리' })).not.toContain('본인 AI')
   })
   test('every language: the clause is there only with ownAi, and the message still ends with the whole link', () => {
@@ -86,7 +89,7 @@ describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
     const render = (d: TeamLinkResponse) => renderToStaticMarkup(<TeamLinkView data={d} inviter="Olga" team="Acme" groups={[]} skills={null} shared={shared} busy={false} folded onCreate={noop} onRevoke={noop} />)
     const message = (html: string) => /data-testid="team-link-message">([^<]*)</.exec(html)?.[1] ?? ''
     let html = render(data)
-    expect(message(html)).toBe(`Olga invited you to Acme on ${PRODUCT.displayName} to try the &#x27;Weekly report&#x27; skill together. You can join right away with this link: ${URL_.replace(/&/g, '&amp;')}`)
+    expect(message(html)).toBe(`Olga invited you to Acme on ${named('en')} to try the &#x27;Weekly report&#x27; skill together. You can join right away with this link: ${URL_.replace(/&/g, '&amp;')}`)
     expect(message(html)).not.toContain('Quote draft')
     expect(html).toContain('data-testid="team-link-landing"')
     expect(message(html)).not.toContain('own AI account')
@@ -112,7 +115,7 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain('Copy link')
     expect(html).toContain('Copy message')
     // a skill without a title: its folder name as words, never the raw 'ad-copy' (also when the title only repeats it)
-    expect(html).toContain(`Olga invited you to Acme on ${PRODUCT.displayName} to try the &#x27;ad copy&#x27; skill together.`)
+    expect(html).toContain(`Olga invited you to Acme on ${named('en')} to try the &#x27;ad copy&#x27; skill together.`)
     expect(html).not.toContain('&#x27;ad-copy&#x27;')
     const repeated = view({ ...LINK, link: { ...LINK.link!, skill: { path: 'skills/general/quote-maker/SKILL.md', name: 'quote-maker', title: 'quote-maker' } } })
     expect(repeated).toContain('&#x27;quote maker&#x27; skill')

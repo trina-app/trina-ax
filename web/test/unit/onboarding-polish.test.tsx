@@ -4,10 +4,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import { PRODUCT } from '@mycel/shared'
 import { skillTitle, type PopularSkills, type SkillInfo, type TeamLinkResponse } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { teamLinkMessage } from '../../src/lib/team-link'
+import { namedProduct } from '../../src/lib/tabs'
 import { TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { PopularSkillsList } from '../../src/components/PopularSkills'
@@ -39,7 +39,7 @@ describe('a skill by its title', () => {
 
   test('the ready-made message and the link\'s lines name the skill by its title; an older answer without one, by name', () => {
     const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
-    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toBe(`김팀장님이 ${PRODUCT.displayName}에서 Acme에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toBe(`김팀장님이 ${namedProduct(ko).product}에서 Acme에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
     expect(html).toContain(esc(teamLinkMessage(en, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })))
     expect(html).toContain('data-testid="team-link-skill-name">광고 문구<')
     expect(html).not.toContain('ad-copy')

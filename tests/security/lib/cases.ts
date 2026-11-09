@@ -94,6 +94,8 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   // The preview probe uses Alice's text file: she passes access checks but gets 503 no_preview (and 400 "not an HTML
   // file" from the HTML print, whether this machine has a browser or not).
   if (['preview', 'hwpPreview', 'saveHtmlPdf', 'downloadHtmlPdf'].includes(route) && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
+  // the room HWP preview probe uses the DM's picture: its two people pass the room checks and get 503 unsupported
+  if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }

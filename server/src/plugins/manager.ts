@@ -246,6 +246,9 @@ export class PluginManager {
     }
     return e
   }
+  /** The HWP preview is on (the plugin's package is usable here): Me.server.hwpPreview, so a Hangul file sent in a room
+   * opens in the preview panel. The renderer's own checks (isolation, the pinned binary) still answer each page. */
+  hwpPreviewOn(): boolean { return !!this.hwpPackage() }
   /** hwp_render: the preview is usable and the admin allowed page images to go to the AI provider. */
   hwpToolUsable(): boolean { return !!this.hwpPackage() && this.granted(HWP_PLUGIN_ID, 'model.send.preview-pixels') }
 

@@ -16307,6 +16307,66 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
 
+## Onboarding v6 polish: the caret after a fill, plain copy, one name (fix/onb6-polish, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/chat/Composer.tsx`, `web/src/pages/Home.tsx`, `web/src/components/onboarding/`
+(`TeamPrepared`, `GoalCard`, `InviteStep`, `SkillsStep`, `ProfileStep`), `web/src/components/AvailableSkills.tsx`,
+`web/src/pages/Skills.tsx`, `web/src/pages/Welcome.tsx`, `web/src/lib/` (`tabs.ts`, `team-link.ts`, `nav.ts`), 이유:
+onboarding, Home and the team skills page are core.
+
+A walk through a real build of onboarding v6 ("W6", "W6.3") before the beta found these:
+
+- **The caret goes after text put in the box.** Home starts the box again with the chosen text and focused it with the
+  caret at the start, so a text pasted after 자연스러운 글's 써 보기 landed in front of "/humanizer …" and the command
+  broke. Now a box opened with text (`autoFocus`) and a recovery draft (`prepareDraft`) put the caret after the text
+  (`focusAtEnd`, the end scrolled into view). Phones still do not focus the box by themselves (the keyboard stays down).
+- **A request that needs the person's text is not sent alone** (Composer `waitsFor`). While the box holds only
+  "/humanizer 아래 글을 자연스럽게 다듬어 줘:" (and no file), send is off (the button and Enter) and the note under the box says
+  "다듬을 글을 붙여 넣어 주세요" (`role="status"`). Any text after it, or a file, and it goes. The other fills (물어보기, the
+  ready question, the suggestions) are whole questions and send as they are.
+- **No developer paths or English in the block's questions.** 물어보기 names the folder as people read it and says what
+  it leaves out in words: "예시커피 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 …" (the brand folder by its
+  real name, from `teamFolder.without[0]`), never "groups/…" or "(브랜드, skills 폴더는 빼고)". The AI finds the folder by
+  its name. The ready question without a company profile is no longer "users/<id> 폴더에 …" (`home.example1`, removed):
+  it is a first question that needs no file, "우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘"
+  (`home.prepared.startAsk`). A member's empty 팀 스킬 no longer says "skills/ 폴더": the title already says the owner or
+  an admin adds them; the line says how to suggest one. The AI's own words are not touched, nor the admin-only skill
+  rows' "general ·" and "/card-news" or the MCP dialog's labels (owners and admins who manage skills read those).
+- **An empty team's goal card leads to skills.** With no team skill (GET /api/skills/examples as the owner, the count
+  the invite step's line uses, read again as skills change), "팀 스킬은 아직 써 보기 전이에요" with a filled [다시 보내기]
+  asked members to try what does not exist. The line now says skills come first ("민지님이 들어왔어요. 팀 스킬을 넣으면 같이
+  써 볼 수 있어요.", or "아직 팀 스킬이 없어요. …" when nobody waits), the one filled button is [스킬 넣기], and the card's own
+  button ([다시 보내기], [초대 문구 복사] or [팀원 초대]) stays beside it, quiet. Until the read answers, and when it fails,
+  the card is as before. Phones keep their rule: no [다시 보내기] there.
+- **"스킬 넣기" opens the ready-made skills.** From Home's block, the empty-team line and the goal card it goes to
+  `/skills?catalog=open` (`SKILL_CATALOG`), where the owner's fold "트리나가 준비한 스킬 · N개 더" starts open, nothing
+  ticked.
+- **One name for the product in the copy beside the AI's.** "{product}가 준비한 스킬", "{product} 팀이 만들었어요" (and the two
+  other source lines) and the invite message ("…님이 {product}에서 …") said the product's full name next to "트리나에게
+  묻기" and "트리나가 바로 써요". They now take the name the app gives its AI in each language (`namedProduct`, as
+  `aiName`: 트리나, Trina, トリナ), never a literal; the core edition keeps its product name. Other `{product}` lines
+  (the app, the desktop, plugins, licences) keep the product's name.
+- **Smaller:** the profile step's line under 저장하고 계속 names the website's photos only when there is a website
+  ("저장하면 회사 소개 파일을 팀 브랜드 폴더에 넣어요" without one; it follows the website field of the review as it is typed);
+  a phone's skill row says 써 보기 at its end (its tap's action, as the files row says 물어보기; the filled one's in the
+  accent colour); the ready question wraps inside its button on a phone (it ran past the button's edge: the Button's
+  own `whitespace-nowrap` and height won over the block's); the member's skill sheet is titled "내 스킬 가져오기" like the
+  line that opens it (`contribute.title` removed).
+- Tests: `web/test/unit/composer-fill.test.tsx` (the caret after a fill, a paste after the command, no focus on a phone,
+  send waiting with the note until text follows), `team-prepared.test.tsx`, `goal-card.test.tsx`,
+  `available-skills-install.test.tsx` (the fold open from the start), `welcome.test.tsx` (the brand line with and
+  without a website), `team-link.test.tsx`, `onb6-skills.test.tsx`; the unit DOM now gives a textarea its default value
+  as a browser does (`dom-host.ts`), so a component's effects see the text it mounted with; e2e `team-prepared.spec.ts`
+  (typing and pasting after the fill, send off until then, the folder by its name, the ready question, the phone's 써
+  보기, the open catalog, the empty team's goal card), `states.spec.ts`, `onb6-skills.spec.ts`, `team-skills.spec.ts` (the
+  member's empty 팀 스킬 without "skills/").
+- **Independent review (2026-11-09) fixes.** `/skills?catalog=open` landed on 검토 when suggestions were waiting (the
+  managers' landing ran anyway); a link that opens the catalog now keeps the skills tab, like `?mine=`
+  (`member-contribute.test.tsx`). A failed attachment no longer lifts the wait for the person's own text: only a file
+  that uploaded counts, as only those are sent. Left for later: the write-access retry in a chat still names the
+  member's folder by its path (`files.summary.askOwnFolderPrompt`), which the AI needs to save in the right place.
+- Version impact: **patch** (fixes and copy; no API or data change).
+
 ## One image viewer — a picture opens over the whole window, like Slack (feat/image-viewer, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/lib/imageViewer.ts`, `web/src/lib/zoom.ts` and the places
@@ -16420,3 +16480,329 @@ of a web page could not be read. Pictures should open like Slack, across the app
 - **Later:** a large file viewer with page thumbnails on the left and the side chat (or the message's thread) on the
   right, as Slack's file view.
 
+||||||| a5a26059
+
+## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
+artifact panels' headers, 이유: the side panel is core. Step (a) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`), its question 7 answered by the
+owner: not remembered.
+
+- **One toggle, left of ✕**, in the file panel's and the artifact panel's headers (also while an intro deck is built),
+  not on the Browser pane: ⤢ **크게 보기** / ⤡ **나란히 보기** (`Maximize2` / `Minimize2`, an `IconButton`, so its name
+  is its tooltip). Computers only (`max-md:hidden`): below 768 px the panel is a full-screen sheet already.
+- **Big:** `<main>` is hidden (`md:hidden`, still mounted: the chat, its draft and its scroll stay; Chromium and WebKit
+  keep a scroll box's position across `display: none`), the panel is `flex-1` beside the sidebar, without its own left
+  line (the sidebar's edge is the line) and without its divider. Beside a room's open thread it covers room and thread
+  alike. The skip link goes to the panel then. Side by side again, the divider mounts and fits the width it remembers
+  (`mycel.sidePanel.widthFraction`), so the panel comes back at the width it had.
+- **What runs behind it:** the two message boxes (`Composer`, `RoomComposer`) measure their height when their text or
+  hint changes; not drawn, they measured 0 and came back as a sliver (an answer that ended behind the panel changes the
+  hint). Now a box that measures 0 keeps its height and is measured again when the page shows. The thread's and side
+  chat's dividers fit a 0-wide row while hidden and fit again when it shows (they never store that).
+- **The place being read:** the file panel's viewers fit its width, so a PDF's pages grow when it goes big. The panel
+  keeps the scroll position as a share of the scroll height and brings it back for 0.8 s after a width change, while the
+  pages settle, until the person scrolls (also for the divider and a window resize). Before, a PDF read at page 4 showed
+  the end of page 3 once big.
+- **The header at its narrowest:** the new button takes 28 px; in a panel under 448 px (`@container`, the divider at its
+  least) "AI에게 묻기" shows as its icon (the name stays its accessible name and tooltip), so the file's name keeps room.
+- **How long:** `expanded` in `lib/sidePanel.ts`, beside the panel itself, never stored. Another file or an artifact
+  opened in the panel keeps it (a link in a Markdown file, the AI opening an artifact); closing the panel (✕, Esc, a
+  page that does not keep it) or the Browser pane taking it ends it, so the next panel opens side by side. Any move
+  (`location.key`: the sidebar's **Files**, a folder link, a link to the page already open) ends it too: a page the
+  person went to must show, and a page that keeps the panel (the Files screen) would otherwise stay hidden behind it.
+  The image viewer's history entry is not a move (it copies React Router's state).
+- **Actions:** download, edit and save, PDF로 저장, copy and the artifact's versions work in place. **Add to chat**,
+  **Ask AI** (`useTeamAttach`) and **Show in Files** first go back side by side: their result is in the page behind the
+  panel (a chip in the composer, the folder with the file selected), which a big panel would keep hidden.
+- **Esc order** (`escapeAction`, Layout's window handler): a dialog keeps its Esc; the phone drawer closes; a big panel
+  goes back side by side; then the panel closes. The Files screen's own Esc, which clears a selection before the panel
+  closes, waits while the panel is big (the list it would clear is hidden), so there it is: side by side, the
+  selection, the panel. On a phone width a leftover big state counts as not big (`panelExpandedNow`), so Esc closes.
+  The image viewer (#246) over a big panel is a dialog whose focus trap takes its Esc: the first Esc closes the viewer
+  (focus back on the panel's picture), the next one brings the panel side by side, the third closes it. The viewer's
+  history entry is at the same address, so opening or closing it does not end the big state.
+- **Not done:** no keyboard shortcut and no double-click on the header; the PDF keeps fitting the panel's width (as a
+  panel dragged wide does), with no reading-width cap. The PDF toolbar's "fit width" also draws `Maximize2`; left as
+  is (it sits in the toolbar under the header, with its own tooltip).
+- Tests: `web/test/unit/side-panel-expand.test.ts` (nothing open, kept for another file or an artifact, ended on close
+  and by the Browser pane, the Esc order), e2e `side-panel-expand.spec.ts` (from the AI chat: the chat hidden, the
+  panel as wide as the page area, no divider, Esc and the button back at the divider's width, Esc twice closes,
+  reopened side by side; add to chat; from Files: a link in a big Markdown file opens the PDF still big, editing works
+  there, Esc before the selection, Show in Files; an answer that ends behind a big panel leaves the message box whole;
+  the image viewer over a big panel and Esc's order; no button at 390 px).
+- Version impact: **minor** (a visible UX addition; no API or data change).
+
+## Pinned conversations — 상단에 고정 in 대화 (feat/pin-rooms, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/rooms/service.ts`, `server/src/rooms/store.ts`, migration 278,
+`shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`, `SidebarRooms.tsx`, `web/src/pages/Rooms.tsx`), 이유:
+rooms and their lists are core. Plan: `docs/AGENTS/plan/20261109-0931-pin-rooms.md`.
+
+The owner, after "Pinned chats" above: the same for the team chat list. A room, DM or group chat in the sidebar's
+**대화** and on /rooms gets **상단에 고정** / **고정 해제**, and pinned conversations stay at the top. It follows the chat
+pins wherever a room allows it.
+
+- **A pin is the person's own.** One row per person and room, `room_pins(user_id, room_id, pinned_at)` (migration 278),
+  not a column on `room_members`, as `chat_pins` is its own table. `Room.pinnedAt` is worked out per member in
+  `roomOut`, so every `room.updated` a room's members get (a rename, a member change) carries each one's own pin, and
+  nobody else hears of a pin or an unpin. Not audited, as hiding is not.
+- **Who may pin.** A member of the room (`Rooms.mine`; 404 otherwise, the owner and admins included, as every room
+  route). Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned
+  when not pinned: no change and nothing sent. At most 50 pins, the same as chats (409 `room_pins_full`, "상단에 고정은
+  50개까지 할 수 있어요. 고정한 대화 하나를 해제한 뒤 다시 해 주세요."); only pins of rooms the person is still in count.
+- **Hidden rooms: hiding unpins.** Of the two choices (pinning shows a hidden room again, or hiding unpins it), hiding
+  unpins: a person who hides a conversation wants it out of the way, and it should not come back at the top when a
+  new message brings it back. So a room is never pinned and hidden at once: `setHidden` drops the pin in the same
+  transaction, a hidden room's "⋯" has no 상단에 고정 (다시 보이기 is there), and the server refuses to pin one (409
+  `room_hidden`, "숨긴 대화는 고정할 수 없어요. 다시 보이게 한 뒤 고정해 주세요."; only an older window or a script can
+  ask). The hide's toast 실행 취소 shows it again and pins it again when it was pinned (as the newest pin). A group chat
+  is never hidden (it is left).
+- **What takes a pin away.** Leaving or being taken out of a group chat, leaving a team room's group, a disabled or
+  deleted account leaving its rooms: all of them run `Rooms.forgetMember`, which now drops `room_pins` with the other
+  rows of the member. A room that goes: an archived room has no members left (the last one out, a deleted group's team
+  room), and the room's row going cascades. A deleted person: their DMs keep their member row (a DM keeps its two), so
+  `deleteUser` drops their pins in its transaction, as it drops their chat pins. In a room, seeing it is being a member,
+  so "can no longer see it" is one of the above. An older build (reader 1) keeps pins when someone hides or leaves a
+  room, so only a pin of the membership now shows or counts (`pinOf`): never one of a hidden room, nor one older than
+  the member's `joined_at`; hiding a room that is hidden already drops such a row, and pinning again replaces it.
+- **The order (the app's, not the server's).** `GET /api/rooms` stays by latest activity (it is not paged, so the pins
+  need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
+  pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
+  대화 (lean, as the chat pins): at most ten pins, then the five latest of the others, and the room on screen wherever it
+  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before. /rooms (모든 대화) and the
+  phone's 대화 tab (the same page): the 트리나 row stays the very first row (computers), then every pin, then the
+  others. Hidden rooms stay under "숨긴 대화" (never pinned). Other room lists (⌘K, the room picker, the AI's room
+  list) keep their order.
+- **The look.** No header: the chat pins' 12 px pin, named 고정됨 for screen readers, after the name (room rows start with
+  the room's picture, so a pin before the name would push the pinned names out of line with the others), beside the
+  muted bell; in the sidebar it gives way to the "⋯" on hover like the bell. Unread pills, the "?" and presence dots
+  are unchanged.
+- **The menu.** 상단에 고정 / 고정 해제 is the first item of the room's "⋯" (`RoomMenu`), as on the AI chats' rows, with the
+  pin and pin-off icons and the chat pins' words (`chat.pin`, `chat.unpin`, `chat.pinned`). It is the one menu of every
+  row (hover, keyboard, right-click, long press and the phone's sheet) and of the room's header, so the header has it
+  too (no change to `Room.tsx`).
+- **Live.** A pin or unpin answers the room and sends `room.updated` ('updated') to the person's own windows only; hiding
+  sends the one it sent before, now without the pin.
+- Tests: `tests/unit/b-rooms-pins.test.ts` (pin and unpin of every kind, idempotent, my windows only, each member's
+  copy with their own pin; the order of pins; members only; leaving, removal, a group change and a disabled account
+  take it; a deleted group's room, the last one out and the row's cascade; a deleted person; hiding unpins, a hidden
+  room is refused and a new message brings it back unpinned; the cap and pins that do not count; pins an older build
+  left), the security
+  permission matrix (`pinRoom` / `unpinRoom`: the DM's two people only), `web/test/unit/room-pins.test.tsx` (the order
+  and the caps, the rows and their pin on the sidebar and the conversations page, the menu's pin and unpin, the hide's
+  undo, a refused hide, another window's event), `web/test/unit/room-hide.test.tsx` (the menu by kind), e2e `room-pins.spec.ts` (the
+  sidebar's "⋯", a right-click, after a reload, unpin, hide and undo; the conversations page's order; the phone's long
+  press) and the menu lists in `room-leave-hide.spec.ts`.
+- **Independent review (2026-11-09) fixes.** The endpoints' summaries named the menu in Korean (the language test; dev
+  had fixed the chat pins' the same way); a refused hide left a pinned room unpinned on screen (the store puts the pin
+  back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
+  pin ahead of the clock.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
+
+Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:
+"플러그인 기능이면 해". A team file in Hangul (HWP, HWPX) opens as pages in the side panel while the HWP Preview plugin is
+on ("Plugins, stage 1"); the same file sent in a room only downloaded, because the preview took a team path only.
+
+- **Decision:** a room's Hangul file gets the same preview from the same plugin, at
+  `GET /api/rooms/:id/files/:fileId/hwp-preview?page=&cacheId=` (`roomFileHwpPreview`), next to the room file's own
+  address and with the team route's answer (`HwpPreviewPage`). Not `/api/files/hwp-preview` with a room reference: that
+  route's checks are the team folder's, and one route with two kinds of check is easier to get wrong.
+- **The checks are the inline read's**, on every request, before any cache lookup or render, and again after the render
+  (`RoomFiles.hwpSource`, called by `HwpPreviews.pageOf` both times): `RoomFiles.open` (in the room now and not archived;
+  the message visible to me from my join on, never an old answer hidden from me nor someone else's private preview, not
+  deleted; or my own upload not sent yet; else 404, an admin outside the room too) and the download-only list, which is
+  the quarantine list (503 `quarantined`, the inline read's answer: no inline read, no preview). A cached page is served
+  only after these pass, so a page made before someone left, a message was deleted or its bytes went on the list is not
+  served after. The bytes are read through the request's `SearchAdmission` (no link, no hard link, no swap between the
+  check and the read, a quarantined hash refused) and must be the bytes the file was sent with (the row's sha256; else
+  `changed`). Not a Hangul name: `unsupported`, before the renderer.
+- **One renderer, cache and set of limits.** `HwpPreviews` takes a source (`OpenHwpSource`); the team path is one, a
+  room file the other. The engine is resolved per request from the plugin (off, removed, revoked, not usable here: the
+  disabled engine, 503 `unavailable` with reason `disabled`, word for word the team file's answer). The 20 MB input,
+  200 pages, isolation, one render per person and per server (shared with team previews), the 128 MB cache and its
+  invalidation are the team preview's. The cache keys a room file by its room, its id and its sha256 (`room:<room>/<id>`;
+  team paths are `team:<path>` now, so the two never meet); a cache id is still never a capability.
+- **How the web knows: `Me.server.hwpPreview`** (the plugin's package is usable here, `PluginManager.hwpPreviewOn`), as
+  `htmlPdf` tells whether the HTML print can run. The brief asked to reuse the signal the web has for team files; it has
+  none before a click: the team panel always asks and shows the server's "off" notice. Asking first that way for a room
+  file would change what a click does while the plugin is off, which the owner ruled out. With the flag on, a room's
+  Hangul chip opens the panel (within the 20 MB the preview reads; a larger one downloads as before); off or absent, the
+  chip downloads and the panel shows its "cannot preview" card, as before. `Me` is read at sign-in, so a plugin turned
+  on shows after a reload; one turned off while the page is open shows the team file's "off" notice with the download.
+- **Download-only in the viewer:** `HwpView` shows the server's download-only words with the download (no retry), for a
+  room file and for a team file (a team file showed "cannot be used on this server" before).
+- **Not here:** the new file viewer (plan steps b–e) uses this route when it lands; HEIC previews of room files.
+- **Words:** no new strings.
+- **Independent review (security, tried to break it):** no must-fix; no page, page count, hash, cache hit or telling
+  answer for someone who cannot read the file inline. The cases it asked to guard are now tests (a late joiner, leaving
+  after a cached page, an archived room, links, the shared per-person render, over 20 MB, outsiders and held files with
+  the plugin off). Left as is: with the plugin off the file is still read before "disabled" (as the team route; the web
+  asks only while the flag is on), and the flag does not run the renderer's own isolation and binary checks, so on a
+  server where the plugin is on but cannot run the chip opens the panel's notice with the download.
+- Tests: `tests/unit/b-rooms-hwp-preview.test.ts` (a member's pages with no browser cache, one render for two people, a
+  cache id reused and a guessed one refused, pages out of range; not a member, an admin outside, another room's
+  address, no session, a cached page's id for an outsider; my unsent upload mine only; a hidden old answer's file,
+  another person's private preview's file, a deleted message's file; a late joiner, leaving after a cached page, an
+  archived room; a download-only file refused before the renderer and after a page of it was cached; a message deleted
+  during the render; changed bytes, a hard link, a symbolic link; one render per person across team and room; over
+  20 MB; not Hangul; the plugin off for a room and a team file alike, outsiders and held files answered first, and
+  `Me.server.hwpPreview` following it; a team file's preview), the permission matrix
+  (`roomFileHwpPreview`: the DM's two people pass the room checks, everyone else 404), `hwp-preview.test.ts`,
+  `web/test/unit/room-files-open.test.tsx` (the chip opens only with the flag and within the limit), e2e
+  `room-files-open.spec.ts` (the room's HWP in the panel, a page step; the chip downloads with the plugin off).
+- Version impact: **minor** (a new endpoint and `Me.server.hwpPreview`; no data change).
+
+## Team folder basics — 전사 공유·부서·프로젝트 on screen, what each folder is for, 양식, the company start in shared/ (feat/team-folder-basics, 2026-11-09, product owner)
+
+넣을 곳: trina-ax `shared/src/folder-labels.ts`, `web/src` (Files, the pickers, `web/src/i18n/ko.ts`),
+`server/src/chat/prompt.ts` and `chat/file-placement.ts`, `server/src/admin/folders.ts`, `server/src/onboarding/`, 이유:
+files, the AI's instructions and onboarding are core. Plan: `docs/AGENTS/plan/20261109-0839-team-folder-basics.md`.
+
+The owner approved these on 2026-11-09. A new team has `groups/`, `projects/`, `shared/`, `skills/` and `users/`, and
+Files showed those English disk names. Onboarding put the company's own material (회사 소개, 브랜드, 회의록, the uploaded
+company files) in `groups/<회사명>/`, which a member who joined another way does not see: two company-wide homes. There
+was no place for forms and templates and no archive convention, and the AI was told which folders it may write but not
+what each one is for.
+
+- **Folder names on screen, not on disk.** One table (`shared/src/folder-labels.ts`, five languages): `shared` →
+  전사 공유 (Company-wide), `groups` → 부서 (Groups), `projects` → 프로젝트, `skills` → 팀 스킬, `users` → 개인, the
+  person's own `users/<id>` → 내 폴더. Only the exact top-level disk names get words (a folder named "Shared" deeper
+  down is that folder's name). The web shows them through `lib/folderLabels.ts` in Files (breadcrumbs, rows, the move
+  and copy toasts, the search scope, the upload lines), the folder picker (move, save to team folder, projects, admin
+  rules), the team-file picker of the message box (its rows, breadcrumbs, path lines; it already named 내 폴더), the
+  message box's team file chips, Home's team files line and the 팀 파일 step; a step line names shared/ the same way
+  (`STEP_PLACE.shared`). A row's hover title stays the disk name. At the team root the five come first in a fixed order,
+  전사 공유, 부서, 프로젝트, 팀 스킬, 개인 (`topFoldersFirst`: Files, the folder picker and the team-file picker), then the
+  rest as the server lists it; a deeper folder keeps that sorting (display only: the API's order and pages do not
+  change). Disk names, API paths, links, drag and drop and every path the AI is given are unchanged. Not changed: the Admin › 폴더 권한 pages (they set rules on paths and show them),
+  the Projects page's folder lines.
+- **"부서" for admin groups in Korean.** Every ko string that names an admin group says 부서 (Admin › 부서, rules, the
+  access views and editor, pickers for AI connections, credentials, integrations and budgets, usage, audit lines, group
+  skills and skill shares, the team link's "들어온 사람이 속할 부서", the room picker's list of groups, the server's ko
+  messages for groups and group folders). The particles follow (부서를, 부서가, 부서로). "그룹 대화" (hand-picked group
+  chats: the room picker's 그룹 대화 만들기 and its name field, notifications, Slack's 1:1·그룹 대화) stays, and so do the
+  server's "자원 그룹" lines (Linux cgroups). The other languages keep their word for groups, which is also their folder
+  label, so each language uses one word for both.
+- **What each folder is for, in the AI's instructions** (`folderPurposeLines`, in the person lines after the folder
+  lists, so a resumed session and a room session get it). One line per top folder with the name the screen shows in
+  the person's language ("shared/ ("전사 공유"): company-wide; everyone in the team can see it…"), the person's own
+  folder by its words, and, when `shared/양식/` (any language's name) is there and readable (in a room: by everyone
+  there), "Forms and templates are in shared/양식/. When you make that kind of document …, start there". Written in
+  English like the rest of the instructions, not the brief's Korean sentence. No team data except that one folder name.
+- **보관, a convention.** The placement rule (`filePlacementRule(move, archive)`) says that when the person asks to tidy
+  up, finished work moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/),
+  made like any new folder, and nothing is deleted unless asked. The word follows the templates folder's language (the
+  team's); a team without one is told to name it like the folders already there ("보관" in Korean, "Archive" in
+  English), so members who read the app in different languages do not make one each. No button, no feature.
+- **projects/ in the loose-file note.** A new file directly in `projects/` (beside the project folders, not in one) gets
+  the server's note like `shared/` (`looseArea`), in the in-app AI and the app connector (`connectors/remote-mcp/upload.ts`,
+  its guide line). Its note names the project folders and never suggests a new folder in `projects/` (people make
+  projects in the app; a folder there would look like one and not be one). `projects/` joins `groups/` and `users/` as a
+  root folder never offered as a place for a loose file. A project's own folder is still where its chats save.
+- **`shared/양식/` for a new team** (`createDefaultFolders` → `ensureTemplatesFolder`): made at the team's creation (setup
+  and the server CLI), named in the team's language (양식, Templates, Templat, テンプレート, Plantillas), inheriting
+  shared/'s rule (no folder row, so the owner checklist's 폴더 권한 step is unchanged). Safe to run again; never a second
+  one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
+  touched (nothing runs it for them). No department folders.
+- **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
+  puts joiners in it; its team room), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
+  (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
+  회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
+  folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
+  shared/ and the other groups' folders, not the team group's own folder. A row without `home` (every team that started
+  before) keeps `groups/<team>/` as its home and its files where they are: no migration, nothing moved; only a team
+  group that is gone and made again starts in shared/. After a rollback, an older build that runs the team's start
+  again re-saves the row without `home` (it does not know the field) and makes `groups/<team>/브랜드/` beside the
+  recorded `shared/회의록/`; rolled forward, that row reads as an older team's. Nothing is lost; the material is in two
+  places until someone moves it.
+- **What reads those paths.** Home's 팀에 준비된 것 count (`skills/examples.ts`: shared/ without the brand folder, for
+  everyone in the team; the block reloads on shared/ changes), the member's 올리기 suggestion (`memberTeamFolder`: the
+  home), 팀 파일 recorded by the run (`onboarding/team-files.ts`: a file in shared/ or a group's folder), the step
+  labels (`placeName`: shared/브랜드, shared/브랜드/이미지 and shared/회의록 by their words), the Files screen's
+  "폴더에서 회사 문서 추천받기" line (the home), the pack skills 회사 소개서, 카드뉴스 and 홍보 영상 (they read
+  shared/브랜드/ first, groups/<team>/브랜드/ for a team that started before; installed copies keep their text). The promo
+  video's picture check already took `shared/<브랜드>/`. Not affected: the company profile (`skills/company-profile.json`),
+  the file ranks (#195, migration 272: names from the person's computer, no team path), the owner checklist, the demo
+  company (it seeds its own files).
+- Tests: `tests/unit/team-folder-basics.test.ts` (the labels table and paths, the step labels, `shared/양식` made once
+  and never twice, the prompt lines with the person's words and the templates line (not in a room that cannot read
+  it, not when hidden), 보관 in the team's language, the loose note for projects/, the team's start in shared/ with
+  Home's count, the member's folder and 팀 파일 landed there, an older row kept); updated: `b-onboarding-team-space`,
+  `b-onboarding-cardnews` (the brand folder in shared/), `b-onboarding-file-rank`, `b-member-contribute` (shared/ is
+  everyone's folder), `b-skill-examples` (now an older row), `b-chat-file-placement`, `remote-mcp-placement`,
+  `remote-mcp-guide`, `step-labels-tools`, `i18n-languages`; web `folder-labels.test.ts`, `team-prepared.test.tsx`,
+  `access-view.test.ts`, `steps-subtasks.test.tsx`; e2e `welcome-team-files.spec.ts`, `team-prepared.spec.ts`,
+  `files.spec.ts` and the specs that read 그룹.
+- **Independent review (2026-11-09), fixed:** the archive word fell back to each person's language on teams without a
+  templates folder; the purpose lines said everyone sees shared/ (now "by default") and only admins change skills (now
+  also the people they let edit skills), and pointed at the User line's groups, which a room session has none of; the
+  projects/ note could suggest a new folder there; the 팀 파일 step's who-sees-it count could be overwritten by a slower
+  answer for the place chosen before; the handover note said "팀 부서" for the team group (now "팀원으로 들어가요").
+  Kept: the rollback effect above.
+- Version impact: **minor** (new teams get another layout and folder, the AI places files differently, new words on
+  screen; no API path, no migration).
+
+## The image viewer's 복사 — copy the picture from the viewer's bar or with ⌘C (feat/viewer-copy-image, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/copyImage.ts` and `web/src/components/ImageViewer.tsx`, 이유: the image viewer is core.
+Plan: `docs/AGENTS/plan/20261109-1050-viewer-copy-image.md`.
+
+The owner: "이미지 copy 기능도 있어야해". The viewer ("One image viewer") had download, a new tab and ✕; a picture copied
+only by a right-click (the browser's Copy Image, the desktop app's 이미지 복사).
+
+- **복사 in the bar, left of the download** (the copy icon, the tooltip and name 복사 like the download's 내려받기), and
+  **⌘C / Ctrl+C** anywhere in the viewer, unless a text in the viewer is selected (none can be today: the viewer is
+  `select-none`; a selection left on the page behind is not what is on screen, so the key copies the picture). With a
+  Korean input source the key reads ㅊ: the key's place (`KeyC`) says it is C, but only when the key is no Latin letter,
+  so another layout's C stays its own letter. A held key copies once.
+- **What goes: the picture the viewer drew, as a PNG, with no new request or address.** A PNG whose bytes the page has
+  (a picture in a message box) goes as it is. Everything else (a JPEG, WebP or GIF; the server's JPEG of a HEIC; a PNG
+  the page has only by its address) is drawn on a canvas from the viewer's own `<img>` and goes as a PNG: browsers take
+  `image/png` reliably and other types not at all. Nothing is painted first, so transparency stays. A copy pressed while
+  the original loads waits for it (up to 15 s, then the thumbnail, said so). An SVG with no size of its own (an answer's
+  drawing) is drawn at its size on screen, in device pixels. A picture with no original drawn (over the 20 MB preview limit, a HEIC sent in a
+  room, an original that failed) copies the thumbnail on screen, and the toast's second line says so ("원본 대신 화면에
+  보이는 작은 사진을 복사했어요."); one that cannot be shown at all has no 복사. A canvas too big to make is tried once
+  more within iOS Safari's 4096 × 4096 and a 16384 px side, and the toast says it was made smaller; a moving GIF copies
+  the frame on screen.
+- **How**: `navigator.clipboard.write([new ClipboardItem({ 'image/png': promise })])`, the item made and written inside
+  the click or the key press (Safari takes the write only there), with the PNG a promise that may come later.
+- **A copy given up writes nothing.** A copy still waiting (its original loading) is given up by the next press and when
+  the viewer closes: its PNG promise is rejected, so the browser writes nothing and no toast shows. Otherwise a picture
+  could land on the clipboard over text copied since, with a toast out of nowhere (Chromium runs each write on its
+  own), or Safari could cancel the first write itself and report a refusal.
+- **Only where it works; never a button that does nothing.** Shown with `navigator.clipboard.write`, `ClipboardItem`
+  and, where the browser has it, `ClipboardItem.supports('image/png')`. So not on a plain http page (no async
+  clipboard) or in an older Firefox. Not in an Android WebView: it puts no picture on the clipboard (Chromium writes
+  pictures there through a file provider that only Chrome has), so its write would succeed and leave nothing. That is
+  the Android phone app and every in-app browser on Android (a chat app opening a shared team link), told by the user
+  agent's "; wv)". Chrome on Android, the iPhone app's WebView and iOS Safari take it. Not chosen: a bridge for the
+  phone apps (no change to them).
+- **The desktop app needs nothing new**: its team page may already write the clipboard (`clipboard-sanitized-write` for
+  the team origin, `desktop/src/main/security.ts`; image/png is a sanitized write like text/html), and its team address
+  is always https or this machine, a secure page. `desktop/e2e/clipboard.spec.ts` now writes a PNG with a transparent
+  half from the team page and reads it back from the system clipboard, transparency kept. Not chosen: a preload
+  `copyImage(url)` with the main process fetching the original, a second way to the same bytes with its own address
+  checks.
+- **Feedback**: a toast, which sits above the viewer: 이미지를 복사했어요, or 이미지를 복사하지 못했어요 with one line of
+  why (the browser refused the clipboard: click or tap the window and try again; too big even made smaller: download
+  it; the picture did not load; anything else: try again, else download it). The same words go to a status line inside
+  the dialog: the toast is outside the `aria-modal` dialog, where a screen reader (VoiceOver) may not read it.
+- **Not in the room message's ⋮ menu or long-press sheet**: they act on the message (copy its text, edit, delete) and
+  have no item per attachment. A picture opens the viewer, where 복사 is.
+- Tests: `web/test/unit/copy-image.test.ts` (where it is offered, an Android WebView by its user agent, a PNG as it is,
+  other types drawn at their size, the thumbnail and a smaller drawing said so, a long strip within the side limit, the
+  item written inside the click, a copy given up writing nothing, each reason, the key with a Korean input source and
+  another layout), e2e `image-viewer.spec.ts` (복사 beside the download, the original read back from Chromium's clipboard
+  as a 2880 × 1800 PNG with no new request, ⌘C and Ctrl+C, the status line in the dialog, a WebP's transparency and a
+  JPEG as PNGs, a copy that waits for the original (its thumbnail a different size), a copy given up by closing the
+  viewer leaving the text copied since, the thumbnail of a picture over 20 MB, no button without ClipboardItem;
+  screenshots), desktop e2e `clipboard.spec.ts` (a PNG from the team page). The browser tests use Chromium's own
+  clipboard (granted in `playwright.config.ts`); the desktop test puts back what was on the computer's clipboard. Not
+  tested: Safari (Playwright's WebKit may write the computer's own clipboard), and ⌘C through the real viewer in the
+  desktop app next to its Edit menu's Copy (the page gets the key first; the desktop e2e's team page is a fake one).
+- Version impact: **patch** (one button and one key in the viewer; no API, setting or data change).

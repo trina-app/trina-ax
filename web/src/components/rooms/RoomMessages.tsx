@@ -38,7 +38,7 @@ import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview, roomPreview, type PreviewFile } from '../../lib/sidePanel'
-import { opensWithoutServer } from '../../lib/preview'
+import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
@@ -669,11 +669,13 @@ function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
 
 /** A file under a message: its name and size open it in the side panel, and a small download icon sits at its end (on
  * phones 44px wide, so its tap area never reaches over the name; touch-hit gives the height). A file
- * the panel cannot show is one button that downloads, as before. Each button is named by the words on it first (the
+ * the panel cannot show is one button that downloads, as before (a Hangul file opens only while the HWP preview is on:
+ * lib/preview.ts roomFileOpens). Each button is named by the words on it first (the
  * name and size), then what it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
 function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   const t = useT()
   const locale = useLocale()
+  const me = useMe()
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
   const label = (
     <>
@@ -682,7 +684,7 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
       <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
     </>
   )
-  if (!opensWithoutServer(f))
+  if (!roomFileOpens(f, me))
     return (
       <button type="button" onClick={download} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
         {label}

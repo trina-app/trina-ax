@@ -55,7 +55,7 @@ test('write is a box whatever the app asked; an owner or admin is told the conne
   await page.goto('/connectors/authorize?id=' + id)
   const pane = page.getByTestId('connector-consent')
   await expect(pane.getByTestId('connector-write')).toContainText('파일 쓰기')
-  await expect(pane.getByTestId('connector-admin')).toHaveText('팀장·관리자라서 이 연결로 팀 그룹도 관리할 수 있어요.')
+  await expect(pane.getByTestId('connector-admin')).toHaveText('팀장·관리자라서 이 연결로 부서도 관리할 수 있어요.')
   await expect(pane.locator('input[type=checkbox]')).toHaveCount(1)
   await expect(pane.getByTestId('connector-granted').locator('li')).toHaveCount(1)
   await expect(pane.getByTestId('connector-write-check')).not.toBeChecked()

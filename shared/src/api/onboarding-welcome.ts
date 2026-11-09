@@ -38,10 +38,19 @@ export const TEAM_TYPES = ['marketing', 'sales', 'operations', 'other'] as const
 export const TeamType = z.enum(TEAM_TYPES)
 export type TeamType = z.infer<typeof TeamType>
 
-/** `brandFolder` (groups/<team>/브랜드, localized): the company intro and the brand images folder in it (docs/DECISIONS.md
- * "N"); absent on rows from before it until the team's start runs again. */
-export const TeamGroupRef = z.object({ id: z.string(), name: z.string(), folder: z.string(), notesFolder: z.string(), brandFolder: z.string().optional() })
+/** The team's own group (the invite link puts joiners in it; its team room) and where the team's start put the company's
+ * own material. `home`: the folder that holds it, 'shared' for a team whose start ran since docs/DECISIONS.md "Team folder
+ * basics" (shared/브랜드, shared/회의록 and the 팀 파일 uploads: everyone in the team sees them); absent on rows from
+ * before, whose material stays in the group's `folder` (groups/<team>/: nothing is moved). `notesFolder` and
+ * `brandFolder` (localized: …/회의록, …/브랜드 with the company intro and the brand images folder in it,
+ * docs/DECISIONS.md "N") are inside the home; `brandFolder` is absent on rows from before N until the team's start runs
+ * again. */
+export const TeamGroupRef = z.object({ id: z.string(), name: z.string(), folder: z.string(), notesFolder: z.string(), brandFolder: z.string().optional(), home: z.string().optional() })
 export type TeamGroupRef = z.infer<typeof TeamGroupRef>
+/** `home` of a team whose start ran since "Team folder basics". */
+export const SHARED_HOME = 'shared'
+/** The folder the team's start put the company's material in: shared/ (since "Team folder basics"), else the group's. */
+export const teamHome = (g: Pick<TeamGroupRef, 'folder' | 'home'>): string => g.home ?? g.folder
 
 /** A field added later must be optional or have a default: the server reads the stored row field by field (a field
  * that does not read falls back to its default; a recorded general pack always counts as installed). */

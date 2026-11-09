@@ -1,6 +1,7 @@
 // The Team skills page under its lists (docs/DECISIONS.md "W6"; FLOW-v6 §4.2; components/AvailableSkills.tsx). For
-// owners and admins: the kept skills the team does not have, folded in one line ("{product}가 준비한 스킬 · N개 더"), open
-// with nothing checked; [팀에 넣기 · n개] installs the checked ones, one request per pack (POST
+// owners and admins: the kept skills the team does not have, folded in one line ("트리나가 준비한 스킬 · N개 더": the product
+// as the app names its AI, tabs.ts namedProduct), open with nothing checked, or open from the start when "스킬 넣기" led
+// here (/skills?catalog=open); [팀에 넣기 · n개] installs the checked ones, one request per pack (POST
 // /api/onboarding/packs/:id/install with `skills`), says what went in, and the rows that went in leave the fold; a name
 // taken or a request that failed is said under the rows (다시 for only the failed ones). Hidden while the search box has
 // text, absent when nothing is missing, a note with 다시 when the catalog does not load; members never read it. Then
@@ -11,11 +12,13 @@ import { MemoryRouter } from 'react-router-dom'
 import type { PackCatalogSkill, SkillInfo } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
+import { namedProduct } from '../../src/lib/tabs'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { FakeElement, installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
+const PRODUCT_KO = namedProduct(ko)
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const kept = (pack: 'general' | 'work', name: string, title: string, inTeam = false): PackCatalogSkill => ({
   pack, name, path: `skills/${pack}/${name}/SKILL.md`, title, description: `${title} 한 줄`, inTeam, visual: pack === 'general', example: null, locale: 'ko', source: { kind: 'team' },
@@ -83,7 +86,7 @@ const as = (role: 'owner' | 'admin' | 'member') => useSession.setState({ status:
 /** a computer whose browser picks folders (Chrome: the folder window) */
 const computer = () => { g.showDirectoryPicker = async () => { throw Object.assign(new Error('closed'), { name: 'AbortError' }) } }
 const phoneWidth = () => { g.matchMedia = (q: string) => ({ matches: q.includes('767.98'), addEventListener() {}, removeEventListener() {} }) }
-const page = (items: SkillInfo[] = SKILLS, query?: string) => mount(<MemoryRouter><AvailableSkillsList items={items} query={query} /></MemoryRouter>)
+const page = (items: SkillInfo[] = SKILLS, query?: string, catalogOpen?: boolean) => mount(<MemoryRouter><AvailableSkillsList items={items} query={query} catalogOpen={catalogOpen} /></MemoryRouter>)
 const body = () => (globalThis.document as unknown as { body: FakeElement }).body
 const rowNames = () => body().querySelectorAll('[data-testid="skill-pack-row"]').map((r) => r.getAttribute('data-name'))
 const rowOf = (name: string) => body().querySelectorAll('[data-testid="skill-pack-row"]').find((r) => r.getAttribute('data-name') === name)!
@@ -102,7 +105,7 @@ describe('the kept skills the team lacks (owners and admins)', () => {
     const m = await page()
     try {
       await m.until(() => m.find('skill-catalog-toggle'), 'the fold')
-      expect(m.get('skill-catalog-toggle').textContent).toBe(ko('skills.catalog.more', { n: 3 }))
+      expect(m.get('skill-catalog-toggle').textContent).toBe(ko('skills.catalog.more', { ...PRODUCT_KO, n: 3 }))
       expect(m.get('skill-catalog-toggle').getAttribute('aria-expanded')).toBe('false')
       expect(rowNames()).toEqual([])
       // under the lists, not in them
@@ -127,7 +130,7 @@ describe('the kept skills the team lacks (owners and admins)', () => {
       ])
       expect(toasts()).toEqual([['success', ko('skillPack.installed', { n: 2 })]])
       // the catalog is read again (the team skills changed): what went in leaves the fold
-      await m.until(() => m.get('skill-catalog-toggle').textContent === ko('skills.catalog.more', { n: 1 }), 'the fold counted again')
+      await m.until(() => m.get('skill-catalog-toggle').textContent === ko('skills.catalog.more', { ...PRODUCT_KO, n: 1 }), 'the fold counted again')
       expect(called('GET /api/onboarding/packs')).toHaveLength(2)
       expect(rowNames()).toEqual(['promo-video'])
       await m.click('skill-catalog-fold')
@@ -170,12 +173,25 @@ describe('the kept skills the team lacks (owners and admins)', () => {
     } finally { await m.unmount() }
   })
 
+  test('"스킬 넣기" led here (/skills?catalog=open): the fold is open from the start, nothing checked; the name is the one the app gives its AI', async () => {
+    as('owner')
+    const m = await page([], undefined, true)
+    try {
+      await m.until(() => m.find('skill-catalog-toggle'), 'the fold')
+      expect(m.get('skill-catalog-toggle').getAttribute('aria-expanded')).toBe('true')
+      await m.until(() => rowNames().length === 4, 'the rows')
+      expect(rowNames().every((n) => !checkOf(n!).checked)).toBe(true)
+      // "트리나가 준비한 스킬" beside "트리나에게 묻기", never the product's full name in Korean
+      expect(m.get('skill-catalog-toggle').textContent).toBe(`${PRODUCT_KO.product}가 준비한 스킬 · 4개 더`)
+    } finally { await m.unmount() }
+  })
+
   test('the empty page has it under its line; hidden while the search box has text; absent when nothing is missing', async () => {
     as('owner')
     let m = await page([])
     try {
       await m.until(() => m.find('skill-catalog-toggle'), 'the fold under the empty page')
-      expect(m.get('skill-catalog-toggle').textContent).toBe(ko('skills.catalog.more', { n: 4 }))
+      expect(m.get('skill-catalog-toggle').textContent).toBe(ko('skills.catalog.more', { ...PRODUCT_KO, n: 4 }))
       expect(m.find('skill-pack-install')).toBeNull()
       expect(m.container.textContent).toContain(ko('skills.noSkills'))
     } finally { await m.unmount() }

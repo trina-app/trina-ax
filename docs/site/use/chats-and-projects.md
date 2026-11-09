@@ -60,6 +60,10 @@ up to ten above the five latest chats, and all of them first in **Show all** and
 pinned chats there first too. **Unpin** (고정 해제) puts a chat back. A pin is yours only, also on a shared project chat,
 and it goes when the chat is deleted or you can no longer see it. You can pin up to 50 chats.
 
+Conversations in **대화** (rooms, DMs and group chats) are pinned the same way, from a row's **···** or the room's own
+**···**: pinned ones come first, with a small pin after the name, in the sidebar, the full list and the phone's **대화** tab.
+Only you see your pins. A pin goes when you leave the room or hide it. You can pin up to 50 conversations.
+
 ## Projects
 
 A project is a folder of the team folder, plus instructions. Use it for work that keeps coming back to the same files: a launch, a client, a quarter's report.

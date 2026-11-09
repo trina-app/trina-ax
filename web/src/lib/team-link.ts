@@ -3,6 +3,7 @@
 // chat app, and where a new member may be sent after joining.
 import { TEAM_LINK_FRAGMENT_KEY } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
+import { namedProduct } from './tabs'
 
 /**
  * The token of a /join#t=<token> address, and the address to put back without it. A fragment never reaches a server
@@ -19,15 +20,17 @@ export function readJoinToken(loc: { pathname: string; search: string; hash: str
 
 /** The text a leader pastes into KakaoTalk or Slack: who invites, to which team (`team`: the team's name, so the
  * message says where the link leads; docs/DECISIONS.md "W3"), and the ONE skill to try together when the link names one
- * (the skill the link opens: several shared skills are never listed, docs/DECISIONS.md "W5"); `ownAi`: people who join
+ * (the skill the link opens: several shared skills are never listed, docs/DECISIONS.md "W5"), on the product as the app
+ * names it beside its AI ("트리나에서", tabs.ts namedProduct); `ownAi`: people who join
  * sign in to their own AI (the link's `memberAi` is `connect_own`), so the message says "본인 AI 계정이 필요해요" before
  * they hit it; `made`: the team skill they just made ("Acme에 '견적서 쓰기' 스킬을 만들어 뒀어요…"). `name` is the
  * person copying it (they are the one sending it). */
 export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; made?: boolean; ownAi?: boolean }): string {
   // a team skill the lead just made from their own work (docs/DECISIONS.md "S"), in their voice
   if (o.made && o.skill) return t('teamLink.messageMade', { team: o.team, skill: o.skill, url: o.url })
-  if (o.skill) return t(o.ownAi ? 'teamLink.messageSkillOwnAi' : 'teamLink.messageSkill', { name: o.name, team: o.team, url: o.url, skill: o.skill })
-  return t(o.ownAi ? 'teamLink.messageOwnAi' : 'teamLink.message', { name: o.name, team: o.team, url: o.url })
+  const product = namedProduct(t)
+  if (o.skill) return t(o.ownAi ? 'teamLink.messageSkillOwnAi' : 'teamLink.messageSkill', { ...product, name: o.name, team: o.team, url: o.url, skill: o.skill })
+  return t(o.ownAi ? 'teamLink.messageOwnAi' : 'teamLink.message', { ...product, name: o.name, team: o.team, url: o.url })
 }
 
 /** Where to go after joining: only the skill form the server named (`/skills?run=<path>`), anything else is Home. */
