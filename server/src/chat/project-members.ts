@@ -251,10 +251,21 @@ export function nameParts(name: string): string[] {
   if (words.length === 1 && /^[\uac00-\ud7a3]{3,4}$/.test(words[0]!)) out.push([...words[0]!].slice(1).join(''))
   return [...new Set(out)]
 }
+/** Is this part of a name in the person's words with an honorific right after it ("민재님", "민재 씨", "erinさん",
+ * "erin-san"; a particle may follow the honorific)? A bare part is not: it is an ordinary word too often ("will",
+ * "mark", "park", "미래", "하늘": the re-check of this tool). */
+export function saidWithHonorific(words: string, part: string): boolean {
+  const n = compactName(part)
+  if (!n) return false
+  const body = [...n].map(esc).join('[\\s.\\-_·・]*')
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?:\\s?(?:${HONORIFICS.join('|')})|[\\s\\-]san)(?=$|[^\\p{L}\\p{N}]|${PARTICLE})`, 'u').test(words)
+}
 /**
  * Did the person mention this subject (the red mark's test: a mention, not a proof)? Its whole name as a word; a
  * group also by one of its labels or with a group word after its name ("영업팀"); a person also by a part of their name
- * ("민재님", "Erin") when nobody else in `pool` (the members for a removal, everyone for an add) has that part.
+ * with an honorific right after it ("민재님", "Erin-san"), when nobody else in `pool` (the members for a removal,
+ * everyone for an add) has that part. A bare part is no mention: planted text full of ordinary words ("park the idea")
+ * must not turn the red off for a Jun Park.
  */
 export function mentioned(words: string, s: Subject, pool: readonly Subject[]): boolean {
   if (said(words, s.name)) return true
@@ -262,7 +273,7 @@ export function mentioned(words: string, s: Subject, pool: readonly Subject[]): 
   return nameParts(s.name).some((part) => {
     const k = compactName(part)
     const others = pool.filter((x) => keyOf(x) !== keyOf(s) && namesOf(x).some((n) => compactName(n).includes(k)))
-    return !others.length && said(words, part)
+    return !others.length && saidWithHonorific(words, part)
   })
 }
 

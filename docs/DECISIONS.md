@@ -18638,7 +18638,8 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   is one of that name's candidates. Even then a card cannot tell two accounts of one name apart, and anyone can set
   their own name: an admin's card shows the account's username beside it (its owner cannot change it), and anyone else
   is refused ("another account or a group goes by this name too": no count, no group named) and sent to the members
-  panel (the security review of this tool, MUST 2). A group's own line says "부서" and its head count, which no person
+  panel (the security review of this tool, MUST 2). That refusal tells a member only that the name is taken, never by
+  whom or by what. A group's own line says "부서" and its head count, which no person
   can take: it goes on beside people of its name, and only another group of the name refuses. So anyone who sets their
   display name to a colleague's (or a group's) blocks the AI path for members for that name: it fails closed to the
   panel. Accepted. Removal: among the current members, a part of 2+ characters is enough when it is unique. Not a
@@ -18665,9 +18666,11 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
     never inside a longer word: "민재" is not in "이민재님"; no look-alike map), never the name or project alias the AI
     gave (a part of a name or a look-alike picked by its id passed otherwise: the security review, MUST 1);
   - a group by one of its labels or with a group word after its name ("영업 부서", "영업팀");
-  - a person by a part of their name ("민재님" for 이민재, "Erin" for Erin Yoo) only when nobody else in the pool has that
-    part (the members for a removal, everyone for an add), so people do not learn to ignore the red; a part another
-    one has stays red (fail-safe);
+  - a person by a part of their name with an honorific right after it ("민재님", "민재 씨" for 이민재, "Erin-san",
+    "Erinさん"), only when nobody else in the pool has that part (the members for a removal, everyone for an add), so
+    people do not learn to ignore the red; a part another one has stays red (fail-safe). A bare part never counts: it
+    is an ordinary word too often ("I will check", "park the idea", "미래 계획", "하늘이 맑네" would clear Will Smith, Jun
+    Park, 이미래 and 김하늘), and an insider could pick such a name on purpose (the re-check of this tool, MUST);
   - not: `>` quote lines, and a room picked with "#" (`#[title](room:<id>)`: the title is other people's words, a group
     chat's name is its members').
   It reads the newest 200,000 characters of those messages (a regex per name: long messages must not stall the server;

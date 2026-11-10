@@ -87,6 +87,7 @@ side-chat gap (M1) is left for its own change. An independent re-check of the PR
 like a group's on-screen label ("영업 부서") was the only match for "영업 부서 넣어줘"; groups now go by their labels in every
 language, so that is a same name. From the same re-check: room titles in the message do not count as the person's
 words, more look-alike letters fold, an honorific or a group word after a name still matches, and a part of a name only
-one member has counts as a mention (fewer false red marks); DECISIONS calls the red mark a mention check.
+one member has counts as a mention when an honorific follows it ("민재님"; a bare part such as "park" or "미래" stays red,
+from a second re-check); DECISIONS calls the red mark a mention check.
 
 PR: https://github.com/trina-app/trina-ax/pull/310 (stacked on #298)

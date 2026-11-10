@@ -177,7 +177,7 @@ describe('the red mark\'s test: the whole name in the person\'s own words (M5, r
     expect(said(w('Kim Sora 넣어줘'), 'Кim Sora')).toBe(false)
   })
 
-  test('a mention: a group by a label or a group word; a person by a part of the name only nobody else in the pool has', () => {
+  test('a mention: a group by a label or a group word; a person by a part of the name with an honorific, only nobody else in the pool has it', () => {
     const w = (t: string) => foldName(t)
     const sales = groupSubject({ id: 'g-sales', name: '영업' })
     expect(mentioned(w('영업팀 넣어줘'), sales, [sales])).toBe(true)
@@ -187,12 +187,31 @@ describe('the red mark\'s test: the whole name in the person\'s own words (M5, r
     expect(nameParts('이민재')).toEqual(['민재'])
     expect(nameParts('Erin Yoo')).toEqual(['erin', 'yoo'])
     expect(mentioned(w('민재님 빼줘'), minjae, [minjae, erin])).toBe(true)
+    expect(mentioned(w('민재님을 빼줘'), minjae, [minjae, erin])).toBe(true)
     expect(mentioned(w('민재 씨 빼줘'), minjae, [minjae, erin])).toBe(true)
-    expect(mentioned(w('erin 빼줘'), erin, [minjae, erin])).toBe(true)
+    expect(mentioned(w('erin님 빼줘'), erin, [minjae, erin])).toBe(true)
+    expect(mentioned(w('Erin-san please'), erin, [minjae, erin])).toBe(true)
+    expect(mentioned(w('Erinさん'), erin, [minjae, erin])).toBe(true)
+    // a bare part is no mention (it is an ordinary word too often)
+    expect(mentioned(w('erin 빼줘'), erin, [minjae, erin])).toBe(false)
+    expect(mentioned(w('민재 빼줘'), minjae, [minjae, erin])).toBe(false)
     // another member has that part too: not a mention of this one (fail-safe: red)
     const minjae2: Subject = { subjectType: 'user', subjectId: 'mj2', name: '김민재' }
     expect(mentioned(w('민재님 빼줘'), minjae, [minjae, minjae2])).toBe(false)
-    expect(mentioned(w('erin 빼줘'), erin, [erin, { subjectType: 'user', subjectId: 'e2', name: 'Erin Park' }])).toBe(false)
+    expect(mentioned(w('erin님 빼줘'), erin, [erin, { subjectType: 'user', subjectId: 'e2', name: 'Erin Park' }])).toBe(false)
+  })
+
+  test('planted text of ordinary words never counts as a mention of a real colleague (the re-check\'s probes stay red)', () => {
+    const w = (t: string) => foldName(t)
+    const person = (id: string, name: string): Subject => ({ subjectType: 'user', subjectId: id, name })
+    const probes: [string, Subject][] = [
+      ['I will check the report', person('will', 'Will Smith')],
+      ['mark this as done', person('mark', 'Mark Jones')],
+      ['let us park the idea', person('jun', 'Jun Park')],
+      ['미래 계획 정리해줘', person('mirae', '이미래')],
+      ['오늘 하늘이 맑네', person('haneul', '김하늘')],
+    ]
+    for (const [text, s] of probes) expect({ text, mentioned: mentioned(w(text), s, [s]) }).toEqual({ text, mentioned: false })
   })
 })
 
@@ -365,14 +384,17 @@ describe('the attacks', () => {
     expect(seen.cards[0]!.question.startsWith(tr('roomsSeenWhy', 'en'))).toBe(true)
     expect(seen.cards[0]!.details![1]!.alerts).toBeUndefined()
     expect(seen.cards[0]!.question).not.toContain(MEMBERS_TEXT.red.en)
-    // removal by a part of the name nobody else in the project has: a mention, not red
+    // removal by a part of the name with an honorific, a part nobody else in the project has: a mention, not red
     const q = await project('alice', 'Part', [user('erin')])
-    const part = await turn('alice', `Erin 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: q.id, answer: 'skip' })
+    const part = await turn('alice', `Erin님 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: q.id, answer: 'skip' })
     expect(part.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person' })
-    // ...but a part another member has too is no mention of this one: red
+    // the bare part: red (an ordinary word could carry it)
+    const bare = await turn('alice', `Erin 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: q.id, answer: 'skip' })
+    expect(bare.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', alerts: [{ text: 'Erin Yoo · person', note: RED }] })
+    // ...and a part another member has too is no mention of this one: red
     h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('erin2', 'erin2', 'Erin Park', 'member')").run()
     const r2 = await project('alice', 'Part two', [user('erin'), user('erin2')])
-    const two = await turn('alice', `Erin 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: r2.id, answer: 'skip' })
+    const two = await turn('alice', `Erin님 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: r2.id, answer: 'skip' })
     expect(two.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', alerts: [{ text: 'Erin Yoo · person', note: RED }] })
     h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'erin2'").run()
   })
