@@ -18627,3 +18627,31 @@ Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기"
   `skill-files.test.ts` (S7 in a side chat with a quote; the same copy in a plain chat gets its card),
   `b-side-chat.test.ts` (the rule's three ways in, an edited branch).
 - Version impact: **patch** (a security consistency fix; no API, data or setting change).
+
+## 메시지 복사는 메시지만 — copying room messages gives their words, not the buttons (fix/clean-message-copy, 2026-11-10)
+
+The owner copied a few messages from a room and pasted "✅ 👀 👍" under every one, the name and time on separate lines
+and many blank lines. The hover bar is in the page for every message (only its opacity hides it), and the reaction
+chips, "답글 N개", "(수정됨)", a file's size and "미리보기" and the avatar's initial were all selectable text.
+
+- **Decision: only a message's words can be selected.** A message row is `select-none`; its words (the text, an AI
+  answer's Markdown, a shared answer's note and answer, the deleted and hidden placeholders) are `select-text`, still
+  none on touch screens (a long press opens the menu there). The hover bar stays in the page: keyboard access and its
+  tests are unchanged.
+- **Decision: several messages copy as plain text, one block each** (`lib/messageCopy.ts`, a `copy` handler on the
+  message list). "Name  2:57 PM" on one line, once per run of one author as the list shows it; then the text; a file as
+  its name on a line of its own; one blank line between messages. A first or last message only partly selected gives the
+  part selected, under its author line. A selection crossing a day keeps the date line, and an event line is a line of
+  its own (both were in the copy before; the least change). It reads the page (the rows, their `select-text` words, the
+  run's name and `<time>`), so the timeline and a thread's panel (root and replies, two lists) copy the same way. No
+  `text/html`: a paste into Slack, Docs or the room's own box gets the same text.
+- **A selection inside one message is the browser's own copy**, as before, now without "(수정됨)". The same for a
+  selection that reaches the next message's very start (a triple click).
+- **The AI chat and the ✦ side chat** (they share `chat/Messages.tsx`, not the room list): the rows under a message
+  (copy, send here, regenerate, the model name, the branch switch), the steps toggle and Markdown's code, table and
+  quote copy bars are `select-none`, so a copy over a question and its answer is their words. The answer's own copy
+  button (Markdown and HTML) is unchanged.
+- Not done: a rich (HTML) copy of several messages; the AI chat's own multi-message format.
+- Tests: web unit `message-copy.test.ts`; e2e `room-copy.spec.ts` (three runs with a file, a reaction and an edited
+  message with a thread copied clean; a partial first message; one message as before; a thread's panel; the side chat).
+- Version impact: **patch** (a fix; no API or data change).

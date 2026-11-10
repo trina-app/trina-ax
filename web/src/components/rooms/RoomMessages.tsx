@@ -284,7 +284,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
   if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
-  return user ? <Avatar user={user} size={32} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
+  return user ? <Avatar user={user} size={32} className="mt-0.5 select-none" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
 /** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I
