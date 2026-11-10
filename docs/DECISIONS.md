@@ -19565,6 +19565,10 @@ folder, in place" (the chip and the panel).
   first ("3 members · 2 more can see it as the owner and admins"), then ko, id, ja, es.
 - **No names** of the owner or admins, in the line, a tooltip or the chip's accessible name (#326): a number for the owner
   and admins, the role words alone for a member.
+- **The project side's role line hangs on one switch** (`web/src/lib/whoByRole.ts`, `PROJECTS_BY_ROLE`, `byRoleLine(…,
+  'project')`): the members dialog, the new-project line, the share switch and a project folder's chip and panel take it
+  from there, so if projects stop being seen by role, turning it off leaves every project line with its members only.
+  Folders keep theirs (the owner and admins open every team folder by role).
 - **Left as they were:** the chat lines and the shared mark (who sees a chat: everyone, admins included), the copy and
   delete cards, #298's dialog layout (only its count line changed, and its fallback after a save drops the old split).
 - Tests: `tests/unit/b-audience-split.test.ts` (the owner's case: creator and group overlap; an admin also in the group;

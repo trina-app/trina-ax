@@ -140,11 +140,15 @@ test('an admin: the people by name, where it comes from, the way to Admin', asyn
   // marketing: only Bob of the members, the owner and the admins
   await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
   await page.goto('/files?path=marketing')
-  await expect(chip(page)).toHaveText(en('folderAccess.people', { n: 4 }))
+  // the folder's own rule first (Bob), the owner and the two admins apart, by number (docs/DECISIONS.md "Who sees it:
+  // the project's own people first")
+  await expect(chip(page)).toHaveText(en('folderAccess.direct', { n: 1 }))
+  await expect(chip(page)).toHaveAccessibleName(`${en('folderAccess.people', { n: 1 })} · ${en('folderAccess.byRole', { n: 3 })}`)
   await chip(page).click()
   const admin = page.getByTestId('folder-access-admin')
   await expect(admin).toBeVisible()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.people', { n: 1 }))
+  await expect(page.getByTestId('folder-access-by-role')).toHaveText(en('folderAccess.byRole', { n: 3 }))
   await expect(page.getByTestId('folder-access-source')).toHaveText(t['accessTree.source.here'])
   await expect(admin.getByTestId('folder-detail-counts')).toHaveText(en('accessTree.counts', { see: 4, write: 4, none: 1 }))
   await expect(admin.getByTestId('folder-person-link').filter({ hasText: 'Bob' })).toHaveAttribute('href', '/admin/folders?view=people&person=bob')
@@ -154,26 +158,31 @@ test('an admin: the people by name, where it comes from, the way to Admin', asyn
   await expect(page.getByTestId('folder-detail')).toHaveAttribute('data-path', 'marketing')
 })
 
-test('a member with write and an admin on the same folder see the same number', async ({ page, browser, playwright }) => {
+test('a member with write and an admin on the same folder: the same people, apart for the admin only', async ({ page, browser, playwright }) => {
   await signIn(page)
   const inv = await page.request.post('/api/admin/invites', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'member' } })
   const c = await playwright.request.newContext({ baseURL: new URL(page.url()).origin })
   expect((await c.post(`/api/invites/${(await inv.json()).token}/accept`, { headers: { [CSRF_HEADER]: '1' }, data: { username: 'carol', name: 'Carol', password: 'carol password 1' } })).ok()).toBe(true)
   await c.dispose()
   await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
-  // Olga (owner): Bob, Dana, Eve and herself; not Carol
+  // Olga (owner): Bob by the rule; Dana, Eve and herself by role; not Carol
   await page.goto('/files?path=marketing')
-  await expect(chip(page)).toHaveText(en('folderAccess.people', { n: 4 }))
+  await expect(chip(page)).toHaveText(en('folderAccess.direct', { n: 1 }))
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
-  // Bob (a member who writes there), in a window of his own: the same chip and the same headline
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.people', { n: 1 }))
+  await expect(page.getByTestId('folder-access-by-role')).toHaveText(en('folderAccess.byRole', { n: 3 }))
+  // Bob (a member who writes there), in a window of his own: the same 4 people as one total, the owner and admins in
+  // it, and no number for them on its own (the server sends him no split)
   const bob = await browser.newPage({ baseURL: new URL(page.url()).origin, locale: 'en-US' })
   await signIn(bob, BOB)
   await bob.goto('/files?path=marketing')
   await expect(chip(bob)).toHaveText(en('folderAccess.people', { n: 4 }))
   await chip(bob).click()
   await expect(bob.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
+  await expect(bob.getByTestId('folder-access-by-role')).toHaveCount(0)
   await expect(bob.getByTestId('folder-access-admin')).toHaveCount(0)
+  const told = (await (await bob.request.get('/api/files/audience?path=marketing')).json()) as Record<string, unknown>
+  expect(told).toEqual({ path: 'marketing', access: 'write', people: 4, everyone: false })
   await bob.close()
 })
 
@@ -203,7 +212,7 @@ test('an admin changes the rules from the panel in Admin\'s editor, and comes ba
   await edit.getByTestId('edit-return').click()
   await expect(page).toHaveURL(/\/files\?path=marketing$/)
   await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.people', { n: 1 }))
   // and saving: everyone reads now, so the whole team sees it
   await page.getByTestId('folder-access-change').click()
   await page.getByTestId('edit-panel').getByTestId('edit-basic-read').click()

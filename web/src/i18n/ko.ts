@@ -728,6 +728,7 @@ export const ko = {
   'folderAccess.people': "{n}명이 봐요",
   'folderAccess.peopleAll': "{n}명이 봐요 (팀장·관리자 포함)",
   'folderAccess.direct': "{n}명",
+  'folderAccess.byRole': "팀장·관리자 {n}명도 볼 수 있어요",
   'folderAccess.ownFolder': "관리자도 열 수 없어요.",
   'folderAccess.adminsChange': "볼 수 있는 사람은 관리자가 바꿔요.",
   'folderAccess.project': "'{name}' 프로젝트의 폴더예요. 볼 수 있는 사람은 프로젝트 멤버를 따라요.",

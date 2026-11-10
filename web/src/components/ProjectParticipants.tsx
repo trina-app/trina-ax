@@ -14,6 +14,7 @@ import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { isAdmin, useMe } from '../store/session'
+import { byRoleLine } from '../lib/whoByRole'
 import { IconButton } from './ui'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
@@ -262,8 +263,8 @@ export function AccessSummary({ count, testId = 'project-access-summary' }: { co
 
 /** The count line's two parts: the people there by the project, then (quieter) the owner and admins by role. */
 export function accessWords(t: ReturnType<typeof useT>, c: AccessCount): { lead: string; role: string | null } {
-  if (c.split) return { lead: t('projects.whoMembers', { n: c.split.direct }), role: c.split.byRole ? t('projects.whoByRole', { n: c.split.byRole }) : null }
-  if (c.adminsApart) return { lead: t('projects.whoMembers', { n: c.n }), role: t('projects.whoByRoleAny') }
+  if (c.split) return { lead: t('projects.whoMembers', { n: c.split.direct }), role: byRoleLine(t, c.split.byRole, 'project') }
+  if (c.adminsApart) return { lead: t('projects.whoMembers', { n: c.n }), role: byRoleLine(t, 'any', 'project') }
   return { lead: t('projects.whoCount', { n: c.n }), role: null }
 }
 

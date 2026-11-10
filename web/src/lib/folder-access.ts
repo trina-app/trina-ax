@@ -3,6 +3,7 @@
 // only where they can write), and admins' names come from the admin endpoints.
 import type { Access, AccessTreeNode, AudienceSplit, FolderAudience, Project } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
+import { byRoleLine } from './whoByRole'
 
 type T = (key: MessageKey, params?: Record<string, string | number>) => string
 
@@ -30,19 +31,20 @@ export const adminsOnly = (self: Pick<AccessTreeNode, 'who'>, members: number) =
 /** `people`: how many see it. With `byRole` (the owner and admins only: the server's AudienceSplit), `n` is the people
  * by its rules and `byRole` the owner and admins who see it only by their role; without it, `n` is everyone who sees it,
  * the owner and admins included (a member's answer). */
-export type Chip = { kind: 'onlyYou' } | { kind: 'team' } | { kind: 'adminsOnly' } | { kind: 'people'; n: number; byRole?: number }
+export type Chip = { kind: 'onlyYou' } | { kind: 'team' } | { kind: 'adminsOnly' } | { kind: 'people'; n: number; byRole?: number; where?: 'project' | 'folder' }
 
-/** A count as a chip: apart when the server split it (nobody by a rule: the owner and admins only). */
-const people = (n: number, split?: AudienceSplit): Chip =>
-  !split ? { kind: 'people', n } : split.direct === 0 ? { kind: 'adminsOnly' } : { kind: 'people', n: split.direct, byRole: split.byRole }
+/** A count as a chip: apart when the server split it (nobody by a rule: the owner and admins only). `where`: a team
+ * project's own count or a folder's, for the role line (lib/whoByRole.ts). */
+const people = (n: number, split: AudienceSplit | undefined, where: 'project' | 'folder'): Chip =>
+  !split ? { kind: 'people', n } : split.direct === 0 ? { kind: 'adminsOnly' } : { kind: 'people', n: split.direct, byRole: split.byRole, where }
 
 /** What the chip says, once the answers it needs are here; null while they are not (never a wrong number). */
 export function chipOf(place: ChipPlace | null, o: { audience?: FolderAudience | null; project?: Project | null; adminsOnly?: boolean }): Chip | null {
   if (place === 'own') return { kind: 'onlyYou' }
-  if (place === 'project') return o.project?.audience !== undefined ? people(o.project.audience, o.project.audienceSplit) : null
+  if (place === 'project') return o.project?.audience !== undefined ? people(o.project.audience, o.project.audienceSplit, 'project') : null
   if (place !== 'ask' || o.audience?.people === undefined) return null
   if (o.adminsOnly) return { kind: 'adminsOnly' }
-  return o.audience.everyone ? { kind: 'team' } : people(o.audience.people, o.audience.split)
+  return o.audience.everyone ? { kind: 'team' } : people(o.audience.people, o.audience.split, 'folder')
 }
 
 /** The chip's words: "나만 봐요", "팀 전체가 봐요", "팀장과 관리자만", "3명" (by its rules: the owner and admins apart),
@@ -63,7 +65,7 @@ export function headlineText(t: T, c: Chip): string {
 
 /** Under the headline, quieter: "팀장·관리자 2명도 볼 수 있어요" (never a name); nothing when nobody sees it only by role. */
 export function byRoleText(t: T, c: Chip): string | null {
-  return c.kind === 'people' && c.byRole ? t('projects.whoByRole', { n: c.byRole }) : null
+  return c.kind === 'people' ? byRoleLine(t, c.byRole, c.where ?? 'folder') : null
 }
 
 /** The chip's accessible name: the headline and the role line. */

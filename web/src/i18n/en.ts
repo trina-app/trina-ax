@@ -729,6 +729,7 @@ export const en: Record<MessageKey, string> = {
   'folderAccess.people': "{n, plural, one {# person sees it} other {# people see it}}",
   'folderAccess.peopleAll': "{n, plural, one {# person sees it} other {# people see it}} (owner and admins included)",
   'folderAccess.direct': "{n, plural, one {# person} other {# people}}",
+  'folderAccess.byRole': "{n, plural, one {# more can see it as the owner or an admin} other {# more can see it as the owner and admins}}",
   'folderAccess.ownFolder': "Admins can't open it either.",
   'folderAccess.adminsChange': "An admin changes who can see it.",
   'folderAccess.project': "This is the folder of the project {name}. Who sees it follows the project's members.",

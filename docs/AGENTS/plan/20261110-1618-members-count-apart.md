@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 16:18
 - Branch: `fix/members-count-apart`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/shared.ts`, `server/src/chat/project-access.ts`,
   `server/src/team-files/service.ts`, the shared API types, `web/src/components/ProjectParticipants.tsx`,
   `web/src/lib/folder-access.ts`, `web/src/components/FolderAccess.tsx`, the project page's 멤버 row). Why: projects,
@@ -60,4 +60,10 @@ audience and access unit tests, `tests/security/folder-audience.test.ts` and `pr
 
 ## Result
 
-Filled in at the end.
+Built as planned: `AudienceSplit` (`direct`, `byRole`, role-blind via `policy/access.ts splitOf`) on `Project`, the
+project dry run and the folder audience, for the owner and admins only; the new words in five languages. Added on the
+way: the project side's role line hangs on one switch (`web/src/lib/whoByRole.ts PROJECTS_BY_ROLE`), so it can go if
+projects stop being seen by role; folders keep theirs. A folder's role line has its own key (es "verla", review). The
+independent review found no way for a member to learn the admin count through this change, and no must-fix. A member
+who manages a project still reads its total ("5명이 봐요"): splitting it would tell them the admin count (#304's open
+question). PR: https://github.com/trina-app/trina-ax/pull/341
