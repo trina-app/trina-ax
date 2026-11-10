@@ -36,12 +36,27 @@ export const Schedule = z.object({
   needsReview: z.boolean().optional(),
   /** when the server paused it for that reason (null: off since before, or never paused for it) */
   reviewSince: z.string().nullable().optional(),
+  /** the team folder its card lets runs put new files in without a card (server/src/chat/schedule-scope.ts), null for
+   * none; older servers omit it */
+  saveFolder: z.string().nullable().optional(),
+  /** how many people could read it when the card was answered */
+  saveReaders: z.number().nullable().optional(),
+  /** the places whose content may go there although fewer people see them (`key` identifies one for an edit that takes
+   * it away; `kind` 'mine' is the person's own folder, 'root' the team folder's top, a room and a folder by `name`) */
+  saveSources: z.array(z.object({ key: z.string(), kind: z.enum(['mine', 'room', 'folder', 'root']), name: z.string().nullable() })).optional(),
+  /** the person's own connections runs may send to, and only to these recipients */
+  personalSends: z.array(z.object({ name: z.string(), pins: z.array(z.string()) })).optional(),
+  /** the save permission is paused (the folder moved, renamed or deleted, its permissions changed, or the person's write
+   * access gone): runs save in the own folder until "다시 확인" (getScheduleReview); null while it holds */
+  saveLapsed: z.enum(['folder', 'rules', 'access']).nullable().optional(),
 })
 export type Schedule = z.infer<typeof Schedule>
 
 /** The schedule card shown again for "다시 확인": the same server card as when the AI creates a task (title, schedule,
- * the whole instruction, its addresses with long random-looking parts marked, the "allow" connections). Its requestId
- * binds the answer to exactly this content: a change in between (connections) is refused and the card is shown anew. */
+ * the whole instruction, its addresses with long random-looking parts marked, the "allow" connections, the save folder
+ * and pinned own connections). Its requestId binds the answer to exactly this content: a change in between
+ * (connections, the folder) is refused and the card is shown anew. A task whose save folder lapsed (saveLapsed) gets its
+ * card for the folder as it is now: "resave" allows it again, "keep" leaves it. */
 export const ScheduleReviewCard = z.object({ request: AskUserRequest })
 export type ScheduleReviewCard = z.infer<typeof ScheduleReviewCard>
 export const ConfirmScheduleReview = z.object({ requestId: z.string().min(1).max(200), answer: z.string().min(1).max(40) }).strict()
@@ -76,6 +91,10 @@ const TaskFields = {
   day: z.number().int().min(1).max(28).nullable().optional(),
   date: z.string().max(20).nullable().optional(),
   projectId: z.string().max(64).nullable(),
+  /** the save folder (server/src/chat/schedule-scope.ts): another one, null for none; left out: as it is */
+  saveFolder: z.string().max(1000).nullable().optional(),
+  /** the keys (Schedule.saveSources) of the places to keep; left out: all. Only taking places away is possible here */
+  saveSources: z.array(z.string().max(200)).max(20).optional(),
 }
 export const ScheduleTaskEdit = z.object(TaskFields).strict()
 export type ScheduleTaskEdit = z.infer<typeof ScheduleTaskEdit>
@@ -104,7 +123,7 @@ export const SCHEDULES = {
   scheduleEditCard: endpoint({ method: 'POST', path: '/api/schedules/:id/edit', auth: 'user', owner: 'B', body: ScheduleTaskEdit, response: ScheduleReviewCard, summary: 'Check an edit of an own free-text task and show its schedule card (nothing changes yet).' }),
   editSchedule: endpoint({ method: 'PUT', path: '/api/schedules/:id', auth: 'user', owner: 'B', body: ScheduleEdit, response: Schedule, summary: 'Save an edit: a free-text task with the answer to its card, a template with its time and folders.' }),
   deleteSchedule: endpoint({ method: 'DELETE', path: '/api/schedules/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete one of the own scheduled tasks.' }),
-  getScheduleReview: endpoint({ method: 'GET', path: '/api/schedules/:id/review', auth: 'user', owner: 'B', response: ScheduleReviewCard, summary: 'The schedule card of an own task nobody confirmed (needsReview), to check it again.' }),
-  confirmScheduleReview: endpoint({ method: 'POST', path: '/api/schedules/:id/review', auth: 'user', owner: 'B', body: ConfirmScheduleReview, response: Schedule, summary: 'Answer that card with one of its options: resume (confirmed, runs again with the addresses and connections it showed) or keep it paused.' }),
+  getScheduleReview: endpoint({ method: 'GET', path: '/api/schedules/:id/review', auth: 'user', owner: 'B', response: ScheduleReviewCard, summary: 'The schedule card of an own task nobody confirmed (needsReview), or whose save folder lapsed (saveLapsed), to check it again.' }),
+  confirmScheduleReview: endpoint({ method: 'POST', path: '/api/schedules/:id/review', auth: 'user', owner: 'B', body: ConfirmScheduleReview, response: Schedule, summary: 'Answer that card with one of its options: resume (confirmed, runs again with the addresses, connections and save folder it showed) or keep it paused; for a lapsed save folder, resave (allowed again as it is now) or keep.' }),
   listSchedulesAwaitingReview: endpoint({ method: 'GET', path: '/api/admin/schedule-reviews', auth: 'admin', owner: 'B', response: z.object({ items: z.array(ScheduleAwaitingReview) }), summary: 'Scheduled tasks paused until their owners confirm them again (metadata only).' }),
 } as const

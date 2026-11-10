@@ -330,9 +330,11 @@ const BROWSER_RULES = [
 /**
  * Item 3: the date and time zone. File times in tool results (list, read, versions) are UTC ISO strings, and the model
  * repeated them as they were ("수정 2026-10-20 23:09" for a file saved at 08:09 in Seoul), so it is told to convert.
+ * The room tools give their times in the team's time zone and say so (rooms/reader.ts localTime): those are not
+ * converted again (a file sent at 17:39 in Jakarta was told as "00:39 WIB" the next day).
  */
 export function timeLine(now: Date, timeZone: string): string {
-  return `Now: ${localTimeText(now, timeZone)} (${timeZone}); ${now.toISOString()} UTC. Times in tool results are UTC: when you mention a time to the user, give it in ${timeZone}.`
+  return `Now: ${localTimeText(now, timeZone)} (${timeZone}); ${now.toISOString()} UTC. Times in tool results are UTC unless the result says they are in the team's time zone (those are in ${timeZone} already): when you mention a time to the user, give it in ${timeZone}.`
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']

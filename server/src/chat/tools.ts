@@ -28,6 +28,7 @@ import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../poli
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
+import { callKey } from './schedule-cover'
 import { visionText } from '../files/vision-text'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { hwpWritingOffText, hwpWritingOn, writesHangul } from '../tools/hwp-writing'
@@ -61,6 +62,9 @@ export interface Tool {
   /** where a call saves and where its bytes come from, so a room change and the wider-audience card are one card
    * (chat/turn.ts confirmRoomChange); for a tool that saves itself after asking confirmWidening (save_room_file) */
   widen?(args: unknown): WidenOf | undefined
+  /** the connection a call writes to (a connection's tool that changes something there), else null: a scheduled run that
+   * read a room skips the room card for it only when its task's card allowed both (chat/schedule-cover.ts) */
+  sendsTo?(args: unknown): string | null
   /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
   call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string; beforeDelivery?: () => void }>
 }
@@ -257,7 +261,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
       // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
       // saves, what it copies, where its bytes come from)
-      const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args, (x) => exec.hwpTarget(x)), main: files === exec.files })
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args, (x) => exec.hwpTarget(x)), main: files === exec.files, send: t.sendsTo?.(args) ?? null })
       if (roomNo) return { ...text(roomNo, true), summary: `${name} -> ${roomShort(roomNo)} (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
@@ -272,7 +276,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // The images it embeds and its template are only known after parsing; make_file asks again for those
         // (ToolCtx.confirmWidening) before the file is placed.
         const a = args as { output?: unknown; source?: unknown }
-        const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
+        const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : [], undefined, { tool: name, args, main: files === exec.files }) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `make_file -> ${roomShort(refusal)} (wider audience)` }
       }
       if (name === 'edit_hwp' && args && typeof args === 'object') {
@@ -281,7 +285,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const a = args as { output?: unknown; file_path?: unknown }
         // where the tool writes, as it decides it (the document's extension as the file layer resolves it: turn.ts hwpTarget)
         const target = exec.hwpTarget(a)
-        const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
+        const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [], undefined, { tool: name, args, main: files === exec.files }) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `edit_hwp -> ${roomShort(refusal)} (wider audience)` }
       }
       // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
@@ -310,8 +314,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
     },
     afterFileTool: (name, isError, args, text) => {
-      // a skill save's approval is for that call only, saved or not (skills/guard.ts)
+      // a skill save's approval is for that call only, saved or not (skills/guard.ts); so is a scheduled run's claim on
+      // a path (chat/schedule-cover.ts)
       exec.dropSkillApproval(name, args)
+      exec.releaseScheduleCover(name, args)
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
@@ -354,7 +360,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
       if (no) return no
       const p = (args as { file_path?: unknown } | null)?.file_path
-      const widen = typeof p === 'string' ? await exec.confirmWidening(p) : null
+      const widen = typeof p === 'string' ? await exec.confirmWidening(p, [], undefined, { tool: name, args, main: !caller || caller.files === exec.files }) : null
       // refused after the skill card: its approval goes with the call (afterFileTool drops it after a save)
       if (widen) { exec.dropSkillApproval(name, args); return widen }
       // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
@@ -366,7 +372,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a skill save's approval (make_file, edit_hwp) is for its call only: dropped when the call ends, saved or not
   // (skills/guard.ts; a failed call left one for the rest of the turn)
   const run = set.call
-  set.call = async (name, args, caller) => { try { return await run(name, args, caller) } finally { exec.dropSkillApproval(name, args) } }
+  set.call = async (name, args, caller) => { try { return await run(name, args, caller) } finally { exec.dropSkillApproval(name, args); exec.releaseScheduleCover(name, args) } }
   return set
 }
 
@@ -476,8 +482,10 @@ function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; ar
       // after a room read, a tool with its own card asks there alone, with the room card's line (chat/turn.ts ownCard)
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
+      // a save a scheduled task's card covered: checked again right before the file is placed (after a conversion)
+      ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}),
       confirmWidening: async (target, sources, binding) => {
-        const no = await exec.confirmWidening(target, sources, binding)
+        const no = await exec.confirmWidening(target, sources, binding, call ? { tool: call.tool, args: call.args, main: files === exec.files } : undefined)
         if (no || !call) return no
         return exec.recheckRoomCover(call.tool, call.args, { main: files === exec.files })
       },
@@ -488,6 +496,7 @@ function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; ar
 function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
+    ...(t.sendsTo ? { sendsTo: (args: unknown) => { try { return t.sendsTo!(args) } catch { return null } } } : {}),
     async call(args, files) {
       const r = await t.call(args, toolContext(exec, files, { tool: t.name, args }))
       return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
