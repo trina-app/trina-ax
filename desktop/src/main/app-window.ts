@@ -24,7 +24,8 @@ import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToRe
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
-import { attachContextMenu } from './context-menu'
+import { attachContextMenu, contextMenuOpen } from './context-menu'
+import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
@@ -119,8 +120,13 @@ export class AppWindow {
     focused: () => this.win.isDestroyed() || this.win.isFocused(),
     reveal: () => {
       if (this.win.isDestroyed()) return
+      // the notification opens something in the team page: the keyboard goes there, also if the person left the window
+      // from the in-app browser
+      if (this.app) this.keysWanted = this.app
       this.win.show()
       this.win.focus()
+      // the window had the focus already: no focus event comes
+      if (this.keysWanted && this.keysReady()) this.keysBack()
     },
     open: (path) => this.send(this.app, 'bridge:open', path),
     // "Mark as read" on a room notification: macOS only (Electron's buttons); the page calls the read API
@@ -153,6 +159,19 @@ export class AppWindow {
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
+  /** the view that had the keyboard last (its own focus event; the pane reports its tabs) and whether it is the in-app
+   * browser's: the window gives the keyboard back there (settleKeys) */
+  private keys?: { view: WebContentsView; inPane: boolean }
+  /** `keys` when the window lost the focus (the system may hand the keyboard to another view before it is back) */
+  private keysAtBlur?: { view: WebContentsView; inPane: boolean }
+  /** a notification's click asks for the team page when the window is back */
+  private keysWanted?: WebContentsView
+  /** the person's last key or mouse press (or opening the in-app browser) was in the in-app browser: a page load there
+   * may take the keyboard (keyboardTaken) */
+  private personInPane = false
+  /** the view the app is giving the keyboard to right now (keysTo) */
+  private giving?: WebContentsView
+  private settleQueued = false
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -175,6 +194,7 @@ export class AppWindow {
       guardUiView(v.webContents)
       // a right-click in the app's own text fields (the invite link box, the browser's address): the edit items
       attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
+      this.watchKeys(v, v === this.chrome)
     }
     this.chrome.setBackgroundColor('#ECEAE4')
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
@@ -183,12 +203,13 @@ export class AppWindow {
     this.win.on('resize', () => this.layout())
     this.win.on('focus', () => {
       void this.recheck(false)
-      // "visible" for the team page's session markers is this window's focus (the in-app browser may hold the keys)
-      this.send(this.app, 'bridge:focus', true)
+      // "looked at" for the team page (its session markers, room sound and reading) is this window's focus while the
+      // page is shown (the in-app browser or the address strip may hold the keys): teamFocused
+      this.sendFocus(true)
       // a team opened while the window was in the back: the system's question now, while the person looks
       if (this.app) this.notifier.ask()
     })
-    this.win.on('blur', () => this.send(this.app, 'bridge:focus', false))
+    this.win.on('blur', () => this.sendFocus(false))
     this.win.on('close', () => {
       const [width, height] = this.win.getSize()
       o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
@@ -197,6 +218,11 @@ export class AppWindow {
       for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
       debug('window closed, team disposed')
     })
+    // back to the window (Cmd-Tab, the dock, a notification's click): the keyboard goes back where it was
+    this.win.on('blur', () => {
+      this.keysAtBlur = this.keys
+    })
+    this.win.on('focus', () => this.keysBack())
     this.layout()
     this.shell.webContents.once('did-finish-load', () => this.win.show())
   }
@@ -335,7 +361,9 @@ export class AppWindow {
     this.mode = 'welcome'
     this.layout()
     this.sendWelcome()
-    this.shell.webContents.focus()
+    // only in a focused window: on macOS focusing a view brings the window in front of the app the person is in (a
+    // window in the back gets it with its focus: keysBack, settleKeys)
+    if (this.win.isFocused()) this.shell.webContents.focus()
   }
 
   back() {
@@ -384,6 +412,7 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    this.watchKeys(app, false)
     // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
     attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
     const failedNavigation = (url: string) => {
@@ -404,7 +433,8 @@ export class AppWindow {
       this.mode = 'offline'
       this.layout()
       this.sendWelcome()
-      this.shell.webContents.focus()
+      // not in front of another app when the network drops while the person is there (as in showWelcome)
+      if (this.win.isFocused()) this.shell.webContents.focus()
     }
     let navigationFailed = false
     app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
@@ -479,6 +509,8 @@ export class AppWindow {
           if (this.pane) this.sendSiteSettings(this.pane.siteSettings())
         },
         teamHosts: () => teamHostnames(this.teams.teams),
+        onKeys: (view) => this.tabKeys(view),
+        onPersonActed: (view) => this.personActed(true, view),
       },
       browserSes,
       this.o.pageScript,
@@ -588,6 +620,11 @@ export class AppWindow {
       if (!wc.isDestroyed()) wc.close()
       this.app = undefined
     }
+    // the team page and the pane's tabs are gone: nothing of theirs to give the keyboard back to
+    const own = [this.shell, this.chrome, this.hostbar]
+    if (this.keys && !own.includes(this.keys.view)) this.keys = undefined
+    if (this.keysAtBlur && !own.includes(this.keysAtBlur.view)) this.keysAtBlur = undefined
+    this.keysWanted = undefined
     this.currentOrigin = ''
   }
 
@@ -911,6 +948,8 @@ export class AppWindow {
 
   layout() {
     if (this.win.isDestroyed()) return
+    // the views change: the one with the keyboard may leave the window (the team list, the pane closed)
+    this.settleKeysSoon()
     const [w, h] = this.win.getContentSize()
     const views = this.win.contentView
     const show = (v: WebContentsView, rect: Electron.Rectangle) => {
@@ -925,6 +964,7 @@ export class AppWindow {
       hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
+      this.sendFocus()
       return
     }
     hide(this.shell)
@@ -938,6 +978,149 @@ export class AppWindow {
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
     this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.sendFocus()
+  }
+
+  /** Is the person looking at the team page (DesktopBridge.focus, docs/DECISIONS.md "화면에 연 대화는 울리지 않는다")?
+   * This window focused and the team page shown in it: not under the team list or the offline screen, where its view
+   * is only taken out of the window and the page still reports itself visible. `windowFocused`: the focus event's own
+   * word (else the window's). */
+  teamFocused(windowFocused?: boolean): boolean {
+    if (this.win.isDestroyed() || !this.app || this.mode !== 'team') return false
+    return windowFocused ?? this.win.isFocused()
+  }
+
+  /** the word last told to which team page (each page asks once itself as it starts) */
+  private focusTold?: { app: WebContentsView; focused: boolean }
+  /** Tell the team page when teamFocused changes (the window's focus, the team list or the offline screen over it). */
+  private sendFocus(windowFocused?: boolean) {
+    const app = this.app
+    if (!app) return
+    const focused = this.teamFocused(windowFocused)
+    if (this.focusTold?.app === app && this.focusTold.focused === focused) return
+    this.focusTold = { app, focused }
+    this.send(app, 'bridge:focus', focused)
+  }
+
+  // ---------------------------------------------------------------- keyboard
+
+  private watchKeys(view: WebContentsView, inPane: boolean) {
+    const wc = view.webContents
+    wc.on('focus', () => this.keysAt(view, inPane))
+    // where the person acts: a key or a mouse press in this view
+    wc.on('before-input-event', (_e, i) => {
+      if (i.type !== 'keyUp') this.personActed(inPane)
+    })
+    wc.on('before-mouse-event', (_e, m) => {
+      if (m.type === 'mouseDown') this.personActed(inPane)
+    })
+  }
+
+  /** The person pressed a key or the mouse in a view (`tab`: a tab of the in-app browser), or opened the in-app browser.
+   * A mouse press in a tab whose page load gave the keyboard back (keyboardTaken) gives it to the tab after all. */
+  private personActed(inPane: boolean, tab?: WebContentsView) {
+    this.personInPane = inPane
+    if (tab && !tab.webContents.isDestroyed() && !tab.webContents.isFocused() && this.keysReady() && this.shownViews().includes(tab)) this.keysTo(tab, 'click')
+  }
+
+  /** The person opens, closes or toggles the in-app browser (the team page's Browser entry, the menu): opening it is an
+   * action in it, as a click there is. */
+  paneByPerson(what: 'open' | 'close' | 'toggle') {
+    const pane = this.pane
+    if (!pane) return
+    if (what === 'open' || (what === 'toggle' && !pane.open)) this.personActed(true)
+    if (what === 'open') pane.show()
+    else if (what === 'close') pane.hide()
+    else pane.toggle()
+  }
+
+  /** A tab of the in-app browser got the keyboard: a page load there does not take it from where the person is
+   * (common/keyboard-focus.ts keyboardTaken). */
+  private tabKeys(view: WebContentsView) {
+    const taken = keyboardTaken({
+      took: view,
+      loading: !view.webContents.isDestroyed() && view.webContents.isLoading(),
+      personInPane: this.personInPane,
+      given: this.giving === view,
+      ready: this.keysReady(),
+      shown: this.shownViews(),
+      last: this.keys?.view,
+      page: this.mode === 'team' && this.app ? this.app : undefined,
+    })
+    if (taken.keep) return this.keysAt(view, true)
+    if (taken.back) this.keysTo(taken.back, 'kept from a page load')
+  }
+
+  private keysAt(view: WebContentsView, inPane: boolean) {
+    this.keys = { view, inPane }
+  }
+
+  /** the window's views on screen that could have the keyboard */
+  private shownViews(): WebContentsView[] {
+    const children = this.win.contentView.children
+    return [this.shell, this.chrome, this.hostbar, this.app, this.pane?.shownTab()].filter((v): v is WebContentsView => !!v && !v.webContents.isDestroyed() && children.includes(v))
+  }
+
+  /** the window has the focus and no dialog or right-click menu of the app is open over it */
+  private keysReady(): boolean {
+    return !this.win.isDestroyed() && this.win.isFocused() && !this.allowAllOpen && !this.choosingFiles && !contextMenuOpen()
+  }
+
+  private keysTo(view: WebContentsView, why: string) {
+    const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : 'browser tab'
+    debug('keyboard to', name, why)
+    this.giving = view
+    try {
+      view.webContents.focus()
+    } finally {
+      this.giving = undefined
+    }
+  }
+
+  /** The window got the focus back: on macOS the view that had the keyboard when it lost it gets it again, at once
+   * (common/keyboard-focus.ts keyboardBack; Windows and Linux keep it themselves); the team page after a notification's
+   * click; nothing had it: settleKeys. Not ready (a dialog of the app on its way): kept for the next return. */
+  private keysBack() {
+    if (this.win.isDestroyed()) return
+    const ready = this.keysReady()
+    if (ready) {
+      const wanted = this.keysWanted
+      const atBlur = wanted ? { view: wanted } : process.platform === 'darwin' ? this.keysAtBlur : undefined
+      this.keysAtBlur = undefined
+      this.keysWanted = undefined
+      const back = keyboardBack({ ready, shown: this.shownViews(), atBlur })
+      if (back) this.keysTo(back, wanted ? 'notification' : 'back')
+    }
+    this.settleKeysSoon()
+  }
+
+  /** settleKeys a turn later: the views settle first, and a click that gave a view the keyboard meanwhile wins */
+  private settleKeysSoon() {
+    if (this.settleQueued) return
+    this.settleQueued = true
+    setImmediate(() => {
+      this.settleQueued = false
+      this.settleKeys()
+    })
+  }
+
+  /**
+   * The window has the focus and no view in it has the keyboard (after a start, a minimize, the team list, the pane
+   * closed): give it to the view in front (common/keyboard-focus.ts, docs/DECISIONS.md "창으로 돌아오면 키보드는 보던
+   * 곳으로"). Never while the window is in the back (focusing a view brings it forward on macOS), and never over the
+   * app's own dialogs or right-click menus.
+   */
+  private settleKeys() {
+    if (this.win.isDestroyed()) return
+    const target = keyboardTarget({
+      ready: this.keysReady(),
+      shown: this.shownViews(),
+      hasKeys: (v) => v.webContents.isFocused(),
+      last: this.keys,
+      paneTab: this.pane?.shownTab(),
+      page: this.mode === 'team' && this.app ? this.app : this.shell,
+    })
+    if (target) this.keysTo(target, 'settle')
   }
 
   private updateTitle() {

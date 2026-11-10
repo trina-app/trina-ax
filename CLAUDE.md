@@ -27,6 +27,8 @@ Instructions for coding agents that work in this repository.
   the PR.
 - `dev` takes merges without waiting for full CI. Before you merge, run `bun run typecheck`, `bun run check:i18n`
   and the unit tests for the area you changed.
+- Changelog: do not edit `CHANGELOG.md` in a PR. Put the PR's user-visible notes in a new file
+  `changes/<topic>.md` (rules: [changes/README.md](changes/README.md)), so two PRs never conflict on "## Unreleased".
 - Keep PRs small. Before you add a migration, check the highest number in `server/migrations/` on `dev`: two files
   with one number stop the server.
 - After a merge into `dev`, CI (`.github/workflows/dev-build.yml`) builds the server bundle (about 5 minutes) and the

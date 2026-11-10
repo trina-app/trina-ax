@@ -135,13 +135,13 @@ For manual updates, download and verify the new kit as above, then use `sudo ./i
 
 Every update brings one version folder, `app/versions/<version>` (about 540 MB unpacked). Ten minutes after the server starts (when the bootstrap has confirmed the new version) and then every hour, the server account removes what roll-back cannot use; there is no root step.
 
-- **Kept:** the current version (`app/current`); the previous one (`previous` in `app/state.json`: Admin › System › Update › Roll back, and where the bootstrap goes when the current version no longer verifies); the newest version downloaded but not applied yet; any version folder changed in the last 24 hours (one `mycel-ctl update` or the installer has just brought in and is switching to).
+- **Kept:** the current version (`app/current`); the previous one (`previous` in `app/state.json`: Admin › System › Update › Roll back, and where the bootstrap goes when the current version no longer verifies); the newest version downloaded but not applied yet; a version folder newer than the current one changed in the last 24 hours (one `mycel-ctl update` or the installer has just brought in and is switching to); an older one changed in the last hour (a roll-back to it in progress).
 - **Removed:** every other version folder; `.staging-*` and `*.partial` left by an update that did not finish, once a day old; engine folders `app/engines/<name>/<sha12>` that `current` no longer points to, a day after the installer changed the engine. Links are never followed, and names that are not versions stay. A folder is first renamed to `.prune-<hex>` and then removed; one left by an interrupted removal goes a day later. One that changed meanwhile and cannot get its name back is kept as `.prune-hold-<hex>` and shown in Diagnostics until you rename or remove it. A folder owned by another account (for example root's, from an installer that was stopped) is reported in Diagnostics and left for root to remove. A folder that is or holds a mount point is never removed.
 - A pending update (`pending` in `state.json`) skips that run.
 - `app/` is therefore usually 1–1.5 GB (two or three versions and the engines). Admin › System › Diagnostics shows the kept versions and their size ("Kept versions").
 - Now, by hand: `trina_admin prune-versions --dry-run` (lists what would go, JSON; also works as root) and `trina_admin prune-versions` (`trina_admin` as in [BACKUP-RESTORE.md](BACKUP-RESTORE.md); not as root).
 - The first update to 0.2.16 removes the versions collected so far ten minutes after it: in a test (Debian 13 container) 9 versions, 4.5 GB and about 40,000 files took 5 seconds. A slow disk may take tens of seconds; the server keeps answering meanwhile.
-- An older kit put in by the installer (`older`: the running version stays) is kept for one day only; switch to it within that day (`admin.js switch <version>`).
+- An older kit put in by the installer (`older`: the running version stays) is kept for one hour only; switch to it within that hour (`admin.js switch <version>`), or later with `sudo mycel-ctl update --version <version>` or the installer again.
 
 ### Windows app
 

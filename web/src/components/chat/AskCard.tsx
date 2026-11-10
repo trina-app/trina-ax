@@ -347,7 +347,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
               <div>
                 <p className="flex items-baseline gap-2 text-xs text-faint">
                   <span className="min-w-0 flex-1">{d.label}</span>
-                  <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>
+                  {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
                 </p>
                 <div className="mt-1 border-l-2 border-line">
                   <DetailText d={d} plain />
@@ -364,7 +364,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
         <div key={i} className="overflow-hidden rounded-lg border border-line" data-testid="ask-detail">
           <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
             <span className="min-w-0 flex-1 font-medium">{d.label}</span>
-            {d.text && (
+            {d.text && !d.noSize && (
               <span className="text-faint" data-testid="ask-detail-size">
                 {t('ask.detailSize', { n: d.text.length })}
               </span>
@@ -409,7 +409,7 @@ function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
         aria-label={d.label}
         data-testid="ask-detail-text"
       >
-        <Marked text={text} marks={d.marks} />
+        <Marked text={text} marks={d.marks} alerts={d.alerts} />
       </pre>
       {long && (
         <button
@@ -426,8 +426,32 @@ function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
   )
 }
 
-/** The text with the server's marks (long random-looking parts) highlighted. */
-function Marked({ text, marks }: { text: string; marks?: string[] }) {
+/** The text with the server's marks (long random-looking parts) highlighted, and its alert lines in red with their
+ * note (a name not in the person's own messages, on the AI's members card). */
+function Marked({ text, marks, alerts }: { text: string; marks?: string[]; alerts?: ConfirmDetail['alerts'] }) {
+  if (alerts?.length) {
+    const note = new Map(alerts.map((a) => [a.text, a.note]))
+    const lines = text.split('\n')
+    return (
+      <>
+        {lines.map((l, i) => {
+          const n = note.get(l)
+          return (
+            <span key={i}>
+              {n === undefined ? <Marked text={l} marks={marks} /> : (
+                <>
+                  <span className="font-medium text-danger" data-testid="ask-detail-alert">{l}</span>
+                  {/* the note in the card's own type, one step smaller (the line around it is monospace) */}
+                  <span className="ml-2 inline-block rounded bg-danger-soft px-1.5 font-sans text-xs font-medium text-danger" data-testid="ask-detail-alert-note">{n}</span>
+                </>
+              )}
+              {i < lines.length - 1 ? '\n' : ''}
+            </span>
+          )
+        })}
+      </>
+    )
+  }
   const list = [...new Set((marks ?? []).filter((m) => m.length >= 8))].slice(0, 50)
   if (!list.length) return <>{text}</>
   const re = new RegExp(list.map((m) => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')

@@ -6,6 +6,7 @@
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { DesktopBridge } from '@mycel/shared'
+import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
 const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean } | null
@@ -60,3 +61,10 @@ const bridge: DesktopBridge = {
 
 // only the top frame gets the bridge (subframes don't run this preload: nodeIntegrationInSubFrames is off)
 if (info) contextBridge.exposeInMainWorld(info.global, bridge)
+
+// the team page keeps its own focused element (the message box) when the window comes back from Cmd-H
+// (common/keyboard-focus.ts); a notification's click opens another conversation: the page's own focus there wins
+if (info) {
+  const kept = keepPageFocus({ win: window, doc: document })
+  ipcRenderer.on('bridge:open', () => kept.drop())
+}

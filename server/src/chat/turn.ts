@@ -3507,7 +3507,7 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] {
+function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
@@ -3515,16 +3515,18 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
   const verb = FILE_STEP_VERB[tool]?.[L] ?? tool
   const field = (name: Parameters<typeof tr>[0], value: string) => ({ name: tr(name, L), value })
   // targets: where it writes; an instruction file among them shows the text in full from the start
-  const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = []) => [{
+  // noSize: the text is a list of paths, not what is written (no "26 characters" for a path, QA TC-091)
+  const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = [], noSize = false) => [{
     label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text: full(text),
     ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }),
+    ...(noSize ? { noSize: true } : {}),
   }]
   switch (tool) {
     case 'edit_files': {
       if (!Array.isArray(a.file_paths)) break
       const files = a.file_paths.map(String)
       return [
-        { label: tr('roomAiConfirmFiles', L), text: files.join('\n') },
+        { label: tr('roomAiConfirmFiles', L), text: files.join('\n'), noSize: true },
         { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
       ]
     }
@@ -3554,7 +3556,7 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
     }
     case 'move_files':
     case 'copy_files':
-      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'), [str(a.to_folder)])
+      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
       return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
     case 'save_url':

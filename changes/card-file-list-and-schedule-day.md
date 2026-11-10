@@ -1,0 +1,1 @@
+- Confirmation cards are easier to read: a list of files to move to the trash, move or attach no longer shows a character count ("23 characters" counted the letters of the path), and a one-time scheduled task's card says its day in your language ("Nov 10, 2026") instead of "2026-11-10". Text that leaves (a message, an instruction) keeps its count.

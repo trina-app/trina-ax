@@ -239,7 +239,11 @@ export function cardScope(db: Database, userId: string, L: Locale, save: SaveFol
 /** The schedule in the person's language ("매주 월요일 09:00"), for the card. */
 export function scheduleWhen(s: Pick<ScheduleInputT, 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, L: Locale): string {
   const weekday = s.weekday === undefined ? '' : new Intl.DateTimeFormat(L, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, 7 + s.weekday)))
-  return fill(TEXT[s.repeat][L], { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday })
+  // a one-time task's day in the person's words ("Nov 10, 2026"), not the stored form (QA TC-092; the Scheduled pages
+  // do the same, web/src/lib/scheduleText.ts onceDate); read and shown in UTC, so it is never shifted
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.date ?? '')
+  const date = m ? new Intl.DateTimeFormat(L, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!))) : s.date ?? ''
+  return fill(TEXT[s.repeat][L], { time: s.time, date, day: String(s.day ?? ''), weekday })
 }
 
 /** The schedule card: what the run will do, unattended, and what it may open or send without asking. 'create': the

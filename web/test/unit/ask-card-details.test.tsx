@@ -53,3 +53,40 @@ test('without collapsedAt (an instruction file) all of it shows at once; a short
     removeDom()
   }
 })
+
+test('a list of names (noSize: files to delete or move) shows no character count; text that goes out keeps it (QA TC-091)', async () => {
+  installDom()
+  const list = await mount(<AskCard req={{ request: card([{ label: 'Items to move to the trash', text: 'users/pras/tes-kartu.md', noSize: true }]) }} onAnswer={async () => {}} />)
+  try {
+    expect(list.find('ask-detail-size')).toBeNull()
+    expect(list.get('ask-detail-text').textContent).toBe('users/pras/tes-kartu.md')
+  } finally {
+    await list.unmount()
+    removeDom()
+  }
+  installDom()
+  const out = await mount(<AskCard req={{ request: card([{ label: 'What will be sent', text: 'hello room' }]) }} onAnswer={async () => {}} />)
+  try {
+    expect(out.get('ask-detail-size').textContent).toBe(translate('en', 'ask.detailSize', { n: 10 }))
+  } finally {
+    await out.unmount()
+    removeDom()
+  }
+})
+
+test('alert lines (the AI\'s members card: a name not in the person\'s own messages) are red with their note; the others stay plain', async () => {
+  installDom()
+  const text = 'Bob Lee · person\nMarketing · group · 2 people'
+  const m = await mount(<AskCard req={{ request: card([{ label: 'Add (2)', text, alerts: [{ text: 'Bob Lee · person', note: 'Not in your messages' }] }]) }} onAnswer={async () => {}} />)
+  try {
+    const alerts = [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="ask-detail-alert"]')].map((e) => e.textContent)
+    expect(alerts).toEqual(['Bob Lee · person'])
+    expect(m.get('ask-detail-alert').getAttribute('class')).toContain('text-danger')
+    expect(m.get('ask-detail-alert-note').textContent).toBe('Not in your messages')
+    // every line still there, in order (the note after its line)
+    expect(m.get('ask-detail-text').textContent).toBe('Bob Lee · personNot in your messages\nMarketing · group · 2 people')
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})

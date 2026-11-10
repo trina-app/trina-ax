@@ -599,7 +599,7 @@ describe('the card, the answer, the audit and the restore', () => {
       expect(c.question).toContain('4 other people who can see them now will no longer be able to.')
       expect(c.question).not.toContain('no write access')
       expect(dates.some((d) => c.question.includes(`It can be restored from the trash until ${d}. An admin can empty the trash before then.`))).toBe(true)
-      expect(c.details).toEqual([{ label: 'Items to move to the trash', text: 'shared/del-card/ (2 files)\nusers/alice/del-card.md' }, { label: 'Made or changed by others', text: 'Bob Lee\nErin Yoo' }])
+      expect(c.details).toEqual([{ label: 'Items to move to the trash', text: 'shared/del-card/ (2 files)\nusers/alice/del-card.md', noSize: true }, { label: 'Made or changed by others', text: 'Bob Lee\nErin Yoo', noSize: true }])
       // exactly those went, with this turn, purged after the setting's 7 days
       expect(has('shared/del-card') || has('users/alice/del-card.md')).toBe(false)
       const rows = trashRows('turn_id = ?', r.turnId)
@@ -637,7 +637,7 @@ describe('the card, the answer, the audit and the restore', () => {
     expect(ko.question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
     // the owner and admins see who can write it in Admin › Folder permissions: their card keeps the number
     expect(deleteCard({ ...plan, writersShown: true }, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z')).question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 그중 1명은 쓰기 권한이 없어 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
-    expect(ko.details).toEqual([{ label: '휴지통으로 옮길 항목', text: 'projects/falcon/old-draft.md' }])
+    expect(ko.details).toEqual([{ label: '휴지통으로 옮길 항목', text: 'projects/falcon/old-draft.md', noSize: true }])
     for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const writersShown of [false, true]) {
       const c = deleteCard({ ...plan, writersShown }, L, 'Asia/Seoul')
       expect({ L, leftover: /[{}#]/.test(c.question + c.details.map((d) => d.label + d.text).join('')) }).toEqual({ L, leftover: false })
