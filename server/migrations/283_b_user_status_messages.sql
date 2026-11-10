@@ -10,8 +10,9 @@
 --     until_day   the last day it shows ("YYYY-MM-DD", the team's time zone) when it clears at the end of a day
 --                 (today, this week, chosen days); NULL when it clears at a time or never
 --     updated_at  ISO instant of the last write
---   Read only through the people directory and the person's own account (GET /api/people, /api/me), which show it
---   between starts_at and clears_at, for active accounts only. The row goes with the person (cascade, and
+--   Read only through the people directory, the person's own account (GET /api/people, /api/me) and the AI's lines of
+--   who is in a room (rooms/reader.ts, the connector's people_list), which show it between starts_at and clears_at, for
+--   active accounts only. The row goes with the person (cascade, and
 --   admin/users.ts deleteUser: the users row stays as a tombstone).
 -- Additive only (reader 1): an older build ignores the table (no statuses shown).
 -- Numbered 283: 280 (project_folder_made) is the highest on dev; 281 and 282 are taken by open branches.

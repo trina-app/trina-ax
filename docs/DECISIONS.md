@@ -18612,11 +18612,14 @@ and is not reused (an older app's profile save sends `status` and would overwrit
 of team chat apps (an emoji, a short text, it clears itself, suggestions, dates for leave), in the app's own dialog,
 sheet and chips. English is the source of the words; ko, id, ja and es translate it.
 
-- **What a person sets.** One emoji (one emoji or one emoji sequence: a ZWJ sequence, a flag, a keycap, a skin tone;
-  `shared/src/status-message.ts` `isStatusEmoji`, the same check on the web and the server, `u` regex flag only so an
-  older browser still loads), up to 100 characters of text (trimmed; no control characters, line or paragraph
-  separators, format characters such as direction marks, zero-width spaces or invisible tag letters, except the joiner
-  inside an emoji; no lone surrogates), and when it clears. Text without an emoji gets 💬; an emoji alone is fine;
+- **What a person sets.** One emoji (one emoji or one emoji sequence: a ZWJ sequence of at most four, a flag, a
+  keycap, a skin tone, a subdivision flag; invisible tag letters only in that flag, after 🏴; no lone skin tone;
+  `shared/src/status-message.ts` `isStatusEmoji`, the same check on the web and the server, `u` regex flag and no
+  lookbehind so an older browser still loads), up to 100 characters of text (trimmed; no control characters, line or
+  paragraph separators, format characters such as direction marks, zero-width spaces or tag letters, nor what draws
+  nothing yet carries something: variation selectors but the emoji's two, the grapheme joiner, Hangul and Braille
+  blanks; the emoji joiner only between pictographs; no run of five combining marks; no lone surrogates), and when it
+  clears. Text without an emoji gets 💬; an emoji alone is fine;
   neither is refused. `PUT /api/me/status {emoji?, text, clear, from?, to?}` (strict body: only the caller's own; no
   id anywhere), `DELETE /api/me/status`. Not audited, as the away setting is not: it is no account change.
 - **When it clears, in the team's time zone** (`admin/settings.ts teamTimeZone`, `system/time-zone.ts`), never the
@@ -18624,24 +18627,30 @@ sheet and chips. English is the source of the words; ko, id, ja and es translate
   Monday-to-Sunday week; on a Sunday that is today); `dates` from the first day's midnight (a later first day: the team
   sees it only from then) to the end of the last day (on or after the first; at most 366 days ahead; a first day
   already past is today); `never`. `keep` changes the words and keeps the end it has (the dialog's chip "Until Nov 14");
-  with nothing set it is refused. The server works the instants out; the row keeps the choice, the start, the end and,
+  with nothing set it is refused, and nothing is saved already ended. Where a zone's clocks jump over midnight
+  (America/Santiago, America/Havana) a day starts at its first instant. The server works the instants out; the row keeps the choice, the start, the end and,
   for an end of a day, that last day (`until_day`), so "until Nov 14" is the team's day on every screen.
 - **Who sees it: exactly who sees the online dot** ("접속 상태"): the people directory `GET /api/people` (signed in,
   an active account, not in a forced password change) and the person's own `/api/me` (`Me.user.statusMessage`, also one
   that starts later, with `fromDay`). `Person.statusMessage` is `{emoji, text, until?, untilDay?}` and only while it is
   live (started, not ended), only for active accounts: a disabled account's is never given (it comes back if the
   account is turned on again), a deleted account's row goes (`admin/users.ts deleteUser`; the users row stays as a
-  tombstone). One team per server: a session of another team's server opens nothing here. Nothing else reads the table.
+  tombstone). Turning off, on again or deleting an account with a live status tells the team (`profile_changed`), so
+  its emoji and a DM's line go or come at once. One team per server: a session of another team's server opens nothing here. Nothing else reads the table.
 - **Ends and starts.** Every read compares the start and the end with now, so an ended status is hidden at once. Rows
   that ended are removed on the next write and by a clock (`StatusClock`) that waits for the next start or end (at
-  least hourly). When it passes one, open windows are told with the existing quiet notices: `profile_changed` to the
+  least hourly; it counts from its last look, so a write between a start and its look does not push the notice to the
+  hourly one). When it passes one, open windows are told with the existing quiet notices: `profile_changed` to the
   team (they read the directory again), `my_profile_changed` to the person (their account too). A write tells the
   team only when what the team sees changed (a status that starts later is the person's alone until its day; the
-  clock tells them then), and the person's own windows always. The page also hides an ended status by its own clock
+  clock tells them then), and the person's own windows always; others' ended statuses a write removes are told too. A
+  directory read asked for while one is on its way is done again after it (the earlier one may predate the change). The page also hides an ended status by its own clock
   (one timer for the soonest end on screen), so nothing waits for a notice or a socket. At most 20 writes a minute per
   person (429): each one makes every window of the team read the directory again.
 - **Text only, everywhere.** React writes it as text (never markup or Markdown); the tooltip and the DM line are text.
-  In the AI's lines it is one line without quotes or brackets (`attr`) and our block tags are neutralised.
+  In the AI's lines it is one line in quotes it cannot leave (`status="…"`; `attr` drops quotes and brackets, so a
+  status cannot pose as another member or a "(your user)"), our block tags neutralised, and anything invisible taken
+  out (also from a row written before a rule was tightened).
 - **The dialog "Set your status"** (ko "상태 설정"; the app's `Modal`: a bottom sheet on phones), opened from the
   account menu right under "Show me as away" (its item says my status, or "Set your status"), by a click on my own
   emoji in the account row, and on a phone from a row at the bottom of the drawer (the computer's account menu is not
@@ -18656,26 +18665,34 @@ sheet and chips. English is the source of the words; ko, id, ja and es translate
   status, on the left), Cancel, Save. No heading of suggestions, no link to edit them, no calendar section.
 - **Where it shows: an emoji after the name**, its words on hover ("On leave · until Nov 14"; the shared tooltip),
   and said after the name for screen readers (", status: …"). Where the emoji is a button of its own (a message's
-  author line in rooms and threads, the member list) a tap or a click shows the words too, for touch screens. Places:
+  author line in rooms and threads, the member list) a tap or a click shows the words too, for touch screens (Esc
+  closes the words, not the member list). Places:
   the sidebar's DM rows and unnamed group chats' names (each name with its own emoji; a named group chat or a team room
   has no person to put it after), the phone's conversation list the same, the member list, the author line, the @
   list, and my own account row (a click on it opens the dialog). In a DM with someone who has a status: one quiet line
   above the box, "🏖️ Bob: On leave · until Nov 14" (ko "Bob 님: 휴가 중 · 11월 14일까지"). The AI and the everyone
   room have none. There is no profile card or popover in the app yet; the member list is its place. Not on message
   avatars, the DM header (the line says it) or the people picker.
-- **Trina knows it.** `room_read`'s member line (the in-app AI and AI apps) gives each named member's status ("MIA
-  (status: 🏖️ On leave until 2026-11-14)", a time as "until 2026-11-10 15:30" in the team's zone), and after them the
+- **Trina knows it.** `room_read`'s member line (the in-app AI and AI apps) gives each named member's status (`MIA
+  (status="🏖️ On leave until 2026-11-14")`, a time as "until 2026-11-10 15:30" in the team's zone), and after them the
   statuses of members it does not name (at most 50), so "who is on leave this week?" is answered from the room for
   everyone; its description says so. The connector's `people_list` (admins) has `status`. Same rule: active accounts,
   live statuses only. No new tool.
+- **The review of this branch** (an independent deep review that tried to read statuses from outside and to inject
+  through them) found two holes, both fixed: typed words could pose as another member in `room_read`'s member line
+  (now in quotes), and invisible tag letters after any emoji reached the model (now only in a subdivision flag, and
+  stripped for the AI). Its other findings are in too: the clock's late notice, others' removed statuses, the account
+  notices, the queued directory read, the midnight gap, the stricter text, Esc in the member list. Names in the member
+  line are as before (any member can rename themselves; that line is older than this branch).
 - **Out, for later:** setting the status from a calendar (Google Calendar), suggestions an admin can edit, a status
   history, a status on message avatars or in a profile card.
 - Tests: `tests/unit/b-status-message.test.ts` (set and clear; every rule of the emoji, the text, the days and stray
   keys, in the person's language; the write limit; today and this week across midnight in Seoul, UTC, a UTC+14 team and
-  summer time; an ended status hidden at once and removed on the next write; a later start hidden from the team and
-  the AI, its first day told by the clock; signed out, a forced password change, a disabled and a deleted account,
-  another team's server; the notices; `room_read`'s member line with quotes and tags in the text and members beyond
-  those named; `people_list`), `tests/security/lib/people-cases.ts` (both routes are the caller's own),
+  summer time and a midnight gap; never saved already ended; an ended status hidden at once and removed on the next
+  write, which tells the team; a later start hidden from the team and
+  the AI, its first day told by the clock, also after a late look; signed out, a forced password change, a disabled and a deleted account,
+  another team's server; the notices, also for an account turned off, on or deleted; `room_read`'s member line with quotes, tags and a fake "(your user)" in the text, invisible
+  characters from an old row, and members beyond those named; `people_list`), `tests/security/lib/people-cases.ts` (both routes are the caller's own),
   `web/test/unit/status-message.test.ts` (the grid's and the suggestions' emoji are ones the server takes, the words of
   an end in the team's zone, what shows now), `web/test/e2e/status-message.spec.ts` (a suggestion, my emoji in the
   sidebar and on my messages, the hover, cleared; my own words and the grid; someone's status that ends goes by the

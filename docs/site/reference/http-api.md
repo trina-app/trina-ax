@@ -484,7 +484,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/me/profile` | Signed in | Change own name, title and one-line status (length-limited; audited). Nobody can change another person's profile. |
 | `PUT` | `/api/me/avatar` | Signed in | Set own profile photo: a square PNG, JPEG or WebP of 64–512 px, up to 256 KiB; metadata is cut out; audited. |
 | `DELETE` | `/api/me/avatar` | Signed in | Remove own profile photo; audited. |
-| `PUT` | `/api/me/status` | Signed in | Set your status message: one emoji, up to 100 characters of text, and when it clears (30 minutes to 4 hours, the end of today or this week in the team's time zone, chosen days, or never); only your own. The team sees it beside your name. |
+| `PUT` | `/api/me/status` | Signed in | Set your status message: one emoji, up to 100 characters of text, and when it clears (30 minutes to 2 hours, the end of today or this week in the team's time zone, chosen days, or never); only your own. The team sees it beside your name. |
 | `DELETE` | `/api/me/status` | Signed in | Clear your status message (also one that starts later); only your own. |
 | `PUT` | `/api/me/away` | Signed in | Set yourself away (your dot shows away to the team until you change it) or back to automatic; only your own. |
 

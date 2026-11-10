@@ -46,8 +46,9 @@ export function StatusEmoji({ userId, tap = false, className }: { userId: string
   if (tap) return <TapTip label={label} emoji={s.emoji} className={className} />
   return (
     <>
+      {/* title="": the row's own title (a long name in full) is not shown over the emoji's words too */}
       <Tooltip label={label}>
-        <span aria-hidden className={clsx('inline-block shrink-0 leading-none', className)} data-testid="status-emoji" data-emoji={s.emoji}>
+        <span aria-hidden title="" className={clsx('inline-block shrink-0 leading-none', className)} data-testid="status-emoji" data-emoji={s.emoji}>
           {s.emoji}
         </span>
       </Tooltip>
@@ -70,7 +71,13 @@ function TapTip({ label, emoji, className }: { label: string; emoji: string; cla
   useEffect(() => {
     if (!open) return
     const away = (e: Event) => { if (!button.current?.contains(e.target as Node)) setOpen(false) }
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    // Esc closes the words only, not the dialog the emoji is in (the member list)
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+    }
     const hide = () => setOpen(false)
     document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', key, true)

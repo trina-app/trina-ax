@@ -29,11 +29,12 @@ function currentRow(db: Database, userId: string, now: Date): StatusRow | null {
   return db.query(`SELECT ${COLS} FROM user_status_messages WHERE user_id = ? AND (clears_at IS NULL OR clears_at > ?)`).get(userId, now.toISOString()) as StatusRow | null
 }
 
-/** What the team sees of a person now: a status that has started and not cleared, of an active account. */
-export function liveStatusOf(db: Database, userId: string, now = new Date()): StatusMessage | null {
+/** What the team sees of a person now: a status that has started and not cleared, of an active account (`anyAccount`:
+ * whatever the account's state, for the notice when it is turned off or on: admin/users.ts). */
+export function liveStatusOf(db: Database, userId: string, now = new Date(), anyAccount = false): StatusMessage | null {
   const iso = now.toISOString()
   const r = db.query(`SELECT s.emoji, s.text, s.clears_at, s.until_day FROM user_status_messages s JOIN users u ON u.id = s.user_id
-    WHERE s.user_id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND ${LIVE_SQL}`).get(userId, iso, iso) as Pick<StatusRow, 'emoji' | 'text' | 'clears_at' | 'until_day'> | null
+    WHERE s.user_id = ? ${anyAccount ? '' : "AND u.status = 'active' AND u.deleted_at IS NULL"} AND ${LIVE_SQL}`).get(userId, iso, iso) as Pick<StatusRow, 'emoji' | 'text' | 'clears_at' | 'until_day'> | null
   return r ? statusOut(r) : null
 }
 
@@ -64,33 +65,52 @@ export function removeCleared(db: Database, now: Date): string[] {
   return ids
 }
 
-/** Set my status. `changed`: what the team sees of me changed (a status that starts later changes nothing for them). */
-export function setStatus(db: Database, userId: string, body: SetStatusBody, o: { now: Date; tz: string; locale: Locale }): { status: MyStatus; changed: boolean } {
+/** Set my status. `changed`: what the team sees of me changed (a status that starts later changes nothing for them);
+ * `cleared`: other people's statuses that had ended and were removed now (the team is told of them too). */
+export function setStatus(db: Database, userId: string, body: SetStatusBody, o: { now: Date; tz: string; locale: Locale }): { status: MyStatus; changed: boolean; cleared: string[] } {
   let changed = false
+  let cleared: string[] = []
   db.transaction(() => {
     if (!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId)) fail('unauthorized')
     const before = liveStatusOf(db, userId, o.now)
-    removeCleared(db, o.now)
-    const p = planStatus(body, o.now, o.tz, currentRow(db, userId, o.now), o.locale)
+    const current = currentRow(db, userId, o.now)
+    const p = planStatus(body, o.now, o.tz, current, o.locale)
+    cleared = removeCleared(db, o.now)
     db.query(`INSERT INTO user_status_messages (user_id, emoji, text, clear, starts_at, clears_at, until_day, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET emoji = excluded.emoji, text = excluded.text, clear = excluded.clear, starts_at = excluded.starts_at,
         clears_at = excluded.clears_at, until_day = excluded.until_day, updated_at = excluded.updated_at`)
       .run(userId, p.emoji, p.text, p.clear, p.startsAt, p.clearsAt, p.untilDay, o.now.toISOString())
     changed = JSON.stringify(before) !== JSON.stringify(liveStatusOf(db, userId, o.now))
   })()
-  return { status: myStatusOf(db, userId, o.now, o.tz)!, changed }
+  return { status: myStatusOf(db, userId, o.now, o.tz)!, changed, cleared: cleared.filter((id) => id !== userId) }
 }
 
-/** Clear my status (also one that starts later). `removed`: there was one; `changed`: the team saw it. */
-export function clearStatus(db: Database, userId: string, now: Date): { removed: boolean; changed: boolean } {
-  let out = { removed: false, changed: false }
+/** Clear my status (also one that starts later). `removed`: there was one; `changed`: the team saw it; `cleared`:
+ * other people's ended statuses removed now. */
+export function clearStatus(db: Database, userId: string, now: Date): { removed: boolean; changed: boolean; cleared: string[] } {
+  let out = { removed: false, changed: false, cleared: [] as string[] }
   db.transaction(() => {
     const before = liveStatusOf(db, userId, now)
-    removeCleared(db, now)
+    const cleared = removeCleared(db, now).filter((id) => id !== userId)
     const removed = db.query('DELETE FROM user_status_messages WHERE user_id = ?').run(userId).changes > 0
-    out = { removed, changed: removed && !!before }
+    out = { removed, changed: removed && !!before, cleared }
   })()
   return out
+}
+
+/** The notices after a write of `userId`: my windows always (they read my account), the team when what it sees
+ * changed (mine, or someone's ended status removed by the write). */
+export function tellAfterWrite(ctx: AppContext, userId: string, r: { changed: boolean; cleared: string[] }): void {
+  const rt = ctx.services.realtime
+  if (!r.changed && !r.cleared.length) return rt.publish(userId, MY_PROFILE_CHANGED)
+  const own = new Set([userId, ...r.cleared])
+  rt.publishEach((to) => (own.has(to) ? MY_PROFILE_CHANGED : PROFILE_CHANGED))
+}
+
+/** A person's account was turned off or deleted (admin/users.ts): when they had a status the team sees, open windows
+ * read the directory again, so their emoji and a DM's line go at once. */
+export function statusGoneWithAccount(ctx: AppContext, hadStatus: boolean): void {
+  if (hadStatus) ctx.services.realtime.publishEach(() => PROFILE_CHANGED)
 }
 
 // ---------------- writes per person ----------------
@@ -146,19 +166,25 @@ export class StatusClock {
     return changed
   }
 
-  /** Wait for the next start or end (at most maxMs). A write calls it: its status may come sooner. */
-  arm(): void {
-    if (this.stopped) return
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
+  /** How long to wait for the next start or end since the last look (at most maxMs; 0 when one has passed). */
+  waitMs(): number {
     let wait = this.maxMs
     try {
-      const iso = new Date(this.now()).toISOString()
+      // from the last look, not from now: a start or an end passed since (a write between it and its look, a late
+      // timer) is told at once instead of at the hourly look
+      const iso = new Date(this.lastLook).toISOString()
       const next = (this.ctx.db.query(`SELECT MIN(t) AS t FROM (SELECT MIN(clears_at) AS t FROM user_status_messages WHERE clears_at > ?
         UNION ALL SELECT MIN(starts_at) AS t FROM user_status_messages WHERE starts_at > ?)`).get(iso, iso) as { t: string | null } | null)?.t
       if (next) wait = Math.min(wait, Math.max(0, Date.parse(next) - this.now()) + 50)
     } catch { /* the database is closing: the next look is the hourly one */ }
-    this.timer = setTimeout(() => this.tick(), wait)
+    return wait
+  }
+
+  /** Wait for the next start or end. A write calls it: its status may come sooner. */
+  arm(): void {
+    if (this.stopped) return
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => this.tick(), this.waitMs())
     ;(this.timer as { unref?: () => void }).unref?.()
   }
 

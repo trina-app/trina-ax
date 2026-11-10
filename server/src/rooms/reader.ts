@@ -235,7 +235,8 @@ function memberLine(db: Database, roomId: string, userId: string, ids = false, t
   const named = names.slice(0, most)
   const statuses = liveStatuses(db, (db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(roomId) as { user_id: string }[]).map((r) => r.user_id))
   // typed by people: one line, no quotes or brackets, our block tags neutralised
-  const status = (id: string) => { const s = statuses.get(id); return s ? `status: ${neutralizeTags(attr(statusForAi(s, tz), 160))}` : null }
+  // in quotes the typed words cannot leave (attr drops quotes): a "), X (your user" in them stays words
+  const status = (id: string) => { const s = statuses.get(id); return s ? `status="${neutralizeTags(attr(statusForAi(s, tz), 160))}"` : null }
   const shown = named.map((u) => {
     const notes = [u.id === userId ? 'your user' : ids ? `user_id=${u.id}` : null, status(u.id)].filter(Boolean)
     return `${attr(u.name, 80)}${notes.length ? ` (${notes.join('; ')})` : ''}`

@@ -24,10 +24,13 @@ const refuse = (k: keyof typeof STATUS_TEXT, locale: Locale, field: string): nev
 export interface StatusRow { user_id: string; emoji: string; text: string; clear: StatusClear; starts_at: string | null; clears_at: string | null; until_day: string | null }
 const AFTER_MS: Partial<Record<StatusClear, number>> = { '30m': 30 * 60_000, '1h': 60 * 60_000, '2h': 2 * 60 * 60_000 }
 
-/** 00:00 of a "YYYY-MM-DD" day in a time zone. */
-const dayStart = (day: string, tz: string): Date => {
+/** 00:00 of a "YYYY-MM-DD" day in a time zone, or the day's first instant where its clocks jump over midnight
+ * (America/Santiago, America/Havana: zonedToUtc then lands an hour early, on the day before). */
+export const dayStart = (day: string, tz: string): Date => {
   const [y, m, d] = day.split('-').map(Number) as [number, number, number]
-  return zonedToUtc(y, m, d, 0, 0, tz)
+  let t = zonedToUtc(y, m, d, 0, 0, tz).getTime()
+  for (let i = 0; i < 12 && zonedDay(new Date(t), tz) < day; i++) t += 15 * 60_000
+  return new Date(t)
 }
 
 /** The SQL condition of a status the team sees at `?` (twice): started, not cleared (on a row aliased `s`). */
@@ -45,6 +48,12 @@ export interface StatusPlan { emoji: string; text: string; clear: StatusClear; s
  * person's status now (not cleared; maybe still to start), for 'keep'.
  */
 export function planStatus(body: SetStatusBody, now: Date, tz: string, current: StatusRow | null, locale: Locale): StatusPlan {
+  const p = plan(body, now, tz, current, locale)
+  // never saved already ended (it would be no status at all)
+  if (p.clearsAt && p.clearsAt <= now.toISOString()) refuse('gone', locale, 'body.clear')
+  return p
+}
+function plan(body: SetStatusBody, now: Date, tz: string, current: StatusRow | null, locale: Locale): StatusPlan {
   const text = body.text
   const emoji = body.emoji ?? (text ? STATUS_DEFAULT_EMOJI : '')
   if (!emoji) refuse('empty', locale, 'body.text')
@@ -78,10 +87,14 @@ export function planStatus(body: SetStatusBody, now: Date, tz: string, current: 
   }
 }
 
+const INVISIBLE = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}\uFE00-\uFE0D\u{E0000}-\u{E01EF}\u034F\u115F\u1160\u3164\uFFA0\u2800]|(?!\u200D)\p{Cf}/gu
+
 /** One status for the AI's lines (rooms/reader.ts, the remote connector's people_list): "🌴 휴가 중 until 2026-11-14"
  * (the last day) or "until 2026-11-10 15:30" (a time, the team's zone). The caller makes the words safe for its form. */
 export function statusForAi(s: StatusMessage, tz: string): string {
-  const words = `${s.emoji} ${s.text}`.trim()
+  // nothing invisible reaches the model, even from a row written before a rule was tightened (a subdivision flag's tag
+  // letters too: it reads as a plain 🏴)
+  const words = `${s.emoji} ${s.text}`.replace(INVISIBLE, '').trim()
   if (s.untilDay) return `${words} until ${s.untilDay}`
   if (!s.until) return words
   const p = zonedParts(new Date(s.until), tz)

@@ -5,7 +5,7 @@ import type { RouteModule } from './module'
 import { audit } from '../admin/audit'
 import { fail } from '../http/errors'
 import { listPeople, MY_PROFILE_CHANGED, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
-import { clearStatus, countWrite, setStatus, startStatusClock } from '../auth/status-messages'
+import { clearStatus, countWrite, setStatus, startStatusClock, tellAfterWrite } from '../auth/status-messages'
 import { teamTimeZone } from '../admin/settings'
 import { presenceFor } from '../realtime/presence'
 
@@ -75,8 +75,7 @@ export const peopleRoutes: RouteModule = {
       const locale = c.get('locale'), now = new Date()
       countWrite(ctx.db, auth.user.id, now.getTime(), locale)
       const r = setStatus(ctx.db, auth.user.id, body, { now, tz: teamTimeZone(ctx.db), locale })
-      if (r.changed) ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
-      else ctx.services.realtime.publish(auth.user.id, MY_PROFILE_CHANGED)
+      tellAfterWrite(ctx, auth.user.id, r)
       clock.arm()
       return r.status
     })
@@ -84,9 +83,10 @@ export const peopleRoutes: RouteModule = {
     kit.handle(API.clearMyStatus, ({ c, auth }) => {
       countWrite(ctx.db, auth.user.id, Date.now(), c.get('locale'))
       const r = clearStatus(ctx.db, auth.user.id, new Date())
-      if (r.changed) ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
-      else if (r.removed) ctx.services.realtime.publish(auth.user.id, MY_PROFILE_CHANGED)
-      if (r.removed) clock.arm()
+      if (r.removed || r.cleared.length) {
+        tellAfterWrite(ctx, auth.user.id, r)
+        clock.arm()
+      }
     })
 
     kit.handle(API.deleteMyAvatar, ({ auth }) => {
