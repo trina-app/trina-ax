@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-10 13:36
 - Branch: `feat/phone-admin-list` (PR 1a); then `feat/phone-page-patterns` (PR 1b), `feat/phone-admin-lists` (PR 2),
   `feat/phone-admin-forms` (PR 3)
-- Status: in progress (approved by the owner 2026-11-10; reviewed, see "Review")
+- Status: in progress (1a #338 and 1b #339 open; PRs 2 and 3 with other agents)
 - Where: trina-ax core web (`web/src/pages/admin/`, `web/src/components/settings/`, a new `web/src/components/phone/`,
   `web/src/lib/`). Why: phone navigation and the admin pages are core web UI; the phone app is this web app in a web
   view (see docs/REPOSITORY-RULES.md and DECISIONS "Phone navigation: four tabs").
@@ -287,4 +287,17 @@ behaviour on every tab; replacing the entry only moves the oddity (Back would th
 
 ## Result
 
-Filled in at the end.
+PRs 1a and 1b are built; PRs 2 and 3 (the remaining pages, the Team settings split) go to other agents.
+
+- **PR 1a, #338** (`feat/phone-admin-list`): as planned, with these differences.
+  - The list goes under a page after the page shows, not before paint, because the router hears the history only after its first render.
+  - A page pushed again over its list keeps its original address and reads its query again. Pushing the browser's current address broke the old-address redirect.
+  - Tablets get a narrow rail with each page's name under its icon (768 to 1023 px). With the app's own 280 px sidebar beside it, a full-width column left the page 280 to 330 px.
+  - The independent review found 2 must-fix items (old server checks on Home on a computer, a racy e2e assertion), fixed with its should-fix items. Recorded on the PR.
+  - Still open: the iPhone app's edge-swipe preview needs a device check.
+- **PR 1b, #339** (`feat/phone-page-patterns`): the shared patterns, with Members & invites on them.
+  - The page's buttons sit at the end of the line, not of the search row: the line has more room, and pages without a search have them there too.
+  - The independent review's must-fix (a people-console spec that the email rule broke) and its should-fix items are fixed (Folder permissions' sticky detail height across 768 px, 44 px controls, the tests).
+- **Full web e2e (chromium):**
+  - 1a: 1051 passed. The 8 failures were existing specs that clicked the strip or the old Settings list, updated in the PR.
+  - 1b: 1059 passed. The failures were the expected people-console spec (fixed) and four HWP previews in a worktree without `prepare:hwp`. All of them pass on rerun, together with chat-recovery (94 passed).
