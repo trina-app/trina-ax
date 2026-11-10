@@ -2583,6 +2583,7 @@ export const id: Record<MessageKey, string> = {
   'settings.credentials.desc': 'Pertanyaan Anda memakai koneksi ini lebih dulu. Jika tidak ada, koneksi tim yang menjawab.',
   'usage.by.credential': 'Koneksi AI',
   'usage.deletedCredential': 'Koneksi yang dihapus',
+  'usage.deletedCredentialN': 'Koneksi yang dihapus {n}',
   'usage.credentialNote': 'Dihitung per jawaban, pada koneksi terakhir yang dipakai. Kartu koneksi menghitung per permintaan, jadi angkanya bisa sedikit berbeda.',
   'engines.fallbackHint2': 'Koneksi lain dari AI yang sama, jika ada, dipakai lebih dulu.',
   'audit.act.remote_mcp.connected': 'Mengizinkan koneksi aplikasi eksternal',

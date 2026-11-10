@@ -384,7 +384,7 @@ export class ChatStore {
   // ---------------- projects ----------------
   projectRow(id: string): ProjectRow | null { return this.db.query(`SELECT ${PROJECT_COLS} FROM projects WHERE id = ?`).get(id) as ProjectRow | null }
   /** `share`: its shared chats as the caller sees them (chat/shared.ts projectShare) */
-  toProject(r: ProjectRow, canEdit: boolean, share?: Pick<Project, 'shareChats' | 'audience' | 'sharedChats'>): Project {
+  toProject(r: ProjectRow, canEdit: boolean, share?: Pick<Project, 'shareChats' | 'audience' | 'sharedChats' | 'chatUploads'>): Project {
     return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit, inTrash: r.trashed_with !== null, ...(share ?? {}) }
   }
 

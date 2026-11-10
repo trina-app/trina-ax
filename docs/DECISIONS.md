@@ -14462,9 +14462,19 @@ the person's own attachments folder, which the chat's other people cannot read);
   out by the server. A file whose chip was neither sent nor taken out stays in the folder, a team file like any other.
   Independent review (2026-11-10): no must-fix; should-fix items in (another reference keeps the file, ✕ while
   finishing, no second read of the file), nits in (the line counts only files saved or on their way, the mock's owner
-  check). The chip shows the name the file got there ("견적 (2).pdf"). Left: someone who only reads the project folder still sees "내 컴퓨터에서
-  올리기" and gets the refusal (the box does not know folder access); a folder under one of the names that the person
-  cannot see makes every upload a 403.
+  check). The chip shows the name the file got there ("견적 (2).pdf"). Left: a folder under one of the names that the
+  person cannot see makes every upload a 403.
+- **Offered only to those who may** (fix/shared-upload-readonly-menu, 2026-11-10, product owner: the leftover above,
+  someone who only read the project folder saw "내 컴퓨터에서 올리기" and got the refusal after picking a file; plan
+  `docs/AGENTS/plan/20261110-0432-shared-upload-readonly-menu.md`). Two optional fields say it beforehand, from the
+  upload's own check as a yes or no (`uploads/shared-chat.ts mayUploadShared`, once per project and person of a request:
+  `Audiences.mayUpload`, the rules read once): `Project.chatUploads` (while the project shares its chats: the new-chat
+  box on its page) and `Chat.shared.canUpload` (a shared chat). false: the box offers team files only. The menu has no
+  "내 컴퓨터에서 올리기" and no camera ("팀 파일에서 추가" stays), a pasted file is not taken (the paste goes on as text), and a
+  file dragged from the computer gets the not-allowed cursor and no highlight (the drag stays the box's, so the browser
+  does not open the file; a team file dragged from the file screen still drops). Missing (an older server): allowed, as
+  before. The 403 stays for a change of access while the box is open. Tests: `tests/unit/b-shared-chat-uploads.test.ts`
+  ("the box knows beforehand"), `web/test/unit/shared-chat-uploads.test.tsx`. Version impact: patch.
 - **What the person sees.** The chip looks as usual (a picture as itself while it uploads). One short line under the
   chips while a file from the computer is attached, only in shared chats (`SharedUploadLine`): "프로젝트 폴더(채팅 첨부)에
   저장돼요 · 프로젝트 사람 3명이 볼 수 있어요", the folder it went to and the count the line under the box uses ("프로젝트 사람
