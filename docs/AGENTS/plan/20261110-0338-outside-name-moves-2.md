@@ -50,3 +50,4 @@ folder copy (more of the file's past, as it was).
 Built as planned: an AI rename (and an AI copy under another name) keeps the old name's mark; the walks follow a folder
 above restored to another place and a folder copied as a whole; one budget of 500 names per call. The four new tests fail
 on #290's code and pass here.
+- PR: https://github.com/trina-app/trina-ax/pull/295
