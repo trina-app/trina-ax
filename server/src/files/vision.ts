@@ -16,6 +16,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { getTeamSettings } from '../admin/settings'
 import { ToolError } from '../policy/errors'
+import type { McpContent } from '../turns'
 import { runIsolated, type IsolatedResult } from '../tools/isolate'
 import { ext } from './extract'
 import { heicToJpeg, heicTools, isHeic, type HeicTools } from './heic-preview'
@@ -249,6 +250,13 @@ export function parsePages(spec: string, count: number): number[] {
     }
   }
   return out
+}
+
+/** `t` at the end of a tool result: in its last text block (after a blank line), or a new one after an image */
+export function appendText(content: McpContent[], t: string, sep = '\n\n') {
+  const last = content[content.length - 1]
+  if (last?.type === 'text') last.text += sep + t
+  else content.push({ type: 'text', text: t })
 }
 
 /** "1-3, 7" for the notes */

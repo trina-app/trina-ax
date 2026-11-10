@@ -51,8 +51,13 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const callCtx: ToolCtx = call.files === ctx.files ? ctx : { ...ctx, files: call.files }
     const caller = { files: call.files }
     if (extra?.has(name)) {
-      const out = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
+      const out: Awaited<ReturnType<TurnToolSet['call']>> = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
+      // a room file's content (room_file) is checked again before it goes, as a read's is below
+      if (out.beforeDelivery) {
+        try { out.beforeDelivery() } catch { return failed(safeText(db, ctx.user.id, 'changed')) }
+        return { result: { content: out.content, ...(out.isError ? { isError: true as const } : {}) }, beforeDelivery: out.beforeDelivery }
+      }
       return { result: { content: out.content, ...(out.isError ? { isError: true as const } : {}) } }
     }
     const registry = extra ? null : toolRegistry(files)

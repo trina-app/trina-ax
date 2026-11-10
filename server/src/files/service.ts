@@ -34,7 +34,7 @@ import { recoverPublications } from '../safe-ops/publication'
 import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
-import { imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
+import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
   PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
@@ -421,16 +421,45 @@ export class FileService {
       throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
     } else pages = Array.from({ length: n }, (_, i) => i + 1)
 
+    const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: src.bytes, layers }, pages, { asImages: a.as_images })
+    for (const t of notes) appendText(content, t)
+    const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
+    beforeDelivery?.()
+    // the pages of a read by pages; a read of the whole (short) file is the file
+    record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
+    const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
+    return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+  }
+
+  /**
+   * The pages of a PDF for this turn's model, as a read gives them (readPdf; a file sent in a room, chat/room-tools.ts):
+   * bytes the caller has checked and bound, their text layers (pdfLayer) and the pages to show. Each page's text layer
+   * comes as text, a page without one (a scan, a picture) as a page image, and with `asImages` a text page too. No pixels
+   * when the team's switch is off, for the text-only API engine or a connection without a chat turn (visionBlock): a Mac
+   * reads the scanned pages with Apple Vision then, a Linux server names them in `notes`. The per-turn image budget
+   * (40 images / 10 MB, counted here) and the tool output limit (READ_OUTPUT_TOKENS, `reserve` tokens of the caller's
+   * own text included): page images that would not fit are named in `notes` with the `pages` to read them with.
+   * `fileText`: how text from the file itself is put in the result (a room file neutralises our block tags). The caller
+   * re-checks access before delivery when `images` > 0 and puts `notes` after the pages.
+   */
+  async pdfPagesForModel(ctx: ToolCtx, doc: { label: string; bytes: Uint8Array; layers: string[] }, pages: number[], o: { asImages?: boolean; reserve?: number; fileText?: (t: string) => string } = {}): Promise<{ content: McpContent[]; notes: string[]; images: number }> {
+    const { bytes, layers } = doc
+    const n = layers.length
+    const tools = this.visionTools()
+    const block = visionBlock(this.db, ctx.turnId)
+    // macOS when no pixels may go (image viewing off, the API engine, a connection): Apple Vision text for scanned
+    // pages, as before image reads
+    const ocrText = !!block && !!this.cfg.ocr
+    const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
+    const own = o.fileText ?? ((t: string) => t)
     const content: McpContent[] = []
     // the result as the engine measures it (READ_OUTPUT_TOKENS): page images that would not fit wait for another call
-    let tokens = 0
+    let tokens = o.reserve ?? 0
     const text = (t: string) => {
       tokens += textTokens(t) + 1
-      const last = content[content.length - 1]
-      if (last?.type === 'text') last.text += '\n\n' + t
-      else content.push({ type: 'text', text: t })
+      appendText(content, t)
     }
-    text(`PDF ${src.rel}: ${n} page${n === 1 ? '' : 's'}; ${pages.length === n ? 'all pages' : `pages ${pageList(pages)}`} below.`)
+    text(`PDF ${doc.label}: ${n} page${n === 1 ? '' : 's'}; ${pages.length === n ? 'all pages' : `pages ${pageList(pages)}`} below.`)
     let chars = 0
     let images = 0
     const blocked: number[] = []
@@ -443,23 +472,23 @@ export class FileService {
       if (!scanned) {
         const room = PDF_TEXT_MAX - chars
         const body = layer.replace(/\s+$/, '')
-        text(`--- Page ${p} ---\n${room <= 0 ? '(text not shown: this read already holds the most text; read fewer pages)' : body.length > room ? body.slice(0, room) + '\n… (page text cut; read fewer pages)' : body}`)
+        text(`--- Page ${p} ---\n${room <= 0 ? '(text not shown: this read already holds the most text; read fewer pages)' : body.length > room ? own(body.slice(0, room)) + '\n… (page text cut; read fewer pages)' : own(body)}`)
         chars += Math.min(body.length, Math.max(0, room))
       }
-      if (!scanned && !a.as_images) continue
+      if (!scanned && !o.asImages) continue
       const head = scanned ? `--- Page ${p} (no text layer: shown as an image) ---` : `--- Page ${p} as an image ---`
       if (block) {
         if (!scanned) noPixels = true
         else if (ocrText) {
           let t: string
           try {
-            const png = await pdfPagePng(src.bytes, p, tools, ctx.signal)
+            const png = await pdfPagePng(bytes, p, tools, ctx.signal)
             t = (await extractText('page.png', png, { pandoc: null, pdftotext: null, ocr: this.cfg.ocr }, ctx.signal)).trim()
           } catch (e) {
             ctx.signal?.throwIfAborted()
             t = e instanceof ToolError && e.code.startsWith('vision_') ? this.visionFailure(ctx, e) : `(${e instanceof ToolError ? e.message : 'the page could not be read'})`
           }
-          text(`--- ${visionText(this.db, ctx.user.id, 'ocrPage', { page: p })} ---\n${t}`)
+          text(`--- ${visionText(this.db, ctx.user.id, 'ocrPage', { page: p })} ---\n${own(t)}`)
         } else blocked.push(p)
         continue
       }
@@ -468,7 +497,7 @@ export class FileService {
       const full = this.imageBudget(ctx, 0)
       if (full) { text(`--- Page ${p} ---\n${full}`); continue }
       let jpeg: Buffer
-      try { jpeg = await this.pdfPageImage(src.bytes, p, ctx.signal) } catch (e) {
+      try { jpeg = await this.pdfPageImage(bytes, p, ctx.signal) } catch (e) {
         ctx.signal?.throwIfAborted()
         text(`--- Page ${p} ---\n${this.visionFailure(ctx, e)}`)
         continue
@@ -484,15 +513,11 @@ export class FileService {
       ctx.files.imageCount++
       images++
     }
-    if (later.length) text(`Not shown in this read: the image${later.length === 1 ? '' : 's'} of page${later.length === 1 ? '' : 's'} ${pageList(later)} (with them the result would pass the tool output limit). Read ${later.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(later).replace(/ /g, '')}"${a.as_images ? ', as_images: true' : ''}.`)
-    if (blocked.length) text(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
-    else if (noPixels) text(why(block!))
-    const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
-    beforeDelivery?.()
-    // the pages of a read by pages; a read of the whole (short) file is the file
-    record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
-    const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
-    return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+    const notes: string[] = []
+    if (later.length) notes.push(`Not shown in this read: the image${later.length === 1 ? '' : 's'} of page${later.length === 1 ? '' : 's'} ${pageList(later)} (with them the result would pass the tool output limit). Read ${later.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(later).replace(/ /g, '')}"${o.asImages ? ', as_images: true' : ''}.`)
+    if (blocked.length) notes.push(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
+    else if (noPixels) notes.push(why(block!))
+    return { content, notes, images }
   }
 
   /**

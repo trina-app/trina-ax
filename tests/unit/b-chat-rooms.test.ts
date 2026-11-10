@@ -27,9 +27,16 @@ import type { TurnExec } from '../../server/src/chat/turn'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { auditUrl } from '../../server/src/tools/audit-url'
 import type { TurnTool, TurnToolProvider } from '../../server/src/services'
+import { CCITT_SCAN, makePagesPdf } from '../lib/pdf'
+import { nativeBinDir, ocrBin, which } from '../../server/src/config'
+import { isolation } from '../../server/src/tools/isolate'
+import { visionTools } from '../../server/src/files/vision'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+// a PDF page drawn and normalized for real (pdftoppm or PDFKit, mycel-safeops, the converter isolation)
+const TOOLS = visionTools({ nativeBin: nativeBinDir(), pdftotext: which('pdftotext'), ocr: ocrBin(), which })
+const pageRenderer = !!TOOLS.normalizer && isolation() !== 'none' && !!(TOOLS.pdfkit || TOOLS.pdftoppm) && !!(TOOLS.pdftotext || TOOLS.pdfkit)
 const cm = () => 'cm-' + crypto.randomUUID()
 const TZ = 'UTC'
 
@@ -422,6 +429,24 @@ describe('in a chat', () => {
     const no = await turn('bob', bobChat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
     expect(no.done.content).toContain('No file')
     expect(no.done.content).not.toContain('월요일')
+  })
+})
+
+describe('room_file on a scanned PDF', () => {
+  test.skipIf(!pageRenderer)('its page comes as an image in my own chat, as a team-folder read gives it', async () => {
+    const roomId = await groupChat('alice', ['erin', 'carol'], 'scan check')
+    const src = path.join(h.dataDir, `room-file-${uuidv7()}.pdf`)
+    fs.writeFileSync(src, makePagesPdf([{ image: CCITT_SCAN }]))
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'scan.pdf', src, 'x'.repeat(64))
+    await send('erin', roomId, '스캔 올려요', { fileIds: [f.id] })
+    const chat = await newChat('alice')
+    const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, expectImage: true, sayResult: true }))
+    expect(r.done.content).toContain('IMAGE_BLOCK_OK:image/jpeg')
+    expect(r.done.steps!.find((s) => s.tool === 'room_file')?.label).toBe('Read conversation file · scan.pdf')
+    // someone outside the room gets no file (and no picture)
+    const bobChat = await newChat('bob')
+    const no = await turn('bob', bobChat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, expectImage: true, sayResult: true }))
+    expect(no.done.content).toContain('IMAGE_BLOCK_MISSING')
   })
 })
 

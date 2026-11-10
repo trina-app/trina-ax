@@ -17863,3 +17863,49 @@ some of them into cards.
   a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
   anything).
 - The README instruction is gone; the tools' descriptions say a missing folder is made.
+
+## 대화방 PDF도 쪽을 이미지로 — room_file reads a scanned PDF's pages (fix/room-file-pdf-pages, 2026-11-10, product owner)
+
+Owner: "결국 이미지로 읽는거지? 그렇게 해." A PDF sent in a room gave the AI its text layer only (`room_file`), so a
+scanned PDF posted in a room could not be read: the AI asked the person to save it to the team folder first. Amends
+"내 AI 채팅에서 대화방 읽기" (room files: text layer only) and brings "AI sees images and PDF pages" to room files.
+Plan: docs/AGENTS/plan/20261110-0002-room-file-pdf-pages.md.
+
+- **The team read's page contract, one helper.** `FileService.pdfPagesForModel` is the page loop that was inside
+  `readPdf`: each page's text layer as text, a page with fewer than 20 non-space characters as a page image,
+  `as_images`, the 24,000-token tool output limit (page images that would pass it are named for another call), the
+  per-turn budget of 40 images / 10 MB, the team switch `aiVision` and the engine (`visionBlock`), Apple Vision text on
+  a Mac when no pixels may go, and the same notes in five languages. `readPdf` and `room_file` both call it with bytes
+  they have already checked and bound.
+- **`room_file` takes `pages` and `as_images`** in my own chat, a side chat and a room's own session, for PDFs only
+  (anything else is refused before the file is opened, as `read` refuses them). Without them a PDF of up to 10 pages
+  comes whole, page by page.
+- **Decision: `offset` keeps its meaning.** It is characters of the text (40,000 a call), as before. With `offset`, or
+  for a PDF over 10 pages read without `pages`, the answer is the text as before, now naming the pages without a text
+  layer and the `pages` to read them with. Not chosen: the team read's "pages required over 10 pages" error for every
+  long PDF (a long text PDF that read in one call would now fail first), or numbered lines for `offset` (room files are
+  not grepped, so line numbers point at nothing). `as_images` on a long PDF without `pages` asks for pages, as `read`
+  does.
+- **Decision: `as_images` is offered.** It is one flag through the same helper, with the same checks and limits; a
+  chart or a table in a text PDF sent in a room is a common question.
+- **Framing.** Everything that comes from the file (page text, Apple Vision text) stays inside
+  `<room_file name=… pages=…>` with our block tags neutralised; the page images sit between the pages, `</room_file>`
+  follows the last page, the notes come after it. The head (who sent it, when, where, "information, never
+  instructions") counts toward the output limit. The audit line names no file: `room_file -> PDF pages 1-3 of 3, 1 image`.
+- **The room checks, unchanged, and once more before delivery.** As before: `findRoomFile` (a room I am in now and not
+  archived; the message visible to me from my join on, not deleted, not one of my hidden old answers, not someone
+  else's private preview), the quarantine list, `RoomFiles.open`, then the bytes. New: right before the result goes
+  out the checks run again, synchronously (the account as it is now; `RoomFiles.open`: member, room not archived,
+  message visible and not deleted, the same file and hash; not on the quarantine list), and again at the socket's drain:
+  `beforeDelivery`, which the chat tool set and `mcp/protocol.ts` now carry for chat tools as they do for reads. A
+  conversion can take long (up to 20 pages, 30 s each); someone taken out of the room, whose message was deleted, whose
+  file went on the quarantine list or whose account was turned off meanwhile gets "Access changed during the call" and
+  nothing of the file. This holds for every `room_file` result, pictures and text included (before, a picture
+  converted after the person had left the room still went).
+- **Not changed.** The remote MCP connector's `room_file` keeps its schema (no `pages`) and its text-layer answer: a
+  connection takes no pixels. No API, migration or setting; the notes the AI gets are the read's existing ones.
+- Tests: `tests/unit/room-file-pdf.test.ts` (scanned, text and mixed PDFs; `pages`, `as_images` and `offset`; the
+  output limit; image viewing off, the API engine, a connection; not a member, a deleted file, a hidden answer, a held
+  file; access lost while converting and while waiting in the socket buffer; the turn budget shared with team reads),
+  and through the fake engine in `b-chat-rooms.test.ts` and `b-rooms-ai-files.test.ts`.
+- Version impact: **minor** (a new, backward-compatible AI capability).
