@@ -50,4 +50,4 @@ Built as planned. `sharedUploadPlace` now takes the database and any files layer
 the chat code can ask it; `Audiences.mayUpload` keeps one answer per project and person of a request. A team file
 dragged from the file screen still drops where the computer's files are not taken. `feat/room-drop-anywhere` was not
 on the remote when this was pushed, so there was no overlap to resolve in `useFileDrop` (its new `files` option is
-optional; the side chat's call is unchanged). PR: see the next commit.
+optional; the side chat's call is unchanged). PR: https://github.com/trina-app/trina-ax/pull/301.
