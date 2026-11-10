@@ -10536,7 +10536,8 @@ web app's rooms and settings); no server change.
   and the phone's notification already sounded for them). `quietForeground()` stays silent, so the open app has one
   sound.
 - **The sound** is made at run time with Web Audio (two sine notes, G5 then C6, each with a quiet octave, about
-  0.7 s, peak gain 0.12): no sound file, no licence question. Browsers start audio only in a gesture: the first
+  0.7 s, master gain 0.36 since 2026-11-10, up from 0.12 which the owner found too quiet; the mixed peak is about 0.43, under
+  clipping, a test renders it): no sound file, no licence question. Browsers start audio only in a gesture: the first
   pointer, touch end, click or key on the page makes and starts the AudioContext (plus one silent sample for WebKit);
   afterwards it is suspended 1.5 s after each sound so the audio output is not held open, and started again without a
   gesture (allowed once the page was used). A start that takes longer than 1 s (a phone giving the audio back late)
