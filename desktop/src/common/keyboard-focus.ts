@@ -7,22 +7,26 @@
 // back in (Cmd-H and a dock click) the window's first view, the team page, had it even when the person had been typing
 // in the in-app browser. A plain switch to another window and back keeps the view (macOS keeps it).
 //
-// keyboardBack: when the window gets the focus back, the view that had the keyboard when it lost the focus gets it
-// again, if it is still on screen, also where the system gave it to another view meanwhile. Run at once in the window's
-// focus event: a click that brought the window back is handled after it, so the view the person clicked wins.
+// keyboardBack (macOS): when the window gets the focus back, the view that had the keyboard when it lost the focus gets
+// it again, if it is still on screen, also where the system gave it to another view meanwhile. Run at once in the
+// window's focus event: a click that brought the window back is handled after it, so the view the person clicked wins.
+// Windows and Linux keep the focused view of a window themselves (and their focus event may come after the click).
 //
-// keyboardTarget: any other time the views change, and after the window's focus, which view gets it, or none. Only while the window has the focus (focusing a view brings the window
-// forward on macOS) and no dialog or menu of the app is open, and only when no view in the window has the keyboard (the
-// person's own click, or the view macOS kept, always wins). Then the view that had it last, if it is still on screen;
-// else the in-app browser's tab when the keyboard was last in the in-app browser and it is still open; else the team
-// page, or the app's own screen when that is what the window shows. Focusing the view itself (webContents.focus) keeps
-// the page's own focused element: the message box and its draft.
+// keyboardTarget: any other time the views change, and after the window's focus, which view gets it, or none. Only
+// while the window has the focus (focusing a view brings the window forward on macOS) and no dialog or menu of the app
+// is open, and only when no view in the window has the keyboard (the person's own click, or the view macOS kept, always
+// wins). Then the view that had it last, if it is still on screen; else the in-app browser's tab when the keyboard was
+// last in the in-app browser and it is still open; else the team page, or the app's own screen when that is what the
+// window shows. Focusing the view itself (webContents.focus) keeps the page's own focused element: the message box and
+// its draft.
 //
-// keepPageFocus: the team page's own element. When the window was ordered out and back in (Cmd-H and a dock click),
-// Chromium hands the page's focus to its first focusable element on the way back: the message box lost the focus and
-// typing went to a link. The team page's preload (preload/app.ts) remembers the element that had the focus when the page
-// lost it and, when the page gets the focus back with another element focused, puts it back there, if it is still in the
-// page. drop(): the page moves on its own (a conversation opened from a notification click), its own focus wins.
+// keepPageFocus: the team page's own element. When the window was ordered out and back in, Chromium hands the page's
+// focus to its first focusable element on the way back: the message box lost the focus and typing went to a link. The
+// team page's preload (preload/app.ts) remembers the element that had the focus when the page lost it (the view lost
+// the keyboard: not a frame inside the page taking it, such as an artifact) and, when the page gets the focus back with
+// another element focused, puts it back there, if it is still in the page. The page's own moves meanwhile win where
+// they can be told: a conversation opened from a notification click (drop()), and a dialog the page opened (the focus
+// is in a dialog that does not hold the remembered element). Events the page made itself (not trusted) do nothing.
 // Pure (no Electron, no DOM globals): unit-tested in tests/unit/e-keyboard-focus.test.ts.
 
 export interface KeyboardScene<V> {
@@ -61,13 +65,23 @@ export interface FocusableElement {
   focus?(): void
   /** an open shadow root's own focused element (the page's focus may sit inside a component) */
   readonly shadowRoot?: { readonly activeElement: FocusableElement | null } | null
+  closest?(selectors: string): { contains(other: unknown): boolean } | null
+}
+
+interface PageEvent {
+  target: unknown
+  /** false: dispatched by the page's own script */
+  isTrusted?: boolean
 }
 
 /** The bits of the page keepPageFocus uses: its window (the page's focus and blur events) and its document. */
 export interface FocusPage {
-  win: { addEventListener(type: 'focus' | 'blur', listener: (e: { target: unknown }) => void): void }
-  doc: { readonly activeElement: FocusableElement | null; readonly body: unknown }
+  win: { addEventListener(type: 'focus' | 'blur', listener: (e: PageEvent) => void): void }
+  doc: { readonly activeElement: FocusableElement | null; readonly body: unknown; hasFocus?(): boolean }
 }
+
+/** what counts as a dialog the page opened over its content */
+const DIALOG = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]'
 
 /** The element that has the page's focus, inside open shadow roots too. */
 function deepActive(doc: FocusPage['doc']): FocusableElement | null {
@@ -76,20 +90,36 @@ function deepActive(doc: FocusPage['doc']): FocusableElement | null {
   return el
 }
 
+/** The focus is in a dialog that does not hold `held`: the page opened it meanwhile. */
+function inOtherDialog(now: FocusableElement | null, held: FocusableElement): boolean {
+  try {
+    const dialog = now?.closest?.(DIALOG)
+    return !!dialog && !dialog.contains(held)
+  } catch {
+    return false
+  }
+}
+
 /** Keep the page's own focused element across the window going away and coming back (see above). */
 export function keepPageFocus({ win, doc }: FocusPage): { drop(): void } {
-  let held: FocusableElement | null = null
+  // weakly: an element the page removes meanwhile is not kept alive
+  let held: { deref(): FocusableElement | undefined } | null = null
+  const hold = (el: FocusableElement) => (typeof WeakRef === 'function' ? new WeakRef(el) : { deref: () => el })
   // focus and blur of elements do not bubble: on the window, these are the page's own (target: the window)
   win.addEventListener('blur', (e) => {
-    if (e.target !== win) return
+    if (e.target !== win || e.isTrusted === false) return
+    // a frame inside the page took the focus (the page still has it): not the view losing the keyboard
+    if (doc.hasFocus?.()) return
     const el = deepActive(doc)
-    held = el && el !== doc.body ? el : null
+    held = el && el !== doc.body ? hold(el) : null
   })
   win.addEventListener('focus', (e) => {
-    if (e.target !== win) return
-    const el = held
+    if (e.target !== win || e.isTrusted === false) return
+    const el = held?.deref()
     held = null
-    if (!el || !el.isConnected || deepActive(doc) === el) return
+    if (!el || !el.isConnected) return
+    const now = deepActive(doc)
+    if (now === el || inOtherDialog(now, el)) return
     try {
       el.focus?.()
     } catch {

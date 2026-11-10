@@ -120,8 +120,13 @@ export class AppWindow {
     focused: () => this.win.isDestroyed() || this.win.isFocused(),
     reveal: () => {
       if (this.win.isDestroyed()) return
+      // the notification opens something in the team page: the keyboard goes there, also if the person left the window
+      // from the in-app browser
+      if (this.app) this.keysWanted = this.app
       this.win.show()
       this.win.focus()
+      // the window had the focus already: no focus event comes
+      if (this.keysWanted && this.keysReady()) this.keysBack()
     },
     open: (path) => this.send(this.app, 'bridge:open', path),
     // "Mark as read" on a room notification: macOS only (Electron's buttons); the page calls the read API
@@ -159,6 +164,8 @@ export class AppWindow {
   private keys?: { view: WebContentsView; inPane: boolean }
   /** `keys` when the window lost the focus (the system may hand the keyboard to another view before it is back) */
   private keysAtBlur?: { view: WebContentsView; inPane: boolean }
+  /** a notification's click asks for the team page when the window is back */
+  private keysWanted?: WebContentsView
   private settleQueued = false
 
   constructor(private o: AppWindowOptions) {
@@ -348,7 +355,9 @@ export class AppWindow {
     this.mode = 'welcome'
     this.layout()
     this.sendWelcome()
-    this.shell.webContents.focus()
+    // only in a focused window: on macOS focusing a view brings the window in front of the app the person is in (a
+    // window in the back gets it with its focus: keysBack, settleKeys)
+    if (this.win.isFocused()) this.shell.webContents.focus()
   }
 
   back() {
@@ -418,7 +427,8 @@ export class AppWindow {
       this.mode = 'offline'
       this.layout()
       this.sendWelcome()
-      this.shell.webContents.focus()
+      // not in front of another app when the network drops while the person is there (as in showWelcome)
+      if (this.win.isFocused()) this.shell.webContents.focus()
     }
     let navigationFailed = false
     app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
@@ -607,6 +617,7 @@ export class AppWindow {
     const own = [this.shell, this.chrome, this.hostbar]
     if (this.keys && !own.includes(this.keys.view)) this.keys = undefined
     if (this.keysAtBlur && !own.includes(this.keysAtBlur.view)) this.keysAtBlur = undefined
+    this.keysWanted = undefined
     this.currentOrigin = ''
   }
 
@@ -988,14 +999,20 @@ export class AppWindow {
     view.webContents.focus()
   }
 
-  /** The window got the focus back: the view that had the keyboard when it lost it gets it again, at once (common/
-   * keyboard-focus.ts keyboardBack); nothing had it: settleKeys. */
+  /** The window got the focus back: on macOS the view that had the keyboard when it lost it gets it again, at once
+   * (common/keyboard-focus.ts keyboardBack; Windows and Linux keep it themselves); the team page after a notification's
+   * click; nothing had it: settleKeys. Not ready (a dialog of the app on its way): kept for the next return. */
   private keysBack() {
-    const atBlur = this.keysAtBlur
-    this.keysAtBlur = undefined
     if (this.win.isDestroyed()) return
-    const back = keyboardBack({ ready: this.keysReady(), shown: this.shownViews(), atBlur })
-    if (back) this.keysTo(back, 'back')
+    const ready = this.keysReady()
+    if (ready) {
+      const wanted = this.keysWanted
+      const atBlur = wanted ? { view: wanted } : process.platform === 'darwin' ? this.keysAtBlur : undefined
+      this.keysAtBlur = undefined
+      this.keysWanted = undefined
+      const back = keyboardBack({ ready, shown: this.shownViews(), atBlur })
+      if (back) this.keysTo(back, wanted ? 'notification' : 'back')
+    }
     this.settleKeysSoon()
   }
 

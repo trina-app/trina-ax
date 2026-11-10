@@ -60,17 +60,31 @@ describe('keyboardBack', () => {
 
 /** A page with a window that takes focus and blur listeners, a document and elements that record focus calls. */
 function fakePage() {
-  const listeners: Record<string, ((e: { target: unknown }) => void)[]> = {}
-  const win = { addEventListener: (type: string, fn: (e: { target: unknown }) => void) => void (listeners[type] ??= []).push(fn) }
+  type Ev = { target: unknown; isTrusted?: boolean }
+  const listeners: Record<string, ((e: Ev) => void)[]> = {}
+  const win = { addEventListener: (type: string, fn: (e: Ev) => void) => void (listeners[type] ??= []).push(fn) }
   const body = { isConnected: true, focus() {} }
-  const doc = { activeElement: body as FocusableElement | null, body }
-  const fire = (type: 'focus' | 'blur', target: unknown = win) => listeners[type]?.forEach((fn) => fn({ target }))
-  type El = FocusableElement & { calls: number; isConnected: boolean; shadowRoot: { activeElement: FocusableElement | null } | null }
+  // the page's own focus: false while another view (or another app) has the keyboard, true while a frame in it has it
+  let pageFocused = true
+  const doc = { activeElement: body as FocusableElement | null, body, hasFocus: () => pageFocused }
+  /** the page's own focus or blur (a trusted event on the window); blur: the view lost the keyboard */
+  const fire = (type: 'focus' | 'blur', target: unknown = win, isTrusted = true) => {
+    if (target === win) pageFocused = type === 'focus' ? true : frameTook
+    listeners[type]?.forEach((fn) => fn({ target, isTrusted }))
+  }
+  let frameTook = false
+  /** a frame inside the page takes the focus: the top window blurs while the page keeps the focus */
+  const frameBlur = () => {
+    frameTook = true
+    fire('blur')
+    frameTook = false
+  }
+  type El = FocusableElement & { calls: number; isConnected: boolean; shadowRoot: { activeElement: FocusableElement | null } | null; dialog?: { contains(o: unknown): boolean } | null }
   const el = (): El => {
-    const e: El = { isConnected: true, calls: 0, shadowRoot: null, focus: () => { e.calls++; doc.activeElement = e } }
+    const e: El = { isConnected: true, calls: 0, shadowRoot: null, focus: () => { e.calls++; doc.activeElement = e }, closest: () => e.dialog ?? null }
     return e
   }
-  return { win, doc, fire, el, body }
+  return { win, doc, fire, frameBlur, el, body }
 }
 
 describe('keepPageFocus', () => {
@@ -153,6 +167,63 @@ describe('keepPageFocus', () => {
     expect(host.calls).toBe(0)
   })
 
+  test('a frame in the page taking the focus (an artifact) is not the page losing it: nothing is put back', () => {
+    const p = fakePage()
+    keepPageFocus(p)
+    const box = p.el()
+    const frame = p.el()
+    p.doc.activeElement = box
+    // the person clicks into the artifact, then back into the box: the window's focus comes before the box's
+    p.doc.activeElement = frame
+    p.frameBlur()
+    p.doc.activeElement = p.body
+    p.fire('focus')
+    expect(frame.calls).toBe(0)
+    expect(box.calls).toBe(0)
+  })
+
+  test('events the page dispatches itself do nothing', () => {
+    const p = fakePage()
+    keepPageFocus(p)
+    const box = p.el()
+    const link = p.el()
+    p.doc.activeElement = box
+    p.fire('blur', p.win, false)
+    p.doc.activeElement = link
+    p.fire('focus', p.win, false)
+    expect(box.calls).toBe(0)
+    // a trusted blur, then an untrusted focus: still nothing; the next trusted focus puts it back
+    p.doc.activeElement = box
+    p.fire('blur')
+    p.doc.activeElement = link
+    p.fire('focus', p.win, false)
+    expect(box.calls).toBe(0)
+    p.fire('focus')
+    expect(box.calls).toBe(1)
+  })
+
+  test('a dialog the page opened meanwhile keeps the focus; a dialog that holds the element does not count', () => {
+    const p = fakePage()
+    keepPageFocus(p)
+    const box = p.el()
+    const field = p.el()
+    field.dialog = { contains: (o) => o === field }
+    p.doc.activeElement = box
+    p.fire('blur')
+    p.doc.activeElement = field
+    p.fire('focus')
+    expect(box.calls).toBe(0)
+    // the box itself is in the dialog (the person wrote in a dialog's field), the focus went to the dialog's first link
+    const inDialog = p.el()
+    const first = p.el()
+    first.dialog = { contains: (o) => o === inDialog || o === first }
+    p.doc.activeElement = inDialog
+    p.fire('blur')
+    p.doc.activeElement = first
+    p.fire('focus')
+    expect(inDialog.calls).toBe(1)
+  })
+
   test('an element whose focus throws does not break the page\'s focus event', () => {
     const p = fakePage()
     keepPageFocus(p)
@@ -174,6 +245,12 @@ describe('wiring', () => {
   test('the window: back on its focus, settled after every layout, only while focused and no dialog or menu of the app is open', () => {
     expect(win).toMatch(/this\.win\.on\('blur', \(\) => \{\s*this\.keysAtBlur = this\.keys\s*\}\)/)
     expect(win).toContain("this.win.on('focus', () => this.keysBack())")
+    // the view at the blur over the system's choice on macOS only; a notification's click asks for the team page
+    expect(win).toContain("const atBlur = wanted ? { view: wanted } : process.platform === 'darwin' ? this.keysAtBlur : undefined")
+    expect(win).toMatch(/reveal: \(\) => \{\s*if \(this\.win\.isDestroyed\(\)\) return\s*(\/\/[^\n]*\n\s*)+if \(this\.app\) this\.keysWanted = this\.app/)
+    // the app's own screen takes the keyboard only in a focused window (never in front of another app)
+    expect(win.match(/this\.shell\.webContents\.focus\(\)/g)).toHaveLength(2)
+    expect(win.match(/if \(this\.win\.isFocused\(\)\) this\.shell\.webContents\.focus\(\)/g)).toHaveLength(2)
     expect(win).toMatch(/layout\(\) \{\s*if \(this\.win\.isDestroyed\(\)\) return\s*\/\/[^\n]*\n\s*this\.settleKeysSoon\(\)/)
     expect(win).toContain('return !this.win.isDestroyed() && this.win.isFocused() && !this.allowAllOpen && !this.choosingFiles && !contextMenuOpen()')
     expect(win).toContain('hasKeys: (v) => v.webContents.isFocused(),')

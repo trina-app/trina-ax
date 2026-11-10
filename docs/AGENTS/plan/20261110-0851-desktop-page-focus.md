@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 08:51
 - Branch: `fix/desktop-page-focus`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`desktop/src/main/app-window.ts`, the pane's focus hook, the team page preload, a small
   decision module in `desktop/src/common/`, the desktop e2e and `tests/unit/e-*`, docs/DECISIONS.md, CHANGELOG). Why:
   the window and its views belong to the desktop app (see docs/REPOSITORY-RULES.md).
@@ -69,4 +69,15 @@ is not restored); the web app and phones (no change).
 
 ## Result
 
-(filled in at the end)
+PR #327. Built as planned, with these changes found on the way:
+- The order-out case also handed the keyboard to the team page when the person had been in the in-app browser, so on
+  macOS the window's focus gives it back to the view that had it at the blur (`keyboardBack`), at once in the focus
+  event; Windows and Linux keep their own (`settleKeys` only fills a gap there).
+- A notification's click gives it to the team page. The team list and the offline screen take the keyboard only in a
+  focused window (before, a network drop brought the app in front).
+- The review: the page's element is not remembered when a frame inside the page takes the focus, untrusted events do
+  nothing, a dialog the page opened keeps the focus, the element is held weakly.
+- Left (pre-existing, checked on dev): a page load in a view takes the keyboard (the in-app browser loading while the
+  person types in the team page; a team page reload). The e2e spec is a new file `desktop/e2e/keyboard-focus.spec.ts`;
+  #317's `page-focus.spec.ts` expects no page focus after a start and needs one step changed when both are in (PR
+  comment).

@@ -146,11 +146,37 @@ test('the message box keeps the focus, its draft and its caret when the window g
       // not moved to the page's first link (the order-out case before), not jumped to the box either: the box had it
       expect(await focused(page), how).toEqual({ id: 'message', value: '내일 회의는 3시에', caret: '내일 회의는 3시에'.length })
     }
-    // another element had the focus: that one comes back, not the message box
-    await page.evaluate(() => (document.getElementById('external') as HTMLElement).focus())
+    // another element had the focus: that one comes back, not the message box (a field after the box: Chromium's own
+    // choice after an order-out is the page's first link, #external)
+    await page.evaluate(() => {
+      const search = document.createElement('input')
+      search.id = 'search'
+      document.body.append(search)
+      search.focus()
+    })
     await awayAndBack(app, 'ordered out')
     await expect.poll(() => pageFocus(page)).toBe(true)
-    expect((await focused(page)).id).toBe('external')
+    expect((await focused(page)).id).toBe('search')
+  } finally {
+    await close(app)
+  }
+})
+
+test('a frame in the page taking the focus (an artifact) is not the page losing it: a click back into the box stays there', async () => {
+  const { app, page } = await started()
+  try {
+    await needFocus(app)
+    await expect.poll(() => keyboardAt(app)).toMatch(/^http:\/\/acme\.localhost:19151\//)
+    await messageBox(page, '초안')
+    // the person clicks into the artifact frame, then back into the message box (twice: no bounce builds up)
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate(() => (document.getElementById('art') as HTMLIFrameElement).focus())
+      await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('art')
+      await page.evaluate(() => (document.getElementById('message') as HTMLTextAreaElement).focus())
+      await new Promise((r) => setTimeout(r, 300))
+      expect(await focused(page)).toMatchObject({ id: 'message', value: '초안' })
+      expect(await pageFocus(page)).toBe(true)
+    }
   } finally {
     await close(app)
   }
