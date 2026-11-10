@@ -19,6 +19,7 @@
 // The caller (chat/room-tools.ts) marks the chat (chats.rooms_seen), taints it and adds the rooms whose messages a result
 // gave (`seen`; a list of rooms gives none) to its read scope.
 import type { Database } from 'bun:sqlite'
+import { isStatusEmoji } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
@@ -219,7 +220,10 @@ function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: str
   const body = m.sharedAnswer ? sharedAnswerText(m.body, m.sharedAnswer.at) : m.body
   const reply = m.threadRootId ? ` thread_reply_of="${m.threadRootId}"${m.alsoInRoom ? ' also_in_room="yes"' : ''}` : ''
   const files = m.files.length ? `\n[files: ${m.files.map((f) => `${neutralizeTags(attr(f.name, 200))} (${f.mime.split(';')[0]}, ${SIZE(f.size)}, file_id=${f.id})`).join('; ')}]` : ''
-  const reactions = m.reactions?.length ? `\n[reactions: ${m.reactions.map((r) => `${r.emoji} ${r.count}`).join(', ')}]` : ''
+  // reactions: one emoji each (the route checks it); only such a string is written here, so a reaction never brings
+  // the AI words, markup or invisible letters
+  const reacted = (m.reactions ?? []).filter((r) => isStatusEmoji(r.emoji))
+  const reactions = reacted.length ? `\n[reactions: ${reacted.map((r) => `${r.emoji} ${r.count}`).join(', ')}]` : ''
   return `<room_message${where} id="${m.id}" from="${from}" who="${who}" at="${at}"${m.editedAt ? ' edited="yes"' : ''}${reply}>\n${neutralizeTags(clip(body, ROOM_READ_MESSAGE_CHARS))}${files}${thread}${reactions}\n</room_message>`
 }
 

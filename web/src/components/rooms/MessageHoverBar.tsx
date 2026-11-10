@@ -1,13 +1,13 @@
 // A message's hover bar on computers (Slack's): a small floating panel over the top-right edge of the message the mouse
-// is on (or that has the keyboard's focus), with ✅ 👀 👍 (one click puts mine on or takes it off), 반응 추가 (the eight
-// emoji), 스레드에서 답장 (opens the thread; not on a reply, which has no thread of its own) and ⋮ 더 보기 (복사, and
+// is on (or that has the keyboard's focus), with ✅ 👀 👍 (one click puts mine on or takes it off), 반응 추가 (six more
+// emoji and "More emoji", the picker: Reactions.tsx), 스레드에서 답장 (opens the thread; not on a reply, which has no thread of its own) and ⋮ 더 보기 (복사, and
 // for my own message 수정 and 삭제). Every button has a tooltip (components/Tooltip.tsx) and a name. It floats: nothing
 // moves when it shows; it sits under the first message of a list so the header above does not cut it. Never on phones or
 // touch screens (they have the long-press sheet), on event lines or on deleted messages (RoomMessages decides).
 import clsx from 'clsx'
 import { EllipsisVertical, MessageSquareText } from 'lucide-react'
 import { AiMark } from './AiFace'
-import type { RoomMessage, RoomReactionEmoji } from '@mycel/shared/api'
+import type { RoomMessage } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { Tooltip } from '../Tooltip'
@@ -15,7 +15,7 @@ import { MenuButton, type MenuItem } from './MenuButton'
 import { ReactionPicker } from './Reactions'
 
 /** The quick reactions on the bar, in its order. */
-export const QUICK_REACTIONS: readonly RoomReactionEmoji[] = ['✅', '👀', '👍']
+export const QUICK_REACTIONS: readonly string[] = ['✅', '👀', '👍']
 
 const BTN = 'inline-flex size-7 items-center justify-center rounded-md text-faint transition hover:bg-hover hover:text-ink'
 

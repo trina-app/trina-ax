@@ -106,18 +106,20 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * "내 AI 채팅에서 대화방 읽기"): the tools that go on without the room card there. The room session's read-only tools, the
  * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
- * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts), and post_to_room
- * its own card with the room and all of the text, which leads with the room line (chat/post-to-room.ts): no room card
- * before either. A connection's read that the service marks read-only, whose arguments carry no address or
- * random-looking part, goes on too (chat/turn.ts confirmRoomChange; not api_request's GET), and the tools with a card of
- * their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write). delete_files, and skill_files into a
- * skill folder, refuse there (chat/delete-files.ts, chat/skill-files.ts). Every other tool (writes, the browser's clicks
- * and pages, box_shell, forget, tools added later) waits for the person's yes on the room card for the rest of that chat
- * (fails closed), but a new file in the person's own folder, and a new team file the person allowed for the answer or
- * the room (chat/turn.ts confirmRoomChange; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
+ * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts), post_to_room
+ * its own card with the room and all of the text, which leads with the room line (chat/post-to-room.ts), and
+ * change_project_members its own card that leads with the room line and names every person and group in full, marking
+ * in red a name not in the person's own messages (chat/project-members.ts): no room card before any of them. A connection's read that the service marks read-only, whose
+ * arguments carry no address or random-looking part, goes on too (chat/turn.ts confirmRoomChange; not api_request's
+ * GET), and the tools with a card of their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write).
+ * delete_files, and skill_files into a skill folder, refuse there (chat/delete-files.ts, chat/skill-files.ts). Every
+ * other tool (writes, the browser's clicks and pages, box_shell, forget, tools added later) waits for the person's yes on
+ * the room card for the rest of that chat (fails closed), but a new file in the person's own folder, and a new team file
+ * the person allowed for the answer or the room (chat/turn.ts confirmRoomChange; docs/DECISIONS.md "대화방을 읽은 뒤 카드
+ * 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'change_project_members', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])

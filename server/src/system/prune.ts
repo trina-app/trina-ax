@@ -8,9 +8,14 @@
 //
 //   kept      the version app/current points to, the running version, state.json's current and previous (Admin's
 //             "Roll back", and the bootstrap's way back when the current one does not verify), the newest staged
-//             version newer than the current one (offered as "available"), and any version folder changed in the
-//             last 24 hours (one another process has just brought in and is about to switch to: `mycel-ctl update`
-//             between copying and `admin.js switch`, the installer's "older" bundle, a manual `stage-update`)
+//             version newer than the current one (offered as "available"), a version folder NEWER than the current
+//             one changed in the last 24 hours (one another process has just brought in and is about to switch to:
+//             `mycel-ctl update` between copying and `admin.js switch`, which a scheduled update may hold until the
+//             team's update window; a manual `stage-update`), and a version folder OLDER than (or the same as) the
+//             current one changed in the last hour (a switch back to it in progress: `admin.js switch <older>` and
+//             Roll back touch it and switch within seconds; `mycel-ctl update --version <older>` copies or touches it
+//             and waits at most --max-wait, 10 minutes, for running turns). Only an hour for the older ones: a server
+//             that updates many times a day (the dev server: about 40) kept every version of the last day, about 22 GB
 //   removed   every other folder directly under app/versions whose name is a version; .staging-* and *.partial left
 //             by an update that died, once they are a day old; app/engines/<name>/<sha12> folders that
 //             <name>/current does not point to, once both current and the folder are a day old (a turn started on
@@ -20,7 +25,7 @@
 //             app/current, state.json or app/versions are not what they should be
 //
 // How a folder goes: right before, app/current, state.json (and an engine's current) are read again and the folder must
-// still be a day old by its ctime: a folder another process has just brought in under the same name (a fresh copy, a
+// still be older than its grace (a day; an hour for a version folder not newer than the re-read current) by its ctime: a folder another process has just brought in under the same name (a fresh copy, a
 // rename, `mycel-ctl update` / `admin.js switch` touching one they use again) has a ctime of now, and that is what keeps
 // it; the same dev and inode as at the first look is checked too, but proves little alone (ext4 hands a freed inode
 // number to the next folder made). It must also be owned by the account that owns its parent folder and hold no mount
@@ -45,6 +50,9 @@ import { compareVersions } from './update'
 
 /** a folder changed this recently is never removed (an update or install in progress elsewhere) */
 export const PRUNE_GRACE_MS = 24 * 3600_000
+/** the same for a version folder not newer than app/current (only a switch back to it can be in progress, and that
+ * switches within --max-wait, 10 minutes, of its copy or touch) */
+export const PRUNE_OLDER_GRACE_MS = 3600_000
 /** the server's first run after it starts (system/ops.ts); hourly from then on, 10 minutes off the automatic update */
 export const PRUNE_FIRST_MS = 10 * 60_000
 /** the last run's result (not a dry or skipped one), for Admin > System > Diagnostics (data/, the server account's) */
@@ -157,6 +165,9 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
   const app = o.appDir
   const versions = path.join(app, 'versions')
   const old = (st: fs.Stats) => now.getTime() - changedAt(st) >= PRUNE_GRACE_MS
+  /** a version folder newer than `current` waits a day; an older one (or the same) an hour */
+  const newer = (v: string, current: string) => compareVersions(v, current) > 0
+  const oldVersion = (v: string, st: fs.Stats, current: string) => now.getTime() - changedAt(st) >= (newer(v, current) ? PRUNE_GRACE_MS : PRUNE_OLDER_GRACE_MS)
   const done = () => {
     res.keptBytes = res.kept.reduce((a, k) => a + k.bytes, 0)
     res.removedBytes = res.removed.reduce((a, r) => a + r.bytes, 0)
@@ -207,8 +218,9 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
   /** what the first look found: the folder must still be this one (dev, inode) when it is removed */
   interface Candidate { rel: string; kind: PruneItem['kind']; dev: number; ino: number; owner: number; version?: string; engine?: string }
   const candidates: Candidate[] = []
-  const recentWhy = (kind: PruneItem['kind']) => kind === 'engine' ? 'changed in the last 24 hours (a turn may still use it)'
+  const recentWhy = (kind: PruneItem['kind'], olderVersion = false) => kind === 'engine' ? 'changed in the last 24 hours (a turn may still use it)'
     : kind === 'trash' ? 'renamed for removal in the last 24 hours (a run may still be removing it)'
+    : olderVersion ? 'changed in the last hour (a switch back to it may be in progress)'
     : 'changed in the last 24 hours (an update may be using it)'
   for (const name of names) {
     const rel = `versions/${name}`
@@ -222,7 +234,7 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
     if (kind === 'version' && keep.has(name)) continue
     if (st.dev !== vst.dev) { res.left.push({ path: rel, why: MOUNT }); continue }
     if (holdsMount(rel, mounts)) { res.left.push({ path: rel, why: HOLDS_MOUNT }); continue }
-    if (!old(st)) {
+    if (kind === 'version' ? !oldVersion(name, st, facts.current) : !old(st)) {
       if (kind === 'version') keep.set(name, ['recent'])
       else res.left.push({ path: rel, why: recentWhy(kind) })
       continue
@@ -274,7 +286,7 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
   const stillGoes = (c: Candidate, st: fs.Stats | null, f: Facts): string | null => {
     if (!st || !st.isDirectory() || st.dev !== c.dev || st.ino !== c.ino) return REPLACED
     // what keeps a fresh copy under the old name (ext4 may even give it the old inode number): its ctime is now
-    if (!old(st)) return recentWhy(c.kind)
+    if (c.version !== undefined ? !oldVersion(c.version, st, f.current) : !old(st)) return recentWhy(c.kind, c.version !== undefined && !newer(c.version, f.current))
     if (holdsMount(c.rel, mountsNow())) return HOLDS_MOUNT
     if (c.version !== undefined && keepSet(f, fs.readdirSync(versions)).has(c.version)) return 'needed again (app/current or state.json changed during the run)'
     if (c.kind === 'engine') {

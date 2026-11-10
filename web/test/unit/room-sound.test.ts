@@ -3,6 +3,7 @@
 // chime itself.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, uuidv7Time, type Me, type ServerEvent } from '@mycel/shared/api'
+import { unwatchWindowFocus, watchWindowFocus } from '../../src/lib/attention'
 import { Chime, COALESCE_MS, LAST_KEY, playChime, REPOST_MS, RoomSound, roomSoundOn, setRoomSoundOn, shouldRing, SOUND_KEY, VIEW_KEY, VIEW_TTL_MS, type AudioLike, type LocksLike, type RingInput, type SoundDeps } from '../../src/lib/roomSound'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
@@ -52,8 +53,23 @@ describe('shouldRing', () => {
   })
 
   test('not for the room this device shows in a visible, focused window; any other room still rings', () => {
-    expect(shouldRing(base({ viewing: ROOM }))).toBe(false)
-    expect(shouldRing(base({ viewing: uuidv7() }))).toBe(true)
+    expect(shouldRing(base({ viewing: { room: ROOM } }))).toBe(false)
+    expect(shouldRing(base({ viewing: { room: uuidv7() } }))).toBe(true)
+  })
+
+  test('the rule (docs/DECISIONS.md "화면에 연 대화는 울리지 않는다"): looked at with that conversation on screen, quiet; looked at on another, or not looked at, it rings', () => {
+    const root = uuidv7(), team = { kind: 'team', muted: false }
+    const reply = { threadRootId: root, following: true as const }
+    // `viewing`: what this device shows in a window the person looks at (null: none is looked at)
+    // 1. looked at, that conversation on screen: a DM's timeline; for a reply the thread panel showing it (its room not open)
+    expect(shouldRing(base({ viewing: { room: ROOM } }))).toBe(false)
+    expect(shouldRing(base({ room: team, viewing: { room: null, threads: [`${ROOM}/${root}`] }, message: reply }))).toBe(false)
+    // 2. looked at, another conversation on screen: another DM, another thread of the same room
+    expect(shouldRing(base({ viewing: { room: uuidv7() } }))).toBe(true)
+    expect(shouldRing(base({ room: team, viewing: { room: null, threads: [`${ROOM}/${uuidv7()}`] }, message: reply }))).toBe(true)
+    // 3. not looked at (another app in front, the window hidden): it rings even with the conversation open there
+    expect(shouldRing(base({ viewing: null }))).toBe(true)
+    expect(shouldRing(base({ room: team, viewing: null, message: reply }))).toBe(true)
   })
 
   test('nothing before the room or the person is known (rooms not loaded yet, signed out)', () => {
@@ -66,7 +82,7 @@ describe('shouldRing', () => {
       expect(shouldRing(base({ room: { kind, muted: false }, message: { ...AI, askedBy: ME, visibility: 'private' } }))).toBe(true)
       expect(shouldRing(base({ room: { kind, muted: false }, message: { ...AI, askedBy: ME, visibility: 'room' } }))).toBe(true)
       // not while I look at that room, not in a muted room
-      expect(shouldRing(base({ room: { kind, muted: false }, viewing: ROOM, message: { ...AI, askedBy: ME, visibility: 'private' } }))).toBe(false)
+      expect(shouldRing(base({ room: { kind, muted: false }, viewing: { room: ROOM }, message: { ...AI, askedBy: ME, visibility: 'private' } }))).toBe(false)
       expect(shouldRing(base({ room: { kind, muted: true }, message: { ...AI, askedBy: ME, visibility: 'room' } }))).toBe(false)
     }
   })
@@ -101,7 +117,7 @@ describe('shouldRing', () => {
       // a muted room, my own reply, the room on screen: never
       expect(shouldRing(base({ room: { kind, muted: true }, message: { threadRootId: root, following: true } }))).toBe(false)
       expect(shouldRing(base({ room, message: { threadRootId: root, following: true, author: ME } }))).toBe(false)
-      expect(shouldRing(base({ room, viewing: ROOM, message: { threadRootId: root, following: true } }))).toBe(false)
+      expect(shouldRing(base({ room, viewing: { room: ROOM }, message: { threadRootId: root, following: true } }))).toBe(false)
       // the AI's answer to my question in a thread: mine, as anywhere
       expect(shouldRing(base({ room, message: { ...AI, threadRootId: root, askedBy: ME, visibility: 'room' } }))).toBe(true)
     }
@@ -138,12 +154,12 @@ class FakeAudio implements AudioLike {
 
 interface Device { clock: { t: number }; storage: ReturnType<typeof memoryStorage>; locks: ReturnType<typeof memoryLocks> | null }
 const device = (locks = true): Device => ({ clock: { t: 1_000_000 }, storage: memoryStorage(), locks: locks ? memoryLocks() : null })
-function tab(dev: Device, o: Partial<SoundDeps> & { audio?: FakeAudio; focus?: { on: boolean; room: string | null } } = {}) {
+function tab(dev: Device, o: Partial<SoundDeps> & { audio?: FakeAudio; focus?: { on: boolean; room: string | null; threads?: string[] } } = {}) {
   const audio = o.audio ?? new FakeAudio()
   const focus = o.focus ?? { on: false, room: null }
   const s = new RoomSound({
     tabId: uuidv7(), now: () => dev.clock.t, storage: dev.storage, locks: dev.locks,
-    focused: () => focus.on, quiet: () => false, openRoom: () => focus.room, audio, hold: async () => {}, ...o,
+    focused: () => focus.on, quiet: () => false, onScreen: () => ({ room: focus.room, threads: focus.threads ?? [] }), audio, hold: async () => {}, ...o,
   })
   return { s, audio, focus }
 }
@@ -284,7 +300,7 @@ describe('the room a focused tab shows', () => {
     const front = tab(dev, { focus: { on: true, room: ROOM } }), back = tab(dev)
     front.s.publishView()
     expect(JSON.parse(dev.storage.getItem(VIEW_KEY)!)).toMatchObject({ room: ROOM })
-    expect(back.s.viewing()).toBe(ROOM)
+    expect(back.s.viewing()).toEqual({ room: ROOM, threads: [] })
     expect(await back.s.message(ROOM, msg(), dm, ME.id, false)).toBe(false)
     expect(await front.s.message(ROOM, msg({ seq: 2 }), dm, ME.id, false)).toBe(false)
     const other = uuidv7()
@@ -297,7 +313,7 @@ describe('the room a focused tab shows', () => {
     front.s.publishView()
     front.focus.room = null
     front.s.publishView()
-    expect(back.s.viewing()).toBeNull()
+    expect(back.s.viewing()).toEqual({ room: null, threads: [] })
     front.focus.room = ROOM
     front.s.publishView()
     front.focus.on = false
@@ -306,13 +322,27 @@ describe('the room a focused tab shows', () => {
     expect(await back.s.message(ROOM, msg(), dm, ME.id, false)).toBe(true)
   })
 
+  test('a tab in the background stays quiet about the thread a focused tab shows, and rings for its other threads', async () => {
+    const dev = device()
+    const root = uuidv7()
+    const front = tab(dev, { focus: { on: true, room: null, threads: [`${ROOM}/${root}`] } }), back = tab(dev)
+    front.s.publishView()
+    expect(back.s.viewing()).toEqual({ room: null, threads: [`${ROOM}/${root}`] })
+    const team = { kind: 'team', muted: false }
+    expect(await back.s.message(ROOM, msg({ threadRootId: root, following: true }), team, ME.id, false)).toBe(false)
+    expect(await back.s.message(ROOM, msg({ seq: 2, threadRootId: uuidv7(), following: true }), team, ME.id, false)).toBe(true)
+    // an older tab's word (no threads in it) still counts for its room
+    dev.storage.setItem(VIEW_KEY, JSON.stringify({ tab: 'older', room: ROOM, at: dev.clock.t }))
+    expect(back.s.viewing()).toEqual({ room: ROOM, threads: [] })
+  })
+
   test("a tab never takes back another tab's word; a word too old (a closed tab) counts for nothing", () => {
     const dev = device()
     const front = tab(dev, { focus: { on: true, room: ROOM } }), back = tab(dev)
     front.s.publishView()
     back.s.publishView()
     back.s.forgetView()
-    expect(back.s.viewing()).toBe(ROOM)
+    expect(back.s.viewing()).toEqual({ room: ROOM, threads: [] })
     dev.clock.t += VIEW_TTL_MS + 1
     expect(back.s.viewing()).toBeNull()
   })
@@ -544,6 +574,41 @@ describe('in the app', () => {
     dispatch(ev(3, msg({ seq: 3, threadRootId: root.id, following: true })))
     // (the server tells a follower their room right after: the thread's news counts in its badge)
     dispatch(threadNews(1))
+    await settle()
+    expect(audio.played).toBe(1)
+  })
+
+  test('the desktop app: its window focused, the room open does not ring though the page has no focus of its own; in the back, it rings', async () => {
+    const listeners = new Set<(f: boolean) => void>()
+    ;(globalThis as Record<string, unknown>).mycelDesktop = { bridgeVersion: 1, focus: { get: async () => true, onChange: (cb: (f: boolean) => void) => { listeners.add(cb); return () => listeners.delete(cb) } } }
+    try {
+      watchWindowFocus()
+      await settle()
+      useRooms.setState({ openRoomId: ROOM })
+      dispatch(ev(1))
+      await settle()
+      expect(audio.played).toBe(0)
+      // another app in front: the room open rings, as before
+      for (const l of listeners) l(false)
+      dispatch(ev(2, msg({ seq: 2 })))
+      await settle()
+      expect(audio.played).toBe(1)
+    } finally {
+      unwatchWindowFocus()
+      delete (globalThis as Record<string, unknown>).mycelDesktop
+    }
+  })
+
+  test('a reply in the thread a panel shows (a file opened outside its room) does not ring; a reply in another thread does', async () => {
+    ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => true
+    const root = msg({ seq: 1 }), other = msg({ seq: 2 })
+    useRooms.setState({ openRoomId: null, threadViews: { [`${ROOM}/${root.id}`]: { roomId: ROOM, rootId: root.id, root, replies: [], nextCursor: null, loading: false, error: null, holders: 1 } } })
+    dispatch(ev(3, msg({ seq: 3, threadRootId: root.id, following: true })))
+    dispatch(threadNews(1, 4))
+    await settle()
+    expect(audio.played).toBe(0)
+    dispatch(ev(5, msg({ seq: 5, threadRootId: other.id, following: true })))
+    dispatch(threadNews(2, 6))
     await settle()
     expect(audio.played).toBe(1)
   })

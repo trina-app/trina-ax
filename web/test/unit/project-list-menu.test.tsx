@@ -49,7 +49,12 @@ beforeAll(() => {
     if (key === 'GET /api/people') return json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }] })
     if (key.endsWith('/access')) return json(200, { editable: true, rulesHash: 'h1', people: 3, otherRules: [], participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }, { subjectType: 'user', subjectId: 'sora', name: 'Sora' }] })
     if (key === 'POST /api/projects/access-preview') return json(200, { people: 2, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
-    if (key.endsWith('/participants')) return json(200, { editable: true, rulesHash: 'h2', people: 2, otherRules: [], participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }] })
+    if (key.endsWith('/participants')) {
+      // the project as the server says it after the save (the dialog reads it again)
+      const pid = key.split('/').at(-2)!
+      list = list.map((x) => (x.id === pid ? { ...x, audience: 2 } : x))
+      return json(200, { editable: true, rulesHash: 'h2', people: 2, otherRules: [], participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }] })
+    }
     const id = key.split('/').at(-1)!
     const p = id in now ? now[id] : list.find((x) => x.id === id)
     if (!p && key.startsWith('GET /api/projects/')) return json(404, { error: { code: 'not_found', message: 'not found' } })

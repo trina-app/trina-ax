@@ -4237,8 +4237,9 @@ Trina should feel like Claude Code, which has WebSearch.
 - **Rule** (`server/src/system/prune.ts`, run by the server account: it owns `app/versions` and `app/engines`, so no
   root step). Kept: the target of `app/current`, the running version, `state.json` `current` and `previous` (Roll back;
   the bootstrap's way back when the current version does not verify, `native/cmd/mycel-bootstrap` `rollBack`), the
-  newest staged version newer than current (`UpdateManager.status().available`), and any version folder whose mtime
-  or ctime is in the last 24 hours. Removed: every other folder directly under `app/versions` named like a version
+  newest staged version newer than current (`UpdateManager.status().available`), a version folder newer than current
+  whose mtime or ctime is in the last 24 hours, and one not newer than current changed in the last hour (changed
+  2026-11-10, below). Removed: every other folder directly under `app/versions` named like a version
   (`<n>.<n>.<n>[-+…]`; "notes" or "backup" stays), `.staging-*` and `*.partial` once a day old, and engine folders
   `current` no longer points to once both `current` and the folder are a day old. `lstat` only: a link is left (or,
   inside a removed folder, unlinked), never followed; `app/`, `app/versions`, `app/engines` and `<name>` must be real
@@ -4250,6 +4251,14 @@ Trina should feel like Claude Code, which has WebSearch.
   `stage-update` are switched to later by hand. A rename, chown or chmod moves ctime, and `cp -a` keeps the kit's
   mtime but not its ctime, so a just-copied folder always looks fresh. The cost is at most one extra version for a
   day.
+- **One hour, not a day, for older versions** (fix/prune-old-versions-now, 2026-11-10). The dev test server updates
+  about 40 times a day, so the 24-hour grace kept about 40 version folders (22 GB). The grace protects a folder that is
+  about to be switched to. A folder newer than current can wait long for that (a scheduled `mycel-ctl update` waits for
+  the team's update window), so it keeps the day. A folder not newer than current is switched to only by a roll-back:
+  `admin.js switch <older>` and Admin's Roll back touch it and switch within seconds, and `mycel-ctl update --version
+  <older>` copies or touches it and waits at most `--max-wait` (600 s) for running turns. One hour covers both. The
+  check right before removal compares with the re-read `app/current`. An older kit that the installer only stages now
+  goes at a run an hour later; to go back to it, run `mycel-ctl update --version <v>` or the installer again.
 - **When.** 10 minutes after the server starts (the bootstrap's health check takes at most 120 s, `mycel-ctl update`
   waits 180 s), then hourly, under the operations lock (`OpsService.tryLock('prune')`: never during an update,
   backup, restore or export started from Admin). Not in office mode. `admin.js prune-versions [--dry-run]` runs it
@@ -10550,7 +10559,8 @@ web app's rooms and settings); no server change.
   the chime once; searching Settings for 소리 / sound finds it. In all five languages.
 - **Not in this step.** The personal Inbox (scheduled results, skill suggestions, approvals) has no event that says "a
   new notice for me" (`notifications.changed` only says that something changed), so it does not ring; rooms only.
-  The desktop app's focus is its web view's: with the in-app browser pane focused, the open room still rings.
+  The desktop app's focus is its web view's: with the in-app browser pane focused, the open room still rings (fixed:
+  "화면에 연 대화는 울리지 않는다", 2026-11-10).
   A tab opened after my preview arrived, when I post it from another device, may ring once for it.
 ## App connectors: group management for owners and admins, scope mcp:admin (feat/mcp-groups, 2026-11-06)
 
@@ -10864,7 +10874,8 @@ chats and 1:1s now; team rooms and the everyone room show their history, see "�
   that audience can get it. A posted answer or preview stays in its thread, notifies the thread's followers (never the
   asker) and does not move the room in the list. `RoomAiRun.threadRootId` puts my
   question's progress under the thread.
-- **Reactions.** Eight fixed emoji (`ROOM_REACTIONS`: 👍 ✅ 👀 🙏 😂 🎉 ❤️ 🔥; anything else 400), one each per person and
+- **Reactions.** Eight fixed emoji (`ROOM_REACTIONS`: 👍 ✅ 👀 🙏 😂 🎉 ❤️ 🔥; anything else 400; since 2026-11-10 any one
+  emoji, at most 20 different on a message: "Any emoji as a reaction"), one each per person and
   message (`room_reactions`, migration 251), on messages for the whole room and their replies; never on an event line, a
   deleted message (its reactions go with it) or a private preview. `PUT …/reactions {emoji, on}`: the same again changes
   nothing; a change takes from the sending budget (one bucket with messages, invites and renames). They never notify,
@@ -18640,6 +18651,160 @@ Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기"
   `skill-files.test.ts` (S7 in a side chat with a quote; the same copy in a plain chat gets its card),
   `b-side-chat.test.ts` (the rule's three ways in, an edited branch).
 - Version impact: **patch** (a security consistency fix; no API, data or setting change).
+
+## change_project_members: the AI changes a project's members — AI가 프로젝트 멤버를 바꿔요 (feat/project-members-tool, 2026-11-10, product owner)
+
+Asked to add or remove someone in a project, the AI answered that it had no tool. The owner (2026-11-10): "이것도
+가능하면 좋지 않을까?" `change_project_members` (server/src/chat/project-members.ts) changes a team project's members
+(people and groups, as the members panel of "Project members in one panel" does) after the person's yes on ONE server
+card, through the panel's own save (`saveParticipants`: the rules hash checked inside the transaction,
+`afterAccessChange`, the audit). An independent review of the plan set what follows (M1–M5, S1–S2, N1–N7). Owner
+decisions: no 보기/편집 split; the tool also works in chats that read rooms, the ✦ side chat included, with M1 and M5.
+
+- **Input.** `{ project?, add: [{ name, id? }], remove: [{ name, id? }] }`, at least one name, at most 20 each. The names
+  as the user wrote them; `id` only from the candidates the tool gave back for that name. Cut by the review: a list mode,
+  a `kind`, matching a username or an email.
+- **Decision: the person's own chat only.** Refused up front, with `refusal()` (what did not happen, why, next step), in a
+  scheduled run, a room, a shared project chat, a confidential chat, a chat other people wrote in, a question from Slack
+  or a Slack thread's chat (`exec.fromSlack`, S1), a draft / judge / merge chat (refused when called, N7), and for a
+  sub-agent (`PARENT_ONLY_TOOLS`, `files !== exec.files`). Not offered in rooms, shared or confidential chats (the
+  allowlists), nor in an approved template run; never in `FILE_TOOLS` or the remote connector. At most two cards per
+  answer, none after a no or no answer, none while another card is open (`exclusive`).
+- **Decision: a chat that read rooms gets the card, with the room line first** (owner Q2, review M1). "Read rooms" here
+  is the one rule of `chat/read-rooms.ts` (#313, "대화방을 읽은 채팅"): `rooms_seen`, a side chat (`side_room_id`), or a `>`
+  quote line in the person's own messages on the branch ("Ask Trina about this" quotes another person's message that
+  way, and sets no `rooms_seen`). The tool is in `ROOMS_SEEN_READ_ONLY_TOOLS` with post_to_room (N6): its card is the
+  call's only one. (delete_files's own side-chat gap was closed by #313 with the same rule.)
+- **Decision: names fold hard and must be unique** (M2, M3, N3). NFKC, case folding, invisible and direction-control
+  characters removed, spaces, dots, hyphens and underscores folded, and a map of the letters Unicode TR39 lists as
+  looking like Latin ones that matter for names (Greek, Cyrillic, Armenian, Cherokee and Lisu letters, Latin small
+  capitals and IPA letters, the digits 0 and 1; capitals mapped before case folding, so a Greek Η is H). The whole
+  TR39 table was not shipped: it is large, and these cover the scripts a display name is faked with. A name matches by
+  that skeleton over people and groups at once (exact never wins over the rest); one match only, else the AI gets the
+  candidates (name, kind, the directory's title marked as the person's own words, a group's head count, the id) and
+  nothing is asked. A name given also matches without an honorific after it ("민재님", "민재 씨") and, for a group,
+  without a group word after it ("영업팀"). A group also goes by its labels as the app shows it in every language
+  ("영업 부서", "Sales group": the web's `projects.whoGroup`), so a person who takes such a label as their name shares
+  the group's name (the re-check of this tool, MUST: before, "영업 부서 넣어줘" found only that person, said and not
+  red). A name another active account or any group also goes by always needs an `id`, and an `id` counts only when it
+  is one of that name's candidates. Even then a card cannot tell two accounts of one name apart, and anyone can set
+  their own name: an admin's card shows the account's username beside it (its owner cannot change it), and anyone else
+  is refused ("another account or a group goes by this name too": no count, no group named) and sent to the members
+  panel (the security review of this tool, MUST 2). That refusal tells a member only that the name is taken, never by
+  whom or by what. A group's own line says "부서" and its head count, which no person
+  can take: it goes on beside people of its name, and only another group of the name refuses. So anyone who sets their
+  display name to a colleague's (or a group's) blocks the AI path for members for that name: it fails closed to the
+  panel. Accepted. Removal: among the current members, a part of 2+ characters is enough when it is unique. Not a
+  member: one message. A member names only their own groups; another group is "not found".
+- **Decision: the rule difference must be the names** (M4). The save's rules (`participantRules`) may differ from the
+  folder's now only by the named people and groups. An older folder without the floor rule, or one whose creator's rule
+  an admin took out, is refused with what else would change and a link to the members panel (`/projects/:id?members=1`),
+  whose confirm says it. The creator is never removed; a person or group with a rule from Admin › Folder permissions is
+  refused.
+- **The card.** The project (name and folder); each line the full name (never cut; an invisible character shown as
+  `[U+200B]`), person or group, a group's head count (S2), "같은 이름 N명" when another account folds to it; how many gain
+  and lose it with before → after; what opens (files with those others put there, the shared chats' whole history, the
+  project skills by name); "이 부서에 나중에 들어오는 사람도 보게 돼요" for a group; for removal "이 프로젝트를 못 보게
+  돼요" with what they lose and that their AI chats start fresh (N4; nothing says reversible, M5); who is told: the people
+  who gain it and those who saw it already (`access_changed`, `project_access_widened`), those removed (N1); and for an
+  admin, that a removed admin (themself too) keeps seeing it (N2). No title on the card: anyone can set their own (M2).
+- **Decision: the red mark is a mention check** (M5). A person, group or project the person's own messages on this
+  branch do not mention gets "내 메시지에 없는 이름이에요" in red (`ConfirmDetail.alerts`: whole lines of the detail's text
+  with a note; the text keeps them, so an older app still shows every line), and the question says what the red means.
+  It catches a name the AI took from somewhere else (a quote, a room, a file); it proves nothing about who is meant: any
+  mention turns it off, also of a common word an insider renamed themselves to ("견적"), which is why same names and
+  group labels are handled apart (above). What counts as a mention:
+  - the subject's own whole name as a word (spaces inside as the person liked, a Korean particle or honorific after it,
+    never inside a longer word: "민재" is not in "이민재님"; no look-alike map), never the name or project alias the AI
+    gave (a part of a name or a look-alike picked by its id passed otherwise: the security review, MUST 1);
+  - a group by one of its labels or with a group word after its name ("영업 부서", "영업팀");
+  - a person by a part of their name with an honorific right after it ("민재님", "민재 씨" for 이민재, "Erin-san",
+    "Erinさん"), only when nobody else in the pool has that part (the members for a removal, everyone for an add), so
+    people do not learn to ignore the red; a part another one has stays red (fail-safe). A bare part never counts: it
+    is an ordinary word too often ("I will check", "park the idea", "미래 계획", "하늘이 맑네" would clear Will Smith, Jun
+    Park, 이미래 and 김하늘), and an insider could pick such a name on purpose (the re-check of this tool, MUST);
+  - not: `>` quote lines, and a room picked with "#" (`#[title](room:<id>)`: the title is other people's words, a group
+    chat's name is its members').
+  It reads the newest 200,000 characters of those messages (a regex per name: long messages must not stall the server;
+  older words left out only make more names red). A name followed by a longer Korean word that starts with a particle
+  counts as said ("박민" in "박민나"): accepted.
+- **The yes.** Bound to a fingerprint of the project, its folder, the rules hash, the next rules, who sees it before and
+  after, and every project skill name (N5; the dry run's list stops at 10). On yes: the account, the right to change it,
+  the names by the card's ids and the plan again; any difference ("changed while the card waited": a rename, an admin's
+  rule, someone joining a group, a new project skill) refuses, nothing written. Then `saveParticipants` with the card's
+  hash (409 inside the transaction), audited `folder.rules` with `via: 'ai'`, the turn and the chat, and one
+  `projects.ai_members` row per call (refused with its reason, declined, no answer, changed, failed, done). A step after
+  the save's transaction that fails (telling people, closing what the people removed had open) is reported as saved,
+  with that step failed: the folder's rules are the planned ones then.
+- **Who may.** The panel's own checks: `mayEditProject` and `accessEditable`. Anyone else is told who can: the creator by
+  name only while their account is active and the folder is theirs to change, else "an admin"; an admin is never named.
+- Prompt: one rule when the tool is offered (only for what the person's own message asks, all names in one call, ask
+  with the candidates). Step: "프로젝트 멤버 바꾸기 · 견적".
+- Tests: `tests/unit/b-project-members-tool.test.ts` (the names and the red mark's whole-word test, every refusal, Slack
+  and a sub-agent through an answer, the card, a group and an admin removing themself, two cards and no after a no, the
+  creator, a side chat alone, a planted quote alone and `rooms_seen`, a room title in the message, a removal by a part of
+  a name (a mention when unique among the members, red when another member has it), look-alike (Armenian, Cherokee,
+  Lisu, IPA, Greek capitals, 0 and 1) and invisible names for a member and an admin, a person named like a group's
+  label ("Marketing group", "Marketing 부서") for a member and an admin, the group labels against the web's, an id not of its name, a rename, a rule change, a group join and a new
+  project skill while the card waits, the older folders, who may, the audit and the busy card), web `ask-card-details.test.tsx` (the red lines), and
+  the tool lists of `b-chat`, `b-browser` and `i-wiring`.
+- Version impact: **minor** (a new AI tool and card field; no API change, no migration).
+
+## Who sees it, always — 누가 보는지 늘 한 줄로 (feat/always-show-who-sees, 2026-11-10, product owner)
+
+The owner (2026-11-10): "진짜 누가 볼 수 있는지 모르겠어서 개 헷갈리네". Only a shared project chat said who sees it
+("프로젝트 사람 N명이 볼 수 있어요"). A chat only its person sees said nothing under a project page's box, and nothing under
+an open chat on a phone, so "is this shared?" had no answer. Plan: `docs/AGENTS/plan/20261110-0837-always-show-who-sees.md`.
+
+- **One line, always** (`components/chat/WhoSees.tsx`, `lib/sharedChat.ts whoSees`). It sits under a project's new-chat
+  box (the project page and `/?project=`) and under every open chat's box: a team project's, a personal project's and a
+  chat without a project. On a computer it is in the row under the box; in an open chat it follows "AI는 실수할 수 있어요.
+  중요한 내용은 확인해 주세요." and replaces "내 채팅은 나만 볼 수 있어요". On a phone it is the one line under the box, as the
+  shared line was. It is quiet text with a 12 px icon: a lock while only I see it, people otherwise. An open chat shows it
+  once the chat is loaded. No new panel or button.
+- **The words.** "나만 봐요" is for a chat of one person, which nobody else ever opens, admins included (`chatFor`). It is
+  also for a shared one whose count is 1. "나와 관리자만 봐요" is for a shared one that nobody else sees by a rule
+  (`Project.alone`, below). Anything else keeps "프로젝트 사람 N명이 이 채팅을 볼 수 있어요." (the box: "새 채팅은 …").
+  All five languages; en "Only you" / "You and admins", as the owner's brief worded them.
+- **Decision: how the count treats admins.** `Project.audience` and `Chat.shared.audience` count everyone who can read the
+  folder, the owner and every admin included, for every caller. #304 (`adminsApart`) changes only the new-project dry run,
+  not these counts. So a count of 1 means nobody else, not even an admin, and "나만" there is exact. A member alone in a
+  shared project of theirs counts the owner and the admins too ("3명"). For them the line says "나와 관리자만 봐요". It
+  names nobody: "관리자", the owner included, as in "멤버는 관리자가 바꿔요". If members' counts later leave the admins out
+  (#304's `adminsApart` applied to `Project.audience`), a member's count of 1 must read "나와 관리자만" as well.
+- **Decision: `Project.alone` is role-blind and goes only to who may read the rules** (`Audiences.alone`, sent from
+  `chat/project-access.ts membersView`; optional, `true` only). Each other person in the audience is judged as a member
+  would be (`rules.access` with the role member). Someone who sees it through a person, group, role or everyone rule
+  counts, whatever their role, so an admin who made a project for one member counts as a member there. It is sent only to
+  the owner, admins and whoever may change the project's members (`membersEditable`): they can read its rules anyway (GET
+  access answers them its participants). For anyone else, `true` would say that everyone else who sees it is an admin.
+  With a name beside it (whose question is answered there, a creator whose account was switched off or whose rule was
+  taken out), it would say who is an admin, which the people directory and GET access keep from members (independent
+  review, must-fix). They read the count. While the folder is in the trash nobody sees it by a rule. The chat page takes it
+  from the chat's project (the header's crumb loads it), so `Chat.shared` has no such field. Cost: one pass over the
+  audience per project (the list already computes the audience), plus one `rules.access` call per admin.
+- **Decision: a button only while shared.** For a shared chat, or a box whose new chat will be shared, the line opens
+  `ProjectMembersDialog` (#298) for whoever may change the members (`Project.membersEditable`). Its tooltip says "멤버
+  관리". Anyone else gets plain text; #298's hint stays on the 멤버 line. A personal project is never shared, and in a chat
+  of one person, or a team project that does not share its chats, adding a member does not change "나만 봐요", so the line
+  opens nothing there. `/?project=` shows the line as text (the project page has the dialog). After a save the dialog reads
+  the project again (`GET /api/projects/:id`), so `audience` and `alone` both come from the server. If that read fails,
+  it keeps the saved count and drops `alone`. The chat page reads its chat again.
+- **The 멤버 line says the same** (coordinator, same PR): the project page's 멤버 line (#298's `MembersRow`) uses the same
+  words by the same rule and the same `Project.alone` (`whoSeesText`): "나만 봐요" for a count of 1 (it said "1명이
+  봐요"), "나와 관리자만 봐요" where the box says so, else "N명이 봐요". The members dialog's count line (`AccessSummary`)
+  stays: it counts the people being chosen before a save, which `alone` does not describe, and #304 changes it.
+- **Left as they were:** the Home box without a project (its page footer on a computer says "내 채팅은 나만 볼 수 있어요");
+  the line under a chat in the trash or read-only under safe operations; the header's shared mark; the edit dialog's
+  sharing switch. Another person's change of the members shows on the next load, as the count did.
+- Tests: `tests/unit/b-who-sees.test.ts` (a member alone, the owner alone, a member added, an admin who made a project
+  for one member, a member who may not read the rules with only admins left), web unit `who-sees.test.tsx` (the words, an
+  admin vs a member caller, clickable only when editable and shared, no line on Home), `project-members.test.tsx` and
+  `project-list-menu.test.tsx` (the read after a save), e2e `shared-project-chats.spec.ts` (only me, Bob added from the
+  line makes it 2, Bob out again from the open chat's line, a chat without a project, a member alone, a member who cannot
+  change the members; at 1440 and 390) and `chat-look.spec.ts`.
+- Version impact: **minor** (a visible line on every project chat box and open chat; one optional response field).
+
 ## 상태 메시지 — an emoji, a short text and when it clears (feat/custom-status, 2026-11-10, product owner)
 
 넣을 곳: trina-ax core (`server/src/auth/status-messages.ts`, `server/src/auth/status-plan.ts`, `server/src/routes/people.ts`,
@@ -18997,3 +19162,301 @@ this page", #263) and "Trina side chat" ("It opens the room's newest side chat")
   ✦: a new chat, the old one in 🕘; a phone; 보기 and ✦ still bring the chat back), `side-chat-attachments.spec.ts`,
   `room-file-viewer.spec.ts`, `room-hover-bar.spec.ts`, `room-drop.spec.ts`.
 - Version impact: **patch** (a behaviour change of one panel; no API, data or text change).
+
+## 메시지 복사는 메시지만 — copying room messages gives their words, not the buttons (fix/clean-message-copy, 2026-11-10)
+
+The owner copied a few messages from a room and pasted "✅ 👀 👍" under every one, the name and time on separate lines
+and many blank lines. The hover bar is in the page for every message (only its opacity hides it), and the reaction
+chips, "답글 N개", "(수정됨)", a file's size and "미리보기" and the avatar's initial were all selectable text.
+
+- **Decision: only a message's words can be selected.** A message row is `select-none`; its words (the text, an AI
+  answer's Markdown, a shared answer's note and answer, the deleted and hidden placeholders) are `select-text`, still
+  none on touch screens (a long press opens the menu there). The hover bar stays in the page: keyboard access and its
+  tests are unchanged.
+- **Decision: several messages copy as plain text, one block each** (`lib/messageCopy.ts`, a `copy` handler on the
+  message list). "Name  2:57 PM" on one line, once per run of one author as the list shows it; then the text; a file as
+  its name on a line of its own; one blank line between messages. A first or last message only partly selected gives the
+  part selected, under its author line. A selection crossing a day keeps the date line, and an event line is a line of
+  its own (both were in the copy before; the least change). It reads the page (the rows, their `select-text` words, the
+  run's name and `<time>`), so the timeline and a thread's panel (root and replies, two lists) copy the same way. No
+  `text/html`: a paste into Slack, Docs or the room's own box gets the same text. Firefox splits a dragged selection
+  around what cannot be selected into several ranges; they are read as one (first start to last end). The parts are
+  read with one off-screen layout per copy (innerText keeps the line breaks); pictures and diagrams are dropped from
+  the copy first.
+- **A selection inside one message is the browser's own copy**, as before, now without "(수정됨)". The same for a
+  selection that reaches the next message's very start (a triple click).
+- **The AI chat and the ✦ side chat** (they share `chat/Messages.tsx`, not the room list): the rows under a message
+  (copy, send here, regenerate, the model name, the branch switch), the steps toggle and Markdown's code, table and
+  quote copy bars are `select-none`, so a copy over a question and its answer is their words. The answer's own copy
+  button (Markdown and HTML) is unchanged.
+- Not done: a rich (HTML) copy of several messages; the AI chat's own multi-message format.
+- Tests: web unit `message-copy.test.ts`; e2e `room-copy.spec.ts` (three runs with a file, a reaction and an edited
+  message with a thread copied clean; a partial first message; Firefox's several ranges; one message as before; a
+  thread's panel; the side chat; a day line and an AI answer with a code block).
+- Version impact: **patch** (a fix; no API or data change).
+
+## 화면에 연 대화는 울리지 않는다 — no sound for the conversation on screen (fix/no-sound-open-conversation, 2026-11-10)
+
+The owner: "I have the Trina AX desktop app open with that conversation open, and the notification sound still plays."
+In a focused window that shows the conversation, a new message should only appear, as in other chat apps. Amends "대화방
+알림 소리" (its "Not in this step" line about the in-app browser pane).
+
+- **Cause.** The room sound (`store/roomSound.ts`) and the read marking (`pages/Room.tsx`, `components/rooms/ThreadPanel.tsx`)
+  asked `lib/attention.ts lookingAt()`, which went by the page's own `document.hasFocus()`. In the desktop app the team
+  page is one of several views in a `BaseWindow`. Checked in the desktop e2e harness with Playwright's focus emulation
+  off: after the app starts with a remembered team (a login start, a relaunch after an update) the window is focused
+  and no view has the focus, so the page's `document.hasFocus()` is false until the person clicks into the page; the
+  same while the address strip or the in-app browser has the keyboard. The page then counted as not looked at: the
+  chime rang for the room on screen (Electron lets it play without a gesture), the room was not marked read, so the
+  person's other open windows (on any device) rang too, and a followed thread's badge stayed. The session markers already went
+  by the desktop app's word on its window's focus (`DesktopBridge.focus`); the sound and reading did not. Reproduced
+  in `room-sound-on-screen.spec.ts` (a stand-in bridge: window focused, page without focus): 4 notes before the fix.
+- **The rule** (`lookingAt` and `conversationOnScreen` in `lib/attention.ts`, used by `lib/roomSound.ts shouldRing`):
+  - Looked at (on screen and focused; the desktop app: its window focused, as the app says; the phone app: on screen)
+    and that conversation on screen: no sound, no notification, no badge. The message appears and is read. "On
+    screen" is the room open (its timeline; a reply in one of its threads too, as before), or, for a reply in a
+    thread, a panel showing that thread (the thread beside a file in the viewer opened outside the room).
+  - Looked at, another conversation on screen: as before.
+  - **Not looked at (another app in front, the window hidden or minimised): as before, even with the conversation
+    open.** Kept on purpose: a person in another app should still hear about a message. The chime rings then; the
+    desktop app's own notification still does not show for the room open in its window (its messages count nothing
+    in this window while it is open, `store/rooms.ts withMessage`, so `tellRoom` finds nothing unread), as before.
+- **The desktop window's focus in one place.** `lib/attention.ts watchWindowFocus` follows `DesktopBridge.focus` (the
+  page's own focus until the app answers); `lookingAt` uses it when there is one, the page's own focus otherwise (a
+  browser, a desktop app older than the word). The session markers start and stop it and read it from there (no
+  second subscription). The room page and the thread panel read again when the window's focus comes back
+  (`onWindowFocus`: the page may get no focus event of its own), and the room sound tells the other tabs.
+- **The other paths, checked.** Desktop notifications: the main process shows one only while its window is not focused
+  (`desktop/src/common/notify.ts`), so none while looked at. The dock badge: the open room's messages count nothing in
+  that window, and a thread on screen is now read at once. The phone app: in the foreground no banner and no sound
+  (`mobile/src/push.ts quietForeground`), and the page does not ring for the room on screen; its silent entry in the
+  phone's list stays (no bug there; hiding it would need the open room in the native app). The push gateway serves
+  phones only; the desktop app has no Web Push. A browser with Web Push: the worker shows nothing for a notice read
+  meanwhile (the page reads the room on screen at once); one still unread (scrolled up) is shown silently, as before.
+  Not skipped: WebKit takes a push subscription away after a few pushes that show nothing, whatever tab is open.
+- **The team list over the page.** The desktop app takes the team page's view out of the window while the team list
+  or the offline screen shows, and the page still reports itself `visible` (checked on macOS). Going by the window's
+  focus alone, a message in the room open under the team list would be read without a sound. So the desktop app's
+  word is now "the window focused and the team page shown" (`AppWindow.teamFocused`, told on every layout, the
+  window's focus and blur, and answered by `bridge:focus`). Desktop apps before this keep the window's focus alone,
+  which the session markers already went by.
+- **What a tab tells the others** (`mycel.roomSound.view`) now also lists the threads on screen (`threads`, at most 20
+  read back; an older tab's word without it still counts for its room).
+- Not done: the desktop app does not give the team page its focus back when its window comes to the front, so typing
+  still needs a click into the page after a start. Not needed for the sound or reading. (Done since by "창으로 돌아오면
+  키보드는 보던 곳으로", merged with this in batch 2.)
+- Tests: web unit `attention.test.ts` (the desktop window's word, an older app, each row of the rule, a DM, a thread),
+  `room-sound.test.ts` (each row in `shouldRing`; in the app: the desktop window focused with the page unfocused, a
+  thread a panel shows; a background tab and a focused tab's thread), `session-markers.test.tsx` (the window's word,
+  not the page's), e2e `room-sound-on-screen.spec.ts` (a browser: the room open is quiet, another room open rings; the
+  desktop app: quiet and read while focused, rings in the back, rings for another room; Web Audio, Notification,
+  `showNotification` and the bridge stubbed), desktop e2e `page-focus.spec.ts` (run by hand on a Mac: started with a
+  team, the window focused, the page's own focus false and the bridge's word true; false under the team list, where
+  the page still says visible, and true again on 돌아가기; skipped when another app is in front). Since "창으로
+  돌아오면 키보드는 보던 곳으로" the page has the keyboard after a start, so the test's first step gives it to the
+  in-app browser's toolbar instead: the page's own focus false, the bridge's word true.
+- Version impact: **patch** (a fix; no API, data, setting or text change).
+
+## Any emoji as a reaction — 반응은 어떤 이모지든 (feat/any-emoji-reactions, 2026-11-10, product owner)
+
+넣을 곳: trina-ax core (`shared/src/api/rooms.ts`, `server/src/rooms/service.ts`, `server/src/rooms/reader.ts`,
+`web/src/components/EmojiPicker.tsx`, `web/src/lib/emoji.ts`, `web/scripts/emoji-data.ts`,
+`web/src/components/rooms/Reactions.tsx`, `web/src/components/StatusMessage.tsx`), 이유: team chat is core. Plan:
+`docs/AGENTS/plan/20261110-0806-any-emoji-reactions.md`. The owner wanted 😭 and it was not one of the eight; this
+replaces "Eight fixed emoji" of "스레드와 반응" (the rest of that entry stands). Modelled on the common pattern of team
+chat apps (a few quick reactions, then a picker with search and recently used), in the app's own strip, popover and
+sheet.
+
+- **Any one emoji.** `PUT /api/rooms/:id/messages/:messageId/reactions {emoji, on}` takes any string the status
+  message's rule takes (`isStatusEmoji`, shared/src/status-message.ts, the same function, not a copy): one emoji or one
+  sequence (a ZWJ sequence of at most four, a flag, a keycap, a skin tone, the three subdivision flags), at most 32
+  UTF-16 units; never text, markup, two emoji, a lone half of a flag, a lone skin tone or selector, a direction mark or
+  zero-width space, or tag letters outside those three flags (400). One emoji, one form: the server keeps the fully
+  qualified form (`emojiForm`, shared/src/emoji-form.ts: the emoji selector after a pictograph drawn as text by default,
+  none after one drawn as an emoji anyway, a keycap's), so ❤ and ❤️, 👍 and 👍 with a selector, are one reaction, not
+  two chips that look alike; the picker's paste and "Recently used" use the same function. It changes the form only,
+  never what is accepted. `ROOM_REACTIONS` is gone; the eight work as before (they were in that form already).
+- **What the rule still lets through** (it is the status message's, shared, and stays as it is here): two regional
+  indicators that are no country's flag (🇽🇽, drawn as two boxed letters), a ZWJ chain of up to four that is no real
+  sequence (drawn as up to four emoji), and an unassigned pictograph code point (drawn as a box). None of it is text the
+  AI could read as words beyond two letters, and none is invisible; a list of real flags and sequences would tighten
+  both features at once, later if needed. No migration: `room_reactions.emoji` was always a plain TEXT column (migration 251's comment
+  about "the fixed emoji" is history).
+- **The limits.** One of each emoji per person and message (the table's key), as before. A message carries at most
+  `ROOM_REACTION_EMOJI_MAX` = 20 different emoji: a 21st different one is refused with 409 (`params.reason`
+  `reactions_full`, words in the person's language, nothing stored or sent); adding mine to one that is there, or taking
+  mine off, always works. One person may fill all 20 (a per-person cap would add a rule people must learn; the sending
+  budget, one token per change shared with messages, and the cap keep a message small: at most 20 chips of at most 10
+  names each). Counted over the message's rows, which are of people in the room now (someone who leaves takes theirs);
+  checked and written in one go. The app checks the same before it asks and says so in a toast.
+- **Text only, everywhere.** React writes an emoji as text in chips, tooltips and the picker. The AI's `room_read`
+  writes reactions as before (`[reactions: 😭 2, 👍 1]`), and only strings that pass the rule, so a row written some
+  other way (an older build, a hand edit) brings the AI no words, tags or line breaks. Reactions still never notify,
+  ring, count as unread or move a room.
+- **The strip.** Computers: the hover row keeps ✅ 👀 👍; its ☺+ opens six more, ❤️ 😂 😭 🙏 🎉 🔥, and **More emoji** (+).
+  Phones and touch screens: the long-press sheet's strip is 👍 ✅ 👀 ❤️ 😂 😭 and **More emoji**: six, so it fits a 360px
+  screen with 44px targets (eight did not). 🙏 🎉 🔥 are one search or one "Recently used" away there.
+- **The picker** (`EmojiPicker`): a search field over a grid of 8. No search: "Recently used" (the last 16 I reacted
+  with, newest first, this browser only, per person: `mycel.emoji.recent:<user id>`, kept when signing out like the
+  sidebar's folds; only strings that pass the rule are read back), then every emoji under its group's heading
+  (Smileys & emotion … Flags; no tabs). A search looks in English names and keywords, and in Korean ones for a Korean
+  speaker or a search in Hangul; a name that starts with it comes first, then a word of a name, then keywords; an emoji
+  typed or pasted into it is offered as it is (a skin tone, one newer than the data). Enter picks the first match, ↓
+  goes into the grid, arrows move by the grid on screen, Esc clears the search, then closes and gives the keyboard back
+  to ☺+, Tab leaves it as it leaves a menu; Enter and Esc while a Hangul syllable is being typed are the input method's.
+  On a computer it is a popover by ☺+ fixed to the window (placed like a menu, following the button when the list
+  scrolls and going when the button is out of sight; a click outside closes it), inside the dialog its button is in
+  when there is one (the image viewer's thread column: over the viewer, inside its focus trap, its keys not the
+  viewer's); on a phone, or opened from the long-press sheet, the app's dialog, a bottom sheet (the phone app's
+  WebView alike), whose search does not raise the keyboard by itself. No skin-tone choice and no team emoji.
+- **The data.** `emojibase-data` 18.0.0 (MIT) with Unicode CLDR's names and keywords (Unicode-3.0), trimmed at build
+  time by a Vite plugin (`web/scripts/emoji-data.ts`) to the emoji up to Emoji 15.0 (newer ones are boxes on many
+  phones and on Windows), without skin-tone variants or the components group: 1,870 emoji in two lazy chunks, English
+  90.7 kB (33.1 kB gzip) and Korean 107.2 kB (37.0 kB gzip), loaded when a picker opens (the Korean one for Korean
+  speakers or a Hangul search). The entry chunk is the same size (247.6 kB); the shared room chunk grows by 5.9 kB
+  (1.8 kB gzip) for the picker's code. Indonesian has no data in emojibase; Japanese and Spanish have, and are left for
+  later (English names work in every language). Notices: the package's LICENSE comes with the web bundle; the CLDR
+  notice and the Unicode License v3 text are `resources/notices/unicode-emoji/` (`EMBEDDED_DATA` in
+  `scripts/release-notices.ts`), NOTICE and docs/THIRD-PARTY-NOTICES.md.
+- **The status dialog** ("상태 메시지") uses the same picker inline: its 32 status emoji are the first view, then the
+  search and every emoji. No "Recently used" there (that is the reactions'). Esc in its search clears the words, then
+  closes the picker, not the dialog.
+- **Size of a message's reactions:** at most 20 emoji with the first 10 names each, about 13 kB in the worst case (20
+  different emoji, each by 10 or more people). Kept as it is; fewer names in lists and events would be the lever.
+- **The review of this branch** (an independent deep review that tried to inject through a reaction and to flood a
+  message) found two must-fix items, both fixed: the picker opened behind the image viewer from its thread column and
+  lost the keyboard to the viewer's focus trap, and ❤ / ❤️ were two reactions (now one form). Also in from it: the
+  input-method guard, Esc in the status dialog's picker, `Object.hasOwn` in the data plugin. The server's checks, the
+  cap, `room_read` and the notices held up.
+- Tests: `tests/unit/b-rooms-threads.test.ts` (any emoji: ten kinds accepted, one form for ❤ / ❤️, 👍 with a selector, a
+  keycap and a ZWJ flag without selectors; text, markup, a shortcode, spaces, two
+  emoji, two flags, half a flag, a lone skin tone or selector, tag letters, a tag-letter flag spelling words, a
+  zero-width space, a direction override, the text selector, a trailing joiner, five people joined, a joiner chain, 5,000
+  characters and non-strings refused with nothing stored or sent; realtime with each person's own "mine"; the cap of 20
+  with 409 `reactions_full` in English, joining and taking off at the cap, room again after one goes and after a member
+  leaves; the AI's line with rows that are not one emoji; the old eight and the sending budget), `tests/security/lib/rooms-cases.ts`
+  (markup refused), `tests/unit/release-notices.test.ts` (the web bundle carries the Unicode notice and licence),
+  `web/test/unit/emoji.test.ts` (every emoji of the built data is one the server takes, in the form it keeps; the form;
+  search ranking, Korean, a pasted emoji, the limit; recently used: order, the 16, per person, junk and broken storage),
+  `web/test/unit/message-hover-bar.test.tsx` (the strip), `web/test/e2e/room-reaction-picker.spec.ts` (😭 from the strip;
+  More emoji, search "cry", pick, Recently used first next time, "울음", a pasted skin tone, Enter; the keyboard, Esc and
+  Tab; the toast at 20; the status dialog's picker and its Esc; the phone's sheet), `web/test/e2e/room-file-viewer.spec.ts`
+  (the picker from the viewer's thread column: over it, the keyboard in it, Esc closes only the picker).
+- Version impact: **minor** (a visible feature; the endpoint takes more than before and refuses only a 21st different
+  emoji; older apps draw any reaction as a chip).
+
+## 트리나에게 묻기는 ✦ — "Ask Trina" has Trina's mark (fix/ask-trina-icon, 2026-11-10, product owner)
+
+Amends "Desktop sidebar: rooms first" (the first row's icon) and "Trina side chat" (where the ✦ shows). The owner: the
+icon left of "트리나에게 묻기" at the top of the sidebar looked off. It was an orange-red outlined speech bubble with a
+plus (`MessageSquarePlus`, `text-accent-text`) among monochrome icons, so it read as an error or a notice, not as
+"start a chat with Trina".
+
+- **One mark for asking Trina.** "트리나에게 묻기" uses `AiMark` (rooms/AiFace.tsx), the ✦ of a room's header, a
+  message's "Ask Trina about this" and the image viewer: in the sidebar's first row, in ⌘K's action row and on the
+  new-chat button of a phone AI chat's header (the last two had a grey bubble, the sidebar's the orange one). Where the product is not named after its AI it is the plain sparkle, as
+  `AiMark` is everywhere.
+- **Sized to its row.** A new place, `nav`: the star drawn 18 in the 16 px slot of the icons below it (about as tall as
+  them: 14 × 15.5 px painted as measured, against their 12–15 × 13–15; its words start where theirs do), the sparkle 16 and in the row's
+  colour. Filled with the star's own light orange, it carries less contrast than the stroked icons beside it (measured
+  at 1440 against the lightest, 검색: 0.3× in light, 0.6× in dark), so it is not heavier; its colour is the one accent there,
+  as the old bubble's was. The phone header's is the room header's (`toolbar`, drawn 24), its button 44 px in both
+  looks.
+- **Not ambiguous with the side chat**: the two already had the same words ("트리나에게 묻기", since fix/ask-trina-label),
+  and the same mark says the same thing: ask Trina; the sidebar row starts a chat of its own, the ✦ in a room asks
+  beside that room. A pen-on-square "new chat" icon was the alternative; it would give the same words, "트리나에게
+  묻기", two marks (the room header's ✦ and the row's pen). The pen stays where it is: the side chat panel's own "새
+  대화" starts a fresh side chat.
+- **Left as they are:** the phone tab bar's 트리나 tab keeps its monochrome sparkle (a tab shows which one is on in ink
+  or grey; a fixed orange star could not), and the phone drawer has no "Ask Trina" row (the tab is the new chat).
+  "Use skill", "Chat with this folder" and Scheduled's "New in chat" keep their speech bubble: other actions, other
+  words.
+- Tests: web unit `ai-face.test.tsx` (the `nav` place in both looks), `sidebar.test.tsx` (the row's mark, no bubble, no
+  accent class); e2e `sidebar.spec.ts` (drawn size, centred on the slot and the row, words aligned), `search-palette.spec.ts`
+  (⌘K's row) and `phone-nav.spec.ts` (the phone header's ✦, 44 px).
+- Version impact: **patch** (one icon; no text, API or data change).
+
+## 설정 › 앱에 모든 앱 — Settings › Apps lists every app (feat/settings-apps-all, 2026-11-10, product owner)
+
+The Mac App Store build's Settings › Apps showed only the team address and one "Desktop app" line, while the website's
+download page has every app. Placement: Team AX core (web `lib/apps.ts`, `components/settings/AppList.tsx`, the edition
+script) and the Trina edition's links in `editions/trina/branding/apps.json`.
+
+- **The links are the edition's** (`editions/<name>/branding/apps.json` → `bun scripts/edition-apps.ts … --apply` →
+  `shared/src/app-downloads.ts` `APP_DOWNLOADS`, like `service.json`): the download page, the iPhone and Mac App Store
+  listings, Google Play and the Microsoft Store (`''` while not live). Only addresses that do not change with a version:
+  the APK and the Windows installer on the feed are by version (no "latest" alias, "The release feed also serves the
+  Android APK"), so the Android row leads to the download page until Play is live, and Windows comes from the team
+  server as before. The website keeps its own copy; there is no list on the feed both could read. A build with none
+  (`''` everywhere) shows only what its team server has. The script takes only https web pages: no port, credentials,
+  fragment or quote, and no installer file (`.exe`, `.dmg`, `.apk`, …), so a store build can never be handed one. A
+  test keeps the module equal to the branding file and finds no store address written in `web/src`.
+- **Phone app**: on a computer the iPhone and Android rows (store listing, else the download page) and one small QR code
+  of the download page (without a page, one per row); in a phone's browser only that phone's row; in the phone app one
+  row, "This app".
+- **Desktop app**: Mac and Windows rows. Each offers the team server's installers, else the store listing, else the
+  download page. The desktop app marks its row "This app": a store build keeps the store's line ("This app is from the Mac
+  App Store. It updates there.") and offers no installer file anywhere, as before (App Review 2.4.5, Microsoft Store
+  10.2.4), so its other computer's row is the listing or the page. The desktop app from the team server offers only the
+  server's installer on its own row (a store listing is another build, with its own data): a Windows app "updates by
+  itself", a Mac one "tells you; download it here", and with none the row says the server has no such app, as a
+  browser's does. The other computer's installer is no longer folded (one row each reads clearly), and install steps
+  show only on the computer they are for. Nothing to get at all: the old empty state and the owner's hint; an owner
+  whose server has no installer yet gets the hint under the rows too (the Windows app updates only from the server).
+- **The Mac App Store build shows no Android row** (App Review 2.3.10: no other mobile platform's or app store's name in
+  an Apple app). Its QR code still leads to the page that has the APK. The iPhone app shows only "This app" for phones.
+  In both, a Windows row with a Microsoft Store listing links the download page instead. The device comes from the
+  desktop bridge (`platform`) and the phone app's config, a browser's from its user agent.
+- Generic device icons (lucide), not the platforms' logos; store names are plain text, not badges (their artwork has
+  rules of its own). "Install as an app" (a web browser only) moves under the apps, so "the steps above" now reads
+  "below".
+- Tests: `tests/unit/edition-apps.test.ts`, `web/test/unit/apps.test.ts` (rows per device and build, no links, the
+  Mac App Store build without Android), `web/test/unit/downloads.test.ts`, `web/test/e2e/apps-install.spec.ts` (a Mac
+  at 1440, a Windows PC, an iPhone at 390, the Mac App Store build, the iPhone app; with this build's edition links and
+  a fixture installer list; a build without links is covered by the unit tests).
+- Version impact: **patch** (a settings page shows more; no API, data or setting change).
+
+## 창으로 돌아오면 키보드는 보던 곳으로 — the keyboard goes back where it was when the desktop window gets the focus (fix/desktop-page-focus, 2026-11-10)
+
+- **Why:** coming back to the desktop app (Cmd-Tab, a dock click, a notification's click, a start or the relaunch after
+  an update), typing did nothing until a click into the team page. The window is a `BaseWindow` holding several views
+  (the team page, the in-app browser's toolbar and tab, the host strip, the app's own welcome / team list / offline
+  screen); unlike a `BrowserWindow`, nothing gives one of them the keyboard. Checked in the desktop e2e (Electron 44,
+  macOS): after a start with a team, a minimize and a restore, or the team list and [돌아가기], the window was focused
+  and no view had the keyboard. After the window was ordered out and back in (Cmd-H and a dock click) the window's first
+  view, the team page, had it even when the person had been in the in-app browser, and Chromium had moved the page's
+  focus to its first focusable element: the message box lost it. PR #317 worked around it for the room sound only.
+- **The rule** (`desktop/src/common/keyboard-focus.ts`, `main/app-window.ts`): when the window gets the focus back on
+  macOS, the view that had the keyboard when it lost it gets it again, at once (a click that brought the window back is
+  handled after that and wins; Windows and Linux keep the window's focused view themselves). A notification's click
+  gives it to the team page, where the notification opens its conversation. Any other time the views change while the window has the focus (a team page loaded, back from
+  the team list or the offline screen, the in-app browser closed), and no view has the keyboard: the view that had it
+  last if it is still on screen, else the in-app browser's tab when the keyboard was last in the pane, else the team
+  page, else the app's own screen. Focusing the view keeps the page's own element (the message box, its draft and
+  caret). Never while the window is in the back (focusing a view brings it forward on macOS), while one of the app's
+  dialogs (Allow all websites, the file chooser) or right-click menus is open, or over a view that has the keyboard.
+- **The page's own element:** the team page's preload remembers the element that had the focus when the page lost it
+  (the view lost the keyboard; not a frame inside the page, such as an artifact, taking it) and, when the page gets it
+  back with another element focused, focuses that element again if it is still in the page. The page's own moves win
+  where they can be told apart: a notification's click that opens another conversation drops it, and a dialog the page
+  opened meanwhile keeps the focus. Events the page dispatches itself do nothing.
+- **A page load in the in-app browser does not take the keyboard** (`keyboardTaken`): Chromium focuses a page as it
+  loads, so the AI's `navigate`, a site's own redirect or a new tab took the keyboard from the person typing in the team
+  page's message box (checked on dev). A tab that gets the keyboard while its page loads keeps it only when the
+  person's last action was in the in-app browser (a key or a mouse press in its tab or toolbar, its address bar,
+  opening it from the team page's Browser entry or the menu) or the app gave it; else the keyboard goes straight back to
+  the view that had it, else the team page. Key and mouse presses are the views' own input events; the AI's clicks in a
+  tab reach it as mouse presses too and do not count while it drives. A click into a tab while its page loads gives the
+  tab the keyboard on the click's mouse press.
+- **Also:** the app's own screen (the team list, the offline screen) takes the keyboard only in a focused window: a
+  network drop while the person is in another app no longer brings the app in front.
+- **Left as before:** a reload of the team page takes the keyboard from the pane's toolbar (Chromium; the person's own
+  Cmd-R, or the app moving the page between the office and the team address). A site's own element in the in-app
+  browser after Cmd-H is not restored (the tab gets the keyboard; the site's first element may have it). Opening the
+  in-app browser does not move the keyboard there by itself. Phones and the web app: no change.
+- Tests: `tests/unit/e-keyboard-focus.test.ts` (the decisions, the page's element, the wiring),
+  `desktop/e2e/keyboard-focus.spec.ts` (a start, the message box across another window, an order-out and a minimize,
+  the team list and back, the in-app browser in front, a layout not taking it from the toolbar, a page load while away,
+  typing into the message box while the AI, the site and the app load pages in the pane, the address bar's page taking
+  it).
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.

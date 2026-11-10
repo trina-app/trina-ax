@@ -8,8 +8,10 @@
 // the state changes (test/unit/rooms-store.test.ts), handleEvent adds the requests they need. A reconnect the server
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
-import { uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { emojiForm } from '@mycel/shared'
+import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
+import { noteRecent } from '../lib/emoji'
 import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
@@ -197,7 +199,7 @@ export function withReactions(d: RoomsData, roomId: string, messageId: string, r
 }
 
 /** My reaction put on or taken off, before the server answers (my name first when it is new). */
-export function toggledReactions(list: readonly RoomReaction[], emoji: RoomReactionEmoji, on: boolean, me: { id: string; name: string } | null): RoomReaction[] {
+export function toggledReactions(list: readonly RoomReaction[], emoji: string, on: boolean, me: { id: string; name: string } | null): RoomReaction[] {
   const i = list.findIndex((r) => r.emoji === emoji)
   if (on) {
     if (i >= 0) return list[i]!.mine ? [...list] : list.map((r, j) => (j === i ? { ...r, count: r.count + 1, mine: true, users: me ? [...r.users.filter((u) => u.id !== me.id), me] : r.users } : r))
@@ -313,7 +315,7 @@ interface RoomsState extends RoomsData {
   edit: (roomId: string, messageId: string, body: string, mentions: string[], mentionsAll?: boolean) => Promise<void>
   remove: (roomId: string, messageId: string) => Promise<void>
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
-  react: (roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean) => Promise<void>
+  react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
   markRead: (roomId: string, seq: number) => Promise<void>
   setMuted: (roomId: string, muted: boolean) => Promise<void>
   /** my level for a room (null: my default; docs/DECISIONS.md "대화방 알림 설정") */
@@ -651,9 +653,19 @@ export const useRooms = create<RoomsState>((set, get) => {
       }
     },
 
-    async react(roomId, messageId, emoji, on) {
+    async react(roomId, messageId, picked, on) {
+      // the form the server keeps (❤ and ❤️ are one reaction)
+      const emoji = emojiForm(picked)
       const before = findMessage(get(), roomId, messageId)?.reactions ?? []
-      set((s) => withReactions(s, roomId, messageId, toggledReactions(before, emoji, on, myRef())))
+      // a new emoji on a message that has the most different ones already: the server would refuse it (409)
+      if (on && before.length >= ROOM_REACTION_EMOJI_MAX && !before.some((r) => r.emoji === emoji)) {
+        toast({ level: 'warn', text: t('rooms.reactionsFull', { n: ROOM_REACTION_EMOJI_MAX }) })
+        return
+      }
+      // the picker's "Recently used" (this browser, per person)
+      const me = myRef()
+      if (on && me) noteRecent(me.id, emoji)
+      set((s) => withReactions(s, roomId, messageId, toggledReactions(before, emoji, on, me)))
       try {
         const r = await api.call(API.reactRoomMessage, { params: { id: roomId, messageId }, body: { emoji, on } })
         set((s) => withReactions(s, roomId, messageId, r.reactions))
