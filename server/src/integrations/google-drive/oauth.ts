@@ -127,12 +127,12 @@ export class GoogleDrive {
   }
   /** Start a Google sign-in either way: this server's own client (authorize), or the hosting service's (broker.ts),
    * which makes the Google address for this flow. The routes use this. */
-  async begin(user: string, session: string, share?: { shareId?: string }) {
+  async begin(user: string, session: string, share?: { shareId?: string }): Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }> {
     if (!this.viaBroker) return this.authorize(user, session, share)
     const p = this.prepare(user, session, share)
     try {
-      const authorizationUrl = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
-      return { flowId: p.id, authorizationUrl, expiresAt: p.expiresAt }
+      const urls = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
+      return { flowId: p.id, ...urls, expiresAt: p.expiresAt }
     } catch (e) {
       const reason = e instanceof DriveError ? e.reason : 'broker_unavailable'
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason=?,secret_enc=NULL WHERE id=? AND state='pending'").run(reason, p.id)

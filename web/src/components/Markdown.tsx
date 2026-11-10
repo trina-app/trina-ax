@@ -274,8 +274,9 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
 }
 
 /** A team file this viewer may not open (a room message's link or picture): its name after a lock, where a link would be.
- * Hover or keyboard focus says why ("권한이 없어 열 수 없어요"); a tap or click says it too (a toast: touch has no
- * tooltip). Nothing of the file is loaded and nothing says whether it exists. */
+ * Hover or keyboard focus says why ("열 수 없어요: 옮겨졌거나 지워졌거나 권한이 없어요"); a tap or click says it too (a toast:
+ * touch has no tooltip). Nothing of the file is loaded and nothing says whether it exists, so the words name every
+ * reason: a file moved after the message was sent is locked too (QA TC-063). */
 function LockedFile({ children }: { children: ReactNode }) {
   const t = useT()
   const why = t('rooms.fileNoAccess')
