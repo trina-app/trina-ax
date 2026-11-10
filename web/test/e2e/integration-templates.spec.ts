@@ -1,5 +1,5 @@
 // Connection templates against the mock server (components/integrations/TemplatesView.tsx, IntegrationDialog.tsx): an
-// admin registers a service once as a template (no key) for some members; the member sees it under "From your team",
+// admin registers a service once as a template (no key) for some members; the member sees it under "From <team>",
 // connects it with their own key, and it works like their own connection (only the key and write rule are theirs to
 // change); the admin sees "Template · 1 connected", never the key. A new address drops the members' keys; deleting the
 // template removes their connections. Phone width and accessibility in both themes.
@@ -51,14 +51,17 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await expect(row.getByTestId('integration-audience')).toHaveAttribute('title', /Bob/)
   await expect(row.getByTestId('template-admin-line')).toHaveText('Each member connects their own key')
 
-  // Bob: "From your team" with the template and Connect
+  // Bob: "From <team>" with the template and "Connect your account"
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/settings/connectors')
   const group = page.getByTestId('integrations-from-team')
-  await expect(group).toContainText('From your team')
+  await expect(group.getByRole('heading', { name: 'From Acme' })).toBeVisible()
+  // a member gets no Manage link (the team's connectors are managed in Admin)
+  await expect(group.getByTestId('from-team-manage')).toHaveCount(0)
   const tpl = group.getByTestId('template-row').filter({ hasText: 'Tasks' })
   await expect(tpl).toContainText('Use the key from your Tasks profile.')
+  await expect(tpl.getByTestId('template-connect')).toHaveText('Connect your account')
   await tpl.getByTestId('template-connect').click()
   const d = modal(page)
   await expect(d.getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()

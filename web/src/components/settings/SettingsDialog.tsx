@@ -228,8 +228,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 <Spinner />
               ) : (
                 <Suspense fallback={<Spinner />}>
-                  {/* every section here is just for you (Admin pages say "For the whole team", admin/common.tsx, or their title does) */}
-                  <p className="mb-2 text-xs text-faint" data-testid="page-scope">{t('scope.you')}</p>
+                  {/* every section here is just for you (Admin says "Applies to everyone in <team>" the same way, admin/common.tsx) */}
+                  {/* mb-3: a section's title row starts 12px higher (-mt-3) and would cover the line's descenders */}
+                  <p className="mb-3 text-xs text-faint" data-testid="page-scope">{t('scope.you')}</p>
                   <SettingsPane tab={page ?? current} />
                 </Suspense>
               )}

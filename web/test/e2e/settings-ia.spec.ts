@@ -40,14 +40,17 @@ test('Admin: four groups, Providers first in Connections, no AI group and no AI 
   await expect(menu.getByRole('link', { name: 'AI engines' })).toHaveCount(0)
   await expect(menu.getByRole('link', { name: 'AI providers' })).toHaveCount(0)
   await expect(menu.getByRole('group')).toHaveCount(ADMIN.length)
-  for (const path of ['/admin/members', '/admin/providers', '/admin/settings']) {
+  // the shell says whose it is: the menu's title is the team's, and one line above every page says it applies to everyone
+  // in the team; the page titles are the same nouns as Settings' (Connectors is "Connectors" in both)
+  const team = 'Acme'
+  await expect(page.getByTestId('admin-title')).toHaveText(t['admin.teamTitle'].replace('{team}', team))
+  await expect(page.getByTestId('admin-team-logo')).toBeAttached()
+  for (const path of ['/admin/members', '/admin/providers', '/admin/connectors', '/admin/ai-apps', '/admin/plugins', '/admin/audit', '/admin/settings']) {
     await page.goto(path)
-    await expect(page.getByTestId('admin-content').getByTestId('page-scope').first()).toHaveText(t['scope.team'])
+    await expect(page.getByTestId('admin-content').getByTestId('page-scope')).toHaveText(t['scope.teamName'].replace('{team}', team))
   }
-  // Connectors says it in its title ("Team connectors"), with Settings' own as "My connectors"; the menus keep "Connectors"
   await page.goto('/admin/connectors')
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.admin.title'] })).toBeVisible()
-  await expect(page.getByTestId('admin-content').getByTestId('page-scope')).toHaveCount(0)
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['admin.integrations'], exact: true })).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -104,7 +107,7 @@ test('Settings: named groups Account, Connections, App (Providers first in Conne
     await page.goto(path)
     await expect(page.getByTestId('settings-content').getByTestId('page-scope')).toHaveText(t['scope.you'])
   }
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.myTitle'] })).toBeVisible()
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.title'], exact: true })).toBeVisible()
 })
 
 test('phone width: the Admin strip and the Settings list keep every item without sideways page scroll', async ({ page }) => {

@@ -42,8 +42,8 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
     for (const path of ['/admin/connectors', '/settings/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
-      // the title says whose they are; Discover is on the page under the connections
-      await expect(header.getByRole('heading', { name: t[path.startsWith('/admin') ? 'integrations.admin.title' : 'integrations.myTitle'] })).toBeVisible()
+      // the same noun in Admin and in Settings; Discover is on the page under the connections
+      await expect(header.getByRole('heading', { name: /^(커넥터|Connectors)$/ })).toBeVisible()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
       await staysPut(header)
       await expect(header.getByTestId('connector-search')).toBeInViewport()

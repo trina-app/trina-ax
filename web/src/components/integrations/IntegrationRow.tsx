@@ -213,12 +213,14 @@ export function AudienceChip({ access, groups, users }: { access: IntegrationAcc
   )
 }
 
-export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert, extra }: {
+export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, alert, extra }: {
   i: Integration
   actions: IntegrationActions
   onEdit: () => void
-  /** mark team connections (Settings lists them under one's own) */
-  teamBadge?: boolean
+  /** no managing here, even for whoever may (Settings' "From <team>": an admin manages them in Admin › Connectors) */
+  readOnly?: boolean
+  /** what this person gets, on the right instead of the connection's state (Settings' "From <team>": Ready, Off for you) */
+  state?: ReactNode
   /** right after the name (Admin: who may use it, AudienceChip) */
   audience?: ReactNode
   /** a warning that stays on the line, not in the details (Admin: nobody may use it, or not the admin looking at it) */
@@ -232,6 +234,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
   const [open, setOpen] = useState(false)
   const detailsId = useId()
   const toolsId = useId()
+  const manage = i.canManage && !readOnly
   const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
   const checking = actions.checking === i.id
   const phone = !!mobileApp()
@@ -246,7 +249,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
   meta.push(i.lastUsedAt ? t('integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
-  const signInButton = canSignIn(i) && !phone && !flow && (
+  const signInButton = manage && canSignIn(i) && !phone && !flow && (
     <Button size="sm" variant={i.status === 'needs_auth' ? 'primary' : 'secondary'} className="shrink-0" onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">
       <LogIn size={14} aria-hidden /> {t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}
     </Button>
@@ -271,7 +274,6 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
               {audience}
-              {teamBadge && i.scope === 'team' && <Badge tone="accent">{t('integrations.teamBadge')}</Badge>}
               {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
               {alert}
             </span>
@@ -279,7 +281,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
               {i.lastError ?? kindLabel}
             </span>
           </span>
-          {i.status === 'connected' ? (
+          {state ?? (i.status === 'connected' ? (
             <Tooltip label={t('integrations.status.connected')}>
               <span className="flex shrink-0 items-center text-ok">
                 <Check size={16} aria-hidden />
@@ -289,7 +291,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
           ) : (
             // beside a sign-in button a phone's width goes to the name: the button says the same
             <Badge tone={STATUS_TONE[i.status]} className={clsx('shrink-0', signInButton && 'max-sm:hidden')}>{t(`integrations.status.${i.status}`)}</Badge>
-          )}
+          ))}
           <ChevronDown size={15} className={clsx('shrink-0 text-faint transition-transform', details && 'rotate-180')} aria-hidden />
         </button>
         {i.status === 'needs_auth' && signInButton}
@@ -312,9 +314,9 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
             {meta.join(' · ')}
           </p>
           {i.writePolicy === 'deny' && <p className="mt-1"><Badge>{t('integrations.write.deny')}</Badge></p>}
-          {canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
+          {manage && canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
           {extra}
-          {i.canManage && (
+          {manage && (
             <div className="mt-2 flex flex-wrap items-center gap-1">
               {i.status !== 'needs_auth' && signInButton}
               <Button size="sm" disabled={checking} onClick={() => void actions.refresh(i)} data-testid="integration-refresh">
@@ -350,11 +352,11 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
                                 <span className={clsx('font-medium break-all', on ? 'text-ink' : 'text-muted')}>{x.title || x.name}</span>
                                 {x.title && x.title !== x.name && <code className="break-all text-faint">{x.name}</code>}
                                 {x.readOnly && <Badge tone="ok">{t('integrations.readOnly')}</Badge>}
-                                {!on && !i.canManage && <Badge>{t('integrations.toolOff')}</Badge>}
+                                {!on && !manage && <Badge>{t('integrations.toolOff')}</Badge>}
                               </p>
                               {x.description && <p className="mt-0.5 line-clamp-3 break-words text-muted">{x.description}</p>}
                             </div>
-                            {i.canManage && (
+                            {manage && (
                               <span className="shrink-0 pt-0.5">
                                 {/* never disabled while saving: a disabled control loses keyboard focus (setTool ignores a second click) */}
                                 <Switch checked={on} hideLabel label={t('integrations.toolSwitch', { name: x.title || x.name })}
@@ -368,7 +370,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert,
                   )}
                   <p className="mt-1.5 text-xs text-faint">
                     {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
-                    {i.tools.length > 0 && `${t(i.canManage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
+                    {i.tools.length > 0 && `${t(manage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
                     {t('integrations.toolsHint')}
                     {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}
                   </p>

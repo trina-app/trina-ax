@@ -18,8 +18,8 @@ test('Discover: Top connectors with Google Drive first, the rest behind Show all
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/connectors')
-  // the title says whose they are; no tabs
-  await expect(header(page).getByRole('heading', { name: '내 커넥터' })).toBeVisible()
+  // the same noun as Admin's (Settings says "Just for you" above it); no tabs
+  await expect(header(page).getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
   await expect(header(page).getByRole('tab')).toHaveCount(0)
   await discover(page)
   const top = page.getByTestId('connector-list').getByTestId('connector-card')
@@ -110,16 +110,19 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await expect(page.getByRole('dialog').getByTestId('integration-who-team')).toBeChecked()
 })
 
-test('Admin links to My connectors, which opens over it: its own Discover gets the keyboard back, not the page under it', async ({ page }) => {
+test('Settings › Connectors over Admin › Connectors: its own Discover gets the keyboard back, not the page under it', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/connectors')
-  await expect(header(page).getByRole('heading', { name: '팀 커넥터' })).toBeVisible()
-  await page.getByTestId('team-integrations-mine-link').click()
-  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  await expect(header(page).getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
+  // Settings opens over the page it was opened from
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('account-settings').click()
   const settings = page.getByTestId('settings-dialog')
-  await expect(settings.getByTestId('connectors-header').getByRole('heading', { name: '내 커넥터' })).toBeVisible()
+  await settings.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  await expect(settings.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
   // Admin › Connectors stays mounted under Settings (out of reach); the headings of the two pages are not the same
   const ids = await page.getByTestId('connector-discover-title').evaluateAll((els) => els.map((el) => el.id))
   expect(new Set(ids).size).toBe(ids.length)

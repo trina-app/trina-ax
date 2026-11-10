@@ -1,19 +1,19 @@
-// Admin › Connectors, titled "Team connectors" (/admin/connectors; MCP and App connectors were two pages before, their
-// addresses lead here). One page: under the title one line says these are shared with the team, with a link to the
-// admin's own (Settings › Connectors). First "Connected for the team": the team's connections (company accounts),
+// Admin › Connectors (/admin/connectors; MCP and App connectors were two pages before, their addresses lead here). The
+// Admin shell says whose these are ("Applies to everyone in <team>" above every Admin page, AdminLayout.tsx); the title
+// is the same noun as Settings'. One page: first, under "Connected", the team's connections (company accounts),
 // templates and requests, each with who may use it in a chip after its name (the whole team, groups, people). Admins
 // manage them all but use one in their own chats only when the rule includes them, so each row says so. Members'
-// personal connections are not listed (nobody but the owner can use those). Then Discover: Google Drive first (its
-// page: on or not, how many members use it, the one-time Google setup), then known MCP services; a card opens its
-// page, whose Connect adds it with one team key and whose ⌄ makes it a template. Nothing connected yet: Discover right
-// under the line. The search filters both sections. "Add" takes any MCP server or API by its address, either for the
-// team with one key or as a template each member connects with their own key (components/integrations/TemplatesView.tsx).
-// Its ⌄ menu also asks one member to connect a service as their own (a popup, components/integrations/RequestDialog.tsx);
-// such a request is a row in the same list while it waits, and for a while after it was declined or expired.
-// ?drive=1 (a notice, the old App connectors address) opens Google Drive's page.
-import { ArrowRight, Plus, Send } from 'lucide-react'
+// personal connections are not listed (nobody but the owner can use those). Then Discover: Google Drive first (its page:
+// on or not, how many members use it, the one-time Google setup), then known MCP services; a card opens its page, whose
+// Connect adds it with one team key and whose ⌄ makes it a template. Nothing connected yet: Discover right under the
+// title. The search filters both sections. "Add" takes any MCP server or API by its address, either for the team with
+// one key or as a template each member connects with their own key (components/integrations/TemplatesView.tsx). Its ⌄
+// menu also asks one member to connect a service as their own (a popup, components/integrations/RequestDialog.tsx); such
+// a request is a row in the same list while it waits, and for a while after it was declined or expired. ?drive=1 (a
+// notice, the old App connectors address) opens Google Drive's page.
+import { Plus, Send } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import type { DriveAdminStatus, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { APP_CONNECTORS, appConnectorLogo, type Connector } from '../../lib/connectors'
@@ -81,7 +81,7 @@ export default function AdminIntegrations() {
   return (
     <>
       <ConnectorsHeader
-        title={t('integrations.admin.title')}
+        title={t('admin.integrations')}
         query={query}
         onQuery={(q) => { setQuery(q); setOpen(null) }}
         onAdd={() => setDialog({ toList: !!open })}
@@ -90,16 +90,6 @@ export default function AdminIntegrations() {
           { label: t('integrations.requests.add'), icon: <Send size={15} aria-hidden />, onSelect: () => setAsk({}), testId: 'integration-request-add' },
         ]}
       />
-      {/* whose these are, right under the title: the team's, and the admin's own are elsewhere (not over a connector's
-          page; Drive's needs a server that has it) */}
-      {!(open?.kind === 'mcp' || (open?.kind === 'drive' && drive.data)) && (
-        <p className="mb-4 text-sm text-muted" data-testid="team-integrations-note">
-          {t('integrations.admin.note')}{' '}
-          <Link to="/settings/connectors" className="font-medium text-accent-text hover:underline" data-testid="team-integrations-mine-link">
-            {t('integrations.admin.mineLink')}<ArrowRight size={14} className="ml-1 inline align-[-2px]" aria-hidden />
-          </Link>
-        </p>
-      )}
       <Loadable state={state}>
         {(list) => {
           const tpls = templates.data ?? []
@@ -139,7 +129,7 @@ export default function AdminIntegrations() {
             <>
               {rows > 0 && (
                 <section aria-labelledby={ids.connected} data-testid="team-connected">
-                  <h3 id={ids.connected} tabIndex={-1} className={`mb-1 ${sectionTitleCls}`}>{t('integrations.admin.connected')}</h3>
+                  <h3 id={ids.connected} tabIndex={-1} className={`mb-1 ${sectionTitleCls}`}>{t('connectors.connected')}</h3>
                   <ul className="-mx-2 divide-y divide-line" data-testid="team-integrations">
                     {shownTpls.map((x) => (
                       <TemplateRow key={x.id} tpl={x} groups={groups.data} users={users.data} onEdit={() => setDialog({ template: x })} onDeleted={() => void templates.reload()} />

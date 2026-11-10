@@ -71,19 +71,22 @@ test('Admin › System at 1280: the server facts are one row each, every value o
   for (const v of await values.all()) expect(await lines(v)).toBe(1)
 })
 
-test('Admin › Connectors: the line on whose they are is under the title, before the list', async ({ page }) => {
+test('Admin › Connectors: "applies to everyone in the team" above the title; nothing between the title and the list', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/connectors')
-  const note = page.getByTestId('team-integrations-note')
-  await expect(note).toHaveText(`${t['integrations.admin.note']} ${t['integrations.admin.mineLink']}`)
+  const scope = page.getByTestId('admin-content').getByTestId('page-scope')
+  await expect(scope).toHaveText(t['scope.teamName'].replace('{team}', 'Acme'))
   const header = await box(page.getByTestId('connectors-header'))
-  const n = await box(note)
-  expect(n.y).toBeGreaterThanOrEqual(header.y + header.height - 1)
-  // nothing between the line and the list: no card for requests (asking a member is in Add connection's menu)
-  await expect(page.getByText(t['integrations.admin.note'])).toHaveCount(1)
-  // the title says whose they are, so no "For the whole team" beside it
-  await expect(page.getByTestId('connectors-header').getByTestId('page-scope')).toHaveCount(0)
+  // above the title row, and not under it (the row is filled, it would hide the line's descenders)
+  const s = await box(scope)
+  expect(s.y + s.height).toBeLessThanOrEqual(header.y + 0.5)
+  // the title is the same noun as Settings', with nothing beside it; no line and no card for requests under it (asking a
+  // member is in Add connection's menu): Discover starts right under the title
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['admin.integrations'], exact: true })).toBeVisible()
+  await expect(page.getByTestId('page-scope')).toHaveCount(1)
+  await expect(page.getByTestId('team-integrations-note')).toHaveCount(0)
+  expect((await box(page.getByTestId('connector-discover'))).y - (header.y + header.height)).toBeLessThan(40)
 })
 
 test('Admin › Plugins: a long licence list is "Licenses", the list in its tooltip and under the line when pressed', async ({ page }) => {

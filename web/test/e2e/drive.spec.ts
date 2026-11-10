@@ -42,7 +42,7 @@ test('Discover lists Google Drive first; its + goes straight to Google, one line
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/connectors')
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '내 커넥터' })).toBeVisible()
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
   await discover(page)
   await expect(page.getByTestId('connector-card').first()).toHaveAttribute('data-id', 'google-drive')
   await expect(driveCard(page)).toContainText('내 Drive 파일을 찾고 읽어요')

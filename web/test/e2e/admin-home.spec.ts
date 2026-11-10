@@ -33,7 +33,8 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   expect(made.status()).toBe(201)
   await page.getByRole('link', { name: t['sidebar.admin'], exact: true }).click()
   await expect(page).toHaveURL(/\/admin$/)
-  await expect(page.getByRole('heading', { level: 1, name: t['admin.title'] })).toBeVisible()
+  // the menu's title is the team's ("Acme admin", with its logo)
+  await expect(page.getByRole('heading', { level: 1, name: t['admin.teamTitle'].replace('{team}', 'Acme') })).toBeVisible()
 
   // the menu: Home first, then the groups (People · AI · Connections · Activity · Team)
   const menu = page.getByRole('navigation', { name: t['admin.title'] })

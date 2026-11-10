@@ -24,6 +24,9 @@ Before 0.4.0, this screen is called **External services**.
 | Used by | That member, in their own chats | The people its rules name: everyone, groups or people |
 | Visible to | Only that member, not admins | Admins |
 
+In Settings, the team connections you may use are listed under **From** and your team's name, read only, each with
+**Ready** or what is wrong with it. Admins also see the ones not for them (**Off for you**) and a **Manage** link.
+
 Admins manage team connections but do not use them unless a rule names them. Who may use a connection is checked on every call.
 
 ## Add a connection
@@ -71,7 +74,7 @@ Many services give a key its owner's rights and log every call under that person
 In **Admin › MCP**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
 
 #### Members connect
-The members it is for see it in **Settings › MCP** under **From your team**, and choose **Connect**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
+The members it is for see it in **Settings › MCP** under **From** and your team's name, and choose **Connect your account**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
 :::
 
 | | Team connection (one key) | Template |
