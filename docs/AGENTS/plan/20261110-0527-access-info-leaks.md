@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 05:27
 - Branch: `fix/access-info-leaks`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat/project-access.ts`, `server/src/chat/delete-files.ts`, `shared/src/api/chats.ts`,
   `web/src/components/ProjectParticipants.tsx`, `tests/security/lib/`). Why: permissions and files are core
   (docs/REPOSITORY-RULES.md).
@@ -19,7 +19,7 @@ A plan review found three places where a member learns something their permissio
    A member already learns the first number (a copy dry run says how many people read a folder they can write); the
    second one gives away how many people can write the folder, which only admins see.
 3. The permission matrix's coverage test (`tests/security/permission-matrix.test.ts`, "every route has a matrix case")
-   fails on dev: 48 routes have no case, so a new route without a case is not noticed.
+   fails on dev: 46 routes have no case, so a new route without a case is not noticed.
 
 ## Scope
 
@@ -29,9 +29,9 @@ In:
    puts the count beside the names chosen and names "팀장·관리자" after it, without a number. Admins get the same answer
    as before. An existing project's dry run (its creator or an admin, who may manage it) is unchanged.
 2. The delete card: the "cannot restore" count only for the owner and admins. Others read one sentence with no number
-   ("only people who can edit it see it in the trash and can restore it"), shown whenever other people lose the items.
+   ("people without write access cannot see it in the trash or restore it"), shown whenever other people lose the items.
    The audit row keeps both numbers.
-3. A matrix case for each of the 48 routes, written from what each route is meant to allow.
+3. A matrix case for each of the routes without one, written from what each route is meant to allow.
 
 Out: an existing project's counts for its creator (they may manage it; the task leaves them as they are), the overlap
 of several items' audiences in the delete card's first number, folder access in place (another branch).
@@ -41,7 +41,7 @@ of several items' audiences in the delete card's first number, folder access in 
 1. Failing tests: a unit test per leak (the dry run with an admin named vs a member named, as a member; the card as a
    member and as an admin) and the coverage test.
 2. The server changes, the contract field, the web line, the mock.
-3. Matrix cases for the 48 routes.
+3. Matrix cases for the routes without one.
 4. DECISIONS, CHANGELOG, docs:api; independent deep review.
 
 ## Risks
@@ -57,4 +57,7 @@ projects, files/trash/delete and access, `tests/security/permission-matrix.test.
 
 ## Result
 
-Filled in at the end.
+All three were real, each shown by a test that failed before the fix. Built as planned, plus: the share dry run
+(`POST /api/projects/:id/share`, `dryRun`) reuses the new-project count, so it got the same rule; `tests/security` is
+not part of CI, so the coverage half of the matrix also runs as `tests/unit/security-route-coverage.test.ts`; two
+matrix scopes (`admins`, `own-owner`). PR: https://github.com/trina-app/trina-ax/pull/304
