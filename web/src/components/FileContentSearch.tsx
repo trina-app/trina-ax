@@ -92,13 +92,16 @@ export function FileContentList({ res, query, folderLabel }: { res: FileContentH
     else groups.push([h.path, [h]])
   }
   const notes = res.truncated || res.timedOut || res.indexing > 0 || res.notQueued > 0 || res.retryLater > 0 || res.longSkipped > 0
-  // with document rows and no line at all, the line part says nothing more (no second "nothing found")
+  // with document rows and no line at all, the line part says nothing more: the documents' label says that no line has
+  // the words and that these rows are close in meaning only (a word no file has still gets meaning rows: no score floor)
   const lines = res.items.length > 0 || !documents.length
   return (
     <>
       {documents.length > 0 && (
         <section className="pb-3" data-testid="content-documents">
-          <p className="px-2 pb-1 text-xs text-faint" id="content-documents-label">{t('files.search.documents')}</p>
+          <p className="px-2 pb-1 text-xs text-faint" id="content-documents-label">
+            {res.items.length > 0 ? t('files.search.documents') : t('files.search.documentsOnly', { q: query })}
+          </p>
           <ul aria-labelledby="content-documents-label">
             {documents.map((d) => <DocumentRow key={d.path} d={d} words={words} />)}
           </ul>

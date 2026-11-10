@@ -1832,9 +1832,12 @@ export class TeamFiles {
   /**
    * Put an uploaded file (already on disk at `src`, server-owned) into `folder/name`. onExists: fail -> conflict,
    * replace -> the current file becomes a version, rename -> "name (2).ext". `event`: how the file event is recorded
-   * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from).
+   * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from), or what
+   * an upload's event carries (a computer file attached in a shared chat: its attachment and chat, uploads/shared-chat.ts).
+   * `taken` (with rename): names that count as taken though nothing has them (an instruction file's name), so the next
+   * free one is used.
    */
-  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create'; detail: Record<string, unknown> }): Promise<FileEntry> {
+  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create' | 'upload'; detail: Record<string, unknown> }, o: { taken?: (name: string) => boolean } = {}): Promise<FileEntry> {
     const user = this.principal(userId)
     const rules = this.rules()
     const bad = name.includes('/') ? 'names cannot contain "/"' : badSegment(name.normalize('NFC'))
@@ -1842,7 +1845,7 @@ export class TeamFiles {
     const fr = authorize(this.fx, rules, user, folder, 'write', { mustExist: true })
     if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let finalName = name.normalize('NFC')
-    if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n))
+    if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
     const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
     let action: FileChange['action'] = 'create'
     if (r.exists) {
