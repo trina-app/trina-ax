@@ -9,6 +9,7 @@
 // The attach button opens a small menu: upload from this computer, or add files of the team folder (TeamFilePicker),
 // which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
+// Files from this computer dropped anywhere on the chat's page go into the box (components/FileDropZone.tsx).
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
@@ -44,6 +45,7 @@ import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
+import { useDropTarget } from '../FileDropZone'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton, useMediaQuery } from '../ui'
 import { useSkillMenu } from './SkillMenu'
@@ -167,7 +169,14 @@ export default function Composer({
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)
   const [stopping, setStopping] = useState(false)
-  const { drag, dropProps } = useFileDrop((all) => void addFiles(all), (path) => void addTeamFiles([{ path }]), { files: computer })
+  // files from this computer dropped anywhere on the chat's page (pages/Chat.tsx: FileDropZone) come here, with the box's
+  // own checks: none for someone who may not write a shared chat's project folder, no more in a full box. Outside such a
+  // page (Home) the box takes them on itself, and refuses them in the same case (the not-allowed cursor, no highlight).
+  // A team file dragged from the file screen, a preview or a message goes on the box only.
+  const noComputer = computer ? null : t('drop.noComputer')
+  const inZone = useDropTarget({ files: (all) => void addFiles(all), refusal: () => noComputer ?? (live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) })
+  const { drag: dragOver, refusal: dropRefused, dropProps } = useFileDrop({ files: inZone ? undefined : (all) => void addFiles(all), teamPath: (path) => void addTeamFiles([{ path }]), refusal: (kind) => (kind === 'files' ? noComputer : null) })
+  const drag = dragOver && !dropRefused
   const [engineMenu, setEngineMenu] = useState(false)
   const [attachMenu, setAttachMenu] = useState(false)
   const [picker, setPicker] = useState(false)
