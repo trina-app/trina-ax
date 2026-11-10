@@ -10550,7 +10550,8 @@ web app's rooms and settings); no server change.
   the chime once; searching Settings for 소리 / sound finds it. In all five languages.
 - **Not in this step.** The personal Inbox (scheduled results, skill suggestions, approvals) has no event that says "a
   new notice for me" (`notifications.changed` only says that something changed), so it does not ring; rooms only.
-  The desktop app's focus is its web view's: with the in-app browser pane focused, the open room still rings.
+  The desktop app's focus is its web view's: with the in-app browser pane focused, the open room still rings (fixed:
+  "화면에 연 대화는 울리지 않는다", 2026-11-10).
   A tab opened after my preview arrived, when I post it from another device, may ring once for it.
 ## App connectors: group management for owners and admins, scope mcp:admin (feat/mcp-groups, 2026-11-06)
 
@@ -19029,3 +19030,62 @@ chips, "답글 N개", "(수정됨)", a file's size and "미리보기" and the av
   message with a thread copied clean; a partial first message; Firefox's several ranges; one message as before; a
   thread's panel; the side chat; a day line and an AI answer with a code block).
 - Version impact: **patch** (a fix; no API or data change).
+
+## 화면에 연 대화는 울리지 않는다 — no sound for the conversation on screen (fix/no-sound-open-conversation, 2026-11-10)
+
+The owner: "I have the Trina AX desktop app open with that conversation open, and the notification sound still plays."
+In a focused window that shows the conversation, a new message should only appear, as in other chat apps. Amends "대화방
+알림 소리" (its "Not in this step" line about the in-app browser pane).
+
+- **Cause.** The room sound (`store/roomSound.ts`) and the read marking (`pages/Room.tsx`, `components/rooms/ThreadPanel.tsx`)
+  asked `lib/attention.ts lookingAt()`, which went by the page's own `document.hasFocus()`. In the desktop app the team
+  page is one of several views in a `BaseWindow`. Checked in the desktop e2e harness with Playwright's focus emulation
+  off: after the app starts with a remembered team (a login start, a relaunch after an update) the window is focused
+  and no view has the focus, so the page's `document.hasFocus()` is false until the person clicks into the page; the
+  same while the address strip or the in-app browser has the keyboard. The page then counted as not looked at: the
+  chime rang for the room on screen (Electron lets it play without a gesture), the room was not marked read, so the
+  person's other open windows (on any device) rang too, and a followed thread's badge stayed. The session markers already went
+  by the desktop app's word on its window's focus (`DesktopBridge.focus`); the sound and reading did not. Reproduced
+  in `room-sound-on-screen.spec.ts` (a stand-in bridge: window focused, page without focus): 4 notes before the fix.
+- **The rule** (`lookingAt` and `conversationOnScreen` in `lib/attention.ts`, used by `lib/roomSound.ts shouldRing`):
+  - Looked at (on screen and focused; the desktop app: its window focused, as the app says; the phone app: on screen)
+    and that conversation on screen: no sound, no notification, no badge. The message appears and is read. "On
+    screen" is the room open (its timeline; a reply in one of its threads too, as before), or, for a reply in a
+    thread, a panel showing that thread (the thread beside a file in the viewer opened outside the room).
+  - Looked at, another conversation on screen: as before.
+  - **Not looked at (another app in front, the window hidden or minimised): as before, even with the conversation
+    open.** Kept on purpose: a person in another app should still hear about a message. The chime rings then; the
+    desktop app's own notification still does not show for the room open in its window (its messages count nothing
+    in this window while it is open, `store/rooms.ts withMessage`, so `tellRoom` finds nothing unread), as before.
+- **The desktop window's focus in one place.** `lib/attention.ts watchWindowFocus` follows `DesktopBridge.focus` (the
+  page's own focus until the app answers); `lookingAt` uses it when there is one, the page's own focus otherwise (a
+  browser, a desktop app older than the word). The session markers start and stop it and read it from there (no
+  second subscription). The room page and the thread panel read again when the window's focus comes back
+  (`onWindowFocus`: the page may get no focus event of its own), and the room sound tells the other tabs.
+- **The other paths, checked.** Desktop notifications: the main process shows one only while its window is not focused
+  (`desktop/src/common/notify.ts`), so none while looked at. The dock badge: the open room's messages count nothing in
+  that window, and a thread on screen is now read at once. The phone app: in the foreground no banner and no sound
+  (`mobile/src/push.ts quietForeground`), and the page does not ring for the room on screen; its silent entry in the
+  phone's list stays (no bug there; hiding it would need the open room in the native app). The push gateway serves
+  phones only; the desktop app has no Web Push. A browser with Web Push: the worker shows nothing for a notice read
+  meanwhile (the page reads the room on screen at once); one still unread (scrolled up) is shown silently, as before.
+  Not skipped: WebKit takes a push subscription away after a few pushes that show nothing, whatever tab is open.
+- **The team list over the page.** The desktop app takes the team page's view out of the window while the team list
+  or the offline screen shows, and the page still reports itself `visible` (checked on macOS). Going by the window's
+  focus alone, a message in the room open under the team list would be read without a sound. So the desktop app's
+  word is now "the window focused and the team page shown" (`AppWindow.teamFocused`, told on every layout, the
+  window's focus and blur, and answered by `bridge:focus`). Desktop apps before this keep the window's focus alone,
+  which the session markers already went by.
+- **What a tab tells the others** (`mycel.roomSound.view`) now also lists the threads on screen (`threads`, at most 20
+  read back; an older tab's word without it still counts for its room).
+- Not done: the desktop app does not give the team page its focus back when its window comes to the front, so typing
+  still needs a click into the page after a start. Not needed for the sound or reading.
+- Tests: web unit `attention.test.ts` (the desktop window's word, an older app, each row of the rule, a DM, a thread),
+  `room-sound.test.ts` (each row in `shouldRing`; in the app: the desktop window focused with the page unfocused, a
+  thread a panel shows; a background tab and a focused tab's thread), `session-markers.test.tsx` (the window's word,
+  not the page's), e2e `room-sound-on-screen.spec.ts` (a browser: the room open is quiet, another room open rings; the
+  desktop app: quiet and read while focused, rings in the back, rings for another room; Web Audio, Notification,
+  `showNotification` and the bridge stubbed), desktop e2e `page-focus.spec.ts` (run by hand on a Mac: started with a
+  team, the window focused, the page's own focus false and the bridge's word true; false under the team list, where
+  the page still says visible, and true again on 돌아가기; skipped when another app is in front).
+- Version impact: **patch** (a fix; no API, data, setting or text change).

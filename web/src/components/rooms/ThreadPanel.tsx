@@ -15,7 +15,7 @@ import { ChevronLeft, Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { ApiError, errorText, isApiError } from '../../lib/api'
-import { lookingAt } from '../../lib/attention'
+import { lookingAt, onWindowFocus } from '../../lib/attention'
 import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
@@ -89,9 +89,12 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   useEffect(() => {
     window.addEventListener('focus', tryRead)
     document.addEventListener('visibilitychange', tryRead)
+    // the desktop app's window came to the front (its page may get no focus event of its own)
+    const offWindow = onWindowFocus(tryRead)
     return () => {
       window.removeEventListener('focus', tryRead)
       document.removeEventListener('visibilitychange', tryRead)
+      offWindow()
     }
   }, [tryRead])
 

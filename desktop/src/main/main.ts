@@ -275,7 +275,7 @@ function registerIpc() {
     if (badge === DOCK_DOT) app.dock?.setBadge(DOCK_DOT)
     else app.setBadgeCount(badge)
   })
-  ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? !win!.win.isDestroyed() && win!.win.isFocused() : false))
+  ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
 
