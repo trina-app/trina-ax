@@ -25,6 +25,9 @@ started every CI job again (the org runs at most 20 jobs at once), and a wrong f
 Commands (`scripts/changelog.ts`):
 
 - `bun run changelog`: the Unreleased notes as they will read (these files first, then the section in `CHANGELOG.md`).
-- `bun run changelog:check`: fails on a merge marker in `CHANGELOG.md` or a file here, or a file with no note.
+- `bun run changelog:check`: fails on a merge marker in `CHANGELOG.md` or a file here, or a file with no note. On a pull
+  request it also fails when the PR adds a line under "## Unreleased" in `CHANGELOG.md` (compared with the base branch,
+  `GITHUB_BASE_REF`; a fix to a note that is there already passes). `bun run check:docs` runs it, so CI does. Locally
+  there is no base and that part is skipped; `CHANGELOG_BASE=origin/dev bun run changelog:check` compares with a ref.
 - `bun run changelog:fold`: before a release, moves these notes under "## Unreleased" in `CHANGELOG.md` and deletes the
   files. Only the release owner runs it, on the branch for the release ([RELEASE-CI.md](../docs/RELEASE-CI.md)).

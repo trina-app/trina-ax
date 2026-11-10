@@ -4,7 +4,10 @@
 //
 //   bun scripts/changelog.ts          the Unreleased notes as they will read: the fragments first, then the section
 //   bun scripts/changelog.ts --fold   before a release: put the fragments under "## Unreleased" and delete them
-//   bun scripts/changelog.ts --check  fail when CHANGELOG.md or a fragment holds a merge marker or a fragment is empty
+//   bun scripts/changelog.ts --check  fail when CHANGELOG.md or a fragment holds a merge marker or a fragment is empty,
+//                                     and when a PR adds notes under "## Unreleased" instead of a file in changes/
+//                                     (compared with the PR's base; see baseChangelog. Without a base it is skipped.)
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -61,6 +64,57 @@ export function unreleasedNotes(changelog: string): string {
   return (next < 0 ? body : body.slice(0, next)).trim()
 }
 
+/** The non-blank lines of the "## Unreleased" section. */
+function unreleasedLines(changelog: string): string[] {
+  return unreleasedNotes(changelog).split('\n').filter((l) => l.trim())
+}
+
+/** Lines a PR added under "## Unreleased" instead of a file in changes/: the section has more notes ("- " lines) than
+ * the base's, and these lines are nowhere in the base's CHANGELOG.md. A fix to a note that is already there keeps the
+ * count and passes; a note the PR moved to changes/ lowers it; lines that a release moved out of the section meanwhile
+ * are still in the base's file, so they are not new. */
+export function newUnreleasedLines(base: string, head: string): string[] {
+  const notes = (text: string) => unreleasedLines(text).filter((l) => l.startsWith('- ')).length
+  if (notes(head) <= notes(base)) return []
+  const known = new Set(base.replace(/\r\n?/g, '\n').split('\n').map((l) => l.trim()))
+  return unreleasedLines(head).filter((l) => !known.has(l.trim()))
+}
+
+/** The failure for lines a PR added under "## Unreleased". */
+export function newLinesMessage(lines: readonly string[]): string {
+  const shown = lines.map((l) => `  ${l.length > 100 ? `${l.slice(0, 97)}...` : l}`)
+  return [
+    `CHANGELOG.md: ${lines.length === 1 ? 'a new line' : `${lines.length} new lines`} under "${HEADING}". A PR does not edit CHANGELOG.md:`,
+    'put your entry in changes/<topic>.md (<topic> = the branch name without its prefix; rules: changes/README.md)',
+    `and take ${lines.length === 1 ? 'this line' : 'these lines'} out of CHANGELOG.md:`,
+    ...shown,
+  ].join('\n')
+}
+
+const BRANCH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/
+
+/** The CHANGELOG.md of the PR's base, or null when there is none to compare with (a push, a local run):
+ * `CHANGELOG_BASE` (a git ref, read as it is, e.g. `origin/dev` for a local check), else on a pull request in GitHub
+ * Actions `GITHUB_BASE_REF`, fetched from `origin` (the public repository, no credentials needed). `warn` says why a
+ * base that should be there could not be read; the comparison is then skipped, not failed. */
+export function baseChangelog(root: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}): string | null {
+  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+  let ref = env.CHANGELOG_BASE ?? ''
+  if (!ref) {
+    const branch = env.GITHUB_BASE_REF ?? ''
+    if (!branch) return null
+    if (!BRANCH.test(branch)) { warn(`the base branch name "${branch}" is not one git can fetch`); return null }
+    const shallow = git('rev-parse', '--is-shallow-repository').stdout.trim() === 'true'
+    const fetched = git('fetch', '--quiet', '--no-tags', ...(shallow ? ['--depth=1'] : []), 'origin', `refs/heads/${branch}`)
+    if (fetched.status !== 0) { warn(`could not fetch the base branch ${branch}: ${(fetched.stderr || '').trim()}`); return null }
+    ref = 'FETCH_HEAD'
+  }
+  if (ref.startsWith('-')) { warn(`"${ref}" is not a git ref`); return null }
+  const shown = git('show', `${ref}:CHANGELOG.md`)
+  if (shown.status !== 0) { warn(`could not read CHANGELOG.md at ${ref}: ${(shown.stderr || '').trim()}`); return null }
+  return shown.stdout
+}
+
 /** What is wrong with the changelog and the fragments: merge markers, a fragment with no note. */
 export function problems(changelog: string, fragments: readonly Fragment[], fragmentText: (f: Fragment) => string): string[] {
   const out: string[] = []
@@ -82,7 +136,13 @@ if (import.meta.main) {
   const arg = process.argv[2] ?? ''
   if (arg === '--check') {
     const bad = problems(changelog, fragments, (f) => fs.readFileSync(f.file, 'utf8'))
+    const warn = (why: string) =>
+      console.log(`${process.env.GITHUB_ACTIONS === 'true' ? '::warning::' : 'warning: '}changelog:check: ${why}; new lines under "${HEADING}" were not checked`)
+    const base = baseChangelog(root, process.env, warn)
+    const added = base === null ? [] : newUnreleasedLines(base, changelog)
+    if (added.length) bad.push(newLinesMessage(added))
     for (const p of bad) console.error(p)
+    if (!bad.length) console.log(`Changelog OK: ${fragments.length} file(s) in changes/${base === null ? '' : `, nothing new under "${HEADING}"`}.`)
     process.exit(bad.length ? 1 : 0)
   } else if (arg === '--fold') {
     const bad = problems(changelog, fragments, (f) => fs.readFileSync(f.file, 'utf8'))
