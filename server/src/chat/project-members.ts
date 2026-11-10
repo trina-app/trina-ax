@@ -165,6 +165,8 @@ export const sameNames = (s: Subject, everyone: readonly Subject[]): number => {
   return Math.max(1, everyone.filter((x) => nameSkeleton(x.name) === k).length + (everyone.some((x) => keyOf(x) === keyOf(s)) ? 0 : 1))
 }
 
+/** how much of the person's own words the red mark reads (the newest first) */
+export const OWN_WORDS_MAX = 200_000
 /** The person's own words on this branch (their messages up to this answer), "> " quote lines left out, and whether
  * any of them quotes something (the side chat quotes other people's messages that way). */
 export function ownWords(db: import('bun:sqlite').Database, answerId: string): { text: string; quoted: boolean } {
@@ -173,11 +175,14 @@ export function ownWords(db: import('bun:sqlite').Database, answerId: string): {
     SELECT substr(m.content, 1, 20000) content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' ORDER BY up.depth LIMIT 500`).all(answerId) as { content: string | null }[]
   let quoted = false
   const kept: string[] = []
+  // the newest words first, at most OWN_WORDS_MAX characters (the red mark's regex runs over them once per name: a
+  // member's long messages must not stall the server; leaving older words out only makes more names red)
+  let size = 0
   for (const r of rows) for (const line of (r.content ?? '').split('\n')) {
     if (/^\s*>/.test(line)) quoted = true
-    else kept.push(line)
+    else if (size < OWN_WORDS_MAX) { kept.push(line); size += line.length + 1 }
   }
-  return { text: kept.join('\n'), quoted }
+  return { text: kept.join('\n').slice(0, OWN_WORDS_MAX), quoted }
 }
 /** Korean particles and endings that follow a name in a sentence ("김소라님을", "영업팀이랑") */
 const PARTICLE = '님|씨|이랑|이나|이|가|을|를|은|는|과|와|도|의|에게|에|께서|께|한테|랑|하고|나|으로|로|만|까지|부터|요'

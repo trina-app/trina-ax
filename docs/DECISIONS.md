@@ -18631,7 +18631,8 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   to as well always needs an `id`, and an `id` counts only when it is one of that name's candidates. Even then a card
   cannot tell two accounts of one name apart, and anyone can set their own name: an admin's card shows the account's
   username beside it (its owner cannot change it), and anyone else is refused and sent to the members panel (the
-  security review of this tool, MUST 2). Removal: among the
+  security review of this tool, MUST 2). So anyone who sets their display name to a colleague's (or a group's) blocks
+  the AI path for members for that name: it fails closed to the panel. Accepted. Removal: among the
   current members, a part of 2+ characters is enough when it is unique. Not a member: one message. A member names only
   their own groups; another group is "not found" (its name is not theirs to learn).
 - **Decision: the rule difference must be the names** (M4). The save's rules (`participantRules`) may differ from the
@@ -18650,7 +18651,10 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   and a project other than the chat's that they did not name, get "내 메시지에 없는 이름이에요" in red. "Hold" means the
   subject's own whole name as a word (spaces inside as the person liked, a Korean particle after it, never inside a
   longer word: "민재" is not in "이민재님"), without the look-alike map, and never the name or project alias the AI gave
-  (a part of a name, or a look-alike picked by its id, would pass otherwise: the security review of this tool, MUST 1) (`ConfirmDetail.alerts`: whole lines of the
+  (a part of a name, or a look-alike picked by its id, would pass otherwise: the security review of this tool, MUST 1).
+  It reads the newest 200,000 characters of those messages (a regex per name: long messages must not stall the
+  server; older words left out only make more names red). A name followed by a longer Korean word that starts with a
+  particle counts as said ("박민" in "박민나"): accepted (`ConfirmDetail.alerts`: whole lines of the
   detail's text with a note; the text keeps them, so an older app still shows every line), and the question says what
   the red means.
 - **The yes.** Bound to a fingerprint of the project, its folder, the rules hash, the next rules, who sees it before and
