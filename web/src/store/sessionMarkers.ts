@@ -24,6 +24,7 @@ import { create } from 'zustand'
 import { useMemo } from 'react'
 import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEvent } from '@mycel/shared/api'
 import { api } from '../lib/api'
+import { onWindowFocus, unwatchWindowFocus, watchWindowFocus, windowFocused } from '../lib/attention'
 import { desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
@@ -45,9 +46,9 @@ interface SessionMarkersState {
 }
 
 const pageVisible = () => typeof document !== 'undefined' && document.visibilityState === 'visible'
-/** the desktop app's word on its window's focus (null: not in the desktop app, or an app without it) */
-let appFocused: boolean | null = null
-const computeVisible = () => pageVisible() && (appFocused ?? true)
+/** visible, and in the desktop app its window focused (the app's word, lib/attention.ts: null outside it or in an app
+ * without it) */
+const computeVisible = () => pageVisible() && (windowFocused() ?? true)
 
 export const useSessionMarkers = create<SessionMarkersState>((set, get) => ({
   onScreen: null,
@@ -291,11 +292,10 @@ export function startSessionMarkers() {
   document.addEventListener('visibilitychange', onVisibility)
   offs.push(() => document.removeEventListener('visibilitychange', onVisibility))
   const app = desktop()
-  if (app?.focus) {
-    appFocused = typeof document.hasFocus === 'function' ? document.hasFocus() : true
-    offs.push(app.focus.onChange((f) => { appFocused = !!f; setVisible(computeVisible()) }))
-    void app.focus.get().then((f) => { appFocused = !!f; setVisible(computeVisible()) }, () => {})
-  }
+  // the desktop app's word on its window's focus, kept in lib/attention.ts: reading a room and the room sound go by it
+  // too (the team page may have no focus of its own while its window is focused)
+  offs.push(onWindowFocus(() => setVisible(computeVisible())), unwatchWindowFocus)
+  watchWindowFocus()
   setVisible(computeVisible())
   // the list changed (a chat.updated, a reload, a resync after a server restart): the chat on screen may have an unseen
   // answer now
@@ -342,7 +342,6 @@ export function stopSessionMarkers() {
   pendingRoom.clear()
   inFlight.clear()
   asked.clear()
-  appFocused = null
   if (started) desktop()?.setBadgeCount?.(0)
   // signed out (or the page closing its live state): no count of this person stays on the icon
   if (started && webBadge) setWebBadge(webBadge, 0)

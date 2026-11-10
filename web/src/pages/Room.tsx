@@ -22,7 +22,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
-import { lookingAt } from '../lib/attention'
+import { lookingAt, onWindowFocus } from '../lib/attention'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../lib/stickToBottom'
@@ -243,9 +243,12 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   useEffect(() => {
     window.addEventListener('focus', tryRead)
     document.addEventListener('visibilitychange', tryRead)
+    // the desktop app's window came to the front (its page may get no focus event of its own)
+    const offWindow = onWindowFocus(tryRead)
     return () => {
       window.removeEventListener('focus', tryRead)
       document.removeEventListener('visibilitychange', tryRead)
+      offWindow()
     }
   }, [tryRead])
 
