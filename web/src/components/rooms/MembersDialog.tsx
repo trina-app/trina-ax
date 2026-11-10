@@ -16,6 +16,7 @@ import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { PresenceFace, PresenceText } from '../Presence'
+import { StatusEmoji } from '../StatusMessage'
 import { Button, confirmDialog, inputCls, Modal, Skeleton } from '../ui'
 import { MenuButton } from './MenuButton'
 import { useNameFallback, useRoomTitle } from './RoomIcon'
@@ -63,6 +64,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-baseline gap-1 text-sm">
                       <span className="truncate font-medium text-ink">{name}</span>
+                      <StatusEmoji userId={user.id} tap className="self-center" />
                       <PresenceText userId={user.id} offline />
                       {user.id === meId && <span className="shrink-0 text-faint">· {t('rooms.you')}</span>}
                       {group && user.id === room?.managerId && <span className="shrink-0 text-faint" data-testid="room-manager">· {t('rooms.info.manager')}</span>}

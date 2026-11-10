@@ -32,6 +32,7 @@ import { newId } from '../db'
 import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer, toEndOf } from './handover'
 import { componentC } from '../team-files/component'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
+import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -156,6 +157,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   // disabled or enabled again: nothing buffered under the earlier state is replayed (group / rule changes made while
   // the account was disabled never reached afterAccessChange for them)
   if (changed.status !== undefined) ctx.services.realtime.forgetReplay(id)
+  // their status message (docs/DECISIONS.md "상태 메시지") is the team's only while the account is on: open windows read
+  // the directory again when it goes or comes back with the account
+  if (changed.status !== undefined) statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true))
   if (changed.status === 'disabled') {
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
@@ -261,6 +265,7 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   let requested = false
   let pruned: Pruned[] = []
   let ownAi: string[] = []
+  let hadStatus = false
   ctx.db.transaction(() => {
     // who acts is read again too: an admin demoted (or disabled, or deleted) while the password was checked is nobody
     const row = ctx.db.query('SELECT id, role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
@@ -293,6 +298,9 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     pruned = pruneAssignments(ctx.db, auth.user.id, now)
     // their photo, title and status: the users row stays as a tombstone, so the profile's cascade never runs
     ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run(id)
+    // their status message (auth/status-messages.ts), for the same reason; the team is told below when it saw one
+    hadStatus = !!liveStatusOf(ctx.db, id, new Date(), true)
+    ctx.db.query('DELETE FROM user_status_messages WHERE user_id = ?').run(id)
     // their pinned chats (chat/pins.ts) and conversations (rooms/service.ts pin; a DM keeps their member row), for the
     // same reason
     ctx.db.query('DELETE FROM chat_pins WHERE user_id = ?').run(id)
@@ -301,6 +309,7 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()
   revokeSignIns()
+  statusGoneWithAccount(ctx, hadStatus)
   { const cc = existingCredentialsOf(ctx); if (cc) for (const k of ownAi) cc.cache.delete(k) }
   afterPrune(ctx, auth.user.id, pruned)
   if (requested) settleDeletionRequestNotices(ctx, id)

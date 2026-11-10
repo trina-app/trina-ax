@@ -69,6 +69,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
+  SetStatusBody, type MyStatus, type StatusClear,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
@@ -95,6 +96,9 @@ import path from 'node:path'
 import { MockPlugins } from './plugins'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
+import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
+import { HttpError } from '../../../server/src/http/errors'
+import { zonedDay } from '../../../server/src/system/time-zone'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
@@ -210,6 +214,9 @@ const PACK_CATALOG = [
 
 /** like server/src/admin/settings.ts LOCALE_CHANGED */
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
+/** the quiet profile notices (server/src/auth/profiles.ts): open windows read the directory, and their account, again */
+const PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'profile_changed', message: '' } } as const
+const MY_PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'my_profile_changed', message: '' } } as const
 /** like server/src/admin/settings.ts BROWSER_POLICY_CHANGED */
 const BROWSER_POLICY_CHANGED = { type: 'notice', data: { level: 'info', code: 'browser_policy_changed', message: '' } } as const
 /** like server/src/admin/team-icon.ts TEAM_ICON_CHANGED */
@@ -222,6 +229,9 @@ export class MockServer {
   seq = 0
   buffer: { seq: number; text: string }[] = []
   sockets = new Set<Bun.ServerWebSocket<WsData>>()
+  /** status messages (docs/DECISIONS.md "상태 메시지"; server/src/auth/status-messages.ts): mine through PUT/DELETE
+   * /api/me/status, anyone's through POST /__test/status; worked out by the server's own rules in the team's zone */
+  statuses = new Map<string, { emoji: string; text: string; clear: StatusClear; starts_at: string | null; clears_at: string | null; until_day: string | null }>()
   /** who is online or away (docs/DECISIONS.md "접속 상태"), as POST /__test/presence sets it; the whole list goes to
    * each socket after its hello, changes to every socket */
   presence = new Map<string, 'online' | 'away'>()
@@ -458,6 +468,7 @@ export class MockServer {
     this.generation++
     this.presence = new Map()
     this.presenceSent = []
+    this.statuses = new Map()
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
     this.fileRankCalls = []
@@ -1011,6 +1022,34 @@ export class MockServer {
     return { folders: ['skills', 'skills/재무'], items: this.skillGrants() }
   }
 
+  // ---------------- status messages ----------------
+  /** someone's status as the team sees it now (started, not ended), or undefined */
+  liveStatus(id: string) {
+    const r = this.statuses.get(id)
+    const now = new Date().toISOString()
+    if (!r || (r.starts_at && r.starts_at > now) || (r.clears_at && r.clears_at <= now)) return undefined
+    return statusOut(r)
+  }
+  /** mine for /api/me: also one that starts later */
+  myStatus(id: string): MyStatus | undefined {
+    const r = this.statuses.get(id)
+    const now = new Date().toISOString()
+    if (!r || (r.clears_at && r.clears_at <= now)) return undefined
+    return { ...statusOut(r), clear: r.clear, ...(r.starts_at && r.starts_at > now ? { fromDay: zonedDay(new Date(r.starts_at), this.settings.timeZone ?? 'Asia/Seoul') } : {}) }
+  }
+  /** set a status by the server's rules (a refusal comes back as the server's 400) */
+  setStatus(id: string, body: SetStatusBody, locale: Locale) {
+    const now = new Date()
+    const cur = this.myStatus(id) ? this.statuses.get(id)! : null
+    try {
+      const p = planStatus(body, now, this.settings.timeZone ?? 'Asia/Seoul', cur ? { user_id: id, ...cur } : null, locale)
+      this.statuses.set(id, { emoji: p.emoji, text: p.text, clear: p.clear, starts_at: p.startsAt, clears_at: p.clearsAt, until_day: p.untilDay })
+    } catch (e) {
+      if (e instanceof HttpError) fail(e.code, 400, e.userMessage, e.extra.fields)
+      throw e
+    }
+  }
+
   // ---------------- realtime ----------------
   publish(ev: ServerEventInput) {
     const full = { ...ev, seq: ++this.seq, at: Date.now() }
@@ -1087,7 +1126,7 @@ export class MockServer {
     const choose = this.canChoose(u)
     if (!choose) { delete prefs.engine; delete prefs.model }
     return {
-      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
+      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)) },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
       team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
@@ -1790,7 +1829,16 @@ export class MockServer {
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
       signIn: false, redirectUrl: null,
     }),
-    listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name })) }),
+    listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name, ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }),
+    // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
+    setMyStatus: (c) => {
+      this.setStatus(c.user.id, c.body, c.user.localeChoice ?? this.settings.defaultLocale)
+      this.publish(MY_PROFILE_CHANGED)
+      return this.myStatus(c.user.id)!
+    },
+    clearMyStatus: (c) => {
+      if (this.statuses.delete(c.user.id)) this.publish(MY_PROFILE_CHANGED)
+    },
     // set myself away (server/src/routes/people.ts): kept in my prefs; the team's dot is what /__test/presence says here
     setMyAway: (c) => {
       const u = c.user as User & { prefs?: Me['user']['prefs'] }
@@ -4341,6 +4389,15 @@ export class MockServer {
       }
       const frame = JSON.stringify(PresenceFrame.parse({ type: 'presence', full: false, people }))
       for (const ws of this.sockets) ws.send(frame)
+    }
+    else if (p === '/__test/status') {
+      // {user: username, status: SetStatusBody | null, raw?: {...the row}}: someone's status, told to every window like
+      // the server's notice; `raw` puts a row as it is (a status that ends in a moment, one that started)
+      const u = this.users.find((x) => x.username === body.user) ?? fail('not_found', 404)
+      if (body.raw) this.statuses.set(u.id, body.raw as never)
+      else if (body.status) this.setStatus(u.id, SetStatusBody.parse(body.status), 'ko')
+      else this.statuses.delete(u.id)
+      this.publish(PROFILE_CHANGED)
     }
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)

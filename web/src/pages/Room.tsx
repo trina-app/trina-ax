@@ -49,6 +49,7 @@ import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
+import { StatusDmLine } from '../components/StatusMessage'
 import { usePresenceOf } from '../store/presence'
 
 /** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
@@ -367,6 +368,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         roomId={roomId}
         members={members}
         meId={meId}
+        above={peerId ? <StatusDmLine userId={peerId} name={room ? title(room) : ''} /> : undefined}
         empty={!!timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length}
         onSent={() => {
           stick.current = true
