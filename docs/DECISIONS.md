@@ -18613,11 +18613,15 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   The share dry run (`POST /api/projects/:id/share` with `dryRun`) uses the same count (`viewersAdded`, `adminsApart`).
   The line under the picker (`AccessSummary`, also in the members dialog) reads "2명과 팀장·관리자가 봐요" then
   (`projects.whoCountApart`); the owner and admins read "4명이 봐요 (팀장·관리자 포함)" as before.
-- **Left as it is:** an existing project's dry run, its access answer and `Project.audience` still count the owner and
-  admins for its creator, who may change who sees it (the widening confirm needs who really gains it). So the creator of
-  a team project can still tell a person's role by naming them on its edit screen; closing that needs those screens to
-  count without admins too, a product decision. The count still includes the members of the caller's own groups chosen,
-  as the group's team room shows them.
+- **Left as it is, an open question for the owner:** every count of who reads a folder whose rules the member sets still
+  counts the owner and admins, and a member sets them on any team project they make (every member, unless only admins
+  may make projects). So making one project (audited, seen by admins) and then naming a person in its dry run
+  (`projectId`: `added` 0 for an admin, 1 for a member) still tells who the admins are; so do `ProjectAccess.people`,
+  the `PUT …/participants` answer, `Project.audience`, a copy dry run into the folder (`viewersAdded`) and the delete
+  card's first number for its files (independent review). This change only removes the free, traceless way. Closing it
+  means counting admins apart in every audience count a member sees (projects, shared chats, the copy and delete cards,
+  the scheduled-task card), a product decision with copy changes in several features, not made here. The count still
+  includes the members of the caller's own groups chosen, as the group's team room shows them.
 - **The delete card's "cannot restore" number only for the owner and admins.** The card said how many of the people who
   lose the items cannot restore them (readers without write). How many lose them a member already learns (a copy dry
   run into a folder they can write answers `viewersAdded`); the second number added how many people can write the
@@ -18629,7 +18633,10 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   the welcome steps and company profile, skill packs and drafts, the AI access request, room search and the room AI's
   cards, away, demo, after-update). Each case (`tests/security/lib/misc-cases.ts`) is written from what the route is
   meant to allow and aimed at something the wrong person must not reach; writes are refused after the permission check,
-  and the owner's team start runs last. Two scopes are added, `admins` and `own-owner`. `tests/security` is not part of
+  and the owner's team start runs last; the draft routes are aimed at the owner's own draft chats, so an admin's 404 is
+  the ownership check (review: an ordinary chat answers 404 to everyone). Two scopes are added, `admins` and
+  `own-owner`. A few cases (the dev environment's stop and remove routes) can only use ids nobody has, since the world
+  has no runs or sites. The matrix still has its two known failures on dev (`driveShareFolders` as owner and admin). `tests/security` is not part of
   CI, so the coverage half (no server, `tests/security/lib/coverage.ts`) also runs as
   `tests/unit/security-route-coverage.test.ts`: a new route without a matrix case now fails CI.
 - Tests: `tests/unit/project-preview-roles.test.ts`, `tests/unit/ai-delete-files.test.ts` (the card for a member and an

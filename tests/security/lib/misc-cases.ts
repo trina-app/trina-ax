@@ -68,6 +68,27 @@ function danaShare(w: World): void {
     .run(DANA_SHARE, JSON.stringify({ candidates: [], rule: null, ruleIn: null, tools: [], landing: null }), now.toISOString(), new Date(now.getTime() + 86_400_000).toISOString(), now.toISOString())
 }
 
+// ---- draft chats of the owner's own, with no answer yet (a company profile draft and a team skill draft), made once:
+// only she reads or saves them; an admin gets 404, as for a chat that is not there (the routes are admin-level)
+const DANA_PROFILE_DRAFT = '01900000-0000-7000-8000-00000000da91'
+const DANA_SKILL_DRAFT = '01900000-0000-7000-8000-00000000da92'
+let drafts = false
+function danaDrafts(w: World): void {
+  if (drafts) return
+  drafts = true
+  const db = w.inst.ctx.db, now = new Date().toISOString()
+  for (const id of [DANA_PROFILE_DRAFT, DANA_SKILL_DRAFT]) db.query("INSERT INTO chats (id, user_id, title) VALUES (?, 'dana', 'draft')").run(id)
+  db.query("INSERT INTO onboarding_profile_drafts (chat_id, user_id, source, website, site, created_at) VALUES (?, 'dana', 'text', '', NULL, ?)").run(DANA_PROFILE_DRAFT, now)
+  const material = { title: '', question: '', answer: '', skill: null, files: [], used: [], locale: 'en', pack: 'general' }
+  db.query("INSERT INTO onboarding_skill_drafts (chat_id, user_id, source_chat_id, source_message_id, material, created_at) VALUES (?, 'dana', ?, ?, ?, ?)")
+    .run(DANA_SKILL_DRAFT, DANA_PROFILE_DRAFT, 'none', JSON.stringify(material), now)
+}
+/** the owner reads her own draft; an admin is told it is not there (404), never refused for the role */
+const ownDraftCheck = (what: string, ownStatus: number) => (r: Resp, _w: World, who: Who) => {
+  if (who === 'owner' && r.status !== ownStatus) throw new Error(`the owner's own ${what} answered ${r.status}, not ${ownStatus}: ${r.text.slice(0, 160)}`)
+  if (who === 'admin' && r.status !== 404) throw new Error(`the admin reached the owner's ${what}: ${r.status}`)
+}
+
 export const MISC_SPECS: Record<string, Spec> = {
   // ---- dev environment of a project: seen like the project (projects/falcon: alice, bob who reads it, owner, admin)
   devEnv: { build: (c, w) => devEnvOn('box', () => c.get(`/api/projects/${w.ids.projFalcon}/dev-env`)), scope: 'falcon-read',
@@ -164,12 +185,13 @@ export const MISC_SPECS: Record<string, Spec> = {
     check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: an empty company profile was saved`) } },
   // a draft from the website or pasted text: owners and admins; neither given, so no chat starts (400 after the check)
   startProfileDraft: { build: (c) => c.post('/api/onboarding/profile/draft', {}), scope: 'byLevel', check: bodyCheck('body', 'a profile draft') },
-  // a profile draft chat of the caller: alice's chat is nobody else's (404 for owners and admins, 403 for members)
-  getProfileDraft: { build: (c, w) => c.get(`/api/onboarding/profile/draft/${w.ids.chatA}`), scope: 'nobody' },
+  // a profile draft chat of the caller's own: the owner's draft is hers only (an admin 404, members 403 for the role)
+  getProfileDraft: { build: (c, w) => { danaDrafts(w); return c.get(`/api/onboarding/profile/draft/${DANA_PROFILE_DRAFT}`) }, scope: 'own-owner', check: ownDraftCheck('profile draft', 200) },
   // a team skill from one of the caller's chats: alice's chat is not the owner's or an admin's to draft, read or save
   startSkillDraft: { build: (c, w) => c.post('/api/onboarding/skill-draft', { chatId: w.ids.chatA }), scope: 'nobody' },
-  getSkillDraft: { build: (c, w) => c.get(`/api/onboarding/skill-draft/${w.ids.chatA}`), scope: 'nobody' },
-  saveSkillDraft: { build: (c, w) => c.post(`/api/onboarding/skill-draft/${w.ids.chatA}/save`, { title: 'x' }), scope: 'nobody' },
+  // the owner's own skill draft (no answer yet): only she reads it; her save is refused as not ready (409), nothing saved
+  getSkillDraft: { build: (c, w) => { danaDrafts(w); return c.get(`/api/onboarding/skill-draft/${DANA_SKILL_DRAFT}`) }, scope: 'own-owner', check: ownDraftCheck('skill draft', 200) },
+  saveSkillDraft: { build: (c, w) => { danaDrafts(w); return c.post(`/api/onboarding/skill-draft/${DANA_SKILL_DRAFT}/save`, { title: 'x' }) }, scope: 'own-owner', check: ownDraftCheck('skill draft save', 409) },
   // the 7-day team goal (owners and admins)
   getTeamGoal: { build: (c) => c.get('/api/onboarding/goal'), scope: 'byLevel' },
   // recommended skill packs (owners and admins); a skill the pack does not have, so nothing is written
@@ -179,7 +201,7 @@ export const MISC_SPECS: Record<string, Spec> = {
   // ---- AI access: everyone reads their own; asking the owner is for members who cannot use AI (never the owner or an
   // admin: 403). Here the team connection answers everyone, so every member is refused too.
   getAiAccess: { build: (c) => c.get('/api/me/ai-access'), scope: 'self' },
-  requestAiAccess: { skipPositive: true, build: (c) => c.post('/api/me/ai-access/request'), scope: 'byLevel',
+  requestAiAccess: { skipPositive: true, build: (c) => c.post('/api/me/ai-access/request'), scope: 'members',
     check: async (r, w, who) => {
       if (who === 'anon' || who === 'pwchange') return
       if (admin(who)) { if (r.status !== 403) throw new Error(`${who}: asking for AI access answered ${r.status}, not 403`); return }

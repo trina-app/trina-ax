@@ -60,4 +60,7 @@ projects, files/trash/delete and access, `tests/security/permission-matrix.test.
 All three were real, each shown by a test that failed before the fix. Built as planned, plus: the share dry run
 (`POST /api/projects/:id/share`, `dryRun`) reuses the new-project count, so it got the same rule; `tests/security` is
 not part of CI, so the coverage half of the matrix also runs as `tests/unit/security-route-coverage.test.ts`; two
-matrix scopes (`admins`, `own-owner`). PR: https://github.com/trina-app/trina-ax/pull/304
+matrix scopes (`admins`, `own-owner`). The independent review found that one project a member makes still lets them
+ask who is an admin through that project's own counts (its dry run, access, audience, the copy and delete cards); the
+task left a project's manager out, and closing it everywhere is a product decision (DECISIONS, open question). Its
+should-fix (three draft cases that could not fail) is fixed. PR: https://github.com/trina-app/trina-ax/pull/304
