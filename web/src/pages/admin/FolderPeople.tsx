@@ -13,8 +13,9 @@ import { Avatar } from '../../components/Avatar'
 import { useFaceOf } from '../../store/people'
 import { accessErrorText, LevelLabel } from './AccessResults'
 
-/** A folder's people and their access, page by page (GET /api/admin/access/folder); after a change (`reloadKey`) as many
- * as were shown come again. `path` null: nothing is asked. */
+/** One folder's people, page by page (GET /api/admin/access/folder); asked again when `reloadKey` changes, as many as
+ * were shown. A page that comes after the folder was asked again (a slow "Load more" across a rule change) is dropped.
+ * `path` null: nothing is asked. */
 export function useFolderAnswer(path: string | null, reloadKey: number) {
   const t = useT()
   const locale = useLocale()

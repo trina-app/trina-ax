@@ -113,10 +113,11 @@ export function FolderAccessPanel({ target, project, onClose }: { target: { path
       {target && place && (
         <div className="space-y-3" data-testid="folder-access-panel" data-path={target.path}>
           <p className="-mt-2 text-xs [overflow-wrap:anywhere] text-muted">{words.path(target.path) || t('files.root')}</p>
+          {/* no headline once the answers are in without a count (a plugin's managed folder: no write passes there) */}
           {a.error && !chip ? (
             <ErrorNote>{a.error}</ErrorNote>
           ) : !chip ? (
-            <Skeleton lines={2} />
+            !a.ready && <Skeleton lines={2} />
           ) : (
             <p className="text-base font-semibold text-ink" data-testid="folder-access-headline">
               {headlineText(t, chip)}

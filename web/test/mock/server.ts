@@ -568,6 +568,7 @@ export class MockServer {
     this.revoked.clear()
     this.restricted.clear()
     this.downloadOnly.clear()
+    this.pluginManaged.clear()
     this.connection = defaultConnection()
     this.teamAddress = null
     if (!this.setupNeeded) this.seed()
@@ -692,6 +693,8 @@ export class MockServer {
   }
   /** POST /__test/download-only {path}: a file Safe operations 1A generated (quarantined: FileEntry.downloadOnly) */
   downloadOnly = new Set<string>()
+  /** POST /__test/managed {path}: a folder a plugin manages (GET /api/files/audience gives no count there) */
+  pluginManaged = new Set<string>()
   /** POST /__test/skill-list: what GET /api/skills/overview says of the AI's skill list (server/src/chat/skill-list.ts) */
   aiList: SkillsOverview['aiList'] = undefined
 
@@ -2257,7 +2260,8 @@ export class MockServer {
       if (n && n.type !== 'folder') fail('validation', 400, '폴더가 아니에요.', { path: 'not a folder' })
       const access = this.access(path, c.user)
       if (access === 'none') fail('not_found', 404)
-      if (access !== 'write') return { path, access }
+      // a plugin's managed folder (POST /__test/managed): no write passes there, so no count, as on the server
+      if (access !== 'write' || [...this.pluginManaged].some((m) => path === m || path.startsWith(m + '/'))) return { path, access }
       const active = this.users.filter((u) => u.status === 'active')
       // with folder rules on the way up (Admin › 폴더 권한 here), the server's own RuleSet counts, so the count agrees
       // with the admin's people list; otherwise this mock's simple policy
@@ -4468,6 +4472,7 @@ export class MockServer {
       this.shareEpoch++
     }
     else if (p === '/__test/restrict') this.restricted.set(String(body.path), (body.users as string[]) ?? [])
+    else if (p === '/__test/managed') this.pluginManaged.add(String(body.path))
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
       this.revoked.add(String(body.path))

@@ -1222,8 +1222,6 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
 
 // ---------------- the chosen folder ----------------
 
-/** One folder's people, page by page (GET /api/admin/access/folder); asked again when `reloadKey` changes. A page that
- * comes after the folder was asked again (a slow "Load more" across a rule change) is dropped. */
 function FolderDetail({ node: n, members, row, rowsReady, names, subject, reloadKey, headingRef, removal, back, onEdit, onRemoved }: {
   node: AccessTreeNode
   members: number

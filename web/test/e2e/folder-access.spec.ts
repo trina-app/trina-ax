@@ -52,6 +52,22 @@ test('a member: a count where they can write, no names; the panel from the chip 
   await expect(chip(page)).toHaveCount(0)
 })
 
+test('a plugin\'s managed folder: no chip, and its panel ends with no endless loading', async ({ page }) => {
+  await post(page, '/__test/managed', { path: 'docs' })
+  await signIn(page, BOB)
+  await page.goto('/files?path=docs')
+  await expect(page.getByTestId('crumb').last()).toBeVisible()
+  await page.goto('/files')
+  await row(page, 'docs').hover()
+  await row(page, 'docs').getByTestId('file-menu').click()
+  await page.getByRole('menuitem', { name: t['folderAccess.menu'] }).click()
+  await expect(panel(page)).toContainText(t['folderAccess.adminsChange'])
+  await expect(page.getByTestId('folder-access-headline')).toHaveCount(0)
+  await expect(panel(page).locator('.animate-pulse')).toHaveCount(0)
+  await page.goto('/files?path=docs')
+  await expect(chip(page)).toHaveCount(0)
+})
+
 test('a member\'s own folder: only them, without asking', async ({ page }) => {
   await post(page, '/__test/file', { path: 'users/bob/note.md', text: 'mine' })
   await signIn(page, BOB)
