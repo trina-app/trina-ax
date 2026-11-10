@@ -1113,7 +1113,7 @@ export const ja: Record<MessageKey, string> = {
   'aiApps.waiting': "アプリの接続を待っています…",
   'aiApps.connected': "接続しました: {name}",
   'aiApps.connectedBadge': "接続済み",
-  'aiApps.mineSummary': "あなたの接続 {n} 件: {names}。",
+  'aiApps.mineSummary': "あなたの接続 {n, plural, one {#件} other {#件}}: {names}。",
   'aiApps.manage': "管理",
   'aiApps.off': "管理者がまだオンにしていません。",
   'aiApps.offAdmin': "このサーバーではオフです。サーバーの設定で次のいずれかでオンにします:",

@@ -1,0 +1,1 @@
+- Admin › AI apps shows your own connections: "✓ Connected" on Claude and Claude Code when you connected them, the other apps' names (Codex, …) on the "Other MCP apps" row, and one line "You have 3 connections: …" with **Manage**, which opens Settings › AI apps. It showed only Connect, also for apps already connected. Settings › AI apps marks its rows the same way.
