@@ -3452,7 +3452,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.alsoSent": "También enviado a la sala",
   "rooms.threadReplyMark": "Respuesta en un hilo",
   "rooms.closeThread": "Cerrar el hilo",
-  "sideChat.open": "Preguntar a {name} en privado",
+  "sideChat.open": "Preguntar a {name}",
   "sideChat.title": "{name}",
   "sideChat.close": "Cerrar",
   "sideChat.new": "Nuevo chat",

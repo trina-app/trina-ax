@@ -3452,7 +3452,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.alsoSent": "トークルームにも送信済み",
   "rooms.threadReplyMark": "スレッドへの返信",
   "rooms.closeThread": "スレッドを閉じる",
-  "sideChat.open": "{name}に個別に質問",
+  "sideChat.open": "{name}に質問",
   "sideChat.title": "{name}",
   "sideChat.close": "閉じる",
   "sideChat.new": "新しいチャット",
