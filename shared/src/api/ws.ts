@@ -168,6 +168,9 @@ export const ConnectServiceRequest = z.object({
   template: z.object({ id: z.string(), version: z.number().int().positive() }).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
+  /** the server's line shown first: why it asks (this chat holds messages from the person's conversations, which the
+   * room card would have said; docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"); older servers omit it */
+  lead: z.string().optional(),
   /** an HTTP API's usage notes as the AI wrote them: saved with the connection exactly as here and given to the AI in
    * later chats (api_request's description), so the card shows them before the person connects */
   notes: z.string().optional(),

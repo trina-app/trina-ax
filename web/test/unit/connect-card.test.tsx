@@ -231,6 +231,15 @@ describe('what the card shows', () => {
     expect(part(out, 'p', 'connect-url')?.[0]).toContain('overflow-y-auto')
   })
 
+  test('after a room read the server\'s line comes first, above where it connects; without it, no line', () => {
+    setLocale('en')
+    const lead = 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.'
+    const out = html(card({ lead }))
+    expect(part(out, 'p', 'connect-lead')?.[1]).toBe(esc(lead))
+    expect(out.indexOf('data-testid="connect-lead"')).toBeLessThan(out.indexOf('data-testid="connect-host"'))
+    expect(html(card())).not.toContain('data-testid="connect-lead"')
+  })
+
   test('a caution when no word of the name is in the host', () => {
     expect(hostOffName('GitHub', 'github-mcp.evil.example')).toBe(false)
     expect(hostOffName('GitHub', 'mcp.example.org')).toBe(true)

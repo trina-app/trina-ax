@@ -179,6 +179,8 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         {r.template && <Badge tone="accent">{t('connect.fromTeam')}</Badge>}
       </div>
       <div className="space-y-3 px-4 pt-3 pb-3 text-sm">
+        {/* the server's line on why it asks (a chat that read a room: this card stands in for the room card) */}
+        {r.lead && <p className="text-muted [overflow-wrap:anywhere]" data-testid="connect-lead">{r.lead}</p>}
         {service && (
           <div data-testid="connect-address">
             <p className="flex items-start gap-1.5 font-semibold text-ink" data-testid="connect-host">
