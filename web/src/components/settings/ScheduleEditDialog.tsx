@@ -2,24 +2,30 @@
 // project it runs in; "Check and save" asks the server for the same schedule card as when the AI creates a task
 // (server/src/chat/schedule-edit.ts: the whole instruction, its addresses, an address with a long query listed apart,
 // the "allow" connections), shown here in place of the form, and only an answer on that card saves. "Don't change"
-// comes back to the form. A template: its time (and weekday) and folders, saved directly (checked like at creation).
+// comes back to the form. The save folder (where runs put new files without asking, server/src/chat/schedule-scope.ts)
+// can be another folder or none, and the places whose content may go there can be taken away (×); the card shows them
+// as they will be. A template: its time (and weekday) and folders, saved directly (checked like at creation).
 import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import type { Project, Schedule, ScheduleReviewCard, ScheduleTaskEdit } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
+import { sourceName } from '../../lib/scheduleText'
 import { useMeStrict } from '../../store/session'
 import AskCard from '../chat/AskCard'
 import FolderPicker from '../FolderPicker'
-import { Button, ErrorNote, Field, Modal, inputCls } from '../ui'
+import { Button, ErrorNote, Field, IconButton, Modal, inputCls } from '../ui'
 
 const REPEATS = ['once', 'daily', 'weekdays', 'weekly', 'monthly'] as const
 
-/** The form's fields as the server takes them (only the field the repeat uses is sent). */
-export function taskEdit(f: { title: string; prompt: string; repeat: Schedule['repeat']; time: string; weekday: number; day: number; date: string; projectId: string }): ScheduleTaskEdit {
+/** The form's fields as the server takes them (only the field the repeat uses is sent). `save`: the save folder (null:
+ * none) and the keys of the places kept, for a task that has or gets one. */
+export function taskEdit(f: { title: string; prompt: string; repeat: Schedule['repeat']; time: string; weekday: number; day: number; date: string; projectId: string }, save?: { folder: string | null; sources: string[] }): ScheduleTaskEdit {
   return {
     kind: 'task', title: f.title, prompt: f.prompt, repeat: f.repeat, time: f.time,
     weekday: f.repeat === 'weekly' ? f.weekday : null, day: f.repeat === 'monthly' ? f.day : null, date: f.repeat === 'once' ? f.date : null,
     projectId: f.projectId || null,
+    ...(save ? { saveFolder: save.folder, saveSources: save.sources } : {}),
   }
 }
 
@@ -33,6 +39,11 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
   const t = useT(), locale = useLocale()
   const [f, setF] = useState({ title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday ?? 1, day: s.day ?? 1, date: s.date ?? new Date().toISOString().slice(0, 10), projectId: s.projectId ?? '' })
   const [projects, setProjects] = useState<Project[] | null>(null)
+  // the save folder and its places: only taking places away here (the AI adds them when it makes the task)
+  const [saveFolder, setSaveFolder] = useState<string | null>(s.saveFolder ?? null)
+  const [kept, setKept] = useState<string[]>((s.saveSources ?? []).map((x) => x.key))
+  const [picking, setPicking] = useState(false)
+  const hadSave = !!s.saveFolder || !!s.saveSources?.length
   const [card, setCard] = useState<{ body: ScheduleTaskEdit; card: ScheduleReviewCard } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -46,7 +57,7 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => { setF((x) => ({ ...x, [k]: v })); setNote(null) }
   const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
   const check = async () => {
-    const body = taskEdit(f)
+    const body = taskEdit(f, hadSave || saveFolder ? { folder: saveFolder, sources: kept } : undefined)
     setBusy(true); setError(null); setNote(null)
     try {
       const c = await api.call(API.scheduleEditCard, { params: { id: s.id }, body })
@@ -141,11 +152,32 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
               {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Field>
+          <Field label={t('schedules.field.saveFolder')} hint={t('schedules.field.saveFolderHint')} error={fieldErr(error, 'saveFolder')}>
+            <div className="flex min-w-0 items-center gap-1" data-testid="schedule-edit-save-folder">
+              <Button onClick={() => setPicking(true)} className="min-w-0 truncate" data-testid="schedule-edit-save-pick">{saveFolder ?? t('schedules.saveFolderPick')}</Button>
+              {saveFolder ? (
+                <IconButton label={t('schedules.removeSaveFolder')} onClick={() => { setSaveFolder(null); setNote(null) }} data-testid="schedule-edit-save-remove"><X size={14} /></IconButton>
+              ) : <span className="text-xs text-faint">{t('schedules.saveFolderNone')}</span>}
+            </div>
+          </Field>
+          {saveFolder && !!s.saveSources?.length && (
+            <Field label={t('schedules.field.saveSources')} error={fieldErr(error, 'saveSources')}>
+              <ul className="flex flex-wrap gap-1.5" data-testid="schedule-edit-save-sources">
+                {(s.saveSources ?? []).filter((x) => kept.includes(x.key)).map((x) => (
+                  <li key={x.key} className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-subtle py-0.5 pr-0.5 pl-2.5 text-sm" data-testid="schedule-edit-save-source">
+                    <span className="truncate">{sourceName(x, t)}</span>
+                    <IconButton label={t('schedules.removeSource', { name: sourceName(x, t) })} className="p-0.5" onClick={() => { setKept((k) => k.filter((y) => y !== x.key)); setNote(null) }}><X size={13} /></IconButton>
+                  </li>
+                ))}
+              </ul>
+            </Field>
+          )}
           {tz && <p className="text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
           <p className="text-xs text-muted">{t('schedules.checkHint')}</p>
           <button type="submit" hidden aria-hidden tabIndex={-1} />
         </form>
       )}
+      <FolderPicker open={picking} title={t('schedules.field.saveFolder')} confirmLabel={t('scheduleTemplates.select')} initial={saveFolder ?? 'shared'} needWrite allowCreate={false} onClose={() => setPicking(false)} onPick={(p) => { setSaveFolder(p); setPicking(false); setNote(null) }} />
     </Modal>
   )
 }
