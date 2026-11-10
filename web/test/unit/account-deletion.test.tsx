@@ -93,7 +93,7 @@ describe('the page', () => {
       await m.until(() => m.find('account-deletion-owner'), 'the owner state')
       expect(m.container.querySelectorAll('button').length).toBe(0)
       expect(m.get('account-deletion').textContent).toContain('팀장을 넘기면')
-      expect(m.get('account-deletion-transfer').getAttribute('href')).toBe('/admin/settings')
+      expect(m.get('account-deletion-transfer').getAttribute('href')).toBe('/admin/members')
     } finally { await m.unmount() }
   })
 })

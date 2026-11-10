@@ -16,7 +16,8 @@
 // opens this review. Only while the team has no saved profile (asked again right before saving): a re-read of a saved
 // profile (다시 읽기 from its review) never overwrites it unseen, it shows the review. Pasted text, a draft without a
 // one-line intro and a save that fails keep the review too. There the review's one button is "저장하고 계속"
-// (`continueWith`): it saves and goes on (the intro deck), with the deck line under it; Admin › Team settings keeps 저장.
+// (`continueWith`): it saves and goes on (the brand materials, docs/DECISIONS.md "W6"), with the line under it that says
+// what goes where; Admin › Team settings keeps 저장.
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -47,12 +48,12 @@ export interface ProfileStepProps {
   /** the address typed, as its reading starts (the welcome steps keep it on the server, so it is there when the owner
    * leaves mid-reading and comes back) */
   onRead?: (website: string) => void
-  /** The welcome steps: the review's save goes on too (one button, "저장하고 계속": docs/DECISIONS.md "W5"), with
-   * `extra` above the buttons (the intro files link) and `note` right under the button (the deck starts now, where it
-   * will be). `onSaved` (the deck) runs after the save while the button is busy; what fails stays on the review with
-   * its reason, and the same button saves again and goes on. No toast: the next step says it. Without it (Admin › Team
-   * settings, 고치기): the plain 저장. */
-  continueWith?: { label: string; note?: ReactNode; extra?: ReactNode; disabled?: boolean; onSaved: (profile: CompanyProfile) => Promise<void> }
+  /** The welcome steps: the review's save goes on too (one button, "저장하고 계속": docs/DECISIONS.md "W5", "W6"), with
+   * `extra` above the buttons (the intro files link) and `note` right under the button (what the press puts into the
+   * brand folder, given the website the review holds now). `onSaved` (the brand materials, then the next step) runs after the save while the button is busy;
+   * what fails stays on the review with its reason, and the same button saves again and goes on. No toast: the next
+   * step says it. Without it (Admin › Team settings, 고치기): the plain 저장. */
+  continueWith?: { label: string; note?: (website: string) => ReactNode; extra?: ReactNode; disabled?: boolean; onSaved: (profile: CompanyProfile) => Promise<void> }
 }
 
 /** what a draft is read from: the website, or the text the person pasted */
@@ -251,7 +252,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     setError(null)
     try {
       const saved = await api.call(API.saveCompanyProfile, { body })
-      // the welcome steps: saved and on in one press (the deck); the next step says it, no toast
+      // the welcome steps: saved and on in one press (the brand materials); the next step says it, no toast
       if (continueWith) await continueWith.onSaved(saved)
       else {
         toast({ level: 'success', text: t('onboarding.profile.saved') })
@@ -472,7 +473,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           </Button>
         )}
         <span className="ml-auto max-sm:order-2">{skip}</span>
-        {continueWith?.note && <div className="w-full max-sm:order-1">{continueWith.note}</div>}
+        {continueWith?.note && <div className="w-full max-sm:order-1">{continueWith.note(draft.website)}</div>}
       </div>
     </div>
   )

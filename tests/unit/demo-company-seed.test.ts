@@ -78,7 +78,7 @@ for (const dir of CONTENTS) {
     }, 120_000)
 
     test('the team skills in the files are skills', () => {
-      for (const rel of c.files.filter((f) => /^skills\/.+\/SKILL\.md$/.test(f) && !f.startsWith('skills/marketing/'))) {
+      for (const rel of c.files.filter((f) => /^skills\/.+\/SKILL\.md$/.test(f) && !f.startsWith('skills/work/'))) {
         const parsed = checkSkill(fs.readFileSync(path.join(c.filesDir, rel), 'utf8'), rel)
         expect(parsed.ok && parsed.title, rel).toBeTruthy()
       }
@@ -123,7 +123,7 @@ describe('the open example, Acme', () => {
     // one restricted folder: the same question gives the CEO, the lead and the new hire different answers
     expect(c.company.demo.sameQuestion).toBe("Summarize this quarter's budget")
     // no brand of this product's editions in the open example
-    const all = [JSON.stringify(c.company), ...c.files.filter((f) => f.endsWith('.md') && !f.startsWith('skills/marketing/')).map((f) => fs.readFileSync(path.join(c.filesDir, f), 'utf8')),
+    const all = [JSON.stringify(c.company), ...c.files.filter((f) => f.endsWith('.md') && !f.startsWith('skills/work/')).map((f) => fs.readFileSync(path.join(c.filesDir, f), 'utf8')),
       ...fs.readdirSync(c.recordingsDir).map((n) => fs.readFileSync(path.join(c.recordingsDir, n), 'utf8'))].join('\n')
     expect(all).not.toMatch(/트리나|trina/i)
     expect(c.files.filter((f) => /\.(png|jpe?g|gif|webp|pptx)$/i.test(f))).toEqual([])
@@ -181,7 +181,7 @@ describe('the format refuses a content folder that does not hold together', () =
   test('files only at team paths the seed can upload to; pack skills that exist', () => {
     expect(problems(variant(() => {}, { files: { 'users/alex/x.md': 'x' } }))).toContain('files/users/alex/x.md: sample files go under')
     expect(problems(variant(() => {}, { files: { 'groups/Finance/x.md': 'x' } }))).toContain('no group "Finance"')
-    expect(problems(variant((j) => { j.packSkills[0].skills.push('no-such-skill') }))).toContain('resources/skill-packs/marketing/en/no-such-skill/SKILL.md is not in this repository')
+    expect(problems(variant((j) => { j.packSkills[0].skills.push('no-such-skill') }))).toContain('resources/skill-packs/work/en/no-such-skill/SKILL.md is not in this repository')
     expect(problems(variant((j) => { j.settings.answerStepLimit = 3 }))).toMatch(/settings/)
     expect(problems(variant((j) => { j.rules[0].path = '../outside' }))).toMatch(/a team path/)
   })

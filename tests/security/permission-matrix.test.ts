@@ -18,6 +18,7 @@ import { P4_RAW_COVERED } from './lib/p4-cases'
 import { REMOTE_MCP_RAW_COVERED } from './lib/remote-mcp-cases'
 import { INTEGRATION_RAW_COVERED } from './lib/integrations-cases'
 import { SLACK_RAW_COVERED } from './lib/slack-cases'
+import { APP_LINKS_RAW_COVERED } from './lib/app-links-cases'
 import { enumerateRoutes, judge } from './lib/matrix'
 
 setDefaultTimeout(180_000)
@@ -29,7 +30,7 @@ describe('coverage', () => {
     const routes = enumerateRoutes(REPO)
     const covered = new Set(Object.keys(SPECS))
     // the two raw routes are exercised separately (ws subscriptions test, web app shell)
-    const rawCovered = new Set(['RAW GET WS_PATH', 'RAW GET \'*\'', ...P4_RAW_COVERED, ...REMOTE_MCP_RAW_COVERED, ...INTEGRATION_RAW_COVERED, ...SLACK_RAW_COVERED])
+    const rawCovered = new Set(['RAW GET WS_PATH', 'RAW GET \'*\'', ...P4_RAW_COVERED, ...REMOTE_MCP_RAW_COVERED, ...INTEGRATION_RAW_COVERED, ...SLACK_RAW_COVERED, ...APP_LINKS_RAW_COVERED])
     const missing = routes.filter((r) => (r.startsWith('RAW') ? !rawCovered.has(r) : !covered.has(r)))
     expect(missing, `routes with no matrix case: ${missing.join(', ')}`).toEqual([])
   })

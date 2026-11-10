@@ -1,21 +1,23 @@
 // 팀 스킬 (docs/DECISIONS.md "팀 스킬 관리"): the skills I can use (everyone, read-only: components/AvailableSkills.tsx),
 // suggestions to review for the folders I manage ([등록] writes the skill under skills/, [거절] turns it down), my own
 // suggestions with their status, and for the owner and admins every recent change under skills/ with a link to its
-// version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
+// version history (where the previous version can be restored). The owner and admins also read, under the heading, who
+// can change the team skills, with [바꾸기] (admin/SkillManagers.tsx). Quiet on purpose: rows keep to a line or two, the
 // details open on demand. /skills?run=<path> opens that skill's form (components/skills/SkillForm.tsx; the invite
 // link and the welcome steps link here).
 // Members contribute (docs/DECISIONS.md "MC"): 검토 groups the suggestions by person, so three members give three
 // groups; a skill folder from a member's computer reads as such (its app, its files, a path on their computer, a team
 // skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
-// line of a batch) opens 검토 at that person.
+// line of a batch) opens 검토 at that person. /skills?catalog=open ("스킬 넣기" on Home and in the goal card) opens the
+// ready-made skills the team lacks, unfolded, for owners and admins.
 import clsx from 'clsx'
-import { Bot, History, Lightbulb, Search, Users } from 'lucide-react'
+import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
-import { navigateTo } from '../lib/nav'
+import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { useLocale, useT } from '../i18n'
 import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
@@ -25,12 +27,15 @@ import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
 import { SkillFormDialog } from '../components/skills/SkillForm'
+import { SkillEditorsLine } from './admin/SkillManagers'
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, pageColumn, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
+/** a changed file's version history, a folder; a deleted one is in 파일 › 휴지통 (as the server's notice links:
+ * server/src/skills/changes.ts historyLink) */
 const historyLink = (c: SkillChange) => {
-  if (c.change === 'delete') return '/trash'
+  if (c.change === 'delete') return FILES_TRASH
   const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''
   if (c.kind === 'folder') return `/files?path=${encodeURIComponent(c.path)}`
   return `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}`
@@ -82,17 +87,17 @@ export default function Skills() {
     void load()
     return skillsChanged.on(() => void load())
   }, [load])
-  // a link to "my suggestions" chose the tab (its ?mine= is gone from the address by then)
-  const linkedMine = useRef(!!params.get('mine'))
+  // a link chose the tab: "my suggestions" (its ?mine= is gone from the address by then) or 스킬 넣기's open catalog
+  const linkedTab = useRef(!!params.get('mine') || params.get('catalog') === 'open')
   // first visit: managers land on what waits for them
   useEffect(() => {
-    if (overview && !linkedMine.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
+    if (overview && !linkedTab.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview === null])
   // a banner's link while already on this page; ?mine= goes once applied, like ?review=, so the same link works again
   useEffect(() => {
     if (params.get('mine')) {
-      linkedMine.current = true
+      linkedTab.current = true
       setTab('mine')
       const next = new URLSearchParams(params)
       next.delete('mine')
@@ -144,13 +149,15 @@ export default function Skills() {
             </div>
           )}
         </StickyHeader>
+        {/* the owner and admins: who can change the team skills, one line (members and other skill managers do not see it) */}
+        {isAdmin(me) && <SkillEditorsLine key={`editors-${me.user.id}`} className="mb-4" />}
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
         <SkillListNote list={overview?.aiList} className="mb-5" />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!overview && !error && <Skeleton lines={5} />}
         {overview && (
           <TabPanel base={panels} value={current}>
-            {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} />}
+            {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} catalogOpen={params.get('catalog') === 'open'} />}
             {current === 'review' && (
               <>
                 {/* phones: each row already says the folder it goes into */}
@@ -317,7 +324,7 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
             </Badge>
           )}
           <Button size="sm" variant="ghost" onClick={() => navigateTo(historyLink(c))}>
-            <History size={13} aria-hidden /> {c.change === 'delete' ? t('sidebar.trash') : t('skills.change.history')}
+            {c.change === 'delete' ? <><Trash2 size={13} aria-hidden /> {t('files.trash')}</> : <><History size={13} aria-hidden /> {t('skills.change.history')}</>}
           </Button>
         </li>
       ))}

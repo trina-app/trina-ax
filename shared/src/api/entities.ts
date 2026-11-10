@@ -19,6 +19,9 @@ export const UserPrefs = z.object({
   /** own default engine/model for new chats ("내 기본 엔진/모델"; only for people who may pick the engine) */
   engine: EngineId.optional(),
   model: z.string().max(100).optional(),
+  /** set themselves away (the account menu's "자리 비움으로 표시"; docs/DECISIONS.md "접속 상태"): their dot shows away
+   * until they change it. Only PUT /api/me/away sets it; PATCH /api/me leaves it as it is. */
+  away: z.boolean().optional(),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -75,6 +78,9 @@ export const Invite = z.object({
   expiresAt: IsoTime,
   usedAt: IsoTime.nullable(),
   usedBy: UserRef.nullable(),
+  /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
+   * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
+  leadFor: z.string().nullable().optional(),
 })
 export type Invite = z.infer<typeof Invite>
 
@@ -142,7 +148,8 @@ export const Project = z.object({
   /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
    * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
   audience: z.number().int().nonnegative().optional(),
-  /** how many shared chats it has (not in the trash): the delete and repoint dialogs say they go or move with it */
+  /** how many shared chats it has (not in the trash): the delete dialog says they go to their creators' trash, the
+   * repoint dialog who will see them */
   sharedChats: z.number().int().nonnegative().optional(),
 })
 export type Project = z.infer<typeof Project>
@@ -150,6 +157,8 @@ export type Project = z.infer<typeof Project>
 /** Run state of a chat, from the turn queue. */
 export const ChatRunState = z.enum(['idle', 'queued', 'running'])
 export type ChatRunState = z.infer<typeof ChatRunState>
+/** At most this many of a shared chat's writers come with it (Chat.shared.people): the faces a project page's row shows. */
+export const CHAT_PEOPLE_SHOWN = 3
 export const Chat = z.object({
   id: Uuid7,
   projectId: Uuid7.nullable(),
@@ -178,6 +187,12 @@ export const Chat = z.object({
    * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
    * cards it raises are there while they look. Absent = no. */
   mergeWaiting: z.literal(true).optional(),
+  /** the room whose side panel (✦ Trina) this chat was opened from (docs/DECISIONS.md "Trina side chat"): the AI is
+   * told the room, and an answer goes there only with "Share to room". Absent: an ordinary chat. */
+  sideRoomId: z.string().optional(),
+  /** when I pinned it to the top of my chat list ("상단에 고정", POST /api/chats/:id/pin; migration 277). Mine only: on
+   * a shared project chat nobody else sees my pin. Absent = not pinned. */
+  pinnedAt: IsoTime.optional(),
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({
@@ -192,6 +207,12 @@ export const Chat = z.object({
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */
     canDelete: z.boolean(),
+    /** who wrote in it (sent a question there, its creator included), the most recent first, at most
+     * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
+     * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
+    people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
+    /** how many people wrote in it (with `people`) */
+    peopleCount: z.number().int().nonnegative().optional(),
   }).optional(),
 })
 export type Chat = z.infer<typeof Chat>
@@ -251,6 +272,9 @@ export const Step = z.object({
   detail: z.string().max(4000).optional(),
   /** web search cards */
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
+  /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
+   * room at the message, or the thread at the reply), as the button's sent line has it */
+  posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
@@ -365,6 +389,11 @@ export const Message = z.object({
    * skill (its file's first version), when that is someone else than the person who asked and not a starter pack's
    * text: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개" */
   receipt: z.object({ skill: z.object({ path: z.string(), name: z.string(), by: z.string().optional() }), teamFiles: z.number().int().nonnegative() }).optional(),
+  /** a shared project chat's answer hidden from me (docs/DECISIONS.md "People who see a shared chat later"): it used
+   * something I cannot open, and I did not see the chat when it did. Shown as one line in its place: content is '' and
+   * nothing of it comes (no steps, files, sources, artifacts, model or error); its place in the branch stays. Never on
+   * an answer of my own question */
+  withheld: z.literal(true).optional(),
 })
 export type Message = z.infer<typeof Message>
 
@@ -643,6 +672,14 @@ export const TeamSettings = z.object({
    * same tools as the AI (minus asking the person, memories, the chat title, schedules, video and the browser) and the
    * same person's access. Off: the AI does everything itself (docs/DECISIONS.md "Sub-agents") */
   aiSubagents: z.boolean(),
+  /** "대화방에서 '항상 허용' 쓰기" (default on): a room's change card may offer "이 방에서는 항상 허용" (new team files in
+   * one folder, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). Off: the card never offers it and the grants people
+   * made are ignored (kept: they work again when it is turned back on, if nothing else changed) */
+  roomAlwaysAllow: z.boolean(),
+  /** who may make team projects (a new projects/<name> folder with the people they choose; docs/DECISIONS.md "Projects
+   * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
+   * Personal projects are never limited. */
+  projectCreators: z.enum(['members', 'admins']),
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),

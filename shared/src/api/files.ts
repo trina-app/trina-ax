@@ -1,13 +1,20 @@
 // Team folder (file screen), chat attachments, chunked uploads. Owner: C (server/src/routes/files.ts).
 // Every path is team-relative and goes through the policy function; "no access" and "not found" look the same.
 import { z } from 'zod'
-import { HwpPage } from '../hwp'
+import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
 import { Attachment, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
+
+/** Files and folders that an operating system makes (Finder, Windows Explorer): never a person's document. The folder
+ * upload skips them (web/src/lib/folderUpload.ts) and a team folder's document count leaves them out
+ * (server/src/skills/examples.ts). Other dot files are a project's own (.gitignore). */
+const SYSTEM_NAMES = new Set(['.ds_store', '.apdisk', '.appledouble', '.fseventsd', '.spotlight-v100', '.temporaryitems', '.trashes', '__macosx', 'icon\r', 'thumbs.db', 'ehthumbs.db', 'desktop.ini', '$recycle.bin', 'system volume information'])
+export const isSystemName = (name: string) => name.startsWith('._') || SYSTEM_NAMES.has(name.toLowerCase())
+
 
 export const TreeQuery = PageQuery.extend({ path: RelPath.default('') })
 export const TreeResponse = z.object({
@@ -72,8 +79,11 @@ export const MkdirBody = z.object({ path: RelPath })
  * confirm: moving an ordinary item into the caller's own users/<me>/ that other people can read now answers 409
  * conflict {params: {reason:'audience_narrowed', lostViewers}} unless confirm is true (design tab 4 move).
  * Folders that are or contain group / project / rule folders (a folders row) move only for admins, never under users/.
+ * skillsOk: a project's folder moved to projects/<name> from elsewhere turns on the skills in its skills/ folder (in that
+ * project's chats): 409 conflict {params: {reason:'project_skills_on', skills (their names, one per line, at most 20),
+ * count}} unless skillsOk is true (docs/DECISIONS.md "Project skills").
  */
-export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false) })
+export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false), skillsOk: z.boolean().default(false) })
 export const MoveResult = z.object({ entry: FileEntry })
 /**
  * Share by copying (design tab 2 rule 3, tab 4): a file the caller can read -> `to` in a folder the caller can write.
@@ -259,7 +269,7 @@ export const FILES = {
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
   saveContent: endpoint({ method: 'PUT', path: '/api/files/content', auth: 'user', owner: 'C', body: SaveContentBody, response: SaveResult, summary: 'Save a text file from the file screen (hash-based conflict copy, version history).' }),
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),
-  hwpPreview: endpoint({ method: 'GET', path: '/api/files/hwp-preview', auth: 'user', owner: 'C', query: z.object({ path: RelPath, page: z.coerce.number().int().min(1).max(200), cacheId: z.string().uuid().optional() }), response: HwpPage.extend({ id: z.string().uuid(), png: z.string().max(45 * 1024 * 1024) }), summary: 'Authorized HWP/HWPX raster page. Pages are 1-based. Original download stays available.' }),
+  hwpPreview: endpoint({ method: 'GET', path: '/api/files/hwp-preview', auth: 'user', owner: 'C', query: HwpPreviewQuery.extend({ path: RelPath }), response: HwpPreviewPage, summary: 'Authorized HWP/HWPX raster page. Pages are 1-based. Original download stays available.' }),
   preview: endpoint({ method: 'GET', path: '/api/files/preview', auth: 'user', owner: 'C', query: PathQuery, response: stream(false), summary: 'JPEG preview of a HEIC / HEIF photo (converted on the server, cached). No converter or a failed conversion: 503 unavailable with params.reason no_preview.' }),
   saveHtmlPdf: endpoint({ method: 'POST', path: '/api/files/html-pdf', auth: 'user', owner: 'C', status: 201, body: PathQuery, response: HtmlPdfSaved, summary: 'Print an .html file to PDF on the server (as a browser prints it; no network, no scripts) and save it next to the page, named like the page with .pdf (" (2)" when taken). Read access to the page, write access to its folder (403 read-only otherwise). No browser on the server: 503 unavailable with params.reason unavailable; busy: reason busy.' }),
   downloadHtmlPdf: endpoint({ method: 'GET', path: '/api/files/html-pdf', auth: 'user', owner: 'C', query: PathQuery, response: stream(false), summary: 'The same PDF of an .html file as an attachment; nothing is saved (read access to the page).' }),

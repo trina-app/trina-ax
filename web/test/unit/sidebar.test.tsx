@@ -6,14 +6,20 @@
 // - both groups fold, remembered in this browser;
 // - "답변 필요" and the new-answer dot come from the chat list itself (Chat.waiting / Chat.unseen), with no request per
 //   chat; the dot stays away from the chat on screen;
-// - the phone's drawer keeps its own layout (the AI's history only).
+// - the phone's drawer keeps its own layout (the AI's history only);
+// - a chat row's "…": "상단에 고정" / "고정 해제" for every row, rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a
+//   project) and delete for a chat of my own, the move dialog of the chat's title menu; a shared chat never offers the
+//   move;
+// - pinned chats (docs/DECISIONS.md "Pinned chats"): first, the most recently pinned first, a pin before the title; at
+//   most ten above the five latest on a computer, all of them first in "모두 보기" and in the phone's drawer.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Sidebar from '../../src/components/Sidebar'
+import { useUi } from '../../src/store/ui'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useInbox } from '../../src/store/inbox'
@@ -22,7 +28,7 @@ import { useSession } from '../../src/store/session'
 import { useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useWelcome } from '../../src/store/welcome'
 import { TOOLTIP_DELAY_MS } from '../../src/components/Tooltip'
-import { FakeEvent, installDom, mount, removeDom } from './dom-host'
+import { FakeElement, FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { room } from './rooms-fixtures'
 
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
@@ -42,6 +48,8 @@ const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), {
 let wide = true
 let inboxCount = 0
 const calls: string[] = []
+/** more answers by "METHOD path", for one test (the rest is a 404) */
+let routes: Record<string, (init?: RequestInit) => Response> = {}
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
 const sessionBefore = useSession.getState().status
@@ -60,6 +68,7 @@ beforeAll(() => {
     calls.push(`${init?.method ?? 'GET'} ${url}`)
     const key = `${init?.method ?? 'GET'} ${url.split('?')[0]}`
     if (key === 'GET /api/notifications') return json({ items: [], nextCursor: null, unreadCount: inboxCount })
+    if (routes[key]) return routes[key](init)
     return json({ error: { code: 'not_found', message: key } }, 404)
   }) as unknown as typeof fetch
 })
@@ -72,6 +81,7 @@ afterAll(() => {
 beforeEach(() => {
   wide = true
   calls.length = 0
+  routes = {}
   localStorage.clear()
   useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
   useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), chatsLoaded: true, chatsCursor: null, requests: {} })
@@ -526,4 +536,211 @@ describe('the team logo in the header (Admin › Team settings › 팀 로고)',
       }
     })
   }
+})
+
+describe('a chat row\'s "…"', () => {
+  const P = '01900000-0000-7000-8000-000000000301'
+  const project = { id: P, name: 'Acme launch', folderPath: 'shared/acme-launch', instructions: '', createdBy: null, createdAt: '2026-11-01T00:00:00.000Z', canEdit: true }
+  const shared = (by: string, canDelete: boolean) => ({ by: { id: by, name: by === 'mina' ? '김민아님' : 'Bob' }, audience: 3, answering: null, mine: true, canDelete })
+  /** the row of the chat with this title, its "…" opened: the items as [test id, words] (null: the row has no "…") */
+  async function items(m: Awaited<ReturnType<typeof render>>, title: string) {
+    const row = m.get('recents-list').querySelectorAll('li').find((li) => li.textContent?.includes(title))!
+    const more = row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)
+    if (!more) return null
+    await m.click(more)
+    const out = row.querySelectorAll('[role="menuitem"]').map((e) => [e.getAttribute('data-testid'), e.textContent?.trim()])
+    await m.click(more)
+    return out
+  }
+
+  test('a chat of my own: pin, rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project), delete; a shared chat: never the move', async () => {
+    useChats.setState({ chats: [chat(1), chat(2, { projectId: P }), chat(3, { projectId: P, shared: shared('mina', true) }), chat(4, { projectId: P, shared: shared('bob', true) }), chat(5, { projectId: P, shared: shared('bob', false), pinnedAt: '2026-11-02T00:00:00.000Z' })] })
+    const m = await render()
+    const pin = ['chat-row-pin', ko('chat.pin')]
+    try {
+      expect(await items(m, '채팅 1')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 2')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
+      // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
+      expect(await items(m, '채팅 3')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([pin, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')]])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('Esc closes the menu only, and the keyboard is back on "…"', async () => {
+    useChats.setState({ chats: [chat(1)] })
+    const closed: boolean[] = []
+    const onKey = (e: { key?: string }) => { if (e.key === 'Escape') closed.push(true) }
+    window.addEventListener('keydown', onKey as never)
+    const m = await render()
+    try {
+      const row = m.get('recents-list').querySelector('li')!
+      const more = row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!
+      await m.click(more)
+      const item = m.get('chat-row-move')
+      item.focus()
+      await act(async () => { item.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
+      expect(m.find('chat-row-move')).toBeNull()
+      expect(document.activeElement).toBe(more as never)
+      // not on to the page's own Esc (Layout: the phone's drawer, the side panel)
+      expect(closed).toEqual([])
+    } finally {
+      window.removeEventListener('keydown', onKey as never)
+      await m.unmount()
+    }
+  })
+
+  test('the rooms\' row menu: a right-click on the row opens it; on a touch screen a long press does, with the chat\'s title on top, and the finger lifting opens no chat', async () => {
+    useChats.setState({ chats: [chat(1)] })
+    let path = ''
+    const Where = () => { path = useLocation().pathname; return null }
+    const m = await mount(<MemoryRouter initialEntries={['/']}><Sidebar /><Where /></MemoryRouter>)
+    try {
+      const row = m.get('recents-list').querySelector('li')!
+      const link = row.querySelector('a')!
+      const shown = () => row.querySelectorAll('[role="menuitem"]').length
+      await m.settle(0)
+      const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
+      link.dispatchEvent(e)
+      await m.until(() => shown() === 4, 'the menu')
+      expect(e.defaultPrevented).toBe(true)
+      await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      expect(shown()).toBe(0)
+      const press = (type: string) => link.dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 20, clientY: 20 }))
+      press('pointerdown')
+      await m.settle(600)
+      press('pointerup')
+      await m.until(() => shown() === 4, 'the sheet')
+      expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
+      // the click that follows the finger lifting is no tap on the row
+      await m.click(link)
+      expect(path).toBe('/')
+      // the link holds no text a long press could start selecting on a touch screen
+      expect(link.getAttribute('class')).toContain('pointer-coarse:select-none')
+      // the "···" shows on a phone: a long press on it opens the menu, and the click of the finger lifting does not close it
+      const more = row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!
+      // a later click on it closes it as usual
+      await m.settle(850)
+      await m.click(more)
+      expect(shown()).toBe(0)
+      const hold = (type: string) => more.dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 20, clientY: 20 }))
+      hold('pointerdown')
+      await m.settle(600)
+      hold('pointerup')
+      await m.until(() => shown() === 4, 'the sheet again')
+      await m.click(more)
+      expect(shown()).toBe(4)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('the move opens the title menu\'s dialog; a save moves the chat and the list has it', async () => {
+    const id = chat(1).id
+    const sent: unknown[] = []
+    routes = {
+      'GET /api/projects': () => json({ items: [project] }),
+      [`PATCH /api/chats/${id}`]: (init) => {
+        const body = JSON.parse(String(init?.body)) as { projectId: string | null }
+        sent.push(body)
+        return json({ ...chat(1), projectId: body.projectId })
+      },
+    }
+    useChats.setState({ chats: [chat(1)] })
+    const m = await render()
+    try {
+      const row = m.get('recents-list').querySelector('li')!
+      await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      await m.click('chat-row-move')
+      // the menu closed; the dialog is in <body>, with the projects I can see
+      expect(m.find('chat-row-move')).toBeNull()
+      const choices = await m.until(() => (m.find('chat-project-choices')?.textContent?.includes('Acme launch') ? m.get('chat-project-choices') : null), 'the projects')
+      const radio = choices.querySelectorAll('input').find((r) => r.parentNode?.textContent?.includes('Acme launch'))!
+      // a click on a radio checks it (past React's value tracker, as a browser does), then React hears the click
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(FakeElement.prototype, 'checked')!.set!.call(radio, true)
+        radio.dispatchEvent(new FakeEvent('click', { bubbles: true, cancelable: true }))
+      })
+      await m.click('chat-project-save')
+      await m.until(() => useChats.getState().chats.find((c) => c.id === id)?.projectId === P, 'the chat in the project')
+      expect(sent).toEqual([{ projectId: P }])
+      expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
+      await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
+    } finally {
+      await m.unmount()
+    }
+  })
+})
+
+describe('pinned chats', () => {
+  const at = (n: number) => `2026-11-02T00:${String(n).padStart(2, '0')}:00.000Z`
+  const links = (el: { querySelectorAll: (s: string) => { map: <T>(f: (a: { textContent?: string | null; closest: (s: string) => { getAttribute: (n: string) => string | null } | null }) => T) => T[] } }) =>
+    el.querySelectorAll('a[href^="/c/"]').map((a) => a.textContent)
+  const pinned = (m: Awaited<ReturnType<typeof render>>) => m.get('recents-list').querySelectorAll('li[data-pinned]').map((li) => li.textContent)
+
+  test('a computer: my pins first, the most recently pinned first, at most ten, then the five latest of the others; "모두 보기" has every pin first', async () => {
+    // chats 1–12 pinned (chat 3 the most recently), 13–20 not
+    useChats.setState({ chats: Array.from({ length: 20 }, (_, i) => chat(i + 1, i < 12 ? { pinnedAt: at(i === 2 ? 59 : 12 - i) } : {})) })
+    const m = await render()
+    try {
+      const shown = links(m.get('ai-chats-latest') as never)
+      expect(shown.slice(0, 10)).toEqual(['채팅 3', '채팅 1', '채팅 2', '채팅 4', '채팅 5', '채팅 6', '채팅 7', '채팅 8', '채팅 9', '채팅 10'])
+      expect(shown.slice(10)).toEqual(['채팅 20', '채팅 19', '채팅 18', '채팅 17', '채팅 16'])
+      expect(pinned(m)).toHaveLength(10)
+      // the pin before the title, named for a screen reader; none on the others
+      const first = m.get('ai-chats-latest').querySelectorAll('li')[0]!
+      expect(first.querySelector('[data-testid="chat-pin-icon"]')?.getAttribute('aria-label')).toBe(ko('chat.pinned'))
+      expect(m.get('ai-chats-latest').querySelectorAll('li')[10]!.querySelector('[data-testid="chat-pin-icon"]')).toBeNull()
+      // the whole history: all twelve pins first, without a header, then the rest by date
+      await m.click('ai-chats-all')
+      expect(links(m.get('ai-chats-pinned') as never)).toEqual(['채팅 3', '채팅 1', '채팅 2', '채팅 4', '채팅 5', '채팅 6', '채팅 7', '채팅 8', '채팅 9', '채팅 10', '채팅 11', '채팅 12'])
+      expect(m.get('ai-chats-pinned').querySelector('h3')).toBeNull()
+      expect(links(m.get('recents-list') as never).slice(12)).toEqual(['채팅 20', '채팅 19', '채팅 18', '채팅 17', '채팅 16', '채팅 15', '채팅 14', '채팅 13'])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('the phone drawer: every pin first', async () => {
+    wide = false
+    useChats.setState({ chats: [chat(1, { pinnedAt: at(1) }), chat(2), chat(3, { pinnedAt: at(2) }), chat(4)] })
+    const m = await render()
+    try {
+      expect(links(m.get('recents-list') as never)).toEqual(['채팅 3', '채팅 1', '채팅 4', '채팅 2'])
+      expect(pinned(m)).toEqual(['채팅 3', '채팅 1'])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('"상단에 고정" pins the chat and its row goes to the top; "고정 해제" puts it back', async () => {
+    const id = chat(2).id
+    const sent: string[] = []
+    routes = {
+      [`POST /api/chats/${id}/pin`]: () => (sent.push('pin'), json({ ...chat(2), pinnedAt: at(30) })),
+      [`DELETE /api/chats/${id}/pin`]: () => (sent.push('unpin'), json(chat(2))),
+    }
+    useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)) })
+    const m = await render()
+    const rowOf = (title: string) => m.get('recents-list').querySelectorAll('li').find((li) => li.textContent?.includes(title))!
+    try {
+      // chat 2 is not among the five latest
+      expect(links(m.get('ai-chats-latest') as never)).not.toContain('채팅 2')
+      await m.click('ai-chats-all')
+      await m.click(rowOf('채팅 2').querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      await m.click('chat-row-pin')
+      await m.until(() => (pinned(m).length === 1 ? true : null), 'the pinned row')
+      expect(links(m.get('recents-list') as never)[0]).toBe('채팅 2')
+      expect(rowOf('채팅 2').querySelector('[data-testid="chat-pin-icon"]')).not.toBeNull()
+      await m.click(rowOf('채팅 2').querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      await m.click('chat-row-unpin')
+      await m.until(() => (pinned(m).length === 0 ? true : null), 'no pinned row')
+      expect(links(m.get('recents-list') as never).at(-1)).toBe('채팅 1')
+      expect(sent).toEqual(['pin', 'unpin'])
+    } finally {
+      await m.unmount()
+    }
+  })
 })

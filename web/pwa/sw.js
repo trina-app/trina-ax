@@ -62,7 +62,13 @@ const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': '
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
 const ROOM_CODES = new Set(['room.dm', 'room.mention'])
-const pushWanted = (preferences, code) => ROOM_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
+// owner.lead_joined: someone joined with the owner's lead link (팀장 넘기기). No switch: the server sends it only while
+// the card still holds; a click opens Home, where the card is
+const HOME_CODES = new Set(['owner.lead_joined'])
+// owner.reauth_locked: the owner's password check locked after too many wrong tries; a click opens the Inbox. Shown
+// even once read: whoever holds a stolen session could mark it read to keep it off the owner's other devices
+const ACCOUNT_CODES = new Set(['owner.reauth_locked'])
+const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 // A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
 // the signed-in fetch of the notice (shared plainLabel's rule again: one plain line, no control or bidirectional
@@ -125,8 +131,8 @@ async function pageSounds() {
 }
 
 // An installed web app with no window open here: a dot on its icon (the Badging API, no number: the worker does not know
-// the count). The first window that opens sets the exact count, or clears it (web/src/store/sessionMarkers.ts). With a
-// window open the page keeps the count itself. Never fails a push: a browser without it, or one that refuses, is fine.
+// the count). The first window that opens sets the exact count, keeps the dot while rooms have unread messages the count
+// leaves out, or clears it (web/src/store/sessionMarkers.ts). With a window open the page keeps the count itself. Never fails a push: a browser without it, or one that refuses, is fine.
 async function badgeDot() {
   try {
     if (typeof self.navigator?.setAppBadge !== 'function') return
@@ -147,7 +153,7 @@ self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let payload
     try { payload = event.data?.json() } catch { return }
-    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code))) return
+    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code))) return
     const tag = `notification:${payload.subscriptionId}:${payload.notificationId}`, generation = pushEpoch
     if (pushPending.has(tag)) return
     pushPending.add(tag)
@@ -160,7 +166,7 @@ self.addEventListener('push', event => {
         return response.json()
       }
       const [settings, preferences, item] = await Promise.all([get('/api/push'), get('/api/notification-preferences'), get(`/api/notifications/${payload.notificationId}`)])
-      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || !pushWanted(preferences, payload.code) || item.id !== payload.notificationId || item.code !== payload.code || item.readAt !== null) return
+      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || !pushWanted(preferences, payload.code) || item.id !== payload.notificationId || item.code !== payload.code || (item.readAt !== null && !ACCOUNT_CODES.has(payload.code))) return
       // The authenticated server selects generic table text in the recipient's current account/team language.
       const title = settings.messages?.title, body = settings.messages?.bodies?.[payload.code]
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
@@ -170,9 +176,16 @@ self.addEventListener('push', event => {
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
-      // a room notice says who and where in its title; the body stays the generic line
+      // a room notice says who and where in its title; the body is the message's first line when the server sends it
+      // (the person's "show message preview" is on, a message the whole room sees), else the generic line
       const shownTitle = (roomId && roomTitle(item.room?.label)) || title
-      await self.registration.showNotification(shownTitle, { body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}) } : { notificationId: payload.notificationId } })
+      const preview = roomId && typeof item.room?.preview === 'string' ? item.room.preview.replace(/[\p{Cc}\u2028\u2029]/gu, ' ').trim().slice(0, 200) : ''
+      // "Mark as read" (Chrome, Edge, Android; Safari shows no buttons): the message's place in its room, from the same
+      // signed-in fetch; the label in the person's language from /api/push
+      const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
+      const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
+      const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
+      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -185,13 +198,26 @@ self.addEventListener('push', event => {
   })())
 })
 
+/** "Mark as read" on a room notification: my read position in the room (or the thread) moves to the message, as opening
+ * it would, and nothing opens. The ids and the place come from the signed-in notice stored at show time. A failure
+ * (signed out, the room left) changes nothing; the notice stays unread in the Inbox. */
+async function markRead(data) {
+  const roomId = data?.roomId, threadId = data?.threadId, seq = data?.seq
+  if (!opaqueId(roomId) || !Number.isSafeInteger(seq) || seq < 0) return
+  const path = opaqueId(threadId) ? `/api/rooms/${roomId}/messages/${threadId}/thread/read` : `/api/rooms/${roomId}/read`
+  try {
+    await fetch(path, { method: 'POST', credentials: 'include', cache: 'no-store', redirect: 'error', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1' }, body: JSON.stringify({ seq }) })
+  } catch {}
+}
+
 self.addEventListener('notificationclick', event => {
   event.notification.close()
+  if (event.action === 'read') { event.waitUntil(markRead(event.notification.data)); return }
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).
     const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId
-    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : '/settings/notifications', self.location.origin).href
+    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = clients.find(client => new URL(client.url).origin === self.location.origin)
     if (existing) { await existing.navigate(target); await existing.focus() }

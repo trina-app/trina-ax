@@ -25,7 +25,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { stickToBottom } from '../lib/stickToBottom'
+import { followsAfterScroll, jumpToBottom, stickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -38,6 +38,7 @@ import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
+import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
@@ -79,6 +80,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const scroller = useRef<HTMLDivElement>(null)
   const composer = useRef<ComposerHandle>(null)
   const stick = useRef(true)
+  /** where the list was last: its last scroll event or its own last jump to the bottom (followsAfterScroll) */
+  const lastTop = useRef(0)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -175,7 +178,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const last = messages.at(-1)
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
+    if (el && stick.current) jumpToBottom(el, lastTop)
   }, [messages.length, last?.content.length, last?.steps.length])
 
   // diagrams, images and code highlighting grow the page after the text arrived, and a phone's keyboard shrinks the
@@ -184,13 +187,14 @@ function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
     const s = scroller.current, c = content.current
     if (!s || !c) return
-    return stickToBottom(s, c, () => stick.current)
+    return stickToBottom(s, c, () => stick.current, undefined, () => { lastTop.current = s.scrollTop })
   }, [])
 
   const onScroll = async () => {
     const el = scroller.current
     if (!el) return
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    stick.current = followsAfterScroll(el, stick.current, lastTop.current)
+    lastTop.current = el.scrollTop
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       const before = el.scrollHeight
@@ -364,12 +368,25 @@ function ChatView({ chatId }: { chatId: string }) {
           {olderBusy && <Loader2 size={16} className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
           {loading && <Skeleton lines={6} />}
           {loadError && !loading ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
-          {messages.map((m, i) => {
-            if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} author={shared && m.author && m.author.id !== me.user.id ? m.author.name : undefined} canEdit={!readOnly && mine(m.author?.id)} />
-            const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
-            const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
-          })}
+          {/* the chat's pictures (attachments and answers' pictures, this branch): ← → in the image viewer walks through
+              these; each says who sent it and when */}
+          <ImageGroup>
+            {messages.map((m, i) => {
+              if (m.role === 'user')
+                return (
+                  <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
+                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
+                  </ViewerMeta>
+                )
+              const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
+              const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
+              return (
+                <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+                </ViewerMeta>
+              )
+            })}
+          </ImageGroup>
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
@@ -403,6 +420,7 @@ function ChatView({ chatId }: { chatId: string }) {
             hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
+            projectId={chat?.projectId ?? null}
             autoFocus
           />
           </>

@@ -65,6 +65,46 @@ describe('runs through the chat runtime', () => {
     expect(answer.content).toContain('Nobody is watching this chat now')
   })
 
+  test('a run is answered by the engine and model its owner would get for a new chat, decided when it runs', async () => {
+    const rt = h.rt()
+    const db = h.ctx.db
+    const made = rt.schedules.create('alice', { title: 'Weekly', prompt: fake({ say: 'ok' }), repeat: 'weekly', weekday: 1, time: '09:00' }, undefined, CONFIRMED)
+    /** run it now; the run's chat, its turn and its answer */
+    const run = async () => {
+      h.ctx.db.query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), made.id)
+      expect(rt.schedules.runDue(new Date())).toEqual([made.id])
+      const chatId = rt.schedules.get('alice', made.id)!.last_chat_id!
+      await waitFor(() => (db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+      return {
+        chat: db.query('SELECT engine, model FROM chats WHERE id = ?').get(chatId),
+        turn: db.query('SELECT engine FROM turns WHERE chat_id = ?').get(chatId),
+        answer: db.query("SELECT engine, status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId),
+      }
+    }
+    const setMemberChoice = (mode: 'everyone' | 'off') => db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.memberChoice', ?)").run(JSON.stringify({ mode, groupIds: [], userIds: [] }))
+    try {
+      // Alice may pick and chose Codex as her own default: her weekly run is Codex's, not the team default's
+      db.query(`UPDATE users SET prefs = '{"engine":"codex","model":"fake-2"}' WHERE id = 'alice'`).run()
+      expect(await run()).toEqual({ chat: { engine: 'codex', model: 'fake-2' }, turn: { engine: 'codex' }, answer: { engine: 'codex', status: 'done' } })
+      // her own default only counts while she may pick (as for a chat she starts): then the team default
+      setMemberChoice('off')
+      expect(await run()).toEqual({ chat: { engine: 'claude-code', model: null }, turn: { engine: 'claude-code' }, answer: { engine: 'claude-code', status: 'done' } })
+      // the team default as it is when the run starts, not when the task was made
+      db.query(`INSERT OR REPLACE INTO settings (key, value) VALUES ('defaultEngine', '"codex"')`).run()
+      expect((await run()).turn).toEqual({ engine: 'codex' })
+      // her own default engine switched off by the admin: the team default (Claude Code again here)
+      db.query(`INSERT OR REPLACE INTO settings (key, value) VALUES ('defaultEngine', '"claude-code"')`).run()
+      setMemberChoice('everyone')
+      db.query(`INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.enabled', '{"claude-code":true,"codex":false}')`).run()
+      expect((await run()).turn).toEqual({ engine: 'claude-code' })
+    } finally {
+      db.query("UPDATE users SET prefs = '{}' WHERE id = 'alice'").run()
+      db.query("DELETE FROM settings WHERE key IN ('defaultEngine', 'engines.enabled')").run()
+      setMemberChoice('everyone')
+      rt.schedules.delete('alice', made.id)
+    }
+  })
+
   test('ask_user inside a scheduled run comes back "skipped" at once (nobody waits 20 s)', async () => {
     const rt = h.rt()
     const now = new Date()

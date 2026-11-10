@@ -15,17 +15,18 @@
  *                              Store build does (common/file-chooser.ts)
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, extname, join, normalize, sep } from 'node:path'
-import { app, Menu, protocol, session, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
+import { app, Menu, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
+import { LINK_SCHEME, linkFromArgv } from '../common/address'
 import { partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
-import { badgeCountOf } from '../common/notify'
+import { DOCK_DOT, dockBadgeOf } from '../common/notify'
 import { storeBuild } from '../common/update'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
@@ -94,6 +95,30 @@ protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standar
 
 if (!app.requestSingleInstanceLock()) app.quit()
 
+// Links from outside (`trina-ax://open?url=<team link>`, the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase 2"):
+// the packaged app answers the scheme (the dmg, Mac App Store and Microsoft Store builds also declare it in their
+// manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
+if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
+else if (process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
+/** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
+let launchLink: string | null = linkFromArgv(process.argv)
+/** Every link goes to screen ④ (AppWindow.offerLink), never straight to a team. */
+function onLink(url: string) {
+  if (!win || win.win.isDestroyed()) {
+    launchLink = url
+    return
+  }
+  win.offerLink(url)
+  if (win.win.isMinimized()) win.win.restore()
+  win.win.show()
+  win.win.focus()
+}
+// macOS hands links over here, also the one that launched the app (before ready)
+app.on('open-url', (e, url) => {
+  e.preventDefault()
+  onLink(url)
+})
+
 let win: AppWindow | undefined
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
@@ -152,6 +177,7 @@ function serveUi(req: Request): Response {
 
 const fromShell = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.shell.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromChrome = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.chrome.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
+const fromHostbar = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.hostbar.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
   Boolean(
     win &&
@@ -164,13 +190,25 @@ const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
 function registerIpc() {
   ipcMain.on('ui:strings', (e) => {
     const L = locale()
-    e.returnValue = fromShell(e) || fromChrome(e) ? { locale: L, strings: STRINGS[L] } : null
+    e.returnValue = fromShell(e) || fromChrome(e) || fromHostbar(e) ? { locale: L, strings: STRINGS[L] } : null
   })
   // welcome / team list
   ipcMain.handle('ui:welcome-state', (e) => (fromShell(e) ? win!.welcomeState() : null))
-  ipcMain.handle('ui:add-team', (e, address: string) => (fromShell(e) ? win!.addTeam(String(address)) : null))
+  ipcMain.handle('ui:add-team', (e, address: string, confirmed: unknown) => (fromShell(e) ? win!.addTeam(String(address), confirmed === true) : null))
+  // the "no team yet" screen: the address is the app's own (AppWindow.firstRunLink), the screen only names which
+  ipcMain.on('ui:open-link', (e, kind: unknown) => {
+    if (!fromShell(e) || (kind !== 'signup' && kind !== 'docs')) return
+    const url = win!.firstRunLink(kind)
+    if (url) void shell.openExternal(url).catch(() => {})
+  })
+  // the host strip above the team's sign-in pages
+  ipcMain.handle('ui:hostbar-state', (e) => (fromHostbar(e) ? win!.hostbarState() : null))
+  ipcMain.on('ui:hostbar-teams', (e) => fromHostbar(e) && win!.showWelcome())
   ipcMain.handle('ui:remove-team', (e, id: string) => (fromShell(e) ? win!.removeTeam(String(id)) : null))
   ipcMain.on('ui:open-team', (e, id: string) => fromShell(e) && void win!.openTeam(String(id)))
+  // screen ④: the person's answer for the host it showed (AppWindow.answerLink)
+  ipcMain.handle('ui:link-answer', (e, yes: unknown, host: unknown) => (fromShell(e) ? win!.answerLink(yes === true, String(host ?? '')) : null))
+  ipcMain.on('ui:link-shown', (e, id: unknown) => fromShell(e) && typeof id === 'number' && win!.linkShown(id))
   ipcMain.on('ui:back', (e) => fromShell(e) && win!.back())
   ipcMain.on('ui:set-locale', (e, l: unknown) => fromShell(e) && setUiLocale(asUiLocale(l)))
   ipcMain.on('ui:retry', (e) => fromShell(e) && win!.retry())
@@ -223,15 +261,19 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? (win!.pane?.state() ?? null) : null))
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
-  ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string; tag?: unknown; open?: unknown }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open }))
+  ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string; tag?: unknown; open?: unknown; read?: unknown }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open, read: n?.read }))
   // Settings › Notifications' "Test notification": shown while focused too, with the app's own words (the page gives
   // none), a few a minute apart from the others; the answer says whether the system took it ('off': notifications are
   // off for the app in the system's settings)
   ipcMain.handle('bridge:notify-test', (e) => (fromApp(e) ? win!.testNotify() : 'unsupported'))
-  // session markers (docs/DECISIONS.md): the dock shows how many chats and rooms want the person (macOS; Windows has
-  // no count)
-  ipcMain.on('bridge:badge', (e, n: unknown) => {
-    if (fromApp(e) && process.platform === 'darwin') app.setBadgeCount(badgeCountOf(n))
+  // session markers (docs/DECISIONS.md): the dock shows how many chats and rooms want the person, at 0 a dot while rooms
+  // have unread messages the number does not count (macOS; Windows has no count). setBadgeCount(0) clears the dot too:
+  // both set the Dock's one label.
+  ipcMain.on('bridge:badge', (e, n: unknown, dot: unknown) => {
+    if (!fromApp(e) || process.platform !== 'darwin') return
+    const badge = dockBadgeOf(n, dot)
+    if (badge === DOCK_DOT) app.dock?.setBadge(DOCK_DOT)
+    else app.setBadgeCount(badge)
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? !win!.win.isDestroyed() && win!.win.isFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
@@ -295,7 +337,8 @@ function buildMenu() {
         ...(dev ? [{ label: tr('menu.devtools'), accelerator: 'Alt+CmdOrCtrl+I', click: () => win?.app?.webContents.toggleDevTools() } as MenuItemConstructorOptions] : []),
       ],
     },
-    { label: tr('menu.team'), submenu: [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.addTeam'), click: () => win?.showWelcome() }, { label: tr('menu.teams'), click: () => win?.showWelcome() }] },
+    // one item for the list and adding a team: both were the same screen
+    { label: tr('menu.team'), submenu: [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.teams'), click: () => win?.showWelcome() }] },
     // a downloaded update (Windows): installs on quit, or now from here
     ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => updater.restartNow() }] : []),
     {
@@ -325,6 +368,7 @@ async function createWindow() {
     classifier: new HostClassifier(testPublic, testMapped),
     suggestedTeam: kit.team,
     answerFileChoosers: answersFileChoosers(process.mas === true, app.isPackaged, process.env.MYCEL_DESKTOP_TEST_FILE_CHOOSER),
+    macAppStore: process.mas === true,
     onTeamsChanged: () => buildMenu(),
   })
   win.win.on('closed', () => {
@@ -334,8 +378,14 @@ async function createWindow() {
   })
   buildMenu()
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
-  if (initial) await win.addTeam(initial)
+  // set by the developer for this run: no "not run by us" question
+  if (initial) await win.addTeam(initial, true)
   else await win.openLast()
+  if (launchLink) {
+    const link = launchLink
+    launchLink = null
+    win.offerLink(link)
+  }
 }
 
 app.whenReady().then(async () => {
@@ -354,11 +404,14 @@ app.whenReady().then(async () => {
   updater.start()
 })
 
-app.on('second-instance', () => {
+app.on('second-instance', (_e, argv) => {
   if (win && !win.win.isDestroyed()) {
     if (win.win.isMinimized()) win.win.restore()
     win.win.focus()
   }
+  // Windows and Linux: a link opens a second instance with the link as an argument
+  const link = linkFromArgv(argv)
+  if (link) onLink(link)
 })
 app.on('activate', () => {
   if (!win) void createWindow()

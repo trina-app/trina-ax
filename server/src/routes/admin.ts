@@ -26,6 +26,9 @@ import { credentialsOf, noticeOwners } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
+import { dismissLead, endPending, handoverState, noteReauthLocked, retryPendingEnds } from '../admin/handover'
+import { setHandoverPushConfig } from '../admin/handover-notices'
+import { authOf } from '../auth/service'
 import { openDeletionRequests } from '../auth/deletion-requests'
 import { withoutAi } from '../credentials/access'
 import type { Locale } from '@mycel/shared/api'
@@ -83,7 +86,16 @@ export const adminRoutes: RouteModule = {
       guardResetLink(c, ctx, params.id)
       return createResetLink(ctx, params.id, auth.user.id, linkBase(c, ctx))
     })
-    kit.handle(API.transferOwnership, ({ c, body }) => { transferOwnership(c, ctx, body.userId); return { ok: true as const } })
+    kit.handle(API.transferOwnership, ({ c, body }) => transferOwnership(c, ctx, body))
+    // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕; a wrong password that locks the owner's
+    // re-check (any of them: the transfer's, updates, restore, the current password) tells the owner
+    kit.handle(API.handoverState, ({ auth }) => handoverState(ctx, auth.user.id))
+    kit.handle(API.dismissLeadCard, ({ c, body }) => { dismissLead(c, ctx, body.inviteId); return { ok: true as const } })
+    kit.handle(API.endPendingConnections, ({ c, body }) => endPending(c, ctx, body.transferId))
+    // what a transfer planned to end and did not (the server stopped right after it, a service failed): tried again now
+    { const t = setTimeout(() => void retryPendingEnds(ctx), 5_000); t.unref?.(); ctx.onClose(() => clearTimeout(t)) }
+    authOf(ctx).onReauthLocked = (userId) => noteReauthLocked(ctx, userId)
+    setHandoverPushConfig(ctx.db, ctx.config)
 
     // ---------------- invites ----------------
     kit.handle(API.listInvites, () => ({ items: listInvites(ctx) }))
@@ -302,7 +314,8 @@ export const adminRoutes: RouteModule = {
       // the fallback sends conversations to OpenAI: never while Codex is off (switched off here or by office mode)
       const codexOn = enabled.codex && !codexOffHere(ctx)
       if (body.limitFallback === true && !codexOn) fail('conflict', msg('limitFallbackNeedsCodex', locale))
-      const before = { enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: s.defaultEngine, defaultModel: s.defaultModel }
+      // "다른 AI로 대신 답하기" decides who has AI too (credentials/access.ts): a change of it is told like the others
+      const before = { enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, limitFallback: limitFallbackOn(ctx) }
       ctx.db.transaction(() => {
         if (body.enabled) setEnginesEnabled(ctx.db, body.enabled)
         if (body.memberChoice) setMemberChoice(ctx, body.memberChoice)
@@ -317,7 +330,7 @@ export const adminRoutes: RouteModule = {
       })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.update', target: null, detail: body as Record<string, unknown> })
       const after = getTeamSettings(ctx.db)
-      if (JSON.stringify(before) !== JSON.stringify({ enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: after.defaultEngine, defaultModel: after.defaultModel }))
+      if (JSON.stringify(before) !== JSON.stringify({ enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: after.defaultEngine, defaultModel: after.defaultModel, limitFallback: limitFallbackOn(ctx) }))
         ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED)
       return enginesResponse(ctx, engineCache, locale)
     })

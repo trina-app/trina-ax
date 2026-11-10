@@ -8,8 +8,10 @@
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
 // logo (the computer's sidebar header; the tab and app icons stay the product's; shared/src/team-icon.ts), the
 // company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
-// (DevEnvTeam.tsx, hidden when the server has it off), and for the owner the ownership transfer
-// (TransferOwner.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
+// (DevEnvTeam.tsx, hidden when the server has it off), and whether a room's change card may offer "이 방에서는 항상 허용"
+// (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
+// docs/DECISIONS.md "Projects live only in projects/"). The owner hands the role over from Admin › Members'
+// "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
 // accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
 // #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
 // browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
@@ -28,7 +30,6 @@ import { AdminPageHeader, FlatCardsProvider, Loadable, SettingRow, SettingsSecti
 import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
-import TransferOwnerCard from './TransferOwner'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
@@ -61,7 +62,7 @@ export default function TeamSettingsPage() {
     if (r && ('updateWindow' in changed || 'timeZone' in changed)) void office.reload()
     // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once,
     // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
-    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined)) await api.call(API.me).then(signedIn, () => {})
+    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined || changed.projectCreators !== undefined)) await api.call(API.me).then(signedIn, () => {})
   }
   // what is not saved yet (text fields and switches alike), and what blocks Save: the save bar says both
   const unsaved = !!f && !!state.data && Object.entries(f).some(([k, v]) => state.data![k as keyof TeamSettings] !== v)
@@ -126,6 +127,9 @@ export default function TeamSettingsPage() {
                   <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
                   <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                   <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
+                  <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
+                  {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
+                  <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
                   <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
                   <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
                 </SettingsSection>
@@ -168,7 +172,6 @@ export default function TeamSettingsPage() {
         {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
         <CompanyProfileCard />
         <DevEnvTeamCard />
-        {owner && <TransferOwnerCard ownerId={me.user.id} />}
       </div>
     </FlatCardsProvider>
   )
@@ -315,7 +318,7 @@ export function UpdateWindowField({ value, ok, legacy, onChange }: { value: stri
 }
 
 /** One team switch as a settings row: the name labels it, the short line describes it, the long text is "Learn more". */
-function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: string; value: boolean; onChange: (v: boolean) => void; title: string; desc: string; more: string; testId: string }) {
+function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: string; value: boolean; onChange: (v: boolean) => void; title: string; desc: string; more?: string; testId: string }) {
   return (
     <SettingRow id={id} title={title} desc={desc} more={more} testId={testId} attrs={{ 'data-on': value ? 'true' : 'false' }}
       control={<Switch id={id} external describedBy={`${id}-desc`} checked={value} onChange={onChange} label={title} />} />

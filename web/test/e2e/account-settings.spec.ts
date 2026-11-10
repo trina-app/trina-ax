@@ -1,5 +1,5 @@
 // The sidebar sized like Claude's, the account menu above the profile line (who is signed in, Settings, Usage,
-// Appearance, Sign out) and Settings as a dialog over the page it was opened from (components/Sidebar.tsx,
+// Sign out; the theme is chosen in Settings) and Settings as a dialog over the page it was opened from (components/Sidebar.tsx,
 // components/settings/SettingsDialog.tsx, App.tsx useSettingsOverlay): addresses, Esc and ✕, the keyboard staying in
 // the dialog and coming back, the search, a phone's full-screen list, and no serious accessibility problems.
 import AxeBuilder from '@axe-core/playwright'
@@ -35,7 +35,7 @@ test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ p
   expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('12px')
 })
 
-test('the account menu opens above the profile line, moves with the keyboard and changes the appearance', async ({ page }) => {
+test('the account menu opens above the profile line, moves with the keyboard, and the theme is not in it', async ({ page }) => {
   await start(page)
   const button = page.getByTestId('account-menu')
   await button.click()
@@ -43,7 +43,10 @@ test('the account menu opens above the profile line, moves with the keyboard and
   await expect(menu).toBeVisible()
   expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThanOrEqual((await button.boundingBox())!.y + 1)
   await expect(page.getByTestId('account-who')).toHaveText(/\S/)
-  await expect(menu.getByRole('menuitem')).toHaveText([t['sidebar.settings'], t['sidebar.usage'], t['sidebar.appearance'], t['sidebar.trash'], t['auth.logout']])
+  // first, as in Slack: set yourself away (docs/DECISIONS.md "접속 상태")
+  await expect(menu.getByRole('menuitem')).toHaveText([t['presence.setAway'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
+  await expect(menu.getByRole('menuitem', { name: t['presence.setAway'] })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['sidebar.settings'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['sidebar.usage'] })).toBeFocused()
@@ -53,13 +56,19 @@ test('the account menu opens above the profile line, moves with the keyboard and
   await expect(menu).toHaveCount(0)
   await expect(button).toBeFocused()
 
+  // the theme is chosen in Settings (one place), not in this menu
   await button.click()
-  await page.getByTestId('account-appearance').click()
-  await page.getByTestId('account-theme-dark').click()
+  await page.getByTestId('account-settings').click()
+  const dialog = page.getByRole('dialog', { name: t['settings.title'] })
+  const themes = dialog.getByRole('radiogroup', { name: t['settings.theme'] })
+  await themes.getByRole('radio', { name: t['settings.theme.dark'] }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await expect(page.getByTestId('account-theme-dark')).toHaveAttribute('aria-checked', 'true')
-  await page.getByTestId('account-theme-light').click()
+  await expect(themes.getByRole('radio', { name: t['settings.theme.dark'] })).toHaveAttribute('aria-checked', 'true')
+  await themes.getByRole('radio', { name: t['settings.theme.light'] }).click()
   await expect(page.locator('html')).not.toHaveClass(/dark/)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await button.click()
   await audit(page, 'account menu')
   // Usage is the person's own usage, in Settings (everyone's is Admin > Usage)
   await page.getByTestId('account-usage').click()
@@ -329,10 +338,10 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   await expect(page.getByTestId('chat-peek')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('chat-peek')).toHaveCount(0)
-  // the ⋯ menu has the chat's actions
+  // the ⋯ menu has the chat's actions (a pin first; a chat of my own outside a project: the move too)
   await row.hover()
   await more.click()
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.rename'], t['common.delete']])
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
 })
 
 test('no quick view on a touch screen; the filter is in the phone drawer', async ({ browser }) => {

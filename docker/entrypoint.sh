@@ -54,7 +54,9 @@ fi
 mv -f "/etc/default/$ID.tmp" "/etc/default/$ID"
 
 # ---- 2) install or update from the image's kit ----
-ARGS=(--from "$KIT" --no-systemd --skip-apt --no-auto-update)
+# --minimal: the image carries the always groups of the one list (scripts/system/packages.json), not the dev
+# environment's tools or the headless browser (docker/Dockerfile)
+ARGS=(--from "$KIT" --no-systemd --skip-apt --no-auto-update --minimal)
 ENGINES=${TRINA_AX_ENGINES:-claude}
 for e in $ENGINES; do
   case "$e" in

@@ -8,9 +8,12 @@ import type { Credential, CredentialKind, CredentialState, Locale, ServerEventIn
 import { sharedSubscriptionsAllowed } from './policy'
 import { allowedCredentialKinds, modelUpstreams, type AllowedKinds, type AppConfig, type ModelUpstreams } from '../app-config'
 import { audit } from '../admin/audit'
+import { periodEnd } from '../admin/budgets'
+import { teamTimeZone } from '../admin/settings'
 import type { AppContext } from '../context'
 import type { Logger } from '../log'
 import { resolveLayout } from '../system/layout'
+import { zonedDay } from '../system/time-zone'
 import { ct, ctAll, fmtDate, fmtTime, type CT } from './i18n'
 import { Sealer } from './seal'
 import { Vault, VaultError } from './vault'
@@ -29,6 +32,9 @@ export interface CredMeta {
   /** anthropic-api-key: the host of the Anthropic-compatible gateway (engine.anthropicGateway) the key was made for;
    * absent = an Anthropic key. A key is only ever sent where it was made for (unusable: kind_off elsewhere). */
   gateway?: string
+  /** a team connection whose assignments were all removed with their deleted groups and people (credentials/assignees.ts):
+   * switched off, and not switched on again until someone chooses who uses it (service.ts updateCredential) */
+  assigneesGone?: boolean
 }
 
 /** the secret JSON of each kind (never leaves the server) */
@@ -179,6 +185,8 @@ export function getRow(db: Database, id: string): CredRow | null {
 export function listRows(db: Database): CredRow[] {
   return db.query(`SELECT ${ROW_COLS} FROM engine_credentials ORDER BY owner_user_id IS NOT NULL, priority, created_at, id`).all() as CredRow[]
 }
+/** SQL: the row's meta with `assigneesGone` set (CredMeta), for an UPDATE of engine_credentials */
+export const ASSIGNEES_GONE = `json_set(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END, '$.assigneesGone', json('true'))`
 export function metaOf(r: Pick<CredRow, 'meta'>): CredMeta {
   try { const m = JSON.parse(r.meta); return m && typeof m === 'object' ? m : {} } catch { return {} }
 }
@@ -216,15 +224,19 @@ export function writeSecret(cc: CredCtx, id: string, kind: CredentialKind, value
   cc.cache.set(id, { updatedAt: now, value })
 }
 
-// ---------------- time: the server's own time zone (like budgets and usage) ----------------
-export const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-export function monthStart(now: Date): Date { const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(1); return d }
-export function nextMonthStart(now: Date): Date { const d = monthStart(now); d.setMonth(d.getMonth() + 1); return d }
+// ---------------- time: the team's time zone (admin/settings.ts teamTimeZone), like budgets and usage ----------------
+// Never the process's: a hosted server runs in UTC, where a Korean team's month would start at 09:00 on the 1st.
+/** "YYYY-MM-DD" of `d` in the team's zone: the day a request is counted under (credential_usage_daily.day). */
+export const teamDay = (db: Database, d: Date) => zonedDay(d, teamTimeZone(db))
+/** "YYYY-MM-01" of this month in the team's zone: the first day counted this month, and the month's key in credential_notices. */
+export const teamMonthKey = (db: Database, now: Date) => `${teamDay(db, now).slice(0, 8)}01`
+/** 00:00 on the 1st of next month in the team's zone: when a used-up monthly limit lets the connection back. */
+export const nextMonthStart = (db: Database, now: Date) => periodEnd('month', now, teamTimeZone(db))
 
-/** this month's use of one connection (server time zone), from the per-request counts */
+/** this month's use of one connection (team time zone), from the per-request counts */
 export function monthUsage(db: Database, id: string, now: Date): { usd: number; tokens: number; requests: number } {
   const r = db.query('SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens, COALESCE(SUM(requests), 0) AS requests FROM credential_usage_daily WHERE credential_id = ? AND day >= ?')
-    .get(id, localDay(monthStart(now))) as { usd: number; tokens: number; requests: number }
+    .get(id, teamMonthKey(db, now)) as { usd: number; tokens: number; requests: number }
   return { usd: r.usd, tokens: r.tokens, requests: r.requests }
 }
 
@@ -245,7 +257,7 @@ export function unusable(db: Database, r: CredRow, now: Date, allowed: AllowedKi
   if (r.status === 'invalid') return { why: 'invalid', retryAt: null }
   if (r.expires_at && Date.parse(r.expires_at) <= now.getTime()) return { why: 'expired', retryAt: null }
   if (r.limited_until && Date.parse(r.limited_until) > now.getTime()) return { why: 'limited', retryAt: new Date(r.limited_until).toISOString() }
-  if (overMonthLimit(db, r, now)) return { why: 'over_limit', retryAt: nextMonthStart(now).toISOString() }
+  if (overMonthLimit(db, r, now)) return { why: 'over_limit', retryAt: nextMonthStart(db, now).toISOString() }
   return null
 }
 
@@ -269,6 +281,7 @@ function detailOf(r: CredRow, state: CredentialState, locale: Locale, allowed: A
     needs_reconnect: r.status_code === 'decrypt_failed' ? 'decryptFailed' : 'needsReconnect', over_limit: 'overLimit', disabled: 'disabled', kind_off: 'kindOff', sharing_off: 'sharedSubscriptionsOff',
   }
   if (state === 'kind_off' && allowed.has(r.kind) && otherGateway(r, allowed)) return ct('otherGateway', locale)
+  if (state === 'disabled' && metaOf(r).assigneesGone) return ct('assigneesGone', locale)
   if (state === 'expiring' && r.expires_at) return ct('expiring', locale, { date: fmtDate(r.expires_at, locale) })
   if (state === 'limited' && r.limited_until) return ct('limited', locale, { time: fmtTime(r.limited_until, locale) })
   const k = key[state]

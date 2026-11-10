@@ -288,6 +288,7 @@ Source change from potenlab/team-ax `a77d7e4` (branch `feat/project-page`, core 
 - `Projects.tsx`: core's file with this repository's differences kept. Every file opens with `openTeamFile`, without core's download branch, and the Dev environment line comes first in the side column.
 - `Home.tsx`: the same change; `PopularSkills` stays. `Composer.tsx`: only the `placeholder` prop; the answering and running hints are unchanged.
 - Only here: `DevEnvSection.tsx` now exports `DevEnvRow`, one line with the box state that opens in place (box, jobs, processes, port and preview, activity; Edit for admins inside). `web/test/mock/server.ts` gets `POST /__test/dev-env` and the dev environment endpoints, so the page is tested and shown with it. `web/test/unit/design-contrast.test.ts` now checks the project's Delete as a red menu item, because it is no longer a `ghost-danger` button.
+  (2026-11-08: the line and `DevEnvSection.tsx` are gone again, docs/DECISIONS.md "Dev environment: no line on the project page". A port of core's project page takes no dev environment line.)
 - `es` and `ja` get the new keys (`projects.about`, `open`, `items`, `itemsMore`); `projects.files` goes from all five languages.
 
 ## 2026-11-03 Admin: Home first, a grouped menu that stays put

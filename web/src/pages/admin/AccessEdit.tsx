@@ -9,16 +9,20 @@
 // changes; lib/access-edit.ts says why). A save carries the hash of the rules it started from: when another admin
 // changed them meanwhile the server refuses it (409), and the panel asks again, says so and keeps the draft.
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, Check, Info, Search, TriangleAlert, UserRound, UsersRound, X } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode, type RefObject } from 'react'
+import { ArrowLeft, ArrowRight, Check, Info, TriangleAlert, X } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import type { Access, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { addNamed, basicChoices, draftKey, draftOf, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, saveImpact, setNamed, type Basic, type Draft, type RuleLike } from '../../lib/access-edit'
 import { folderName, isSkillsPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap, useMediaQuery } from '../../components/ui'
+import { Avatar } from '../../components/Avatar'
+import { GroupTile } from '../../components/GroupTile'
+import { useFaceOf } from '../../store/people'
 import { toast } from '../../store/ui'
 import { useFolderPeople } from './SkillManagers'
+import { AddNamed, type ListControl } from './AddNamed'
 
 /** How long the panel waits after a change before it asks the server (a choice clicked quickly asks once). */
 export const PREVIEW_DEBOUNCE_MS = 250
@@ -482,9 +486,9 @@ function HowRules() {
 
 // ---------------- people and groups ----------------
 
-interface Option { kind: 'user' | 'group'; id: string; name: string; sub: string; off: boolean }
-
-type ListControl = MutableRefObject<{ open: boolean; close: () => void }>
+/** a person's picture or a group's tile before each name (20 px; with the gap, a phone's access switch line starts
+ * under the name: pl-7) */
+const FACE = 20
 
 function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }: {
   draft: Draft
@@ -510,6 +514,7 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
     ;(row?.querySelector<HTMLElement>('input:checked') ?? search.current)?.focus()
   })
   const taken = new Set(draft.named.map((n) => `${n.subjectType}:${n.subjectId}`))
+  const faceOf = useFaceOf()
   return (
     <section aria-labelledby={titleId} data-testid="edit-people">
       <h4 id={titleId} className="text-sm font-semibold text-ink">
@@ -529,11 +534,10 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
             const u = n.subjectType === 'user' ? users.get(n.subjectId) : undefined
             const g = n.subjectType === 'group' ? groups.get(n.subjectId) : undefined
             const label = u?.name ?? g?.name ?? '?'
-            const Icon = n.subjectType === 'group' ? UsersRound : UserRound
             const always = u && (u.role === 'owner' || u.role === 'admin')
             return (
               <li key={`${n.subjectType}:${n.subjectId}`} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2" data-testid="edit-named" data-subject={`${n.subjectType}:${n.subjectId}`}>
-                <Icon size={15} className="shrink-0 text-faint" aria-hidden />
+                {n.subjectType === 'group' ? <GroupTile size={FACE} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={FACE} />}
                 <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
                   {/* a phone: the whole name shows (it wraps); the access switch goes to its own line below */}
                   <span className="min-w-0 text-sm font-medium break-words text-ink sm:truncate">{label}</span>
@@ -545,7 +549,7 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
                   )}
                   {always && <span className="text-xs text-faint">· {t('accessEdit.always')}</span>}
                 </span>
-                <div className="flex shrink-0 items-center gap-x-2 max-sm:basis-full max-sm:pl-[23px]">
+                <div className="flex shrink-0 items-center gap-x-2 max-sm:basis-full max-sm:pl-7">
                   <AccessChoice
                     name={label}
                     value={n.access}
@@ -597,127 +601,6 @@ function AccessChoice({ name, value, onChange }: { name: string; value: Access; 
         ))}
       </div>
     </fieldset>
-  )
-}
-
-/** One search for a person or a group (WAI-ARIA combobox with a list): arrows move, Enter adds, Esc closes the list.
- * What is already named is not offered. The list lies over what is below it: in the flow, its closing on blur moved
- * everything below it up under a click on its way (the click landed on something else). */
-function AddNamed({ users, groups, taken, list, inputRef, onAdd }: {
-  users: User[]
-  groups: Group[]
-  taken: ReadonlySet<string>
-  list: ListControl
-  inputRef: RefObject<HTMLInputElement | null>
-  onAdd: (o: Option) => void
-}) {
-  const t = useT()
-  const listId = useId()
-  const labelId = useId()
-  const [q, setQ] = useState('')
-  const [open, setOpen] = useState(false)
-  const [active, setActive] = useState(0)
-  const [said, setSaid] = useState('')
-  list.current = { open, close: () => setOpen(false) }
-  const options = useMemo(() => {
-    const s = q.trim().toLocaleLowerCase()
-    const all: Option[] = [
-      ...groups.map((g) => ({ kind: 'group' as const, id: g.id, name: g.name, sub: t('accessEdit.kind.group', { n: g.memberIds.length }), off: false })),
-      ...users.map((u) => ({ kind: 'user' as const, id: u.id, name: u.name, sub: `${u.username} · ${t(`role.${u.role}`)}`, off: u.status === 'disabled' })),
-    ]
-    return all.filter((o) => !taken.has(`${o.kind}:${o.id}`) && (!s || o.name.toLocaleLowerCase().includes(s) || o.sub.toLocaleLowerCase().includes(s)))
-  }, [q, users, groups, taken, t])
-  const shown = options.slice(0, 50)
-  const cur = Math.min(active, Math.max(0, shown.length - 1))
-  const pick = (o: Option) => {
-    onAdd(o)
-    setSaid(t('accessEdit.added', { name: o.name, access: t('access.read') }))
-    setQ('')
-    setActive(0)
-    setOpen(false)
-    inputRef.current?.focus()
-  }
-  const optionId = (i: number) => `${listId}-o${i}`
-  useEffect(() => {
-    if (!open) return
-    document.getElementById(optionId(cur))?.scrollIntoView({ block: 'nearest' })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cur, open])
-  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.nativeEvent.isComposing) return
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      if (!open) { setOpen(true); return }
-      setActive((a) => (shown.length ? (e.key === 'ArrowDown' ? (a + 1) % shown.length : (a - 1 + shown.length) % shown.length) : 0))
-    } else if (e.key === 'Enter') {
-      if (!open || !shown[cur]) return
-      e.preventDefault()
-      pick(shown[cur]!)
-    } else if (e.key === 'Escape' && open) {
-      // the list only: the panel stays
-      e.preventDefault()
-      e.stopPropagation()
-      setOpen(false)
-    }
-  }
-  return (
-    <div className="mt-2">
-      <label id={labelId} className="sr-only" htmlFor={`${listId}-input`}>
-        {t('accessEdit.add')}
-      </label>
-      <div className="relative">
-        <Search size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-faint" aria-hidden />
-        <input
-          id={`${listId}-input`}
-          ref={inputRef}
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={open && shown[cur] ? optionId(cur) : undefined}
-          autoComplete="off"
-          value={q}
-          placeholder={t('accessEdit.addPlaceholder')}
-          onChange={(e) => {
-            setQ(e.target.value)
-            setActive(0)
-            setOpen(true)
-          }}
-          onFocus={() => setOpen(q !== '')}
-          onClick={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-          onKeyDown={onKey}
-          className="h-9 w-full rounded-lg border border-field-border bg-surface pr-3 pl-8 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10"
-          data-testid="edit-add"
-        />
-        <ul id={listId} role="listbox" aria-labelledby={labelId} hidden={!open} className="scroll-thin absolute inset-x-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" data-testid="edit-add-list">
-          {shown.map((o, i) => (
-            <li
-              key={`${o.kind}:${o.id}`}
-              id={optionId(i)}
-              role="option"
-              aria-selected={i === cur}
-              // keep the focus in the field (a click would blur it and close the list first)
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(o)}
-              onMouseMove={() => setActive(i)}
-              className={clsx('flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm max-sm:min-h-10', i === cur ? 'bg-hover' : '')}
-              data-testid="edit-add-option"
-              data-subject={`${o.kind}:${o.id}`}
-            >
-              {o.kind === 'group' ? <UsersRound size={14} className="shrink-0 text-faint" aria-hidden /> : <UserRound size={14} className="shrink-0 text-faint" aria-hidden />}
-              <span className="min-w-0 truncate text-ink">{o.name}</span>
-              <span className="min-w-0 shrink-[100] truncate text-xs text-faint">{o.sub}</span>
-              {o.off && <Badge className="ml-auto">{t('accessEdit.disabled')}</Badge>}
-            </li>
-          ))}
-          {!shown.length && <li className="px-2 py-1.5 text-xs text-faint">{t('accessEdit.noMatch')}</li>}
-        </ul>
-      </div>
-      <p role="status" className="sr-only">
-        {said}
-      </p>
-    </div>
   )
 }
 

@@ -36,7 +36,7 @@
 //             replies count from their root's seq like the root, so a member who cannot see a thread keeps the answer
 //             private, as for any message from before they joined.
 import type { Database } from 'bun:sqlite'
-import { MESSAGE_ATTACHMENTS_MAX, ROOM_AI_ANSWER_MAX, roomAiQuestion, type ApiErrorBody, type Locale, type MessageSources, type RoomAiRun, type RoomAiState, type RoomMessage, type Step } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, ROOM_AI_ANSWER_MAX, roomAiQuestion, type ApiErrorBody, type Locale, type MessageSources, type RoomAiRun, type RoomAiState, type RoomMessage, type RoomTurnRequest, type Step } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
@@ -48,15 +48,17 @@ import { engineError, tr } from '../chat/i18n'
 import { neutralizeTags, type RoomPrompt } from '../chat/prompt'
 import { nameSegs, readScope, roomViewers, type ReadSource } from '../chat/read-scope'
 import { CHAT_COLS, parseError, type ChatRow } from '../chat/store'
-import { groupOfFolder, isGroupSkill } from '../chat/skills'
+import { everyoneMayUse } from '../chat/skills'
 import { viewSourceRows, type SourceRow } from '../files/sources'
 import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { historyKinds, openHistories } from './history'
+import { earlierSources, reasonsChanged } from './earlier-sources'
 import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, seesFrom, setRoomAiWaiting, seeArgs, seenSeq, sharedAnswerOf, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
+import { grantMadeFiles } from './ai-grants'
 import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadAttrs, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
 
 /** How long deciding where an answer goes may spend working out waiting members' histories (rooms/history.ts); one still
@@ -96,8 +98,11 @@ export interface Prepared extends AskOptions { chatId: string | null; engine: En
 /** Where an answer may go (decide). folders: team folders some member cannot read ('' = the top of the team folder) that
  * the person who asked may open (their preview names them); otherFolders: more such folders they cannot open themselves
  * (never named to them); joinedLater: members who were not in the room yet when a message given to the AI was written; hidden: an old answer
- * hidden from some member (rooms/history.ts) was among the messages given (never who: it would tell their access). */
-export interface Decision { post: boolean; folders: string[]; otherFolders: boolean; personal: boolean; outside: boolean; joinedLater: string[]; hidden: boolean }
+ * hidden from some member (rooms/history.ts) was among the messages given and what it used cannot all be shown to the
+ * asker, or a member's history is not worked out (never who: it would tell their access): not postable; earlier: such
+ * answers were given and what they were built on (rooms/earlier-sources.ts) is in the other reasons; unable: for each
+ * named folder, how many members (not the asker) cannot see it (counts only, as the share-to-room dialog). */
+export interface Decision { post: boolean; folders: string[]; otherFolders: boolean; personal: boolean; outside: boolean; joinedLater: string[]; hidden: boolean; earlier: boolean; unable: Record<string, number> }
 /** A member as decide() sees them: null = an account that cannot read anything now (disabled, deleted). */
 type Reader = { member: MemberRow; who: Principal | null }
 
@@ -388,24 +393,9 @@ export class RoomAi implements RoomTurns {
     ].join('\n')
     const prompt: RoomPrompt = { name: label, kind: room.kind, members: members(db, o.roomId).length, asker, ...(root ? { thread: true } : {}) }
     // the members now, by the folder rules (no file system): which skills the AI may be shown here
-    const readers = this.readers(o.roomId)
-    const rules = this.ctx.files.rules()
-    const seen = new Map<string, boolean>()
-    const readable = (rel: string) => {
-      let ok = seen.get(rel)
-      if (ok === undefined) {
-        const segs = rel.split('/').filter(Boolean)
-        ok = readers.every((r) => !!r.who && atLeast(rules.access(r.who, segs), 'read'))
-        // a group's skills (docs/DECISIONS.md "Group skills") are its members' only: here only when everyone in the
-        // room is in that group (the owner and admins read every group folder, but its skills are not theirs)
-        if (ok && isGroupSkill(segs.join('/'))) {
-          const g = groupOfFolder(db, segs.slice(0, 2).join('/'))
-          ok = !!g && readers.every((r) => !!r.who && r.who.groups.includes(g.id))
-        }
-        seen.set(rel, ok)
-      }
-      return ok
-    }
+    // (a group's skills, docs/DECISIONS.md "Group skills", are its members' only: here only when everyone in the room is
+    // in that group; the owner and admins read every group folder, but its skills are not theirs: chat/skills.ts)
+    const readable = everyoneMayUse(db, this.ctx.files.rules(), this.readers(o.roomId).map((r) => r.who))
     return { block, others, fromSeq, prompt, readable, attachments: q ? this.attachmentsOf(q) : '' }
   }
 
@@ -472,7 +462,11 @@ export class RoomAi implements RoomTurns {
     // a question in a thread: who sees it is who sees the root (seenSeq)
     const root0 = q?.thread_root_id && q.thread_root_seq !== null ? { id: q.thread_root_id, seq: q.thread_root_seq } : undefined
     const d = this.decide(t.room_id, t.chat_id, scope, q ? seenSeq(q) : undefined, root0, q?.seq)
-    const body = msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content
+    // the files a grant or [이번만 허용] let it save without a card (rooms/ai-grants.ts) are named under the answer,
+    // as links (each viewer gets a chip only for a file they may open), so the room sees what was saved
+    const made = grantMadeFiles(db, turnId)
+    const madeLine = made.length ? `\n\n${tr('roomGrantFiles', locale, { files: made.map((p) => `[${p.split('/').at(-1)!.replace(/[[\]\\]/g, '\\$&')}](/files/view?path=${encodeURIComponent(p)})`).join(', ') })}` : ''
+    const body = (msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content) + madeLine
     const id = newId(), now = nowIso()
     // asked in a thread: answered in it (a reply, not in the timeline; the room keeps its place in the list)
     const root = q?.thread_root_id ? messageRow(db, t.room_id, q.thread_root_id) : null
@@ -566,12 +560,25 @@ export class RoomAi implements RoomTurns {
     // saw then is not what their rows say now): `exempt`, the asker's id, or '' (nobody's rows are left out)
     const asker = askerId ? memberRow(db, roomId, askerId) : null
     const exempt = askerId && asker && asker.visible_from_seq < (askedSeq ?? questionSeq ?? Number.MAX_SAFE_INTEGER) ? askerId : ''
+    const who = askerId ? loadPrincipal(db, askerId) : null
     let outside = used.outside
     let personal = false
     let hidden = false
+    let earlier = false
     const folders = new Set<string>()
+    // per folder, the members (not the asker) who cannot see it: the preview's counts
+    const unable = new Map<string, Set<string>>()
+    const unableTo = (path: string, ok: (p: Principal) => boolean) => {
+      const ids = readers.filter((r) => !r.who || !ok(r.who)).map((r) => r.member.user_id)
+      if (!ids.length) return
+      folders.add(path)
+      const set = unable.get(path) ?? unable.set(path, new Set()).get(path)!
+      for (const id of ids) if (id !== askerId) set.add(id)
+    }
     const joined = new Set<string>()
-    for (const s of used.sources) {
+    // (what old answers hidden from someone were built on joins these as it is found: earlierSources)
+    const sources = [...used.sources]
+    for (const s of sources) {
       if (s.type === 'integration' || s.type === 'drive_share') { outside = true; continue }
       if (s.type === 'room') {
         if (s.id !== roomId) { const v = roomViewers(db, s.id, undefined, s.fromSeq, askerId); if (!people.every((p) => !!p && v.has(p.id))) outside = true; continue }
@@ -579,6 +586,7 @@ export class RoomAi implements RoomTurns {
         // of its messages): only that thread's hidden answers were given. Any other position (a file of another message
         // read with room_file) counts from there on
         const inThread = !!threadRoot && s.fromSeq === threadRoot.seq
+        const hiddenFor: string[] = []
         for (const r of readers) {
           // a team room's or the everyone room's member whose history is not worked out: what they will see is not
           // known, so nobody may post it (hidden: no 올리기), rather than "joined later", which the asker may override
@@ -588,7 +596,13 @@ export class RoomAi implements RoomTurns {
           if (s.fromSeq !== undefined && seesFrom(r.member) >= s.fromSeq) joined.add(r.member.user_id)
           // an old answer hidden from them (rooms/history.ts) from there on, that the asker saw (one hidden from the asker
           // too was never given to the AI): the answer may repeat it
-          else if (r.member.user_id !== askerId && this.hiddenSince(roomId, r.member.user_id, s.fromSeq ?? 0, exempt, inThread ? threadRoot!.id : undefined)) hidden = true
+          else if (r.member.user_id !== askerId && this.hiddenSince(roomId, r.member.user_id, s.fromSeq ?? 0, exempt, inThread ? threadRoot!.id : undefined)) hiddenFor.push(r.member.user_id)
+        }
+        // what those answers were built on joins this answer's sources when the asker may open all of it, so it is named
+        // to them; else it is not postable (rooms/earlier-sources.ts)
+        if (hiddenFor.length) {
+          const more = earlierSources(db, rules, { roomId, users: hiddenFor, fromSeq: s.fromSeq ?? 0, exempt, rootId: inThread ? threadRoot!.id : undefined, asker: who, fx: this.ctx.files.fx })
+          if (more) { earlier = true; sources.push(...more) } else hidden = true
         }
         continue
       }
@@ -598,7 +612,7 @@ export class RoomAi implements RoomTurns {
         if (people.every((p) => !!p && rules.canList(p, segs))) continue
         // users/<id>/…: only that person lists it, and only they could have named it (the person who asked)
         if (segs[0] === 'users') personal = true
-        else folders.add(ruledFolderOf(rules, segs))
+        else unableTo(ruledFolderOf(rules, segs), (p) => rules.canList(p, segs))
         continue
       }
       let path = ''
@@ -608,7 +622,7 @@ export class RoomAi implements RoomTurns {
         path = row.path
       }
       const segs = path === '' ? [] : path.split('/')
-      if (!people.every((p) => !!p && atLeast(rules.access(p, segs), 'read'))) folders.add(path)
+      unableTo(path, (p) => atLeast(rules.access(p, segs), 'read'))
     }
     // the question itself is the room's too: someone who joined after it was asked (invited into a group chat while the
     // AI was answering) never saw it, and the answer may repeat it, even when no earlier message went to the AI
@@ -617,9 +631,9 @@ export class RoomAi implements RoomTurns {
     // the preview names to the person who asked only the folders they may open themselves (a name on the way to their
     // folders, or a rule changed since, can be in one they cannot): the others are "folders some people cannot open",
     // without names
-    const who = askerId ? loadPrincipal(db, askerId) : null
     const named = [...folders].filter((p) => !!who && atLeast(rules.access(who, p === '' ? [] : p.split('/')), 'read')).sort()
-    return { post: !outside && !personal && folders.size === 0 && joined.size === 0 && !hidden, folders: named, otherFolders: named.length < folders.size, personal, outside, joinedLater, hidden }
+    // an answer built on an old answer hidden from someone is never posted by itself: its asker decides, shown what it used
+    return { post: !outside && !personal && folders.size === 0 && joined.size === 0 && !hidden && !earlier, folders: named, otherFolders: named.length < folders.size, personal, outside, joinedLater, hidden, earlier, unable: Object.fromEntries(named.map((p) => [p, unable.get(p)?.size ?? 0])) }
   }
 
   /** Is an old answer at or after `fromSeq` hidden from this member (room_hidden_answers), one not hidden from `exempt`
@@ -645,6 +659,7 @@ export class RoomAi implements RoomTurns {
     // reasons are shown to the person first, and they post it with those in sight (the same call again)
     const t = db.query('SELECT * FROM room_ai_turns WHERE answer_id = ?').get(m.id) as TurnRow | null
     const scope = t ? storedScope(t.scope) : undefined
+    let earlier = false
     if (t && scope) {
       const asked = messageRow(db, roomId, t.question_id)
       const d = this.decide(roomId, t.chat_id, scope, asked ? seenSeq(asked) : undefined, rootOf(m), asked?.seq)
@@ -656,7 +671,8 @@ export class RoomAi implements RoomTurns {
         return fail('conflict', tr('roomAiHiddenPost', this.rt().userLocale(userId)), { params: { reason: 'room_ai_hidden' } })
       }
       const now = d.post ? null : decisionJson(d)
-      if (now && now !== t.decision) {
+      earlier = d.earlier
+      if (now && reasonsChanged(t.decision, now)) {
         db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, t.turn_id)
         rooms.messageEvent('room.message.updated', m)
         return fail('conflict', tr('roomAiReasonsChanged', this.rt().userLocale(userId)), { params: { reason: 'room_ai_reasons_changed' } })
@@ -689,7 +705,7 @@ export class RoomAi implements RoomTurns {
       else db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, roomId, userId, seq)
       db.query("UPDATE room_ai_turns SET status = 'posted' WHERE answer_id = ?").run(m.id)
       // a DM's or group chat's id would let admins see who talks to whom: only the kind
-      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { ...roomAuditRef(room), sourcesLeftOut: drop.length } })
+      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { ...roomAuditRef(room), sourcesLeftOut: drop.length, ...(earlier ? { earlier: true } : {}) } })
     })()
     if (root) rooms.markThreadNoticesRead(userId, roomId, root.id, seq)
     else {
@@ -734,6 +750,25 @@ export class RoomAi implements RoomTurns {
     const { me } = roomsOf(this.ctx).mine(userId, roomId)
     const mine = this.db.query("SELECT * FROM room_ai_turns WHERE room_id = ? AND user_id = ? AND status = 'active' ORDER BY created_at").all(roomId, userId) as TurnRow[]
     return { answering: this.count(roomId, me), mine: mine.map((t) => this.runOf(t)) }
+  }
+
+  /** GET /api/rooms/:id/ai/requests: the open cards of my own questions in the room (the timeline's and its threads'),
+   * as a chat lists its cards (chat/turn.ts cardsFor): after a reload, in another browser or after a reconnect the
+   * events that opened them are not replayed, and the question would wait for an answer nobody can give. Mine only:
+   * a card's question, details and preview can hold what only the asker may read, so another member's question
+   * gives nothing (they see "트리나가 답하는 중"), and a connect card is never shown in a room. */
+  requests(userId: string, roomId: string, window: string | null): RoomTurnRequest[] {
+    roomsOf(this.ctx).mine(userId, roomId)
+    const rt = this.rt()
+    const mine = this.db.query("SELECT turn_id FROM room_ai_turns WHERE room_id = ? AND user_id = ? AND status = 'active' ORDER BY created_at").all(roomId, userId) as { turn_id: string }[]
+    const out: RoomTurnRequest[] = []
+    for (const t of mine) {
+      const exec = rt.execFor(t.turn_id)
+      if (!exec || exec.spec.userId !== userId || exec.room?.roomId !== roomId) continue
+      // without the room session's chat id: nothing in a room uses it (RoomTurnRequest)
+      for (const { chatId: _session, ...card } of exec.cardsFor(window)) if (card.request.kind !== 'connect_service') out.push(card)
+    }
+    return out
   }
 
   /** An AI answer's sources as I may see them now. */
@@ -828,10 +863,10 @@ function ruledFolderOf(rules: RuleSet, segs: readonly string[]): string {
 
 /** A thread's first message: its id and seq (who sees the thread). */
 type ThreadRoot = { id: string; seq: number }
-const rootOf = (m: Pick<MessageRow, 'thread_root_id' | 'thread_root_seq'>): ThreadRoot | undefined => (m.thread_root_id && m.thread_root_seq !== null ? { id: m.thread_root_id, seq: m.thread_root_seq } : undefined)
+export const rootOf = (m: Pick<MessageRow, 'thread_root_id' | 'thread_root_seq'>): ThreadRoot | undefined => (m.thread_root_id && m.thread_root_seq !== null ? { id: m.thread_root_id, seq: m.thread_root_seq } : undefined)
 
 /** A question's scope as kept on its row (null or unreadable: none kept). */
-function storedScope(v: string | null): TurnScope | undefined {
+export function storedScope(v: string | null): TurnScope | undefined {
   if (!v) return undefined
   try {
     const o = JSON.parse(v) as Partial<TurnScope>
@@ -840,7 +875,8 @@ function storedScope(v: string | null): TurnScope | undefined {
 }
 
 /** The reasons of a private preview as stored (and compared when it is posted). */
-const decisionJson = (d: Decision) => JSON.stringify({ folders: d.folders, otherFolders: d.otherFolders, personal: d.personal, outside: d.outside, joinedLater: d.joinedLater, ...(d.hidden ? { hidden: true } : {}) })
+export const decisionJson = (d: Decision) => JSON.stringify({ folders: d.folders, otherFolders: d.otherFolders, personal: d.personal, outside: d.outside, joinedLater: d.joinedLater, ...(d.hidden ? { hidden: true } : {}),
+  ...(d.earlier ? { earlier: true } : {}), ...(Object.keys(d.unable).length ? { unable: d.unable } : {}) })
 
 export function roomAiOf(ctx: AppContext): RoomAi {
   let s = services.get(ctx)

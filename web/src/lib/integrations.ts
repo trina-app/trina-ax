@@ -2,10 +2,10 @@
 // data, its checks (the same limits as shared/src/api/integrations.ts, so most mistakes show before anything is sent),
 // the request bodies it becomes, and the checks on what the server sends back (the sign-in address).
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
-import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type WritePolicy } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
-/** how the connection proves who it is: sign in at the service (MCP only), a key, or nothing */
+/** how the connection proves who it is: sign in at the service (an API: with your own app), a key, or nothing */
 export type SignInMethod = 'oauth' | 'key' | 'none'
 /** where a key goes: "Authorization: Bearer <key>" or "<header name>: <key>" */
 export type HeaderChoice = 'bearer' | 'custom'
@@ -26,23 +26,50 @@ export interface IntegrationForm {
   writePolicy: WritePolicy
   /** team connections only (null: a personal one) */
   access: IntegrationAccess | null
+  /** sign in through your own app at the service (docs/INTEGRATIONS.md "Your own app"): an MCP server that does not
+   * register apps itself (Google's); an API always signs in this way */
+  ownApp: boolean
+  clientId: string
+  /** a client secret typed now (never a stored one) */
+  clientSecret: string
+  /** a stored client secret: keep it, or type a new one */
+  clientSecretAction: 'keep' | 'replace'
+  /** the app's sign-in and token addresses (an API; an MCP server finds them from its address) */
+  authUrl: string
+  tokenUrl: string
+  /** the scopes to ask for, separated by spaces */
+  scope: string
 }
 
-export type FormField = 'name' | 'url' | 'method' | 'headerName' | 'secret' | 'notes' | 'writePolicy' | 'access'
+export type FormField = 'name' | 'url' | 'method' | 'headerName' | 'secret' | 'notes' | 'writePolicy' | 'access' | 'clientId' | 'clientSecret' | 'authUrl' | 'tokenUrl' | 'scope'
 export type FormErrors = Partial<Record<FormField, MessageKey>>
 
 export const NAME_MAX = 60
 export const URL_MAX = 2000
 export const SECRET_MAX = 8000
 export const NOTES_MAX = 4000
+export const CLIENT_ID_MAX = 1000
+export const CLIENT_SECRET_MAX = 4000
+export const SCOPE_MAX = 2000
 const HEADER_RE = /^[A-Za-z0-9-]{1,64}$/
 
-export const methodsFor = (kind: IntegrationKind): SignInMethod[] => (kind === 'mcp' ? ['oauth', 'key', 'none'] : ['key', 'none'])
+export const methodsFor = (kind: IntegrationKind): SignInMethod[] => (kind === 'mcp' ? ['oauth', 'key', 'none'] : ['key', 'oauth', 'none'])
+
+/** the form's own-app fields filled from a stored app (none: empty) */
+const appFields = (c: OAuthClientView | null | undefined, kind: IntegrationKind, auth: IntegrationAuth) => ({
+  ownApp: !!c || (kind === 'http' && auth === 'oauth'),
+  clientId: c?.clientId ?? '',
+  clientSecret: '',
+  clientSecretAction: 'keep' as const,
+  authUrl: c?.authorizationUrl ?? '',
+  tokenUrl: c?.tokenUrl ?? '',
+  scope: c?.scope ?? '',
+})
 
 export const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
 
 export function emptyForm(kind: IntegrationKind = 'mcp', access: IntegrationAccess | null = null): IntegrationForm {
-  return { kind, name: '', url: '', method: kind === 'mcp' ? 'oauth' : 'key', header: 'bearer', headerName: '', secret: '', keyAction: 'keep', notes: '', writePolicy: 'ask', access }
+  return { kind, name: '', url: '', method: kind === 'mcp' ? 'oauth' : 'key', header: 'bearer', headerName: '', secret: '', keyAction: 'keep', notes: '', writePolicy: 'ask', access, ...appFields(null, kind, 'none') }
 }
 
 /** the form for editing `i` (no key in it: a stored key stays on the server) */
@@ -59,6 +86,7 @@ export function formFrom(i: Integration): IntegrationForm {
     notes: i.notes ?? '',
     writePolicy: i.writePolicy,
     access: i.scope === 'team' ? i.access ?? NOBODY : null,
+    ...appFields(i.oauthClient, i.kind, i.auth),
   }
 }
 
@@ -76,12 +104,49 @@ export function formFromTemplate(t: IntegrationTemplate): IntegrationForm {
     notes: t.notes ?? '',
     writePolicy: 'ask',
     access: t.access,
+    ...appFields(t.oauthClient, t.kind, t.auth),
   }
 }
 
-/** another kind: sign-in is for MCP servers only, so an API connection falls back to a key */
+/** another kind: an API starts with a key (most take one); sign-in there is a choice, always with your own app */
 export function withKind(f: IntegrationForm, kind: IntegrationKind): IntegrationForm {
-  return { ...f, kind, method: methodsFor(kind).includes(f.method) ? f.method : 'key' }
+  const method = kind === 'http' && f.method === 'oauth' ? 'key' : methodsFor(kind).includes(f.method) ? f.method : 'key'
+  // back to an MCP server: its own app is chosen only when one was filled in
+  return { ...f, kind, method, ownApp: kind === 'http' ? true : f.kind === 'mcp' ? f.ownApp : !!f.clientId.trim() }
+}
+
+/** sign-in goes through your own app: an API always, an MCP server when chosen */
+export const usesApp = (f: Pick<IntegrationForm, 'method' | 'kind' | 'ownApp'>) => f.method === 'oauth' && (f.kind === 'http' || f.ownApp)
+
+/** The stored client secret stays with this form (the server's rule, service.ts appAfter): the same client ID, the
+ * same sign-in and token addresses and the same service address (`storedUrl`), also when the app's addresses are given.
+ * Else it goes, and a secret has to be typed again. */
+export function storedSecretStays(f: IntegrationForm, stored: OAuthClientView | null | undefined, storedUrl?: string): boolean {
+  return !!stored?.hasSecret && stored.clientId === f.clientId.trim() && (stored.authorizationUrl ?? '') === f.authUrl.trim()
+    && (stored.tokenUrl ?? '') === f.tokenUrl.trim() && (storedUrl === undefined || f.url.trim() === storedUrl)
+}
+const typedClientSecret = (f: IntegrationForm, stored?: OAuthClientView | null, storedUrl?: string) =>
+  usesApp(f) && f.clientSecret.trim() && (!storedSecretStays(f, stored, storedUrl) || f.clientSecretAction === 'replace') ? f.clientSecret.trim() : undefined
+
+/** the own app as the API takes it (the secret only when one was typed now) */
+export function appInput(f: IntegrationForm, stored?: OAuthClientView | null, storedUrl?: string): OAuthClientInput {
+  const secret = typedClientSecret(f, stored, storedUrl)
+  return {
+    clientId: f.clientId.trim(),
+    ...(secret ? { clientSecret: secret } : {}),
+    ...(f.authUrl.trim() && f.tokenUrl.trim() ? { authorizationUrl: f.authUrl.trim(), tokenUrl: f.tokenUrl.trim() } : {}),
+    ...(f.scope.trim() ? { scope: f.scope.trim() } : {}),
+  }
+}
+
+/** The own-app part of a change: undefined when it stays, null when it goes (back to the service's own registration),
+ * else the app. Another ID, secret, address or scope drops the sign-in (the server does it). */
+export function appPatch(f: IntegrationForm, stored: OAuthClientView | null | undefined, storedUrl?: string): OAuthClientInput | null | undefined {
+  if (!usesApp(f)) return stored && f.method === 'oauth' ? null : undefined
+  const next = appInput(f, stored, storedUrl)
+  const same = !!stored && stored.clientId === next.clientId && (stored.authorizationUrl ?? undefined) === next.authorizationUrl
+    && (stored.tokenUrl ?? undefined) === next.tokenUrl && (stored.scope ?? undefined) === next.scope && !next.clientSecret
+  return same ? undefined : next
 }
 
 export function authOf(f: Pick<IntegrationForm, 'method' | 'header'>): IntegrationAuth {
@@ -106,7 +171,9 @@ export function urlProblem(value: string): MessageKey | null {
 
 /** the change drops the stored key or sign-in (the server does it: a key must never follow a connection elsewhere) */
 export function dropsSecret(f: IntegrationForm, original?: Integration): boolean {
-  return !!original && original.hasSecret && (f.url.trim() !== original.url || authOf(f) !== original.auth)
+  return !!original && original.hasSecret && (f.url.trim() !== original.url || authOf(f) !== original.auth
+    // another own app: the sign-in was made with the old one (a member's connection made from a template has none)
+    || (original.auth === 'oauth' && !original.templateId && appPatch(f, original.oauthClient, original.url) !== undefined))
 }
 
 /** a key has to be typed before saving */
@@ -115,7 +182,8 @@ export function needsKey(f: IntegrationForm, original?: Integration): boolean {
   return !original || !original.hasSecret || dropsSecret(f, original) || f.keyAction === 'replace'
 }
 
-export function validate(f: IntegrationForm, original?: Integration): FormErrors {
+/** `storedApp`: a template's app and address being edited (a connection's come with `original`) */
+export function validate(f: IntegrationForm, original?: Integration, storedApp?: { app: OAuthClientView | null | undefined; url: string }): FormErrors {
   const e: FormErrors = {}
   const name = f.name.trim()
   if (!name) e.name = 'integrations.error.name'
@@ -128,6 +196,22 @@ export function validate(f: IntegrationForm, original?: Integration): FormErrors
   if (needsKey(f, original) && !secret) e.secret = 'integrations.error.key'
   else if (secret.length > SECRET_MAX) e.secret = 'integrations.error.keyLong'
   if (f.kind === 'http' && f.notes.length > NOTES_MAX) e.notes = 'integrations.error.notes'
+  if (usesApp(f) && !original?.templateId) {
+    const id = f.clientId.trim()
+    if (!id || /\s/.test(id) || id.length > CLIENT_ID_MAX) e.clientId = 'integrations.error.clientId'
+    if (f.clientSecret.length > CLIENT_SECRET_MAX) e.clientSecret = 'integrations.error.keyLong'
+    else if (/[\r\n]/.test(f.clientSecret)) e.clientSecret = 'integrations.error.field'
+    // the same app at another address: its stored secret does not follow (storedSecretStays), so it is asked for again
+    const stored = original ? original.oauthClient : storedApp?.app
+    if (stored?.hasSecret && stored.clientId === id && !f.clientSecret.trim() && !storedSecretStays(f, stored, original?.url ?? storedApp?.url)) e.clientSecret = 'integrations.error.clientSecretAgain'
+    if (f.scope.length > SCOPE_MAX || /[\r\n]/.test(f.scope)) e.scope = 'integrations.error.scope'
+    // an API has nothing to find its sign-in from; an MCP server's addresses are both given or both found
+    if (f.kind === 'http' || f.authUrl.trim() || f.tokenUrl.trim()) {
+      const a = urlProblem(f.authUrl), t = urlProblem(f.tokenUrl)
+      if (a) e.authUrl = a
+      if (t) e.tokenUrl = t
+    }
+  }
   return e
 }
 
@@ -148,6 +232,7 @@ export function toInput(f: IntegrationForm): IntegrationInput {
     notes: notesOf(f),
     writePolicy: f.writePolicy,
     ...(f.access ? { access: normalAccess(f.access) } : {}),
+    ...(usesApp(f) ? { oauthClient: appInput(f) } : {}),
   }
 }
 
@@ -169,6 +254,11 @@ export function toPatch(f: IntegrationForm, original: Integration): IntegrationP
   if (original.kind === 'http' && notes !== (original.notes ?? null)) p.notes = notes
   if (f.writePolicy !== original.writePolicy) p.writePolicy = f.writePolicy
   if (original.scope === 'team' && f.access && !sameAccess(f.access, original.access ?? NOBODY)) p.access = normalAccess(f.access)
+  // a member's connection made from a template signs in through the template's app
+  if (!original.templateId) {
+    const app = appPatch(f, original.oauthClient, original.url)
+    if (app !== undefined && (app !== null || original.oauthClient)) p.oauthClient = app
+  }
   return p
 }
 
@@ -232,8 +322,8 @@ export function canonicalService(url: string): string {
   }
 }
 
-/** sign-in (OAuth) is offered: an MCP server with sign-in that the person manages */
-export const canSignIn = (i: Integration) => i.kind === 'mcp' && i.auth === 'oauth' && i.canManage
+/** sign-in (OAuth) is offered: a connection with sign-in that the person manages (an MCP server, or an API with its own app) */
+export const canSignIn = (i: Integration) => i.auth === 'oauth' && i.canManage
 
 /** Personal connections first, then team ones; each by name. */
 export function splitByScope(items: Integration[]): { mine: Integration[]; team: Integration[] } {
@@ -241,7 +331,7 @@ export function splitByScope(items: Integration[]): { mine: Integration[]; team:
   return { mine: items.filter((x) => x.scope === 'personal' && !x.templateId).sort(byName), team: items.filter((x) => x.scope === 'team').sort(byName) }
 }
 
-const FIELD_OF: Record<string, FormField> = { name: 'name', slug: 'name', url: 'url', auth: 'method', authHeader: 'headerName', secret: 'secret', clearSecret: 'secret', notes: 'notes', writePolicy: 'writePolicy', access: 'access' }
+const FIELD_OF: Record<string, FormField> = { name: 'name', slug: 'name', url: 'url', auth: 'method', authHeader: 'headerName', secret: 'secret', clearSecret: 'secret', notes: 'notes', writePolicy: 'writePolicy', access: 'access', oauthClient: 'clientId' }
 
 /**
  * The form fields a refused save names (`fields` of a validation error: "body.url", "body.access.users" ...), with the

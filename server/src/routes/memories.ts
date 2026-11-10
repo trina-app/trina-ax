@@ -1,6 +1,7 @@
 // Route module "memories" — owner: component B (docs/WORKPLAN.md).
 // Implements: MEMORIES (own memories only: list, add, correct, forget; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
-// Also SKILLS (the team skills the caller can read, for the composer's "/" list; skill suggestions). Contract:
+// Also SKILLS (the team skills the caller can read, for the composer's "/" list; what the team prepared for Home's
+// first screen; skill suggestions). Contract:
 // shared/src/api/skills.ts (the admin side of it, skill managers and changes, is in routes/admin.ts)
 // And SCHEDULES (the caller's own scheduled tasks, Settings: run now, edit, pause, delete). Contract: shared/src/api/schedules.ts
 import { API, type Locale } from '@mycel/shared/api'
@@ -12,9 +13,11 @@ import { tr } from '../chat/i18n'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
 import { decodeCursor, encodeCursor } from '../chat/store'
-import { scanSkillsWithShadowed, skillInfo, skillIssues } from '../chat/skills'
+import { projectSkillSections, scanSkillsWithShadowed, skillInfo, skillIssues, type ShadowedBy } from '../chat/skills'
+import { levelLabel, moveOptions, runMove } from '../skills/move'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
+import { teamPrepared } from '../skills/examples'
 import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
 import { installNotifications } from '../notifications/service'
 import { registerNotifications } from './notifications'
@@ -132,12 +135,31 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.listSkills, ({ auth, query }) => {
       let p
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      const { skills: items, shadowed, replaces } = scanSkillsWithShadowed(ctx.files, p)
+      // ?projectId=: the list of a chat in that project (its "/" menu), while the caller sees the project
+      const project = query?.projectId ? rt.projectForChat(query.projectId, p) : null
+      const { skills: items, shadowed, replaces } = scanSkillsWithShadowed(ctx.files, p, { project: project ? { id: project.id, name: project.name, folderPath: project.folderPath } : null })
       const lost = query?.shadowed ? shadowed : []
+      // ?projects=1: the Skills page's project sections, every project the caller sees (docs/DECISIONS.md "Project skills")
+      const sections = query?.projects ? projectSkillSections(ctx.files, p) : []
       // a skill a member suggested keeps their name ("민준 님이 제안", docs/DECISIONS.md "MC")
       const by = suggestersOf(ctx.db, [...items, ...lost.map((l) => l.skill)].map((s) => s.path).filter((x) => !x.startsWith('users/')))
+      const shadow = (b: ShadowedBy) => (b.tier === 'group' ? { tier: 'group' as const, group: { id: b.group.id, name: b.group.name } } : { tier: b.tier })
       const one = (s: (typeof items)[number], extra: object = {}) => { const i = skillInfo(s); const who = by.get(s.path); const r = replaces.get(s.path); return { ...i, ...(who ? { suggestedBy: who } : {}), ...(r ? { replaces: r } : {}), ...extra } }
-      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: l.by.tier === 'personal' ? { tier: 'personal' } : { tier: 'group', group: { id: l.by.group.id, name: l.by.group.name } } }))] }
+      const listed = new Set([...items.map((s) => s.path), ...lost.map((l) => l.skill.path)])
+      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: shadow(l.by) })),
+        ...sections.filter((x) => !listed.has(x.skill.path)).map((x) => ({ ...skillInfo(x.skill), ...(x.by ? { shadowedBy: shadow(x.by) } : {}) }))] }
+    })
+    // "옮기기…" on the Skills page (skills/move.ts): where a skill can go, then the move as seen
+    kit.handle(API.skillMoveOptions, ({ c, auth, query }) => moveOptions(ctx, auth.user.id, query.path, c.get('locale')))
+    kit.handle(API.moveSkill, ({ c, auth, body }) => {
+      const L = c.get('locale')
+      const plan = runMove(ctx, auth.user.id, body.path, body.to, body.token, L)
+      return { path: plan.entry, name: plan.skill.name, from: levelLabel(plan.from, L), to: levelLabel(plan.to, L) }
+    })
+    // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): what the team prepared, read as the caller (skills/examples.ts)
+    kit.handle(API.skillExamples, ({ c, auth }) => {
+      try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
+      return teamPrepared(ctx, auth.user.id, c.get('locale'))
     })
     // R2-SKILL-03: the entries that do not load, so the skills and files screens can warn (readable entries only)
     kit.handle(API.listSkillIssues, ({ auth }) => {

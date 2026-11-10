@@ -151,11 +151,15 @@ describe('the AI in a room', () => {
       // (docs/DECISIONS.md "지난 대화")
       expect((await messages('bob', r2)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === first.q.id)).toMatchObject({ withheld: true, body: '' })
       // the members changed, so the conversation starts anew; the first answer hidden from bob in its context (and the
-      // fake engine following the first question's directive again) keep the answer private, saying why
+      // fake engine following the first question's directive again) keep the answer private, saying why: what the
+      // hidden answer used (marketing, which alice may open) is named to her, so she may post it (docs/DECISIONS.md
+      // "방에 올리기…")
       const second = await ask('alice', r2, `@트리나 and now?\n${fake({ say: 'second' })}`)
       expect(await answerTo('bob', r2, second.q)).toBeUndefined()
       expect(await answerTo('erin', r2, second.q)).toBeUndefined()
-      expect(await answerTo('alice', r2, second.q)).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'], joinedLater: [], hidden: true } })
+      const mine = (await answerTo('alice', r2, second.q))!
+      expect(mine).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'], joinedLater: [], earlier: true, unable: { 'groups/marketing': 1 } } })
+      expect(mine.preview).not.toHaveProperty('hidden')
     } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'rooms-ai-bob-none'").run() }
   })
 
@@ -390,6 +394,29 @@ describe('what an answer may carry into the room', () => {
     } finally { fs.rmSync(abs, { force: true }) }
   })
 
+  test('a project\'s skills never reach a room, even when everyone there reads the project (docs/DECISIONS.md "Project skills")', async () => {
+    const id = '01900000-0000-7000-8000-0000000a1001'
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(id, 'Falcon', 'projects/falcon', 'alice', new Date().toISOString())
+    const abs = path.join(h.team, 'projects/falcon/skills/room-project/SKILL.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: room-project\ndescription: PROJECT-ROOM-SKILL\n---\nsteps\n')
+    try {
+      // alice writes the project's folder and bob reads it: both could read the file, the room still has no project
+      const roomId = await room(['alice', 'bob'])
+      const { q } = await ask('alice', roomId, `@트리나 which skills?\n${fake({ echo: 'system' }, { tool: 'find_skills', args: { query: 'room project' }, sayResult: true }, { tool: 'skill', args: { name: 'projects/falcon/skills/room-project/SKILL.md' }, sayResult: true })}`)
+      const body = (await answerTo('alice', roomId, q))!.body
+      expect(body).not.toContain('PROJECT-ROOM-SKILL')
+      expect(body).not.toContain('[project:')
+      expect(body).toContain('No skill called')
+      // nor "/name" in a room
+      const two = await ask('alice', roomId, `@트리나 /room-project now\n${fake({ echo: 'message' })}`)
+      expect((await answerTo('alice', roomId, two.q))!.body).not.toContain('<team_skill')
+    } finally {
+      fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })
+      h.ctx.db.query('DELETE FROM projects WHERE id = ?').run(id)
+    }
+  })
+
   test('an account that cannot read anything fails every check (fail closed)', async () => {
     const roomId = await room(['alice', 'erin'])
     const one = await ask('alice', roomId, `@트리나 glossary\n${fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: 'ok' })}`)
@@ -420,7 +447,9 @@ describe('changes asked for in a room', () => {
     const q = await send('alice', roomId, `@트리나 hi\n${fake({ say: 'ok' })}`)
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
-    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'allow' }, { value: 'skip' }] })
+    // erin's words are in the read scope and shared/ is wider than the room: the wider-audience card is the one card,
+    // and it shows what the call writes (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call)
+    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: 'skip' }], details: [{ text: 'PWNED BY ERIN' }] })
     // erin is never asked, and no card reaches her
     expect(ws.erin!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === card.data.turnId)).toBe(false)
     await h.api('alice').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
@@ -831,7 +860,7 @@ describe('the AI in a thread', () => {
 // ---------------- third review (2026-11-05): room instructions from an allowlist of sections ----------------
 describe('the instructions of a room session', () => {
   test('only the sections ROOM_PROMPT_SECTIONS allows, in the main, sub-agent and resumed prompts; nothing about the person', () => {
-    expect(Object.entries(ROOM_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'project', 'shared'])
+    expect(Object.entries(ROOM_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'project', 'shared', 'sideRoom'])
     const user = loadPrincipal(h.ctx.db, 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-LAYOFF-COMMITTEE'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
@@ -863,7 +892,7 @@ describe('the instructions of a room session', () => {
       const seen = await answerTo('erin', roomId, q)
       expect(seen?.visibility).toBe('room')
       expect(seen!.body).toContain('User: Alice Kim (id alice)')
-      for (const canary of ['ALICE-PRIVATE-LAWYER-MAIL', 'ZZ-LAYOFF-COMMITTEE', 'Connected services', 'remember', 'drive_']) expect({ canary, in: seen!.body.includes(canary) }).toEqual({ canary, in: false })
+      for (const canary of ['ALICE-PRIVATE-LAWYER-MAIL', 'ZZ-LAYOFF-COMMITTEE', 'Connected services', 'remember', 'drive_', 'delete_files']) expect({ canary, in: seen!.body.includes(canary) }).toEqual({ canary, in: false })
     } finally {
       h.ctx.db.query("DELETE FROM integrations WHERE id = 'n1conn'").run()
       await h.api('dana').call(API.deleteGroup, { params: { id: g.id } })

@@ -1,9 +1,9 @@
 // Scheduled tasks: a person's prompt that the server sends for them on a schedule ("every weekday at 9:00, summarize
 // what changed in shared/회의록"). Each run is a new chat of theirs ("<title> · <date>", no emoji; title_source
-// 'schedule' and the turn's client_kind mark it as a run, not the title) with their own access, as if
-// they had typed it, so the folder rules, budgets and audit apply unchanged — except web addresses: the text is the
-// AI's (tools/schedules.ts), so the message is marked auto_sent and only the addresses the person saw on the schedule's
-// card open without asking (tools/url-gate.ts). A run is unattended: its turn has
+// 'schedule' and the turn's client_kind mark it as a run, not the title) with their own access and the engine and model
+// a chat they start then would get, as if they had typed it, so the folder rules, budgets and audit apply unchanged —
+// except web addresses: the text is the AI's (tools/schedules.ts), so the message is marked auto_sent and only the
+// addresses the person saw on the schedule's card open without asking (tools/url-gate.ts). A run is unattended: its turn has
 // client_kind 'schedule', nothing in it waits for a person (ask_user and confirmation cards answer "no" at once,
 // turn.ts waitForPerson), and the message tells the AI so. Times are the team's time zone (ChatRuntime.timeZone).
 // A free-text task runs only after its owner confirmed it on the schedule card (confirmed_at; templates need no card):
@@ -17,6 +17,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { budgetBlock } from '../admin/budgets'
+import { newChatEngine, turnEngine } from '../admin/engine-choice'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { ToolError } from '../policy/errors'
@@ -31,7 +32,7 @@ import { rememberUrls } from '../tools/url-gate'
 import { audit } from '../admin/audit'
 import { missingTemplateKey } from '../integrations/connections/schedule-needs'
 
-type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key'
+type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
 export const SCHEDULES_PER_PERSON = 20
 /** a run refused because the queue was full is tried again this much later */
@@ -124,7 +125,9 @@ export function describeSchedule(s: Pick<ScheduleRow, 'repeat' | 'time' | 'weekd
 export function scheduledRunBlock(title: string, when: string): string {
   return [
     `<scheduled_run title="${title.replace(/["<>]/g, "'")}">`,
-    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers; anything that needs the user's confirmation will be declined. Do the task with what you can find, save files in the user's personal folder unless the task names another folder, and end with a short summary of what you did and found.`,
+    // what cannot happen in a run, and that it is not the person's no (docs/DECISIONS.md "Refusals say why, who and what
+    // next": every run reported "the user did not allow saving to …" for a card nobody saw)
+    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers. No confirmation card is shown in a run, so a step that needs the user's yes on one is skipped: saving where more people can see it than what you read, moving or copying files to where other people see them, changing skills, any change after reading a team chat room, connecting a service, making a video, opening more web addresses than a run may open without asking. That is not the user refusing anything. Do the task with what you can find, save files in the user's personal folder unless the task names another folder, and end with a short summary of what you did and found, with each skipped step and that the user can do it in a chat (or change the task on the Scheduled page).`,
     '</scheduled_run>',
   ].join('\n')
 }
@@ -206,6 +209,8 @@ export class Schedules {
     // said now, not run without the service (integrations/connections/schedule-needs.ts)
     const need = missingTemplateKey(this.db, s)
     if (need) throw new HttpError('conflict', tr('scheduleNeedsKey', locale, { name: need.name }), { params: { reason: 'schedule_needs_key', templateId: need.templateId } })
+    // its project is gone for its owner: never run as a chat without it (docs/DECISIONS.md "Project skills")
+    if (s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) throw new HttpError('conflict', tr('scheduleProjectGone', locale), { params: { reason: 'schedule_project_gone' } })
     const blocked = budgetBlock(this.db, userId, locale, now)
     if (blocked) throw new HttpError('budget_exceeded', blocked.message)
     // its own occurrence key: never a whole minute, so never the key of a scheduled occurrence (turns_schedule_occurrence)
@@ -231,7 +236,8 @@ export class Schedules {
       SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
       UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT 'needs_key' code, NULL run_outcome, created_at at FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
+      UNION ALL SELECT 'project_gone' code, NULL run_outcome, created_at at FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
     if (!row) return null
     if (row.code !== 'done') return row.code
     const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
@@ -276,13 +282,22 @@ export class Schedules {
         // start, and its result and the owner's inbox say which template to connect (never anyone else's key)
         const ownerActive = !!this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
         const need = ownerActive ? missingTemplateKey(this.db, s) : null
-        const chatId = need ? null : this.start(s, now, originalDue, commit)
+        // a task in a project its owner no longer sees (the folder's access was taken away, or it is in the trash): the
+        // run does not start, rather than run as a chat without the project (docs/DECISIONS.md "Project skills")
+        const gone = ownerActive && !need && s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) ? s.project_id : null
+        const chatId = need || gone ? null : this.start(s, now, originalDue, commit)
         if (chatId) started.push(s.id)
         else this.db.transaction(() => {
           commit(null)
           const active = this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
           if (!active) this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
-          if (need) {
+          if (gone) {
+            this.db.query('INSERT INTO schedule_project_skips(id,user_id,schedule_id,scheduled_for,project_id,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+              .run(newId(), s.user_id, s.id, originalDue, gone, now.toISOString())
+            // paused after this one notice (not one at every run while the project stays gone); its owner turns it on again
+            this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
+            this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.project_gone',?,?)").run(s.id, JSON.stringify({ originalDue, project: gone, paused: true }))
+          } else if (need) {
             this.db.query('INSERT INTO schedule_template_skips(id,user_id,schedule_id,scheduled_for,template_id,template_name,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
               .run(newId(), s.user_id, s.id, originalDue, need.templateId, need.name, now.toISOString())
             this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.needs_key',?,?)").run(s.id, JSON.stringify({ originalDue, template: need.templateId }))
@@ -319,25 +334,32 @@ export class Schedules {
   }
 
   private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void, how: 'scheduled' | 'manual' = 'scheduled'): string | null {
-    const user = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id)
+    const user = this.db.query("SELECT id, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id) as { id: string; role: string } | null
     if (!user) return null
     const locale = this.rt.userLocale(s.user_id)
     if (budgetBlock(this.db, s.user_id, locale, now)) { this.rt.log.info('scheduled task skipped: budget used up', { schedule: s.id }); return null }
     const project = s.project_id ? this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) : null
-    const engine = this.rt.defaultEngine(), model = this.rt.defaultModel()
+    // a project gone since the caller looked: no run outside it (runDue and runNow say why)
+    if (s.project_id && !project) return null
+    // the owner's AI, as for a chat they start now (admin/engine-choice.ts, the same as Slack and rooms): their own
+    // default engine and model when they may pick and it is on, else the team default; decided at each run, so a later
+    // change of either applies. Every run is a new chat, so there is no chat engine to keep.
+    const person = { id: user.id, role: user.role }
+    const fresh = newChatEngine(this.rt.ctx, person, {}, locale)
+    const te = turnEngine(this.rt.ctx, person, fresh, {}, locale, (e) => this.rt.defaultModelFor(e))
     const p = zonedParts(now, this.rt.timeZone)
     const date = `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`
     const id = newId(), ts = now.toISOString()
     const turn = this.rt.createTurn({
       chat: () => {
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
-          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, engine, model, ts, ts)
+          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, ts, ts)
         // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
         // without asking (docs/DECISIONS.md "Outbound web channels")
         rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')
         return this.rt.store.chatRow(id)!
       },
-      userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine, model,
+      userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine: te.engine, model: te.model, ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
       scheduled: { id: s.id, dueAt: originalDue, commit: (chatId) => {
         commit(chatId)
         if (s.template_id) this.db.query('UPDATE turns SET template_source_path=?,template_output_path=? WHERE schedule_id=? AND scheduled_for=?')

@@ -187,6 +187,7 @@ func TestTenantAdminCommands(t *testing.T) {
 		"archive":                `{"passphrase":"p","size":1,"sha256":"x","parts":[{"n":1,"etag":"e"}]}`,
 		"reset-link":             `{"url":"https://acme.treesoop.com/reset-password/abc","expiresAt":"2026-10-23T00:00:00.000Z"}`,
 		"setup-token-rotate":     `{"setupToken":"tok_0123456789abcdefghijklmn"}`,
+		"owner-recovery-claimed": `{"ok":true,"cleared":true}`,
 		"credentials-escrow-out": `{"absent":true}`,
 	}}
 	f.install(t)
@@ -206,6 +207,7 @@ func TestTenantAdminCommands(t *testing.T) {
 		{"", []string{"reset-link", "--json", "--owner"}, []string{"reset-link"}, "url"},
 		{"", []string{"reset-link", "--json", "--username", "kim.lee@acme"}, []string{"reset-link", "--username", "kim.lee@acme"}, "url"},
 		{"", []string{"setup-token-rotate", "--json"}, []string{"setup-token-rotate"}, "setupToken"},
+		{"", []string{"owner-recovery-claimed", "--json"}, []string{"owner-recovery-claimed"}, "cleared"},
 		{"", []string{"credentials-escrow-out", "--json", "--recipient", recip}, []string{"credentials-escrow-out", "--recipient", recip}, "absent"},
 	} {
 		f.adminCalls = nil
@@ -489,5 +491,21 @@ func TestTenantArgvVectors(t *testing.T) {
 		if code, out, errs := tb.tctl("", x.Argv...); code != 0 || out == "" {
 			t.Fatalf("%v: %d %q %s", x.Argv, code, out, errs)
 		}
+	}
+}
+
+// reset-link after a handover (admin.js exit 3, owner_recovery_locked): mycel-ctl exits 3 with the code on stderr and
+// prints nothing, so the control plane tells it from a failure; any other admin.js failure stays exit 1.
+func TestTenantResetLinkLocked(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{adminOut: map[string]string{}, adminErr: adminExit{code: 3, msg: "admin.js reset-link: exit status 3: error: owner_recovery_locked"}}
+	f.install(t)
+	code, out, errs := tb.tctl("", "reset-link", "--json", "--owner")
+	if code != 3 || out != "" || !strings.Contains(errs, "owner_recovery_locked") {
+		t.Fatalf("locked: %d %q %s", code, out, errs)
+	}
+	f.adminErr = adminExit{code: 1, msg: "admin.js reset-link: exit status 1: boom"}
+	if code, _, _ := tb.tctl("", "reset-link", "--json", "--username", "kim"); code != 1 {
+		t.Fatalf("other failure: %d", code)
 	}
 }

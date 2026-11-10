@@ -173,10 +173,11 @@ export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotific
   }
 }
 
-/** A single room notice, as a push opens it (GET /api/notifications/:id): who and where, never the text. `label` is the
- * notification's title on a device in the person's language ("민준 · #마케팅 › 스레드", a DM "민준"). null while the
- * person may not read its message. */
-export function roomNoticeOut(db: Database, notice: { id: string; user_id: string; event_type: string; source_id: string }, locale: Locale): NonNullable<InboxNotification['room']> | null {
+/** A single room notice, as a push opens it (GET /api/notifications/:id): who and where. `label` is the notification's
+ * title on a device in the person's language ("민준 · #마케팅 › 스레드", a DM "민준"). `preview`, the message's first line
+ * (the notification's body), only with `o.preview` (the person's messagePreview) and only for a message the whole room
+ * sees; never for one with only files (''). null while the person may not read its message. */
+export function roomNoticeOut(db: Database, notice: { id: string; user_id: string; event_type: string; source_id: string }, locale: Locale, o: { preview?: boolean } = {}): NonNullable<InboxNotification['room']> | null {
   const s = db.query(`SELECT ${MSG}, m.room_id, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.mentions, m.mentions_all FROM room_messages m WHERE m.id = ?`)
     .get(notice.source_id) as (Msg & { room_id: string; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; mentions: string; mentions_all: number }) | null
   const room = s && db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq, rm.history_from_seq FROM rooms r JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ?
@@ -185,8 +186,10 @@ export function roomNoticeOut(db: Database, notice: { id: string; user_id: strin
     || isHiddenFor(db, { id: s.id, room_id: s.room_id, thread_root_id: s.thread_root_id }, notice.user_id)) return null
   const who = writer(db, s), name = roomName(db, room)
   const reason = parseMentions(s.mentions).includes(notice.user_id) ? 'mention' as const : s.mentions_all && s.author_id !== notice.user_id ? 'everyone' as const : s.thread_root_id ? 'reply' as const : 'message' as const
+  const line = o.preview && s.visibility === 'room' ? messageLine(s) : ''
   return {
     id: s.room_id, ...who, ...(s.thread_root_id ? { thread: s.thread_root_id } : {}), kind: room.kind, name, reason, message: s.id, count: 1, people: 1, at: s.created_at,
+    ...(line ? { preview: line } : {}), seq: s.seq,
     label: roomLabel(db, { roomId: s.room_id, userId: notice.user_id, kind: room.kind, name, thread: !!s.thread_root_id, who: who.from ?? (who.ai ? ROOM_WORDS[locale].ai : null) }, locale),
   }
 }

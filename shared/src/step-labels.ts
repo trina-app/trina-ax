@@ -4,7 +4,8 @@
 // (docs/DECISIONS.md "언어"). A label is always "<words> + what the AI touched" (a path, a query, a remembered text),
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
-import { BRAND_IMAGES_FOLDER, NOTES_FOLDER, PACK_FOLDERS } from './api/onboarding-packs'
+import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
+import { TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { maskSecrets } from './secrets'
 
@@ -26,6 +27,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos"),
   rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre"),
+  delete_files: t('휴지통으로 옮기기', 'Move to trash', 'Pindahkan ke tempat sampah', "ゴミ箱に移動", "Mover a la papelera"),
   artifact: t('아티팩트', 'Artifact', 'Artefak', "アーティファクト", "Artefacto"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página"),
   save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo"),
@@ -46,6 +48,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
   skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
   find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
+  move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad"),
+  skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades"),
   find_tools: t('도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
@@ -55,6 +59,9 @@ export const FILE_STEP_VERB: Record<string, T> = {
   room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat"),
   room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat"),
   save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat"),
+  // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
+  // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
+  post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala'),
   // a room's own AI session opens one of the room's threads (an id means nothing to the person: the verb alone)
   room_thread: t('스레드 읽기', 'Read thread', 'Baca utas', "スレッドを読む", "Leer hilo"),
   // a room's own AI session finds and reads the shared project chats the asker may view (server/src/chat/room-project-chats.ts):
@@ -134,10 +141,10 @@ export const STEP_TEXT = {
   /** demo mode (server/src/demo/replay.ts): the answer is a recorded real run played again */
   demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración"),
   engineOffDefault: t('{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"),
-  /** a server with the hosting service's trial credit: the chat's engine has no AI connection for the person, the other
-   * one has (server/src/credentials/access.ts connectionRoute) */
+  /** "다른 AI로 대신 답하기": the chat's engine has no AI connection for the person, the other one has
+   * (server/src/credentials/access.ts connectionRoute) */
   engineNoConnection: t('{from}에 쓸 AI 연결이 없어 연결된 {to}로 답해요', 'No AI connection for {from}; answering with {to}, which is connected', 'Tidak ada koneksi AI untuk {from}; menjawab dengan {to} yang terhubung', "{from}用のAI接続がないため、接続済みの{to}で回答します", "No hay conexión de IA para {from}; se responde con {to}, que sí está conectado"),
-  /** "Claude 한도에 닿으면 Codex로 넘기기": the subscription limit was hit and the admin allowed the fallback */
+  /** "다른 AI로 대신 답하기": the Claude subscription limit was hit and the admin allowed the fallback */
   limitFallback: t('{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"),
   credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"),
   /** a sub-agent's part of the answer (Claude Code's Agent tool); {d} is the AI's own short description of it */
@@ -145,6 +152,27 @@ export const STEP_TEXT = {
   credentialSwitchInvalid: t('AI 연결이 거절되어 다른 연결로 이어서 답해요', 'The AI connection was refused; continuing with another one', 'Koneksi AI ditolak; dilanjutkan dengan koneksi lain', "AI接続が拒否されたため、別の接続で続けます", "Se rechazó la conexión de IA; se continúa con otra"),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
+
+/** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
+export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso")
+/**
+ * A step's words alone, without what it touched (a path, an address, a query, a remembered text): the verb of its tool,
+ * else a word for its kind. The steps of a chat's answers from before it was shared, as everyone but the person whose
+ * answer it was sees them (server/src/chat/store.ts viewSteps, docs/DECISIONS.md "Shared project chats").
+ */
+export function stepWords(step: { kind: string; tool?: string }, locale: Locale): string {
+  const pick = (x: T) => x[locale] ?? x.en
+  const tool = step.tool
+  const verb = tool && Object.hasOwn(FILE_STEP_VERB, tool) ? FILE_STEP_VERB[tool] : tool && Object.hasOwn(BROWSER_STEP_VERB, tool) ? BROWSER_STEP_VERB[tool] : undefined
+  if (verb) return pick(verb)
+  if (step.kind === 'thinking') return pick(STEP_TEXT.thinking)
+  if (step.kind === 'web_search') return pick(STEP_TEXT.webSearchPlain)
+  if (step.kind === 'browser') return pick(BROWSER_STEP_FALLBACK)
+  return pick(STEP_WORDS_OTHER)
+}
+/** A tool of ours (one with words of its own), whose name says nothing about the person: a connection's tool is named
+ * after the connection (mcp__…__<slug>__<tool>), so where only a step's words may show, its name goes too. */
+export const knownStepTool = (tool: string): boolean => Object.hasOwn(FILE_STEP_VERB, tool) || Object.hasOwn(BROWSER_STEP_VERB, tool)
 
 const fill = (template: string, vars: Record<string, string>) => template.replace(/\{(\w+)\}/g, (all, k: string) => vars[k] ?? all)
 export const stepText = (key: StepTextKey, locale: Locale, vars: Record<string, string> = {}) => fill(STEP_TEXT[key][locale] ?? STEP_TEXT[key].en, vars)
@@ -191,6 +219,12 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'share_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
+    case 'skill_files': return `${verb} · ${clip(a.path, 60)}${a.to_folder ? ` → ${clip(a.to_folder, 40)}` : a.new_name ? ` → ${clip(a.new_name, 40)}` : ''}`
+    case 'delete_files': {
+      // the first item and how many more ("+3": a number, the same in every language)
+      const paths = Array.isArray(a.paths) ? [...new Set(a.paths)] : []
+      return paths.length ? `${verb} · ${clip(paths[0], 80)}${paths.length > 1 ? ` +${paths.length - 1}` : ''}` : verb!
+    }
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
@@ -203,11 +237,13 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
     case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
+    case 'move_skill': return `${verb} · ${clip(a.skill, 60)} → ${clip(a.to === 'group' ? a.group ?? a.to : a.to === 'project' ? a.project ?? a.to : a.to, 40)}`
     case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
     // a room the AI passed as an id is named by the server once it is found (the step is patched); "#" tokens by title
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}` : verb! }
+    case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
@@ -229,11 +265,12 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** The team's well-known folders by name in a step line (docs/DECISIONS.md "W2"): "파일 읽기 · 브랜드 이미지 폴더 ›
  * 홈페이지-6.jpg", not "groups/<team>/브랜드/이미지/홈페이지-6.jpg", which a phone cut before the file's name. */
 export const STEP_PLACE = {
-  /** groups/<team>/브랜드/이미지/ (the brand folder's images folder, named in the team's language) */
+  /** groups/<team>/브랜드/이미지/ or shared/브랜드/이미지/ (the brand folder's images folder, named in the team's
+   * language) */
   brandImages: t('브랜드 이미지 폴더', 'Brand images folder', 'Folder gambar merek', "ブランド画像フォルダー", "Carpeta de imágenes de marca"),
-  /** groups/<team>/브랜드/ */
+  /** groups/<team>/브랜드/ or shared/브랜드/ */
   brand: t('브랜드 폴더', 'Brand folder', 'Folder merek', "ブランドフォルダー", "Carpeta de marca"),
-  /** groups/<team>/회의록/ */
+  /** groups/<team>/회의록/ or shared/회의록/ */
   notes: t('회의록 폴더', 'Meeting notes folder', 'Folder notulen rapat', "議事録フォルダー", "Carpeta de actas"),
   /** groups/<team>/: the team's folder, by the team's name */
   team: t('{team} 폴더', '{team} folder', 'Folder {team}', "{team}フォルダー", "Carpeta {team}"),
@@ -241,12 +278,12 @@ export const STEP_PLACE = {
   attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos"),
   /** users/<id>/: an answer only ever reaches the person's own */
   own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta"),
-  /** shared/: the whole team's */
-  shared: t('공유 폴더', 'Shared folder', 'Folder bersama', "共有フォルダー", "Carpeta compartida"),
+  /** shared/: the whole team's, by the name the file screen gives it (shared/src/folder-labels.ts) */
+  shared: TOP_FOLDER_LABELS.shared,
 } satisfies Record<string, T>
 
 const nfcSet = (names: Record<Locale, string>) => new Set(Object.values(names).map((n) => n.normalize('NFC')))
-const BRAND_NAMES = nfcSet(PACK_FOLDERS.brand)
+const BRAND_NAMES = nfcSet(BRAND_FOLDER)
 const IMAGES_NAMES = nfcSet(BRAND_IMAGES_FOLDER)
 const NOTES_NAMES = nfcSet(NOTES_FOLDER)
 
@@ -265,12 +302,17 @@ export function placeName(path: string, locale: Locale): string | null {
     return say('team', 2, { team: a })
   }
   if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : say('own', 2)
-  if (top === 'shared') return say('shared', 1)
+  if (top === 'shared') {
+    // the team's start puts the brand and meeting notes folders here since docs/DECISIONS.md "Team folder basics"
+    if (a && BRAND_NAMES.has(a)) return b && IMAGES_NAMES.has(b) ? say('brandImages', 3) : say('brand', 2)
+    if (a && NOTES_NAMES.has(a)) return say('notes', 2)
+    return say('shared', 1)
+  }
   return null
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'share_file', 'move_files', 'copy_files', 'rename_file', 'save_url', 'hwp_render'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a

@@ -167,7 +167,7 @@ dl.kv dd{ color:var(--ink-2);}
     <li><span class="no">06</span><span class="tt">AI가 만든 결과물</span><span class="ds">파일 만들기 · 결과물 창</span><span class="pg" data-toc="c6"></span></li>
     <li><span class="no">07</span><span class="tt">데스크톱 앱의 브라우저</span><span class="ds">AI가 웹사이트에서 일하기</span><span class="pg" data-toc="c7"></span></li>
     <li><span class="no">08</span><span class="tt">기억과 프로젝트</span><span class="ds">메모리 · 프로젝트 지침</span><span class="pg" data-toc="c8"></span></li>
-    <li><span class="no">09</span><span class="tt">팀장·관리자용</span><span class="ds">멤버 · 그룹 · 팀 스킬 관리 · 폴더 권한 · 사용량 · 기록 · 팀 설정</span><span class="pg" data-toc="c9"></span></li>
+    <li><span class="no">09</span><span class="tt">팀장·관리자용</span><span class="ds">멤버 · 그룹 · 팀 스킬 관리 · 폴더 권한 · 사용량 · 활동 로그 · 팀 설정</span><span class="pg" data-toc="c9"></span></li>
     <li><span class="no">10</span><span class="tt">자주 묻는 질문</span><span class="ds">내 폴더와 대화는 누가 보나요</span><span class="pg" data-toc="c10"></span></li>
   </ol>
 
@@ -335,7 +335,7 @@ dl.kv dd{ color:var(--ink-2);}
     <li><span class="n">3</span><b>파일 첨부</b> — 클립을 누르면 <span class="ui">내 컴퓨터에서 올리기</span>와 <span class="ui">팀 파일에서 추가</span>를 고를 수 있어요. 파일을 입력창에 끌어다 놓거나, 복사한 이미지를 붙여 넣어도 돼요.</li>
     <li><span class="n">4</span><b>AI 고르기</b> — AI 엔진과 모델은 관리자가 정해요. 그래서 보통은 이 버튼이 없고, 팀 기본 엔진이 답해요. 관리자와, 관리자가 허용한 사람에게만 보여요(Claude·Codex와 모델). 허용된 사람은 <span class="ui">설정</span> › <span class="ui">내 기본 엔진/모델</span>에서 새 채팅이 쓸 엔진을 정해 둘 수 있어요.</li>
     <li><span class="n">5</span><b>음성 입력</b> — 마이크를 누르고 말하면 글로 받아 적어요. 처음 한 번은 준비하느라 시간이 좀 걸려요.</li>
-    <li><span class="n">6</span><b>내 AI가 볼 수 있는 폴더</b> — 새 채팅을 열면 입력창 아래에 보여요. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. 대화를 시작한 뒤에는 <span class="ui">파일</span> 화면에서 확인할 수 있어요.</li>
+    <li><span class="n">6</span><b>팀에 준비된 것</b> — 처음 들어오면 입력창 아래에 팀이 준비한 스킬과 팀 파일이 보여요. 스킬은 <span class="ui">예시</span>로 결과를 미리 보고 <span class="ui">써 보기</span>로 바로 써요. 팀 파일은 <span class="ui">물어보기</span>를 누르면 질문이 입력창에 들어가요(보내기 전까지 아무것도 가지 않아요). 아직 준비된 게 없으면 <b>이렇게 시작해 보세요</b> 아래 바로 물어볼 질문 하나가 보여요. 내 AI가 볼 수 있는 폴더는 <span class="ui">파일</span> 화면에서 확인할 수 있어요.</li>
   </ol>
 
   <h3>파일을 첨부해서 묻기</h3>
@@ -391,7 +391,8 @@ dl.kv dd{ color:var(--ink-2);}
   <ul>
     <li><b>답변 복사 · 다시 생성</b>: 답변 바로 아래 작은 버튼이에요(6장 그림의 4번).</li>
     <li><b>답변이 실패했을 때</b>: 빨간 안내 옆의 <span class="ui">다시 시도</span>를 눌러요. 엔진을 고를 수 있는 사람에게는 <span class="ui">다른 모델로 다시 시도</span>도 보여요.</li>
-    <li><b>채팅 이름 바꾸기·삭제</b>: 왼쪽 목록에서 채팅에 마우스를 올리고 ⋯ 를 눌러요. 지운 직후 뜨는 알림의 <span class="ui">실행 취소</span>로 바로 되살릴 수 있고, 7일 동안은 왼쪽 아래 <span class="ui">삭제한 채팅</span>에서 <span class="ui">되돌리기</span>할 수 있어요.</li>
+    <li><b>채팅 이름 바꾸기·삭제</b>: 왼쪽 목록에서 채팅에 마우스를 올리고 ⋯ 를 눌러요. 지운 직후 뜨는 알림의 <span class="ui">실행 취소</span>로 바로 되살릴 수 있고, 7일 동안은 왼쪽 아래 <span class="ui">삭제한 기록</span>에서 <span class="ui">되돌리기</span>할 수 있어요.</li>
+    <li><b>채팅 상단에 고정</b>: 같은 ⋯ 메뉴의 <span class="ui">상단에 고정</span>을 누르면 그 채팅이 목록 맨 위에 핀과 함께 남아요. <span class="ui">고정 해제</span>로 되돌려요. 고정은 나에게만 보여요.</li>
   </ul>
   <div class="warn"><b>다시 생성해도 파일은 그대로</b><p>AI가 이미 팀 폴더 파일을 바꿨다면, 다시 생성해도 파일은 되돌아가지 않아요. 바뀌기 전 내용은 파일의 <b>버전 기록</b>(5장)에 남아요.</p></div>
 
@@ -402,7 +403,8 @@ dl.kv dd{ color:var(--ink-2);}
     <dt>AI 사용 한도를 다 썼어요</dt><dd>팀이 정한 하루·한 달 한도를 넘었어요. 안내에 나온 시각부터 다시 쓸 수 있고, 더 필요하면 관리자에게 말해요.</dd>
     <dt>…로 바뀌었어요</dt><dd>대화 중에 AI가 Claude ↔ Codex로 바뀌면 나와요. 새 AI는 이전 대화를 기록으로 넘겨받아 이어서 답해요.</dd>
     <dt>… 엔진이 꺼져 있어 팀 기본 엔진으로 답해요</dt><dd>이 채팅이 쓰던 엔진을 관리자가 껐어요. 이번 답부터 팀 기본 엔진이 이어서 답해요.</dd>
-    <dt>Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답해요</dt><dd>관리자가 한도 대체를 켜 둔 팀에서, Claude 구독 한도에 닿은 답을 Codex가 마저 답했어요. 다음 질문은 다시 Claude가 받아요.</dd>
+    <dt>…에 쓸 AI 연결이 없어 연결된 …로 답해요</dt><dd>관리자가 <b>다른 AI로 대신 답하기</b>를 켜 둔 팀에서, 이 채팅의 AI에 쓸 연결이 없어 연결된 다른 AI가 답했어요. 채팅의 AI는 그대로라 그 AI의 연결이 생기면 다시 그 AI가 답해요.</dd>
+    <dt>Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답해요</dt><dd>관리자가 <b>다른 AI로 대신 답하기</b>를 켜 둔 팀에서, Claude 구독 한도에 닿은 답을 Codex가 마저 답했어요. 다음 질문은 다시 Claude가 받아요.</dd>
   </dl>
   <div class="tip"><b>잘 묻는 법</b><p>“무엇을(어느 파일) + 어떻게(표·요약·초안) + 어디에(저장 위치)”를 같이 말해요. 예: “<span class="path">groups/마케팅</span> 회의록으로 이번 주 보고서 초안을 써서 내 폴더에 워드로 저장해 줘”.</p></div>
 </section>
@@ -558,21 +560,21 @@ dl.kv dd{ color:var(--ink-2);}
     </div>
   </figure>
   <ol class="steps">
-    <li><span class="n">1</span><span class="ui">이 프로젝트에서 채팅</span> — 프로젝트의 폴더와 지침으로 새 대화를 시작해요. 내 채팅은 왼쪽 “내 채팅”에 모여요.</li>
+    <li><span class="n">1</span><span class="ui">이 프로젝트에서 채팅</span> — 프로젝트의 폴더와 지침으로 새로 물어봐요. 이 프로젝트에서 연 기록은 아래 목록에 모여요.</li>
     <li><span class="n">2</span><b>지침</b>과 <b>폴더의 파일</b> — 지침을 고치려면 위쪽 <span class="ui">수정</span>을 눌러요. 이름·지침 수정과 삭제는 <b>프로젝트를 만든 사람과 관리자</b>만 할 수 있어요.</li>
   </ol>
-  <p class="small">새 프로젝트는 <span class="ui">프로젝트</span> › <span class="ui">새 프로젝트</span>에서 이름, 폴더, 지침을 정해 만들어요. 지침이 바뀌면 그 프로젝트를 쓰는 사람에게 알림이 가요. 프로젝트를 지워도 폴더와 채팅은 남아요.</p>
+  <p class="small">새 프로젝트는 <span class="ui">프로젝트</span> › <span class="ui">새 프로젝트</span>에서 이름, 폴더, 지침을 정해 만들어요. 지침이 바뀌면 그 프로젝트를 쓰는 사람에게 알림이 가요. 프로젝트를 지워도 폴더와 기록은 남아요.</p>
 </section>
 
 <!-- ============================================================ 9 -->
 <section class="chap flow" id="c9">
   <div class="chap-head"><span class="no">09</span><h2>팀장·관리자용</h2><span class="for">팀장 · 관리자</span></div>
-  <p class="lead">왼쪽 메뉴의 <span class="ui">관리자</span>에서 팀원, 그룹, 폴더 권한, AI, 사용량, 기록, 팀 설정을 관리해요. 앱에는 다른 사람의 대화와 메모리를 여는 화면이 없어요.</p>
+  <p class="lead">왼쪽 메뉴의 <span class="ui">관리자</span>에서 팀원, 그룹, 폴더 권한, AI, 사용량, 활동 로그, 팀 설정을 관리해요. 앱에는 다른 사람의 대화와 메모리를 여는 화면이 없어요.</p>
   <div class="row">
     <table class="t" style="flex:1">
       <tr><th style="width:17mm">역할</th><th>할 수 있는 일</th></tr>
       <tr><td><b>팀장</b></td><td>관리자가 하는 모든 일 + <b>관리자 만들기</b>(관리자 역할로 추가·초대), <b>멤버 삭제</b>, <span class="ui">시스템</span>(진단·백업·복원·업데이트·내보내기).</td></tr>
-      <tr><td><b>관리자</b></td><td><span class="ui">멤버·초대</span>, <span class="ui">그룹</span>, <span class="ui">폴더 권한</span>, <span class="ui">AI 엔진</span>(사용 한도 포함), <span class="ui">사용량</span>, <span class="ui">기록</span>, <span class="ui">팀 설정</span>. 다른 사람의 개인 폴더를 뺀 모든 폴더에 쓸 수 있어요.</td></tr>
+      <tr><td><b>관리자</b></td><td><span class="ui">멤버·초대</span>, <span class="ui">그룹</span>, <span class="ui">폴더 권한</span>, <span class="ui">AI 엔진</span>(사용 한도 포함), <span class="ui">사용량</span>, <span class="ui">활동 로그</span>, <span class="ui">팀 설정</span>. 다른 사람의 개인 폴더를 뺀 모든 폴더에 쓸 수 있어요.</td></tr>
       <tr><td><b>팀원</b></td><td>폴더 권한에 따라 정해진 폴더만 보고 써요.</td></tr>
     </table>
     <figure class="shot" style="flex:none;width:36mm"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>관리자 메뉴</figcaption></figure>
@@ -613,17 +615,17 @@ dl.kv dd{ color:var(--ink-2);}
   <h3>그룹</h3>
   <p><span class="ui">그룹</span> › <span class="ui">새 그룹</span>에서 이름과 멤버를 정해요. 그룹을 만들면 <span class="path">groups/그룹 이름</span> 폴더가 생기고, 그 그룹은 이 폴더를 읽고 쓸 수 있어요. 멤버는 <span class="ui">수정</span>에서 바꿔요. 그룹을 지우면 그 그룹에 걸린 폴더 권한도 함께 지워져요.</p>
   <h3>팀 스킬 관리 — 누가 스킬을 바꾸나</h3>
-  <p><span class="path">skills</span> 폴더의 스킬과 팀 규칙은 <b>팀 전체 AI가 따라요</b>. 그래서 바꿀 수 있는 사람을 따로 정해요. 팀장·관리자는 항상 바꿀 수 있고, 다른 사람은 <span class="ui">멤버·초대</span>나 <span class="ui">그룹</span> 화면의 <span class="ui">팀 스킬 관리</span> 스위치를 켜 준 경우에만 바꿀 수 있어요.</p>
+  <p><span class="path">skills</span> 폴더의 스킬과 팀 규칙은 <b>팀 전체 AI가 따라요</b>. 그래서 바꿀 수 있는 사람을 따로 정해요. 팀장·관리자는 항상 바꿀 수 있고, 다른 사람은 팀장·관리자가 맡긴 경우에만 바꿀 수 있어요. 누가 바꿀 수 있는지는 <span class="ui">팀 스킬</span> 화면 제목 아래 “고칠 수 있는 사람” 줄에 있어요(팀장·관리자에게만 보여요).</p>
   <div class="row">
     <div class="side">
       <ol class="steps">
-        <li><span class="n">1</span>사람(또는 그룹) 줄의 <span class="ui">팀 스킬 관리</span> 스위치를 켜요. 경고를 읽어 주세요.</li>
-        <li><span class="n">2</span><span class="ui">관리할 범위</span>에서 <span class="path">skills</span> 전체나 <span class="path">skills/재무</span> 같은 하위 폴더만 골라요(<span class="ui">새 하위 폴더…</span>로 만들 수도 있어요).</li>
-        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. 이 설정은 <span class="ui">폴더 권한</span>에서 “읽기·쓰기 · 팀 스킬 관리”로도 보여요. 끄면 쓰기 권한만 빠지고 만든 스킬은 남아요.</li>
+        <li><span class="n">1</span><span class="ui">팀 스킬</span> 화면의 “고칠 수 있는 사람” 줄에서 <span class="ui">바꾸기</span>를 눌러요.</li>
+        <li><span class="n">2</span><span class="ui">사람이나 그룹 추가</span>에서 이름으로 찾아 골라요. 경고를 읽어 주세요.</li>
+        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. <span class="path">skills</span> 전체를 고칠 수 있게 돼요. 이 설정은 <span class="ui">폴더 권한</span>에서 “읽기·쓰기 · 팀 스킬 관리”로도 보여요. <span class="ui">빼기</span>를 누르면 쓰기 권한만 빠지고 만든 스킬은 남아요. <span class="path">skills/재무</span> 같은 하위 폴더만 맡기려면 창 아래의 <span class="ui">폴더별로 맡기려면 폴더 권한에서</span>로 가서 그 폴더에 쓰기 권한을 줘요.</li>
       </ol>
       <p class="small">누가 바꾸든(AI 포함) 팀장·관리자에게 “팀 스킬이 바뀌었어요” 알림이 가요. <span class="ui">버전 기록 보기</span>를 누르면 그 파일의 예전 버전으로 되돌릴 수 있어요. 지난 변경은 왼쪽 <span class="ui">팀 스킬</span> › <span class="ui">최근 변경</span>에 있어요.</p>
     </div>
-    <figure class="shot" style="flex:1"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>Bob에게 <span class="path">skills/재무</span>만 맡기는 화면.</figcaption></figure>
+    <figure class="shot" style="flex:1"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>Bob에게 팀 스킬을 맡기는 화면.</figcaption></figure>
   </div>
   <div class="row">
     <figure class="shot" style="flex:1"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>AI가 <span class="path">skills</span>에 저장하기 전에 뜨는 서버의 확인 카드. 바뀌는 줄이 보여요.</figcaption></figure>
@@ -636,7 +638,7 @@ dl.kv dd{ color:var(--ink-2);}
   <p><span class="ui">AI 엔진</span> 화면의 <b>팀 기본값</b>이 모든 답의 엔진과 모델이에요(처음에는 Claude Code, 기본 모델). 팀원은 채팅에서 엔진을 고르지 않고 이 기본값으로 답을 받아요. 같은 화면의 <b>엔진 선택 권한</b>에서 바꿀 수 있어요.</p>
   <ul>
     <li><b>팀원이 엔진 고르기 허용</b> — 기본은 <span class="ui">허용 안 함</span>이에요. <span class="ui">모든 팀원</span> 또는 <span class="ui">고른 그룹·사람만</span>으로 바꾸면 그 사람들의 입력창에 엔진 고르기와 <span class="ui">다른 모델로 다시 시도</span>, 설정의 <span class="ui">내 기본 엔진/모델</span>이 생겨요. owner와 관리자는 언제나 고를 수 있어요. 이미 있는 채팅은 쓰던 엔진을 그대로 쓰고, 그 엔진을 끄면 팀 기본 엔진으로 이어서 답해요(답변에 표시돼요).</li>
-    <li><b>Claude 한도에 닿으면 Codex로 넘기기</b> — 기본은 꺼져 있어요. 켜면 Claude 구독 한도에 닿은 답을 Codex가 이어서 답하고, 답변과 <span class="ui">기록</span>에 남아요. <b>이때 그 대화가 OpenAI로도 보내져요.</b> 켜기 전에 팀 데이터를 OpenAI로 보내도 되는지 확인하세요. Codex를 끄면(사무실 모드는 처음부터 꺼져 있어요) 켤 수 없고, 켜져 있던 것도 꺼져요.</li>
+    <li><b>다른 AI로 대신 답하기</b> — 직접 설치한 서버는 기본으로 꺼져 있고, 호스팅 서버는 켜져 있어요. 켜면 채팅의 AI에 쓸 수 있는 연결이 없을 때 연결된 다른 AI(Claude Code 또는 Codex)가 대신 답하고, Claude 구독 한도에 닿은 답은 Codex가 이어서 답해요. 답변에 표시가 남아요. <b>이때 그 대화가 다른 AI 회사(OpenAI 또는 Anthropic)로도 보내져요.</b> 켜기 전에 팀 데이터를 두 곳 모두에 보내도 되는지 확인하세요. Codex를 끄면(사무실 모드는 처음부터 꺼져 있어요) 켤 수 없고, 켜져 있던 것도 꺼져요.</li>
   </ul>
   <h3>AI 사용 한도</h3>
   <figure class="shot"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div></figure>
@@ -669,7 +671,7 @@ dl.kv dd{ color:var(--ink-2);}
 </section>
 
 <section id="c9c">
-  <h3>기록</h3>
+  <h3>활동 로그</h3>
   <figure class="shot center" style="width:88%"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>종류를 “파일”로 거른 화면</figcaption></figure>
   <p>관리자 작업, 파일 변경, AI 도구 사용, 로그인(실패 포함)이 시간순으로 남아요. 대화 내용은 남지 않지만, <b>AI 도구</b> 기록에는 다음이 보여요.</p>
   <ul>
@@ -701,7 +703,7 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
   <div class="faq"><div class="q">AI가 내 개인 폴더를 다른 사람에게 보여 주나요?</div><div class="a"><p>아니요. 앱에서 <span class="path">users/내 아이디</span> 폴더는 나만 볼 수 있어요. 팀장·관리자 화면에도 나오지 않고, 다른 사람의 AI도 읽을 수 없어요. 내가 채팅에 첨부한 파일도 이 폴더에 저장돼요.</p><p>다만 두 가지는 알아 두세요. 계정이 삭제되면 내 폴더는 팀장에게 넘어가요. 그리고 팀 서버 맥을 직접 관리하는 사람은 그 맥의 디스크와 백업에 접근할 수 있어요.</p></div></div>
 
-  <div class="faq"><div class="q">관리자가 내 대화를 보나요?</div><div class="a"><p>앱에는 다른 사람의 대화나 메모리를 여는 화면이 없어요. 팀장도 마찬가지예요. 다만 대화는 팀 서버(사무실 맥)와 그 백업에 저장되니, 서버 맥을 직접 다루는 사람은 기술적으로 꺼내 볼 수 있어요.</p><p>관리자 화면의 <b>기록</b>에는 대화 내용은 없지만, AI가 읽고 쓴 팀 파일 위치, AI가 연 웹 페이지 주소, 권한이 없어 막힌 시도(위치 포함), 로그인 기록이 남아요. <b>사용량</b>에는 사람별 답변 수와 사용량이 나와요.</p></div></div>
+  <div class="faq"><div class="q">관리자가 내 대화를 보나요?</div><div class="a"><p>앱에는 다른 사람의 대화나 메모리를 여는 화면이 없어요. 팀장도 마찬가지예요. 다만 대화는 팀 서버(사무실 맥)와 그 백업에 저장되니, 서버 맥을 직접 다루는 사람은 기술적으로 꺼내 볼 수 있어요.</p><p>관리자 화면의 <b>활동 로그</b>에는 대화 내용은 없지만, AI가 읽고 쓴 팀 파일 위치, AI가 연 웹 페이지 주소, 권한이 없어 막힌 시도(위치 포함), 로그인 기록이 남아요. <b>사용량</b>에는 사람별 답변 수와 사용량이 나와요.</p></div></div>
 
   <div class="faq"><div class="q">AI 회사로는 무엇이 가나요?</div><div class="a"><p>답을 만들려고 내 질문, 첨부한 파일, AI가 읽은 팀 파일 내용, 메모리, 그 채팅의 이전 대화가 AI 회사로 보내져요(Claude는 Anthropic, Codex는 OpenAI). 팀이 연결한 AI 계정으로 처리돼요. 회사 밖으로 나가면 안 되는 자료는 AI에게 읽히지 마세요.</p></div></div>
 
@@ -711,7 +713,7 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
   <div class="faq"><div class="q">AI가 더 많은 사람이 보는 폴더에 저장해 버리면요?</div><div class="a"><p>내가 읽은 자료보다 더 많은 사람이 보는 폴더에 AI가 쓰려고 하면, 저장하기 전에 “팀 서버의 안전 확인” 카드로 먼저 물어봐요. 거절하면 저장하지 않아요. 허용하면 그 폴더를 보는 사람은 모두 볼 수 있으니 잘 보고 고르세요.</p></div></div>
 
-  <div class="faq"><div class="q">실수로 파일이나 채팅을 지웠어요.</div><div class="a"><p>파일은 <span class="ui">파일</span> › <span class="ui">휴지통</span>에서 30일 안에, 채팅은 <span class="ui">삭제한 채팅</span>에서 7일 안에 되돌릴 수 있어요. 내용을 잘못 고쳤다면 ⋯ › <span class="ui">버전 기록</span>에서 예전 내용을 받아요(5장).</p></div></div>
+  <div class="faq"><div class="q">실수로 파일이나 채팅을 지웠어요.</div><div class="a"><p>파일은 <span class="ui">파일</span> › <span class="ui">휴지통</span>에서 30일 안에, 채팅은 <span class="ui">삭제한 기록</span>에서 7일 안에 되돌릴 수 있어요. 내용을 잘못 고쳤다면 ⋯ › <span class="ui">버전 기록</span>에서 예전 내용을 받아요(5장).</p></div></div>
 
   <div class="faq"><div class="q">갑자기 어떤 폴더가 안 보여요.</div><div class="a"><p>폴더 권한이 바뀌었을 수 있어요. 화면에 “폴더 권한이 바뀌었어요” 알림이 떴다면 팀장이나 관리자에게 확인해 보세요.</p></div></div>
 

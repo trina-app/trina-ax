@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Attachment } from '@mycel/shared/api'
 import type { AppContext } from '../context'
+import { which } from '../config'
 import { newId } from '../db'
 import { ext } from '../files/extract'
 import { fileEvent } from '../files/store'
@@ -13,13 +14,15 @@ import { authorize } from '../policy/authorize'
 import { badSegment } from '../policy/names'
 import { publishChanges } from '../team-files/changes'
 import { fileError } from '../team-files/errors'
-import { checkRegular, freeName, installFile } from '../team-files/place'
+import { checkRegular, freeName, hashFile, installFile } from '../team-files/place'
 import { mimeOf, type TeamFiles } from '../team-files/service'
-import { displaySize, makeThumbnail } from './image'
+import { displaySize, firstBytes, makeThumbnail, mayHaveAlpha, type ThumbExt } from './image'
 import type { TeamFileRefs } from './team-refs'
 import { visibleSharedChat } from '../chat/shared'
 
 export const ATTACHMENTS_DIR = '.attachments'
+/** settings: set once every thumbnail from before transparent ones were PNG was looked at (refreshThumbs) */
+export const THUMBS_REFRESHED_SETTING = 'attachments.thumbsTransparent'
 
 const KIND: [RegExp, Attachment['kind']][] = [
   [/^(png|jpe?g|gif|webp|heic|heif|bmp|tiff?|svg)$/, 'image'],
@@ -88,8 +91,8 @@ export class Attachments {
     const dims = kind === 'image' && !quarantined ? displaySize(head.subarray(0, headLen)) : null
     let thumb: string | null = null
     if (kind === 'image' && !quarantined) {
-      const dst = path.join(this.thumbsDir(), `${id}.jpg`)
-      try { if (await makeThumbnail(r.abs, dst, 320, path.join(this.ctx.config.dataDir, 'work'))) thumb = `thumbs/${id}.jpg` } catch (e) { this.ctx.log.debug('thumbnail failed', { err: e }) }
+      // thumbs/<id>.jpg, or thumbs/<id>.png for a picture with transparency (uploads/image.ts makeThumbnail)
+      try { const made = await makeThumbnail(r.abs, path.join(this.thumbsDir(), id), 320, path.join(this.ctx.config.dataDir, 'work')); if (made) thumb = `thumbs/${id}.${made}` } catch (e) { this.ctx.log.debug('thumbnail failed', { err: e }) }
     }
     const mime = mimeOf(final) ?? 'application/octet-stream'
     this.ctx.db.query(`INSERT INTO attachments (${COLS}, sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
@@ -131,12 +134,58 @@ export class Attachments {
     const user = this.files.principal(userId)
     if (r.thumb_path) {
       const abs = path.join(this.ctx.config.dataDir, ...r.thumb_path.split('/'))
-      try { authorize(this.files.fx, this.files.rules(), user, r.path, 'read'); checkRegular(abs); return { abs, name: `${r.name}.jpg` } } catch { /* fall through */ }
+      // served as <name>.jpg or <name>.png, so its type is the thumbnail's (team-files/download.ts streamFile)
+      try { authorize(this.files.fx, this.files.rules(), user, r.path, 'read'); checkRegular(abs); return { abs, name: `${r.name}${path.extname(r.thumb_path)}` } } catch { /* fall through */ }
     }
     const a = authorize(this.files.fx, this.files.rules(), user, r.path, 'read')
     const st = checkRegular(a.abs)
     if (/^(png|jpe?g|gif|webp)$/.test(ext(r.name)) && st.size <= 2 * 1024 * 1024) return { abs: a.abs, name: r.name }
     throw new HttpError('not_found')
+  }
+
+  /**
+   * Once (THUMBS_REFRESHED_SETTING), a while after start: an image attached before transparent ones got a PNG thumbnail
+   * has a JPEG one, black where the picture is see-through. Each one that can have transparency (a PNG, WebP or GIF:
+   * makeThumbnail transparentOnly) is looked at again, one at a time below interactive work, while its file is still
+   * the one attached (its sender may read it, the same bytes) and not on the download-only list; one with see-through
+   * pixels gets thumbs/<id>.png and the JPEG one goes. Anything else keeps what it has; reads go on meanwhile. Stopped
+   * by `signal` (the server closing) before it is done: the next start looks again.
+   */
+  async refreshThumbs(signal?: AbortSignal): Promise<{ refreshed: number } | null> {
+    // no ffmpeg now (a server without it, or one being installed): not done, the next start looks again
+    if (this.ctx.db.query('SELECT 1 FROM settings WHERE key = ?').get(THUMBS_REFRESHED_SETTING) || !which('ffmpeg')) return null
+    const rows = this.ctx.db.query("SELECT id, user_id, path, thumb_path, sha256 FROM attachments WHERE kind = 'image' AND thumb_path LIKE '%.jpg'").all() as (Pick<Row, 'id' | 'user_id' | 'path'> & { thumb_path: string; sha256: string })[]
+    // the team folder empty (a share not mounted yet): not now, so none is passed over
+    try { if (rows.length && !fs.readdirSync(this.files.root).length) return null } catch { return null }
+    const work = path.join(this.ctx.config.dataDir, 'work')
+    let refreshed = 0
+    for (const r of rows) {
+      await new Promise((res) => setImmediate(res)) // a row without alpha ends without waiting: requests get their turn between rows
+      if (signal?.aborted) return { refreshed }
+      const old = path.join(this.ctx.config.dataDir, ...r.thumb_path.split('/'))
+      if (!fs.existsSync(old) || this.ctx.files.quarantine.hasHash(r.sha256)) continue
+      let made: ThumbExt | null = null
+      try {
+        const a = authorize(this.files.fx, this.files.rules(), this.files.principal(r.user_id), r.path, 'read')
+        checkRegular(a.abs)
+        // its first bytes before its whole content: a JPEG or HEIC photo is not read through for nothing
+        if (!mayHaveAlpha(firstBytes(a.abs)) || await hashFile(a.abs) !== r.sha256) continue
+        made = await makeThumbnail(a.abs, path.join(this.thumbsDir(), r.id), 320, work, undefined, { transparentOnly: true, background: true, signal })
+      } catch (e) { this.ctx.log.debug('thumbnail refresh failed', { err: e }) }
+      if (made !== 'png') continue
+      const png = `thumbs/${r.id}.png`
+      // the attachment may have gone meanwhile (a purged chat): its new thumbnail goes too
+      if (!this.ctx.db.query('UPDATE attachments SET thumb_path = ? WHERE id = ? AND thumb_path = ?').run(png, r.id, r.thumb_path).changes) {
+        fs.rmSync(path.join(this.thumbsDir(), `${r.id}.png`), { force: true })
+        continue
+      }
+      fs.rmSync(old, { force: true })
+      refreshed++
+    }
+    if (signal?.aborted) return { refreshed }
+    this.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(THUMBS_REFRESHED_SETTING, new Date().toISOString())
+    if (refreshed) this.ctx.log.info('thumbnails of transparent attachments made again', { refreshed })
+    return { refreshed }
   }
 
   /** Drop thumbnails whose attachment row is gone (chat purged). */
@@ -145,7 +194,7 @@ export class Attachments {
     let n = 0
     try {
       for (const f of fs.readdirSync(dir)) {
-        const id = f.replace(/\.jpg$/, '')
+        const id = f.replace(/\.(jpg|png)$/, '')
         if (!this.ctx.db.query('SELECT 1 FROM attachments WHERE id = ?').get(id)) { fs.rmSync(path.join(dir, f), { force: true }); n++ }
       }
     } catch { /* no thumbs yet */ }

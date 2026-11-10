@@ -7,6 +7,7 @@ import { api, API, errorText } from '../lib/api'
 import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls } from '../lib/folderUpload'
 import { useRuns, type Run } from '../lib/folderRuns'
 import { formatSize } from '../lib/format'
+import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
@@ -52,13 +53,41 @@ function settle(run: FolderUpload, ended: Promise<void>) {
   })
 }
 
-export function startFolderUpload(plan: FolderPlan, base: string, onRefused: Run['onRefused']) {
-  const run: FolderUpload = new FolderUpload(plan, base, calls, () =>
-    useRuns.setState((s) => ({ runs: s.runs.map((r) => (r.run === run ? { ...r, view: run.view } : r)) })),
+/** Start a folder upload into `base`. `tag`: a screen that comes back to it (folderRuns.ts RunTag); `onLanded`: each file
+ * the server took, with where it is now (the welcome step records itself done with the first). */
+export function startFolderUpload(plan: FolderPlan, base: string, onRefused: Run['onRefused'], o: { tag?: Run['tag']; onLanded?: (path: string) => void } = {}): Run {
+  const own: FolderUploadCalls = o.onLanded
+    ? { ...calls, upload: async (file, path, signal, onProgress) => {
+      const r = await calls.upload(file, path, signal, onProgress) as Awaited<ReturnType<typeof uploadFile>>
+      if (r.kind === 'path') { try { o.onLanded!(r.entry.path) } catch { /* the upload itself went */ } }
+      return r
+    } }
+    : calls
+  const run: FolderUpload = new FolderUpload(plan, base, own, () =>
+    useRuns.setState((s) => {
+      const tagged = o.tag && s.tagged[o.tag]?.run === run ? { ...s.tagged, [o.tag]: { ...s.tagged[o.tag]!, view: run.view } } : s.tagged
+      return { runs: s.runs.map((r) => (r.run === run ? { ...r, view: run.view } : r)), tagged }
+    }),
   )
-  useRuns.setState((s) => ({ runs: [...s.runs, { run, view: run.view, onRefused }] }))
+  const item: Run = { run, view: run.view, onRefused, ...(o.tag ? { tag: o.tag } : {}) }
+  useRuns.setState((s) => {
+    // the tag's run before, over: its row goes (what it left is this run's now, or was let go)
+    const prev = o.tag ? s.tagged[o.tag] : undefined
+    const runs = prev && prev.view.status !== 'running' ? s.runs.filter((r) => r.run !== prev.run) : s.runs
+    return { runs: [...runs, item], tagged: o.tag ? { ...s.tagged, [o.tag]: item } : s.tagged }
+  })
   settle(run, run.start())
+  return item
 }
+
+/** "다시" for a run whose files failed (not stopped): they go again on the same run, its row back on the file screen. */
+export const retryFolderUpload = (item: Run) => {
+  if (!useRuns.getState().runs.some((r) => r.run === item.run)) useRuns.setState((s) => ({ runs: [...s.runs, item] }))
+  settle(item.run, item.run.retry())
+}
+
+/** [그만 올리기]: the run stops, what went up stays, the server drops the unfinished files. */
+export const stopFolderUpload = (item: Run) => item.run.cancel()
 
 /** Goes up by one each time a run ends. */
 export const useFolderUploadsSettled = () => useRuns((s) => s.settled)
@@ -78,6 +107,7 @@ export default function FolderUploads({ here }: { here: string }) {
 
 function FolderRow({ item, here }: { item: Run; here: string }) {
   const t = useT()
+  const words = useFolderWords()
   const locale = useLocale()
   const { run, view: v } = item
   const running = v.status === 'running'
@@ -104,7 +134,7 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
       <div className="flex items-center gap-2">
         {running ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : v.status === 'done' ? <span className="text-ok">✓</span> : <FolderUp size={13} className="shrink-0 text-danger" aria-hidden />}
         <span className="min-w-0 flex-1 truncate font-medium">
-          {v.base !== here && <span className="font-normal text-faint">{baseName(v.base) || t('files.root')}/</span>}
+          {v.base !== here && <span className="font-normal text-faint">{words.name(v.base, baseName(v.base)) || t('files.root')}/</span>}
           {title}
         </span>
         <span className="shrink-0 text-faint" data-testid="folder-upload-counts">

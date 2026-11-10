@@ -10,6 +10,10 @@ Instructions for coding agents that work in this repository.
 - Do not commit secrets, customer data, real customer addresses or personal paths.
 - Licence: AGPL-3.0-only, except `shared/src/cloud-protocol/` (MIT). Keep LICENSE, NOTICE and dependency notices.
 - Checks: `bun run typecheck` and `bun run test:unit`.
+- A feature that needs a system package or a downloaded program (an apt package, a font, a browser, node) adds it to
+  the one list `scripts/system/packages.json` (a downloaded program with its version and a sha256 per platform), never
+  to one install script. The image, `install-linux.sh`, the dev environment and the office Mac all install from it;
+  `tests/unit/system-packages.test.ts` fails when a script keeps a list of its own. A changed list is a root update.
 - Versions follow Semantic Versioning 2.0.0 (https://semver.org/). Pick a release number and bump versions only as
   [docs/RELEASE-CI.md](docs/RELEASE-CI.md) "Version numbers" says, and state every PR's version impact (patch, minor,
   major or none, with one reason).

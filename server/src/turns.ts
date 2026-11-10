@@ -16,10 +16,12 @@ export interface ToolCaller { files: TurnFiles }
 export interface TurnToolSet {
   list(): { name: string; description: string; inputSchema: Record<string, unknown> }[]
   has(name: string): boolean
-  call(name: string, args: unknown, caller?: ToolCaller): Promise<{ content: McpContent[]; isError?: boolean; summary: string }>
+  /** `beforeDelivery`: a result that carries a file's content checks access again right before it goes (and at the
+   * socket's drain, mcp/socket.ts), as a read's does; it throws when that access changed (room_file) */
+  call(name: string, args: unknown, caller?: ToolCaller): Promise<{ content: McpContent[]; isError?: boolean; summary: string; beforeDelivery?: () => void }>
   /** after a file tool call (the runtime publishes files.changed); a text returned is a note from the server that
    * goes after the tool's result (chat/file-placement.ts) */
-  afterFileTool?(name: string, isError: boolean, args: unknown): string | void
+  afterFileTool?(name: string, isError: boolean, args: unknown, text?: string): string | void
   /** before a file tool call: a refusal text stops it (the person declined a confirmation card); with a summary, that
    * is the audit line (default: the wider-audience refusal) */
   beforeFileTool?(name: string, args: unknown, caller?: ToolCaller): Promise<string | { refusal: string; summary: string } | null>

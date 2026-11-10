@@ -40,7 +40,10 @@
 //   restore-artifacts --dir <chain> --to <dir>   rebuild db/ + team/ from a downloaded, decrypted off-site chain
 //   restore-verify --dir <chain> --expect JSON   the same into a throwaway folder, compared with the backup's totals
 //   cloud-status [--onboarding]                  the app's part of TenantStatus (system/cloud-tenant.ts)
-//   reset-link [--username U]                    one-time reset link at publicOrigins[0] (the owner by default), JSON
+//   reset-link [--username U]                    one-time reset link at publicOrigins[0] (the owner by default), JSON;
+//                                                exit 3 "owner_recovery_locked" for an owner or admin after a hosted
+//                                                handover until owner-recovery-claimed (admin/handover.ts)
+//   owner-recovery-claimed                       the new owner claimed recovery: owner and admin links again, JSON
 //   credentials-escrow-out --recipient age1…     the AI connections' key age-armored to the CP's escrow recipient
 //   hosted-speech-key < { key | null }           the hosting service's speech-to-text key (stdin only), JSON { ok, set }
 //   hosted-chat-key < { key, capUsd, endsAt, enabled } | { key: null }
@@ -85,6 +88,7 @@ import { rekeyDrive } from '../integrations/google-drive/rekey'
 import { rekeyCredentials } from '../credentials/rekey'
 import { cloudStatus, credentialsEscrowOut, resetLinkBase, setHostedChatKey, setHostedSpeechKey } from './cloud-tenant'
 import { createResetLink } from '../auth/accounts'
+import { clearRecoveryLock, resetLinkRefused } from '../admin/handover'
 import { installAuth } from '../auth/service'
 
 async function stdinJson(): Promise<unknown> {
@@ -315,13 +319,28 @@ export async function main(argv: string[]): Promise<number> {
       try {
         const u = arg(args, '--username')
         const row = (u
-          ? ctx.db.query("SELECT id, status FROM users WHERE username = ? AND deleted_at IS NULL").get(u)
-          : ctx.db.query("SELECT id, status FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1").get()) as { id: string; status: string } | null
+          ? ctx.db.query("SELECT id, status, role FROM users WHERE username = ? AND deleted_at IS NULL").get(u)
+          : ctx.db.query("SELECT id, status, role FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1").get()) as { id: string; status: string; role: string } | null
         if (!row) throw new Error(u ? `no account "${u}"` : 'no owner yet')
         if (row.status !== 'active') throw new Error('that account is disabled')
+        // 팀장 넘기기 (admin/handover.ts): after a transfer on a hosted team with handoverSafe, no link for an owner or an
+        // admin, by either form, until the control plane reports the new owner's claim (owner-recovery-claimed). The
+        // role is the account's now, so {owner:true} (the new owner) and {username} (anyone who runs the team) are refused
+        // alike; members stay reachable. Exit 3, the code first, so mycel-ctl can tell it from a failure.
+        if (resetLinkRefused(ctx.db, row)) {
+          console.error('error: owner_recovery_locked: the team changed hands; owners and admins get no reset link until the new owner claims recovery')
+          return 3
+        }
         const link = createResetLink(ctx, row.id, null, base)
         out({ url: link.url, expiresAt: link.expiresAt })
       } finally { await ctx.close() }
+      return 0
+    }
+    // the control plane: the new owner confirmed a recovery and billing contact in the product (its claim link), so
+    // owner and admin reset links may go out again (to that contact). JSON { ok, cleared }
+    case 'owner-recovery-claimed': {
+      const db = openDb(dbFile)
+      try { out({ ok: true, cleared: clearRecoveryLock(db) }) } finally { db.close() }
       return 0
     }
     case 'credentials-escrow-out': {

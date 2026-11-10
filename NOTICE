@@ -64,3 +64,9 @@ carry it in licenses/lucide/.
 HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
 Exact pins, upstream notices and source-offer details: resources/hwp/.
 Release distributions preserve these in licenses/hwp/.
+
+The English natural-writing skill (resources/skill-packs/work/en/humanizer/SKILL.md) is
+adapted from the open-source "humanizer" skill, MIT License, Copyright (c) 2025 Siqi
+Chen, with its examples rewritten; its MIT notice is kept at the end of that SKILL.md
+(the text a team gets) and as resources/skill-packs/work/en/humanizer/LICENSE. The
+Korean version was written by the company.

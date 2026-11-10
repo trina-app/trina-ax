@@ -8,7 +8,7 @@
 
 Claude Code y Codex en el servidor de tu empresa, con los archivos de la empresa y las skills de tu equipo. Tu equipo lo usa en el navegador, en su propio chat o, desde la versión 0.4, llamando a @Trina en una conversación del equipo.
 
-[Sitio web](https://ax.trina.app) · [Pruébalo en 10 minutos](#pruébalo-en-10-minutos) · [Autoalojamiento](docs/for-admins.md) · [Documentación](docs/README.md)
+[Sitio web](https://ax.trina.app) · [Pruébalo en 10 minutos](#pruébalo-en-10-minutos) · [Autoalojamiento](docs/for-admins.md) · [Documentación](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
@@ -20,7 +20,7 @@ Claude Code y Codex en el servidor de tu empresa, con los archivos de la empresa
 
 - **Lo configuras una vez y todos trabajan así.** Los archivos de la empresa van en `shared/`. La forma en que tu responsable redacta un presupuesto, en `skills/quote/SKILL.md`. Todo el equipo trabaja con ellos desde su primer día.
 - **Llamas a @Trina en la conversación y el resultado aparece ahí.** Pregunta en una conversación del equipo: la skill del equipo trabaja con los archivos que tú puedes abrir, y la respuesta, con su archivo, se publica en la conversación.
-- **Retomar lo que dejó un compañero** (próximamente). Cualquiera en un proyecto podrá continuar el chat de IA de un compañero, y cada mensaje se ejecutará como la persona que lo envía.
+- **Retomar lo que dejó un compañero** (en la próxima beta 0.4). Cualquiera en un proyecto puede continuar un chat de proyecto compartido, y cada mensaje se ejecuta como la persona que lo envía.
 
 Mete archivos reales de la empresa. Cada persona ve solo lo que tiene permitido. [Cómo](#por-dentro)
 
@@ -195,11 +195,13 @@ https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
 ## Lo que viene
 
-- **Retomar el chat de IA de un compañero.** Chats de proyecto compartidos: cualquiera en el proyecto continúa un chat de IA, y cada mensaje se ejecuta como la persona que lo envía. Diseñado, aún sin construir.
+- **Retomar el chat de IA de un compañero.** Los chats de proyecto compartidos llegan en la próxima beta 0.4: cualquiera en el proyecto puede continuar un chat de proyecto compartido, y cada mensaje se ejecuta como la persona que lo envía. @Trina en una conversación puede leer los que ve la persona que pregunta.
 - **App de Android.** En revisión en Google Play.
 - **La 0.4 en el hosting de Trina.** El hosting sigue el canal estable y tendrá las conversaciones del equipo cuando la 0.4 sea estable. Los servidores autoalojados pueden usar una versión 0.4 hoy.
 
 ## Comunidad y cómo contribuir
+
+Haz preguntas y conoce a otros equipos en [Discord](https://discord.gg/zUVfSR8MVk) (el servidor «Trina AX»). Las novedades se publican en [X](https://x.com/trina_ax).
 
 [Última versión y sumas de verificación](https://github.com/trina-app/trina-ax/releases/latest) · [Registro de cambios](CHANGELOG.md) · [Soporte](SUPPORT.md) · [Contribuir](CONTRIBUTING.md) · [Informes de seguridad](SECURITY.md) · [Desarrollo](docs/DEVELOPMENT.md) · [Configuración](docs/CONFIGURATION.md) · [Índice legible por máquinas](llms.txt)
 

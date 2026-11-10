@@ -10,7 +10,7 @@
 // Right under it, where the box may use it, "@전체" (docs/DECISIONS.md "@전체"): picked, it is a token like a person's
 // and the message goes with mentionsAll, which notifies every member who can see it; typed or pasted it is text.
 import clsx from 'clsx'
-import { Sparkles, Users } from 'lucide-react'
+import { Users } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { ROOM_MENTION_ALL_WORDS, type UserRef } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -21,6 +21,7 @@ import { usePeople } from '../../store/people'
 import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
+import { AiFace } from './AiFace'
 
 /** A mention's look in the box: the accent colour of a sent mention on its soft background. The shadows widen the
  * background sideways without moving a letter (not up or down: on phones two lines' backgrounds would touch). */
@@ -170,9 +171,7 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
                 </>
               ) : u.id === AI_MENTION_ID ? (
                 <>
-                  <span aria-hidden className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
-                    <Sparkles size={12} />
-                  </span>
+                  <AiFace size={22} />
                   <span className="truncate font-medium text-ink">{u.name}</span>
                   <span className="truncate text-xs text-muted">{t('rooms.aiMention')}</span>
                 </>
@@ -205,6 +204,11 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
     reset: () => {
       setPicked([])
       setClosedFor(null)
+    },
+    /** the box takes this text and these mentions as they are (another box of the same place left them: a draft) */
+    restore: (body: string, people: PickedMention[]) => {
+      setPicked(people)
+      setText(body)
     },
     /** a send the server refused comes back: its text goes before what is in the box now (on a line of its own), with
      * the people it mentioned marked again (by the names the room shows and the member list has) */

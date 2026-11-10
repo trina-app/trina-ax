@@ -51,6 +51,15 @@ export const Me = z.object({
     /** days a deleted chat stays in the chat trash, and days a deleted account's chats and memories stay (Admin > Team
      * settings chatTrashRetentionDays; the purge uses the current value). Absent (older server) = the default, 7. */
     chatTrashRetentionDays: z.number().int().min(1).max(365).optional(),
+    /** who may make team projects (Admin > Team settings projectCreators): a member sees "팀 프로젝트" only with
+     * 'members'. Absent (older server) = admins only. */
+    projectCreators: z.enum(['members', 'admins']).optional(),
+    /** the team's address for its members, an origin (https://acme.trina.app): what a new device puts in the app
+     * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows
+     * (server/src/system/connection.ts teamAddressOf), never the address the page was opened at (over the office
+     * network that is the office's own address). Signed-in people only (this answer); absent = none known (the office
+     * network only) or an older server. */
+    address: z.string().max(300).optional(),
   }),
   session: z.object({
     id: Uuid7, client: ClientKind, expiresAt: IsoTime,
@@ -75,11 +84,18 @@ export const Me = z.object({
     /** Safe operations 1A is on (MYCEL_SAFE_OPS_1A): every conversation is confidential, and so is every HTML / SVG
      * file preview (shown without scripts outside the desktop app). Absent = off. */
     allChatsConfidential: z.literal(true).optional(),
+    /** "@트리나 …" in a room asks the AI there (AppConfig.roomAiMentions; off by default since the side chat). Absent =
+     * off: the room's box offers no AI in its "@" list and points to the side chat. */
+    roomAiMentions: z.literal(true).optional(),
     /** the dev environment experiment is on (MYCEL_DEV_ENV=1): Team settings shows its section. Absent = off. */
     devEnv: z.literal(true).optional(),
     /** this server can print HTML to PDF (a headless browser in the converter isolation, server/src/files/html-pdf.ts):
      * an .html file's preview shows "PDF로 저장". Absent = it cannot (no button that cannot work). */
     htmlPdf: z.literal(true).optional(),
+    /** the HWP Preview plugin is on and usable here (server/src/plugins/manager.ts hwpPreviewOn): a Hangul file sent in
+     * a room opens in the preview panel (GET /api/rooms/:id/files/:fileId/hwp-preview). Absent = off: it downloads. A
+     * team file's preview asks the server either way and says when it is off. */
+    hwpPreview: z.literal(true).optional(),
     /** a Linux server's Windows desktop app in Settings > Apps (server/src/system/windows-app.ts): 'feed' = the server
      * (self-installed or a hosted tenant) takes it from the signed release feed by itself after it starts or updates,
      * 'folder' = a self-installed server without a feed (the owner copies the release's files in). Absent: an office Mac
@@ -169,7 +185,8 @@ export const UpdateMeBody = z.object({
   locale: Locale.nullable().optional(),
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
-  prefs: UserPrefs.extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
+  /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
 })
 
 /** GET /api/me/usage: the signed-in person's own usage in a period of the team's time zone (today, this week from

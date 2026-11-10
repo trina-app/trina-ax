@@ -6,7 +6,7 @@
 // kept for the rest of the chat and across a restart, a planted instruction that cannot change anything without the
 // person's yes, and audit lines that name no room. Each test makes its own rooms; rows written straight into the
 // database are the test's own rooms (the sending budget would slow a test of hundreds of messages).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -27,9 +27,16 @@ import type { TurnExec } from '../../server/src/chat/turn'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { auditUrl } from '../../server/src/tools/audit-url'
 import type { TurnTool, TurnToolProvider } from '../../server/src/services'
+import { CCITT_SCAN, makePagesPdf } from '../lib/pdf'
+import { nativeBinDir, ocrBin, which } from '../../server/src/config'
+import { isolation } from '../../server/src/tools/isolate'
+import { visionTools } from '../../server/src/files/vision'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+// a PDF page drawn and normalized for real (pdftoppm or PDFKit, mycel-safeops, the converter isolation)
+const TOOLS = visionTools({ nativeBin: nativeBinDir(), pdftotext: which('pdftotext'), ocr: ocrBin(), which })
+const pageRenderer = !!TOOLS.normalizer && isolation() !== 'none' && !!(TOOLS.pdfkit || TOOLS.pdftoppm) && !!(TOOLS.pdftotext || TOOLS.pdfkit)
 const cm = () => 'cm-' + crypto.randomUUID()
 const TZ = 'UTC'
 
@@ -98,7 +105,8 @@ describe('where the room tools are', () => {
       expect(ROOM_TOOLS.has(t)).toBe(t === 'room_file')
       expect(PARENT_ONLY_TOOLS.has(t)).toBe(true)
     }
-    expect(own.done.content.split(',')).not.toContain('save_room_file')
+    // and a copy of a room file into the team folder (b-chat-rooms-save.test.ts), as a room's session has for its own
+    expect(own.done.content.split(',')).toContain('save_room_file')
     // a confidential chat (safe operations' 1A material) keeps to its local tools
     const secret = await newChat('alice')
     h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(secret)
@@ -325,7 +333,9 @@ describe('in a chat', () => {
     const second = h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'room_read', args: { room: roomId } }, { tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'after the room\n' } }, { say: 'tried' }), clientMessageId: cm(), attachmentIds: [] } })
     const turnId = (await second).turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'allow' }, { value: 'skip' }] })
+    // the room is in the chat's read scope and shared/ is wider: one card, the wider-audience card, which also asks for
+    // the change (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call), with what it writes
+    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: 'skip' }], details: [{ fields: [{ value: 'Save' }, { value: target }], text: 'after the room\n' }] })
     expect((card.data.request as { question: string }).question).toContain('Messages from your conversations')
     expect((card.data.request as { question: string }).question).toContain(target)
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
@@ -333,13 +343,13 @@ describe('in a chat', () => {
     expect(fs.readFileSync(abs(), 'utf8')).toBe('before the room\n')
     // a later answer in the same chat that reads no room: still a card (the mark is the chat's), and a yes writes
     const third = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'with a yes\n' } }, { say: 'saved' }), clientMessageId: cm(), attachmentIds: [] } })
+    // the room is in the chat's read scope: saving where more people can see (shared/) is the one card, naming the room
     const card3 = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user', 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'allow' } })
-    // the room is in the chat's read scope: saving where more people can see (shared/) asks too, naming the room
-    const widen = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user' && f.data.request.requestId !== card3.data.request.requestId, 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: widen.data.request.requestId, answer: 'save' } })
+    expect((card3.data.request as { question: string }).question).toContain('wants to save to')
+    await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'save' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === third.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')
+    expect(ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === third.turnId)).toHaveLength(1)
     // reading changes nothing and asks nothing; another chat of hers is not marked
     const other = await newChat('alice')
     expect(roomsSeen(other)).toBe(0)
@@ -419,6 +429,49 @@ describe('in a chat', () => {
     const no = await turn('bob', bobChat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
     expect(no.done.content).toContain('No file')
     expect(no.done.content).not.toContain('월요일')
+  })
+})
+
+describe('room_file on a scanned PDF', () => {
+  test.skipIf(!pageRenderer)('its page comes as an image in my own chat, as a team-folder read gives it', async () => {
+    const roomId = await groupChat('alice', ['erin', 'carol'], 'scan check')
+    const src = path.join(h.dataDir, `room-file-${uuidv7()}.pdf`)
+    fs.writeFileSync(src, makePagesPdf([{ image: CCITT_SCAN }]))
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'scan.pdf', src, 'x'.repeat(64))
+    await send('erin', roomId, '스캔 올려요', { fileIds: [f.id] })
+    const chat = await newChat('alice')
+    const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, expectImage: true, sayResult: true }))
+    expect(r.done.content).toContain('IMAGE_BLOCK_OK:image/jpeg')
+    expect(r.done.steps!.find((s) => s.tool === 'room_file')?.label).toBe('Read conversation file · scan.pdf')
+    // someone outside the room gets no file (and no picture)
+    const bobChat = await newChat('bob')
+    const no = await turn('bob', bobChat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, expectImage: true, sayResult: true }))
+    expect(no.done.content).toContain('IMAGE_BLOCK_MISSING')
+  })
+
+  // the check before delivery travels from room_file through the chat tool set (chat/tools.ts) and mcp/protocol.ts to
+  // the socket: the room checks pass when the read ends and fail on the handler's own check right after
+  test('access lost between the read and its delivery: the handler sends the "changed" answer, not the file', async () => {
+    const roomId = await groupChat('alice', ['erin', 'carol'], 'delivery check')
+    const src = path.join(h.dataDir, `room-file-${uuidv7()}.md`)
+    fs.writeFileSync(src, '# 메모\nsecret-delivery-word\n')
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'memo.md', src, 'x'.repeat(64))
+    await send('erin', roomId, '메모', { fileIds: [f.id] })
+    const rooms = roomFilesOf(h.ctx)
+    const original = rooms.open.bind(rooms)
+    let n = 0
+    // 1: the read, 2: its own check when the text is ready, 3: the handler's check before the answer leaves
+    const open = spyOn(rooms, 'open').mockImplementation((...args: Parameters<typeof rooms.open>) => {
+      if (args[2] === f.id && ++n >= 3) throw new Error('not_found')
+      return original(...args)
+    })
+    try {
+      const chat = await newChat('alice')
+      const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
+      expect(n).toBeGreaterThanOrEqual(3)
+      expect(r.done.content).toContain('Access or the source file changed before delivery')
+      expect(r.done.content).not.toContain('secret-delivery-word')
+    } finally { open.mockRestore() }
   })
 })
 
@@ -644,11 +697,56 @@ describe('second review round', () => {
     await turn('alice', chat, fake({ tool: 'room_read', args: { room: roomId } }, { say: 'read' }))
     const row = h.rt().store.chatRow(chat)!
     const started = h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
-      user: { parentId: row.active_leaf_id, content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'scheduled change' } }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
-    await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
+      user: { parentId: row.active_leaf_id, content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'scheduled change' }, sayResult: true }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    const done = await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
     expect(events(started.turnId).find((e) => e.tool === 'write')).toMatchObject({ ok: 0 })
     expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
+    // bug 1 (docs/DECISIONS.md "Refusals say why, who and what next"): the text says nobody was asked, never that the
+    // user refused, and what the user can do instead
+    const said = done.data.message.content as string
+    expect(said).toContain('Not done (write): nothing was changed. Why: nobody could be asked: this is a scheduled run with nobody watching')
+    expect(said).toContain('The user did not refuse anything')
+    expect(said).not.toContain('did not allow')
+    expect(said).toContain('Next step: a scheduled run that read a room changes nothing (nobody is there to answer the card): the user can do it in a chat')
     fs.rmSync(abs(), { force: true })
+    // the room card alone (a save to the person's own folder needs no wider-audience card): the same reason
+    const again = h.rt().createTurn({ chat: h.rt().store.chatRow(chat)!, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+      user: { parentId: h.rt().store.chatRow(chat)!.active_leaf_id, content: fake({ tool: 'write', args: { file_path: 'users/alice/run-note.md', content: 'x' }, sayResult: true }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    const own = (await ws.alice!.next('message.done', (f) => f.data.message.turnId === again.turnId, 30_000)).data.message.content as string
+    expect(fs.existsSync(path.join(h.team, 'users/alice/run-note.md'))).toBe(false)
+    expect(own).toContain('Not done (write): nothing was changed. Why: nobody could be asked: this is a scheduled run')
+    expect(own).toContain("This chat holds messages from the user's team chat rooms")
+    expect(own).not.toContain('did not allow')
+    expect(events(again.turnId).find((e) => e.tool === 'write')!.summary).toBe('write -> nobody to ask (scheduled run) (after a room read)')
+  })
+
+  // bug 1 at the other cards a run reaches: the wider-audience card and the skill-write card
+  test('a scheduled run that would save where more people see it, or into skills/: nobody was asked, and the text says so', async () => {
+    if (!ws.carol) { ws.carol = await h.ws('carol'); await ws.carol.next('hello') }
+    fs.mkdirSync(path.join(h.team, 'users/carol'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'users/carol/private-notes.md'), 'only carol\n')
+    const chat = await newChat('carol')
+    const row = h.rt().store.chatRow(chat)!
+    const started = h.rt().createTurn({ chat: row, userId: 'carol', locale: 'ko', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+      user: { parentId: row.active_leaf_id, content: fake(
+        { tool: 'read', args: { file_path: 'users/carol/private-notes.md' } },
+        { tool: 'write', args: { file_path: 'shared/weekly-from-run.md', content: 'summary' }, sayResult: true },
+        { tool: 'write', args: { file_path: 'skills/from-run.md', content: '# rule\n' }, sayResult: true },
+        { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    const done = await ws.carol!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
+    const said = done.data.message.content as string
+    expect(fs.existsSync(path.join(h.team, 'shared/weekly-from-run.md'))).toBe(false)
+    expect(fs.existsSync(path.join(h.team, 'skills/from-run.md'))).toBe(false)
+    expect(ws.carol!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
+    // the wider-audience card (chat/turn.ts askWidening)
+    expect(said).toContain("Nothing was saved to 'shared/weekly-from-run.md'. Why: nobody could be asked: this is a scheduled run")
+    expect(said).toContain("Next step: save it in the user's personal folder (users/carol) instead and say so")
+    // the skill-write card (chat/turn.ts confirmSkillWrite): only the reason changed
+    expect(said).toContain("Nothing was saved to 'skills/from-run.md' in skills/ (team skills and team rules every teammate's AI follows). Why: nobody could be asked")
+    expect(said).not.toContain('did not allow')
+    const skillLine = events(started.turnId).filter((e) => e.tool === 'write').map((e) => e.summary)
+    expect(skillLine).toContain('write -> nobody to ask (scheduled run) (team skills)')
+    fs.rmSync(path.join(h.team, 'users/carol/private-notes.md'), { force: true })
   })
 })

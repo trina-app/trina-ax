@@ -6,7 +6,33 @@
 // navigation. The browser itself is covered by the e2e specs. Every test file starts from the same place whatever ran
 // before it (test/unit/preload.ts: React DOM loaded with a document, fresh stores, the usual globals, no document left).
 import { act, type ReactNode } from 'react'
+import * as ReactDOM from 'react-dom'
 const HTML_NS = 'http://www.w3.org/1999/xhtml'
+
+// A component can set its state after it is gone: a timer or a fetch it started and never stopped (a "copied" mark that
+// goes after 1.5 s, say). In a browser that does nothing. React DOM, though, first works out the update's priority, from
+// `window.event` unless a priority is set; once removeDom has taken the window away, that threw a ReferenceError in
+// whatever test file ran next ("Unhandled error between tests": a red run with nothing failed). So while no document
+// is installed, React DOM's update priority is the one a window without an event gives (DefaultEventPriority), and
+// such an update does nothing here either. Nothing is mounted then (removeDom unmounts every root first), and
+// installDom puts back "no priority", so tests with a document run exactly as before.
+const domInternals = (ReactDOM as unknown as Record<string, { p?: unknown } | undefined>).__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE
+if (typeof domInternals?.p !== 'number') throw new Error('dom-host: React DOM no longer keeps its update priority where this file sets it (see "A component can set its state after it is gone")')
+/** React DOM's DefaultEventPriority; 0 is "no priority set" */
+const DEFAULT_EVENT_PRIORITY = 32
+/** removeDom set the priority, so installDom puts it back */
+let prioritySet = false
+function noDocumentPriority(on: boolean) {
+  const internals = domInternals as { p: number }
+  if (on) {
+    if (internals.p !== 0) return
+    internals.p = DEFAULT_EVENT_PRIORITY
+    prioritySet = true
+  } else if (prioritySet) {
+    if (internals.p === DEFAULT_EVENT_PRIORITY) internals.p = 0
+    prioritySet = false
+  }
+}
 
 type Listener = { fn: (e: FakeEvent) => void; capture: boolean; once: boolean }
 
@@ -182,15 +208,27 @@ export class FakeElement extends FakeNode {
 }
 
 /** value and checked as properties on the prototype, so React's value tracker can wrap them */
+const values = new WeakMap<FakeElement, unknown>()
 for (const [prop, attr] of [['value', 'value'], ['checked', 'checked']] as const) {
-  const store = new WeakMap<FakeElement, unknown>()
+  const store = prop === 'value' ? values : new WeakMap<FakeElement, unknown>()
   Object.defineProperty(FakeElement.prototype, prop, {
     configurable: true,
     get(this: FakeElement) { return store.has(this) ? store.get(this) : prop === 'checked' ? this.hasAttribute(attr) : this.getAttribute(attr) ?? '' },
     set(this: FakeElement, v: unknown) { store.set(this, prop === 'checked' ? !!v : String(v)) },
   })
 }
-for (const prop of ['defaultValue', 'defaultChecked', 'multiple', 'selected', 'name', 'placeholder', 'tabIndex', 'htmlFor', 'autofocus', 'selectionStart', 'selectionEnd']) {
+/** a <textarea>'s default value is its text, and its value until a script or the person sets one (React mounts a
+ * textarea with text through defaultValue, so its value is there when the component's effects run, as in a browser) */
+const defaults = new WeakMap<FakeElement, unknown>()
+Object.defineProperty(FakeElement.prototype, 'defaultValue', {
+  configurable: true,
+  get(this: FakeElement) { return defaults.get(this) },
+  set(this: FakeElement, v: unknown) {
+    defaults.set(this, v)
+    if (this.localName === 'textarea' && !values.has(this)) values.set(this, String(v ?? ''))
+  },
+})
+for (const prop of ['defaultChecked', 'multiple', 'selected', 'name', 'placeholder', 'tabIndex', 'htmlFor', 'autofocus', 'selectionStart', 'selectionEnd']) {
   if (!(prop in FakeElement.prototype)) Object.defineProperty(FakeElement.prototype, prop, { configurable: true, writable: true, value: undefined })
 }
 
@@ -263,6 +301,7 @@ function memoryStorage() {
  * what was there. `opened`: the windows window.open made. */
 export function installDom(): FakeWindowHandle & { document: FakeDocument } {
   if (saved) throw new Error('installDom twice')
+  noDocumentPriority(false)
   const was = new Map<string, PropertyDescriptor | undefined>()
   saved = was
   const set = (k: string, v: unknown) => {
@@ -327,6 +366,7 @@ export function removeDom() {
     else delete (globalThis as Record<string, unknown>)[k]
   }
   saved = null
+  noDocumentPriority(true)
 }
 
 /** A component rendered into the fake document (installDom first), and what a person does with it. */

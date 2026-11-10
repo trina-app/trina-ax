@@ -241,6 +241,39 @@ test('upload small and chunked files, new folder, rename, trash and restore', as
   await expect(page.getByText('marketing/renamed.txt(으)로 되돌렸어요.')).toBeVisible()
 })
 
+test('the trash has its own address: the tab sets ?view=trash, a link and a reload open it, Back returns to the folder', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await expect(row(page, 'plan.md')).toBeVisible()
+  await page.getByRole('tab', { name: '휴지통' }).click()
+  await expect(page).toHaveURL(/\/files\?path=marketing&view=trash$/)
+  await expect(page.getByText('휴지통이 비어 있어요')).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('삭제 예정일은', { exact: false })).toBeVisible()
+  // the tab already selected again: no second Back step. Back: the folder it was in, on the files tab
+  await page.getByRole('tab', { name: '휴지통' }).click()
+  await page.goBack()
+  await expect(page.getByRole('tab', { name: '팀 폴더' })).toHaveAttribute('aria-selected', 'true')
+  await expect(row(page, 'plan.md')).toBeVisible()
+  // the tab back to the folder takes the view out of the address
+  await page.getByRole('tab', { name: '휴지통' }).click()
+  await page.getByRole('tab', { name: '팀 폴더' }).click()
+  await expect(page).toHaveURL(/\/files\?path=marketing$/)
+  await expect(row(page, 'plan.md')).toBeVisible()
+  // the folder goes (access taken away) while the trash is on screen: the trash stays, the folder climbs
+  await page.getByRole('tab', { name: '휴지통' }).click()
+  await expect(page).toHaveURL(/\/files\?path=marketing&view=trash$/)
+  expect((await page.request.post('/__test/revoke', { data: { path: 'marketing' } })).ok()).toBeTruthy()
+  await expect(page).toHaveURL(/\/files\?view=trash$/)
+  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  // the address alone (a deleted team skill's link)
+  await page.goto('/files?view=trash')
+  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('휴지통이 비어 있어요')).toBeVisible()
+})
+
 for (const locale of ['ko', 'en', 'id'] as const) {
   test(`deletion guidance: single and bulk trash keep their saved expiry after retention changes (${locale})`, async ({ page }) => {
     const t = DICTS[locale]
@@ -592,14 +625,15 @@ test('move several files: one question for all that would become private, one to
   await bar(page).getByRole('button', { name: '옮기기' }).click()
   const picker = page.getByRole('dialog', { name: '3개 옮기기' })
   await picker.getByRole('button', { name: '팀 폴더' }).click()
-  await picker.getByRole('button', { name: 'users' }).click()
-  await picker.getByRole('button', { name: 'olga' }).click()
+  // the top folders by their words (docs/DECISIONS.md "Team folder basics"): users/ is 개인, Olga's own is 내 폴더
+  await picker.getByRole('button', { name: '개인' }).click()
+  await picker.getByRole('button', { name: '내 폴더' }).click()
   await picker.getByTestId('folder-pick').click()
   // Bob can read marketing and not Olga's own folder: asked once for the three, with the single move's words
   const ask = page.getByRole('dialog', { name: '나만 보게 옮길까요?' })
   await expect(ask).toContainText('3개를 개인 폴더로 옮기면 1명이 더 이상 볼 수 없어요.')
   await ask.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('3개를 users/olga(으)로 옮겼어요.')).toBeVisible()
+  await expect(page.getByText('3개를 내 폴더로 옮겼어요.')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // three tries answered audience_narrowed, then the same three with confirm
   expect((await moves(page)) - before).toBe(6)

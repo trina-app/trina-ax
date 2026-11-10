@@ -13,10 +13,12 @@
 // meanwhile: the server asks again, said so on top). 취소, ✕ and Esc go back to the list with the room and the note kept.
 // Sent: the dialog closes and a toast says where (and how many files went), with 열기. Never in a confidential chat (the
 // server refuses it; components/chat/Messages.tsx hides the button).
+// The confirm step is its own part (ShareConfirm, with useConfirmStep for its state): a room's side chat sends with one
+// click and shows only this step when the server asks (components/rooms/SendHere.tsx), its target above the rows.
 import clsx from 'clsx'
 import { AlertCircle, Check, FileText, Info, Lock, Search } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ANSWER_NOTE_MAX, answerNote, answerShareCut, ROOM_FILES_MAX, uuidv7, type AnswerShareFile, type AnswerSharePlace, type AnswerShareProvenance, type Room } from '@mycel/shared/api'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ANSWER_NOTE_MAX, answerNote, answerShareCut, ROOM_FILES_MAX, uuidv7, type AnswerShareFile, type AnswerSharePlace, type AnswerShareProvenance, type Room, type ShareAnswerToRoomResult } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { errorText } from '../../lib/api'
 import { navigateTo } from '../../lib/nav'
@@ -30,7 +32,9 @@ import { ROOM_OPTION_CLS, RoomOptionLabel } from './RoomRefMenu'
 
 /** the server's "confirm"; `seq`: one more each time it asks (each is a step of its own); `again`: it asked again after
  * my yes because something changed meanwhile (not when only my choice of files changed its line) */
-interface Ask { room: Room; files: AnswerShareFile[]; provenance: AnswerShareProvenance | null; confirmKey: string; seq: number; again: boolean }
+export interface ConfirmAsk { files: AnswerShareFile[]; provenance: AnswerShareProvenance | null; confirmKey: string; seq: number; again: boolean }
+interface Ask extends ConfirmAsk { room: Room }
+type Confirm = Extract<ShareAnswerToRoomResult, { status: 'confirm' }>
 
 /** The switches a new "confirm" starts with: the files that may go, on, the first ROOM_FILES_MAX; asked again, my own
  * choice stays for the files that are still there. */
@@ -40,7 +44,22 @@ function startAttach(files: readonly AnswerShareFile[], before?: { files: readon
   return new Set(may.filter((p) => (known.has(p) ? before!.on.has(p) : true)).slice(0, ROOM_FILES_MAX))
 }
 
-export default function ShareToRoom({ chatId, messageId, answer, onClose }: { chatId: string; messageId: string; answer: string; onClose: () => void }) {
+/** The confirm step's state: the server's last "confirm" and my 첨부 switches. `asked(r, yes)`: the server asked (again,
+ * after my yes when `yes`); `close()`: the step goes. */
+export function useConfirmStep<T extends ConfirmAsk = ConfirmAsk>() {
+  const [ask, setAsk] = useState<T | null>(null)
+  const [attach, setAttach] = useState<Set<string>>(new Set())
+  const asked = (r: Confirm, yes: boolean, extra: Omit<T, keyof ConfirmAsk>) => {
+    setAttach(startAttach(r.files, yes && ask ? { files: ask.files, on: attach } : undefined))
+    // asked again: said so when something changed meanwhile; a line that changed with my own choice of files is only
+    // shown as it now reads
+    setAsk((a) => ({ ...extra, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: yes && r.reason !== 'choice' }) as T)
+  }
+  return { ask, attach, setAttach, asked, close: () => setAsk(null) }
+}
+
+/** `roomId`: the room picked at the start (a room's side chat shares to its room); the person may still pick another */
+export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId }: { chatId: string; messageId: string; answer: string; onClose: () => void; roomId?: string }) {
   const t = useT()
   const locale = useLocale()
   const id = useId()
@@ -48,11 +67,11 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose }: { ch
   const rooms = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
   const [query, setQuery] = useState('')
-  const [picked, setPicked] = useState<string | null>(null)
+  const [picked, setPicked] = useState<string | null>(roomId ?? null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
-  const [ask, setAsk] = useState<Ask | null>(null)
-  const [attach, setAttach] = useState<Set<string>>(new Set())
+  const confirm = useConfirmStep<Ask>()
+  const { ask, attach } = confirm
   const listRef = useRef<HTMLUListElement>(null)
   const noteRef = useRef<HTMLInputElement>(null)
   /** one id per room and note: sending the same again (a lost answer, the confirm) gets the first message back */
@@ -91,10 +110,7 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose }: { ch
     try {
       const r = await useRooms.getState().shareAnswer(chatId, messageId, { roomId: to.id, ...(n ? { note: n } : {}), ...(yes ?? {}), clientMessageId: sendId.current.id })
       if (r.status === 'confirm') {
-        setAttach(startAttach(r.files, yes && ask ? { files: ask.files, on: attach } : undefined))
-        // asked again: said so when something changed meanwhile; a line that changed with my own choice of files is only
-        // shown as it now reads
-        setAsk((a) => ({ room: to, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: !!yes && r.reason !== 'choice' }))
+        confirm.asked(r, !!yes, { room: to })
         setBusy(false)
         return
       }
@@ -107,75 +123,22 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose }: { ch
     }
   }
 
-  // each step is a dialog of its own (key): opening one puts the focus in it (the primary button). 취소, ✕ and Esc all go
-  // back to the list, with the room and the note as they were
+  // the confirm step: 취소, ✕ and Esc all go back to the list, with the room and the note as they were
   if (ask) {
-    const shown = ask.files.filter((f) => !f.missing && f.path)
-    const hidden = ask.files.length - shown.length
-    const others = Math.max(0, ask.room.memberCount - 1)
-    const back = () => setAsk(null)
     const n = answerNote(note)
     return (
-      <Modal
-        key={`confirm-${ask.seq}`}
-        open
-        onClose={back}
-        width={460}
+      <ShareConfirm
         title={t('chat.shareToRoom')}
-        footer={
-          <>
-            <Button variant="ghost" disabled={busy} onClick={back} data-testid="share-room-back">
-              {t('common.cancel')}
-            </Button>
-            <Button variant="primary" busy={busy} onClick={() => void send(ask.room, { confirmKey: ask.confirmKey, attach: [...attach] })} data-autofocus data-testid="share-room-confirm-send">
-              {attach.size ? t('shareRoom.sendAttached') : t('shareRoom.send')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4" data-testid="share-room-confirm">
-          <div>
-            <div className="-mx-2 flex items-center gap-2.5 px-2 text-sm" data-testid="share-room-to">
-              <RoomOptionLabel room={ask.room} />
-            </div>
-            {n && (
-              <p className="mt-1.5 text-sm leading-6 break-words text-muted" data-testid="share-room-confirm-note">
-                “{n}”
-              </p>
-            )}
-          </div>
-          {ask.again && (
-            <p role="status" className="flex items-start gap-2 text-sm leading-6 break-keep text-warn" data-testid="share-room-again">
-              <AlertCircle size={16} className="mt-1 shrink-0" aria-hidden />
-              {t('shareRoom.askedAgain')}
-            </p>
-          )}
-          {ask.files.length > 0 && (
-            <section aria-labelledby={`${id}-files`}>
-              <h3 id={`${id}-files`} className="mb-1 text-xs font-medium text-muted">{t('shareRoom.filesHead')}</h3>
-              <ul className="divide-y divide-line" data-testid="share-room-files">
-                {shown.map((f) => (
-                  <FileRow
-                    key={f.path}
-                    file={f}
-                    others={others}
-                    on={attach.has(f.path!)}
-                    full={attach.size >= ROOM_FILES_MAX}
-                    onChange={(v) => setAttach((cur) => { const next = new Set(cur); if (v) next.add(f.path!); else next.delete(f.path!); return next })}
-                  />
-                ))}
-                {hidden > 0 && (
-                  <li className="flex items-center gap-3 py-2.5 text-sm text-muted" data-testid="share-room-hidden">
-                    <Lock size={16} className="shrink-0 text-faint" aria-hidden />
-                    {t('shareRoom.hidden', { n: hidden })}
-                  </li>
-                )}
-              </ul>
-            </section>
-          )}
-          {ask.provenance && <Provenance p={ask.provenance} />}
-        </div>
-      </Modal>
+        target={<div className="flex items-center gap-2.5"><RoomOptionLabel room={ask.room} /></div>}
+        note={n}
+        ask={ask}
+        others={Math.max(0, ask.room.memberCount - 1)}
+        attach={attach}
+        onAttach={confirm.setAttach}
+        busy={busy}
+        onSend={(yes) => void send(ask.room, yes)}
+        onCancel={confirm.close}
+      />
     )
   }
 
@@ -281,6 +244,84 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose }: { ch
   )
 }
 
+/** The confirm step, a dialog of its own for each "confirm" (key: opening one puts the focus in it, the primary button):
+ * where it goes (`target`), my note, "asked again" when it is, a row per linked file with its 첨부 switch, the provenance
+ * line. The primary button (첨부해서 보내기 when a switch is on, else 보내기) sends with the key and the files on;
+ * 취소, ✕ and Esc are `onCancel`. `others`: the people of the room but me (a row's "nobody else can open it"). `returnTo`:
+ * where the focus goes when it closes (default: where it was). */
+export function ShareConfirm({ title, target, note, ask, others, attach, onAttach, busy, onSend, onCancel, returnTo }: {
+  title: string; target: ReactNode; note?: string; ask: ConfirmAsk; others: number; attach: ReadonlySet<string>
+  onAttach: (f: (cur: Set<string>) => Set<string>) => void; busy: boolean; onSend: (yes: { confirmKey: string; attach: string[] }) => void; onCancel: () => void; returnTo?: HTMLElement | null
+}) {
+  const t = useT()
+  const id = useId()
+  const shown = ask.files.filter((f) => !f.missing && f.path)
+  const hidden = ask.files.length - shown.length
+  return (
+    <Modal
+      key={`confirm-${ask.seq}`}
+      open
+      onClose={onCancel}
+      width={460}
+      title={title}
+      returnTo={returnTo}
+      footer={
+        <>
+          <Button variant="ghost" disabled={busy} onClick={onCancel} data-testid="share-room-back">
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" busy={busy} onClick={() => onSend({ confirmKey: ask.confirmKey, attach: [...attach] })} data-autofocus data-testid="share-room-confirm-send">
+            {attach.size ? t('shareRoom.sendAttached') : t('shareRoom.send')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4" data-testid="share-room-confirm">
+        <div>
+          <div className="-mx-2 px-2 text-sm" data-testid="share-room-to">
+            {target}
+          </div>
+          {note && (
+            <p className="mt-1.5 text-sm leading-6 break-words text-muted" data-testid="share-room-confirm-note">
+              “{note}”
+            </p>
+          )}
+        </div>
+        {ask.again && (
+          <p role="status" className="flex items-start gap-2 text-sm leading-6 break-keep text-warn" data-testid="share-room-again">
+            <AlertCircle size={16} className="mt-1 shrink-0" aria-hidden />
+            {t('shareRoom.askedAgain')}
+          </p>
+        )}
+        {ask.files.length > 0 && (
+          <section aria-labelledby={`${id}-files`}>
+            <h3 id={`${id}-files`} className="mb-1 text-xs font-medium text-muted">{t('shareRoom.filesHead')}</h3>
+            <ul className="divide-y divide-line" data-testid="share-room-files">
+              {shown.map((f) => (
+                <FileRow
+                  key={f.path}
+                  file={f}
+                  others={others}
+                  on={attach.has(f.path!)}
+                  full={attach.size >= ROOM_FILES_MAX}
+                  onChange={(v) => onAttach((cur) => { const next = new Set(cur); if (v) next.add(f.path!); else next.delete(f.path!); return next })}
+                />
+              ))}
+              {hidden > 0 && (
+                <li className="flex items-center gap-3 py-2.5 text-sm text-muted" data-testid="share-room-hidden">
+                  <Lock size={16} className="shrink-0 text-faint" aria-hidden />
+                  {t('shareRoom.hidden', { n: hidden })}
+                </li>
+              )}
+            </ul>
+          </section>
+        )}
+        {ask.provenance && <Provenance p={ask.provenance} />}
+      </div>
+    </Modal>
+  )
+}
+
 /** One linked file: its name, who can open it, and the 첨부 switch when it may go with the message. */
 function FileRow({ file, others, on, full, onChange }: { file: AnswerShareFile; others: number; on: boolean; full: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
@@ -328,8 +369,9 @@ function Provenance({ p }: { p: AnswerShareProvenance }) {
   )
 }
 
-/** A place the answer used that some people of the room cannot see, as the app names it. */
-function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace): string {
+/** A place the answer used that some people of the room cannot see, as the app names it (also the share of a whole
+ * chat: components/chat/ShareChat.tsx). */
+export function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace): string {
   switch (place.kind) {
     case 'folder':
       return place.path ? `${place.path.replace(/\/+$/, '')}/` : t('rooms.aiRootFolder')

@@ -9,8 +9,12 @@ import { useSession } from '../../src/store/session'
 import { roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
-const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadView: null, ...o })
+const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadViews: {}, ...o })
 const tl = (roomId: string, messages: ReturnType<typeof message>[] = []) => ({ roomId, messages, nextCursor: null, loading: false, error: null })
+type View = { roomId: string; rootId: string; root: ReturnType<typeof message> | null; replies: ReturnType<typeof message>[] }
+/** threads on screen, each shown by one panel unless said */
+const views = (...list: (View & { holders?: number })[]): RoomsData['threadViews'] => Object.fromEntries(list.map((v) => [placeKey(v.roomId, v.rootId), { nextCursor: null, loading: false, error: null, holders: 1, ...v }]))
+const viewOf = (d: Pick<RoomsData, 'threadViews'>, roomId: string, rootId: string) => d.threadViews[placeKey(roomId, rootId)]
 
 describe('a new message', () => {
   test('is added to the open room once, by id, in room order', () => {
@@ -60,12 +64,27 @@ describe('a new message', () => {
     expect(open.rooms[0]!.unreadCount).toBe(0)
   })
 
-  test('mentioning me marks the room "mentioned"; a deleted or private message counts nothing', () => {
+  test('mentioning me marks the room "mentioned"; a deleted message counts nothing', () => {
     const r = room()
     const d = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, mentions: [ME.id] }), ME.id)
     expect(d.rooms[0]).toMatchObject({ unreadCount: 1, mentioned: true })
-    const priv = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, visibility: 'private' }), ME.id)
-    expect(priv.rooms[0]!.unreadCount).toBe(0)
+    const gone = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, deletedAt: at(2) }), ME.id)
+    expect(gone.rooms[0]!.unreadCount).toBe(0)
+  })
+
+  test("@트리나's private answer to my question counts for me, as the server counts it (it is sent to me only)", () => {
+    // I asked in this room and went to another one: the sidebar and the dock badge said 0, a reload 1
+    const r = room({ lastSeq: 1, lastReadSeq: 1 })
+    const answer = message({ roomId: r.id, seq: 2, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private' })
+    const d = withMessage(data({ rooms: [r] }), r.id, answer, ME.id)
+    expect(d.rooms[0]).toMatchObject({ unreadCount: 1, mentioned: false, lastSeq: 2, lastMessage: { id: answer.id } })
+    // the room on screen: nothing (the screen reads it)
+    expect(withMessage(data({ rooms: [r], openRoomId: r.id }), r.id, answer, ME.id).rooms[0]!.unreadCount).toBe(0)
+    // shared to the room from my phone: the server read the room up to it first (room.read before the message)
+    const shared = { ...answer, seq: 3, visibility: 'room' as const }
+    let other = withReadState(data({ rooms: [r] }), r.id, { lastReadSeq: 3, unreadCount: 0, mentioned: false })
+    other = withMessage(other, r.id, shared, ME.id)
+    expect(other.rooms[0]).toMatchObject({ unreadCount: 0, lastReadSeq: 3, lastSeq: 3, lastMessage: { id: answer.id } })
   })
 
   test('the badge stops at 999 like the server', () => {
@@ -81,10 +100,10 @@ describe('threads', () => {
     const other = room({ activityAt: at(-10) })
     const root = message({ roomId: r.id, seq: 1 })
     const reply = message({ roomId: r.id, seq: 2, threadRootId: root.id })
-    let d = data({ rooms: [other, r], openRoomId: r.id, timeline: tl(r.id, [root]), threadView: { roomId: r.id, rootId: root.id, root, replies: [], nextCursor: null, loading: false, error: null } })
+    let d = data({ rooms: [other, r], openRoomId: r.id, timeline: tl(r.id, [root]), threadViews: views({ roomId: r.id, rootId: root.id, root, replies: [] }) })
     d = withMessage(d, r.id, reply, ME.id)
     expect(d.timeline!.messages.map((m) => m.id)).toEqual([root.id])
-    expect(d.threadView!.replies.map((m) => m.id)).toEqual([reply.id])
+    expect(viewOf(d, r.id, root.id)!.replies.map((m) => m.id)).toEqual([reply.id])
     expect(d.rooms.map((x) => x.id)).toEqual([other.id, r.id])
     expect(d.rooms[1]).toMatchObject({ unreadCount: 0, lastSeq: 1, lastMessage: null })
     // a room not on screen: a reply counts nothing there either (a followed thread's count comes from the server)
@@ -94,7 +113,7 @@ describe('threads', () => {
     const loud = message({ roomId: r.id, seq: 3, threadRootId: root.id, alsoInRoom: true })
     const both = withMessage(d, r.id, loud, ME.id)
     expect(both.timeline!.messages.map((m) => m.id)).toEqual([root.id, loud.id])
-    expect(both.threadView!.replies.map((m) => m.id)).toEqual([reply.id, loud.id])
+    expect(viewOf(both, r.id, root.id)!.replies.map((m) => m.id)).toEqual([reply.id, loud.id])
     expect(withMessage(data({ rooms: [r] }), r.id, loud, ME.id).rooms[0]).toMatchObject({ unreadCount: 1, lastMessage: { id: loud.id } })
     // my own reply sent to the room: it does not read the room for me (it was written in the thread)
     const unread = room({ unreadCount: 2, lastSeq: 1, lastReadSeq: 0 })
@@ -102,7 +121,7 @@ describe('threads', () => {
     expect(withMessage(data({ rooms: [unread] }), unread.id, mineLoud, ME.id).rooms[0]).toMatchObject({ unreadCount: 2, lastReadSeq: 0, lastSeq: 5 })
     // a reply in another thread: neither here nor there
     const elsewhere = withMessage(d, r.id, message({ roomId: r.id, seq: 4, threadRootId: uuidv7() }), ME.id)
-    expect(elsewhere.threadView!.replies).toHaveLength(1)
+    expect(viewOf(elsewhere, r.id, root.id)!.replies).toHaveLength(1)
     expect(elsewhere.timeline!.messages).toHaveLength(1)
   })
 
@@ -110,18 +129,18 @@ describe('threads', () => {
     const r = room()
     const root = message({ roomId: r.id, seq: 1 })
     const reply = message({ roomId: r.id, seq: 2, threadRootId: root.id })
-    const start = data({ rooms: [r], openRoomId: r.id, timeline: tl(r.id, [root]), threadView: { roomId: r.id, rootId: root.id, root, replies: [reply], nextCursor: null, loading: false, error: null } })
+    const start = data({ rooms: [r], openRoomId: r.id, timeline: tl(r.id, [root]), threadViews: views({ roomId: r.id, rootId: root.id, root, replies: [reply] }) })
     const summary = { replyCount: 1, lastReplyAt: reply.createdAt, repliers: [BEN], newReplies: true }
     let d = withThreadSummary(start, r.id, root.id, summary)
     expect(d.timeline!.messages[0]!.thread).toEqual(summary)
-    expect(d.threadView!.root!.thread).toEqual(summary)
+    expect(viewOf(d, r.id, root.id)!.root!.thread).toEqual(summary)
     d = withThreadSummary(d, r.id, root.id, null)
     expect(d.timeline!.messages[0]).not.toHaveProperty('thread')
     const chips = [{ emoji: '👍' as const, count: 2, mine: true, users: [ME, BEN] }]
     d = withReactions(d, r.id, reply.id, chips)
-    expect(d.threadView!.replies[0]!.reactions).toEqual(chips)
+    expect(viewOf(d, r.id, root.id)!.replies[0]!.reactions).toEqual(chips)
     d = withReactions(d, r.id, reply.id, [])
-    expect(d.threadView!.replies[0]).not.toHaveProperty('reactions')
+    expect(viewOf(d, r.id, root.id)!.replies[0]).not.toHaveProperty('reactions')
     // another room: nothing changes
     expect(withReactions(start, room().id, root.id, chips).timeline!.messages[0]).not.toHaveProperty('reactions')
   })
@@ -144,6 +163,41 @@ describe('threads', () => {
     expect(withReadState(data({ rooms: [{ ...r, threadsUnread: 0 }] }), r.id, { lastReadSeq: 5, unreadCount: 0 }).rooms[0]!.mentioned).toBe(false)
   })
 
+  test('every thread on screen gets the live changes: the page\'s thread and the one beside a file in the viewer', () => {
+    const r = room()
+    const a = message({ roomId: r.id, seq: 1 })
+    const b = message({ roomId: r.id, seq: 2 })
+    const aReply = message({ roomId: r.id, seq: 3, threadRootId: a.id })
+    const bReply = message({ roomId: r.id, seq: 4, threadRootId: b.id })
+    // the page shows a's thread, the viewer b's; the viewer's own copy of a's thread too (the same thread, two panels)
+    const start = data({ rooms: [r], openRoomId: r.id, timeline: tl(r.id, [a, b]), threadViews: views({ roomId: r.id, rootId: a.id, root: a, replies: [aReply], holders: 2 }, { roomId: r.id, rootId: b.id, root: b, replies: [bReply] }) })
+    // a new reply: in its own thread only
+    const late = message({ roomId: r.id, seq: 5, threadRootId: b.id })
+    let d = withMessage(start, r.id, late, ME.id)
+    expect(viewOf(d, r.id, b.id)!.replies.map((m) => m.id)).toEqual([bReply.id, late.id])
+    expect(viewOf(d, r.id, a.id)!.replies.map((m) => m.id)).toEqual([aReply.id])
+    expect(viewOf(d, r.id, a.id)).toBe(viewOf(start, r.id, a.id))
+    // an edit of a's reply, a delete of b's root: each where it shows
+    d = withUpdatedMessage(d, r.id, { ...aReply, body: 'edited', editedAt: at(9) })
+    d = withUpdatedMessage(d, r.id, { ...b, body: '', files: [], deletedAt: at(9) })
+    expect(viewOf(d, r.id, a.id)!.replies[0]!.body).toBe('edited')
+    expect(viewOf(d, r.id, b.id)!.root!.deletedAt).toBe(at(9))
+    expect(d.timeline!.messages[1]!.deletedAt).toBe(at(9))
+    // a reaction and a summary: in both threads where their message shows
+    const chips = [{ emoji: '👀' as const, count: 1, mine: false, users: [BEN] }]
+    d = withReactions(d, r.id, bReply.id, chips)
+    expect(viewOf(d, r.id, b.id)!.replies[0]!.reactions).toEqual(chips)
+    const summary = { replyCount: 2, lastReplyAt: at(5), repliers: [BEN], newReplies: false }
+    d = withThreadSummary(d, r.id, a.id, summary)
+    expect(viewOf(d, r.id, a.id)!.root!.thread).toEqual(summary)
+    expect(d.timeline!.messages[0]!.thread).toEqual(summary)
+    // the count of panels is kept through every change
+    expect(viewOf(d, r.id, a.id)!.holders).toBe(2)
+    // a change in another room leaves every thread as it was
+    const elsewhere = withReactions(d, room().id, bReply.id, [])
+    expect(elsewhere.threadViews).toBe(d.threadViews)
+  })
+
   test("each thread's box is its own place (drafts, a refused send coming back)", () => {
     expect(placeKey('r1')).toBe('r1')
     expect(placeKey('r1', null)).toBe('r1')
@@ -155,10 +209,10 @@ test('an edit or delete replaces the message, the quotes of it and the last line
   const r = room()
   const m1 = message({ roomId: r.id, seq: 1, body: 'first' })
   const reply = message({ roomId: r.id, seq: 2, author: ME, replyTo: { id: m1.id, author: BEN, excerpt: 'first', fileCount: 0, deleted: false } })
-  const start = data({ rooms: [{ ...r, lastMessage: { id: m1.id, seq: 1, author: BEN, excerpt: 'first', fileCount: 0, deleted: false, createdAt: m1.createdAt } }], openRoomId: r.id, timeline: tl(r.id, [m1, reply]), threadView: { roomId: r.id, rootId: m1.id, root: m1, replies: [], nextCursor: null, loading: false, error: null } })
+  const start = data({ rooms: [{ ...r, lastMessage: { id: m1.id, seq: 1, author: BEN, excerpt: 'first', fileCount: 0, deleted: false, createdAt: m1.createdAt } }], openRoomId: r.id, timeline: tl(r.id, [m1, reply]), threadViews: views({ roomId: r.id, rootId: m1.id, root: m1, replies: [] }) })
   const d = withUpdatedMessage(start, r.id, { ...m1, body: '', deletedAt: at(5) })
   expect(d.timeline!.messages[0]!.deletedAt).toBe(at(5))
-  expect(d.threadView!.root!.deletedAt).toBe(at(5))
+  expect(viewOf(d, r.id, m1.id)!.root!.deletedAt).toBe(at(5))
   expect(d.timeline!.messages[1]!.replyTo).toMatchObject({ id: m1.id, deleted: true, excerpt: '' })
   expect(d.rooms[0]!.lastMessage).toMatchObject({ deleted: true, excerpt: '' })
 })
@@ -216,20 +270,81 @@ describe('handleEvent', () => {
     routes[`/api/rooms/${r.id}/messages/${root.id}/thread`] = { root, items: [reply], nextCursor: null }
     routes[`/api/rooms/${r.id}/messages/${root.id}/thread/read`] = { lastReadSeq: 2, room: { ...r, threadsUnread: 0 } }
     useRooms.getState().openThread(r.id, root.id)
-    expect(useRooms.getState().threadView).toMatchObject({ rootId: root.id, root: { id: root.id }, loading: true })
+    expect(viewOf(useRooms.getState(), r.id, root.id)).toMatchObject({ rootId: root.id, root: { id: root.id }, loading: true, holders: 1 })
     await tick()
-    expect(useRooms.getState().threadView!.replies.map((m) => m.id)).toEqual([reply.id])
+    expect(viewOf(useRooms.getState(), r.id, root.id)!.replies.map((m) => m.id)).toEqual([reply.id])
     await useRooms.getState().markThreadRead(r.id, root.id, 2)
     // asked once per position
     await useRooms.getState().markThreadRead(r.id, root.id, 2)
     expect(calls.filter((c) => c.endsWith('/thread/read'))).toHaveLength(1)
     expect(useRooms.getState().rooms[0]!.threadsUnread).toBe(0)
     expect(useRooms.getState().timeline!.messages[0]!.thread!.newReplies).toBe(false)
-    expect(useRooms.getState().threadView!.root!.thread!.newReplies).toBe(false)
+    expect(viewOf(useRooms.getState(), r.id, root.id)!.root!.thread!.newReplies).toBe(false)
     useRooms.getState().handleEvent({ type: 'room.thread', seq: 3, at: Date.now(), data: { roomId: r.id, rootId: root.id, thread: { replyCount: 2, lastReplyAt: at(3), repliers: [CY, BEN], newReplies: true } } })
     expect(useRooms.getState().timeline!.messages[0]!.thread).toMatchObject({ replyCount: 2, newReplies: true })
     useRooms.getState().closeThread(r.id, root.id)
-    expect(useRooms.getState().threadView).toBeNull()
+    expect(useRooms.getState().threadViews).toEqual({})
+  })
+
+  test('a thread open in two panels: closing one keeps it, the last one takes it away; a read still on its way is dropped', async () => {
+    const r = room()
+    const root = message({ roomId: r.id, seq: 1 })
+    const reply = message({ roomId: r.id, seq: 2, threadRootId: root.id })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [root]) })
+    routes[`/api/rooms/${r.id}/messages/${root.id}/thread`] = { root, items: [reply], nextCursor: null }
+    // the page's thread, then the viewer's beside a file of it: read once
+    useRooms.getState().openThread(r.id, root.id)
+    useRooms.getState().openThread(r.id, root.id)
+    await tick()
+    expect(calls.filter((c) => c.endsWith('/thread'))).toHaveLength(1)
+    expect(viewOf(useRooms.getState(), r.id, root.id)).toMatchObject({ holders: 2, replies: [{ id: reply.id }] })
+    // a live reply reaches it while either panel shows it
+    useRooms.getState().closeThread(r.id, root.id)
+    const live = message({ roomId: r.id, seq: 3, threadRootId: root.id })
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: live } })
+    expect(viewOf(useRooms.getState(), r.id, root.id)).toMatchObject({ holders: 1 })
+    expect(viewOf(useRooms.getState(), r.id, root.id)!.replies.map((m) => m.id)).toEqual([reply.id, live.id])
+    // the room page leaving does not take away the thread a panel still shows
+    useRooms.getState().close(r.id)
+    expect(viewOf(useRooms.getState(), r.id, root.id)).toBeDefined()
+    useRooms.getState().closeThread(r.id, root.id)
+    expect(useRooms.getState().threadViews).toEqual({})
+    // opened again and closed before its read came back: the answer finds nothing to fill
+    useRooms.getState().openThread(r.id, root.id)
+    useRooms.getState().closeThread(r.id, root.id)
+    await tick()
+    expect(useRooms.getState().threadViews).toEqual({})
+  })
+
+  test('a reconnect reads every thread on screen again; a member leaving reads the room\'s threads again', async () => {
+    const r = room()
+    const a = message({ roomId: r.id, seq: 1 })
+    const b = message({ roomId: r.id, seq: 2 })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [a, b]), threadViews: views({ roomId: r.id, rootId: a.id, root: a, replies: [] }, { roomId: r.id, rootId: b.id, root: b, replies: [] }) })
+    routes['/api/rooms'] = { items: [r] }
+    routes[`/api/rooms/${r.id}/messages`] = { items: [a, b], nextCursor: null }
+    routes[`/api/rooms/${r.id}/messages/${a.id}/thread`] = { root: a, items: [message({ roomId: r.id, seq: 3, threadRootId: a.id })], nextCursor: null }
+    routes[`/api/rooms/${r.id}/messages/${b.id}/thread`] = { root: b, items: [], nextCursor: null }
+    await useRooms.getState().resync()
+    expect(calls).toContain(`GET /api/rooms/${r.id}/messages/${a.id}/thread`)
+    expect(calls).toContain(`GET /api/rooms/${r.id}/messages/${b.id}/thread`)
+    expect(viewOf(useRooms.getState(), r.id, a.id)!.replies).toHaveLength(1)
+    calls = []
+    useRooms.getState().handleEvent({ type: 'room.updated', seq: 1, at: Date.now(), data: { roomId: r.id, change: 'members', room: r } })
+    await tick()
+    expect(calls.filter((c) => c.endsWith('/thread')).sort()).toEqual([`GET /api/rooms/${r.id}/messages/${a.id}/thread`, `GET /api/rooms/${r.id}/messages/${b.id}/thread`].sort())
+  })
+
+  test("the room page's right side: the Trina side chat per room, gone when the page leaves the room", () => {
+    const r = room()
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+    useRooms.getState().setSide(r.id, 'trina')
+    expect(useRooms.getState().side).toEqual({ [r.id]: 'trina' })
+    useRooms.getState().setSide(r.id, null)
+    expect(useRooms.getState().side).toEqual({})
+    useRooms.getState().setSide(r.id, 'trina')
+    useRooms.getState().close(r.id)
+    expect(useRooms.getState().side).toEqual({})
   })
 
   test('a reaction shows at once and the server answer wins; refused, it goes back as it was', async () => {
@@ -253,12 +368,12 @@ describe('handleEvent', () => {
     const went: string[] = []
     setNavigator((to) => went.push(to))
     const r = room()
-    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id), threadView: { roomId: r.id, rootId: uuidv7(), root: null, replies: [], nextCursor: null, loading: false, error: null } })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id), threadViews: views({ roomId: r.id, rootId: uuidv7(), root: null, replies: [] }) })
     useRooms.getState().handleEvent({ type: 'room.updated', seq: 1, at: Date.now(), data: { roomId: r.id, change: 'removed', room: null } })
     const s = useRooms.getState()
     expect(s.rooms).toEqual([])
     expect(s.timeline).toBeNull()
-    expect(s.threadView).toBeNull()
+    expect(s.threadViews).toEqual({})
     expect(s.openRoomId).toBeNull()
     expect(went).toEqual(['/rooms'])
     setNavigator(null)

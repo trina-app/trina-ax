@@ -36,6 +36,7 @@ import { domainToUnicode } from 'node:url'
 import { getDomain } from 'tldts'
 import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
+import type { CardOutcome } from '../policy/refusal'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
 import type { EchoCheck } from './connection-urls'
@@ -108,6 +109,9 @@ export interface TurnPerson {
   locale: Locale
   /** Show a yes / no card to the person (raised by the server, never by the AI); false = declined or no answer. */
   confirm(question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<boolean>
+  /** confirm() with how the card ended: 'yes', the person's no, no answer in time, nobody to ask, the answer stopped.
+   * A refusal says the real reason (policy/refusal.ts). Optional: askConfirm falls back to confirm(). */
+  confirmWhy?(question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome>
   /** A server card with more than two answers: the value picked, or null (declined, no answer). Optional: a caller
    * without it falls back to confirm() with its safest "yes". */
   choose?(question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null>
@@ -124,6 +128,14 @@ export interface TurnPerson {
   /** a turn that shows the person each page it opens as it happens (a company profile draft: onboarding/draft.ts
    * DraftPages): web_fetch reports every call, where it ended up and how it went */
   pages?: WebPageLog
+}
+
+/** How a yes / no card of `person` ended (policy/refusal.ts CardOutcome): an unattended run is not asked at all
+ * ('unattended'); a person without confirmWhy reads false as the person's no. */
+export async function askConfirm(person: TurnPerson, question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome> {
+  if (person.unattended) return 'unattended'
+  if (person.confirmWhy) return person.confirmWhy(question, allow, deny, extra)
+  return (await person.confirm(question, allow, deny, extra)) ? 'yes' : 'declined'
 }
 
 /** Why web_fetch did not read a page: not_linked (the gate refused an address that was neither typed nor linked),
@@ -175,10 +187,14 @@ function searchUrls(db: Database, chatId: string): Set<string> {
   return seen
 }
 
-/** Is the chat a shared project chat (its messages come from several people)? */
+/** Do the chat's messages come from several people: a shared project chat, or one that stopped being shared after
+ * others wrote in it (a deleted project's, now its creator's; the rollback guard: chat/shared.ts severalAuthors)? A
+ * room's AI session has its own rules. */
 function sharedChat(db: Database, chatId: string): boolean {
-  const r = db.query('SELECT shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null } | null
-  return !!r?.shared_at && !!r.project_id
+  const r = db.query('SELECT shared_at, project_id, room_id, user_id FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; room_id: string | null; user_id: string } | null
+  if (!r) return false
+  if (r.shared_at && r.project_id) return true
+  return !r.room_id && !!db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(chatId, r.user_id)
 }
 
 /** ① sources of a chat (all of them; the learned ones are within the link budget when opened). `userId`: a shared

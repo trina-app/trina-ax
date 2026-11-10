@@ -25,7 +25,7 @@ bun run demo:company --local    # this Mac only
 | `groups/Marketing/` | November campaign plan, brand voice, the weekly meeting notes (Nov 3) | Marketing, Dana |
 | `groups/Sales/pipeline.xlsx` | eight deals by stage | Sales, Dana |
 | `skills/meeting-action-items/`, `skills/answer-rules.md` | a team skill and a team rule | everyone |
-| `skills/marketing/` | two skills of the marketing pack (taken from `resources/skill-packs/marketing/en`) | Marketing, Dana |
+| `skills/work/` | the work pack's natural-writing skill (taken from `resources/skill-packs/work/en`) | Marketing, Dana |
 
 People: `dana` (CEO, a member who reads more through rules), `sam` (Marketing lead), `alex` (new hire), `jordan`
 (Marketing), `priya` (Sales lead), `leo` (Sales); password `teamax-demo-1` (public). The owner `acme-admin` has a random

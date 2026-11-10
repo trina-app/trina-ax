@@ -7,11 +7,14 @@
 // not in skills/, until a manager of the target folder registers it (등록) or turns it down (거절).
 // Group skills (docs/DECISIONS.md "Group skills"): groups/<folder>/skills/ of each group the person belongs to; its
 // managers are the group's members who may write that folder (every member by default).
+// Project skills (docs/DECISIONS.md "Project skills"): <project folder>/skills/<name>/SKILL.md of a live team project,
+// used only in that project's chats; whoever may write that folder changes them. A project only adds names.
 import { z } from 'zod'
 import { Uuid7 } from '../ids'
-import { IsoTime, RelPath, page, PageQuery } from './common'
+import { IsoTime, Locale, RelPath, page, PageQuery } from './common'
 import { endpoint } from './endpoint'
 import { UserRef } from './entities'
+import { PackExample, PackSkillSource } from './onboarding-packs'
 import { SkillInput } from './skill-inputs'
 import { ShareApp, ShareExcludedReason, ShareSkillIn, SKILL_SHARE_LIMITS, SkillGroupRef } from './skill-shares'
 
@@ -27,6 +30,9 @@ export const SkillInfo = z.object({
   /** a skill of one of the caller's groups (groups/<folder>/skills/...): only that group's members see and use it. The
    * group by its current name (a rename shows at once; its folder keeps the name it was made with). */
   group: SkillGroupRef.optional(),
+  /** a skill of a project (<project folder>/skills/<name>/SKILL.md): only that project's chats use it. In the "/" menu
+   * of that project's chat (?projectId=) and on the Skills page's project sections (?projects=1) */
+  project: SkillGroupRef.optional(),
   /** the short form the skill runs from (its header's metadata `inputs`, ./skill-inputs.ts); absent: a plain skill */
   inputs: z.array(SkillInput).optional(),
   /** the name people read ("광고 문구"): a SKILL.md's metadata `title`, one line of at most SKILL_TITLE_MAX characters.
@@ -41,10 +47,10 @@ export const SkillInfo = z.object({
   /** only in GET /api/skills?shadowed=1, for the Team skills page: a skill of the same name that is not in the caller's
    * list because another one runs instead (personal > group > team). Which one runs is unchanged; the page keeps this
    * one in its own section with a note, so it does not look deleted. Never in the "/" menu or the AI's list. */
-  shadowedBy: z.object({ tier: z.enum(['personal', 'group']), group: SkillGroupRef.optional() }).optional(),
-  /** a skill in the list that runs instead of a team skill ("team") or a group's ("group") of the same name: the "/"
-   * menu's small hint "팀 스킬 대신" */
-  replaces: z.enum(['team', 'group']).optional(),
+  shadowedBy: z.object({ tier: z.enum(['personal', 'group', 'team']), group: SkillGroupRef.optional() }).optional(),
+  /** a skill in the list that runs instead of a team skill ("team"), a group's ("group") or a project's ("project") of
+   * the same name: the "/" menu's small hint "팀 스킬 대신" */
+  replaces: z.enum(['team', 'group', 'project']).optional(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
 /** The longest metadata `example` (characters); a longer one is ignored. */
@@ -88,7 +94,7 @@ export function skillLabel(s: { name: string; title?: string | null }): string {
   if (title && title !== s.name) return title
   return s.name.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim() || s.name
 }
-/** A skill's description without a lead that only repeats its title: the marketing pack writes "광고 문구 — 알릴 제품과
+/** A skill's description without a lead that only repeats its title: the packs write "회사 소개서 — 회사 소개 자료나
  * …" so the AI and older screens read the plain name; next to the title the rest is enough. The rest starts as a
  * sentence: "Ad copy — takes what to promote …" reads "Takes what to promote …". */
 export function skillSummary(s: { name: string; title?: string | null; description: string }): string {
@@ -104,6 +110,47 @@ export const PopularSkills = z.object({
   days: z.literal(30),
 })
 export type PopularSkills = z.infer<typeof PopularSkills>
+
+/** A skill as Home's "팀에 준비된 것" shows it (docs/DECISIONS.md "W6.3 — What a new member sees first"). */
+export const PreparedSkill = z.object({
+  path: z.string(),
+  /** what "/<name>" runs */
+  name: z.string(),
+  /** the name people read (skillTitle) */
+  title: z.string(),
+  /** one line in the caller's language: a kept skill's own line (what it makes), else the first line of its description */
+  summary: z.string(),
+  /** a kept skill at its own pack path only (skills/<pack>/<name>/SKILL.md): Trina's example, the language of its text,
+   * and where it comes from. A team skill of the same name anywhere else has none of them (it is not Trina's) */
+  example: PackExample.optional(),
+  locale: Locale.optional(),
+  source: PackSkillSource.optional(),
+})
+export type PreparedSkill = z.infer<typeof PreparedSkill>
+/** The team folder's documents are counted up to this many (more: "100개 넘게"). */
+export const TEAM_FOLDER_COUNT_MAX = 100
+/**
+ * GET /api/skills/examples: what the team prepared, read as the caller (any role; the welcome state stays for owners
+ * and admins). Nothing in it is owner-only: no company profile (only whether one is saved), nothing to install.
+ */
+export const TeamPrepared = z.object({
+  /** the caller's team and group skills (their own GET /api/skills, personal skills left out): the landing skill first,
+   * then the kept skills at their pack path (자연스러운 글, 카드뉴스, 홍보 영상, 회사 소개서), then the others by name */
+  skills: z.array(PreparedSkill),
+  /** the team group's folder (the welcome steps' groups/<team>/), its documents counted as the caller, all levels down,
+   * up to TEAM_FOLDER_COUNT_MAX (`more`: the count stopped there). The steps' own brand folder, the group's skills
+   * folder, dot files and system files do not count; `without` names those two folders inside it (the ready question
+   * tells the AI to leave them out too). A count is reused for up to 45 seconds; the caller's own change in the folder
+   * drops it. null: no team group, or the caller cannot read its folder */
+  teamFolder: z.object({ path: z.string(), files: z.number().int().nonnegative(), more: z.boolean(), without: z.array(z.string()) }).nullable(),
+  /** the skill the invite opens (the welcome steps' landing skill), only when the caller can use it */
+  landing: z.string().nullable(),
+  /** the caller ran a team skill ("/name", a skill form or the skill tool) in an answer that finished */
+  ranTeamSkill: z.boolean(),
+  /** a company profile is saved (the profile itself is not sent) */
+  hasProfile: z.boolean(),
+})
+export type TeamPrepared = z.infer<typeof TeamPrepared>
 /** Why a skill entry does not load (R2-SKILL-03). The screens translate the code. */
 export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility',
   // a whole folder, for the people who manage it: more entries than the server reads (1,000 per skills folder), or more
@@ -278,8 +325,50 @@ export const SkillChange = z.object({
   /** a change in a group's skills folder (groups/<folder>/skills/): the group as it was named then; id null when no
    * group had that folder any more */
   group: z.object({ id: z.string().nullable(), name: z.string() }).optional(),
+  /** a change in a project's skills folder (projects/<name>/skills/): the project as it was named then; id null when no
+   * project had that folder any more */
+  project: z.object({ id: z.string().nullable(), name: z.string() }).optional(),
 })
 export type SkillChange = z.infer<typeof SkillChange>
+
+/** A skill level as a move names it (server/src/skills/move.ts). */
+export const SkillLevel = z.discriminatedUnion('level', [
+  z.object({ level: z.literal('team') }),
+  z.object({ level: z.literal('group'), groupId: z.string().min(1).max(64) }),
+  z.object({ level: z.literal('project'), projectId: z.string().min(1).max(64) }),
+  z.object({ level: z.literal('personal') }),
+])
+export type SkillLevel = z.infer<typeof SkillLevel>
+/** One place a skill can move to, with who gains and who loses it. `blocked`: why it cannot go there (shown, not
+ * offered); `token` binds a move to the files and the target as shown (every file's hash). */
+export const SkillMoveTarget = z.object({
+  to: SkillLevel,
+  /** "팀 전체", "리드 부서", "견적 프로젝트 채팅", "나만" */
+  label: z.string(),
+  people: z.number().int().nonnegative(),
+  gained: z.number().int().nonnegative(),
+  lost: z.number().int().nonnegative(),
+  /** who may change it there (the folder rules), and how many of them may not change it now */
+  editors: z.number().int().nonnegative(),
+  editorsGained: z.number().int().nonnegative(),
+  blocked: z.string().optional(),
+  token: z.string().optional(),
+})
+export type SkillMoveTarget = z.infer<typeof SkillMoveTarget>
+/** Where a skill can move ("옮기기…" on the Skills page): where it is, its files, its whole text (shown when a move
+ * reaches more people) and each other level. */
+export const SkillMoveOptions = z.object({
+  path: RelPath,
+  name: z.string(),
+  from: z.object({ label: z.string(), people: z.number().int().nonnegative(), level: z.enum(['team', 'group', 'project', 'personal']) }),
+  files: z.array(z.object({ path: RelPath, size: z.number().int().nonnegative() })),
+  text: z.string(),
+  targets: z.array(SkillMoveTarget),
+})
+export type SkillMoveOptions = z.infer<typeof SkillMoveOptions>
+export const MoveSkillBody = z.object({ path: RelPath, to: SkillLevel, token: z.string().min(1).max(128) })
+export const MoveSkillResult = z.object({ path: RelPath, name: z.string(), from: z.string(), to: z.string() })
+export type MoveSkillResult = z.infer<typeof MoveSkillResult>
 
 /** Admin > 멤버 / 그룹 "팀 스킬 관리": a write rule on skills/ or a subfolder for one person or group. */
 export const SkillManagerSubject = z.discriminatedUnion('subjectType', [
@@ -304,7 +393,10 @@ export const SetSkillManagerBody = z.intersection(SkillManagerSubject, z.object(
 
 export const SKILLS = {
   popularSkills: endpoint({ method: 'GET', path: '/api/skills/popular', auth: 'user', owner: 'B', response: PopularSkills, summary: 'Last 30 days of usage counts for currently readable skills, with no user identities or prompts.' }),
-  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', query: z.object({ shadowed: z.literal('1').optional() }), response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team. `?shadowed=1` also lists the skills that lost to a better tier, each with `shadowedBy` (the Team skills page).' }),
+  skillExamples: endpoint({ method: 'GET', path: '/api/skills/examples', auth: 'user', owner: 'B', response: TeamPrepared, summary: 'What the team prepared, read as the caller (Home\'s first screen): the team and group skills they can use with Trina\'s example for a kept skill at its own pack path, the team folder\'s document count (as the caller, all levels down, at most 100, without the brand folder and system files; null when they cannot read it), the invite\'s skill when they can use it, whether they ran a team skill, and whether a company profile is saved.' }),
+  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', query: z.object({ shadowed: z.literal('1').optional(), projectId: z.string().min(1).max(64).optional(), projects: z.literal('1').optional() }), response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team > project. `?projectId=` is the list of a chat in that project (its skills with `project`, while the caller sees it). `?shadowed=1` also lists the skills that lost to a better tier, each with `shadowedBy` (the Team skills page); `?projects=1` adds the skills of every project the caller sees, each with `project` and, when a wider skill of its name runs instead, `shadowedBy`.' }),
+  skillMoveOptions: endpoint({ method: 'GET', path: '/api/skills/move', auth: 'user', owner: 'B', query: z.object({ path: RelPath }), response: SkillMoveOptions, summary: 'Where one of the caller\'s skills can move: its files, its whole text and each other level with who gains and who loses it (counts only), or why not.' }),
+  moveSkill: endpoint({ method: 'POST', path: '/api/skills/move', auth: 'user', owner: 'B', body: MoveSkillBody, response: MoveSkillResult, summary: 'Move a skill to another level (write on both places, no skill of that name there, a SKILL.md folder for a project). `token` comes from GET /api/skills/move: a changed file or target refuses (409). Audited (`skills.move`, with both levels and the counts) and announced like every skill change.' }),
   listSkillIssues: endpoint({ method: 'GET', path: '/api/skills/issues', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillIssue) }), summary: 'Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header.' }),
   skillsOverview: endpoint({ method: 'GET', path: '/api/skills/overview', auth: 'user', owner: 'B', response: SkillsOverview, summary: 'The skills folders the caller manages / can suggest into, and how many suggestions wait.' }),
   listSkillSuggestions: endpoint({ method: 'GET', path: '/api/skills/suggestions', auth: 'user', owner: 'B', query: SkillSuggestionsQuery, response: page(SkillSuggestion), summary: 'My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them.' }),

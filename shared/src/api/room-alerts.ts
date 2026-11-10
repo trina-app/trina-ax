@@ -35,6 +35,9 @@ export const RoomAlertSettings = z.object({
   quietHours: QuietHours,
   /** the team's time zone (IANA): quiet hours are read in it */
   timeZone: z.string(),
+  /** a notification on the computer shows the message's first line (NotificationPreferences.messagePreview); older
+   * servers omit it (the generic line) */
+  messagePreview: z.boolean().optional(),
 })
 export type RoomAlertSettings = z.infer<typeof RoomAlertSettings>
 

@@ -33,7 +33,7 @@
 // fonts/ (Noto Sans CJK Regular and Bold for make_file PDFs, scripts/linux/downloads.ts LINUX_FONTS),
 // native/{mycel-gate,mycel-bridge,mycel-safeops,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
 // so the signed manifest covers them and `mycel-ctl update` can take them from a verified bundle), engines.lock.json,
-// engines/codex-<v>.model_catalog.json, deps.txt, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
+// engines/codex-<v>.model_catalog.json, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
 // <version>-linux-<arch>.tar.zst (the version folder, for updates) and <kit>-<version>-linux-<arch>.tar.gz (the kit).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -50,6 +50,7 @@ import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
+import { flatFile, linuxList } from './system/packages'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -212,6 +213,11 @@ export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ['scripts/linux/safe-fs.sh', 'safe-fs.sh'],
   ['scripts/linux/apparmor-bwrap.in', 'apparmor-bwrap.in'],
   ['scripts/macos/codex-catalog.mjs', 'codex-catalog.mjs'],
+  // the one list of system packages and programs and its reader (scripts/system/; install-linux.sh sources it, and
+  // `mycel-ctl update` runs packages.sh sync). In root/, so a changed list is a root change (publish-server.ts rootSince);
+  // packages.json is written as the list's Linux copy (packages.ts linuxList), so a Mac-only change is not
+  ['scripts/system/packages.json', 'packages.json'],
+  ['scripts/system/packages.sh', 'packages.sh'],
 ]
 /** executables among the root files (the rest are read: templates, sourced helpers, the catalog locker run by bun) */
 const LINUX_ROOT_EXEC = new Set<string>([...LINUX_ROOT_NATIVE, 'mycel-account', 'set-claude-token'])
@@ -291,8 +297,10 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...ENTRIES.map(([, out]) => `server/src/${out}`),
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
     ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
+    // the list flattened, with its sha256: root reads it with awk alone (packages.sh pk__flat_file)
+    'root/packages.flat',
     ...o.systemd.map((u) => `root/systemd/${u}`),
-    'engines.lock.json', codexCatalogName(o.codexVersion), 'deps.txt',
+    'engines.lock.json', codexCatalogName(o.codexVersion),
   ]
 }
 
@@ -387,6 +395,11 @@ export async function buildLinuxBundle(o: {
     if (fs.existsSync(path.join(REPO, src))) fs.copyFileSync(path.join(REPO, src), path.join(root, dst))
     else missing.push(src)
   }
+  // root/packages.json is the list's Linux copy (no darwin platforms), so a Mac-only change of the list is no root change
+  if (fs.existsSync(path.join(root, 'packages.json'))) {
+    fs.writeFileSync(path.join(root, 'packages.json'), linuxList(fs.readFileSync(path.join(REPO, 'scripts', 'system', 'packages.json'), 'utf8')))
+    fs.writeFileSync(path.join(root, 'packages.flat'), flatFile(fs.readFileSync(path.join(root, 'packages.json'), 'utf8')))
+  }
   const unitDir = path.join(REPO, 'scripts', 'linux', 'systemd')
   const units = fs.existsSync(unitDir) ? fs.readdirSync(unitDir).filter((f) => f.endsWith('.in')).sort() : []
   if (!units.length) missing.push('scripts/linux/systemd/*.in')
@@ -394,11 +407,10 @@ export async function buildLinuxBundle(o: {
   for (const f of fs.readdirSync(root)) if (fs.statSync(path.join(root, f)).isFile()) fs.chmodSync(path.join(root, f), LINUX_ROOT_EXEC.has(f) ? 0o755 : 0o644)
   for (const u of units) fs.chmodSync(path.join(root, 'systemd', u), 0o644)
 
-  // engines (downloaded by the installer, never bundled: D11), packages, notes, web
+  // engines (downloaded by the installer, never bundled: D11), notes, web (the system packages: root/packages.json)
   fs.copyFileSync(lockFile, path.join(dir, 'engines.lock.json'))
   fs.mkdirSync(path.join(dir, 'engines'), { recursive: true })
   fs.copyFileSync(catalogSrc, path.join(dir, codexCatalogName(codexV)))
-  fs.copyFileSync(path.join(REPO, 'scripts', 'linux', 'deps.txt'), path.join(dir, 'deps.txt'))
   if (o.notes) fs.copyFileSync(o.notes, path.join(dir, 'RELEASE_NOTES.md'))
   const web = path.join(REPO, 'web', 'dist')
   if (fs.existsSync(web)) fs.cpSync(web, path.join(dir, 'web'), { recursive: true })

@@ -17,7 +17,8 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNa
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
   let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }
-  let item: any = { id: 'event-1', code: 'schedule.success', readAt: null }
+  // the signed-in notice names the task for the Inbox (schedule.title); the lock screen never shows it
+  let item: any = { id: 'event-1', code: 'schedule.success', readAt: null, schedule: { title: 'PRIVATE TASK TITLE' } }
   let status = 200, gate: Promise<void> | null = null
   const self = {
     location: { origin: 'https://team.example' },
@@ -63,6 +64,8 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNa
     click: () => event('notificationclick', { notification: { close() {}, data: { url: 'https://attacker.invalid/secret' } } }),
     /** a click on a notification this worker showed (with the data it stored then) */
     clickShown: (i = 0) => event('notificationclick', { notification: { close() {}, data: shown[i]!.options.data } }),
+    /** a press on a notification's button ("read": Mark as read) */
+    action: (action: string, i = 0) => event('notificationclick', { action, notification: { close() {}, data: shown[i]!.options.data } }),
     configure: (next: Partial<typeof settings>) => { settings = { ...settings, ...next } },
     preferences: (next: Partial<typeof preferences>) => { preferences = { ...preferences, ...next } },
     item: (next: any) => { item = next },
@@ -206,7 +209,7 @@ test('a room notice opens its room; the room id comes from the signed-in notice,
   expect(read.shown).toHaveLength(0)
 })
 
-test('a room notice says who and where in its title (from the signed-in notice, one plain line), never the text; an older server: the product\'s name', async () => {
+test('a room notice says who and where in its title (from the signed-in notice, one plain line), the text only when the server sends it; an older server: the product\'s name', async () => {
   const roomId = '0190f5a0-0000-7000-8000-000000000001'
   const messages = { title: 'Team', bodies: { 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
   const shown = async (room: Record<string, unknown>, link: string | null = 'room') => {
@@ -216,10 +219,16 @@ test('a room notice says who and where in its title (from the signed-in notice, 
     await w.push({ ...payload, code: 'room.mention', title: 'PRIVATE PROMPT' })
     return w.shown[0]!
   }
-  const n = await shown({ label: 'Ben · #design › Thread', preview: 'SECRET TEXT' })
+  // the person's message preview on: the server sends the first line, which is the body (one plain line)
+  const n = await shown({ label: 'Ben · #design › Thread', preview: 'see the\u2028plan\n' })
   expect(n.title).toBe('Ben · #design › Thread')
-  expect(n.options.body).toBe('You were mentioned')
-  expect(JSON.stringify(n)).not.toContain('SECRET')
+  expect(n.options.body).toBe('see the plan')
+  // off (no preview from the server), an empty one (only files) or an odd one: the generic line
+  expect((await shown({ label: 'Ben' })).options.body).toBe('You were mentioned')
+  expect((await shown({ label: 'Ben', preview: '' })).options.body).toBe('You were mentioned')
+  expect((await shown({ label: 'Ben', preview: 42 })).options.body).toBe('You were mentioned')
+  // never from a notice that has no room any more
+  expect(JSON.stringify(await shown({ label: 'Ben', preview: 'SECRET TEXT' }, null))).not.toContain('SECRET')
   // control and bidirectional characters, line breaks and length: one plain line of at most 120 characters
   expect((await shown({ label: 'Be\u202En\n · #de\u2066sign\u200b' })).title).toBe('Ben · #design')
   expect([...(await shown({ label: 'x'.repeat(300) })).title]).toHaveLength(120)
@@ -228,6 +237,34 @@ test('a room notice says who and where in its title (from the signed-in notice, 
   expect((await shown({ label: '\u202E\n' })).title).toBe('Team')
   expect((await shown({ label: 42 })).title).toBe('Team')
   expect((await shown({ label: 'Ben' }, null)).title).toBe('Team')
+})
+
+test('"Mark as read": a room notice with its place gets the button in the person\'s language; pressing it moves the read position there and opens nothing', async () => {
+  const roomId = '0190f5a0-0000-7000-8000-000000000001', root = '0190f5a0-0000-7000-8000-000000000002'
+  const at = async (room: Record<string, unknown>, messages: any = pushMessages('en')) => {
+    const w = worker()
+    w.configure({ messages })
+    w.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben', label: 'Ben', ...room } })
+    await w.push({ ...payload, code: 'room.dm' })
+    return w
+  }
+  const w = await at({ seq: 42 })
+  expect(w.shown[0]!.options.actions).toEqual([{ action: 'read', title: 'Mark as read' }])
+  const before = w.requests.length
+  await w.action('read')
+  expect(w.requests.slice(before).map(r => [r.path, r.options.method, r.options.body, (r.options.headers as any)['x-mycel-csrf']])).toEqual([[`/api/rooms/${roomId}/read`, 'POST', JSON.stringify({ seq: 42 }), '1']])
+  expect(w.navigated).toEqual([])
+  // a reply in a thread: the thread's read position
+  const t = await at({ seq: 43, thread: root })
+  const n = t.requests.length
+  await t.action('read')
+  expect(t.requests.slice(n).map(r => r.path)).toEqual([`/api/rooms/${roomId}/messages/${root}/thread/read`])
+  // no button: an older server (no seq or no words), an odd seq
+  expect((await at({})).shown[0]!.options.actions).toBeUndefined()
+  expect((await at({ seq: -1 })).shown[0]!.options.actions).toBeUndefined()
+  expect((await at({ seq: '5' })).shown[0]!.options.actions).toBeUndefined()
+  const { markRead: _, ...older } = pushMessages('en')
+  expect((await at({ seq: 5 }, older)).shown[0]!.options.actions).toBeUndefined()
 })
 
 test('a room notice is silent when an open page takes care of the sound; otherwise, and for other notices, it is not', async () => {

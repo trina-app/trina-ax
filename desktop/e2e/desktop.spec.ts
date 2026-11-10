@@ -35,12 +35,12 @@ test.describe('team address and window', () => {
     let app = await launch(userData)
     try {
       const w = await welcome(app)
-      const box = w.getByRole('textbox', { name: '팀 주소' })
+      const box = w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' })
       await box.fill('http://example.com')
-      await w.getByRole('button', { name: '연결' }).click()
+      await w.getByRole('button', { name: '들어가기' }).click()
       await expect(w.getByTestId('address-error')).toHaveText('보안 연결(https) 주소만 쓸 수 있어요.')
       await box.fill('localhost:19159')
-      await w.getByRole('button', { name: '연결' }).click()
+      await w.getByRole('button', { name: '들어가기' }).click()
       await expect(w.getByTestId('address-error')).toHaveText('팀 서버에 연결할 수 없어요. 주소와 인터넷 연결을 확인하세요.')
 
       const page = await addTeam(app, 'acme.localhost:19151', ACME)
@@ -467,8 +467,8 @@ test.describe('office direct connection', () => {
     const userData = newUserData()
     let app = await launch(userData)
     try {
-      await welcome(app).then((w) => w.getByRole('textbox', { name: '팀 주소' }).fill('lan.localhost:19156'))
-      await (await welcome(app)).getByRole('button', { name: '연결' }).click()
+      await welcome(app).then((w) => w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' }).fill('lan.localhost:19156'))
+      await (await welcome(app)).getByRole('button', { name: '들어가기' }).click()
       const direct = await view(app, (u) => u.startsWith('https://127.0.0.1:19154'), 30_000)
       await expect.poll(() => direct.evaluate(() => (window as any).testState?.connection?.route)).toBe('direct')
       await expect.poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].getTitle())).toContain('사무실 직접 연결')
@@ -496,8 +496,8 @@ test.describe('office direct connection', () => {
     const app = await launch(userData)
     try {
       const w = await welcome(app)
-      await w.getByRole('textbox', { name: '팀 주소' }).fill('lan.localhost:19156')
-      await w.getByRole('button', { name: '연결' }).click()
+      await w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' }).fill('lan.localhost:19156')
+      await w.getByRole('button', { name: '들어가기' }).click()
       const direct = await view(app, (u) => u.startsWith('https://127.0.0.1:19154'), 30_000)
       await expect.poll(() => direct.evaluate(() => (window as any).testState?.connection?.route)).toBe('direct')
       await fetch('http://127.0.0.1:19156/test/lan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ up: false }) })

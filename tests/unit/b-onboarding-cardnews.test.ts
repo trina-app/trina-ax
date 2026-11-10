@@ -1,9 +1,8 @@
 // Onboarding N (docs/DECISIONS.md "N — The first result is the company's card news"): while a company profile draft
-// reads the website, the server collects the brand's pictures and colours from the pages it opened itself; the first
-// result places them into the team's brand folder, writes 회사 소개.md when no file was given, and opens the chat. No
-// picture is made anywhere: too few pictures and the skill uses its type-only cards (Higgsfield taken out). Since "D2" the
-// first result runs the intro deck skill (the promo video of "V" before it); the card news and the promo video stay
-// installed for every team.
+// reads the website, the server collects the brand's pictures and colours from the pages it opened itself; 회사 소개's
+// brand action places them into the team's brand folder and writes 회사 소개.md when no file was given (docs/DECISIONS.md
+// "W6": no deck, no chat, no skill). No picture is made anywhere: too few pictures and the skills use their type-only
+// cards (Higgsfield taken out).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -17,7 +16,7 @@ import { which } from '../../server/src/config'
 import { pngOf } from '../lib/images'
 import { cleanColors, cleanProfile, profileFactLines } from '../../server/src/onboarding/profile'
 import { parseDraftAnswer, webScope, type DraftScope } from '../../server/src/onboarding/draft'
-import { introMarkdown } from '../../server/src/onboarding/welcome-result'
+import { ensureBrand, introMarkdown } from '../../server/src/onboarding/welcome-result'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 
@@ -226,7 +225,7 @@ describe('what a page offers (pure)', () => {
   })
 })
 
-describe('the website reading and the first result (the real web_fetch and a local web)', () => {
+describe('the website reading and the brand materials (the real web_fetch and a local web)', () => {
   let h: Harness
   let web: ReturnType<typeof Bun.serve>
   const hits: string[] = []
@@ -291,20 +290,25 @@ describe('the website reading and the first result (the real web_fetch and a loc
     expect(fs.existsSync(path.join(h.team, 'groups'))).toBe(fs.existsSync(path.join(h.team, 'groups')))
   })
 
-  test('the first result: owner only; the pictures into the brand folder once, 회사 소개.md from the profile and pages, a titled chat (an English team)', async () => {
-    expect((await h.req('carol', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: [] }), headers: { 'content-type': 'application/json' } })).status).toBe(403)
-    expect((await h.req('alice', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: [] }), headers: { 'content-type': 'application/json' } })).status).toBe(403)
+  test('the brand materials (회사 소개\'s 저장하고 계속): owner only; the pictures into the brand folder once, 회사 소개.md from the profile and pages (an English team); no chat, no skill', async () => {
+    const post = (user: string, files: string[]) => h.req(user, '/api/onboarding/welcome/brand', { method: 'POST', body: JSON.stringify({ files }), headers: { 'content-type': 'application/json' } })
+    expect((await post('carol', [])).status).toBe(403)
+    expect((await post('alice', [])).status).toBe(403)
     await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'https://www.acme.example/', name: 'Acme', oneLine: 'Quiet desk fans', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [], colors: ['#0e5e4e'] } })
-    const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    // the first result is the intro deck since docs/DECISIONS.md "D2" (the card news and promo video skills stay installed)
-    expect(r.skillPath).toBe(GENERAL_DECK_SKILL)
-    for (const skill of [GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL]) expect(fs.existsSync(path.join(h.team, skill))).toBe(true)
+    const chats = (h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n
+    const r = await h.api('dana').call(API.welcomeBrand, { body: { files: [] } })
+    // docs/DECISIONS.md "W6": nothing starts and nothing installs (no deck chat, no pack skill)
+    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n).toBe(chats)
+    for (const skill of [GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL, GENERAL_DECK_SKILL]) expect(fs.existsSync(path.join(h.team, skill))).toBe(false)
+    expect(r.progress.resultChatId).toBeNull()
+    expect(getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!.brandAt).toEqual(expect.any(String))
     // names in the team's language (the harness team is English): Brand/Images, logo, website-n, Company intro.md
     expect(r.images.map((p) => path.basename(p))).toEqual(['logo.png', 'website-1.png', 'website-2.jpg'])
     for (const p of r.images) expect(fs.existsSync(path.join(h.team, p))).toBe(true)
-    expect(r.imagesFolder).toMatch(/^groups\/[^/]+\/Brand\/Images$/)
-    expect(r.intro).toBe(r.imagesFolder.replace(/\/Images$/, '/Company intro.md'))
-    expect(r.files).toEqual([r.intro!])
+    // in shared/, the team's home (docs/DECISIONS.md "Team folder basics")
+    expect(r.imagesFolder).toBe('shared/Brand/Images')
+    expect(r.brandFolder).toBe(r.imagesFolder.replace(/\/Images$/, ''))
+    expect(r.intro).toBe(`${r.brandFolder}/Company intro.md`)
     const md = fs.readFileSync(path.join(h.team, r.intro!), 'utf8')
     expect(md).toContain('# Acme company intro')
     expect(md).toContain('Quiet desk fans')
@@ -312,57 +316,62 @@ describe('the website reading and the first result (the real web_fetch and a loc
     expect(md).not.toContain('EVIL-CANARY')
     // the history of the file is the owner's save
     expect((h.ctx.db.query("SELECT user_id FROM file_events WHERE path = ? ORDER BY rowid LIMIT 1").get(r.intro) as { user_id: string }).user_id).toBe('dana')
-    const chat = h.ctx.db.query('SELECT title, title_source, user_id FROM chats WHERE id = ?').get(r.chatId) as { title: string; title_source: string; user_id: string }
-    expect(chat).toEqual({ title: '우리 회사 소개서', title_source: 'user', user_id: 'dana' })
-    // a second start: the pictures are there once, 회사 소개.md is kept as it is (someone may have edited it)
+    // again (a 고치기 save): the pictures are there once, 회사 소개.md is kept as it is (someone may have edited it)
     fs.writeFileSync(path.join(h.team, r.intro!), '# 손본 소개\n')
-    const again = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
+    const again = await h.api('dana').call(API.welcomeBrand, { body: { files: [] } })
     expect(again.images).toEqual(r.images)
-    expect(again.intro).toBeNull()
+    expect(again.intro).toBe(r.intro)
     expect(fs.readFileSync(path.join(h.team, r.intro!), 'utf8')).toBe('# 손본 소개\n')
     expect(fs.readdirSync(path.join(h.team, r.imagesFolder)).length).toBe(3)
-    // the owner's own files instead: they are the material, no 회사 소개.md is written; a file that is not there is refused
-    const deck = `${r.imagesFolder.replace(/\/Images$/, '')}/deck.pdf`
+    // the owner's own files instead: they are the intro, nothing is written beside them; a file that is not there is refused
+    const deck = `${r.brandFolder}/deck.pdf`
     fs.writeFileSync(path.join(h.team, deck), '%PDF-1.4 deck')
-    const withFile = await h.api('dana').call(API.startFirstResult, { body: { files: [deck] } })
-    expect(withFile.files).toEqual([deck])
+    const withFile = await h.api('dana').call(API.welcomeBrand, { body: { files: [deck] } })
     expect(withFile.intro).toBeNull()
-    expect((await h.req('dana', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: ['groups/none/x.pdf'] }), headers: { 'content-type': 'application/json' } })).status).toBe(400)
+    // given once, they stay the intro: a later press without them (a 고치기 save after a reload) writes none beside them
+    fs.rmSync(path.join(h.team, r.intro!), { force: true })
+    expect((await h.api('dana').call(API.welcomeBrand, { body: { files: [] } })).intro).toBeNull()
+    expect(fs.existsSync(path.join(h.team, r.intro!))).toBe(false)
+    expect((await post('dana', ['groups/none/x.pdf'])).status).toBe(400)
   })
 
-  test('a row from before the skill: "회사 소개서" is added on its own once, and recorded; the promo video and the card news are left as they are', async () => {
+  test('an old row whose profile was saved without a deck gets its brand files once, on the first welcome read; 회사 소개 counts as answered', async () => {
     const raw = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!
-    const skill = path.join(h.team, GENERAL_DECK_SKILL)
-    fs.rmSync(path.dirname(skill), { recursive: true, force: true })
-    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, general: { at: raw.general.at, tasksPath: raw.general.tasksPath, briefPath: raw.general.briefPath, cardNewsPath: raw.general.cardNewsPath, promoVideoPath: raw.general.promoVideoPath } })
-    const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    expect(r.skillPath).toBe(GENERAL_DECK_SKILL)
-    expect(fs.existsSync(skill)).toBe(true)
-    const general = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!.general
-    expect(general.introDeckPath).toBe(GENERAL_DECK_SKILL)
-    expect(general.promoVideoPath).toBe(GENERAL_PROMO_SKILL)
-    expect(general.cardNewsPath).toBe(GENERAL_CARDNEWS_SKILL)
-    // recorded: deleted again on purpose, it is not brought back
-    fs.rmSync(path.dirname(skill), { recursive: true, force: true })
-    expect((await h.api('dana').call(API.startFirstResult, { body: { files: [] } })).skillPath).toBe(GENERAL_DECK_SKILL)
-    expect(fs.existsSync(skill)).toBe(false)
-    // blocked (recorded null): the start says so in the owner's words and makes no chat
-    const chats = (h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n
-    setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!, general: { ...general, introDeckPath: null } })
-    const blocked = await h.req('dana', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: [] }), headers: { 'content-type': 'application/json' } })
-    expect(blocked.status).toBe(409)
-    expect(JSON.stringify(await blocked.json())).toMatch(/회사 소개서 스킬을 넣지 못했어요|company profile skill could not be added/)
-    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n).toBe(chats)
-    setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!, general: { ...general, introDeckPath: GENERAL_DECK_SKILL } })
+    const intro = `${raw.teamGroup.brandFolder}/Company intro.md`
+    fs.rmSync(path.join(h.team, intro), { force: true })
+    // old row (a): 회사 소개 saved, no deck, no first result, no brand mark; unfinished
+    const { brandAt: _a, brandTriedAt: _b, deckChatId: _c, brandOwnFiles: _d, ...rest } = raw
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...rest, resultChatId: null, finishedAt: null, steps: { profile: 'done', result: null, skills: null, files: null, invite: null } })
+    const p = (await h.api('dana').call(API.getWelcome)).progress!
+    expect(fs.existsSync(path.join(h.team, intro))).toBe(true)
+    const after = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!
+    expect(after.brandAt).toEqual(expect.any(String))
+    expect(after.brandTriedAt).toEqual(expect.any(String))
+    expect(p.steps.profile).toBe('done')
+    expect(p.steps.tools).toBeNull()
+    // once: deleted again, a later read does not bring it back
+    fs.rmSync(path.join(h.team, intro), { force: true })
+    await h.api('dana').call(API.getWelcome)
+    expect(fs.existsSync(path.join(h.team, intro))).toBe(false)
   })
 
-  test('no picture is made: the first-result chat offers no image tool, also with a Higgsfield key file on the server', async () => {
-    fs.mkdirSync(path.join(h.dataDir, 'secrets'), { recursive: true })
-    fs.writeFileSync(path.join(h.dataDir, 'secrets', 'higgsfield-onboarding.key'), JSON.stringify({ token: 'hf-test-token', workspace: 'ws-1' }), { mode: 0o600 })
-    const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    const call = fake({ tool: 'brand_image', args: { prompt: 'A bright small office desk with a quiet white fan', aspect_ratio: '1:1', name: 'fan' }, sayResult: true })
-    expect(await send('dana', r.chatId, call)).toMatch(/unknown tool|not available|no such tool/i)
-    expect(fs.readdirSync(path.join(h.team, r.imagesFolder)).filter((f) => f.startsWith('fan'))).toEqual([])
+  test('before an install of 회사 소개서, 카드뉴스 or 홍보 영상 (ensureBrand): the materials while the team has no brand mark; never throws; never starts the steps', async () => {
+    const raw = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!
+    const intro = `${raw.teamGroup.brandFolder}/Company intro.md`
+    const { brandAt: _a, brandOwnFiles: _b, ...rest } = raw
+    setSetting(h.ctx.db, WELCOME_SETTING, rest)
+    expect(ensureBrand(h.ctx, 'dana')).toBe(true)
+    expect(fs.existsSync(path.join(h.team, intro))).toBe(true)
+    expect(getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!.brandAt).toEqual(expect.any(String))
+    // marked: the next install writes nothing (a file deleted on purpose stays deleted)
+    fs.rmSync(path.join(h.team, intro), { force: true })
+    expect(ensureBrand(h.ctx, 'dana')).toBe(true)
+    expect(fs.existsSync(path.join(h.team, intro))).toBe(false)
+    // a team that never opened the steps: nothing is made, no row is started
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
+    expect(ensureBrand(h.ctx, 'dana')).toBe(false)
+    expect(getSetting(h.ctx.db, WELCOME_SETTING) ?? null).toBeNull()
+    setSetting(h.ctx.db, WELCOME_SETTING, raw)
   })
 })
 

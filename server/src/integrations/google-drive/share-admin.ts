@@ -12,6 +12,7 @@ import { audit } from '../../admin/audit'
 import { setSetting } from '../../admin/settings'
 import { googleDriveOf, type DriveConn } from './oauth'
 import { DriveError } from './store'
+import { notifyDriveShareReconnect } from '../../notifications/service'
 import { DRIVE_MEMBERS, foldersOf, membersCanConnect, shareByName, shareRow, shareRows, setShareAccess, shareAccess, shareView, shareWorks } from './shares'
 
 export const FOLDER_MIME = 'application/vnd.google-apps.folder'
@@ -138,9 +139,31 @@ export async function stopShare(ctx: AppContext, actor: string, id: string) {
   const token = svc.shareToken(r)
   ctx.db.transaction(() => {
     ctx.db.query('DELETE FROM drive_team_shares WHERE id=?').run(id)
+    ctx.db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(id)
     ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='cancelled',secret_enc=NULL,account=NULL WHERE share_id=? AND state NOT IN ('completed','failed','expired')").run(id)
   })()
   svc.abort(`share:${id}`)
   audit(ctx.db, { actor, action: 'drive.share_stopped', target: id })
   return { stopped: true as const, revocation: await svc.revoke(token) }
+}
+
+/**
+ * 팀장 넘기기 (admin/handover.ts): the owner handing the team over ends the sign-in of a share made with their own
+ * Google account. The share keeps its name, folders and rule; its tokens are deleted, calls under way stop, every admin
+ * is told to sign in again (as when its admin leaves), and then Google is asked to revoke the token (twice at most).
+ * Only a share whose sign-in is `actor`'s own and still there; null otherwise (nothing changed). Never throws for
+ * Google: what it said comes back ('revoked', 'unavailable' or 'not_needed').
+ */
+export async function endShareSignIn(ctx: AppContext, actor: string, id: string): Promise<'revoked' | 'unavailable' | 'not_needed' | null> {
+  const svc = googleDriveOf(ctx), r = shareRow(ctx.db, id)
+  if (!r || r.owner_user_id !== actor || !r.secret_enc) return null
+  const token = svc.shareToken(r)
+  const changed = ctx.db.query("UPDATE drive_team_shares SET secret_enc=NULL,status='needs_reconnect',reason='signed_out',version=version+1,updated_at=? WHERE id=? AND version=? AND secret_enc IS NOT NULL")
+    .run(new Date(svc.now()).toISOString(), id, r.version).changes
+  if (!changed) return null
+  ctx.db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(id)
+  svc.abort(`share:${id}`)
+  notifyDriveShareReconnect(ctx, id, `${id}.v${r.version + 1}`)
+  const first = await svc.revoke(token).catch(() => 'unavailable' as const)
+  return first === 'unavailable' ? await svc.revoke(token).catch(() => 'unavailable' as const) : first
 }

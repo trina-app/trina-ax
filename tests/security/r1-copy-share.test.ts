@@ -75,7 +75,7 @@ describe('POST /api/files/copy', () => {
 
 describe('POST /api/projects/:id/share', () => {
   let pid = ''
-  test('a personal project is copied into a team folder and the project follows the copy', async () => {
+  test('a personal project becomes a team project: a new projects/<name> with its participants, the files copied in', async () => {
     const c = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: 'launch-notes', scope: 'personal', instructions: 'Use notes.md' }) })
     expect(c.status).toBe(201)
     pid = c.body.id
@@ -85,28 +85,33 @@ describe('POST /api/projects/:id/share', () => {
     fs.writeFileSync(path.join(dir, 'sub/a.md'), 'a\n')
     fs.symlinkSync('../../../bob/notes.md', path.join(dir, 'bob-link.md'))
     expect((await A.json(`/api/projects/${pid}`, { as: 'erin' })).status).toBe(404)
-    const dry = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ toParent: 'groups/marketing', dryRun: true }) })
+    const marketing = [{ subjectType: 'group', subjectId: 'marketing' }]
+    const dry = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: marketing, dryRun: true }) })
     expect(dry.body).toEqual({ viewersAdded: 3 }) // erin, carol, dana
-    const r = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ toParent: 'groups/marketing' }) })
+    const r = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: marketing }) })
     expect(r.status).toBe(200)
-    expect(r.body.folderPath).toBe('groups/marketing/launch-notes')
+    expect(r.body.folderPath).toBe('projects/launch-notes')
     expect((await A.json(`/api/projects/${pid}`, { as: 'erin' })).body.instructions).toBe('Use notes.md')
-    expect((await read('erin', 'groups/marketing/launch-notes/notes.md')).status).toBe(200)
-    expect((await read('erin', 'groups/marketing/launch-notes/sub/a.md')).status).toBe(200)
-    expect(fs.existsSync(path.join(A.team, 'groups/marketing/launch-notes/bob-link.md'))).toBe(false) // links are not copied
+    expect((await read('erin', 'projects/launch-notes/notes.md')).status).toBe(200)
+    expect((await read('erin', 'projects/launch-notes/sub/a.md')).status).toBe(200)
+    expect(fs.existsSync(path.join(A.team, 'projects/launch-notes/bob-link.md'))).toBe(false) // links are not copied
     expect(fs.existsSync(path.join(dir, 'notes.md'))).toBe(true) // the personal folder stays
     expect((await A.json(`/api/projects/${pid}`, { as: 'bob' })).status).toBe(404)
   })
 
-  test('only a personal project, only its owner, only into a folder they can write; 413 past the limits', async () => {
-    expect((await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ toParent: 'shared' }) })).status).toBe(400) // now a team project
+  test('only a personal project, only its owner, only into projects/; 413 past the limits, nothing left behind', async () => {
+    expect((await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })).status).toBe(400) // now a team project
     const c = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: 'big', scope: 'personal' }) })
     const dir = path.join(A.team, ...c.body.folderPath.split('/'))
-    expect((await A.json(`/api/projects/${c.body.id}/share`, { as: 'erin', ...jsonBody({ toParent: 'shared' }) })).status).toBe(404)
-    expect((await A.json(`/api/projects/${c.body.id}/share`, { as: 'alice', ...jsonBody({ toParent: 'groups/finance' }) })).status).toBe(404)
+    expect((await A.json(`/api/projects/${c.body.id}/share`, { as: 'erin', ...jsonBody({ participants: [] }) })).status).toBe(404)
+    for (const toParent of ['shared', 'groups/marketing', 'groups/finance']) {
+      const r = await A.json(`/api/projects/${c.body.id}/share`, { as: 'alice', ...jsonBody({ toParent, participants: [] }) })
+      expect([toParent, r.status, r.body.error.params.reason]).toEqual([toParent, 400, 'project_location'])
+    }
     for (let i = 0; i <= 1000; i++) fs.writeFileSync(path.join(dir, `f${i}.md`), 'x')
-    const big = await A.json(`/api/projects/${c.body.id}/share`, { as: 'alice', ...jsonBody({ toParent: 'shared' }) })
+    const big = await A.json(`/api/projects/${c.body.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })
     expect(big.status).toBe(413)
-    expect(fs.readdirSync(path.join(A.team, 'shared')).some((n) => n === 'big' || n.startsWith('.mycel-tmp-'))).toBe(false)
+    expect(fs.readdirSync(path.join(A.team, 'projects')).some((n) => n === 'big' || n.startsWith('.mycel-tmp-'))).toBe(false)
+    expect(A.ctx.db.query("SELECT 1 FROM folders WHERE path = 'projects/big'").get()).toBeNull()
   })
 })

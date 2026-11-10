@@ -22,11 +22,15 @@ describe('translations', () => {
   })
   test('chat trash and account deletion guidance show the team chat retention, not a fixed 7 days', () => {
     for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody'] as const) {
-        expect(placeholders(DICTS[loc][key])).toEqual(['days'])
+      for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody', 'projects.deleteBodyShared'] as const) {
+        // the chat delete confirms name the trash by the sidebar's name for it (a rename there follows)
+        const trash = key === 'chat.deleteBody' || key === 'projects.deleteBodyShared'
+        expect(placeholders(DICTS[loc][key])).toEqual(trash ? ['days', 'trash'] : ['days'])
         expect(DICTS[loc][key]).not.toMatch(/\d/)
-        expect(translate(loc, key, { days: 3 })).toContain('3')
-        expect(translate(loc, key, { days: 3 })).not.toContain('7')
+        const p = { days: 3, ...(trash ? { trash: translate(loc, 'sidebar.trash') } : {}) }
+        expect(translate(loc, key, p)).toContain('3')
+        expect(translate(loc, key, p)).not.toContain('7')
+        if (trash) expect(translate(loc, key, p)).toContain(translate(loc, 'sidebar.trash'))
       }
     }
     expect(translate('en', 'trash.desc', { days: 1 })).toContain('for 1 day ')
@@ -132,7 +136,10 @@ describe('translations', () => {
     expect(translate('es', 'files.shareBody', { n: 1 })).toBe('1 persona más podrá ver este archivo.')
     expect(translate('en', 'files.narrowBody', { n: 1 })).toContain('means 1 other person can no longer see it')
     expect(translate('es', 'files.narrowBody', { n: 2 })).toContain('2 personas dejarán de poder verlo')
-    expect(translate('en', 'projects.shareBody', { n: 1 })).toMatch(/^1 more person will see this folder\./)
+    expect(translate('en', 'projects.widenBody', { n: 1 })).toBe('1 more person will see this project.')
+    expect(translate('es', 'projects.widenBody', { n: 2 })).toBe('2 personas más verán este proyecto.')
+    expect(translate('en', 'projects.whoLine', { names: 'Me', n: 1 })).toBe('Me (1 person)')
+    expect(translate('en', 'projects.widenFilesOthers', { n: 1, m: 1 })).toBe('1 file (1 put there by other people)')
     expect(translate('en', 'notifications.unread', { count: 1 })).toBe('1 unread notification')
     expect(translate('es', 'notifications.unread', { count: 1 })).toBe('1 notificación sin leer')
     expect(translate('en', 'connected.last', { time: 'today', files: '1', size: '2 KB' })).toBe('Last today · 1 file · 2 KB')
@@ -202,8 +209,8 @@ describe('translations', () => {
     expect(translate('ko', 'demo.start', { name: '김민지 씨' })).toBe('김민지 씨로 시작하기')
     expect(translate('ko', 'demo.start', { name: '대표님' })).toBe('대표님으로 시작하기')
     expect(translate('ja', 'accessView.who.person', { name: '田中様' })).toBe('田中様')
-    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田さん' })).toBe('山田さんが見られるフォルダー')
-    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田' })).toBe('山田 さんが見られるフォルダー')
+    expect(translate('ja', 'accessView.summaryNone', { name: '山田さん' })).toBe('山田さんとその AI が見られるチームフォルダーはありません。')
+    expect(translate('ja', 'accessView.summaryNone', { name: '山田' })).toBe('山田 さんとその AI が見られるチームフォルダーはありません。')
     // English, Spanish and Indonesian add no honorific of their own: the name stays as it is
     expect(translate('en', 'home.greeting', { name: '대표님' })).toBe('How can I help you, 대표님?')
     expect(translate('id', 'home.greeting', { name: 'Bapak Budi' })).toBe('Halo Bapak Budi, ada yang bisa aku bantu?')
@@ -214,11 +221,15 @@ describe('translations', () => {
     // the one place that must recognise a Korean file name: conflict copies made by a Korean team ("충돌 사본")
     // and the Korean object and topic particles after a skill's name (을 / 를, 은 / 는: grammar, not text;
     // lib/teamGoal.ts objectParticle, topicParticle), and "(으)로" / "(을)를" after a filled-in value (i18n/index.ts koRo,
-    // koEul); the honorifics a name may already end with are in shared/src/honorific.ts
+    // koEul); the honorifics a name may already end with are in shared/src/honorific.ts; the name of the invented company
+    // the kept skills' examples are made on, by the example's language, not the screen's (EXAMPLES-PLAN; FLOW-v6 §2.2)
     const allowed: Record<string, RegExp> = {
+      [path.join('components', 'skills', 'SkillExampleViewer.tsx')]: /^export const EXAMPLE_COMPANY: Record<'ko' \| 'en', string> = \{ ko: '예시커피', en: 'Example Coffee' \}$/,
       'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/,
       'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/,
       'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로을를][^\uAC00-\uD7A3]*)+$/,
+      // 팀 파일's word lists, matched in file and folder names on the person's computer (not screen text)
+      'lib/teamFiles.ts': /^const (brandFolder|PERSONAL_KO|PERSONAL_KO_WHOLE|KEEP_WORDS) = /,
     }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {

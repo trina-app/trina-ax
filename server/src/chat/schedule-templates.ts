@@ -8,6 +8,7 @@ import { parseInput } from '../policy/resolve'
 import type { ChatRuntime } from './runtime'
 import { SCHEDULES_PER_PERSON } from './schedules'
 import { tr } from './i18n'
+import { refusal } from '../policy/refusal'
 
 export const SCHEDULE_TEMPLATES = [
   { id: 'daily-file-index', version: 1, repeat: 'daily' },
@@ -113,7 +114,13 @@ const within = (p: string, root: string) => p === root || p.startsWith(root + '/
 export function templateToolRefusal(ctx: AppContext, userId: string, turnId: string, name: string, args: unknown, reservedWrites?: Set<string>): string | null {
   const scope = turnScope(ctx, userId, turnId)
   if (!scope) return null
-  const denied = 'This scheduled template only reads its approved folder and creates Markdown reports in its private output folder.'
+  // the folders by name, and what to do (F4, docs/DECISIONS.md "Refusals say why, who and what next")
+  const denied = refusal({
+    done: 'This scheduled template only reads its approved folder and creates Markdown reports in its private output folder, so this was not done.',
+    why: { kind: 'mode', mode: 'this scheduled template run', why: `it reads only ${scope.sourcePath} and its output folder, and it only creates new Markdown (.md) reports in ${scope.outputPath}` },
+    next: 'stay within those folders and say in the summary what was left out; the user can make the task again with other folders on the Scheduled page',
+    names: [scope.sourcePath, scope.outputPath],
+  })
   try {
     validateTemplateFolders(ctx, userId, scope.sourcePath, scope.outputPath)
     const a = args as { file_path?: unknown; path?: unknown } | null

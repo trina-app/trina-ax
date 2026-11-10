@@ -20,6 +20,9 @@ export const PRODUCT = {
   /** the office zip <officeBundle>-<version>-mac.zip and its one folder. Offices from this version on accept any
    *  "<name>-office-<version>" folder in an update, so changing it only needs older offices to install one zip by hand. */
   officeBundle: "TrinaAX-office",
+  /** the link scheme both apps answer (`<linkScheme>://open?url=<team link>`, the web's "앱에서 열기"): the phone app's
+   *  `scheme` in editions/<name>/branding/mobile.json, which a test keeps equal. Not a name people read. */
+  linkScheme: 'trina-ax',
   /** the desktop app's own settings folder (Electron userData: remembered teams, window size, language). This is a
    *  path on the desks, not a name: it stays when the product is renamed, or every desk would forget its teams. */
   desktopDataDir: 'Team AX',

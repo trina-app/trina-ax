@@ -43,7 +43,7 @@ test('a grey ring while it runs, then the dot and an ink title; "···" takes i
   await expect(row.getByRole('link')).toHaveClass(/font-medium text-ink/)
   // one marker in the "···" slot, its right edge 12 px in (the rooms' pills' column)
   const marker = row.getByTestId('chat-marker')
-  const menu = row.getByRole('button', { name: '채팅 메뉴' })
+  const menu = row.getByRole('button', { name: '기록 메뉴' })
   const [m, r] = [await marker.locator('[role="img"]').boundingBox(), await row.boundingBox()]
   expect(Math.abs(r!.x + r!.width - 12 - (m!.x + m!.width))).toBeLessThan(1)
   // on hover "···" shows and the marker gives way; the peek's first line is the reason
@@ -163,9 +163,9 @@ test.describe('a phone (390 px)', () => {
     await page.getByTestId('menu-open').click()
     const row = rowOf(page, id, true)
     await expect(row.getByTestId('marker-new')).toBeVisible()
-    const [m, b] = [await row.getByTestId('chat-marker').locator('[role="img"]').boundingBox(), await row.getByRole('button', { name: '채팅 메뉴' }).boundingBox()]
+    const [m, b] = [await row.getByTestId('chat-marker').locator('[role="img"]').boundingBox(), await row.getByRole('button', { name: '기록 메뉴' }).boundingBox()]
     expect(m!.x + m!.width).toBeLessThanOrEqual(b!.x + 4)
-    await expect(row.getByRole('button', { name: '채팅 메뉴' })).toHaveCSS('opacity', '1')
+    await expect(row.getByRole('button', { name: '기록 메뉴' })).toHaveCSS('opacity', '1')
     await expect(row.getByTestId('chat-marker')).toHaveCSS('opacity', '1')
     await page.keyboard.press('Escape')
     await toast.getByTestId('toast-action').click()

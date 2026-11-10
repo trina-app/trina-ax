@@ -3,8 +3,14 @@
 // tag replaces the old one: one per chat), and a click brings the window up and opens the address the page named
 // ("/c/<chatId>": that chat; "/rooms/<id>": that room). Before, a click only focused the window. A team switch closes
 // every notification the team page made (closeAll): they name that team's chats, and a click must not open an address
-// in the next team's page. Also the dock badge's number, and Settings › Notifications' test notification (test): shown
-// even while the window is focused, and it says whether the system took it.
+// in the next team's page. Also the dock badge's number (or its dot), and Settings › Notifications' test notification
+// (test): shown even while the window is focused, and it says whether the system took it.
+// macOS asks the person about an app's notifications once, when the app first touches them, and an app that quits
+// before the answer is left with them off for good. The first notification only comes while the window is in the back,
+// so the question would come while nobody looks: ask() touches them while the window is in front (a team page has
+// loaded, or the window got focus). And macOS takes a notification it will not show (off, or the question still
+// waiting) without an error, so there the test answers unknown, never shown (the page's desktopNotify.unknown: "Test
+// notification sent. If it does not show, turn notifications on in System Settings › Notifications › <the app's name>.").
 // Pure (Electron is passed in): unit-tested in tests/unit/e-notify.test.ts; used by main/app-window.ts.
 
 /** at most this many notifications a minute (a page cannot flood the system's list) */
@@ -22,9 +28,25 @@ export function tagOf(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 && v.length <= 100 && /^[A-Za-z0-9_:.-]+$/.test(v) ? v : null
 }
 
+/** A room notification's "Mark as read" (the page's `read`): "<room id>@<seq>", or "<room id>/<thread root id>@<seq>"
+ * for a reply in a thread. Anything else: null (no button). */
+export function readTokenOf(v: unknown): string | null {
+  return typeof v === 'string' && /^[0-9a-f-]{36}(?:\/[0-9a-f-]{36})?@\d{1,15}$/.test(v) ? v : null
+}
+
 /** The dock badge: a whole number 0..9999 (anything else: 0, which clears it). */
 export function badgeCountOf(v: unknown): number {
   return typeof v === 'number' && Number.isInteger(v) && v > 0 ? Math.min(v, 9999) : 0
+}
+
+/** The dock's plain dot: rooms have unread messages the number does not count (docs/DECISIONS.md "The Dock's dot for
+ * unread rooms"), as Slack and Discord show. */
+export const DOCK_DOT = '•'
+/** What the dock shows from the page's bridge:badge: the number (badgeCountOf), else the dot when the page's flag is
+ * exactly true, else 0 (clears it). Nothing else reaches the Dock: the page never sends text. */
+export function dockBadgeOf(n: unknown, dot: unknown): number | typeof DOCK_DOT {
+  const count = badgeCountOf(n)
+  return count > 0 ? count : dot === true ? DOCK_DOT : 0
 }
 
 /** how long a test notification waits for the system's answer (show / failed) before it says 'unknown' */
@@ -36,13 +58,13 @@ export const TEST_TAG = 'notify-test'
 
 export interface NoteLike {
   /** show: the system took it; failed (macOS, Windows): the system refused it (notifications off for the app) */
-  on(event: 'click' | 'close' | 'show' | 'failed', listener: () => void): void
+  on(event: 'click' | 'close' | 'show' | 'failed' | 'action', listener: () => void): void
   show(): void
   close(): void
 }
 export interface NotifierDeps {
-  /** a system notification (Electron's Notification) */
-  create(n: { title: string; body: string }): NoteLike
+  /** a system notification (Electron's Notification); `actions`: its buttons (macOS) */
+  create(n: { title: string; body: string; actions?: { type: 'button'; text: string }[] }): NoteLike
   supported(): boolean
   /** is the window focused now (BaseWindow.isFocused): then nothing shows */
   focused(): boolean
@@ -53,8 +75,17 @@ export interface NotifierDeps {
   now?: () => number
   /** TEST_WAIT_MS (tests pass less) */
   testWaitMs?: number
+  /** let the system ask the person about notifications now (macOS: Electron asks when it first touches them) */
+  ask?: () => void
+  /** the system's 'show' means the person sees it (default). false on macOS: it also takes one it will not show */
+  showIsSeen?: boolean
+  /** the "Mark as read" button's words in the app's language, or null where the system shows no buttons (Windows,
+   * Linux: Electron's actions are macOS only). Absent: no button. */
+  markReadLabel?: () => string | null
+  /** the button was pressed: the team page marks it read (bridge:read) */
+  read?(token: string): void
 }
-export interface NotifyInput { title: string; body: string; tag?: unknown; open?: unknown }
+export interface NotifyInput { title: string; body: string; tag?: unknown; open?: unknown; read?: unknown }
 export type TestOutcome = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
 export interface Notifier {
   /** the bridge's notify: false when nothing was shown (focused, unsupported, too many) */
@@ -66,6 +97,16 @@ export interface Notifier {
   /** a team switch (or the team page closing): every notification it made goes, and a click on one that the system
    * still shows only brings the window up */
   closeAll(): void
+  /** a team page is open and may be in front: the system's question about notifications, while the person looks.
+   * Once per app run, and only while the window is focused (else at a later call). */
+  ask(): void
+}
+
+/** The platform's part of NotifierDeps. macOS: touching notifications is the system's question (Electron's presenter
+ * asks when it is created, by isSupported() too), and its 'show' proves nothing. Elsewhere nothing to ask, and 'show'
+ * means it showed. */
+export function platformNotifyDeps(platform: string, isSupported: () => boolean): Pick<NotifierDeps, 'ask' | 'showIsSeen'> {
+  return platform === 'darwin' ? { ask: () => { isSupported() }, showIsSeen: false } : { showIsSeen: true }
 }
 
 export function makeNotifier(d: NotifierDeps): Notifier {
@@ -76,6 +117,8 @@ export function makeNotifier(d: NotifierDeps): Notifier {
   const live = new Set<NoteLike>()
   /** a team switch moves it on: a click on an older one opens nothing */
   let generation = 0
+  /** the system was asked about notifications in this run (ask) */
+  let asked = false
   const close = (note: NoteLike) => {
     live.delete(note)
     try { note.close() } catch { /* already gone */ }
@@ -92,9 +135,10 @@ export function makeNotifier(d: NotifierDeps): Notifier {
   }
   const allowed = () => take(times, NOTIFY_PER_MINUTE, (l) => { times = l })
   /** a system notification, one per tag; a click brings the window up and opens `open` (when the team is still the same) */
-  const post = (n: { title: unknown; body: unknown }, tag: string | null, open: string | null, events?: (note: NoteLike) => void) => {
+  const post = (n: { title: unknown; body: unknown }, tag: string | null, open: string | null, events?: (note: NoteLike) => void, read: string | null = null) => {
     const born = generation
-    const note = d.create({ title: String(n.title ?? '').slice(0, 200), body: String(n.body ?? '').slice(0, 1000) })
+    const label = read && d.read ? d.markReadLabel?.() ?? null : null
+    const note = d.create({ title: String(n.title ?? '').slice(0, 200), body: String(n.body ?? '').slice(0, 1000), ...(label ? { actions: [{ type: 'button' as const, text: label }] } : {}) })
     if (tag) {
       const before = byTag.get(tag)
       byTag.delete(tag)
@@ -111,6 +155,12 @@ export function makeNotifier(d: NotifierDeps): Notifier {
       d.reveal()
       if (open && born === generation) d.open(open)
     })
+    // "Mark as read": the page marks it read; the window stays where it is (only while the team is still the same)
+    if (label) note.on('action', () => {
+      live.delete(note)
+      if (tag && byTag.get(tag) === note) byTag.delete(tag)
+      if (born === generation) d.read!(read!)
+    })
     events?.(note)
     note.show()
   }
@@ -118,7 +168,7 @@ export function makeNotifier(d: NotifierDeps): Notifier {
     notify(n) {
       if (d.focused() || !d.supported()) return false
       if (!allowed()) return false
-      post(n, tagOf(n.tag), openPathOf(n.open))
+      post(n, tagOf(n.tag), openPathOf(n.open), undefined, readTokenOf(n.read))
       return true
     },
     test(n) {
@@ -135,7 +185,7 @@ export function makeNotifier(d: NotifierDeps): Notifier {
         timer = setTimeout(() => answer('unknown'), d.testWaitMs ?? TEST_WAIT_MS)
         try {
           post(n, TEST_TAG, null, (note) => {
-            note.on('show', () => answer('shown'))
+            note.on('show', () => answer(d.showIsSeen === false ? 'unknown' : 'shown'))
             note.on('failed', () => answer('off'))
           })
         } catch {
@@ -147,6 +197,11 @@ export function makeNotifier(d: NotifierDeps): Notifier {
       generation++
       byTag.clear()
       for (const note of [...live]) close(note)
+    },
+    ask() {
+      if (asked || !d.ask || !d.focused()) return
+      asked = true
+      try { d.ask() } catch { /* no notifications on this system */ }
     },
   }
 }

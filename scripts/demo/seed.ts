@@ -204,8 +204,23 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     return { subjectType: 'everyone', subjectId: null, access: r.access }
   }
 
-  // 4. folder rules beyond the group folders
+  // 4. the project first: the server makes its folder projects/<name> itself (docs/DECISIONS.md "Projects live only in
+  // projects/"), private, with the creator and the participants (who write there by the company's rules) as writers. A
+  // folder made before it would be stepped around ("-2") and the project would be on an empty folder nobody else sees.
+  if (co.project) {
+    const projects = (await owner.call(API.listProjects)).items
+    if (!projects.some((p) => p.name === co.project!.name)) {
+      const writers = (co.rules.find((r) => r.path === co.project!.folderPath)?.rules ?? []).filter((r) => r.access === 'write' && !('everyone' in r))
+      const participants = writers.map(ruleOf).map((r) => ({ subjectType: r.subjectType as 'group' | 'user', subjectId: r.subjectId! }))
+      await owner.call(API.createProject, { body: { ...co.project, participants } })
+      log(`project ${co.project.name} created`)
+    }
+  }
+
+  // 5. folder rules beyond the group folders. A folder that has rules already (a project's: its writers and everyone
+  // none) gets the ones it misses (재무 read on the project), the rest it keeps.
   const folders = new Map((await owner.call(API.listFolders)).items.map((f) => [f.path, f]))
+  const same = (a: { subjectType: string; subjectId: string | null }, b: { subjectType: string; subjectId: string | null }) => a.subjectType === b.subjectType && a.subjectId === b.subjectId
   for (const r of co.rules) {
     const f = folders.get(r.path)
     const rules = r.rules.map(ruleOf)
@@ -214,10 +229,14 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
       if (parent !== '.') await mkdirs(owner, parent)
       await owner.call(API.createFolder, { body: { path: r.path, create: true, rules } })
     } else if (!f.rules.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules } })
+    else {
+      const missing = rules.filter((w) => !f.rules.some((x) => same(x, w)))
+      if (missing.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules: [...f.rules.map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId, access: x.access }) as FolderRuleInput), ...missing] } })
+    }
     result.rules.push(`${r.path}: ${r.why}`)
   }
 
-  // 5. sample files, then files taken from elsewhere in the repository (a skill pack's skills)
+  // 6. sample files, then files taken from elsewhere in the repository (a skill pack's skills)
   const dir = o.filesDir ?? co.filesDir
   const files = [
     ...listFileEntries(dir).map((e) => ({ rel: e.rel, source: e.abs })),
@@ -241,14 +260,6 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     }
   }
 
-  // 6. a project on its folder
-  if (co.project) {
-    const projects = (await owner.call(API.listProjects)).items
-    if (!projects.some((p) => p.name === co.project!.name)) {
-      await owner.call(API.createProject, { body: co.project })
-      log(`project ${co.project.name} created`)
-    }
-  }
 
   // 7. the company profile, only while none is saved (the owner may have edited it since)
   if (co.profile && !(await owner.call(API.getCompanyProfile)).profile) {

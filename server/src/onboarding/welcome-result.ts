@@ -1,66 +1,46 @@
-// The welcome steps' first result: the company's intro deck (docs/DECISIONS.md "D2 — The first result is the company's
-// intro deck"; the promo video of "V" and the card news of "N" before it, both still installed with the general pack).
-// POST /api/onboarding/welcome/first-result (the owner, who walks the steps):
-//   1. the team's start if it is missing (the general pack and the team's group with its brand folder, welcome.ts);
-//   2. "/intro-deck": the pack's skill, added on its own once for a row recorded before the skill existed;
-//   3. the pictures the website reading collected (brand-assets.ts) go into the brand images folder, as the owner's
+// The welcome steps' brand materials (docs/DECISIONS.md "W6 — Onboarding v6": 회사 소개 saves the profile only; before
+// it, "D2 — The first result is the company's intro deck" started a deck here). POST /api/onboarding/welcome/brand (the
+// owner, who walks the steps), with no AI, no chat and no skill:
+//   1. the team's group with its brand folder when missing (welcome.ts setupWelcomeTeam, which installs nothing);
+//   2. the pictures the website reading collected (brand-assets.ts) go into the brand images folder, as the owner's
 //      saves (versions, file events, the folder rules), each once;
-//   4. no file from the owner: 회사 소개.md in the brand folder, written from the saved company profile and the text of
-//      the pages the server opened, each part under its source (no AI here: nothing is invented); one already there is
-//      kept as it is (someone may have edited it);
-//   5. a new chat of the owner titled after the result ("우리 회사 소개서", a title the AI does not rename), kept for
-//      the deck in the steps' row and counted as the deck (`resultChatId`) only once its message is in (welcome.ts
-//      deckChatFor, settleDeck: docs/DECISIONS.md "W5").
-// No picture is made here or in that chat: a slide without a fitting picture is made in its type-only version.
-// The page then attaches the files and sends "/intro-deck …" like any message of the owner's (pages/Welcome.tsx), with
-// the client message id deckMessageId(chatId), so a second tab or a retry adds no second message; so
-// the turn is an ordinary skill run (the goal, the receipt and the transcript need nothing new); the deck opens beside
-// the chat by itself (its artifact key, web/src/store/chats.ts).
+//   3. no file from the owner: 회사 소개.md in the brand folder, written from the saved company profile and the text of
+//      the pages the server opened, each part under its source (nothing is invented); one already there is kept as it
+//      is (someone may have edited it).
+// 회사 소개서, 카드뉴스 and 홍보 영상 read these, so their first run has pictures and an intro. Safe to repeat: 고치기
+// saves call it again and it writes only what is missing; the server runs it once on a read for an old row whose
+// profile was saved without a deck (brandOnRead), and the skill installs run it while the team has no `brandAt` mark
+// (ensureBrand).
 import fs from 'node:fs'
 import path from 'node:path'
-import { GENERAL_DECK_SKILL, profileName, type FirstResultStarted, type Locale, type StartFirstResult } from '@mycel/shared/api'
+import { profileName, teamHome, type Locale, type WelcomeBrand, type WelcomeBrandResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
-import type { AuthInfo } from '../services'
-import type { ChatRuntime } from '../chat/runtime'
 import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
-import { newChatEngine } from '../admin/engine-choice'
-import { claudeModels } from '../admin/engines'
-import { deckTier, TIERS } from '../intro-deck/tiers'
 import { audit } from '../admin/audit'
-import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { freeName } from '../team-files/place'
 import { assetDir, BRAND_PAGE_TEXT_MAX, pageLines, stagedAssets, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
-import { installPackSkill } from './skill-packs'
-import { brandFoldersOf, deckChatFor, introDeckSkill, readWelcome, setupWelcomeTeam } from './welcome'
+import { BRAND_AT, BRAND_OWN_FILES, BRAND_TRIED_AT, brandDone, brandFoldersOf, brandOwnFiles, markBrand, readWelcome, setupWelcomeTeam, wantsBrandOnRead } from './welcome'
 
 const TEXT = {
-  title: { ko: '우리 회사 소개서', en: 'Our company profile', id: 'Profil perusahaan kami', ja: '会社紹介資料', es: 'Presentación corporativa' },
   intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md' },
   logo: { ko: '로고', en: 'logo', id: 'logo', ja: 'ロゴ', es: 'logotipo' },
   image: { ko: '홈페이지', en: 'website', id: 'situs', ja: 'サイト', es: 'sitio' },
   blocked: {
-    ko: '회사 소개서 스킬을 넣지 못했어요. 폴더 권한을 확인해 주세요.',
-    en: 'The company profile skill could not be added. Check the folder permissions.',
-    id: 'Skill profil perusahaan tidak bisa ditambahkan. Periksa izin folder.',
-    ja: '会社紹介資料のスキルを追加できませんでした。フォルダーの権限を確認してください。',
-    es: 'No se pudo añadir la habilidad de presentación corporativa. Revise los permisos de la carpeta.',
+    ko: '팀 폴더를 만들지 못했어요. 폴더 권한을 확인해 주세요.',
+    en: 'The team folder could not be made. Check the folder permissions.',
+    id: 'Folder tim tidak bisa dibuat. Periksa izin folder.',
+    ja: 'チームのフォルダーを作れませんでした。フォルダーの権限を確認してください。',
+    es: 'No se pudo crear la carpeta del equipo. Revise los permisos de la carpeta.',
   },
   noMaterial: {
-    ko: '아직 회사 소개가 없어요. 앞 단계에서 홈페이지를 읽거나 회사 소개 자료를 올려 주세요.',
-    en: 'There is no company profile yet. Read the website in the previous step, or add a company intro file.',
-    id: 'Belum ada profil perusahaan. Baca situs web di langkah sebelumnya, atau tambahkan berkas profil perusahaan.',
-    ja: 'まだ会社紹介がありません。前のステップでホームページを読むか、会社紹介の資料を追加してください。',
-    es: 'Aún no hay perfil de la empresa. Lea el sitio web en el paso anterior o añada un archivo de presentación.',
-  },
-  started: {
-    ko: '회사 소개서는 이미 만들기 시작했어요. \'우리 회사 소개서\'에 있어요.',
-    en: 'The company profile was already started. It is in \'Our company profile\'.',
-    id: 'Profil perusahaan sudah mulai dibuat. Ada di \'Profil perusahaan kami\'.',
-    ja: '会社紹介資料はすでに作り始めています。「会社紹介資料」にあります。',
-    es: 'La presentación corporativa ya se empezó. Está en \'Presentación corporativa\'.',
+    ko: '아직 회사 소개가 없어요. 홈페이지를 읽거나 회사 소개 자료를 올려 주세요.',
+    en: 'There is no company profile yet. Read the website, or add a company intro file.',
+    id: 'Belum ada profil perusahaan. Baca situs web, atau tambahkan berkas profil perusahaan.',
+    ja: 'まだ会社紹介がありません。ホームページを読むか、会社紹介の資料を追加してください。',
+    es: 'Aún no hay perfil de la empresa. Lea el sitio web o añada un archivo de presentación.',
   },
   badFile: {
     ko: '올린 파일을 찾을 수 없어요. 다시 올려 주세요.',
@@ -199,58 +179,86 @@ function ownerFile(ctx: AppContext, userId: string, rel: string, locale: Locale)
   throw new HttpError('validation', TEXT.badFile[locale], { fields: { 'body.files': 'not_found' } })
 }
 
-/** The deck's chat was started before (its message is in): saving 회사 소개 again starts no second deck. */
-const deckStarted = (locale: Locale) => new HttpError('conflict', TEXT.started[locale], { params: { reason: 'deck_started' } })
-
-export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo, locale: Locale, body: StartFirstResult): FirstResultStarted {
-  const userId = auth.user.id
-  // once per team (docs/DECISIONS.md "W5"): a deck that started is never started again, before anything is written
-  const before = readWelcome(ctx)?.resultChatId
-  if (before && ctx.db.query('SELECT 1 FROM chats c WHERE c.id = ? AND c.user_id = ? AND c.deleted_at IS NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = c.id)').get(before, userId)) throw deckStarted(locale)
+/**
+ * The brand materials, as the owner (docs/DECISIONS.md "W6"): the team's start when its group or brand folder is
+ * missing, the website's pictures into the brand images folder, and 회사 소개.md unless the owner gave intro files (one
+ * there is kept). Records `brandAt` once it ran through. Throws what failed (the folder rules, no material at all):
+ * the profile stays saved either way.
+ */
+export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body: WelcomeBrand): Omit<WelcomeBrandResult, 'progress'> {
   let p = readWelcome(ctx)
-  // the team's start (pack and group) when it is missing or from before the brand folder
-  if (!p?.general || !p.teamGroup?.brandFolder) p = setupWelcomeTeam(ctx, userId, locale).progress
+  if (!p?.teamGroup?.brandFolder) p = setupWelcomeTeam(ctx, userId, locale).progress
   const group = p.teamGroup
-  if (!group || !p.general) throw new HttpError('conflict', TEXT.blocked[locale])
-  const skillPath = introDeckSkill(ctx, userId, () => installPackSkill(ctx, userId, 'general', 'intro-deck'))
-  if (!skillPath) throw new HttpError('conflict', TEXT.blocked[locale])
+  if (!group) throw new HttpError('conflict', TEXT.blocked[locale])
   const team = teamDefaultLocale(ctx.db)
-  const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, group.folder, group.brandFolder)
+  const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, teamHome(group), group.brandFolder)
   const files = [...new Set(body.files.map((f) => ownerFile(ctx, userId, f.replace(/^\/+/, ''), locale)))]
   // the website's pictures (the latest website draft of the owner that collected any)
   const draft = latestDraftChat(ctx, userId)
   const images = draft ? placeBrandAssets(ctx, userId, draft, imagesFolder, team) : []
   sweepStagedAssets(ctx)
   let intro: string | null = null
-  if (!files.length) {
-    const profile = readCompanyProfile(ctx.files, ctx.files.principal(userId))
-    const pages = draft ? stagedAssets(ctx.db, draft).pages : []
-    if (!profile && !pages.length) throw new HttpError('conflict', TEXT.noMaterial[locale])
+  let wrote = false
+  // the owner's own files are the intro, now or since an earlier press (a 고치기 save after a reload sends none)
+  if (files.length) markBrand(ctx, BRAND_OWN_FILES)
+  else if (!brandOwnFiles(ctx)) {
     const rel = `${brandFolder}/${TEXT.intro[team]}`
     const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(userId), rel, 'write', { mustExist: false })
     if (!r.exists) {
+      const profile = readCompanyProfile(ctx.files, ctx.files.principal(userId))
+      const pages = draft ? stagedAssets(ctx.db, draft).pages : []
+      if (!profile && !pages.length) throw new HttpError('conflict', TEXT.noMaterial[locale])
       const name = profileName(profile, getTeamSettings(ctx.db).teamName) || group.name
       ctx.files.humanSave(userId, rel, Buffer.from(introMarkdown({ locale: team, name, profile, pages }), 'utf8'), null)
-      intro = rel
+      wrote = true
     }
-    files.push(r.rel)
+    intro = r.rel
   }
-  // the chat: titled after the result (the AI does not rename a title the server gave)
-  const chosen = newChatEngine(ctx, auth.user, {}, locale)
-  // the deck's longest time budget (intro-deck/tiers.ts) writes its outline and copy with the strongest model the engine
-  // offers (Claude Code's "opus" when it is on the list); otherwise the team's choice as for any chat
-  const strong = TIERS[deckTier(ctx.db, ctx.config.mode === 'dev')].strongModel && chosen.engine === 'claude-code' && claudeModels(ctx.config).some((m) => m.id === 'opus') ? 'opus' : null
-  const { engine, model } = { engine: chosen.engine, model: strong ?? chosen.model }
-  // the chat, kept in the steps' row in the same step (a chat whose message never went is handed out again)
-  const made = deckChatFor(ctx, userId, () => {
-    const id = newId(), now = new Date().toISOString()
-    ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
-      .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)
-    return id
-  })
-  if (made.kind === 'started') throw deckStarted(locale)
-  const id = made.chatId
-  audit(ctx.db, { actor: userId, action: 'onboarding.first_result', target: id, detail: { files: files.length, intro: !!intro, images: images.length, ...(made.kind === 'reuse' ? { reused: true } : {}) } })
-  if (made.kind === 'new') rt.publishChat(userId, id, 'created')
-  return { chatId: id, title: TEXT.title[locale], skillPath: skillPath ?? GENERAL_DECK_SKILL, files, intro, imagesFolder, images }
+  const first = !brandDone(ctx)
+  markBrand(ctx, BRAND_AT)
+  if (first || wrote || images.length) audit(ctx.db, { actor: userId, action: 'onboarding.brand', target: brandFolder, detail: { files: files.length, intro: wrote, images: images.length } })
+  return { brandFolder, imagesFolder, images, intro }
+}
+
+/** Whose brand materials a read puts in: the active owner with the latest website reading (its pictures are theirs:
+ * latestDraftChat is per person), else the oldest active owner. */
+const brandOwner = (ctx: Pick<AppContext, 'db'>): string | null => {
+  let id: string | null = null
+  try {
+    id = (ctx.db.query(`SELECT d.user_id AS id FROM onboarding_profile_drafts d JOIN users u ON u.id = d.user_id
+      WHERE d.source = 'website' AND u.role = 'owner' AND u.status = 'active' AND u.deleted_at IS NULL
+      ORDER BY d.created_at DESC LIMIT 1`).get() as { id: string } | null)?.id ?? null
+  } catch { id = null }
+  return id ?? (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL AND status = 'active' ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null
+}
+
+/** The server's own run on a welcome read (docs/DECISIONS.md "W6", review M6), once: an unfinished old row whose
+ * profile was saved without a deck now counts 회사 소개 as answered and would never press 저장하고 계속 again, so its
+ * pictures and 회사 소개.md are put in here, as the first owner. Tried once whatever comes of it; never throws. */
+export function brandOnRead(ctx: AppContext): void {
+  try {
+    if (!wantsBrandOnRead(ctx)) return
+    markBrand(ctx, BRAND_TRIED_AT)
+    const owner = brandOwner(ctx)
+    if (!owner) return
+    ctx.files.principal(owner)
+    placeBrand(ctx, owner, teamDefaultLocale(ctx.db), { files: [] })
+  } catch (err) {
+    ctx.log.warn('the brand materials were not placed on the welcome read', { err })
+  }
+}
+
+/** Before an install of 회사 소개서, 카드뉴스 or 홍보 영상 (docs/DECISIONS.md "W6", §2.1 and §4.2 of the plan): the brand
+ * materials, while the team has no `brandAt` mark and the welcome row exists, as the installing person. Never throws:
+ * the install goes on either way. Returns whether the materials are there now. */
+export function ensureBrand(ctx: AppContext, userId: string): boolean {
+  try {
+    if (brandDone(ctx)) return true
+    if (!readWelcome(ctx)) return false
+    placeBrand(ctx, userId, teamDefaultLocale(ctx.db), { files: [] })
+    return true
+  } catch (err) {
+    ctx.log.warn('the brand materials were not placed before a skill install', { err })
+    return false
+  }
 }

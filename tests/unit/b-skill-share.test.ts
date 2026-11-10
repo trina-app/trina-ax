@@ -181,17 +181,15 @@ describe('reading a draft (no server)', () => {
     expect(once.body).toContain('## How to do it')
   })
 
-  test('pack skills of weekly work say so; a copy installed before the line is still the pack\'s text', () => {
-    for (const [pack, name] of [['general', 'meeting-tasks'], ['marketing', 'weekly-report'], ['marketing', 'competitor-brief']] as const) {
+  test('no pack skill that ships is weekly (docs/DECISIONS.md "DS3"); a copy installed before the title line is still the pack\'s text', () => {
+    for (const pack of ['general', 'work'] as const) {
       for (const l of ['ko', 'en'] as const) {
-        const text = SKILL_PACKS[pack].skills[l]![name]!
-        expect(isRecurring(parseSkill(text, `skills/${pack}/${name}/SKILL.md`)!)).toBe(true)
-        const before = earlierPackTexts(text)
-        expect(before.some((t) => !t.includes('recurring:') && t.includes('title:'))).toBe(true)
-        expect(before.some((t) => !t.includes('recurring:') && !/^\s+title:/m.test(t))).toBe(true)
+        for (const [name, text] of Object.entries(SKILL_PACKS[pack].skills[l]!)) {
+          expect(isRecurring(parseSkill(text, `skills/${pack}/${name}/SKILL.md`)!)).toBe(false)
+          expect(earlierPackTexts(text).some((t) => !/^\s+title:/m.test(t))).toBe(true)
+        }
       }
     }
-    expect(parseSkill(SKILL_PACKS.marketing.skills.ko!['ad-copy']!, 'skills/marketing/ad-copy/SKILL.md')!.recurring).toBeUndefined()
   })
 })
 
@@ -451,12 +449,12 @@ describe('draft turns and the save', () => {
     expect(late.status).toBe(409)
     expect(((await late.json()) as { error: { params?: { reason?: string } } }).error.params?.reason).toBe('private')
     h.ctx.db.query('UPDATE onboarding_skill_drafts SET material = ? WHERE chat_id = ?').run(row.material, draft)
-    // a name another skill has: the pack's meeting tasks (not installed here) and a folder already there
-    fs.mkdirSync(path.join(h.team, 'skills/general/meeting-tasks-2'), { recursive: true })
-    const saved = await h.api('carol').call(API.saveSkillDraft, { params: { chatId: draft }, body: { title: 'Meeting tasks' } })
-    expect(saved).toEqual({ path: 'skills/general/meeting-tasks-3/SKILL.md', name: 'meeting-tasks-3', title: 'Meeting tasks' })
+    // a name another skill has: the pack's card news (not installed here) and a folder already there
+    fs.mkdirSync(path.join(h.team, 'skills/general/card-news-2'), { recursive: true })
+    const saved = await h.api('carol').call(API.saveSkillDraft, { params: { chatId: draft }, body: { title: 'Card news' } })
+    expect(saved).toEqual({ path: 'skills/general/card-news-3/SKILL.md', name: 'card-news-3', title: 'Card news' })
     const text = fs.readFileSync(path.join(h.team, saved.path), 'utf8')
-    expect(parseSkill(text, saved.path)).toMatchObject({ name: 'meeting-tasks-3', title: 'Meeting tasks', inputs: good.inputs })
+    expect(parseSkill(text, saved.path)).toMatchObject({ name: 'card-news-3', title: 'Card news', inputs: good.inputs })
     expect(text).toContain('`shared/glossary.md`')
     expect(text).toContain('1. 쓰는 자료의 회의록을 읽어요.')
     expect(text).not.toContain('recurring')
@@ -472,6 +470,6 @@ describe('draft turns and the save', () => {
     expect(fs.existsSync(path.join(h.team, 'skills/general/other'))).toBe(false)
     // a member uses it like any team skill (with its form)
     const listed = (await h.api('bob').call(API.listSkills)).items.find((s) => s.path === saved.path)
-    expect(listed).toMatchObject({ name: 'meeting-tasks-3', title: 'Meeting tasks', inputs: good.inputs })
+    expect(listed).toMatchObject({ name: 'card-news-3', title: 'Card news', inputs: good.inputs })
   })
 })

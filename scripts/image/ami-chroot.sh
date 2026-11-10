@@ -3,6 +3,7 @@
 # the stage folder and runs it over SSH). It customizes the work volume, not the builder's own disk:
 #
 #   ami-chroot.sh --volume-id vol-… --stage /root/ax-image --template-version V [--allow-missing-kit]
+#                 [--apt-snapshot YYYYMMDDTHHMMSSZ]
 #
 # 1. Find the work volume (made from the Debian AMI's root snapshot) by its EBS serial: on t3a every EBS volume is an
 #    NVMe disk, so the attach name /dev/sdf means nothing here, and the root partition has the same file system UUID as
@@ -19,13 +20,15 @@ VOLUME_ID=""
 STAGE=""
 TEMPLATE_VERSION=""
 ALLOW_MISSING_KIT=0
+APT_SNAPSHOT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --volume-id) VOLUME_ID="$2"; shift 2 ;;
     --stage) STAGE="$2"; shift 2 ;;
     --template-version) TEMPLATE_VERSION="$2"; shift 2 ;;
     --allow-missing-kit) ALLOW_MISSING_KIT=1; shift ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    --apt-snapshot) APT_SNAPSHOT="$2"; shift 2 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "ami-chroot: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -95,6 +98,10 @@ rm -rf "$MNT/root/ax-image"
 cp -a "$STAGE" "$MNT/root/ax-image"
 extra=()
 [[ $ALLOW_MISSING_KIT == 1 ]] && extra+=(--allow-missing-kit)
+if [[ -n "$APT_SNAPSHOT" ]]; then
+  [[ "$APT_SNAPSHOT" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || die "--apt-snapshot $APT_SNAPSHOT is not YYYYMMDDTHHMMSSZ"
+  extra+=(--apt-snapshot "$APT_SNAPSHOT")
+fi
 say "customize.sh in the chroot (this takes a while)"
 chroot "$MNT" /bin/bash /root/ax-image/customize.sh --src /root/ax-image --template-version "$TEMPLATE_VERSION" ${extra[@]+"${extra[@]}"}
 rm -rf "$MNT/root/ax-image"
@@ -106,6 +113,11 @@ rm -f "$MNT/root/.bash_history"
 [[ -z "$(find "$MNT/var/lib/cloud" -mindepth 1 -maxdepth 1 2>/dev/null)" ]] || die "/var/lib/cloud is not empty: a new instance would not run cloud-init as a first boot"
 [[ ! -s "$MNT/etc/machine-id" ]] || die "/etc/machine-id is not empty"
 ! ls "$MNT"/etc/ssh/ssh_host_* >/dev/null 2>&1 || die "SSH host keys left in the image"
+# the disk the image leaves (PR #164 review, question 2): recorded in the build log; below 5 GiB free, grow the root
+# volume (build-ami.sh --root-gb) before the image goes out
+say "root file system of the image: $(df -h "$MNT" | awk 'NR == 2 { print $2 " size, " $3 " used, " $4 " free" }')"
+free_kb=$(df -Pk "$MNT" | awk 'NR == 2 { print $4 }')
+[[ "${free_kb:-0}" -ge $((5 * 1024 * 1024)) ]] || say "WARNING: less than 5 GiB free on the image's root file system: grow the root volume"
 
 cleanup
 trap - EXIT

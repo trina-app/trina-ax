@@ -7,6 +7,7 @@
 import type { Database } from 'bun:sqlite'
 import { CONTENT_KINDS, fileTimeline } from '../files/timeline'
 import { packSkillNames } from '../onboarding/skill-packs'
+import { LEGACY_PACK_SKILL_NAMES } from '../onboarding/retired-skills'
 
 interface Ev { id: number; user_id: string; action: string; path: string; detail: string | null; at: string }
 const parse = (d: string | null): Record<string, unknown> => { try { const v = d ? JSON.parse(d) : null; return v && typeof v === 'object' ? v : {} } catch { return {} } }
@@ -38,11 +39,12 @@ function firstEvent(db: Database, rel: string): Ev | null {
   return null
 }
 
-/** A pack's install from before the mark: a skill of a pack's name in that pack's folder, made by the person of an
- * `onboarding.pack_install` audit row within a minute of it. */
+/** A pack's install from before the mark: a skill of a pack's name (one that ships, or one an older release shipped:
+ * docs/DECISIONS.md "DS3") in that pack's folder, made by the person of an `onboarding.pack_install` audit row within a
+ * minute of it. */
 function packInstallByAudit(db: Database, e: Ev): boolean {
   const m = /^skills\/([^/]+)\/([^/]+)\/SKILL\.md$/.exec(e.path)
-  if (!m || !packSkillNames().includes(m[2]!)) return false
+  if (!m || !(packSkillNames().includes(m[2]!) || LEGACY_PACK_SKILL_NAMES.includes(m[2]!))) return false
   return !!db.query(`SELECT 1 FROM audit_log WHERE action = 'onboarding.pack_install' AND actor_id = ? AND target = ?
     AND ABS(julianday(at) - julianday(?)) * 86400 <= 60 LIMIT 1`).get(e.user_id, `skills/${m[1]}`, e.at)
 }

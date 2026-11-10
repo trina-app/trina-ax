@@ -116,7 +116,20 @@ export const SEE_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND
 /** The timeline's and a thread's listings only (same parameters): a hidden answer itself stays in the list, where
  * messagesOut shows it as one line without its content; what is in its thread does not. */
 export const LIST_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR (m.visible_to = ? AND COALESCE(m.thread_root_seq, m.seq) > ?)) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id = m.thread_root_id))"
-export const seeArgs = (member: SeeMember) => [seesFrom(member), seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1, member.user_id] as const
+/** The order of SEE_SQL's (and LIST_SQL's) parameters, once: where they see from, the person, their join, whether to
+ * look for hidden answers. seeArgs gives values; SEE_MEMBER_SQL the same as columns. */
+const seeParts = <F, U, J, P>(from: F, user: U, joined: J, probe: P) => [from, from, user, joined, probe, user] as const
+export const seeArgs = (member: SeeMember) => seeParts(seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1)
+/** SEE_SQL for messages of many rooms at once: the member's values read from a joined room_members row `mm` of the
+ * message's room (seesFrom as COALESCE; hidden answers always looked for). The same rule, filled from seeParts: a search
+ * across rooms (rooms/search.ts) decides in SQL, so what it counts, skips and points a cursor at is only what they see. */
+export const SEE_MEMBER_SQL = (() => {
+  const cols: readonly string[] = seeParts('COALESCE(mm.history_from_seq, mm.visible_from_seq)', 'mm.user_id', 'mm.visible_from_seq', '1')
+  let i = 0
+  const sql = SEE_SQL.replace(/\?/g, () => cols[i++] ?? '?')
+  if (i !== cols.length) throw new Error('SEE_SQL and seeParts are out of step')
+  return sql
+})()
 /** The room's timeline on room_messages `m`: no thread replies but those sent to the room too. */
 export const TIMELINE_SQL = '(m.thread_root_id IS NULL OR m.also_in_room = 1)'
 /** Can a thread hang under this message (or is one there): a message of the timeline, for the whole room, not an event
@@ -241,6 +254,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
   const replyRoots = [...new Set(rows.map((r) => r.thread_root_id).filter((x): x is string => !!x))]
   const followed = new Set(replyRoots.length ? (db.query(`SELECT root_id FROM room_thread_follows WHERE user_id = ? AND root_id IN (${replyRoots.map(() => '?').join(',')})`).all(viewer.user_id, ...replyRoots) as { root_id: string }[]).map((r) => r.root_id) : [])
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
+  // answers people sent from their own AI chat with files attached: which of the answer's links each copy stands for
+  const attached = attachedLinksOn(db, rows.filter((r) => sharedAnswerOf(r) && files.has(r.id)), files)
   // AI answers (rooms/ai.ts): their source count, and for the person who asked a private preview, why it is private
   const ai = rows.filter((r) => r.author_kind === 'ai').map((r) => r.id)
   // the file links of AI answers, and of answers people sent from their own AI chat (sharedAnswerOf), per viewer
@@ -254,7 +269,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       try {
         const d = JSON.parse(t.decision ?? 'null')
         const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === 'string') : [])
-        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), ...(d.hidden ? { hidden: true as const } : {}) })
+        const unable = d?.unable && typeof d.unable === 'object' ? Object.fromEntries(Object.entries(d.unable as Record<string, unknown>).filter((e): e is [string, number] => Number.isInteger(e[1]) && (e[1] as number) >= 0)) : null
+        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), ...(d.hidden ? { hidden: true as const } : {}),
+          ...(d.earlier && !d.hidden ? { earlier: true as const } : {}), ...(unable ? { unable } : {}) })
       } catch { /* no reason shown */ }
     }
   }
@@ -297,7 +314,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
       ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(opens, r.body) } : {}),
       // an answer of the author's own AI chat: the links of its answer part, for the files this viewer may open
-      ...(shared ? { sharedAnswer: shared, openable: openableFor(opens, r.body.slice(shared.at)) } : {}),
+      ...(shared ? { sharedAnswer: shared, openable: openableFor(opens, r.body.slice(shared.at)), ...(attached.get(r.id)?.length ? { attachedLinks: attached.get(r.id)! } : {}) } : {}),
       // only the person it is private to ever gets this (canSee: nobody else is sent a private message at all)
       ...(r.author_kind === 'ai' && r.visibility === 'private' && r.visible_to === viewer.user_id && previews.has(r.id) ? { preview: previews.get(r.id)! } : {}),
       ...(answeredPrivately.has(r.id) ? { answeredPrivately: true } : {}),
@@ -376,6 +393,42 @@ export function sharedAnswerOf(r: Pick<MessageRow, 'author_kind' | 'deleted_at' 
 export function sharedAnswerText(body: string, at: number): string {
   const note = body.slice(0, at).trim()
   return `${note ? `${note}\n` : ''}[below: an answer their own AI chat wrote, which they shared here: the AI's words, not theirs]\n${body.slice(at)}`
+}
+
+/** For shared answers with files (rows the viewer sees, not deleted): the links of each one's answer part whose file
+ * went with it as a copy (chat/answer-share.ts AnswerScopeKept.attached), one query for the page. */
+function attachedLinksOn(db: Database, rows: readonly MessageRow[], files: ReadonlyMap<string, RoomFile[]>): Map<string, { path: string; fileId: string }[]> {
+  const out = new Map<string, { path: string; fileId: string }[]>()
+  if (!rows.length) return out
+  const scopes = new Map((db.query(`SELECT id, source_scope FROM room_messages WHERE source_scope IS NOT NULL AND id IN (${rows.map(() => '?').join(',')})`)
+    .all(...rows.map((r) => r.id)) as { id: string; source_scope: string }[]).map((x) => [x.id, x.source_scope]))
+  for (const r of rows) {
+    const shared = sharedAnswerOf(r)
+    const scope = scopes.get(r.id)
+    if (shared && scope) out.set(r.id, attachedLinksOf(scope, r.body.slice(shared.at), (files.get(r.id) ?? []).map((f) => f.id)))
+  }
+  return out
+}
+
+/**
+ * The links of a shared answer whose file went with it as a copy, each with that copy's id (RoomMessage.attachedLinks):
+ * from the message's kept scope (`attached: [{ file, path, links }]`), only a link the answer part has (as
+ * answerFilePaths names it: text the viewer already gets) and only a file of this message now (`fileIds`). The team path
+ * the copy was made from is never in it. An older message (no `attached`), a scope that does not read: none.
+ */
+export function attachedLinksOf(scope: string | null, answerPart: string, fileIds: readonly string[]): { path: string; fileId: string }[] {
+  if (!scope || !fileIds.length) return []
+  let copies: unknown
+  try { copies = (JSON.parse(scope) as { attached?: unknown } | null)?.attached } catch { return [] }
+  if (!Array.isArray(copies)) return []
+  const inText = new Set(answerFilePaths(answerPart))
+  const mine = new Set(fileIds)
+  const out = new Map<string, string>()
+  for (const c of copies as { file?: unknown; links?: unknown }[]) {
+    if (!c || typeof c.file !== 'string' || !mine.has(c.file) || !Array.isArray(c.links)) continue
+    for (const link of c.links) if (typeof link === 'string' && inText.has(link) && !out.has(link)) out.set(link, c.file)
+  }
+  return [...out].map(([path, fileId]) => ({ path, fileId }))
 }
 
 /** The team files an AI answer names that this viewer may open now. */
@@ -457,28 +510,49 @@ export function managerOf(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'cre
   return (db.query('SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at, user_id LIMIT 1').get(room.id) as { user_id: string } | null)?.user_id ?? null
 }
 
-/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
-export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+/** What names a room to a viewer: its own name or the group's, how many are in it, up to 4 other members (a DM: the
+ * other person). The rooms list's (roomOut) and the search's (rooms/search.ts). */
+export function roomNaming(db: Database, room: RoomRow, viewerId: string): Pick<Room, 'name' | 'memberCount' | 'peers'> {
   // the room's own name wins over the server's (the group's name); a DM is always the other person
   const name = room.kind !== 'dm' && room.name ? room.name : groupName(db, room)
   const memberCount = (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(room.id) as { n: number }).n
   const peers = db.query(`SELECT u.id, u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?
-    ORDER BY m.joined_at, u.name LIMIT 4`).all(room.id, viewer.user_id) as UserRef[]
+    ORDER BY m.joined_at, u.name LIMIT 4`).all(room.id, viewerId) as UserRef[]
+  return { name, memberCount, peers: peers.map((p) => ({ id: p.id, name: p.name })) }
+}
+
+/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
+export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+  const { name, memberCount, peers } = roomNaming(db, room, viewer.user_id)
   const unread = unreadCount(db, room.id, viewer)
   const threads = threadsUnread(db, room.id, viewer)
   const last = lastMessage(db, room.id, viewer)
   const since = viewer.joined_at > room.created_at ? viewer.joined_at : room.created_at
+  // the viewer's own pin: each member's copy of the room carries theirs only
+  const pinned = pinOf(db, room.id, viewer)
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
-    peers: peers.map((p) => ({ id: p.id, name: p.name })),
+    peers,
     unreadCount: unread.n, threadsUnread: threads.n, nextThreadId: threads.next, mentioned: unread.mentioned || threads.mentioned,
     lastReadSeq: Math.max(viewer.last_read_seq, viewer.visible_from_seq), lastSeq: Math.max(lastSeqFor(db, room.id, viewer), viewer.visible_from_seq),
     lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs), createdAt: room.created_at,
     activityAt: last && last.createdAt > since ? last.createdAt : since,
     ...(aiWaiting.get(db)?.(room.id, viewer.user_id) ? { aiWaits: true as const } : {}),
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
+    ...(pinned ? { pinnedAt: pinned } : {}),
   }
 }
+
+/** When this member pinned the room to the top of their 대화 list (docs/DECISIONS.md "Pinned conversations"), or null.
+ * Only a pin of their membership now counts: never one of a room they hid, nor one made before they joined (a row an
+ * older build left when they hid or left the room; the server drops both itself). */
+export function pinOf(db: Database, roomId: string, viewer: Pick<MemberRow, 'user_id' | 'joined_at' | 'hidden_at'>): string | null {
+  if (viewer.hidden_at) return null
+  const at = (db.query('SELECT pinned_at FROM room_pins WHERE user_id = ? AND room_id = ?').get(viewer.user_id, roomId) as { pinned_at: string } | null)?.pinned_at ?? null
+  return at && at >= viewer.joined_at ? at : null
+}
+/** The same rule in SQL, for room_pins p joined with the member's row m. */
+export const PIN_COUNTS_SQL = 'm.hidden_at IS NULL AND p.pinned_at >= m.joined_at'
 
 /** Can a member hide this kind of room (docs/DECISIONS.md "대화 숨기기"): a DM, a team room, the everyone room. A group
  * chat is left instead. */

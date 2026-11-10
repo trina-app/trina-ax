@@ -26,6 +26,7 @@ import { MD_WORDS } from '../../server/src/system/export'
 import { RESTORED } from '../../server/src/team-files/place'
 import { TEXT as URL_GATE_TEXT } from '../../server/src/tools/url-gate'
 import { TEXT as FILE_MOVE_TEXT } from '../../server/src/tools/file-moves'
+import { DELETE_TEXT } from '../../server/src/chat/delete-files'
 import { TEXT as SAVE_URL_TEXT } from '../../server/src/tools/save-url'
 import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
@@ -69,6 +70,7 @@ describe('server and relay texts', () => {
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
+    checkTable('delete_files card', DELETE_TEXT)
     checkTable('save_url cards and refusals', SAVE_URL_TEXT, 6)
     checkTable('scheduled task card', SCHEDULE_CARD_TEXT, 10)
     checkTable('external-service connections', INTEGRATION_TEXT)
@@ -129,6 +131,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/files/hwpx-write.ts': { why: 'the name of Hangul\'s outline styles (개요 N) looked for in a template (document content, not screen text)', also: /s\.name === `개요 \$\{l \+ 1\}`/ },
   'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en/id/ja/es)' },
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
+  'server/src/admin/handover.ts': { why: '팀장 넘기기 refusals and the role-refresh lines (ko next to en/id/ja/es)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
@@ -152,12 +155,16 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/system/export.ts': { why: 'export headings (ko next to en/id/ja/es)' },
   'server/src/system/prune.ts': { why: 'the kept-versions line in diagnostics (ko next to en/id/ja/es)' },
   'server/src/system/windows-app.ts': { why: 'the Windows app line in diagnostics (ko next to en/id/ja/es)' },
+  'shared/src/tools.ts': { why: 'a Korean example project name in a tool description the AI reads (not screen text)', also: /e\.g\. "견적"/ },
+  'server/src/system/system-packages.ts': { why: 'the system packages line in diagnostics (ko next to en/id/ja/es)' },
   'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/team-files/errors.ts': { why: 'file errors (ko next to en/id/ja/es)' },
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
+  'server/src/policy/refusal.ts': { why: 'the screen names a refusal points the person to, as the app shows them (ko next to en/id/ja/es)' },
+  'server/src/chat/delete-files.ts': { why: 'the delete_files card (ko next to en/id/ja/es)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
   'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },
@@ -176,8 +183,11 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:|ko: \(folder: string, like: string\) =>)/ },
   'server/src/onboarding/specifics.ts': { why: 'the Korean job titles, words that are no one\'s name, day and money words looked for in a run so they do not stay in a team skill (not screen text)', also: /./ },
   'server/src/onboarding/brand-assets.ts': { why: 'the Korean word for logo (로고) looked for in a page\'s picture names and labels (not screen text)', also: /^const LOGO_WORD = / },
+  'server/src/onboarding/file-rank.ts': { why: '팀 파일\'s AI picks: the pick chat\'s title and request (ko next to en/id/ja/es)' },
   'server/src/onboarding/welcome-result.ts': { why: 'the first result\'s chat title, messages, file names and the company intro file\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ head: \(n\) => / },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
+  'shared/src/folder-labels.ts': { why: 'the top folders\' words on screen and the templates and archive folder names (ko next to en/id/ja/es)' },
+  'server/src/onboarding/skill-packs.ts': { why: 'the kept skills\' one line in the catalog (ko next to en/id/ja/es)' },
   'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
   'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },

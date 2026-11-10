@@ -6,8 +6,8 @@ What the owner provides or decides before each store step. Engineering steps and
 ## Decided / already there
 
 - Bundle id / Android package: `app.trina.ax` (editions/trina/branding/mobile.json). The iOS platform is added to the
-  existing App Store Connect record of the Mac App Store app, team `YWW96288YY`, version 1.0.0; the next store version is
-  1.0.1 (`app.config.ts`).
+  existing App Store Connect record of the Mac App Store app, team `YWW96288YY`, version 1.0.0, then 1.0.1; the next
+  store version is 1.0.2 (`app.config.ts`).
 - From 1.0.1 the iPhone app has a notification service extension, `app.trina.ax.NotificationService` (who and where in a
   room push, docs/DECISIONS.md "아이폰 알림의 이름"). Its App ID and profiles are made by automatic signing at the first
   archive (`-allowProvisioningUpdates` with the Admin API key); nothing to register by hand. It needs no App Group and no
@@ -18,6 +18,21 @@ What the owner provides or decides before each store step. Engineering steps and
 - An App Store Connect API key (Admin) on the build Mac, outside the repository.
 - No Expo account and no EAS project: iOS is built and uploaded from the Mac with `scripts/ios-release.sh`.
 - App Review demo team: `https://qa-test.trina.app` (fictional data).
+
+## Links that open the app (first run, phase 2)
+
+- **iPhone**: the app declares `applinks:*.trina.app` (Associated Domains). Before the next signed build, turn on the
+  **Associated Domains** capability for the App ID `app.trina.ax` (Certificates, Identifiers & Profiles) and refresh
+  the provisioning profile; without it the archive fails to sign. Each team server serves `apple-app-site-association`
+  (`server/src/routes/app-links.ts`); for the wildcard entry serve the same file on `trina.app` itself too (developers
+  report Apple's CDN asks the domain after `*.`; Apple's page does not say which), from the website.
+- **Android**: the intent filter for `https://*.trina.app` `/invite/…` and `/join` has `autoVerify`; Android checks a
+  wildcard host at its root, `https://trina.app/.well-known/assetlinks.json`, with the SHA-256 of the certificate that
+  signs the installed app. Team servers already serve the upload key's fingerprint (`shared/src/app-links.ts`, the APK at
+  updates.trina.app). When Play signs the app, add the Play app signing certificate's SHA-256 (Play Console › App
+  integrity) to the same list, and serve it on `trina.app` too; until then Play installs get the app in Android's chooser
+  instead of opening it directly.
+- Both: the `trina-ax` scheme (already registered) opens screen ④ for "앱에서 열기".
 
 ## TestFlight (internal testers)
 

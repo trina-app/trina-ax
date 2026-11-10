@@ -3,7 +3,9 @@ import { endpoint, empty } from './endpoint'
 import { PushEventType } from './notifications'
 export const PushSettings = z.object({ configured: z.boolean(), enabled: z.boolean(), publicKey: z.string().nullable(), subscriptionId: z.string().nullable(),
   // Older servers omit display text; keep settings usable during an upgrade or rollback.
-  messages: z.object({ title: z.string(), bodies: z.record(PushEventType, z.string()) }).optional(),
+  messages: z.object({ title: z.string(), bodies: z.record(PushEventType, z.string()),
+    /** the room notification's "Mark as read" button; older servers omit it (no button) */
+    markRead: z.string().optional() }).optional(),
   // The phone app (push-token-v1): whether this server can reach the push gateway, and this session's device.
   // gateway: the host phone tokens go through (owners and admins see it in Settings › Notifications); null = off.
   native: z.object({ available: z.boolean(), deviceId: z.string().nullable(), gateway: z.string().nullable().optional() }).optional(),

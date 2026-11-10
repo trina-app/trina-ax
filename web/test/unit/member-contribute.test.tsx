@@ -10,6 +10,7 @@
 //     ?batch= opens 검토;
 //   - the Inbox line of a batch ("Bob Lee 님이 스킬 2개를 팀에 올리자고 했어요 · 확인") and the saved skill's "님이 제안".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ContributedSkills, InboxNotification, ResultSuggestion as Suggestion, SkillSuggestion } from '@mycel/shared/api'
@@ -420,6 +421,31 @@ describe('Skills › 검토', () => {
       })
     } finally { await m.unmount() }
   })
+
+  test('suggestions waiting: /skills lands on 검토, but 스킬 넣기\'s /skills?catalog=open stays on the skills', async () => {
+    signIn('owner')
+    review = [folderSuggestion('weekly-report')]
+    const selected = async (url: string, landsOn?: string) => {
+      const m = await mount(
+        <MemoryRouter initialEntries={[url]}>
+          <Routes><Route path="/skills" element={<Skills />} /></Routes>
+        </MemoryRouter>,
+      )
+      try {
+        const body = m.container.ownerDocument!.body
+        const tab = () => body.querySelector('[role="tab"][aria-selected="true"]')?.id ?? ''
+        if (landsOn) await m.until(() => tab().endsWith(landsOn), landsOn)
+        else {
+          await m.until(() => body.querySelector('[role="tab"]'), 'the tabs')
+          // the landing runs once the overview is in; give it its turn, so a switch would show
+          await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
+        }
+        return tab()
+      } finally { await m.unmount() }
+    }
+    expect(await selected('/skills', '-tab-review')).toEndWith('-tab-review')
+    expect(await selected('/skills?catalog=open')).toEndWith('-tab-skills')
+  })
 })
 
 describe('the Inbox line and the saved skill', () => {
@@ -437,10 +463,11 @@ describe('the Inbox line and the saved skill', () => {
       expect(text).toContain('민준님이 스킬 2개를 팀에 올리자고 했어요')
       expect(text).toContain(ko('notifications.event.skill.contributedGone', { n: 3 }))
       expect(text).toContain(ko('notifications.event.skill.suggested'))
+      // the whole row is the link (no separate "확인하기" under it)
       const links = [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="notification-skills-link"]')]
-      expect(links.map((l) => [l.getAttribute('href'), l.textContent])).toEqual([
-        [`/skills?batch=${BATCH}`, ko('notifications.check')], ['/skills?batch=b2', ko('notifications.check')], ['/skills?review=one', ko('skills.title')],
-      ])
+      expect(links.map((l) => l.getAttribute('href'))).toEqual([`/skills?batch=${BATCH}`, '/skills?batch=b2', '/skills?review=one'])
+      expect(links[0]!.textContent).toContain(ko('notifications.event.skill.contributed', { name: '민준', n: 2 }))
+      expect(links[2]!.textContent).toContain(ko('notifications.event.skill.suggested'))
     } finally { await m.unmount() }
   })
 

@@ -2,8 +2,9 @@
 // "Y — Home shows one thing at a time" and "W5"): the title naming the skill "7일 안에 3명이 '광고 문구' 써 보기 · 1/3 · 5일
 // 남음", ONE line of what to do next and ONE button (someone joined and has not run it: [다시 보내기]; one more person or
 // nobody joined, from the third day: [초대 문구 복사], or [팀원 초대] while no link works, which goes to the welcome
-// steps' invite step while they are unfinished), "달성했어요 · names"; the top of Home showing one thing (the welcome
-// steps' row while unfinished, else the card); the owners' notice text.
+// steps' invite step while they are unfinished), "달성했어요 · names"; a team with no team skill yet: the line says skills
+// come first and [스킬 넣기] (the catalog open) is the filled one, the card's own button beside it quiet; the top of Home
+// showing one thing (the welcome steps' row while unfinished, else the card); the owners' notice text.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -117,9 +118,7 @@ describe('the card: a title, one line, one button', () => {
     useSession.setState({ status: { kind: 'signed-in', me: me() } } as never)
     Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value: { writeText: async (s: string) => void copied.push(s) } })
   })
-  afterAll(async () => {
-    // "복사했어요" turns back after 1.5 s (ui.tsx useCopy): let those timers run while the page still exists
-    await new Promise((r) => setTimeout(r, 1600))
+  afterAll(() => {
     removeDom()
     useLocaleStore.setState({ locale: before })
     useSession.setState({ status })
@@ -158,6 +157,17 @@ describe('the card: a title, one line, one button', () => {
       expect(copied).toEqual([`'광고 문구' 한 번 눌러 보세요: ${RUN}`])
     } finally { await m.unmount() }
   })
+  test('nobody ran a skill yet and the team link still opens the intro deck: the deck is never named (the owner\'s own run, docs/DECISIONS.md "DS3")', async () => {
+    const deck = { ...LINK, link: { ...LINK.link!, skill: { path: 'skills/general/intro-deck/SKILL.md', name: 'intro-deck', title: '회사 소개서' } } }
+    const m = await card(goal({ skill: null, joined: 3, waiting: { first: '민지', more: 2 } }), deck)
+    try {
+      expect(m.html()).not.toContain('회사 소개서')
+      expect(m.html()).toContain('같은 스킬')
+      await m.click('team-goal-resend')
+      expect(copied[0]).not.toContain('회사 소개서')
+      expect(copied[0]).not.toContain('intro-deck')
+    } finally { await m.unmount() }
+  })
   test('one more person: the line and [초대 문구 복사] (the team link\'s message)', async () => {
     const m = await card(goal({ joined: 1, skill: { path: AD, name: '광고 문구', runners: 2, people: ['김하나', '민지'] } }), LINK)
     try {
@@ -192,6 +202,74 @@ describe('the card: a title, one line, one button', () => {
       expect(copied[0]).toMatch(/^민지님, 팀 스킬 한 번 눌러 보세요: .*\/skills$/)
     } finally { await m.unmount() }
   })
+  test('no team skill yet: skills come first, [스킬 넣기] is the filled one and opens 팀 스킬 with the catalog open; [다시 보내기] or the invite stays, quiet; never "아직 써 보기 전"', async () => {
+    function Where() { const l = useLocation(); return <p data-testid="where">{`${l.pathname}${l.search}`}</p> }
+    const filledIds = (m: Awaited<ReturnType<typeof mount>>) => m.get('team-goal').querySelectorAll('button').filter((b) => /(^|\s)bg-accent(\s|$)/.test(b.className)).map((b) => b.getAttribute('data-testid'))
+    const at = (g: TeamGoal, link: TeamLinkResponse | null) => mount(
+      <MemoryRouter initialEntries={['/']}><Routes>
+        <Route path="/" element={<GoalCard goal={g} onDismiss={() => {}} link={link} hasSkills={false} />} />
+        <Route path="/skills" element={<Where />} />
+      </Routes></MemoryRouter>,
+    )
+    let m = await at(goal({ skill: null, joined: 1, waiting: { first: '민지', more: 0 } }), NO_LINK)
+    try {
+      expect(m.get('team-goal-next').textContent).toBe('민지님이 들어왔어요. 팀 스킬을 넣으면 같이 써 볼 수 있어요.')
+      expect(m.get('team-goal-next').getAttribute('data-next')).toBe('noSkills')
+      expect(m.html()).not.toContain('써 보기 전')
+      expect(filledIds(m)).toEqual(['team-goal-add-skills'])
+      expect(m.get('team-goal-add-skills').textContent).toContain(ko('home.prepared.addSkills'))
+      // [다시 보내기] is still there, not filled
+      expect(m.find('team-goal-resend')).not.toBeNull()
+      await m.click('team-goal-add-skills')
+      await m.until(() => m.find('where'), '팀 스킬')
+      expect(m.get('where').textContent).toBe('/skills?catalog=open')
+    } finally { await m.unmount() }
+    m = await at(goal({ skill: null, joined: 3, waiting: { first: '민지', more: 2 } }), LINK)
+    try {
+      expect(m.get('team-goal-next').textContent).toBe('민지님 외 2명이 들어왔어요. 팀 스킬을 넣으면 같이 써 볼 수 있어요.')
+    } finally { await m.unmount() }
+    // nobody joined: the same first step, the invite beside it, quiet
+    m = await at(goal({ skill: null, joined: 0 }), LINK)
+    try {
+      expect(m.get('team-goal-next').textContent).toBe('아직 팀 스킬이 없어요. 스킬을 넣으면 팀원이 바로 써 볼 수 있어요.')
+      expect(filledIds(m)).toEqual(['team-goal-add-skills'])
+      expect(m.find('team-goal-copy-invite')).not.toBeNull()
+    } finally { await m.unmount() }
+    m = await at(goal({ skill: null, joined: 0 }), NO_LINK)
+    try {
+      expect(filledIds(m)).toEqual(['team-goal-add-skills'])
+      expect(m.find('team-goal-invite')).not.toBeNull()
+    } finally { await m.unmount() }
+    // with skills (as before): no [스킬 넣기]
+    m = await mount(<MemoryRouter><GoalCard goal={goal({ skill: null, joined: 1, waiting: { first: '민지', more: 0 } })} onDismiss={() => {}} link={NO_LINK} hasSkills /></MemoryRouter>)
+    try {
+      expect(m.find('team-goal-add-skills')).toBeNull()
+      expect(filledIds(m)).toEqual(['team-goal-resend'])
+    } finally { await m.unmount() }
+  })
+  test('no team skill, read by the card itself (GET /api/skills/examples): [스킬 넣기]; a failed read keeps the card as it was', async () => {
+    const realFetch = globalThis.fetch
+    let skills: unknown[] | null = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://x')
+      if (url.pathname === '/api/skills/examples' && skills) return new Response(JSON.stringify({ skills, teamFolder: null, landing: null, ranTeamSkill: false, hasProfile: false }), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ error: { code: 'internal', message: 'down' } }), { status: 500, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    try {
+      let m = await card(goal({ skill: null, joined: 1, waiting: { first: '민지', more: 0 } }), NO_LINK)
+      try {
+        await m.until(() => m.find('team-goal-add-skills'), '[스킬 넣기]')
+        expect(m.get('team-goal-next').textContent).toBe('민지님이 들어왔어요. 팀 스킬을 넣으면 같이 써 볼 수 있어요.')
+      } finally { await m.unmount() }
+      skills = null
+      m = await card(goal({ skill: null, joined: 1, waiting: { first: '민지', more: 0 } }), NO_LINK)
+      try {
+        await m.settle(40)
+        expect(m.find('team-goal-add-skills')).toBeNull()
+        expect(m.get('team-goal-next').textContent).toBe('민지님이 들어왔어요. 팀 스킬은 아직 써 보기 전이에요.')
+      } finally { await m.unmount() }
+    } finally { globalThis.fetch = realFetch }
+  })
   test('day 0, nobody joined: how many more, not "아직 아무도 안 들어왔어요" (that waits for the third day)', async () => {
     const m = await card(goal({ joined: 0, startedAt: new Date().toISOString(), endsAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), daysLeft: 7 }), LINK)
     try {
@@ -216,7 +294,7 @@ describe('the card: a title, one line, one button', () => {
     function Welcome() { const l = useLocation(); return <p data-testid="where">{`${l.pathname} ${JSON.stringify(l.state)}`}</p> }
     const unfinished = {
       startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
-      steps: { profile: 'done', result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+      steps: { profile: 'done', result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
     } as unknown as WelcomeProgress
     useWelcome.setState({ loaded: true, progress: unfinished })
     const expired = { ...LINK, link: { ...LINK.link!, state: 'expired' as const } }
@@ -263,6 +341,14 @@ describe('the card: a title, one line, one button', () => {
         expect(m.get('team-goal-next').textContent).toBe("민지님이 들어왔어요. '광고 문구'는 아직 써 보기 전이에요.")
         expect(m.find('team-goal-resend')).toBeNull()
       } finally { await m.unmount() }
+      // no team skill yet: the opened row has [스킬 넣기], still no [다시 보내기]
+      m = await mount(<MemoryRouter><GoalCard goal={goal({ skill: null, joined: 1, waiting: { first: '민지', more: 0 } })} onDismiss={() => {}} link={LINK} hasSkills={false} /></MemoryRouter>)
+      try {
+        await m.click('team-goal-toggle')
+        expect(m.get('team-goal-next').textContent).toBe('민지님이 들어왔어요. 팀 스킬을 넣으면 같이 써 볼 수 있어요.')
+        expect(m.find('team-goal-add-skills')).not.toBeNull()
+        expect(m.find('team-goal-resend')).toBeNull()
+      } finally { await m.unmount() }
       // one more person: the line opens to [초대 문구 복사]
       m = await card(goal({ joined: 1, skill: { path: AD, name: '광고 문구', runners: 2, people: ['김하나', '민지'] } }), LINK)
       try {
@@ -293,7 +379,7 @@ describe('the top of Home: one thing', () => {
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
   const fresh = (steps: Partial<WelcomeProgress['steps']> = {}, o: Partial<WelcomeProgress> = {}): WelcomeProgress => ({
     startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
-    steps: { profile: 'done', result: null, invite: null, ...steps }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
+    steps: { profile: 'done', result: null, invite: null, ...steps }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
   })
   const locale = useLocaleStore.getState().locale
   beforeAll(() => {
@@ -324,15 +410,15 @@ describe('the top of Home: one thing', () => {
     } finally { await m.unmount() }
   }
 
-  test('setup unfinished: on a phone only the quiet "설정 이어서 하기 · n/4" row, no goal card; on a computer the goal card (the sidebar\'s setup row stands for the steps, docs/DECISIONS.md "W5")', async () => {
+  test('setup unfinished: on a phone only the quiet "설정 이어서 하기 · n/5" row, no goal card; on a computer the goal card (the sidebar\'s setup row stands for the steps, docs/DECISIONS.md "W5")', async () => {
     welcome = fresh(); teamGoal = goal()
     const media = globalThis.matchMedia
     globalThis.matchMedia = ((q: string) => ({ matches: q === '(max-width: 767.98px)', addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof matchMedia
     try {
       const t = await top('owner')
-      // the count and the total are lib/welcome.ts's (the steps decide how many there are): 회사 소개 saved without a deck
-      // is not answered yet (an old row), so 0 of them
-      expect(t.resume).toBe(`${translate('ko', 'setupRow.resume')} · 0/${stepTotal()}`)
+      // the count and the total are lib/welcome.ts's (the steps decide how many there are): 회사 소개 saved counts as done
+      // without a deck (docs/DECISIONS.md "W6"), so 1 of them
+      expect(t.resume).toBe(`${translate('ko', 'setupRow.resume')} · 1/${stepTotal()}`)
       expect({ ...t, resume: null }).toEqual({ resume: null, goal: null, dots: false })
     } finally { globalThis.matchMedia = media }
     expect(await top('owner')).toEqual({ resume: null, goal: 'open', dots: false })

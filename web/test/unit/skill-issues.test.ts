@@ -16,6 +16,9 @@ test('R2-SKILL-03: the Files screen shows the issues in and below the open skill
   expect(isSkillsPath('skills')).toBe(true)
   expect(isSkillsPath('skills/재무')).toBe(true)
   expect(isSkillsPath('skillset')).toBe(false)
+  // a project's skills folder (docs/DECISIONS.md "Project skills"), not a folder called skills elsewhere in it
+  expect(isSkillsPath('projects/falcon/skills/x/SKILL.md')).toBe(true)
+  expect(isSkillsPath('projects/falcon/notes/skills')).toBe(false)
   expect(isSkillsPath('')).toBe(false)
   expect(issuesIn(items, 'skills')).toEqual(items)
   expect(issuesIn(items, 'skills/wrong-folder-qa').map(i => i.path)).toEqual(['skills/wrong-folder-qa/SKILL.md'])
@@ -35,8 +38,9 @@ test('R2-SKILL-03: a name that is not ASCII shows in its own folder, in skills/ 
   expect(isSkillsPath('skills/acme-견적')).toBe(true)
   expect(isSkillsPath('users/alice/skills/acme-견적')).toBe(true)
   expect(issuesIn(name, 'users/alice/skills').map(i => i.path)).toEqual(['users/alice/skills/acme-견적/SKILL.md'])
-  // a project folder is not a skill folder: the Files screen shows no skill warning there
-  expect(isSkillsPath('projects/acme-video/skills/acme-견적')).toBe(false)
+  // a project's skills folder is one (docs/DECISIONS.md "Project skills"); a skills folder deeper in a project is not
+  expect(isSkillsPath('projects/acme-video/skills/acme-견적')).toBe(true)
+  expect(isSkillsPath('projects/acme-video/drafts/skills/acme-견적')).toBe(false)
 })
 
 test('the name text of a SKILL.md gives the folder name; a legacy file has its own rule', () => {

@@ -10,26 +10,33 @@
 // person connected it and when, and whose key stopped working (members below), nothing the service returned. The people
 // it is for are told in their inbox that it is there (notifications/service.ts offerTemplates), and told again to
 // connect when its address or sign-in changed (service.ts dropFromTemplate).
-// A new address, sign-in method or header on the template, or deleting the template, deletes the members' connections
-// (and so their keys; OAuth sign-ins are revoked); a change of who it is for deletes the connections of members it no
-// longer covers. Nothing here holds, returns or logs a key.
+// A new address, sign-in method, header or app on the template, or deleting the template, deletes the members'
+// connections (and so their keys; OAuth sign-ins are revoked); a change of who it is for deletes the connections of
+// members it no longer covers. Nothing here holds, returns or logs a key.
+// A template may carry the team's own app at the service (oauthClient: a service that does not register apps itself,
+// docs/INTEGRATIONS.md "Your own app"): each member signs in through it with their own account (service.ts appOf). Its
+// client secret is sealed for the template (templateClientAad) and only ever goes to the service's token address;
+// members see neither the secret nor the app. Any new address of the template (its service address, or the app's
+// sign-in or token address) drops the secret: the admin enters it again (service.ts appAfter).
 import { addressHasSecret } from '@mycel/shared'
-import { INTEGRATION_TEMPLATES_MAX, type Integration, type IntegrationAccess, type IntegrationTemplate, type IntegrationTemplateAnswer, type IntegrationTemplateInput, type IntegrationTemplateMember, type IntegrationTemplatePatch, type Locale, type MyIntegrationTemplate } from '@mycel/shared/api'
+import { INTEGRATION_TEMPLATES_MAX, type Integration, type IntegrationAccess, type IntegrationTemplate, type IntegrationTemplateAnswer, type IntegrationTemplateInput, type IntegrationTemplateMember, type IntegrationTemplatePatch, type Locale, type MyIntegrationTemplate, type OAuthClientInput } from '@mycel/shared/api'
 import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
 import { fail } from '../../http/errors'
 import { cleanNotes, fieldError, hiddenText, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
-import { activeUser, bareUrl, getRow, isAdmin, selectRows, templateCovers, view, type Row, type Viewer } from './store'
+import { activeUser, bareUrl, clientView, getRow, isAdmin, selectRows, templateClientAad, templateCovers, view, type Row, type Viewer } from './store'
 import { say } from './text'
 import { notifyTemplateOffers } from '../../notifications/service'
 
 interface TemplateRow {
   id: string; created_by: string | null; kind: 'mcp' | 'http'; name: string; url: string; auth: 'bearer' | 'header' | 'oauth'
   auth_header: string | null; notes: string | null; version: number; created_at: string; updated_at: string
+  /** the team's own app (migration 338): store.ts ClientInfo as JSON, its secret sealed with templateClientAad */
+  oauth_client: string | null; oauth_client_enc: string | null; oauth_client_key_version: number
 }
-const COLUMNS = 'id, created_by, kind, name, url, auth, auth_header, notes, version, created_at, updated_at'
+const COLUMNS = 'id, created_by, kind, name, url, auth, auth_header, notes, version, created_at, updated_at, oauth_client, oauth_client_enc, oauth_client_key_version'
 const SHOWS = /[^\p{Cc}\p{Cf}\p{Z}\p{DI}\u{2800}]/u
 
 export function getTemplate(db: Database, id: string): TemplateRow | null {
@@ -71,6 +78,7 @@ export class ConnectionTemplates {
     const connected = (this.db.query('SELECT count(*) AS n FROM integrations WHERE template_id = ? AND secret_enc IS NOT NULL').get(t.id) as { n: number }).n
     return {
       id: t.id, kind: t.kind, name: t.name, url: t.url, auth: t.auth, authHeader: t.auth_header, notes: t.notes, access: templateAccess(this.db, t.id),
+      oauthClient: clientView(t.oauth_client, t.oauth_client_enc, t.url),
       connected, createdBy: this.person(t.created_by), createdAt: t.created_at, updatedAt: t.updated_at,
     }
   }
@@ -105,7 +113,6 @@ export class ConnectionTemplates {
     // ends the AI's quotation, no control characters (security review 2, #4)
     if (hiddenText(v.name) || /["\u0000-\u001f\u007f]/.test(v.name)) fieldError(L, 'name', 'templateNameHidden')
     if (v.notes && hiddenText(v.notes)) fieldError(L, 'notes', 'templateNotesHidden')
-    if (v.auth === 'oauth' && v.kind !== 'mcp') fieldError(L, 'auth', 'oauthMcpOnly')
     if (obviouslyPrivate(normUrl(v.url))) fieldError(L, 'url', 'private_address')
     // the address goes with every member's key: a key in it (or any query, where one hides easily) would reach and be
     // used by every member, and the service would log their calls under its owner
@@ -119,6 +126,12 @@ export class ConnectionTemplates {
     return v.auth === 'header' ? this.svc.headerName(v.authHeader ?? null, L) : null
   }
 
+  /** The template's app after a change (service.ts appAfter) to the address `url`: its secret stays only where it went
+   * before, with the same service address too (members' tokens go there). */
+  private appAfter(t: Pick<TemplateRow, 'id' | 'url' | 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'>, kind: TemplateRow['kind'], auth: TemplateRow['auth'], input: OAuthClientInput | null | undefined, url: string, L: Locale) {
+    return this.svc.appAfter(templateClientAad(t.id), { json: t.oauth_client, enc: t.oauth_client_enc, keyVersion: t.oauth_client_key_version }, kind, auth, input, { before: t.url, after: url }, L)
+  }
+
   create(viewer: Viewer, input: IntegrationTemplateInput, L: Locale): IntegrationTemplate {
     if (!isAdmin(viewer.role)) fail('forbidden')
     const n = (this.db.query('SELECT count(*) AS n FROM integration_templates').get() as { n: number }).n
@@ -127,15 +140,17 @@ export class ConnectionTemplates {
     const at = this.now()
     const t: TemplateRow = {
       id: newId(), created_by: viewer.id, kind: input.kind, name: oneLine(input.name), url: normUrl(input.url), auth: input.auth, auth_header: authHeader,
-      notes: cleanNotes(input.notes), version: 1, created_at: at, updated_at: at,
+      notes: cleanNotes(input.notes), version: 1, created_at: at, updated_at: at, oauth_client: null, oauth_client_enc: null, oauth_client_key_version: 1,
     }
+    const app = this.appAfter(t, t.kind, t.auth, input.oauthClient, t.url, L)
+    t.oauth_client = app.json; t.oauth_client_enc = app.enc; t.oauth_client_key_version = app.keyVersion
     this.db.transaction(() => {
-      this.db.query(`INSERT INTO integration_templates (${COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-        .run(t.id, t.created_by, t.kind, t.name, t.url, t.auth, t.auth_header, t.notes, t.version, t.created_at, t.updated_at)
+      this.db.query(`INSERT INTO integration_templates (${COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(t.id, t.created_by, t.kind, t.name, t.url, t.auth, t.auth_header, t.notes, t.version, t.created_at, t.updated_at, t.oauth_client, t.oauth_client_enc, t.oauth_client_key_version)
       // no audience given: the whole team (a template carries no key; each member adds their own)
       setTemplateAccess(this.db, t.id, input.access ?? { everyone: true, groups: [], users: [] })
     })()
-    audit(this.db, { actor: viewer.id, action: 'integration_template.create', target: t.id, detail: auditDetail(t, { access: templateAccess(this.db, t.id) }) })
+    audit(this.db, { actor: viewer.id, action: 'integration_template.create', target: t.id, detail: auditDetail(t, { access: templateAccess(this.db, t.id), ...(t.oauth_client ? { ownApp: true } : {}) }) })
     notifyTemplateOffers(this.ctx, { templateId: t.id })
     return this.adminView(t)
   }
@@ -151,14 +166,18 @@ export class ConnectionTemplates {
     if (next.auth === 'header') next.auth_header = patch.authHeader !== undefined ? patch.authHeader : t.auth_header
     else next.auth_header = null
     next.auth_header = this.check(L, { name: next.name, url: next.url, auth: next.auth, kind: next.kind, authHeader: next.auth_header, notes: next.notes, access: patch.access })
-    // a key is never sent to another address or in another way than the member connected it for
-    const moved = next.url !== t.url || next.auth !== t.auth || next.auth_header !== t.auth_header
-    const changed = (['name', 'url', 'auth', 'auth_header', 'notes'] as const).filter((k) => next[k] !== t[k])
+    const app = this.appAfter(t, next.kind, next.auth, patch.oauthClient, next.url, L)
+    next.oauth_client = app.json; next.oauth_client_enc = app.enc; next.oauth_client_key_version = app.keyVersion
+    // a key is never sent to another address or in another way than the member connected it for; a sign-in made through
+    // one app is never used with another
+    const moved = next.url !== t.url || next.auth !== t.auth || next.auth_header !== t.auth_header || app.changed
+    // the same app with its found token address forgotten (the secret entered again) is audited, and drops nothing
+    const changed = [...(['name', 'url', 'auth', 'auth_header', 'notes'] as const).filter((k) => next[k] !== t[k]), ...(app.changed ? ['oauthClient'] : app.forgot ? ['tokenAddress'] : [])]
     const before = templateAccess(this.db, id)
     const at = this.now()
     this.db.transaction(() => {
-      const r = this.db.query('UPDATE integration_templates SET name=?, url=?, auth=?, auth_header=?, notes=?, version=version+1, updated_at=? WHERE id=? AND version=?')
-        .run(next.name, next.url, next.auth, next.auth_header, next.notes, at, id, t.version)
+      const r = this.db.query('UPDATE integration_templates SET name=?, url=?, auth=?, auth_header=?, notes=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?, version=version+1, updated_at=? WHERE id=? AND version=?')
+        .run(next.name, next.url, next.auth, next.auth_header, next.notes, next.oauth_client, next.oauth_client_enc, next.oauth_client_key_version, at, id, t.version)
       if (!r.changes) fail('conflict')
       if (patch.access) setTemplateAccess(this.db, id, patch.access)
       // the members' connections follow the template's name and note (the slug, their tools and keys stay). Their

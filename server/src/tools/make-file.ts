@@ -43,6 +43,7 @@ import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } 
 import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { writeLimitText } from '../policy/refusal'
 import { badSegment } from '../policy/names'
 import { bundledFontDir, which } from '../config'
 import { publishChanges } from '../team-files/changes'
@@ -50,6 +51,7 @@ import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir, readOutput, runIsolated } from './isolate'
 import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
+import { makeFileOutputPath } from './make-file-path'
 import { PRODUCT } from '@mycel/shared'
 import { typstJobs } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
@@ -239,8 +241,7 @@ export class MakeFile {
       kind = a.format === 'xlsx' && !hasPipeRow(text) ? (text.includes('\t') && !text.includes(',') ? 'tsv' : 'csv') : 'markdown'
     }
     // ---- output path (extension follows the format)
-    let outRel = a.output.replace(/\/+$/, '')
-    if (ext(outRel) !== a.format) outRel += '.' + a.format
+    const outRel = makeFileOutputPath(a.output, a.format)
     const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
 
@@ -323,8 +324,7 @@ export class MakeFile {
     if (a.format !== 'pdf') throw new ToolError(`an .html source can only be printed to PDF: give format "pdf" (for ${a.format}, write the document as Markdown)`)
     if (a.template) throw new ToolError('a PDF printed from HTML takes no template: the page\'s own CSS is its design')
     const fx = this.files.fx
-    let outRel = a.output.replace(/\/+$/, '')
-    if (ext(outRel) !== 'pdf') outRel += '.pdf'
+    const outRel = makeFileOutputPath(a.output, 'pdf')
     const out = authorize(fx, this.files.rules(), c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
     const printed = await printTeamHtml(this.ctx, this.files, c.user, a.source!, { signal: c.signal })
@@ -616,7 +616,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
   const size = checkRegular(produced).size
   const counted = po.turnBytes !== false
-  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', cfg.maxWriteBytesPerTurn, segs.join('/')))
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
@@ -653,7 +653,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
       conflictOf = rel0
     }
   }
-  if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
+  if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', cfg.maxFilesWrittenPerTurn, target.join('/')))
   // final check right before the rename (rules may have changed during the conversion)
   authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
   installFile(fx.root, target, produced)

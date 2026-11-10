@@ -6,13 +6,12 @@
 // welcome steps the link is made in advance (`prepare`), so the message and its one copy button show at once; a link
 // that may still let someone in is never replaced by itself (making one ends the open one).
 // The team's own group (made by the welcome steps, docs/DECISIONS.md "M — One meeting note, everyone's own tasks") is
-// the default group of a new link, so people who join see the team's folder. A starter (the lead's meeting notes and
-// what people who join get from them) goes with a new link, and an open link is changed to carry it (PATCH: same
-// address); its ready-made message then says what is waiting instead of who invites.
+// the default group of a new link, so people who join see the team's folder. An open link that leads elsewhere than the
+// skill the wizard points at is changed to it (PATCH: same address).
 import clsx from 'clsx'
 import { Check, ChevronDown, Copy, Plus, QrCode as QrIcon, RefreshCw } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillLabel, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkStarter, type TeamLinkState } from '@mycel/shared/api'
+import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillLabel, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { teamLinkMessage } from '../../lib/team-link'
@@ -25,35 +24,24 @@ import { Button, Field, Modal, Skeleton, confirmDialog, inputCls, useCopy } from
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 
-/** `starter` null: the link leads to the skill alone (a team skill the lead just made, docs/DECISIONS.md "S") */
-type Want = { skillPath: string; starter: TeamLinkStarter | null; groupId: string | null }
-const sameFiles = (a: readonly string[], b: readonly string[]) => {
-  const x = [...new Set(a)].sort()
-  const y = [...new Set(b)].sort()
-  return x.length === y.length && x.every((p, i) => p === y[i])
-}
-/** what a change asked for on this link (its id, the kind, the skill, the files): asked once per page load. The server
- * may keep fewer files (one a newcomer could not read) and the link then still differs: asking again would change
- * nothing, so it is not asked again. */
+/** the skill the link should lead to, and the team group it should carry */
+type Want = { skillPath: string; groupId: string | null }
+/** what a change asked for on this link (its id, the skill): asked once per page load. A refusal would refuse again,
+ * so it is not asked again. */
 const patched = new Set<string>()
-const patchKey = (link: TeamLink, want: Want) => `${link.id}|${want.starter?.kind ?? 'skill'}|${want.skillPath}|${[...(want.starter?.files ?? [])].sort().join('\u0000')}`
+const patchKey = (link: TeamLink, want: Want) => `${link.id}|${want.skillPath}`
 /** Call when the change went out (or was refused): this link is not changed again for the same wish. */
 export const markPatched = (link: TeamLink, want: Want) => { patched.add(patchKey(link, want)) }
 /** test hook */
 export const forgetPatched = () => patched.clear()
 
-/** Does the open link lead elsewhere than this starter, skill and team group (the file list itself, not only how many)?
- * A link that cannot be shared is replaced with a new one instead; a wish already sent for this link is not sent again. */
+/** Does the open link lead elsewhere than this skill and team group? A link that cannot be shared is replaced with a
+ * new one instead; a wish already sent for this link is not sent again. */
 export function linkDiffers(link: TeamLink | null, want: Want): boolean {
   if (!link || link.state !== 'active' || !link.url) return false
   if (patched.has(patchKey(link, want))) return false
   const groupMissing = !!want.groupId && !link.groupIds.includes(want.groupId)
-  // the skill alone: an open link that names another skill, or carries files, is changed to it
-  if (!want.starter) return link.skill?.path !== want.skillPath || !!link.starter || groupMissing
-  const files = link.starter?.paths
-  return link.starter?.kind !== want.starter.kind || link.skill?.path !== want.skillPath
-    || (files ? !sameFiles(files, want.starter.files) : link.starter?.files !== want.starter.files.length)
-    || groupMissing
+  return link.skill?.path !== want.skillPath || groupMissing
 }
 
 /** No link that lets anyone in, now or later: none open, or the open one ran out (its date or its uses); and a seat
@@ -66,12 +54,11 @@ export function linkToMake(data: TeamLinkResponse): boolean {
 }
 
 /** The panel with its data: loads the link, makes and revokes it. `skillPicker` false: no skill list (the wizard);
- * `skillPath`: the wizard's skill for a new link (without one, a changed link keeps the skill it had); `starter`: the
- * lead's files for people who join (with `skillPath`); `retarget`: an open link that leads elsewhere is changed to
- * `skillPath` alone (no files), keeping its address; `prepare`: the owner walking the welcome steps, the link is made
+ * `skillPath`: the wizard's skill for a new link (without one, a changed link keeps the skill it had); `retarget`: an
+ * open link that leads elsewhere is changed to `skillPath`, keeping its address; `prepare`: the owner walking the welcome steps, the link is made
  * as the panel opens when none could let anyone in (`linkToMake`; never for anyone else); `folded`: the invite step's
  * short view (TeamLinkView). */
-export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, starter, made, retarget, prepare, folded, shared, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; starter?: TeamLinkStarter | null; made?: boolean; retarget?: boolean; prepare?: boolean; folded?: boolean; shared?: InviteShared | null; onChange?: (r: TeamLinkResponse) => void }) {
+export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, made, retarget, prepare, folded, shared, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; made?: boolean; retarget?: boolean; prepare?: boolean; folded?: boolean; shared?: InviteShared | null; onChange?: (r: TeamLinkResponse) => void }) {
   const me = useMe()
   const admin = isAdmin(me)
   const owner = isOwner(me)
@@ -106,7 +93,7 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     setBusy(false)
     if (ok) await state.reload()
   }
-  // The person pressed 팀원 초대 with the lead's files: an open link that leads elsewhere is changed once to carry them
+  // The invite points at a skill (`made`, `retarget`): an open link that leads elsewhere is changed once to lead there
   // (its address stays, so a link already posted in a chat now leads there too)
   const [patch, setPatch] = useState<'idle' | 'running' | 'done'>('idle')
   // another shared skill picked to open first (바꾸기): the open link is changed once more, to that one
@@ -117,22 +104,21 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     if (patch === 'done') setPatch('idle')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skillPath])
-  const want = (starter || made || retarget) && skillPath ? { skillPath, starter: starter ?? null, groupId: teamGroup?.id ?? null } : null
+  const want = (made || retarget) && skillPath ? { skillPath, groupId: teamGroup?.id ?? null } : null
   const wantPatch = !!want && ready && patch === 'idle' && linkDiffers(state.data?.link ?? null, want)
   useEffect(() => {
     if (!wantPatch || !want) return
     setPatch('running')
     // once for this link and this wish, whatever the answer (a refusal says so; trying again on every open would not help)
     if (state.data?.link) markPatched(state.data.link, want)
-    void act(() => api.call(API.updateTeamLink, { body: { skillPath: want.skillPath, starter: want.starter, addGroupIds: want.groupId ? [want.groupId] : [] } })).then((r) => {
+    void act(() => api.call(API.updateTeamLink, { body: { skillPath: want.skillPath, addGroupIds: want.groupId ? [want.groupId] : [] } })).then((r) => {
       if (r) state.setData(r)
       setPatch('done')
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantPatch])
   // The owner walking the welcome steps: no link that could let anyone in, so one is made as the step opens, with the
-  // settings the form would start with (the team's group, the skill and files of this step, the default uses and
-  // days); once per panel, whatever the answer (a refusal says why and the form stays, with its button)
+  // settings the form would start with (the team's group, the skill of this step, the default uses and days); once per panel, whatever the answer (a refusal says why and the form stays, with its button)
   const [early, setEarly] = useState<'idle' | 'running' | 'done'>('idle')
   const earlyAsked = useRef(false)
   const wantEarly = !!prepare && owner && ready && early === 'idle' && !!state.data && linkToMake(state.data)
@@ -143,8 +129,10 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     setEarly('running')
     const old = data.link
     const groupIds = [...new Set([...(old?.groupIds ?? []), ...(teamGroup ? [teamGroup.id] : [])])]
-    const skill = skillPath ?? old?.skill?.path ?? null
-    const body: CreateTeamLinkBody = { groupIds, expiresInDays: TEAM_LINK_DEFAULT_DAYS, ...(skill ? { skillPath: skill } : {}), ...(skill && starter ? { starter } : {}) }
+    // the wizard's skill; the wizard passing none (null: nothing shared, docs/DECISIONS.md "DS3") makes a link to Home,
+    // never the ran-out link's skill (which may be the intro deck); without a wizard skill at all, the old link's skill
+    const skill = skillPath !== undefined ? skillPath : (old?.skill?.path ?? null)
+    const body: CreateTeamLinkBody = { groupIds, expiresInDays: TEAM_LINK_DEFAULT_DAYS, ...(skill ? { skillPath: skill } : {}) }
     void (async () => {
       // read again right before: another screen of the owner (a second tab, the phone) may have made one meanwhile, and
       // making a link ends the open one, so the link that screen shows would stop working
@@ -171,7 +159,6 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
           groups={groups.data ?? []}
           skills={skillPicker ? (skills.data ?? []) : null}
           fixedSkillPath={skillPath}
-          starter={starter}
           made={made}
           shared={shared}
           defaultGroupIds={teamGroup ? [teamGroup.id] : []}
@@ -195,8 +182,6 @@ export interface TeamLinkViewProps {
   /** the skills to pick from; null: no picker (fixedSkillPath, else the skill the link had) */
   skills: SkillInfo[] | null
   fixedSkillPath?: string | null
-  /** goes with a new link that has a skill (the lead's files and what people who join get from them) */
-  starter?: TeamLinkStarter | null
   /** `fixedSkillPath` is a team skill the lead just made: the message says so ("{팀}에 '…' 스킬을 만들어 뒀어요") */
   made?: boolean
   /** the skills shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): one line says which the link opens first, with
@@ -221,7 +206,7 @@ const STALE = {
 } as const satisfies Record<TeamLinkState | 'unreadable', MessageKey | null>
 
 /** What the panel shows, without loading anything (tests render it as it is). */
-export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, starter, made = false, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
+export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, made = false, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
   const t = useT()
   const locale = useLocale()
   const [editing, setEditing] = useState(false)
@@ -248,7 +233,6 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           groups={groups}
           skills={skills}
           fixedSkillPath={fixedSkillPath}
-          starter={starter}
           seatsLeft={left}
           planLimit={data.seats.limit}
           replacing={!!link && link.state === 'active'}
@@ -265,13 +249,11 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   // the skill as people read it (its title, else its folder name as words, never 'quote-maker': shared skillLabel): in
   // the message and the line under it
   const skillName = link.skill?.name ? skillLabel({ name: link.skill.name, title: link.skill.title }) : null
-  // a starter with no file left that a newcomer could read leads nowhere: the usual message
-  const waiting = link.starter && link.starter.files > 0 ? link.starter : null
   // the shared skills, while the link opens one of them (the landing one; a link that leads elsewhere says its own
   // skill): the line under the message says which opens first, with 바꾸기
   const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
   // one skill only (the one the link opens), and "본인 AI 계정이 필요해요" when people who join sign in to their own AI
-  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, starter: waiting?.kind, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, ownAi: link.memberAi === 'connect_own' })
+  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, ownAi: link.memberAi === 'connect_own' })
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
   // the groups line: always when the link puts people in groups; "그룹 없음" only on a team that has groups
   const showGroups = link.groupIds.length > 0 || groups.length > 0
@@ -308,7 +290,6 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
               : t('members.noGroups'))}
           </p>
         )}
-        {waiting && <p data-testid="team-link-starter">{t(waiting.kind === 'brief' ? 'teamLink.starterBrief' : 'teamLink.starterTasks', { n: waiting.files })}</p>}
         <p>
           {t('teamLink.memberNote')}
           {left !== null && <> · {t('teamLink.seatsLeft', { n: left })}</>}
@@ -434,9 +415,9 @@ function RevokeButton({ busy, onRevoke }: { busy: boolean; onRevoke: () => void 
 }
 
 /** The link's settings: groups, how many people, how long, and a skill to land on. */
-function CreateForm({ initial, groups, skills, fixedSkillPath, starter, seatsLeft, planLimit, replacing, folded, busy, onCancel, onCreate }: {
+function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLimit, replacing, folded, busy, onCancel, onCreate }: {
   initial: { groupIds: string[]; skillPath: string | null } | null
-  groups: Group[]; skills: SkillInfo[] | null; fixedSkillPath?: string | null; starter?: TeamLinkStarter | null
+  groups: Group[]; skills: SkillInfo[] | null; fixedSkillPath?: string | null
   seatsLeft: number | null; planLimit: number | null; replacing: boolean
   /** the invite step: the button first, the settings (defaults kept) under a collapsed "링크 관리" */
   folded?: boolean
@@ -460,7 +441,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, starter, seatsLef
     if (usesProblem || full) return
     // the wizard's skill; else the picker's; without a picker, the skill the link had
     const skillPath = fixedSkillPath ? fixedSkillPath : skills ? pickedSkill || null : (initial?.skillPath ?? null)
-    onCreate({ groupIds, expiresInDays: days as 7 | 14 | 30, ...(n !== null ? { maxUses: n } : {}), ...(skillPath ? { skillPath } : {}), ...(skillPath && starter ? { starter } : {}) })
+    onCreate({ groupIds, expiresInDays: days as 7 | 14 | 30, ...(n !== null ? { maxUses: n } : {}), ...(skillPath ? { skillPath } : {}) })
   }
   const settings = (
     <>

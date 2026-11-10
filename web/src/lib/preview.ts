@@ -1,4 +1,6 @@
 // Which in-app viewer can show a file (side panel). Everything else can only be downloaded.
+import type { Me } from '@mycel/shared/api'
+import { HWP_LIMITS } from '@mycel/shared/hwp'
 import { cp949Text } from '@mycel/shared/text-encoding'
 import { extOf } from './paths'
 
@@ -39,6 +41,41 @@ export function previewLimit(kind: PreviewKind): { max: number; truncate: boolea
 }
 
 export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(name)] ?? null
+
+/** Whether the preview panel can show a file that is not in the team folder (a room file): a viewer for its type, not
+ * one of the server's team-file conversions (HEIC, Hangul: `serverPreview`), and within that viewer's limit (a text
+ * preview shows the start of any size). Otherwise it is downloaded. */
+export function opensWithoutServer(f: { name: string; size: number }): boolean {
+  const kind = previewKind(f.name)
+  if (!kind || serverPreview(f.name)) return false
+  const limit = previewLimit(kind)
+  return limit.truncate || f.size <= limit.max
+}
+
+/** A Hangul file (HWP, HWPX) sent in a room has the server's page preview while the HWP Preview plugin is on here
+ * (Me.server.hwpPreview; GET /api/rooms/:id/files/:fileId/hwp-preview). Off or absent: none, so it downloads as before. */
+export const roomHwpPreview = (name: string, me: Pick<Me, 'server'> | null | undefined): boolean => previewKind(name) === 'hwp' && !!me?.server.hwpPreview
+
+/** Why a room file has no preview here: no viewer for its kind (a ZIP, a HEIC photo, a Hangul file while the HWP preview
+ * is off: 'unsupported'), or past what its viewer reads ('large'; for a Hangul file HWP_LIMITS.inputBytes). null: it
+ * has one, a kind the app draws itself (opensWithoutServer) or a Hangul file while the HWP preview is on
+ * (roomHwpPreview). The file viewer then shows its card at once, with nothing read. */
+export function roomNoPreview(f: { name: string; size: number }, me: Pick<Me, 'server'> | null | undefined): 'unsupported' | 'large' | null {
+  const kind = previewKind(f.name)
+  if (!kind) return 'unsupported'
+  if (serverPreview(f.name)) {
+    if (!roomHwpPreview(f.name, me)) return 'unsupported'
+    return f.size <= HWP_LIMITS.inputBytes ? null : 'large'
+  }
+  const limit = previewLimit(kind)
+  return limit.truncate || f.size <= limit.max ? null : 'large'
+}
+
+/** Whether a room file has a preview here (roomNoPreview: a kind the app draws itself, or a Hangul file while the HWP
+ * preview is on and within what it reads). Otherwise the file viewer shows its card with the download. */
+export function roomFileOpens(f: { name: string; size: number }, me: Pick<Me, 'server'> | null | undefined): boolean {
+  return roomNoPreview(f, me) === null
+}
 
 /** Photos that browsers (other than Safari) cannot draw: the panel shows the server's JPEG (GET /api/files/preview)
  * instead of the file bytes. A local file (not uploaded yet) of this kind has no preview. */

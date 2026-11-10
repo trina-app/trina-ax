@@ -10,22 +10,23 @@
 // that row is selected), with the selection's "move" rules and toast; computer files dropped on a folder row are
 // uploaded into it. The "move" action stays the keyboard way to do the same.
 // A whole folder goes up from the picker or a drop, with its subfolders (lib/folderUpload.ts, components/FolderUploads.tsx).
-// A project is a folder with instructions: a folder's menu opens its project, or makes the folder one where the person
-// can write it (lib/projectFolders.ts, components/ProjectForm.tsx).
+// A project is a folder with instructions: a folder's menu opens its project (lib/projectFolders.ts). New projects are made
+// on the Projects page, in a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/").
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Signpost, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { packFolderKind, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
+import { type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, projectSkillsOn, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { folderGeneration } from '../lib/folderRuns'
+import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { folderProjectAction, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
-import { openTeamFile, useSidePanel } from '../lib/sidePanel'
+import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
 import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploads'
@@ -38,7 +39,7 @@ import { contentQueryReady, FileContentResults } from '../components/FileContent
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
-import { ProjectForm } from '../components/ProjectForm'
+import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
@@ -63,6 +64,13 @@ interface DropOver {
   refusal: DropRefusal | 'busy' | null
 }
 type DropHandlers = Pick<React.DOMAttributes<HTMLElement>, 'onDragEnter' | 'onDragOver' | 'onDragLeave' | 'onDrop'>
+/** the screen's two tabs: the team folder, or 휴지통 (its address is lib/nav.ts FILES_TRASH) */
+type FilesView = 'files' | 'trash'
+const viewOf = (q: URLSearchParams): FilesView => (q.get('view') === 'trash' ? 'trash' : 'files')
+/** The tab the address shows now. Read from the address itself, as Admin › Folder permissions does: the router shows a
+ * change in a transition, and a callback made earlier (the listing's `load`, kept while the folder stays) holds the
+ * address of the render that made it. */
+const viewNow = () => viewOf(new URLSearchParams(window.location.search))
 
 /** The picture under the pointer while several rows are dragged ("4 items"), instead of the one row grabbed. */
 function dragBadge(dt: DataTransfer, text: string) {
@@ -78,6 +86,8 @@ function dragBadge(dt: DataTransfer, text: string) {
 export default function Files() {
   const t = useT()
   const locale = useLocale()
+  // the top folders and the person's own folder in words (전사 공유, 부서, 내 폴더 …): what is shown, never the paths used
+  const words = useFolderWords()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
@@ -99,7 +109,18 @@ export default function Files() {
       },
       { replace: true },
     )
-  const [view, setView] = useState<'files' | 'trash'>('files')
+  // the trash has its own address (`?view=trash`, like Admin › Folder permissions' `?view=people`): a deleted team
+  // skill's link opens it, and Back and a reload keep the tab. The folder and the search stay in the address, so the
+  // files tab comes back to them
+  const view = viewOf(params)
+  const setView = (v: FilesView) => {
+    // the tab already on screen: no second Back step to the same address
+    if (v === viewNow()) return
+    const n = new URLSearchParams(window.location.search)
+    if (v === 'trash') n.set('view', 'trash')
+    else n.delete('view')
+    setParams(n)
+  }
   const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -121,7 +142,6 @@ export default function Files() {
   const [sharing, setSharing] = useState<FileEntry | null>(null)
   // the projects the person can see, by folder: a folder's menu opens its project or makes it one
   const [projects, setProjects] = useState<Project[]>([])
-  const [makingProject, setMakingProject] = useState<FileEntry | null>(null)
   const loadProjects = useCallback(() => api.call(API.listProjects).then((r) => setProjects(r.items), () => {}), [])
   useEffect(() => {
     void loadProjects()
@@ -176,7 +196,8 @@ export default function Files() {
           }
         }
         toast({ level: 'warn', text: t(wasShown ? 'files.accessChanged' : 'files.folderNotFound') })
-        setParams(up ? { path: up } : {}, { replace: true })
+        // (the tab on screen stays: the trash one too)
+        setParams({ ...(up ? { path: up } : {}), ...(viewNow() === 'trash' ? { view: 'trash' } : {}) }, { replace: true })
         return
       }
       setError(errorText(e, locale, t('error.network')))
@@ -225,8 +246,6 @@ export default function Files() {
   }
 
   const canWrite = tree?.access === 'write'
-  // the marketing pack's team folders (shared/브랜드 …) say what goes in them while empty
-  const packKind = packFolderKind(path)
   const errText = (e: unknown) => errorText(e, locale, t('error.network'))
   const fail = (e: unknown) => toast({ level: 'error', text: errText(e) })
 
@@ -236,8 +255,10 @@ export default function Files() {
     setChecked((c) => (c.size ? new Set() : c))
     anchor.current = null
   }, [path, view])
+  /** the rows as listed: at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first (display only) */
+  const rows = useMemo(() => (tree ? topFoldersFirst(tree.entries, path) : []), [tree, path])
   /** the rows that can be selected, as listed */
-  const order = useMemo(() => tree?.entries.filter(selectable).map((e) => e.path) ?? [], [tree])
+  const order = useMemo(() => rows.filter(selectable).map((e) => e.path), [rows])
   // the listing changed (moved away, deleted by someone else): only rows still listed stay selected
   useEffect(() => {
     const here = new Set(order)
@@ -259,12 +280,13 @@ export default function Files() {
     setChecked(new Set())
     anchor.current = null
   }
-  // Esc clears the selection (before the side panel: the next Esc closes that); a dialog or a text field keeps its Esc
+  // Esc clears the selection (before the side panel: the next Esc closes that); a dialog or a text field keeps its Esc,
+  // and a big side panel goes back side by side first (the list is hidden behind it: components/Layout.tsx)
   const anyChecked = chosen.length > 0
   useEffect(() => {
     if (!anyChecked) return
     const h = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="dialog"]')) return
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="dialog"]') || panelExpandedNow()) return
       if (e.target instanceof Element && e.target.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"])')) return
       e.stopPropagation()
       clearChecked()
@@ -307,11 +329,12 @@ export default function Files() {
       const r = await moveMany(ok, folder, {
         move: (body) => api.call(API.move, { body }),
         confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
+        confirmSkills: confirmSkillsOn,
       })
       reportBatch(
         r,
         {
-          done: (n) => t('files.bulk.moved', { n, path: folder || t('files.root') }),
+          done: (n) => t('files.bulk.moved', { n, path: words.path(folder) || t('files.root') }),
           failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
           skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
         },
@@ -341,7 +364,7 @@ export default function Files() {
         confirmShare: (count, n) => confirmDialog({ title: t('files.bulk.shareConfirm', { n: count }), body: t('files.bulk.shareBody', { count, n }), confirm: t('files.shareCopy') }),
       })
       reportBatch(r, {
-        done: (n) => t('files.bulk.shared', { n, path: folder || t('files.root') }),
+        done: (n) => t('files.bulk.shared', { n, path: words.path(folder) || t('files.root') }),
         failed: (n, list) => t('files.bulk.shareFailed', { n, list }),
         skipped: skipped ? t('files.bulk.skipFolders', { n: skipped }) : null,
       })
@@ -443,12 +466,22 @@ export default function Files() {
     }
   }
 
-  /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), ask first, then confirm. */
-  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename' }): Promise<boolean> => {
+  /** A project's folder moved to projects/<name>: the skills in it start to count in that project's chats (named). */
+  const confirmSkillsOn = (skills: string[]) =>
+    confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('files.moveAnyway') })
+
+  /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), ask first, then confirm.
+   * A project's folder moved to projects/<name> turns its skills on in that project's chats: that is asked first too. */
+  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean }): Promise<boolean> => {
     try {
       await api.call(API.move, { body })
       return true
     } catch (err) {
+      const skills = projectSkillsOn(err)
+      if (skills) {
+        if (!(await confirmSkillsOn(skills))) return false
+        return moveConfirmed({ ...body, skillsOk: true })
+      }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
       const n = Number(err.body.params.lostViewers ?? 0)
       if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return false
@@ -475,7 +508,7 @@ export default function Files() {
     if (!e) return
     try {
       if (!(await moveConfirmed({ from: e.path, to: joinPath(folder, e.name), onExists: 'rename' }))) return
-      toast({ level: 'success', text: t('files.moved', { path: folder || t('files.root') }) })
+      toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }) })
       void load()
     } catch (err) {
       fail(err)
@@ -493,7 +526,7 @@ export default function Files() {
       const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
       if (n > 0 && !(await confirmDialog({ title: t('files.shareTitle', { name: e.name }), body: t('files.shareBody', { n }), confirm: t('files.shareCopy') }))) return
       const r = await api.call(API.copy, { body })
-      if ('path' in r) toast({ level: 'success', text: t('files.shared', { path: r.path }) })
+      if ('path' in r) toast({ level: 'success', text: t('files.shared', { path: words.path(r.path) }) })
       void load()
     } catch (err) {
       fail(err)
@@ -761,7 +794,7 @@ export default function Files() {
                 <span key={c.path} className="inline-flex items-center gap-1">
                   <ChevronRight size={13} className="text-faint" aria-hidden />
                   <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
-                    {c.name}
+                    {words.name(c.path, c.name)}
                   </button>
                 </span>
               ))}
@@ -775,10 +808,11 @@ export default function Files() {
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
           <FileUploads here={path} />
           <FolderUploads here={path} />
+          <TeamFilesEntry here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {searching ? (
-              <FileContentResults q={q} path={path} folderLabel={path || t('files.root')} />
+              <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
             ) : (
               <>
                 {error && (
@@ -789,8 +823,6 @@ export default function Files() {
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
                   <EmptyState icon={<Upload size={28} />} title={canWrite ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
-                    {/* a pack folder (shared/브랜드 …): one line on what goes here */}
-                    {packKind && <p data-testid="pack-folder-hint">{t(`files.packHint.${packKind}`)}</p>}
                     {canWrite && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}
@@ -827,7 +859,7 @@ export default function Files() {
                       </tr>
                     </thead>
                     <tbody>
-                      {tree.entries.map((e) => (
+                      {rows.map((e) => (
                         <FileRow
                           key={e.path}
                           e={e}
@@ -855,7 +887,7 @@ export default function Files() {
                           onDelete={() => void remove(e)}
                           onHistory={() => setHistory(e.path)}
                           project={folderProjectAction(e, byFolder)}
-                          onProject={(a) => (a.kind === 'open' ? navigate(`/projects/${a.project.id}`) : setMakingProject(e))}
+                          onProject={(a) => navigate(`/projects/${a.project.id}`)}
                           onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                         />
                       ))}
@@ -894,17 +926,6 @@ export default function Files() {
             if (params.get('history')) setParams(select ? { path, select } : path ? { path } : {}, { replace: true })
           }}
           onRestored={() => void load()}
-        />
-      )}
-      {makingProject && (
-        <ProjectForm
-          initialFolder={makingProject.path}
-          initialName={makingProject.name}
-          onClose={() => setMakingProject(null)}
-          onSaved={(p) => {
-            void loadProjects()
-            navigate(`/projects/${p.id}`)
-          }}
         />
       )}
       {suggesting && <SuggestSkillDialog source={{ kind: 'file', path: suggesting }} initialName={baseName(suggesting).replace(/\.(md|txt)$/i, '')} onClose={() => setSuggesting(null)} />}
@@ -976,6 +997,7 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
 function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const [menu, setMenu] = useState(false)
   const ref = useRef<HTMLTableRowElement>(null)
   const menuTrigger = useRef<HTMLButtonElement>(null)
@@ -1073,7 +1095,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
           {project?.kind === 'open' && <span className="sr-only">({t('files.isProject', { name: project.project.name })})</span>}
           <span className="min-w-0 truncate" title={e.name}>
-            {e.name}
+            {words.name(e.path, e.name)}
           </span>
           {/* a folder the person can only pass through: a visible badge (a hover title alone does not reach phones);
               screen readers get the full sentence in place of the short badge text. Phones show the row greyed out
@@ -1139,8 +1161,8 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
             )}
             {aiOff && <p id={`${menuId}-ai-off`} className="px-2 pb-1.5 text-xs text-muted" data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly')}</p>}
             {project && (
-              <button role="menuitem" type="button" className={item} onClick={() => onProject(project)} data-testid={project.kind === 'open' ? 'open-project' : 'make-project'}>
-                <FolderKanban size={14} aria-hidden /> <span className="min-w-0 truncate">{t(project.kind === 'open' ? 'files.openProject' : 'files.makeProject')}</span>
+              <button role="menuitem" type="button" className={item} onClick={() => onProject(project)} data-testid="open-project">
+                <FolderKanban size={14} aria-hidden /> <span className="min-w-0 truncate">{t('files.openProject')}</span>
               </button>
             )}
             {!folder && (

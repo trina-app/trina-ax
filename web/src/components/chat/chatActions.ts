@@ -1,4 +1,5 @@
 // Rename and delete a chat: the same steps from the chat's menu in the sidebar and from its name at the top of the chat.
+// Pin and unpin ("상단에 고정" / "고정 해제", docs/DECISIONS.md "Pinned chats"): the sidebar row's menu.
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -32,7 +33,8 @@ export function useChatActions() {
   }
 
   const remove = async (chat: Chat) => {
-    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
+    // the trash by the name the sidebar gives it (a rename there follows here)
+    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), confirm: t('common.delete'), danger: true }))) return
     try {
       await api.call(API.deleteChat, { params: { id: chat.id } })
       useChats.getState().removeChat(chat.id)
@@ -43,5 +45,16 @@ export function useChatActions() {
     }
   }
 
-  return { rename, remove }
+  /** pin a chat to the top of my list, or unpin it: mine only; my other windows hear it (chat.updated) */
+  const togglePin = async (chat: Chat) => {
+    try {
+      const params = { id: chat.id }
+      const c = chat.pinnedAt ? await api.call(API.unpinChat, { params }) : await api.call(API.pinChat, { params })
+      useChats.getState().upsertChat(c)
+    } catch (e) {
+      fail(e)
+    }
+  }
+
+  return { rename, remove, togglePin }
 }

@@ -2,24 +2,27 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ConfigContext, ExpoConfig } from 'expo/config'
-import { labelSetup, mobileProduct } from './src/product.ts'
+import { labelSetup, mobileProduct, mobileService } from './src/product.ts'
 import { IOS_USAGE } from './src/strings.ts'
 
 /** Store version (CFBundleShortVersionString / versionName). The build number must grow with every upload. */
-const VERSION = '1.0.1'
+const VERSION = '1.0.2'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
-function edition(projectRoot: string): { values: unknown; assets: Record<'icon' | 'adaptive' | 'splash' | 'notification', string> | null } {
+function edition(projectRoot: string): { values: unknown; service: unknown; source: unknown; assets: Record<'icon' | 'adaptive' | 'splash' | 'notification', string> | null } {
   const name = process.env.MYCEL_MOBILE_EDITION
-  if (!name) return { values: undefined, assets: null }
+  if (!name) return { values: undefined, service: undefined, source: undefined, assets: null }
   if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) throw new Error('MYCEL_MOBILE_EDITION must be an edition folder name')
   // Relative to the project: the resolved config is embedded in the app, so no build machine path ends up there.
   const dir = path.join('..', 'editions', name, 'branding')
   const values = JSON.parse(fs.readFileSync(path.join(projectRoot, dir, 'mobile.json'), 'utf8')) as unknown
+  // the hosted team domain and the source repository (src/product.ts mobileService keeps only what looks right)
+  const optional = (f: string) => fs.existsSync(path.join(projectRoot, dir, f)) ? JSON.parse(fs.readFileSync(path.join(projectRoot, dir, f), 'utf8')) as unknown : undefined
+  const service = optional('service.json'), source = optional('source.json')
   const file = (n: string) => path.join(dir, 'mobile', n)
   const assets = { icon: file('icon.png'), adaptive: file('adaptive-icon.png'), splash: file('splash-icon.png'), notification: file('notification-icon.png') }
-  return { values, assets: Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f))) ? assets : null }
+  return { values, service, source, assets: Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f))) ? assets : null }
 }
 
 function buildNumber(): string {
@@ -35,6 +38,10 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
   // iPhone: who and where in a room push, through a notification service extension and a keychain group shared with it
   // (src/labels.ts); only for an edition that names its Apple team, because the group carries the team id
   const labels = labelSetup(product)
+  // links that open the app (docs/DECISIONS.md "First run, phase 2"): the hosted team domain's invite and team links,
+  // verified by the files every team server serves (/.well-known/, server/src/routes/app-links.ts)
+  const service = mobileService(chosen.service ?? config.extra?.teamAxService, chosen.source ?? config.extra?.teamAxService)
+  const linkHost = service.teamDomain ? `*.${service.teamDomain}` : null
   // Android push needs the FCM project file (owner-provided, not in the repository). Without it Android builds skip push.
   const googleServices = process.env.MYCEL_MOBILE_GOOGLE_SERVICES
   if (googleServices && !(path.basename(googleServices) === 'google-services.json' && fs.existsSync(googleServices))) throw new Error('MYCEL_MOBILE_GOOGLE_SERVICES must name an existing google-services.json')
@@ -45,6 +52,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     ios: {
       supportsTablet: false, bundleIdentifier: product.bundleId, buildNumber: build,
       ...(product.appleTeamId ? { appleTeamId: product.appleTeamId } : {}),
+      // universal links: the App ID needs the Associated Domains capability before a signed build (STORE-SUBMISSION.md)
+      ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
       // HTTPS only; the app adds no encryption of its own (export compliance questionnaire skipped).
       infoPlist: { ITSAppUsesNonExemptEncryption: false, CFBundleAllowMixedLocalizations: true, ...IOS_USAGE.en },
       // React Native's required-reason APIs (its template's manifest); Expo modules ship their own. No tracking.
@@ -65,6 +74,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // cross-origin frame cannot ask without the team page delegating it (Permissions Policy). No overlay windows.
       permissions: ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO'],
       blockedPermissions: ['android.permission.SYSTEM_ALERT_WINDOW'],
+      // app links: verified against https://<team domain>/.well-known/assetlinks.json (a wildcard host is checked at its
+      // root); until then Android offers the app in its chooser
+      ...(linkHost ? { intentFilters: [{ action: 'VIEW', autoVerify: true, category: ['BROWSABLE', 'DEFAULT'], data: [{ scheme: 'https', host: linkHost, pathPrefix: '/invite/' }, { scheme: 'https', host: linkHost, path: '/join' }] }] } : {}),
     },
     locales: { en: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.en } }, ko: { ios: { CFBundleDisplayName: product.name, ...IOS_USAGE.ko } } },
     plugins: [
@@ -85,6 +97,6 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // the iPhone notification service extension and the keychain group the app shares with it
       ...(labels ? [['./plugins/notification-service.js', { ...labels, teamId: product.appleTeamId, version: VERSION, build }] as [string, unknown]] : []),
     ],
-    extra: { teamAxEdition: product, pushEnabled: { ios: true, android: !!googleServices }, pushLabels: labels },
+    extra: { teamAxEdition: product, teamAxService: service, pushEnabled: { ios: true, android: !!googleServices }, pushLabels: labels },
   }
 }

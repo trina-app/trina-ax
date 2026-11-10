@@ -187,7 +187,10 @@ describe('changing, checking, removing', () => {
     expect(r).toMatchObject({ label: 'Design Max', priority: 5, assignments: [{ subjectType: 'group', subjectId: groups.id, name: 'design' }], spendLimit: { usd: null, tokens: 1000000, action: 'warn' } })
     expect((await owner.call('PATCH', `/api/admin/credentials/${id}`, { disabled: true })).state).toBe('disabled')
     expect((await member.client.try('PATCH', `/api/admin/credentials/${id}`, { label: 'x' })).status).toBe(403)
-    expect((await owner.try('PATCH', `/api/admin/credentials/${id}`, { assignments: [{ subjectType: 'group', subjectId: 'nope' }] })).status).toBe(400)
+    // a group that does not exist (deleted since the dialog opened, or never there) does not block the save: it is
+    // dropped, and with nothing left the connection stays off for nobody, never the whole team's (credentials/assignees.ts)
+    expect(await owner.call('PATCH', `/api/admin/credentials/${id}`, { assignments: [{ subjectType: 'group', subjectId: 'nope' }] })).toMatchObject({ disabled: true, assignments: [] })
+    expect((await owner.try('PATCH', `/api/admin/credentials/${id}`, { disabled: false })).status).toBe(409)
     await owner.call('PATCH', `/api/admin/credentials/${id}`, { disabled: false, assignments: [] })
   })
   test('a new token on the same connection (password again): state back to ok', async () => {
@@ -254,12 +257,18 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     expect((await admin.call('PATCH', `/api/admin/credentials/${ownersId}`, { disabled: true })).state).toBe('disabled')
     expect(mine()).toHaveLength(1)
     expect(mine()[0]!.message.en).toBe("ADAM turned off the team AI connection 'Renamed by admin'.")
+    // whose token it runs on is recorded by the write itself (팀장 넘기기 reads it: auth/team-sign-ins.ts)
+    const signer = () => (h.ctx.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_ai' AND target_id = ?").get(ownersId) as { user_id: string } | null)?.user_id
+    expect(signer()).toBe(ownerId)
     // the new key needs no password
     const rep = await admin.try('POST', `/api/admin/credentials/${ownersId}/secret`, { sealed: await sealed(AKEY('adminswap'), 'credential.replace') })
     expect(rep.status).toBe(200)
+    // the owner made it, but it runs on the admin's key now
+    expect(signer()).toBe(adminId)
     expect(mine()).toHaveLength(2)
     expect(mine()[1]!.message.en).toContain('replaced the token or key')
     expect((await admin.try('DELETE', `/api/admin/credentials/${ownersId}`)).status).toBe(204)
+    expect(signer()).toBeUndefined()
     expect(mine()).toHaveLength(3)
     expect(mine()[2]!.message.en).toBe("ADAM removed the team AI connection 'Renamed by admin'.")
     expect(mine().every((m) => m.to!.length === 1 && m.to![0] === ownerId)).toBe(true)

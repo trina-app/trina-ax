@@ -3,10 +3,11 @@
 // schedule_create): the fields as ScheduleInput takes them, a time still to come, a project the person can open, then
 // the schedule card for the task as it will run (title, schedule, project, the whole instruction, its addresses with
 // long random-looking parts marked, an address with a long query listed apart as one runs never open, the "allow"
-// team connections). Saving is the answer to that card, bound to exactly what it showed (requestId): what the card
-// showed becomes the task's record (allowed_urls, write_connections, confirmed_at), as at creation. An edit keeps the
-// task on or paused as it was. A template changes its time and folders only, checked like at creation (no card: its
-// instruction is the template's). Audited with what changed, never the title or the instruction.
+// team connections the edited task names or may already send to: tools/schedules.ts taskConnections). Saving is the
+// answer to that card, bound to exactly what it showed (requestId): what the card showed becomes the task's record
+// (allowed_urls, write_connections, confirmed_at), as at creation. An edit keeps the task on or paused as it was. A
+// template changes its time and folders only, checked like at creation (no card: its instruction is the template's).
+// Audited with what changed, never the title or the instruction.
 import crypto from 'node:crypto'
 import type { Locale, ScheduleReviewCard, ScheduleTaskEdit, ScheduleTemplateEdit } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -14,10 +15,10 @@ import type { AppContext } from '../context'
 import { HttpError } from '../http/errors'
 import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
-import { needsReview, nextRun, ScheduleInput, type ScheduleRow } from './schedules'
+import { needsReview, nextRun, ScheduleInput, scheduleList, type ScheduleRow } from './schedules'
 import { templatePrompt, templateTitle, validateTemplateFolders } from './schedule-templates'
 import { egressOf } from '../tools/egress'
-import { scheduleCard, scheduleOptions, writableConnections } from '../tools/schedules'
+import { scheduleCard, scheduleOptions, taskConnections, writableConnections } from '../tools/schedules'
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -50,7 +51,9 @@ function checked(ctx: AppContext, rt: ChatRuntime, userId: string, s: ScheduleRo
   }
   const next = nextRun({ repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }, now, rt.timeZone)
   if (!next) throw new HttpError('validation', tr('schedulePast', L), { fields: { 'body.date': tr('schedulePast', L), 'body.time': tr('schedulePast', L) } })
-  const writable = writableConnections(ctx, userId)
+  // the connections the edited task names, and the ones it may send to now (an edit of the time keeps them on offer);
+  // never every "allow" connection the person can use
+  const writable = taskConnections(writableConnections(ctx, userId), input, new Set(scheduleList(s.write_connections)))
   // what a run can open on this server now (tools/egress.ts): the card promises nothing it cannot keep
   const card = scheduleCard(input, writable.map((r) => r.name), L, 'edit', { urlsOpen: egressOf(ctx).known, project: project?.name ?? null })
   const options = scheduleOptions(L, writable.length > 0, 'edit')

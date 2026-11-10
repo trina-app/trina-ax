@@ -17,16 +17,18 @@ test('a server in DEV mode says so on every screen, and the banner cannot be clo
   }
 })
 
-test("a member's first screen shows their own folder, not the users/ folder that only leads to it", async ({ page }) => {
+test("a member's first screen on a team with nothing: one ready question that needs no file, never a path", async ({ page }) => {
   await reset(page)
   await signIn(page, BOB)
-  const card = page.getByTestId('first-time-folders')
-  await expect(card).toContainText('내 폴더')
-  await expect(card.getByRole('listitem').filter({ hasText: /^users/ })).toHaveCount(0)
-  await expect(card.getByRole('listitem').filter({ hasText: '내 폴더' })).toHaveAttribute('title', 'users/bob')
-  await expect(card.getByRole('listitem').filter({ hasText: '내 폴더' })).toContainText('쓰기 가능')
-  // no example asks about "users"
-  for (const text of await page.getByTestId('example').allInnerTexts()) expect(text).not.toMatch(/(^|\s)users 폴더/)
+  const block = page.getByTestId('team-prepared')
+  await expect(block).toHaveAttribute('data-state', 'ready')
+  await expect(block.getByRole('heading')).toHaveText('이렇게 시작해 보세요')
+  await expect(block.getByTestId('team-prepared-ready')).toHaveText('우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘')
+  expect(await block.innerText()).not.toContain('users/')
+  // the folder card and its examples are gone (docs/DECISIONS.md "W6.3")
+  await expect(page.getByTestId('first-time-folders')).toHaveCount(0)
+  await expect(page.getByTestId('example')).toHaveCount(0)
+  expect(await block.innerText()).not.toMatch(/(^|\s)users 폴더/)
 })
 
 test('a link to a folder that does not exist (or is hidden) says so once and opens the nearest visible folder', async ({ page }) => {

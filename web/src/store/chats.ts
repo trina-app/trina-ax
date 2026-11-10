@@ -26,7 +26,9 @@ export interface LiveArtifact {
   version: number | null
 }
 
-export interface OpenRequest { turnId: string; chatId: string; messageId: string; request: TurnRequest }
+/** An open card of a turn. `chatId`: the chat it shows in; none for a room's card read again (GET
+ * /api/rooms/:id/ai/requests): a room finds its cards by their turn (components/rooms/RoomAiStatus.tsx). */
+export interface OpenRequest { turnId: string; chatId?: string; messageId: string; request: TurnRequest }
 /** What a connect_service card's button sends (POST /api/turns/:id/connect) besides the card's id. A key only ever
  * goes sealed (lib/connectCard.ts): the store never holds one. */
 export type ConnectAction = TurnConnectBody extends infer B ? (B extends unknown ? Omit<B, 'requestId'> : never) : never
@@ -92,6 +94,8 @@ export interface SendInput {
   clientMessageId?: string
   /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
   onConflict?: () => void
+  /** a new chat is a side chat of this room (✦ Trina, components/rooms/SideChatPanel.tsx) */
+  sideRoomId?: string
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
@@ -124,12 +128,15 @@ const rememberClosed = (id: string) => {
 /**
  * This chat's open cards after a listTurnRequests answer: the server's list, plus cards that arrived over the socket
  * while the request was on its way (not in `before`); cards closed meanwhile stay closed; other chats untouched.
+ * `scope` is the chat's id, or which cards the list speaks for (a room's: those of my questions there, store/rooms.ts
+ * loadAi with listRoomAiRequests).
  */
-export function mergeOpenRequests(current: Record<string, OpenRequest>, chatId: string, open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
+export function mergeOpenRequests(current: Record<string, OpenRequest>, scope: string | ((r: OpenRequest) => boolean), open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
+  const ours = typeof scope === 'string' ? (r: OpenRequest) => r.chatId === scope : scope
   const listed = new Set(open.map((r) => r.request.requestId))
   const next: Record<string, OpenRequest> = {}
-  for (const [id, r] of Object.entries(current)) if (r.chatId !== chatId || listed.has(id) || !before.has(id)) next[id] = r
-  for (const r of open) if (r.chatId === chatId && !closedRequests.has(r.request.requestId)) next[r.request.requestId] = r
+  for (const [id, r] of Object.entries(current)) if (!ours(r) || listed.has(id) || !before.has(id)) next[id] = r
+  for (const r of open) if (ours(r) && !closedRequests.has(r.request.requestId)) next[r.request.requestId] = r
   return next
 }
 export const PENDING_MESSAGES_MAX = 50
@@ -378,7 +385,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       let chatId = o.chatId
       if (!chatId) {
-        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined } })
+        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}) } })
         if (session !== generation) throw new Error('Session changed while creating the chat')
         get().upsertChat(chat)
         chatId = chat.id
@@ -533,7 +540,8 @@ export const useChats = create<ChatsState>((set, get) => {
           return
         case 'chat.updated': {
           const { chatId, change, chat } = ev.data
-          if (change === 'deleted' || change === 'purged') get().removeChat(chatId)
+          // a chat in the trash is in no list, also when the end of a turn there tells about it after the delete
+          if (change === 'deleted' || change === 'purged' || chat?.deletedAt) get().removeChat(chatId)
           else if (chat) get().upsertChat(chat)
           return
         }

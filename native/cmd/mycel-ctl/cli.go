@@ -21,7 +21,7 @@
 //	mycel-ctl codex-login
 //	mycel-ctl supervise
 //	mycel-ctl notices-set | set-server-config | relay-registration-set | relay-key-proof | idle-wait | prepare-stop |
-//	          backup-prepare | backup-upload | export | reset-link | setup-token-rotate | credentials-escrow-out |
+//	          backup-prepare | backup-upload | export | reset-link | owner-recovery-claimed | setup-token-rotate | credentials-escrow-out |
 //	          hosted-speech-key-set | hosted-chat-key-set
 //	          (the hosted service's tenant commands, tenant.go)
 package main
@@ -87,7 +87,8 @@ const usage = `usage: mycel-ctl <command> [--base /var/lib/mycel]
 tenant commands of the hosted service (ax-hostd, control-plane 3.5.3; every one takes --json and prints one JSON object):
   status --json | apply-plan | update --version V | notices-set | set-server-config | relay-registration-set
   relay-key-proof --team-id T | idle-wait --max S | prepare-stop --grace S | backup-prepare --kind K [--local-id ID]
-  backup-upload | export | reset-link --owner|--username U | setup-token-rotate | credentials-escrow-out --recipient R
+  backup-upload | export | reset-link --owner|--username U (exit 3: owner_recovery_locked) | owner-recovery-claimed
+  setup-token-rotate | credentials-escrow-out --recipient R
   hosted-speech-key-set | hosted-chat-key-set (the key on stdin only)`
 
 // run is the whole program; main() (Linux) exits with its result.
@@ -115,6 +116,8 @@ func runEnv(e *env, args []string) int {
 		code, err = cmdApplyPlan(e, rest)
 	case "update":
 		code, err = cmdUpdate(e, rest)
+	case "packages-sync": // internal: the system packages' sync in a unit of its own, started by update (sync.go)
+		code, err = cmdPackagesSync(e, rest)
 	case "render-units":
 		code, err = cmdRenderUnits(e, rest)
 	case "safe-ops":
@@ -152,6 +155,8 @@ func runEnv(e *env, args []string) int {
 		code, err = cmdExport(e, rest)
 	case "reset-link":
 		code, err = cmdResetLink(e, rest)
+	case "owner-recovery-claimed":
+		code, err = cmdOwnerRecoveryClaimed(e, rest)
 	case "setup-token-rotate":
 		code, err = cmdSetupTokenRotate(e, rest)
 	case "credentials-escrow-out":

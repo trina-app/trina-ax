@@ -218,7 +218,8 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
     const onKey = (e: KeyboardEvent) => {
       if (!onTop()) return
       if (e.key !== 'Tab' || !el) return
-      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement)
+      // not a part the dialog made inert meanwhile (the image viewer's file under a phone's sheet): focus cannot go there
+      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => (x.offsetParent !== null || x === document.activeElement) && !x.closest('[inert]'))
       if (!items.length) return
       const a = items[0]!
       const z = items[items.length - 1]!
@@ -230,9 +231,12 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
         a.focus()
       }
     }
-    // something behind the dialog grabbing focus (an autofocus effect) gets it sent back
+    // something behind the dialog grabbing focus (an autofocus effect) gets it sent back (to its first control still in
+    // reach when the first one went inert)
     const onFocusIn = (e: FocusEvent) => {
-      if (onTop() && el && e.target instanceof Node && !el.contains(e.target)) (first ?? el).focus()
+      if (!onTop() || !el || !(e.target instanceof Node) || el.contains(e.target)) return
+      const to = first && !first.closest('[inert]') ? first : [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].find((x) => x.offsetParent !== null && !x.closest('[inert]'))
+      ;(to ?? el).focus()
     }
     document.addEventListener('keydown', onKey, true)
     document.addEventListener('keydown', onEscape)
@@ -262,8 +266,10 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   return (
     // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
     inBody(
-    // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
+    // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable. The image
+    // viewer's level (ImageViewer.tsx): of the two, the one opened last is on top (each goes to the end of <body>), so a
+    // confirm or Share to room from the viewer's column is over the viewer, and a picture opened from a dialog over it
+    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
       <div
         ref={ref}
         role="dialog"
@@ -295,7 +301,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
 // ---------------- confirm / prompt dialogs (promise based) ----------------
 type DialogReq = { returnTo: HTMLElement | null } & (
   | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
-  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
+  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; placeholder?: string; allowEmpty?: boolean; maxLength?: number; resolve: (v: string | null) => void }
 )
 
 const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) => void }>((set) => ({ req: null, set: (req) => set({ req }) }))
@@ -312,8 +318,10 @@ export function confirmDialog(o: { title: string; body?: ReactNode; confirm: str
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
-/** `select`: the first characters of `initial` that start selected (a file name without its extension). */
-export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; select?: number; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
+/** `select`: the first characters of `initial` that start selected (a file name without its extension). `allowEmpty`:
+ * an empty field may be saved too ('' comes back: a room's name, whose empty value is its own default, shown as the
+ * `placeholder`). */
+export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; select?: number; confirm: string; validate?: (v: string) => string | null; placeholder?: string; allowEmpty?: boolean; maxLength?: number }): Promise<string | null> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'prompt', initial: '', ...o, returnTo, resolve }))
 }
@@ -354,7 +362,7 @@ export function DialogHost() {
           <Button variant="ghost" onClick={() => close(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant={req.kind === 'confirm' && req.danger ? 'danger' : 'primary'} disabled={req.kind === 'prompt' && (!value.trim() || !!problem)} onClick={() => close(true)} data-testid="dialog-confirm">
+          <Button variant={req.kind === 'confirm' && req.danger ? 'danger' : 'primary'} disabled={req.kind === 'prompt' && ((!req.allowEmpty && !value.trim()) || !!problem)} onClick={() => close(true)} data-testid="dialog-confirm">
             {req.confirm}
           </Button>
         </>
@@ -366,11 +374,11 @@ export function DialogHost() {
           onSubmit={(e) => {
             e.preventDefault()
             setTouched(true)
-            if (value.trim() && !problem) close(true)
+            if ((req.allowEmpty || value.trim()) && !problem) close(true)
           }}
         >
           <Field label={req.label} error={value || touched ? problem : null}>
-            <input ref={input} data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
+            <input ref={input} data-autofocus className={inputCls} value={value} placeholder={req.placeholder} maxLength={req.maxLength} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} data-testid="dialog-input" />
           </Field>
         </form>
       )}
@@ -491,13 +499,33 @@ export function Toaster() {
 // ---------------- copy ----------------
 export function useCopy(timeout = 1500) {
   const [copied, setCopied] = useState(false)
+  // the mark's timer goes with the component (a copy that ends after it is gone sets nothing), and a new copy starts
+  // it again
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const live = useRef(true)
+  useEffect(() => {
+    live.current = true
+    return () => {
+      live.current = false
+      if (timer.current) clearTimeout(timer.current)
+      timer.current = null
+    }
+  }, [])
+  const mark = useCallback(() => {
+    if (!live.current) return
+    setCopied(true)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      timer.current = null
+      setCopied(false)
+    }, timeout)
+  }, [timeout])
   const copy = useCallback(
     /** `html`: formatted text as well (text/html beside the plain text, lib/clipboard.ts) */
     async (text: string, html?: string) => {
       if (html !== undefined) {
         await writeRich({ html, plain: text })
-        setCopied(true)
-        setTimeout(() => setCopied(false), timeout)
+        mark()
         return
       }
       try {
@@ -513,10 +541,9 @@ export function useCopy(timeout = 1500) {
         document.execCommand('copy')
         ta.remove()
       }
-      setCopied(true)
-      setTimeout(() => setCopied(false), timeout)
+      mark()
     },
-    [timeout],
+    [mark],
   )
   return { copied, copy }
 }

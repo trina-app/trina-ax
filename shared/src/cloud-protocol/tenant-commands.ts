@@ -35,7 +35,8 @@ const Count = z.number().int().min(0).max(1_000_000)
 export const TenantOnboarding = z.strictObject({
   /** whole days since the team's first account was made (0 on that day) */
   day: z.number().int().min(0).max(100_000),
-  /** the recommended marketing skills are in the team folder (skills/marketing/ holds a skill) */
+  /** recommended skills are in the team folder (skills/general/ or skills/work/ holds a skill; or skills/marketing/ or
+   * skills/hr/, the packs of older releases) */
   packInstalled: z.boolean(),
   /** a company profile is saved (skills/company-profile.json with a field filled in) */
   profileSaved: z.boolean(),
@@ -196,10 +197,15 @@ export const TENANT_COMMANDS = {
   'backup-upload': { args: NoArgs, stdin: BackupUploadInput, output: BackupUploadResult, timeoutSec: 21_600 },
   export: { args: NoArgs, stdin: ExportInput, output: ExportResult, timeoutSec: 21_600 },
   'reset-link': {
-    /** the owner, or the account with this username (the team server's username rule) */
+    /** the owner, or the account with this username (the team server's username rule). Exit 3, stdout empty
+     * (owner_recovery_locked): the team changed hands with handoverSafe on, and owners and admins get no link until the
+     * new owner claims recovery (owner-recovery-claimed); a member still does. */
     args: z.union([z.strictObject({ owner: z.literal(true) }), z.strictObject({ username: AccountUsername })]),
     stdin: null, output: z.object({ url: HttpsUrl, expiresAt: IsoTime }), timeoutSec: 30,
   },
+  /** the new owner of a hosted team claimed recovery (a recovery and billing contact) in the console: reset links for
+   * owners and admins may go out again (trina-ax docs/DECISIONS.md W6 "Hosted teams"). `cleared`: there was a lock. */
+  'owner-recovery-claimed': { args: NoArgs, stdin: null, output: z.object({ ok: z.literal(true), cleared: z.boolean() }), timeoutSec: 30 },
   /** the hosting service's speech-to-text key (HostedSpeechKeyInput); `set`: whether the server holds one now */
   'hosted-speech-key-set': { args: NoArgs, stdin: HostedSpeechKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean() }), timeoutSec: 30 },
   /** the hosting service's trial AI credit (HostedChatKeyInput); `set`: whether the server holds a key now, `usedUsd`:

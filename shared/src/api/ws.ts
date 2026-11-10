@@ -13,7 +13,7 @@
 // Keep-alive: the server sends a WebSocket protocol ping every 20 s (browsers answer automatically); app-level
 // ping/pong is optional for clients that want to notice a dead link sooner.
 import { z } from 'zod'
-import { Uuid7 } from '../ids'
+import { UserId, Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
 import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
@@ -22,6 +22,7 @@ import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integratio
 import { SkillProblem } from './skills'
 import { Room, RoomAiRun, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
 import { DeckBuild } from './intro-deck'
+import { PresenceState, WindowActivity } from './people'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -68,7 +69,19 @@ export const ResyncFrame = z.object({ type: z.literal('resync'), epoch: z.string
 export const ResetFrame = z.object({ type: z.literal('reset'), epoch: z.string(), seq: z.number().int().nonnegative(), reason: z.enum(['server_restarted', 'epoch_mismatch']) })
 export const PongFrame = z.object({ type: z.literal('pong'), t: z.number() })
 export const ErrorFrame = z.object({ type: z.literal('error'), code: ErrorCode, message: z.string() })
-export const ControlFrame = z.discriminatedUnion('type', [HelloFrame, ResyncFrame, ResetFrame, PongFrame, ErrorFrame])
+/**
+ * Who on the team is online or away (docs/DECISIONS.md "접속 상태"). A state, not an event: no seq, never replayed.
+ * `full`: the whole list, sent right after `hello` (and any replay) on every connection; anyone not in it is offline.
+ * Else only people whose state changed (offline included). Each entry is a person's id and state, nothing else (no
+ * device, window count or time). Everyone signed in to the team gets it, and only active accounts are in it.
+ */
+export const PresenceFrame = z.object({
+  type: z.literal('presence'),
+  full: z.boolean(),
+  people: z.array(z.object({ id: UserId, state: PresenceState })),
+})
+export type PresenceFrame = z.infer<typeof PresenceFrame>
+export const ControlFrame = z.discriminatedUnion('type', [HelloFrame, ResyncFrame, ResetFrame, PongFrame, ErrorFrame, PresenceFrame])
 export type ControlFrame = z.infer<typeof ControlFrame>
 
 // ---------------- server -> client: events (seq, replayable) ----------------
@@ -83,6 +96,10 @@ export const SkillWritePreview = z.object({
   skillName: z.string().nullable(),
   /** why this file does not load as a skill (the same codes as GET /api/skills/issues); absent: nothing to warn about */
   problem: SkillProblem.optional(),
+  /** a skill of the same name at another level the person sees (docs/DECISIONS.md "Project skills": a project only adds
+   * names): the line to show, in the person's language. `hidden`: this one would never run (a project skill under a
+   * wider one's name), so the card offers another name instead of saving */
+  sameName: z.object({ text: z.string().max(400), hidden: z.boolean() }).optional(),
   /** "@@ … @@" unified diff of the text (a new file: every line added), or a one-line summary for other files */
   diff: z.string(),
   added: z.number().int().nonnegative(),
@@ -123,6 +140,11 @@ export const AskUserRequest = z.object({
   preview: SkillWritePreview.optional(),
   /** a server check: exactly what is about to go out, each block in full (ConfirmDetail) */
   details: z.array(ConfirmDetail).max(8).optional(),
+  /** a server check whose three choices are buttons in this order, the first the main one and the last the "no" (a
+   * room's change card: 이번만 허용, 이 방에서는 항상 허용, 허용 안 함); absent: two choices are buttons, more are radios */
+  buttons: z.literal(true).optional(),
+  /** a server check: one line under its buttons, what a choice covers */
+  note: z.string().max(300).optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
@@ -195,7 +217,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   })),
   /** `notify`: a live change worth telling the person about (docs/DECISIONS.md "Session markers"): 'card', a card of the
    * AI opened (to the windows that show it); 'answer', an answer that ran about a minute or longer ended. Never for an
-   * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing. */
+   * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing.
+   * 'deleted' with no chat: a shared project chat this person no longer sees (they lost its project): drop it. */
   ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),
@@ -270,6 +293,9 @@ export const ClientFrame = z.discriminatedUnion('type', [
   /** the window received browser.call and started it (stops the server from re-sending after a reconnect) */
   z.object({ type: z.literal('browser.ack'), callId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('browser.result'), result: BrowserResult }),
+  /** this window is in use or idle (docs/DECISIONS.md "접속 상태"): sent when it changes and after each `hello` (the
+   * server takes a newly connected window as active until it says otherwise); never queued while disconnected */
+  z.object({ type: z.literal('presence'), state: WindowActivity }),
 ])
 export type ClientFrame = z.infer<typeof ClientFrame>
 

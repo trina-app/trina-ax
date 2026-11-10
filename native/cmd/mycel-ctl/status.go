@@ -35,6 +35,16 @@ type Status struct {
 	History     []json.RawMessage `json:"history"`
 	// Updates: automatic updates and unsigned versions (update audit P3: both used to be invisible)
 	Updates *UpdateSettings `json:"updates"`
+	// SystemPackages: the one list's sync (sync.go); nil on a server from before the list
+	SystemPackages *SystemPackagesStatus `json:"systemPackages,omitempty"`
+}
+
+// SystemPackagesStatus is the sync of the list in root/ (root/packages.synced against root/packages.json).
+type SystemPackagesStatus struct {
+	Summary string     `json:"summary"`
+	List    string     `json:"list"`
+	Pending bool       `json:"pending"`
+	Synced  *SyncState `json:"synced"`
 }
 
 func cmdStatus(e *env, args []string) (int, error) {
@@ -73,6 +83,9 @@ func cmdStatus(e *env, args []string) (int, error) {
 	}
 	fmt.Fprintf(e.stdout, "  disk: %v%% used\n  health: %v\n", s.Disk["percent"], s.Health)
 	printUpdateSettings(e.stdout, s.Updates, in, in.Systemd && fileExists(systemdRunDir))
+	if s.SystemPackages != nil {
+		fmt.Fprintf(e.stdout, "  system packages: %s\n", s.SystemPackages.Summary)
+	}
 	return 0, nil
 }
 
@@ -108,6 +121,9 @@ func unitNames(id string) []string {
 func collectStatus(e *env, in *Install) Status {
 	s := Status{ID: in.ID, Base: in.Base, Version: currentVersion(in.Base), RootVersion: rootVersion(e), Units: map[string]string{}, History: []json.RawMessage{},
 		Updates: collectUpdateSettings(e, in)}
+	if line, synced, pending := syncStatus(e, e.now()); line != "" {
+		s.SystemPackages = &SystemPackagesStatus{Summary: line, List: listSum(e), Pending: pending, Synced: synced}
+	}
 	if in.Systemd && fileExists(systemdRunDir) {
 		for _, u := range unitNames(in.ID) {
 			out, _ := exec.Command(e.systemctl, "is-active", u).Output()

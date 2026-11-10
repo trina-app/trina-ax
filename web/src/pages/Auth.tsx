@@ -15,8 +15,10 @@ import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
-import { holdMadeBy, holdStarter } from '../lib/starter'
+import { joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin } from '../lib/team-link'
+import { platform } from '../lib/pwa'
+import { APP_LINKS } from '@mycel/shared/app-links'
+import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -388,6 +390,51 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { s
   )
 }
 
+/**
+ * A used, expired or unknown invite or team link: the person may well have joined with it already (the link worked
+ * once, then they opened it again from the chat), so the page leads to signing in, with a real button.
+ */
+function SignInInstead() {
+  const t = useT()
+  const navigate = useNavigate()
+  return (
+    <>
+      <p className="mt-3 text-sm text-ink">{t('auth.alreadyJoined')}</p>
+      <Button variant="primary" className="mt-4 w-full" onClick={() => navigate('/login')} data-testid="invalid-signin">
+        {t('auth.signIn')}
+      </Button>
+    </>
+  )
+}
+
+/** "앱에서 열기": the same join page in the desktop or phone app (its screen ④ asks first). Web browsers on the apps'
+ * systems only. */
+function OpenInApp({ path }: { path: string }) {
+  const t = useT()
+  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage })
+  if (!openInAppShown(clientKind(), href)) return null
+  return (
+    <p className="mt-2 text-center text-sm">
+      <a href={href} className="text-accent-text underline" data-testid="open-in-app">
+        {t('auth.openInApp')}
+      </a>
+    </p>
+  )
+}
+
+/** Under both join forms: someone who already has an account here signs in instead of making a second one. */
+function HaveAccount() {
+  const t = useT()
+  return (
+    <p className="mt-4 text-center text-sm text-muted" data-testid="join-have-account">
+      {t('auth.haveAccount')}{' '}
+      <Link to="/login" className="text-accent-text underline" data-testid="join-signin">
+        {t('auth.signIn')}
+      </Link>
+    </p>
+  )
+}
+
 export function AcceptInvite() {
   const t = useT()
   const locale = useLocale()
@@ -423,14 +470,14 @@ export function AcceptInvite() {
     return (
       <AuthFrame title={t('invite.title')}>
         <p className="text-sm text-muted">{t('invite.invalid')}</p>
-        <Link to="/login" className="mt-4 inline-block text-sm text-accent-text underline">
-          {t('auth.signIn')}
-        </Link>
+        <SignInInstead />
       </AuthFrame>
     )
   return (
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      <HaveAccount />
+      <OpenInApp path={`/invite/${token}`} />
     </AuthFrame>
   )
 }
@@ -464,16 +511,13 @@ export function TeamJoin() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      // the lead's files waiting for them (docs/DECISIONS.md "M"): Home fills the box with them and the question. A
-      // starter without files (kind 'skill') is not one: every skill opens on its form, whose box starts with the
-      // skill's own example when it has no fields (docs/DECISIONS.md "W5")
-      const files = r.starter && r.starter.kind !== 'skill' ? r.starter : null
-      if (files) holdStarter(r.me.user.id, files)
-      const next = files ? '/' : joinNext(r.next)
+      // every skill opens on its form, whose box starts with the skill's own example when it has no fields
+      // (docs/DECISIONS.md "W5"); no skill: Home
+      const next = joinNext(r.next)
       // a team skill a person made: its form says who ("지훈님이 만든 팀 스킬이에요", docs/DECISIONS.md "S")
-      const by = r.skillBy ?? (r.starter?.kind === 'skill' ? r.starter.by : null)
-      const formPath = !files && by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
-      if (formPath) holdMadeBy(r.me.user.id, formPath, by!)
+      const by = r.skillBy ?? null
+      const formPath = by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
+      if (formPath && by) holdMadeBy(r.me.user.id, formPath, by)
       setAfterJoin(next)
       signedIn(r.me)
       navigate(next, { replace: true })
@@ -488,14 +532,14 @@ export function TeamJoin() {
     return (
       <AuthFrame title={t('invite.title')}>
         <p className="text-sm text-muted" data-testid="join-problem">{t(info === 'missing' ? 'teamLink.problem.missing' : `teamLink.problem.${info.problem === 'stopped' || !info.problem ? 'revoked' : info.problem}`)}</p>
-        <Link to="/login" className="mt-4 inline-block text-sm text-accent-text underline">
-          {t('auth.signIn')}
-        </Link>
+        <SignInInstead />
       </AuthFrame>
     )
   return (
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      <HaveAccount />
+      <OpenInApp path={`/join#t=${link.token}`} />
     </AuthFrame>
   )
 }

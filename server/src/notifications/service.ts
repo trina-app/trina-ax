@@ -20,7 +20,8 @@ import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { GOAL_PEOPLE } from '@mycel/shared/api'
+import { GOAL_PEOPLE, plainLabel } from '@mycel/shared/api'
+import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
 const OFFER_BATCH = 500
@@ -44,15 +45,16 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
  * (migration 223), room notices (a DM message or an @mention, migration 241), a person's request to have their
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
- * steps, the skills to merge that waited for it (migration 253) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices'] as const
+ * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
+ * a transfer, a locked password check: migration 270) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -143,6 +145,17 @@ export class Notifications {
    * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
+  }
+  /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
+   * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
+   * always: there is no setting for them, and each needs the person's eye. */
+  handoverNotice(userId: string, event: HandoverEvent, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, event, sourceId, createdAt, true)
+  }
+  /** The owner handed the team over: their lead-join notices count as read (the card and its [넘기기] are gone). */
+  settleLeadNotices(userId: string) {
+    const n = this.ctx.db.query("UPDATE handover_notices SET read_at=? WHERE user_id=? AND event_type='owner.lead_joined' AND read_at IS NULL").run(new Date().toISOString(), userId).changes
+    if (n && this.active(userId)) this.signal(userId)
   }
   /** A person asks this owner (or admin) to delete their account (auth/deletion-requests.ts). The source is the person's id only;
    * one row per owner or admin and person (UNIQUE, migration 244): asking again after a cancel re-arms it (unread, new time)
@@ -295,6 +308,14 @@ export class Notifications {
       ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
     for (const row of needs) this.record(row.user_id, 'schedule.failure', row.id, row.created_at, true)
     db.query('DELETE FROM schedule_template_skips WHERE created_at < ?').run(this.cutoff())
+    // a run that did not start because its owner no longer sees its project (chat/schedules.ts): a failure notice that
+    // says so (out below), always shown (the task will not run until the project is back or the task is changed)
+    const gone = db.query(`SELECT s.id,s.user_id,s.created_at FROM schedule_project_skips s
+      WHERE s.created_at>=? AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL)
+      ${userId ? 'AND s.user_id=?' : ''} AND NOT EXISTS(SELECT 1 FROM notification_inbox n WHERE n.user_id=s.user_id AND n.source_id=s.id AND n.event_type='schedule.failure')
+      ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
+    for (const row of gone) this.record(row.user_id, 'schedule.failure', row.id, row.created_at, true)
+    db.query('DELETE FROM schedule_project_skips WHERE created_at < ?').run(this.cutoff())
     if (!userId) { try { this.offerTemplates({ limit: OFFER_BATCH }) } catch { this.ctx.log.warn('template notices deferred') } }
     // scheduled tasks nobody confirmed, paused for their owner's review (chat/schedules.ts): one notice per person and
     // pause, shown in the app always (the task stopped running), pushed per the "scheduled task failed" setting
@@ -303,7 +324,7 @@ export class Notifications {
       AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL) ${userId ? 'AND s.user_id=?' : ''}
       GROUP BY s.user_id, s.review_since ORDER BY s.review_since LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { user_id: string; review_since: string }[]
     for (const row of reviews) this.record(row.user_id, 'schedule.failure', reviewSource(row.user_id, row.review_since), row.review_since, true)
-    return Math.max(rows.length, skips.length, reviews.length, needs.length)
+    return Math.max(rows.length, skips.length, reviews.length, needs.length, gone.length)
   }
   preferences(userId: string) { return getPreferences(this.ctx.db, userId) }
   private locale(userId: string) { return getUser(this.ctx.db, userId)?.locale ?? teamDefaultLocale(this.ctx.db) }
@@ -379,11 +400,14 @@ export class Notifications {
         ...(contribution ? { contribution } : {}) }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
+    // the handover's: what each row offers is read now (admin/handover-notices.ts)
+    if (isHandoverEvent(row.event_type)) return handoverNoticeOut(this.ctx, row)
     // a room notice links to the room (a reply: its thread) and says who wrote what where while the person is still in
-    // the room and may read the message (rooms/inbox.ts); the first line of the message only in the Inbox's list
+    // the room and may read the message (rooms/inbox.ts); the first line of the message in the Inbox's list, and in the
+    // single notice a push opens while the person's messagePreview is on
     if (isRoomEvent(row.event_type)) {
       const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, outcome: null }
-      const room = 'group' in row ? roomRowOut(this.ctx.db, row) : roomNoticeOut(this.ctx.db, row, this.locale(row.user_id))
+      const room = 'group' in row ? roomRowOut(this.ctx.db, row) : roomNoticeOut(this.ctx.db, row, this.locale(row.user_id), { preview: getPreferences(this.ctx.db, row.user_id).messagePreview })
       return room ? { ...base, link: 'room', room } : { ...base, link: null }
     }
     // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting. The
@@ -457,17 +481,24 @@ export class Notifications {
     // a scheduled run that did not start for want of the owner's own key for a template: which one (by the name it had
     // then), and Settings › MCP to connect it
     if (row.event_type === 'schedule.failure') {
-      const skip = this.ctx.db.query('SELECT template_id, template_name FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string } | null
-      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name } }
+      const skip = this.ctx.db.query('SELECT template_id, template_name, schedule_id FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string; schedule_id: string } | null
+      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name },
+        ...this.scheduleOf(row.user_id, skip.schedule_id) }
+      // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
+      const gone = this.ctx.db.query('SELECT schedule_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string } | null
+      if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true, ...this.scheduleOf(row.user_id, gone.schedule_id) }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
     }
+    let schedule: Pick<InboxNotification, 'schedule'> = {}
     if (row.event_type !== 'connection.reconnect') {
       // Metadata only: the stored result code, never the turn's error text. No turn = an admission skip (failed).
-      const run = this.ctx.db.query('SELECT status,run_outcome FROM turns WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { status: string; run_outcome: string | null } | null
+      const run = this.ctx.db.query('SELECT status,run_outcome,schedule_id FROM turns WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { status: string; run_outcome: string | null; schedule_id: string | null } | null
       outcome = run ? storedRunOutcome(run) : 'failed'
+      const skipped = run ? null : this.ctx.db.query('SELECT schedule_id FROM schedule_outcomes WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string } | null
+      schedule = this.scheduleOf(row.user_id, run?.schedule_id ?? skipped?.schedule_id)
       const chat = this.ctx.db.query(`SELECT c.id,c.project_id,t.template_source_path FROM turns t JOIN chats c ON c.id=t.chat_id
         WHERE t.id=? AND t.user_id=? AND c.user_id=? AND c.deleted_at IS NULL`).get(row.source_id, row.user_id, row.user_id) as { id: string; project_id: string | null; template_source_path: string | null } | null
       if (chat) {
@@ -497,7 +528,16 @@ export class Notifications {
       }
     }
     return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at,
-      chatId, link: chatId ? 'chat' : row.event_type === 'connection.reconnect' ? 'connections' : null, outcome }
+      chatId, link: chatId ? 'chat' : row.event_type === 'connection.reconnect' ? 'connections' : null, outcome, ...schedule }
+  }
+  /** A scheduled run's task by its title, while the task is the person's and there (a deleted one: nothing, and the
+   * Inbox says "a scheduled task"). The person's own words, read now and never stored with the notice; a push never
+   * carries it (the lock screen's text is generic, text.ts). */
+  private scheduleOf(userId: string, scheduleId: string | null | undefined): Pick<InboxNotification, 'schedule'> {
+    if (!scheduleId) return {}
+    const s = this.ctx.db.query('SELECT title FROM schedules WHERE id=? AND user_id=?').get(scheduleId, userId) as { title: string } | null
+    const title = s ? plainLabel(s.title) : ''
+    return title ? { schedule: { title } } : {}
   }
   list(userId: string, o: { cursor?: string; limit?: number }) {
     const cur = decodeCursor(o.cursor, ['t', 'id'])

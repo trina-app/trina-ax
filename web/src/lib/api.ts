@@ -108,6 +108,18 @@ export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal
   return readBounded(res, max, o)
 }
 
+/** URL of a file sent in a room (the member check on every read): `download` as an attachment, `thumb` an image's small
+ * preview. Inline, a page or script type comes as text with a sandbox CSP (never a page of this origin). */
+export function roomFileUrl(roomId: string, fileId: string, query: { download?: '1'; thumb?: '1' } = {}): string {
+  return api.url(API.roomFile, { params: { id: roomId, fileId }, query })
+}
+
+/** A room file's bytes for the preview panel, never more than `max` (readBounded; `truncate`: a text preview's start). */
+export async function fetchRoomFileBlob(roomId: string, fileId: string, max: number, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
+  const res = await api.call(API.roomFile, { params: { id: roomId, fileId }, signal })
+  return readBounded(res, max, o)
+}
+
 /**
  * A JPEG made on the server for a photo the browser cannot draw (HEIC / HEIF, `serverPreview` in ./preview), never
  * more than `max`. No converter on the server: ApiError 'unavailable' (the panel shows "cannot preview").

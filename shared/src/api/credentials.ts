@@ -59,7 +59,7 @@ export const Credential = z.object({
   planType: z.string().nullable(),
   expiresAt: IsoTime.nullable(), limitedUntil: IsoTime.nullable(), checkedAt: IsoTime.nullable(), lastUsedAt: IsoTime.nullable(),
   spendLimit: SpendLimit,
-  /** this month (server time zone), counted per request by the model proxy; cost only for API keys (estimate) */
+  /** this month (team time zone), counted per request by the model proxy; cost only for API keys (estimate) */
   month: z.object({ usd: z.number(), tokens: z.number().int(), requests: z.number().int() }),
   createdAt: IsoTime,
 })

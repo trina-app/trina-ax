@@ -1,12 +1,12 @@
 // Pure parts of the desktop app: team addresses, the team list, site permissions (with site access "all", the team's
 // policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the bridge's store
-// flag, the Settings > Browser channels, the team page's file chooser in the store build, quitting and the UI strings
-// (desktop/src/common/*).
+// flag, the Settings > Browser channels, the team page's file chooser in the store build, the right-click menu,
+// quitting and the UI strings (desktop/src/common/*).
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { isGatewayDown, isLoopbackHost, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { asksOutside, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -23,14 +23,15 @@ import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
 import { browserAction } from '../../desktop/src/common/browser-action'
+import { contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
-    expect(parseTeamAddress('acme')).toEqual({ ok: true, origin: `https://acme.${TEAM_DOMAIN}`, host: `acme.${TEAM_DOMAIN}`, dev: false })
+    expect(parseTeamAddress('acme')).toEqual({ ok: true, origin: `https://acme.${TEAM_DOMAIN}`, host: `acme.${TEAM_DOMAIN}`, dev: false, entryPath: '/', name: 'acme', hosted: true })
     expect(parseTeamAddress('  ACME  ')).toMatchObject({ ok: true, origin: `https://acme.${TEAM_DOMAIN}` })
   })
 
-  test('hosts without a scheme get https, loopback dev hosts get http; paths are dropped', () => {
+  test('hosts without a scheme get https, loopback dev hosts get http; other pages than a link are dropped', () => {
     expect(parseTeamAddress('acme.treesoop.com/chats/1')).toMatchObject({ ok: true, origin: 'https://acme.treesoop.com' })
     expect(parseTeamAddress('myteam.localhost:19161')).toMatchObject({ ok: true, origin: 'http://myteam.localhost:19161', dev: true })
     expect(parseTeamAddress('localhost:19100')).toMatchObject({ ok: true, origin: 'http://localhost:19100' })
@@ -49,9 +50,13 @@ describe('team addresses', () => {
     expect(parseTeamAddress('https://')).toEqual({ ok: false, error: 'invalid' })
   })
 
-  test('an office internet address works typed as is or with https://', () => {
-    const want = { ok: true as const, origin: 'https://team.example.com', host: 'team.example.com', dev: false }
-    for (const typed of ['team.example.com', 'https://team.example.com', ' https://Team.Example.com/ ', 'team.example.com/invite/abc']) expect(parseTeamAddress(typed)).toEqual(want)
+  test('an office internet address works typed as is or with https://; a pasted invite or team link keeps its page', () => {
+    const want = { ok: true as const, origin: 'https://team.example.com', host: 'team.example.com', dev: false, entryPath: '/', name: null, hosted: false }
+    for (const typed of ['team.example.com', 'https://team.example.com', ' https://Team.Example.com/ ', 'team.example.com/chats/1']) expect(parseTeamAddress(typed)).toEqual(want)
+    // the invite or team link opens its own join page in the app (it used to lose its token here)
+    expect(parseTeamAddress('team.example.com/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')).toEqual({ ...want, entryPath: '/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk' })
+    expect(parseTeamAddress('https://team.example.com/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E')).toEqual({ ...want, entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E' })
+    expect(parseTeamAddress('team.example.com/invite/abc')).toEqual({ ok: false, error: 'link' })
     expect(parseTeamAddress('http://team.example.com')).toEqual({ ok: false, error: 'insecure' })
     // the office's Mac off: Cloudflare answers 530 (error 1033); the address is right, the server is just not reachable
     for (const s of [502, 503, 504, 520, 522, 524, 530]) expect(isGatewayDown(s)).toBe(true)
@@ -72,12 +77,177 @@ describe('team addresses', () => {
     expect(isLoopbackHost('a.b.localhost')).toBe(true)
     expect(isLoopbackHost('[::1]')).toBe(true)
     expect(isLoopbackHost('localhost.evil.com')).toBe(false)
+    for (const h of ['[::ffff:127.0.0.1]', '[::ffff:7f00:1]', '::ffff:7f00:1', '[::7f00:1]', '[::]', '0.0.0.0', '0', '0.1.2.3', '127.255.0.1', '[::ffff:0:0]', 'LOCALHOST.'])
+      expect({ h, loopback: isLoopbackHost(h) }).toEqual({ h, loopback: true })
+    for (const h of ['[::ffff:c0a8:1]', '[::ffff:192.168.0.1]', '8.8.8.8', '[2001:db8::1]', '[fe80::1]', '00', '1.0.0.0', 'evil.0'])
+      expect({ h, loopback: isLoopbackHost(h) }).toEqual({ h, loopback: false })
     expect(originOf('https://a.b/c?d')).toBe('https://a.b')
     expect(originOf('about:blank')).toBe('')
     expect(originOf('nonsense')).toBe('')
     expect(teamLabel(`https://acme.${TEAM_DOMAIN}`)).toBe('acme')
     expect(teamLabel('http://myteam.localhost:19161')).toBe('myteam')
     expect(teamLabel('https://team.example.com')).toBe('team.example.com')
+  })
+})
+
+describe('first run: what the team address answered, the help screens, the host strip', () => {
+  const o = `https://acme.${TEAM_DOMAIN}`
+  const health = (status: number, relayError: string | null = null, bodyOk = true, location: string | null = null) => healthVerdict(o, { status, location, relayError, bodyOk })
+  test('the relay\'s own answers are told apart from "not a team server"', () => {
+    expect(health(200)).toEqual({ ok: true })
+    expect(health(404, 'team_unknown', false)).toEqual({ ok: false, error: 'teamUnknown' })
+    expect(health(403, 'team_suspended', false)).toEqual({ ok: false, error: 'suspended' })
+    expect(health(403, 'team_suspended_billing', false)).toEqual({ ok: false, error: 'suspended' })
+    expect(health(503, 'team_offline', false)).toEqual({ ok: false, error: 'unreachable' })
+    expect(health(530, null, false)).toEqual({ ok: false, error: 'unreachable' })
+    // a 404 from something that is not the relay, or a page that is not the health answer
+    expect(health(404, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
+    expect(health(200, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
+    expect(t('ko', 'err.teamUnknown', { name: 'acme' })).toBe("'acme' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.")
+  })
+  test('a redirect is never followed by the network stack: only a relay rename to another name under the team domain', () => {
+    // the health check reads the 3xx itself (app-window.ts fetchHealth: net.request with redirect 'manual')
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain("redirect: 'manual'")
+    expect(win).not.toMatch(/\.fetch\(`\$\{p\.origin\}\/api\/health`/)
+    expect(health(308, null, false, `https://acme-corp.${TEAM_DOMAIN}/api/health`)).toEqual({ ok: false, rename: `https://acme-corp.${TEAM_DOMAIN}` })
+    for (const away of ['https://evil.example/api/health', `http://acme-corp.${TEAM_DOMAIN}/api/health`, `https://acme-corp.${TEAM_DOMAIN}:8443/api/health`, `https://a.b.${TEAM_DOMAIN}/api/health`, `https://acme-corp.${TEAM_DOMAIN}./api/health`, 'http://192.168.0.10/api/health', null])
+      expect(health(302, null, false, away)).toEqual({ ok: false, error: 'notTeamServer' })
+    expect(healthVerdict('http://acme.localhost:19883', { status: 308, location: 'http://acme-co.localhost:19883/api/health', relayError: null, bodyOk: false })).toEqual({ ok: false, rename: 'http://acme-co.localhost:19883' })
+    // a rename is asked before the new address is remembered, and followed once only
+    expect(win).toMatch(/if \(!v\.ok && 'rename' in v\) return fail\('notTeamServer'\)/)
+    expect(win).toMatch(/if \(origin !== p\.origin && !known\) return \{ ok: false, error: 'renamed'/)
+    expect(t('ko', 'err.renamed', { host: 'acme-corp.trina.app' })).toBe('팀 주소가 acme-corp.trina.app(으)로 바뀌었어요. 새 주소로 연결할까요?')
+  })
+  test('the host strip: the sign-in pages, and every page until /api/me answers for a signed-in person; in punycode', () => {
+    for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
+    for (const p of ['/', '/chats/1', '/invite', '/joined', '/settings/apps']) expect(isSignInPath(p)).toBe(false)
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain('const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0')
+    // no jump on a signed-in open: the strip waits up to 300 ms for /api/me (a sign-in page shows it at once); a new
+    // team page starts the wait again, and an answer (signed in or not) ends it
+    expect(win).toContain('const HOSTBAR_WAIT_MS = 300')
+    expect(win).toMatch(/if \(originOf\(url\) && !this\.meAnswered && !this\.stripWaited && !this\.stripTimer\) \{\n\s*this\.stripTimer = setTimeout\(\(\) => \{/)
+    expect(win).toMatch(/this\.signedIn = false\n\s*this\.meAnswered = false\n\s*this\.stripWaited = false\n\s*clearTimeout\(this\.stripTimer\)/)
+    expect(win).toMatch(/if \(signedIn === this\.signedIn && this\.meAnswered\) return\n\s*this\.signedIn = signedIn\n\s*this\.meAnswered = true/)
+    // signed in only when /api/me answered with a person; a 401, another answer or a new team page start without
+    expect(win).toMatch(/if \(res\.status === 401\) \{\n\s*if \(this\.team\?\.id === team\.id\) \{\n\s*this\.setSignedIn\(false\)/)
+    expect(win).toContain('if (this.team?.id === team.id) this.setSignedIn(me.success)')
+    expect(win).toMatch(/this\.pagePath = ''\n\s*this\.signedIn = false/)
+    expect(hostOf('https://xn--bcher-kva.de')).toBe('xn--bcher-kva.de')
+    expect(hostOf('http://acme.localhost:19883')).toBe('acme.localhost:19883')
+    expect(parseTeamAddress('https://bücher.de')).toMatchObject({ ok: true, host: 'xn--bcher-kva.de' })
+  })
+  test('"no team yet" links: no signup in the Mac App Store build, and its docs link has no pricing', () => {
+    expect(firstRunLinks({ macAppStore: false, korean: true })).toEqual({ signup: `https://${SERVICE_HOSTS.accountHost}/`, docs: INSTALL_DOCS })
+    const mas = firstRunLinks({ macAppStore: true, korean: true })
+    expect(mas.signup).toBeNull()
+    expect(mas.docs).toBe('https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL-LINUX.md')
+    expect(firstRunLinks({ macAppStore: true, korean: false }).docs).toEndWith('/docs/INSTALL-LINUX.en.md')
+    // the store build's page links no plans, no signup and not the product site (which has both)
+    for (const f of ['docs/INSTALL-LINUX.md', 'docs/INSTALL-LINUX.en.md']) expect(readFileSync(join(import.meta.dir, '../..', f), 'utf8')).not.toMatch(/#pricing|\/signup|account\.trina\.app|https:\/\/ax\.trina\.app/i)
+  })
+  test('the first connect to an address the hosted service does not run asks once', () => {
+    const ask = (typed: string, known = false, confirmed = false) => { const p = parseTeamAddress(typed); if (!p.ok) throw new Error(p.error); return asksOutside({ hosted: p.hosted, dev: p.dev, known, confirmed }) }
+    expect(ask('acme')).toBe(false)
+    expect(ask(`https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`)).toBe(false)
+    expect(ask('team.example.com')).toBe(true)
+    expect(ask(`https://acme.${TEAM_DOMAIN}.evil.example`)).toBe(true)
+    expect(ask('https://1.2.3.4')).toBe(true)
+    expect(ask('team.example.com', true)).toBe(false)
+    expect(ask('team.example.com', false, true)).toBe(false)
+    expect(ask('acme.localhost:19151')).toBe(false)
+    expect(t('ko', 'outside.body')).toBe('트리나가 운영하는 주소가 아니에요. 회사에서 직접 설치한 서버인지 확인하세요.')
+  })
+  test('the 팀 menu has one item for the list and adding a team', () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    expect(main).not.toContain("menu.addTeam")
+    expect(STRINGS.ko['menu.teams']).toBe('팀 목록·추가…')
+  })
+})
+
+describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
+  const enc = encodeURIComponent
+  const link = (inner: string) => `${LINK_SCHEME}://open?url=${enc(inner)}`
+  test('the scheme is the product\'s and the phone app\'s', () => {
+    expect(LINK_SCHEME).toBe(PRODUCT.linkScheme)
+    expect(LINK_SCHEME).toBe(JSON.parse(readFileSync(join(import.meta.dir, '../../editions/trina/branding/mobile.json'), 'utf8')).scheme)
+  })
+  test('a team link or invite link inside opens its page; the host shown is the one connected to', () => {
+    expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}`, hosted: true, entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E' })
+    expect(readDesktopLink(link('https://team.example.com/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk'))).toMatchObject({ ok: true, host: 'team.example.com', hosted: false, entryPath: '/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk' })
+    // a link from outside never points the app at this machine, http or https (typed addresses still may: development)
+    for (const inner of ['http://127.0.0.1:19100/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk', 'https://127.0.0.1:19100/', 'http://localhost:19100/', 'https://localhost/', 'http://acme.localhost:19883/', 'https://[::1]:8443/', 'https://127.1/',
+      // an IPv4-mapped or IPv4-compatible loopback, the unspecified addresses (they reach this machine too)
+      'https://[::ffff:127.0.0.1]/', 'https://[::ffff:7f00:1]:8443/', 'https://[::127.0.0.1]/', 'https://[::]/', 'https://0.0.0.0/', 'https://0/', 'https://[::ffff:0.0.0.0]/'])
+      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'insecure' })
+    expect(parseTeamAddress('http://127.0.0.1:19100')).toMatchObject({ ok: true, dev: true })
+  })
+  test('a crafted link cannot load http to another machine, javascript:, file:, data:, user:password, or hide its host', () => {
+    expect(readDesktopLink(link('http://evil.example'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link(`https://${TEAM_DOMAIN}@evil.example`))).toEqual({ ok: false, error: 'credentials' })
+    expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}:x@evil.example`))).toEqual({ ok: false, error: 'credentials' })
+    for (const inner of ['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,<script>x</script>', 'acme', `acme.${TEAM_DOMAIN}`, 'https://a b'])
+      expect(readDesktopLink(link(inner))).toBeNull()
+    // the host ④ shows is the URL parser's: a numeric trick for this machine is refused, a backslash ends the host,
+    // another numeric address is shown as numbers and never counts as hosted
+    expect(readDesktopLink(link('https://0x7f.1/'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link('https://2130706433/'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link('https://0xc0a8000a/'))).toMatchObject({ ok: true, host: '192.168.0.10', hosted: false })
+    expect(readDesktopLink(link(`https://evil.example\\@acme.${TEAM_DOMAIN}`))).toMatchObject({ ok: true, host: 'evil.example', hosted: false })
+    expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}.evil.example/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}.evil.example`, hosted: false })
+    expect(readDesktopLink(link('https://xn--bcher-kva.de'))).toMatchObject({ host: 'xn--bcher-kva.de' })
+    // the link itself: only open?url=<one address>
+    for (const raw of [`${LINK_SCHEME}://evil?url=${enc('https://acme.trina.app')}`, `${LINK_SCHEME}://open?url=a&url=b`, `${LINK_SCHEME}://open?url=${enc('https://acme.trina.app')}&next=/x`,
+      `${LINK_SCHEME}://open?url=${enc('https://acme.trina.app')}#x`, `${LINK_SCHEME}://u:p@open?url=${enc('https://acme.trina.app')}`, `${LINK_SCHEME}://open:99?url=${enc('https://acme.trina.app')}`,
+      `${LINK_SCHEME}://open/x?url=${enc('https://acme.trina.app')}`, `other://open?url=${enc('https://acme.trina.app')}`, `https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`, 'x'.repeat(5000)])
+      expect(readDesktopLink(raw)).toBeNull()
+  })
+  test('the link in a command line (Windows, Linux; a second instance)', () => {
+    const l = link('https://acme.trina.app/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')
+    expect(linkFromArgv(['/Applications/X.app/Contents/MacOS/X', '--allow-file-access-from-files', l])).toBe(l)
+    expect(linkFromArgv(['C:\\x\\app.exe', l.toUpperCase().replace('OPEN?URL', 'open?url')])).not.toBeNull()
+    expect(linkFromArgv(['app', '--flag', 'https://acme.trina.app'])).toBeNull()
+    expect(linkFromArgv(['app', `${LINK_SCHEME}:${'x'.repeat(5000)}`])).toBeNull()
+  })
+  test('every link goes through ④: the handlers only offer it, and only the answer connects', () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(main).toMatch(/app\.on\('open-url', \(e, url\) => \{\n\s*e\.preventDefault\(\)\n\s*onLink\(url\)/)
+    expect(main).toMatch(/const link = linkFromArgv\(argv\)\n\s*if \(link\) onLink\(link\)/)
+    // onLink and the launch link reach the window only through offerLink
+    const onLink = main.slice(main.indexOf('function onLink('), main.indexOf("app.on('open-url'"))
+    expect(onLink).toContain('win.offerLink(url)')
+    expect(onLink).not.toMatch(/addTeam|openTeam|loadURL/)
+    // offerLink fetches nothing; answerLink connects only with the gate's offer
+    const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  async answerLink('))
+    expect(offer).not.toMatch(/fetch|addTeam|openTeam|loadURL/)
+    expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,80}return this\.addTeam\(offer\.origin \+ offer\.entryPath, true\)/)
+    // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
+    expect(win).toContain('this.linkGate.shown(id, Date.now())')
+    expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/'\) \{[\s\S]{0,200}this\.linkGate\.clear\(\)/)
+    const welcome = readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')
+    expect(welcome).toContain('ui.welcome.linkShown(link.id)')
+    // [연결] is off until ④ has been on screen as long as the gate wants (no click that silently does nothing)
+    expect(welcome).toContain('const LINK_READY_MS = 650')
+    expect(welcome).toContain('disabled: busy || !linkReady,')
+    // a development run never takes the scheme over by itself
+    expect(main).toContain("if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
+  })
+  test('the dmg, Mac App Store and Microsoft Store builds declare the scheme', async () => {
+    const base = (await import('../../desktop/electron-builder.config')).default as { protocols?: { name: string; schemes: string[] }[] }
+    expect(base.protocols).toEqual([{ name: PRODUCT.displayName, schemes: [PRODUCT.linkScheme] }])
+    // the store configs build on the base config and leave its protocols as they are
+    for (const f of ['editions/trina/mac-app-store/electron-builder.mas.config.ts', 'editions/trina/microsoft-store/electron-builder.msix.config.ts']) {
+      const src = readFileSync(join(import.meta.dir, '../..', f), 'utf8')
+      expect(src).toContain('...base,')
+      expect(src).not.toContain('protocols')
+    }
+    expect(readFileSync(join(import.meta.dir, '../../editions/trina/microsoft-store/build-resources/appxmanifest.xml'), 'utf8')).toContain('${extensions}')
+  })
+  test('④ strings name the host and never the page', () => {
+    expect(t('ko', 'link.title', { host: 'acme.trina.app' })).toBe('acme.trina.app에 연결할까요?')
+    expect(t('ko', 'link.body')).toBe('직접 받은 링크가 맞을 때만 연결하세요.')
   })
 })
 
@@ -372,11 +542,12 @@ describe('bridge senders', () => {
 })
 
 describe('UI strings', () => {
-  test('welcome examples use the edition domain in every language; formatting preserves reserved and missing parameters', () => {
+  test('the first-run example is the bare name (acme, not a whole address) in every language; formatting preserves reserved and missing parameters', () => {
     for (const { id: locale } of UI_LOCALES) {
-      expect(t(locale, 'welcome.subtitle')).toContain(`acme.${SERVICE_HOSTS.teamDomain}`)
+      // "팀 주소(예: acme)를 알면…": the box takes the bare name; the whole address works too
+      expect(t(locale, 'welcome.subtitle')).toContain('acme')
       expect(t(locale, 'welcome.subtitle')).not.toContain('{domain}')
-      expect(t(locale, 'welcome.placeholder', { domain: 'ignored.test' })).toBe(`acme.${SERVICE_HOSTS.teamDomain}`)
+      expect(t(locale, 'welcome.placeholder', { domain: 'ignored.test' })).toBe(STRINGS[locale]['welcome.label'])
       expect(t(locale, 'err.notTeamServer', { app: 'ignored' })).toContain(PRODUCT.displayName)
       expect(t(locale, 'perm.site.title', { host: 'shop.test' })).toContain('shop.test')
       expect(t(locale, 'perm.site.title')).toContain('{host}')
@@ -522,6 +693,104 @@ describe("the team page's file chooser (Mac App Store build)", () => {
     expect(answer.indexOf('if (!sameDocument()) return')).toBeLessThan(answer.indexOf("'DOM.setFileInputFiles'"))
     // the in-app browser pane does not get it
     expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('setInterceptFileChooserDialog')
+  })
+})
+
+describe('the right-click menu (team page and own screens)', () => {
+  const TEAM = 'https://acme.example.com'
+  const none = { canCut: false, canCopy: false, canPaste: false, canSelectAll: false }
+  const at = (o: Partial<ContextFacts> = {}): ContextFacts => ({ mediaType: 'none', srcURL: '', hasImageContents: false, linkURL: '', selectionText: '', isEditable: false, editFlags: none, ...o })
+  /** on the team page itself, unless `where` says otherwise */
+  const items = (o: Partial<ContextFacts>, locale: UiLocale = 'ko', where: { teamPage: boolean; allowedOrigins: string[] } = { teamPage: true, allowedOrigins: [TEAM] }) => contextMenuItems(at(o), locale, where)
+  /** each item as one word: its action (with "-" when greyed out) or "|" for a line */
+  const shape = (list: ContextItem[]) => list.map((it) => ('id' in it ? `${it.id}${it.enabled ? '' : '-'}` : '|'))
+  const labels = (list: ContextItem[]) => list.map((it) => ('label' in it ? it.label : '|'))
+
+  test('a photo: 이미지 복사 and 이미지 저장…; a link: 링크 복사; selected text: 복사; a text field: the four edit items', () => {
+    const photo = items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/api/rooms/r1/files/f1?thumb=1` })
+    expect(labels(photo)).toEqual(['이미지 복사', '이미지 저장…'])
+    expect(shape(items({ linkURL: 'https://example.org/a' }))).toEqual(['copyLink'])
+    expect(labels(items({ linkURL: 'https://example.org/a' }))).toEqual(['링크 복사'])
+    expect(shape(items({ selectionText: 'hello', editFlags: { ...none, canCopy: true } }))).toEqual(['copy'])
+    expect(labels(items({ selectionText: 'hello', editFlags: { ...none, canCopy: true } }))).toEqual(['복사'])
+    const field = items({ isEditable: true, editFlags: { canCut: true, canCopy: true, canPaste: true, canSelectAll: true } })
+    expect(shape(field)).toEqual(['cut', 'copy', 'paste', '|', 'selectAll'])
+    expect(labels(field)).toEqual(['잘라내기', '복사', '붙여넣기', '|', '모두 선택'])
+    // an empty field: nothing to cut or copy, greyed out rather than gone
+    expect(shape(items({ isEditable: true, editFlags: { ...none, canPaste: true } }))).toEqual(['cut-', 'copy-', 'paste', '|', 'selectAll-'])
+    // in the language of the app's own screens
+    expect(labels(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png` }, 'en'))).toEqual(['Copy Image', 'Save Image As…'])
+    for (const { id: locale } of UI_LOCALES) for (const it of items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: `${TEAM}/x` }, locale)) if ('label' in it) expect(it.label.length).toBeGreaterThan(0)
+  })
+
+  test('only what applies: a linked photo has both groups; a text field leaves out photo and link; empty space has no menu', () => {
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: `${TEAM}/files/view?path=a.png` }))).toEqual(['copyLink', '|', 'copyImage', 'saveImage'])
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, selectionText: 'caption', editFlags: { ...none, canCopy: true } }))).toEqual(['copyImage', 'saveImage', '|', 'copy'])
+    expect(shape(items({ isEditable: true, linkURL: 'https://example.org', selectionText: 'x', editFlags: { ...none, canCopy: true } }))).toEqual(['cut-', 'copy', 'paste-', '|', 'selectAll-'])
+    expect(items({})).toEqual([])
+    // whitespace only, or a selection the page does not let be copied: no 복사
+    expect(items({ selectionText: '  \n', editFlags: { ...none, canCopy: true } })).toEqual([])
+    expect(items({ selectionText: 'secret' })).toEqual([])
+    // a photo still loading (no pixels yet) can be saved, not copied; a video or a canvas gets nothing
+    expect(shape(items({ mediaType: 'image', hasImageContents: false, srcURL: `${TEAM}/a.png` }))).toEqual(['saveImage'])
+    expect(items({ mediaType: 'video', srcURL: `${TEAM}/a.mp4` })).toEqual([])
+    expect(items({ mediaType: 'canvas', hasImageContents: true })).toEqual([])
+    // no Inspect, nothing that opens a link
+    const all = [...items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: `${TEAM}/x`, selectionText: 'x', editFlags: { ...none, canCopy: true } }), ...items({ isEditable: true })]
+    for (const s of shape(all)) expect(['copyImage', 'saveImage', 'copyLink', 'cut', 'copy', 'paste', 'selectAll', '|']).toContain(s.replace(/-$/, ''))
+  })
+
+  test("이미지 저장… only for the team page's own images: its address, its office address, its blob: pictures", () => {
+    const LAN = 'https://192.168.0.10:8443'
+    expect(saveableImage(`${TEAM}/api/rooms/r1/files/f1?thumb=1`, [TEAM])).toBe(true)
+    expect(saveableImage(`${LAN}/api/rooms/r1/files/f1`, [TEAM, LAN])).toBe(true)
+    // the preview panel draws the original from the page's own bytes
+    expect(saveableImage(`blob:${TEAM}/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10`, [TEAM])).toBe(true)
+    expect(saveableImage(`blob:${LAN}/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10`, [TEAM])).toBe(false)
+    // another site, an artifact's picture, an opaque blob, junk
+    for (const src of ['https://example.org/a.png', 'http://acme.example.com/a.png', 'https://acme.example.com.evil.test/a.png', 'data:image/png;base64,iVBORw0KGgo=', 'blob:null/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10', 'file:///etc/hosts', 'javascript:alert(1)', 'not a url', ''])
+      expect({ src, ok: saveableImage(src, [TEAM]) }).toEqual({ src, ok: false })
+    // no team open: nothing is saved
+    expect(saveableImage(`${TEAM}/a.png`, [])).toBe(false)
+    // an image from elsewhere on the team page is still copied
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: 'https://example.org/a.png' }))).toEqual(['copyImage'])
+  })
+
+  test('the photo items only on the team page itself: not in a frame inside it (an artifact), not on the own screens', () => {
+    const LAN = 'https://192.168.0.10:8443'
+    expect(isTeamPage({ url: `${TEAM}/rooms/r1`, top: true }, [TEAM])).toBe(true)
+    expect(isTeamPage({ url: `${LAN}/rooms/r1`, top: true }, [TEAM, LAN])).toBe(true)
+    // an artifact's or a preview's frame, even one at the team address (/sandbox/frame) or about:srcdoc
+    for (const url of [`${TEAM}/sandbox/frame?x=1`, 'about:srcdoc', 'about:blank', `${TEAM}/rooms/r1`]) expect(isTeamPage({ url, top: false }, [TEAM])).toBe(false)
+    // another address in the top frame (a page still loading, the app's own screens), a frame that is gone, no team
+    for (const url of ['https://example.org/', 'about:blank', 'mycel-ui://app/welcome.html', 'not a url']) expect(isTeamPage({ url, top: true }, [TEAM])).toBe(false)
+    expect(isTeamPage(null, [TEAM])).toBe(false)
+    expect(isTeamPage({ url: `${TEAM}/`, top: true }, [])).toBe(false)
+    // an artifact's picture pointing at a team address it could not load: no 이미지 저장… (it would fetch it with the
+    // team's session), no 이미지 복사; its link and text items stay
+    const frame = { teamPage: false, allowedOrigins: [TEAM] }
+    expect(items({ mediaType: 'image', hasImageContents: false, srcURL: `${TEAM}/api/files/download?path=users%2Folga%2Fpay.pdf` }, 'ko', frame)).toEqual([])
+    expect(items({ mediaType: 'image', hasImageContents: true, srcURL: `blob:${TEAM}/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10` }, 'ko', frame)).toEqual([])
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: 'https://example.org/x', selectionText: 'caption', editFlags: { ...none, canCopy: true } }, 'ko', frame))).toEqual(['copyLink', '|', 'copy'])
+    // the app's own screens (no team address): their text fields and links
+    const own = { teamPage: false, allowedOrigins: [] }
+    expect(shape(items({ isEditable: true, editFlags: { ...none, canPaste: true } }, 'ko', own))).toEqual(['cut-', 'copy-', 'paste', '|', 'selectAll-'])
+    expect(shape(items({ linkURL: 'https://acme.example.com/join' }, 'ko', own))).toEqual(['copyLink'])
+  })
+
+  test('wired to the team page (its addresses) and the own screens (none), with no item that opens or navigates', () => {
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const open = win.slice(win.indexOf('async openTeam('), win.indexOf('async reload()'))
+    expect(open).toContain('attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })')
+    expect(win).toContain('attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })')
+    expect(win.match(/attachContextMenu\(/g)).toHaveLength(2)
+    const menu = readFileSync(join(import.meta.dir, '../../desktop/src/main/context-menu.ts'), 'utf8')
+    for (const word of [/openExternal/, /\.loadURL\(/, /inspectElement/, /DevTools/, /\bshell\b/, /\bnavigate/]) expect(menu).not.toMatch(word)
+    // the frame that was right-clicked decides, checked again at the click
+    expect(menu).toContain('const teamPage = () => isTeamPage(clickedFrame(p.frame), o.allowedOrigins())')
+    expect(menu).toContain('copyImage: () => teamPage() && wc.copyImageAt(p.x, p.y)')
+    expect(menu).toContain('saveImage: () => teamPage() && saveableImage(p.srcURL, o.allowedOrigins()) && wc.downloadURL(p.srcURL)')
+    expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('context-menu')
   })
 })
 

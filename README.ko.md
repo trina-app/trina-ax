@@ -8,7 +8,7 @@
 
 회사 서버에서 Claude Code와 Codex가 회사 파일과 팀 스킬로 일해요. 팀원은 브라우저에서 트리나에게 따로 묻거나, 0.4부터는 팀 대화방에서 @트리나를 불러요.
 
-[웹사이트](https://ax.trina.app) · [10분 만에 써 보기](#10분-만에-써-보기) · [직접 설치](docs/for-admins.ko.md) · [문서](docs/README.md)
+[웹사이트](https://ax.trina.app) · [10분 만에 써 보기](#10분-만에-써-보기) · [직접 설치](docs/for-admins.ko.md) · [문서](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
@@ -20,7 +20,7 @@
 
 - **팀장이 한 번 만든 방식대로.** 회사 자료는 `shared/`에, 팀장이 견적서 쓰는 법은 `skills/quote/SKILL.md`에 둬요. 입사 첫날인 사람도 그 방식대로 일해요.
 - **대화방에서 부르면, 결과가 방에.** 팀 대화방에서 @트리나를 부르면 팀 스킬이 내가 열 수 있는 파일로 일하고, 답과 파일이 방에 바로 올라와요.
-- **하던 일, 누구나 이어서** (곧 나와요). 같은 프로젝트 사람이면 동료가 하던 AI 대화를 이어서 하게 돼요. 메시지마다 보낸 사람의 권한으로 돌아요.
+- **하던 일, 누구나 이어서** (다음 0.4 베타부터). 같은 프로젝트 사람이면 누구나 공유 프로젝트 채팅을 이어서 할 수 있어요. 메시지마다 보낸 사람의 권한으로 돌아요.
 
 회사 파일을 넣어도, 각자 볼 수 있는 것만 봐요. [어떻게요?](#속을-들여다보면)
 
@@ -195,11 +195,13 @@ https://github.com/user-attachments/assets/f19762ef-84de-414a-9f5d-69792f319ec7
 
 ## 다음에 나올 것
 
-- **동료가 하던 AI 대화 이어받기.** 공유 프로젝트 대화: 프로젝트 사람 누구나 AI 대화를 이어서 하고, 메시지마다 보낸 사람으로 돌아요. 설계만 했고 아직 만들지 않았어요.
+- **동료가 하던 AI 대화 이어받기.** 공유 프로젝트 채팅이 다음 0.4 베타에 들어가요. 프로젝트 사람 누구나 공유 프로젝트 채팅을 이어서 할 수 있고, 메시지마다 보낸 사람으로 돌아요. 대화방의 @트리나도 물은 사람이 볼 수 있는 채팅은 읽을 수 있어요.
 - **안드로이드 앱.** Google Play 심사 중이에요.
 - **트리나 호스팅의 0.4.** 호스팅은 stable 채널을 따라가서, 0.4가 stable이 되면 대화방이 들어와요. 직접 설치한 서버는 지금도 0.4 릴리스를 쓸 수 있어요.
 
 ## 함께 만들기
+
+질문은 [Discord](https://discord.gg/zUVfSR8MVk)("Trina AX" 서버)에 남기고, 소식은 [X](https://x.com/trina_ax)에서 받아 보세요.
 
 [최신 릴리스와 체크섬](https://github.com/trina-app/trina-ax/releases/latest) · [변경 기록](CHANGELOG.md) · [도움 받기](SUPPORT.md) · [기여하기](CONTRIBUTING.md) · [보안 신고](SECURITY.md) · [개발](docs/DEVELOPMENT.md) · [설정](docs/CONFIGURATION.md) · [기계용 색인](llms.txt)
 

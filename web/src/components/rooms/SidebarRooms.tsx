@@ -11,26 +11,32 @@
 // room on screen still shows); they are under "숨긴 대화" on the conversations page, which "모든 대화" leads to (also
 // below an opened "더 보기" while there are hidden ones). Each row has the room's "⋯" (RoomMenu.tsx) on hover or keyboard
 // focus, in the pill's place, and on a right-click.
+// Rooms I pinned (docs/DECISIONS.md "Pinned conversations") come first, the most recently pinned first, with a small pin
+// after the name and no header of their own: at most ten of them above the five latest of the others (and the room on
+// screen); the rest of them lead "더 보기".
 // Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
-import { BellOff, Plus } from 'lucide-react'
+import { BellOff, Pin, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { badgeText, roomBadge, roomUnread, shownInLists } from '../../lib/rooms'
+import { badgeText, pinnedRooms, roomBadge, roomUnread, shownInLists } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { PeoplePicker } from './PeoplePicker'
 import { RoomIcon, useRoomTitle } from './RoomIcon'
 import { RoomMenu, useRowMenu } from './RoomMenu'
 import { Tooltip } from '../Tooltip'
 import { SidebarSectionTitle } from '../ui'
+import { PresenceText } from '../Presence'
 
 const OPEN_KEY = 'mycel.sidebar.rooms'
 /** the whole list opened ("더 보기"), remembered in this browser like the fold */
 const ALL_KEY = 'mycel.sidebar.roomsAll'
 /** rooms shown before "더 보기" (docs/DECISIONS.md "Desktop sidebar: rooms first") */
 export const ROOMS_SHOWN = 5
+/** pinned rooms shown above them before "더 보기" (docs/DECISIONS.md "Pinned conversations"; as the AI chats' pins) */
+export const PINS_SHOWN = 10
 
 const remembered = (key: string, fallback: string) => {
   try {
@@ -51,6 +57,14 @@ const remember = (key: string, v: string) => {
  * is not one of them. Nothing else: an unread room further down is counted on "더 보기" (hiddenUnread). */
 export function shownRooms<R extends Pick<Room, 'id'>>(rooms: R[], n: number, openId: string | null): R[] {
   return rooms.filter((r, i) => i < n || r.id === openId)
+}
+
+/** The sidebar's rows (rooms by latest activity): my pinned ones first, the most recently pinned first, then the others.
+ * Capped (`all` false): at most PINS_SHOWN pins and ROOMS_SHOWN others, and the room on screen wherever it is. */
+export function sidebarRows<R extends Pick<Room, 'id'> & Partial<Pick<Room, 'pinnedAt'>>>(rooms: R[], openId: string | null, all = false): R[] {
+  const pins = pinnedRooms(rooms)
+  const rest = rooms.filter((r) => !r.pinnedAt)
+  return all ? [...pins, ...rest] : [...shownRooms(pins, PINS_SHOWN, openId), ...shownRooms(rest, ROOMS_SHOWN, openId)]
 }
 
 type Unread = Pick<Room, 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread'>>
@@ -82,9 +96,10 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   const someHidden = rooms.length < everyRoom.length
   const toggle = () => setOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
   const showAll = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAll(v))
-  // the five latest and the room on screen; "더 보기 (N)" opens the rest in place and says what is unread there
-  const capped = shownRooms(rooms, ROOMS_SHOWN, openId)
-  const shown = all ? rooms : capped
+  // my pins (at most ten), the five latest of the others and the room on screen; "더 보기 (N)" opens the rest in place
+  // and says what is unread there
+  const capped = sidebarRows(rooms, openId)
+  const shown = all ? sidebarRows(rooms, openId, true) : capped
   const more = rooms.length - capped.length
   const hidden = all ? null : hiddenUnread(rooms.filter((r) => !capped.includes(r)))
   // a hidden room whose AI waits on me: "?" leads the pill (session markers, docs/DECISIONS.md), amber like the room's
@@ -167,6 +182,14 @@ export function UnreadBadge({ room, className, testId }: { room: Room; className
   )
 }
 
+/** A pinned room's mark after its name (docs/DECISIONS.md "Pinned conversations"): the AI chats' pin, named 고정됨 for
+ * screen readers. */
+export function RoomPinIcon({ room, className }: { room: Pick<Room, 'pinnedAt'>; className?: string }) {
+  const t = useT()
+  if (!room.pinnedAt) return null
+  return <Pin size={12} role="img" aria-label={t('chat.pinned')} className={clsx('shrink-0 text-faint', className)} data-testid="room-pin-icon" />
+}
+
 /** While a row's "⋯" shows (a mouse on the row, the keyboard in it, its menu open), what sits at the row's right end
  * gives way to it: the pill, the bell, and room for the "⋯" at the name's end. Touch screens have no "⋯" (a long press). */
 export const ROW_MENU_SHOWN = 'pointer-fine:group-hover:opacity-0 group-has-[:focus-visible]:opacity-0 group-has-[[aria-expanded=true]]:opacity-0'
@@ -189,22 +212,26 @@ function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
           clsx(
             'flex h-9 items-center gap-2 rounded-lg px-3 text-sm hover:bg-hover max-sm:h-10 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]',
             'pointer-fine:group-hover:pr-9 group-has-[:focus-visible]:pr-9 group-has-[[aria-expanded=true]]:pr-9 group-has-[[aria-expanded=true]]:bg-hover',
+            // the ring of a DM's online dot takes the row's colour (index.css .presence-dot)
+            '[--presence-bg:var(--c-subtle)] hover:[--presence-bg:var(--c-hover)] aria-[current=page]:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
             isActive ? 'bg-hover font-medium text-ink' : unread > 0 ? 'font-semibold text-ink' : 'text-muted',
           )
         }
         data-testid="sidebar-room"
       >
-        <RoomIcon room={room} size={20} />
+        <RoomIcon room={room} size={20} presence />
         {/* a long name is cut; the whole of it on hover */}
         <span className="truncate" title={title}>
           {title}
         </span>
+        {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
         {room.muted && (
           <>
             <BellOff size={12} className={clsx('shrink-0 text-faint', ROW_MENU_SHOWN)} aria-hidden />
             <span className="sr-only">{t('rooms.muted')}</span>
           </>
         )}
+        <RoomPinIcon room={room} className={ROW_MENU_SHOWN} />
         <UnreadBadge room={room} className={clsx('ml-auto', ROW_MENU_SHOWN)} testId="room-unread" />
       </NavLink>
       <RoomMenu

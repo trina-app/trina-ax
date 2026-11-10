@@ -4,8 +4,10 @@
 //    a security step (the server holds the connection until the same person confirms it, docs/GOOGLE-DRIVE.md). Once
 //    linked it is a row in Yours (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
 //    client on this server yet: "Your admin needs to turn this on".
-//    An admin may not let members connect their own (Admin › Connectors › Google Drive): Connect is then off, and a
-//    connection made before says the admin turned it off. A Drive the team shares with the person shows as "Shared by
+//    An admin may not let members connect their own (Admin › Connectors › Google Drive): Connect is then off for
+//    members, and a connection made before says the admin turned it off. An owner or admin gets one button instead,
+//    "팀원도 연결할 수 있게 켜고 내 드라이브 연결하기": their own sign-in, and the switch turns on only once they confirm
+//    the account (docs/DECISIONS.md "W6"; the welcome steps' 도구 연결 row does the same). A Drive the team shares with the person shows as "Shared by
 //    your team" with its folders, with nothing to connect (DriveTeamShares).
 //  - Admin › Connectors: its page (DriveAdminDetail) says Not set up, Ready to set up (a Google client is there, nothing
 //    is on yet) or On (members may connect their own, or a Drive is shared with the team), with the one-time setup (or
@@ -18,6 +20,7 @@ import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
 import { api, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useT } from '../../i18n'
+import { isAdmin, useMe } from '../../store/session'
 import { Badge, Button, Field, inputCls, Modal, useCopy } from '../ui'
 import type { DriveConnectionState } from '../settings/DriveConnection'
 import { ConnectorDetail, LogoTile } from './ConnectorsView'
@@ -44,6 +47,7 @@ export function DriveLogo({ className }: { className?: string }) {
  * it, so a Google sign-in started by someone else can never land in this person's Drive connection). */
 export function useDriveParts(s: DriveConnectionState) {
   const t = useT()
+  const admin = isAdmin(useMe())
   const c = s.connection
   const { d } = s
   const linked = driveLinked(c)
@@ -51,6 +55,8 @@ export function useDriveParts(s: DriveConnectionState) {
   const unavailable = !!c && !c.configured
   // the admin did not let members connect their own: Connect is off, and one made before is not used
   const off = !!c && c.configured && !drivePersonalAllowed(c)
+  // an owner or admin connects their own anyway, and turns the switch on with it at the confirm (docs/DECISIONS.md "W6")
+  const turnOn = off && admin && !linked
   const shares = c?.teamShares ?? []
   const flow = d.inProgress ? d.flow : null
 
@@ -59,6 +65,7 @@ export function useDriveParts(s: DriveConnectionState) {
   else if (unavailable) line = t('connectors.adminNeeded')
   else if (off && linked) line = t('drive.membersOffLinked')
   else if (off && shares.length) line = t('drive.teamShared', { name: shares.map((x) => x.name).join(', ') })
+  else if (turnOn) line = t('drive.cardDesc')
   else if (off) line = t('connectors.adminNeeded')
   else if (reconnect) line = t('drive.status.needs_reconnect')
   else if (linked && c?.account) line = c.account.email ?? c.account.name ?? t('drive.status.connected')
@@ -67,6 +74,8 @@ export function useDriveParts(s: DriveConnectionState) {
     ? (s.loadFailed ? <Button size="sm" onClick={s.load} data-testid="drive-retry">{t('common.retry')}</Button> : null)
     : unavailable
       ? <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
+      : turnOn
+        ? (flow ? null : <Button size="sm" variant="primary" busy={d.busy} onClick={s.start} data-testid="drive-connect">{t('drive.turnOnConnect')}</Button>)
       : off
         ? linked
           ? <CardMenu label={t('appConnectors.more', { name: DRIVE.name })} testId="drive-menu" items={[
@@ -104,7 +113,7 @@ export function useDriveParts(s: DriveConnectionState) {
       {flow?.state === 'ready' && (
         <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="drive-confirm-step">
           <span role="status" className="min-w-0 flex-1">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-account">{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></span>
-          <Button size="sm" variant="primary" busy={d.busy} onClick={d.complete} data-testid="drive-confirm">{t('drive.confirm')}</Button>
+          <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete(admin ? { membersOn: true } : {})} data-testid="drive-confirm">{t('drive.confirm')}</Button>
           <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
         </div>
       )}
@@ -112,8 +121,8 @@ export function useDriveParts(s: DriveConnectionState) {
       {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
     </>
   )
-  const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : off && !linked ? (shares.length ? 'team' : 'off') : c.status
-  return { line, action, steps, state, linked, reconnect, unavailable, off, shares, busy: !!flow }
+  const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : turnOn ? 'turn-on' : off && !linked ? (shares.length ? 'team' : 'off') : c.status
+  return { line, action, steps, state, linked, reconnect, unavailable, off, turnOn, shares, busy: !!flow }
 }
 
 /** The Drives the team shares with this person: nothing to connect, the AI can use them in their chats. */

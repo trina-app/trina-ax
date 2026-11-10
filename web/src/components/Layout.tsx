@@ -7,7 +7,7 @@ import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
-import { closeSidePanel, keepsFilePanel, openArtifact, setSidePanel, typingOnPhone, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -37,6 +37,8 @@ export default function Layout() {
   const setDrawer = useUi((s) => s.setDrawer)
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const panel = useSidePanel()
+  // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the sidebar; the page stays mounted, hidden
+  const big = usePanelExpanded() && expandable(panel)
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
@@ -49,7 +51,7 @@ export default function Layout() {
     return () => setNavigator(null)
   }, [navigate])
 
-  // keyboard: ⌘/Ctrl+K search, ⌘/Ctrl+Shift+O new chat, Esc closes the side panel
+  // keyboard: ⌘/Ctrl+K search, ⌘/Ctrl+Shift+O new chat, Esc: a big side panel back side by side, then closed
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
@@ -59,9 +61,11 @@ export default function Layout() {
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         navigate('/')
-      } else if (e.key === 'Escape' && !document.querySelector('[role="dialog"]:not([data-drawer])')) {
-        if (useUi.getState().drawerOpen) setDrawer(false)
-        else closeSidePanel()
+      } else if (e.key === 'Escape') {
+        const step = escapeAction({ dialog: !!document.querySelector('[role="dialog"]:not([data-drawer])'), drawer: useUi.getState().drawerOpen, expanded: panelExpandedNow() })
+        if (step === 'drawer') setDrawer(false)
+        else if (step === 'side-by-side') setPanelExpanded(false)
+        else if (step === 'close') closeSidePanel()
       }
     }
     window.addEventListener('keydown', h)
@@ -103,6 +107,9 @@ export default function Layout() {
   }, [location.pathname])
 
   useEffect(() => setDrawer(false), [location.pathname, setDrawer])
+  // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
+  // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
+  useEffect(() => setPanelExpanded(false), [location.key])
 
   // the app is exactly the window: only the areas inside it scroll (index.css html.app-shell)
   useEffect(() => {
@@ -112,7 +119,8 @@ export default function Layout() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <a href="#main" className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
+      {/* a big side panel hides the page: the panel is what there is to skip to */}
+      <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
       </a>
       <DemoOrDevBanner />
@@ -134,7 +142,7 @@ export default function Layout() {
             </div>
           </div>
         )}
-        <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col outline-none">
+        <main id="main" tabIndex={-1} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
           {/* a web browser not asked about notifications yet: one line, here on a computer (components/WebPushAsk.tsx) */}
           <WebPushAsk at="top" />
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}
@@ -154,7 +162,7 @@ export default function Layout() {
         </main>
         {panel && (
           // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums
-          <SidePanelFrame besideThread={!!matchPath('/rooms/:roomId/t/:messageId', location.pathname)}>
+          <SidePanelFrame besideThread={!!matchPath('/rooms/:roomId/t/:messageId', location.pathname)} expanded={big}>
             <ChunkErrorBoundary resetKey={panel.kind === 'file' ? `file:${panel.key}` : panel.kind === 'artifact' ? `artifact:${panel.chatId}:${panel.artifactKey}:${panel.versionId ?? ''}` : panel.kind}>
               <Suspense fallback={<Spinner className="p-6" />}>
                 {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}

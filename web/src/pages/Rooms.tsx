@@ -1,11 +1,14 @@
 // The rooms list (/rooms; the 대화 tab on phones): first a pinned row for the AI chat (like KakaoTalk's "나와의
-// 채팅"; called like "@트리나" in the Trina edition), then my rooms by latest activity, each with its last line, when,
-// and my unread count. Rows are separated by hairlines on computers and by their own spacing on phones, no cards.
+// 채팅"; called like "@트리나" in the Trina edition, with the face it has in rooms: rooms/AiFace.tsx), then my rooms by
+// latest activity, each with its last line, when, and my unread count. Rows are separated by hairlines on computers
+// and by their own spacing on phones, no cards.
 // "새 대화" opens the people list for a DM or a group chat (/rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
 // chat icon, components/Layout.tsx): no second title row here.
 // Each row has the room's "⋯" (components/rooms/RoomMenu.tsx) on hover or keyboard focus and with a right-click; on a
 // phone a long press opens it as a sheet. Rooms I hid (docs/DECISIONS.md "대화 숨기기") are not in the list: a quiet
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
+// Rooms I pinned (docs/DECISIONS.md "Pinned conversations") come right after the AI's row, all of them, the most
+// recently pinned first, with the sidebar's pin after the name; then the others by latest activity.
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
@@ -14,18 +17,20 @@ import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { plainLine, roomUnread } from '../lib/rooms'
+import { pinnedFirst, plainLine, roomUnread } from '../lib/rooms'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
+import { AiFace } from '../components/rooms/AiFace'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, UnreadBadge } from '../components/rooms/SidebarRooms'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/rooms/SidebarRooms'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
+import { PresenceText } from '../components/Presence'
 
 
 export default function Rooms() {
@@ -43,7 +48,7 @@ export default function Rooms() {
   const setPicking = (on: boolean) => setParams(on ? { new: '1' } : {}, { replace: true })
   const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
   if (resuming) return <div className="h-full" />
-  const rooms = everyRoom.filter((r) => !r.hidden)
+  const rooms = pinnedFirst(everyRoom.filter((r) => !r.hidden))
   const hidden = everyRoom.filter((r) => r.hidden)
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page">
@@ -62,7 +67,7 @@ export default function Rooms() {
           {/* computers only: a phone has the AI as its own tab (트리나), first in the tab bar */}
           <li className="max-md:hidden">
             <Link to="/" className={row} data-testid="rooms-ai">
-              <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
+              <AiFace size={40} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-base font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
                 <span className="block truncate text-sm text-muted">{t('rooms.ai.hint')}</span>
@@ -150,19 +155,23 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   return (
     <li className="group relative" {...menu.row}>
     <Link to={`/rooms/${room.id}`} onClick={menu.guard} className={clsx(className, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover',
+      // the ring of a DM's online dot takes the row's colour (index.css .presence-dot)
+      '[--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
       // while the "⋯" shows over the row's end, the preview stops before it (the time and the count give way)
       'pointer-fine:group-hover:pr-14 group-has-[:focus-visible]:pr-14 pointer-fine:group-has-[[aria-expanded=true]]:pr-14')} data-testid="rooms-row">
-      <RoomIcon room={room} size={40} tile />
+      <RoomIcon room={room} size={40} tile presence />
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}>{title}</span>
+          {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>
               <BellOff size={12} className="shrink-0 text-faint" aria-hidden />
               <span className="sr-only">{t('rooms.muted')}</span>
             </>
           )}
+          <RoomPinIcon room={room} />
           {m && <span className={clsx('ml-auto shrink-0 pl-2 text-xs text-faint', ROW_MENU_SHOWN)}>{listTime(m.createdAt, locale, t('sidebar.yesterday'))}</span>}
         </span>
         <span className="flex min-w-0 items-center gap-2">

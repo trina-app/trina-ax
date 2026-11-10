@@ -10,6 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { setBoxdClient, type BoxdClient } from '../../server/src/devenv/boxd'
 import { devEnvFlag, devEnvSetting, mayUseBox, OFF_SETTING, saveDevEnvSetting, newConsent } from '../../server/src/devenv/setting'
 import { diffSnapshots, readInside, skipName, takeSnapshot, SnapshotStore } from '../../server/src/devenv/snapshot'
@@ -61,7 +62,7 @@ beforeAll(async () => {
   h = await startHarness({ name: 'dev-env', askUserTimeoutMs: 5000, turnTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-alice-dev' })
   await alice.next('hello')
-  projectId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: FOLDER, instructions: '' } })).id
+  projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: FOLDER, instructions: '' })).id
   setBoxdClient(fakeBoxd)
 })
 afterAll(async () => { setBoxdClient(null); delete process.env.MYCEL_DEV_ENV; delete process.env.MYCEL_DEV_PREVIEW_ORIGIN; alice?.close(); await h.close() })

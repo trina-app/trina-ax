@@ -76,9 +76,13 @@ describe('scheduled runs through the chat runtime', () => {
     const r = await run('carol', 'Team rule', fake({ tool: 'write', args: { file_path: 'skills/예약-QA.md', content: '# 예약 QA\n- 오늘 날짜\n' }, sayResult: true }))
     // the run itself ended normally with an answer …
     expect(r.turn.status).toBe('done')
-    expect((h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant'").get(r.chatId) as { content: string }).content).toContain('did not allow saving')
-    // … but its write was refused because nobody could confirm it
-    expect(h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turn.id)).toEqual({ summary: 'write -> not allowed by the user (team skills)', ok: 0 })
+    // … but its write was refused because nobody could confirm it, and the AI is told so: never "the user did not allow"
+    // for a card nobody saw (docs/DECISIONS.md "Refusals say why, who and what next")
+    const said = (h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant'").get(r.chatId) as { content: string }).content
+    expect(said).toContain("Nothing was saved to 'skills/예약-QA.md' in skills/")
+    expect(said).toContain('Why: nobody could be asked: this is a scheduled run')
+    expect(said).not.toContain('did not allow')
+    expect(h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turn.id)).toEqual({ summary: 'write -> nobody to ask (scheduled run) (team skills)', ok: 0 })
     const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.ai_write_refused' AND target = 'skills/예약-QA.md'").get() as { detail: string }
     expect(JSON.parse(audit.detail)).toMatchObject({ turnId: r.turn.id, answer: 'none' })
     expect(r.turn.run_outcome).toBe('problems')

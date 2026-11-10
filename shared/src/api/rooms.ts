@@ -27,10 +27,14 @@
 // full list, and opening it brings it back. It comes back by itself when something for them arrives (the server decides
 // it when the message is stored: a DM's new message, a mention, a reply in a thread they follow, an answer to their own
 // question, a card of their question to the AI); a room still hidden notifies them of nothing.
+//
+// Pinning (docs/DECISIONS.md "Pinned conversations"): a member pins a room to the top of their own lists (pinRoom,
+// Room.pinnedAt). Nobody else is told. Hiding a room unpins it, and a hidden room cannot be pinned.
 import { z } from 'zod'
+import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
-import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
+import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
@@ -164,6 +168,110 @@ export const roomRefsByIdOnly = (text: string) => text.replace(ROOM_REF_RE, (_al
 /** The message as people read it: each token as "#<title>" (lists, titles, a text box to edit it in). */
 export const plainRoomRefs = (text: string) => text.replace(ROOM_REF_RE, (_all, title: string) => `#${title}`)
 
+/**
+ * The thread a side chat question is about (docs/DECISIONS.md "Trina side chat: send here"): a question about a room
+ * message (web SideChatPanel withQuote) starts with the message quoted, and the quote's header line ("> <who> · <when>")
+ * ends with ` (thread_id <id> in this room)`, the message's thread root (its own id, or its thread's first message), only
+ * when that message can have a thread. Like the file quote's `file_id`, the AI reads it as is (room_read's `thread`). The
+ * app hides it wherever it shows the question, and an answer of the side chat goes to that thread with one click. Only
+ * the first line of a message counts: the quote is always at the top.
+ */
+const THREAD_REF_RE = /^(> [^\n]*?) \(thread_id ([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}) in this room\)(?=\n|$)/
+/** The token at the end of a quote's header line. */
+export const threadRefToken = (rootId: string) => ` (thread_id ${rootId} in this room)`
+/** The thread root a question's quote names, or null. */
+export const threadRefOf = (text: string): string | null => THREAD_REF_RE.exec(text)?.[2] ?? null
+/** The question as people read it: the quote's header without the token. */
+export const hideThreadRef = (text: string): string => text.replace(THREAD_REF_RE, '$1')
+/** Does a side chat question start with a quote (a message or a file of the room asked about)? */
+export const quotesRoom = (content: string) => content.startsWith('> ')
+/**
+ * Where an answer of a side chat goes (docs/DECISIONS.md "Trina side chat: send here"), from the questions above it on its
+ * branch, the nearest first: the first that quotes something decides, its token's thread, or the room (null) when it has
+ * none (a file, a message that cannot have a thread, an older chat); a follow-up without a quote keeps what an earlier
+ * one said. No question quotes anything: the room. One rule for the button under an answer (web lib/sideChatSend.ts) and
+ * the AI's post_to_room (server chat/post-to-room.ts).
+ */
+export function nearestThreadOf(questionsNearestFirst: Iterable<string>): string | null {
+  for (const q of questionsNearestFirst) if (quotesRoom(q)) return threadRefOf(q)
+  return null
+}
+
+/** The quote a side chat question starts with (web SideChatPanel withQuote), as people read it: a message (who, when, its
+ * lines) or a file sent in the room (its name), then the question asked about it ('' when files went alone). null: the
+ * question does not start with one. The bubble shows it as a quote (web components/chat/Messages.tsx UserText) and a new
+ * chat's title is the question, not the quote (server chat/title.ts). */
+export type SideQuote =
+  | { kind: 'message'; author: string; at: string; text: string; question: string }
+  | { kind: 'file'; name: string; question: string }
+export function sideQuoteOf(content: string): SideQuote | null {
+  const shown = hideThreadRef(content)
+  if (!shown.startsWith('> ')) return null
+  const cut = shown.indexOf('\n\n')
+  const block = (cut < 0 ? shown : shown.slice(0, cut)).split('\n')
+  const question = cut < 0 ? '' : shown.slice(cut + 2)
+  if (block.some((l) => !l.startsWith('>'))) return null
+  const file = /^> 📎 (.+) \(file_id \S+ in this room\)$/.exec(block[0]!)
+  if (file) return block.length === 1 ? { kind: 'file', name: file[1]!, question } : null
+  const head = block[0]!.slice(2), at = head.lastIndexOf(' · ')
+  if (at < 0 || block.length < 2) return null
+  return { kind: 'message', author: head.slice(0, at), at: head.slice(at + 3), text: block.slice(1).map((l) => l.replace(/^> ?/, '')).join('\n'), question }
+}
+
+/** The quick questions of a side chat under a quoted message or file (web SideChatPanel): the button's word and the
+ * question it sends, in each language. One source for the app and for a new chat's title ("요약: <the quote's first
+ * words>", server chat/title.ts), which recognizes them in any language. */
+export const SIDE_CHAT_QUICK = {
+  translate: {
+    label: { ko: '번역', en: 'Translate', id: 'Terjemahkan', ja: '翻訳', es: 'Traducir' },
+    ask: { ko: '이 메시지를 한국어로 번역해 줘.', en: 'Translate this message into English.', id: 'Terjemahkan pesan ini ke bahasa Indonesia.', ja: 'このメッセージを日本語に翻訳してください。', es: 'Traduce este mensaje al español.' },
+  },
+  summarize: {
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
+    ask: { ko: '이 메시지를 요약해 줘. 스레드가 있으면 스레드도 요약해 줘.', en: 'Summarize this message. If it has a thread, summarize the thread too.', id: 'Ringkas pesan ini. Kalau ada thread, ringkas thread-nya juga.', ja: 'このメッセージを要約してください。スレッドがあればスレッドも要約してください。', es: 'Resume este mensaje. Si tiene un hilo, resume también el hilo.' },
+  },
+  explain: {
+    label: { ko: '설명', en: 'Explain', id: 'Jelaskan', ja: '説明', es: 'Explicar' },
+    ask: { ko: '이 메시지를 쉬운 말로 설명해 줘.', en: 'Explain this message in plain words.', id: 'Jelaskan pesan ini dengan kata-kata sederhana.', ja: 'このメッセージをわかりやすく説明してください。', es: 'Explica este mensaje con palabras sencillas.' },
+  },
+  fileSummarize: {
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
+    ask: { ko: '이 파일을 요약해 줘.', en: 'Summarize this file.', id: 'Ringkas file ini.', ja: 'このファイルを要約してください。', es: 'Resume este archivo.' },
+  },
+  fileKeyPoints: {
+    label: { ko: '핵심 정리', en: 'Key points', id: 'Poin penting', ja: '要点', es: 'Puntos clave' },
+    ask: { ko: '이 파일의 핵심(결정, 숫자, 날짜, 해야 할 일)을 정리해 줘.', en: 'List the key points of this file: decisions, numbers, dates and what someone must do.', id: 'Tulis poin penting file ini: keputusan, angka, tanggal, dan yang harus dikerjakan.', ja: 'このファイルの要点（決定事項、数字、日付、やること）をまとめてください。', es: 'Enumera los puntos clave de este archivo: decisiones, cifras, fechas y tareas.' },
+  },
+  fileCheck: {
+    label: { ko: '검토', en: 'Check it', id: 'Periksa', ja: 'チェック', es: 'Revisar' },
+    ask: { ko: '이 파일에서 틀린 곳, 빠진 곳, 이상한 곳을 검토해 줘.', en: 'Check this file for mistakes, gaps and anything that looks wrong.', id: 'Periksa file ini: kesalahan, bagian yang kurang, dan yang terlihat janggal.', ja: 'このファイルの誤り、抜け、おかしな点を確認してください。', es: 'Revisa este archivo en busca de errores, huecos y cosas que parezcan incorrectas.' },
+  },
+  fileSave: {
+    label: { ko: '팀 폴더에 저장', en: 'Save to a team folder', id: 'Simpan ke folder tim', ja: 'チームフォルダに保存', es: 'Guardar en una carpeta del equipo' },
+    ask: { ko: '이 파일을 팀 폴더에 저장해 줘.', en: 'Save this file to a team folder.', id: 'Simpan file ini ke folder tim.', ja: 'このファイルをチームフォルダに保存してください。', es: 'Guarda este archivo en una carpeta del equipo.' },
+  },
+} as const satisfies Record<string, { label: Record<Locale, string>; ask: Record<Locale, string> }>
+export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
+/** The one button under a side chat's answer (web components/rooms/SendHere.tsx), in each language: to the asked
+ * message's thread, or to the room. One source for the app and for the AI's side panel instructions (server
+ * chat/prompt.ts sideRoomSection), which name it as the person sees it. */
+export const SIDE_CHAT_SEND = {
+  thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo' },
+  room: { ko: '대화방에 보내기', en: 'Send to room', id: 'Kirim ke ruang', ja: 'ルームに送る', es: 'Enviar a la sala' },
+} as const satisfies Record<string, Record<Locale, string>>
+/** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
+ * save_room_file, whose card says where and who will see it) */
+export const SIDE_QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const satisfies readonly SideChatQuick[]
+export const SIDE_QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave'] as const satisfies readonly SideChatQuick[]
+/** Which quick question this text is, exactly, and in which language; null: a question of the person's own. */
+export function sideQuickOf(question: string): { key: SideChatQuick; locale: Locale } | null {
+  const q = question.trim()
+  for (const key of Object.keys(SIDE_CHAT_QUICK) as SideChatQuick[]) {
+    for (const [locale, ask] of Object.entries(SIDE_CHAT_QUICK[key].ask) as [Locale, string][]) if (ask === q) return { key, locale }
+  }
+  return null
+}
+
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
  * (`?thumb=1`: an image's small preview when `thumb` is true). */
@@ -273,8 +381,16 @@ export const RoomMessage = z.object({
     /** members who were not in the room yet when a message the AI was given was written (their names) */
     joinedLater: z.array(z.string()).optional(),
     /** an old answer hidden from some member (one who joined a team room or the everyone room later and cannot open
-     * what it used) was among the messages the AI was given; never who */
-    hidden: z.literal(true).optional() }).optional(),
+     * what it used) was among the messages the AI was given and what it used cannot all be shown to the person who
+     * asked (or a member's history is not worked out yet); never who. Not postable: the app shows no button and the
+     * server refuses it (409 room_ai_hidden) */
+    hidden: z.literal(true).optional(),
+    /** such old answers were given and what they were built on is in `folders` / `personal`: postable like them
+     * (docs/DECISIONS.md "방에 올리기…") */
+    earlier: z.literal(true).optional(),
+    /** for each folder of `folders`, how many members (not the person who asked) cannot see it; counts only, never
+     * who. Absent: a preview decided before the counts */
+    unable: z.record(z.string(), z.number().int().nonnegative()).optional() }).optional(),
   /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
    * text (no link, no picture loaded) */
   openable: z.array(z.string()).optional(),
@@ -301,6 +417,11 @@ export const RoomMessage = z.object({
    * AI's answer"; its team-file links are checked in `openable` like an AI message's). The author is still me. cut: the
    * answer was longer than fits and ends with a line that says so. Never on a deleted message */
   sharedAnswer: z.object({ at: z.number().int().nonnegative(), cut: z.boolean() }).optional(),
+  /** a shared answer that went with copies of the files it links to ("첨부해서 보내기"): its links (as `answerFilePaths`
+   * names them, text its body has) whose file is one of `files`, with that file's id. The app opens the team file when
+   * the link is in `openable`, else this copy, and shows a lock only when there is neither. Only files of this message;
+   * never the path a copy was made from. Absent: nothing attached, or an older message */
+  attachedLinks: z.array(z.object({ path: z.string(), fileId: Uuid7 })).optional(),
   /** an old answer hidden from me (docs/DECISIONS.md "지난 대화"): I joined this team room or the everyone room after
    * it, and it used something I cannot open (or what it used is not known). Shown as one line in its place: body is ''
    * and nothing of it comes (no files, sources, links, reactions or thread); who asked it (askedBy) or shared it
@@ -423,6 +544,9 @@ export const Room = z.object({
   /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my sidebar's rows, my counts and badges, and listed under
    * "숨긴 대화" at the end of the full list. Absent = shown (older servers never hide). */
   hidden: z.literal(true).optional(),
+  /** when I pinned it to the top of my 대화 list ("상단에 고정", POST /api/rooms/:id/pin; docs/DECISIONS.md "Pinned
+   * conversations"). Mine only: nobody else in the room sees my pin. Never with hidden. Absent = not pinned. */
+  pinnedAt: IsoTime.optional(),
 })
 export type Room = z.infer<typeof Room>
 
@@ -450,9 +574,49 @@ export const SetRoomHiddenBody = z.object({ hidden: z.boolean() }).strict()
  * now on, never what was said before. */
 export const InviteRoomBody = z.object({ userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
 
-/** Without a cursor: the newest `limit` messages, oldest first; nextCursor fetches older ones (prepend). */
-export const ListRoomMessagesQuery = PageQuery
-export const RoomMessagesPage = page(RoomMessage)
+/** Without a cursor: the newest `limit` messages, oldest first; nextCursor fetches older ones (prepend).
+ * around: the page around this message of the timeline (a thread reply: its thread's first message), for a link or a
+ * search result older than the newest page; newerCursor then fetches newer ones (append) until it is null (the page
+ * reaches the newest). A message I cannot see is not looked for: the newest page, as without it. A cursor from
+ * newerCursor gives the next newer page (and nextCursor null). */
+export const ListRoomMessagesQuery = PageQuery.extend({ around: Uuid7.optional() })
+/** newerCursor: present only for a page that does not reach the newest message (around, or a newer page) */
+export const RoomMessagesPage = page(RoomMessage).extend({ newerCursor: z.string().nullable().optional() })
+export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
+
+/** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): the text as one part, in
+ * any case, newest first. */
+export const ROOM_SEARCH_PAGE_MAX = 30
+export const ROOM_SEARCH_SNIPPET_MAX = 200
+export const RoomSearchQuery = z.object({
+  /** (no NUL: it would end the index's query) */
+  q: z.string().trim().min(1).max(200).refine((s) => !s.includes('\u0000'), { message: 'invalid character' }),
+  cursor: z.string().max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional(),
+})
+/** A message found: who wrote it and when, and the text around the first match (at most ROOM_SEARCH_SNIPPET_MAX
+ * characters, … where it is cut, a room link as #name). threadRootId: a reply in that message's thread (it opens the
+ * thread). The text is the message's own, as the room shows it to me: never a quote, a file or an answer hidden from me. */
+export const RoomSearchHit = z.object({
+  id: Uuid7,
+  roomId: Uuid7,
+  threadRootId: Uuid7.nullable(),
+  authorKind: z.enum(['user', 'ai']),
+  /** the person who wrote it (null: the AI's answer, or someone no longer here) */
+  author: UserRef.nullable(),
+  /** an AI answer: who asked it */
+  askedBy: UserRef.nullable(),
+  /** the text is Markdown (an AI answer, or an answer someone sent from their own AI chat) */
+  markdown: z.boolean(),
+  snippet: z.string(),
+  createdAt: IsoTime,
+})
+export type RoomSearchHit = z.infer<typeof RoomSearchHit>
+/** The rooms of the hits on a page, as much as their titles need (the app names them as in its lists) */
+export const RoomSearchRoom = z.object({ id: Uuid7, kind: RoomKind, name: z.string().nullable(), peers: z.array(UserRef), memberCount: z.number().int().nonnegative() })
+export type RoomSearchRoom = z.infer<typeof RoomSearchRoom>
+export const RoomSearchPage = z.object({ items: z.array(RoomSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
+export type RoomSearchPage = z.infer<typeof RoomSearchPage>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
@@ -496,11 +660,12 @@ export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message and my notification level; alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
-  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it.' }),
+  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
+  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: the text as one part, any case; Korean by part of a word), newest first, with the text around the match and the rooms of the hits.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
@@ -511,10 +676,13 @@ export const ROOMS = {
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
   inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
   removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
-  setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). It comes back by itself when something for me arrives.' }),
+  setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). Hiding unpins it. It comes back by itself when something for me arrives.' }),
+  pinRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Pin a room I am in to the top of my own conversation list ("Pin to top"; nobody else is told). Pinned already: unchanged. A hidden room: 409 room_hidden (hiding unpins it). At most 50 pins (409 room_pins_full). My other windows hear it (room.updated).' }),
+  unpinRoom: endpoint({ method: 'DELETE', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Unpin a room ("Unpin"); not pinned: unchanged. My other windows hear it (room.updated).' }),
   leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
-  roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview.' }),
+  roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
   getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),
   stopRoomAi: endpoint({ method: 'POST', path: '/api/rooms/:id/ai/:turnId/stop', auth: 'user', owner: 'B', response: z.object({ stopped: z.boolean() }), summary: 'Stop the AI answering my question (only the person who asked; anyone else gets 404).' }),
   shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', response: RoomMessage, summary: 'Post my private preview of an AI answer to the room: sources some member cannot read are left out; it notifies like a new message and is audited.' }),

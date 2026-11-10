@@ -6,6 +6,7 @@ import type { Database } from 'bun:sqlite'
 import type { Locale } from '@mycel/shared/api'
 import { audit } from './audit'
 import { checkBudgets, PERIOD, periodStart } from './budgets'
+import { teamTimeZone } from './settings'
 import { ct } from '../credentials/i18n'
 import { admins, type Notice } from '../credentials/store'
 
@@ -22,7 +23,9 @@ export function afterUsage(db: Database, userId: string, notify: (n: Notice, to?
     const tok = b.limitTokens !== null && b.limitTokens > 0 ? b.usedTokens / b.limitTokens : 0
     const ratio = Math.max(usd, tok)
     const levels: ('near' | 'reached')[] = b.action === 'block' ? ['near', 'reached'] : ['reached']
-    const period = periodStart(b.period, now).toISOString()
+    // the team's day / month, as checkBudgets counted it: in the server's zone (UTC on a hosted server) a Korean team's
+    // two days could share one key, and the second day's notice was never sent
+    const period = periodStart(b.period, now, teamTimeZone(db)).toISOString()
     for (const level of levels) {
       if (ratio < (level === 'near' ? 0.8 : 1)) continue
       if (!db.query('INSERT OR IGNORE INTO budget_notices (budget_id, period_start, level) VALUES (?, ?, ?)').run(b.id, period, level).changes) continue

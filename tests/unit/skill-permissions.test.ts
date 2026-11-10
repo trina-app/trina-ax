@@ -143,6 +143,54 @@ describe('listing and reading (real folder rules)', () => {
   })
 })
 
+describe('project skills by folder rules (docs/DECISIONS.md "Project skills")', () => {
+  const e = makeEnv('skill-permissions-project')
+  layout(e.fx.team, e.db)
+  const FALCON = { id: '01900000-0000-7000-8000-0000000f5001', name: 'Falcon', folderPath: 'projects/falcon' }
+  e.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(FALCON.id, 'Falcon', 'projects/falcon', 'alice', new Date().toISOString())
+  fs.mkdirSync(path.join(e.fx.team, 'projects/falcon/skills/launch'), { recursive: true })
+  fs.writeFileSync(path.join(e.fx.team, 'projects/falcon/skills/launch/SKILL.md'), '---\nname: launch\ndescription: PROJECT-PERM-CANARY\n---\nsteps\n')
+  afterAll(() => e.db.close())
+  const who = (id: string) => e.files.principal(id)
+  const has = (id: string) => listSkills(e.files, who(id), { project: FALCON }).some((s) => s.path === 'projects/falcon/skills/launch/SKILL.md')
+  const writes = (id: string) => e.files.rules().access(who(id), ['projects', 'falcon', 'skills']) === 'write'
+
+  test('who reads the project folder gets them in its chats; who writes it edits them (as group skills)', () => {
+    // alice writes projects/falcon, finance (bob) reads it, erin has no access; admins and the owner read every team folder
+    expect(['alice', 'bob', 'carol', 'dana', 'erin'].map(has)).toEqual([true, true, true, true, false])
+    expect(['alice', 'bob', 'erin'].map(writes)).toEqual([true, false, false])
+    // the prompt's "save one for this project" line follows the same rule
+    expect(skillsSection(e.files, who('alice'), undefined, null, { project: FALCON })).toContain('projects/falcon/skills/<short-name>/SKILL.md')
+    expect(skillsSection(e.files, who('bob'), undefined, null, { project: FALCON })).not.toContain('projects/falcon/skills/<short-name>/SKILL.md')
+  })
+
+  test('a rule on projects/<name>/skills narrows who gets them, within the project', () => {
+    const folder = 'f_falcon_skills_' + newId()
+    e.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(folder, 'projects/falcon/skills')
+    e.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', 'none')").run(newId(), folder)
+    try {
+      expect(has('bob')).toBe(false)
+      expect(has('alice')).toBe(true)
+      expect(readSkill(e.files, who('bob'), 'projects/falcon/skills/launch/SKILL.md', { project: FALCON })).toBeNull()
+    } finally {
+      e.db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(folder)
+      e.db.query('DELETE FROM folders WHERE id = ?').run(folder)
+    }
+  })
+
+  test('a project skill counts nowhere else: no "/name" outside the project, no usage, no popular list', () => {
+    const all = listSkills(e.files, who('alice'))
+    expect(invokedSkill(all, '/launch')).toBeNull()
+    expect(JSON.stringify(skillsSection(e.files, who('alice')))).not.toContain('PROJECT-PERM-CANARY')
+    const chat = newId(), turn = newId()
+    e.db.query('INSERT INTO chats (id, user_id) VALUES (?, ?)').run(chat, 'alice')
+    e.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at) VALUES (?,?,?,?,'done',?)").run(turn, chat, 'alice', 'claude-code', new Date(Date.now() - 3_600_000).toISOString())
+    recordSkillUse(e.db, { turnId: turn, userId: 'alice', skill: { path: 'projects/falcon/skills/launch/SKILL.md', name: 'launch' }, source: 'command' })
+    expect(e.db.query('SELECT COUNT(*) AS n FROM turn_skill_usage WHERE turn_id = ?').get(turn)).toEqual({ n: 0 })
+    expect(popularSkills(e.db, e.files, who('alice')).items).toEqual([])
+  })
+})
+
 describe('turns through the chat runtime (HTTP, no WebSocket)', () => {
   let h: Harness
   beforeAll(async () => {

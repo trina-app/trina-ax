@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError, uuidv7 } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
 import { historyBlock, historyTrimmed, historyWindow, memoryBlock, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
 import { searchSources, composeMessage } from '../../server/src/chat/turn'
@@ -111,38 +112,38 @@ describe('messages', () => {
 })
 
 describe('projects', () => {
-  test('create on a writable folder (made if missing), visible to readers, edited by the creator or an admin with write access', async () => {
-    const p = await h.api('alice').call(API.createProject, { body: { name: 'Campaign Q4', folderPath: 'groups/marketing/q4-campaign', instructions: 'Use the brief.' } })
-    expect(p).toMatchObject({ name: 'Campaign Q4', folderPath: 'groups/marketing/q4-campaign', canEdit: true, createdBy: { id: 'alice', name: 'Alice Kim' } })
-    expect(fs.statSync(path.join(h.team, 'groups/marketing/q4-campaign')).isDirectory()).toBe(true)
+  test('a team project is a new projects/<name>, seen by its participants, edited by the creator or an admin', async () => {
+    const p = await h.api('alice').call(API.createProject, { body: { name: 'Campaign Q4', instructions: 'Use the brief.', participants: [{ subjectType: 'group', subjectId: 'marketing' }] } })
+    expect(p).toMatchObject({ name: 'Campaign Q4', folderPath: 'projects/Campaign Q4', canEdit: true, createdBy: { id: 'alice', name: 'Alice Kim' } })
+    expect(fs.statSync(path.join(h.team, 'projects/Campaign Q4')).isDirectory()).toBe(true)
     // erin (marketing) sees it but did not create it: no editing (design tab 5: the creator and admins); bob (finance) can't see it
     expect((await h.api('erin').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(false)
     expect(await code(h.api('erin').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'Ignore the brief.' } }))).toBe('403 forbidden')
     expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(true)
     expect(await code(h.api('bob').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
     expect((await h.api('bob').call(API.listProjects, {})).items.some((x) => x.id === p.id)).toBe(false)
-    // falcon: bob reads (finance has read) but can't edit
-    const falcon = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' } })
+    // an older project on falcon: bob reads (finance has read) but can't edit
+    const falcon = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon' })
     const bobView = await h.api('bob').call(API.getProject, { params: { id: falcon.id } })
     expect(bobView.canEdit).toBe(false)
     expect(await code(h.api('bob').call(API.updateProject, { params: { id: falcon.id }, body: { name: 'mine' } }))).toBe('403 forbidden')
     expect(await code(h.api('bob').call(API.deleteProject, { params: { id: falcon.id } }))).toBe('403 forbidden')
-    // can't create on folders without write access, or outside the team folder
-    expect(await code(h.api('bob').call(API.createProject, { body: { name: 'x', folderPath: 'groups/marketing', instructions: '' } }))).toBe('403 forbidden')
-    expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'groups/finance/new', instructions: '' } }))).toBe('403 forbidden')
+    // never on an existing folder or outside projects/
+    expect(await code(h.api('bob').call(API.createProject, { body: { name: 'x', folderPath: 'groups/marketing', instructions: '' } }))).toBe('400 validation')
+    expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'groups/marketing/new', instructions: '' } }))).toBe('400 validation')
     expect((await h.req('alice', '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', folderPath: '../outside' }) })).status).toBe(400)
     expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'shared/glossary.md', instructions: '' } }))).toBe('400 validation')
-    // the folder of a team project: admins only, never into users/; then delete: chats stay, without project
-    expect(await code(h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'users/alice/q4' } }))).toBe('403 forbidden')
-    expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'users/carol/q4' } }))).toBe('400 validation')
-    await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'shared/q4' } })
+    // its folder never changes while it is in place (admins point only a project whose folder is gone); delete: chats
+    // stay, without project; the folder stays unless asked
+    expect(await code(h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('403 forbidden')
+    expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('409 conflict')
     const moved = await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'New rules.' } })
-    expect(moved).toMatchObject({ folderPath: 'shared/q4', instructions: 'New rules.' })
+    expect(moved).toMatchObject({ folderPath: 'projects/Campaign Q4', instructions: 'New rules.' })
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     expect((await h.api('alice').call(API.listChats, { query: { projectId: p.id } })).items.map((c) => c.id)).toEqual([chat.id])
     await h.api('alice').call(API.deleteProject, { params: { id: p.id } })
     expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).projectId).toBeNull()
-    expect(fs.existsSync(path.join(h.team, 'shared/q4'))).toBe(true)
+    expect(fs.existsSync(path.join(h.team, 'projects/Campaign Q4'))).toBe(true)
   })
 })
 

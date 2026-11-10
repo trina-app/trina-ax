@@ -7,32 +7,38 @@
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
-// list shows a thread's root and replies (variant). Images show as thumbnails that open in the side panel; other files
-// are chips that download.
+// list shows a thread's root and replies (variant). A photo's thumbnail and a file chip's name open the viewer
+// (components/ImageViewer.tsx, like Slack's: the whole window, the pane's other pictures and files by ← →; the page's
+// ImageGroup is the timeline or the thread; docs/DECISIONS.md "The room file viewer"): a photo with its zoom, a
+// document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
+// small download icon of its own. Both read the room's copy through the room (lib/imageViewer.ts roomItem,
+// roomFileItem) and have the download too; the viewer's bar says who sent it, when and where.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
-// 있어요"), and above its one action (post it to the room, an outline button) who would see it then. An event line (a
+// 있어요 · 방에 올리기…") with why in one plain line; the action asks first, with what some members cannot see. An event line (a
 // rename, people invited, someone left or taken out: RoomMessage.event) is one quiet line in the middle, nothing more:
 // no avatar, menu, reaction or thread.
 // An answer someone sent here from their own AI chat ("대화방에 보내기", RoomMessage.sharedAnswer) is their message: their
 // note as plain text, then the answer as a quote headed "<AI> 답변", in Markdown like the AI's own answers (a team file
-// in it only as a link for those who may open it). It cannot be edited (copy and delete stay).
+// in it as a link for those who may open it; for the others, a link to its copy when it went with the message
+// (RoomMessage.attachedLinks), else its name after a lock). It cannot be edited (copy and delete stay).
 // An old answer hidden from me (RoomMessage.withheld: I joined a team room or the everyone room after it, and it used
 // something I cannot open) is one faint line in its place ("볼 수 없는 자료를 참고한 답이라 가려졌어요"): who asked it (or
 // whose message it is) and when, nothing else: no hover row, menu, reaction, thread or sources.
 import clsx from 'clsx'
-import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Trash2 } from 'lucide-react'
+import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
-import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
+import { api, API, errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
-import { openFilePreview } from '../../lib/sidePanel'
+import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
+import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
@@ -41,6 +47,7 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
+import { AiFace, AiFaceInline, AiMark } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionStrip } from './Reactions'
@@ -48,6 +55,9 @@ import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { LinkedText } from './MessageText'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
+import { useViewerItem, ViewerMeta } from '../ImageViewer'
+import { roomFileItem, roomItem } from '../../lib/imageViewer'
+import { useRoomTitle } from './RoomIcon'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -79,9 +89,11 @@ export function thumbBox(f: { width?: number | null; height?: number | null }): 
 
 /** A photo's thumbnail: in the box its stored size gives until it loads, then in its own shape when that differs. The
  * thumbnail is always upright; a photo sent before the server stored the upright size (a portrait phone photo stored
- * landscape with EXIF orientation 6) has a landscape size, which would crop it to its middle band. */
+ * landscape with EXIF orientation 6) has a landscape size, which would crop it to its middle band. The soft box only
+ * holds the place while it loads: a picture with transparency (a seal stamp, a logo) then sits on the page itself. */
 function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
   const [own, setOwn] = useState<{ width: number; height: number } | null>(null)
+  const [loaded, setLoaded] = useState(false)
   return (
     <img
       src={src}
@@ -89,10 +101,11 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
       loading="lazy"
       style={thumbBox(own ?? f)}
       onLoad={(e) => {
+        setLoaded(true)
         const { naturalWidth: width, naturalHeight: height } = e.currentTarget
         if (width && height && (!f.width || !f.height || Math.abs(width / height - f.width / f.height) > 0.05)) setOwn({ width, height })
       }}
-      className="block max-h-60 max-w-full object-cover"
+      className={clsx('block max-h-60 max-w-full object-cover', !loaded && 'bg-subtle')}
     />
   )
 }
@@ -107,7 +120,8 @@ export const HIGHLIGHT_MS = 2400
  * `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
  * the middle and marked for a moment, once. */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
+/** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
@@ -154,8 +168,10 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const orphans = variant === 'root' ? [] : ended.filter((r) => !loaded.has(r.questionId) && (r.threadRootId ?? null) === place).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
   // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
   const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
+  const where = useViewerWhere(roomId)
 
   return (
+    <ViewerMeta where={where}>
     <div ref={list} data-testid="room-messages">
       {runs.map((run, i) => {
         const first = run.messages[0]!
@@ -195,6 +211,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       onEdit={() => setEditing(m.id)}
                       onEditDone={() => setEditing(null)}
                       onThread={onThread}
+                      onAskTrina={onAskTrina}
                       variant={variant}
                       // the list's first message (the top of the room, a thread's root): its bar goes under it, where the
                       // header above cannot cut it
@@ -219,7 +236,19 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
         </div>
       )}
     </div>
+    </ViewerMeta>
   )
+}
+
+/** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
+ * 대화에서" (the room's name as the sidebar shows it). */
+function useViewerWhere(roomId: string): string | null {
+  const t = useT()
+  const title = useRoomTitle()
+  const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
+  if (!room) return null
+  const name = title(room)
+  return room.kind === 'dm' ? t('viewer.inDm', { name }) : room.kind === 'group' ? t('viewer.inGroup', { room: name }) : t('viewer.inRoom', { room: name })
 }
 
 /** "가나님이 방 이름을 '주간 회의'로 바꿨어요": the names as the directory has them now, the room name as plain text. */
@@ -238,12 +267,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 
 function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
-  if (m.authorKind === 'ai')
-    return (
-      <span aria-hidden className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
-        <Sparkles size={15} />
-      </span>
-    )
+  if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
   return user ? <Avatar user={user} size={32} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
@@ -274,7 +298,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -285,6 +309,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   // an answer sent from someone's own AI chat: their note before `at`, the answer after it
   const shared = !ai && !deleted ? m.sharedAnswer ?? null : null
   const openable = useMemo(() => (ai || shared ? new Set(m.openable ?? []) : undefined), [ai, shared, m.openable])
+  // a shared answer's links whose file went with it: the copy, for a viewer who may not open the team file
+  const attached = useMemo(() => (shared ? attachedCopies(roomId, m) : undefined), [shared, roomId, m])
   // a mention is the name as it was typed: the person's name now (the directory) and as the member list has it, so
   // "@Ben" still stands out after Ben renamed himself
   const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
@@ -298,6 +324,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   // a thread under it: only a message of the timeline for everyone, and only from the timeline (no thread in a thread)
   const threadOn = variant === 'timeline' && !!onThread && !m.threadRootId && m.visibility === 'room' && !deleted
   const reactOn = reactable(m) && !editing
+  // "Ask Trina about this": a message with text that the whole room sees (or my own private one), not an event line
+  const askOn = !!onAskTrina && !deleted && !editing && !m.event && !!m.body.trim()
   // a touch screen: no hover row on every message; a long press opens its menu (with the reactions on top)
   const longPress = useLongPress(() => {
     pressedAt.current = Date.now()
@@ -345,6 +373,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
         <p className="mb-0.5 text-xs text-faint" data-testid="room-also-sent">{t('rooms.alsoSent')}</p>
       ) : null)}
       {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
+      {/* the pictures in it say who sent them and when in the image viewer's bar, and its column shows their thread (a
+          reply's thread, or the message's own; one that cannot have a thread, alone) */}
+      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
         <>
           <Markdown text={m.body} className="min-w-0" openable={openable} />
@@ -372,18 +403,19 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
               {meta}
             </p>
           )}
-          {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} />}
+          {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} attached={attached} />}
           {m.files.length > 0 && <Files roomId={roomId} files={m.files} />}
           {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}
         </>
       )}
+      </ViewerMeta>
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
       {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine m={m} onOpen={() => onThread(m.id)} />}
       {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same
           as a sheet, with the eight emoji on top (its own button never shows) */}
       {menuOn && (
         <>
-          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} more={moreItems} />
+          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} onAsk={askOn ? () => onAskTrina!(m) : undefined} more={moreItems} />
           <MenuButton
             label={t('rooms.messageMenu')}
             className="absolute top-0 right-0"
@@ -402,7 +434,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
                 }}
               />
             ) : undefined}
-            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...moreItems]}
+            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...(askOn ? [{ label: t('sideChat.askAbout'), icon: <AiMark place="menu" />, onSelect: () => onAskTrina!(m), testId: 'message-ask-trina-menu' }] : []), ...moreItems]}
           />
         </>
       )}
@@ -422,18 +454,30 @@ function WithheldRow({ roomId, m, flash, onJump }: { roomId: string; m: RoomMess
   )
 }
 
+/** A shared answer's links whose file went with it as a copy (RoomMessage.attachedLinks), as the preview panel opens
+ * each copy; only files of this message. None (an older message, nothing attached): undefined. */
+export function attachedCopies(roomId: string, m: Pick<RoomMessage, 'attachedLinks' | 'files'>): ReadonlyMap<string, PreviewFile> | undefined {
+  const out = new Map<string, PreviewFile>()
+  for (const l of m.attachedLinks ?? []) {
+    const f = m.files.find((x) => x.id === l.fileId)
+    if (f && !out.has(l.path)) out.set(l.path, roomPreview(roomId, f))
+  }
+  return out.size ? out : undefined
+}
+
 /** An answer someone sent from their own AI chat, under their note: a quiet quote headed "<AI> 답변", in Markdown like
- * the AI's answers here (`openable`: the team files in it this viewer may open; the others are plain text). */
-function SharedAnswer({ text, openable }: { text: string; openable?: ReadonlySet<string> }) {
+ * the AI's answers here (`openable`: the team files in it this viewer may open; `attached`: the copies that went with
+ * it, opened in their place; the others are their names after a lock). */
+function SharedAnswer({ text, openable, attached }: { text: string; openable?: ReadonlySet<string>; attached?: ReadonlyMap<string, PreviewFile> }) {
   const t = useT()
   return (
     <figure className="mt-1 mb-0.5 rounded-r-lg border-l-2 border-line-strong bg-ink/[0.035] py-2 pr-3 pl-3" data-testid="room-shared-answer">
       <figcaption className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted" data-testid="room-shared-answer-head">
-        <Sparkles size={12} className="shrink-0 text-accent-text" aria-hidden />
+        <AiFaceInline />
         {t('shareRoom.quoteHead', { ai: aiName(t) })}
       </figcaption>
       {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get */}
-      <Markdown text={text} className="min-w-0" openable={openable} />
+      <Markdown text={text} className="min-w-0" openable={openable} attached={attached} />
     </figure>
   )
 }
@@ -456,46 +500,111 @@ function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump
   )
 }
 
+/** the skills folders: the team rules and skills the AI was given (how it works, not what it found), never named */
+const isSkills = (f: string) => f === 'skills' || f.startsWith('skills/')
 /** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
  * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words; never the skills folders (the team rules and
- * skills the AI was given: how it works, not what it found). */
-export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string }): string[] {
-  const names = p.folders.filter((f) => f !== 'skills' && !f.startsWith('skills/')).map((f) => (f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f))
-  return [...new Set(names)]
+ * skills the AI was given: how it works, not what it found). Each with how many members (not me) cannot see it
+ * (`unable`; a name of two folders keeps the larger count; undefined: a preview decided before the counts). */
+function previewFolders(p: NonNullable<RoomMessage['preview']>, words: { root: string }): { name: string; n: number | undefined }[] {
+  const out = new Map<string, number | undefined>()
+  for (const f of p.folders) {
+    if (isSkills(f)) continue
+    const name = f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f
+    const n = p.unable?.[f]
+    const had = out.get(name)
+    out.set(name, out.has(name) ? (had === undefined || n === undefined ? undefined : Math.max(had, n)) : n)
+  }
+  return [...out].map(([name, n]) => ({ name, n }))
 }
 
-/** Why a private preview did not go to the room, one short sentence per reason (the folders it read that some members
- * cannot open, named when the person may open them; their own folder; messages from before someone joined; the web or
- * a connected service). Without a reason (an older preview): that everyone would see it. `dm`: a 1:1 room, where "some
- * people in this room" is the other person. */
-export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>, dm = false): string {
+/** Why a private preview is mine only, in one plain line: material some members cannot see (folders, my own folder,
+ * messages from before someone joined, an earlier answer hidden from someone whose sources could be named), or the web
+ * or a connected service alone; a preview that cannot be posted (it used an earlier answer hidden from someone and what
+ * that used cannot all be shown to me) says so. Without a reason (an older preview): that everyone would see it. `dm`:
+ * a 1:1 room, where "some people in this room" is the other person. What each reason is, with how many cannot see it,
+ * is in the confirm (previewReasons). */
+export function previewLine(p: RoomMessage['preview'], t: ReturnType<typeof useT>, dm = false): string {
   if (!p) return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
-  const why: string[] = []
-  const folders = previewFolderNames(p, { root: t('rooms.aiRootFolder') })
-  // folders the person cannot open themselves, and the skills folders, are never named
-  if (folders.length) why.push(t(dm ? 'rooms.aiWhyFoldersDm' : 'rooms.aiWhyFolders', { folders: folders.join(', ') }))
-  else if (p.folders.length || p.otherFolders) why.push(t(dm ? 'rooms.aiWhySomeFoldersDm' : 'rooms.aiWhySomeFolders'))
-  if (p.personal) why.push(t('rooms.aiWhyMine'))
-  if (p.joinedLater?.length) why.push(t('rooms.aiWhyJoined', { names: p.joinedLater.join(', ') }))
-  // not postable: the person cannot see what is at stake for the others (the server refuses it too)
-  if (p.hidden) why.push(t('rooms.aiWhyHidden'))
-  if (p.outside) why.push(t('rooms.aiWhyOutside'))
-  return why.length ? why.join(' ') : t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
+  // not postable: the server refuses it too (docs/DECISIONS.md "방에 올리기…")
+  if (p.hidden) return t('rooms.aiWhyHidden')
+  const material = p.folders.length > 0 || !!p.otherFolders || p.personal || !!p.joinedLater?.length || !!p.earlier
+  if (material) return t(dm ? 'rooms.aiPrivateWhyDm' : 'rooms.aiPrivateWhy')
+  if (p.outside) return t('rooms.aiPrivateWhyOutside')
+  return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
 }
 
-/** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 올리기" (a text
- * action: not posting is the default), and under it, small, why it stayed with me. Posting leaves out the sources some
- * member cannot read; the server decides that again. Putting it away is in the message's "…" menu. */
+/** What posting a private preview would show to people who cannot see it now, one row per reason, for the confirm: each
+ * folder I may open by its last part with how many members cannot see it (never who, as the share-to-room dialog);
+ * folders I cannot open myself (and the skills folders) as one row without names; my own folder; messages from before
+ * someone joined; the web or a connected service. `others`: the members besides me (a count of all of them reads "no
+ * one else"). */
+export function previewReasons(p: RoomMessage['preview'], t: ReturnType<typeof useT>, o: { dm?: boolean; others?: number } = {}): string[] {
+  if (!p) return []
+  const rows: string[] = []
+  const folders = previewFolders(p, { root: t('rooms.aiRootFolder') })
+  for (const f of folders) {
+    rows.push(o.dm ? t('rooms.aiPostFolderDm', { folder: f.name })
+      : f.n === undefined || f.n === 0 ? t('rooms.aiPostFolderSome', { folder: f.name })
+        : o.others !== undefined && f.n >= o.others ? t('rooms.aiPostFolderAll', { folder: f.name })
+          : t('rooms.aiPostFolder', { folder: f.name, n: f.n }))
+  }
+  // folders I cannot open myself, and the skills folders, are never named
+  if (p.otherFolders || p.folders.some(isSkills)) rows.push(t(o.dm ? 'rooms.aiPostOtherFoldersDm' : 'rooms.aiPostOtherFolders'))
+  if (p.personal) rows.push(t(o.dm ? 'rooms.aiPostMineDm' : 'rooms.aiPostMine'))
+  if (p.joinedLater?.length) rows.push(t('rooms.aiPostJoined', { names: p.joinedLater.join(', ') }))
+  if (p.outside) rows.push(t('rooms.aiPostOutside'))
+  return rows
+}
+
+/** What the confirm before posting a preview says: who will see it, one row per reason (previewReasons), and a line
+ * when it went through an earlier answer hidden from someone (its sources are among the rows; when none is left, every
+ * member can see them now). Nothing to name (an older preview): that everyone would see it. */
+export function previewConfirm(p: RoomMessage['preview'], t: ReturnType<typeof useT>, o: { dm?: boolean; others?: number } = {}): { intro: string; rows: string[]; earlier: string | null } {
+  const rows = previewReasons(p, t, o)
+  const earlier = p?.earlier ? t(rows.length ? 'rooms.aiPostEarlier' : 'rooms.aiPostEarlierNone') : null
+  if (!rows.length && !earlier) return { intro: t(o.dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll'), rows, earlier }
+  return { intro: t(o.dm ? 'rooms.aiPostIntroDm' : 'rooms.aiPostIntro'), rows, earlier }
+}
+
+/** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 방에 올리기…" (a
+ * text action: not posting is the default), and under it, small, why it stayed with me in one plain line. The action
+ * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share) and first asks, in the app's confirm,
+ * with what some members cannot see (previewReasons) and whether it went through an earlier answer hidden from someone.
+ * Posting leaves out the sources some member cannot read; the server decides that again and, when the reasons changed
+ * meanwhile, answers 409 with why (a toast) and sends the preview again (the line and the button follow). Putting it
+ * away is in the message's "…" menu. */
 function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
-  const dm = useRooms((s) => s.rooms.find((r) => r.id === roomId)?.kind === 'dm')
+  const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
+  const dm = room?.kind === 'dm'
   const [busy, setBusy] = useState(false)
-  const share = async () => {
+  const post = async () => {
+    const c = previewConfirm(m.preview, t, { dm, others: room ? Math.max(0, room.memberCount - 1) : undefined })
+    const ok = await confirmDialog({
+      title: t('rooms.aiPostTitle'),
+      body: (
+        <div data-testid="room-ai-post-confirm">
+          <p>{c.intro}</p>
+          {c.rows.length > 0 && (
+            <ul className="mt-2 space-y-1 text-ink" data-testid="room-ai-post-reasons">
+              {c.rows.map((r) => (
+                <li key={r} className="break-keep">{r}</li>
+              ))}
+            </ul>
+          )}
+          {c.earlier && <p className="mt-2" data-testid="room-ai-post-earlier">{c.earlier}</p>}
+        </div>
+      ),
+      confirm: t('rooms.aiPostConfirm'),
+    })
+    if (!ok) return
     setBusy(true)
     try {
       await useRooms.getState().shareAi(roomId, m.id)
     } catch (e) {
+      // the reasons changed meanwhile (or it can no longer be posted): the server says why, and sends the preview again
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       setBusy(false)
     }
@@ -513,17 +622,18 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
       <p className="flex flex-wrap items-center gap-x-1" data-testid="room-ai-private">
         <Lock size={12} className="shrink-0" aria-hidden />
         {t('rooms.aiPrivate')}
-        {/* it used an old answer hidden from someone here: not postable (docs/DECISIONS.md "지난 대화") */}
+        {/* it used an old answer hidden from someone here and what that used cannot all be shown: not postable
+            (docs/DECISIONS.md "방에 올리기…") */}
         {!m.preview?.hidden && (
           <>
             <span aria-hidden>·</span>
-            <button type="button" disabled={busy} onClick={() => void share()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
+            <button type="button" disabled={busy} onClick={() => void post()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
               {t('rooms.aiPost')}
             </button>
           </>
         )}
       </p>
-      <p className="mt-0.5" data-testid="room-ai-preview">{previewWhy(m.preview, t, dm)}</p>
+      <p className="mt-0.5 break-keep" data-testid="room-ai-preview">{previewLine(m.preview, t, dm)}</p>
     </div>
   )
 }
@@ -547,39 +657,60 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
 }
 
 function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
-  const t = useT()
-  const locale = useLocale()
-  const url = (f: RoomFile, query: Record<string, string>) => api.url(API.roomFile, { params: { id: roomId, fileId: f.id }, query })
-  const preview = async (f: RoomFile) => {
-    try {
-      const res = await api.call(API.roomFile, { params: { id: roomId, fileId: f.id } })
-      openFilePreview({ source: 'local', name: f.name, blob: await readBounded(res, 60 * 1024 * 1024) })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
   return (
     <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
-          <Tooltip key={f.id} label={t('rooms.openImage', { name: f.name })}>
-            <button type="button" onClick={() => void preview(f)} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
-              <RoomThumb f={f} src={url(f, { thumb: '1' })} />
-            </button>
-          </Tooltip>
+          <RoomPicture key={f.id} roomId={roomId} f={f} />
         ) : (
-          // its name is what it shows (the name and size), then what it does: a screen reader and voice control hear the
-          // words on it (WCAG 2.5.3)
-          <button key={f.id} type="button" onClick={() => startDownload(url(f, { download: '1' }), f.name)} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
-            <FileText size={15} className="shrink-0 text-muted" aria-hidden />
-            <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
-            <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
-            <Download size={13} className="shrink-0 text-faint" aria-hidden />
-            <span className="sr-only">{t('common.download')}</span>
-          </button>
+          <FileChip key={f.id} roomId={roomId} f={f} />
         ),
       )}
     </div>
+  )
+}
+
+/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
+function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
+  const t = useT()
+  const viewer = useViewerItem((meta) => roomItem(roomId, f, meta))
+  return (
+    <Tooltip label={t('rooms.openImage', { name: f.name })}>
+      <button type="button" ref={viewer.ref} onClick={viewer.open} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image">
+        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+      </button>
+    </Tooltip>
+  )
+}
+
+/** A file under a message: its name and size open it in the viewer, in the pane's list with its pictures (a document as
+ * the side panel draws it; one with no preview here, such as a ZIP, a Hangul file while the HWP preview is off or one
+ * past the preview limit, as its card with the download: `data-opens` marks a chip with a preview, lib/preview.ts
+ * roomFileOpens), and a small download icon sits at its end (on phones 44px wide, so its tap area never reaches over
+ * the name; touch-hit gives the height). Each button is named by the words on it first (the name and size), then what
+ * it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
+function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
+  const t = useT()
+  const locale = useLocale()
+  const me = useMe()
+  const viewer = useViewerItem((meta) => roomFileItem(roomId, f, me, meta))
+  const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
+  const opens = roomFileOpens(f, me)
+  return (
+    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined}>
+      <button type="button" ref={viewer.ref} onClick={viewer.open} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
+        <FileText size={15} className="shrink-0 text-muted" aria-hidden />
+        <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
+        <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
+        {/* what the name does: a preview (a file without one opens its card, named by its name alone) */}
+        {opens && <span className="sr-only">{t('common.preview')}</span>}
+      </button>
+      <Tooltip label={t('common.download')}>
+        <button type="button" onClick={download} aria-label={t('rooms.downloadFile', { name: f.name })} className="touch-hit inline-flex shrink-0 items-center justify-center rounded-r-xl pr-2.5 pl-1.5 text-faint hover:bg-hover hover:text-ink max-md:min-w-11 max-md:px-0" data-testid="room-file-download">
+          <Download size={13} aria-hidden />
+        </button>
+      </Tooltip>
+    </span>
   )
 }
 

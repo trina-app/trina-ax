@@ -20,7 +20,7 @@ export function teamContentTools(): ReadonlySet<string> {
   return (list ??= new Set([
   ...Object.keys(FILE_TOOLS), EDIT_FILES_TOOL, ...C_TOOL_NAMES.filter((n) => !C_OUTSIDE.has(n)), ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES,
   // the chat's own tools (chat/tools.ts)
-  'skill', 'find_skills', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title',
+  'skill', 'find_skills', 'move_skill', 'skill_files', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title',
   // the steps of the removed search by meaning tool in older chats: its results were team files the person could read
   'search',
   // the knowledge graph (knowledge-graph/tool.ts): team files only, filtered by the person's access

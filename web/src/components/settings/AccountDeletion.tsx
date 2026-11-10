@@ -37,7 +37,7 @@ export function AccountDeletionView({ value, days, busy, onRequest, onCancel, vi
       {value.state === 'owner' ? (
         <>
           <p className="text-sm text-muted">{t('accountDeletion.owner')}</p>
-          <Link to="/admin/settings" className="inline-block text-sm text-accent-text underline-offset-2 hover:underline" data-testid="account-deletion-transfer">
+          <Link to="/admin/members" className="inline-block text-sm text-accent-text underline-offset-2 hover:underline" data-testid="account-deletion-transfer">
             {t('accountDeletion.transfer')}
           </Link>
         </>

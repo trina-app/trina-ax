@@ -27,12 +27,15 @@ const meOf = (role: 'owner' | 'admin' | 'member') => ({
 /** after "나중에 하기" on the AI step: shown and put off, nothing else done */
 const putOff = (): WelcomeProgress => ({
   startedAt: '2026-11-05T00:00:00.000Z', updatedAt: '2026-11-05T00:00:00.000Z', teamType: null,
-  steps: { ai: 'skipped', profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+  steps: { ai: 'skipped', profile: null, result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 
 let access = { usable: false, action: 'connect_team', requested: false }
 let progress: WelcomeProgress | null = null
 let calls: { key: string; body: any }[] = []
+/** 「자주 쓰는 스킬」's two (it shows from two used skills on) and whether the person ran a team skill */
+let popular: unknown[] = []
+let ranTeamSkill = false
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/me/ai-access': () => json(200, access),
   'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: true, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-11-01', anthropicGateway: null }),
@@ -44,7 +47,10 @@ const routes: Record<string, (body: any) => Response> = {
   'GET /api/onboarding/goal': () => json(200, { goal: null }),
   'GET /api/skills': () => json(200, { items: [] }),
   'GET /api/questions/frequent': () => json(200, { items: [] }),
-  'GET /api/skills/popular': () => json(200, { items: [] }),
+  'GET /api/skills/popular': () => json(200, { items: popular, days: 30 }),
+  // "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): one kept skill and the team's files
+  'GET /api/skills/examples': () => json(200, { skills: [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', summary: '회사 소개로 정사각형 카드 5장을 만들어요', source: { kind: 'team' } }], teamFolder: { path: 'groups/Acme', files: 4, more: false, without: ['브랜드', 'skills'] }, landing: null, ranTeamSkill, hasProfile: false }),
+  'GET /api/files/tree': () => json(200, { path: '', access: 'read', entries: [], nextCursor: null }),
 }
 const called = (key: string) => calls.filter((c) => c.key === key)
 const g = globalThis as Record<string, unknown>
@@ -70,6 +76,8 @@ afterEach(() => {
   access = { usable: false, action: 'connect_team', requested: false }
   progress = null
   calls = []
+  popular = []
+  ranTeamSkill = false
   localStorage.clear()
   useChats.getState().reset()
   useAiAccess.getState().reset()
@@ -88,7 +96,7 @@ const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ sta
 const home = () => mount(<MemoryRouter><Routes><Route path="/" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
-  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/5 (a phone)', async () => {
+  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/6 (a phone)', async () => {
     signIn('owner')
     phoneWidth()
     progress = putOff()
@@ -111,13 +119,13 @@ describe('Home without AI', () => {
       await m.until(() => m.find('welcome-resume'), 'the row')
       expect(m.find('no-ai-card')).toBeNull()
       await m.until(() => progress!.steps.ai === 'done', 'the AI step done')
-      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 5), 'the row at 1/5')
+      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 6), 'the row at 1/6')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body)).toEqual([{ step: { id: 'ai', state: 'done' } }])
       await m.until(() => called('GET /api/questions/frequent').length > 0, 'the suggestions')
     } finally { await m.unmount() }
   })
 
-  test('the owner with AI: on a phone the quiet row (회사 소개 saved without a deck is still open: 0/4), nothing recorded; on a computer no row on Home', async () => {
+  test('the owner with AI: on a phone the quiet row (회사 소개 saved counts as done without a deck: 1/5), nothing recorded; on a computer no row on Home', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
@@ -126,7 +134,7 @@ describe('Home without AI', () => {
     let m = await home()
     try {
       await m.until(() => m.find('welcome-resume'), 'the row')
-      expect(m.get('welcome-resume-link').textContent).toBe(rowText(0, 4))
+      expect(m.get('welcome-resume-link').textContent).toBe(rowText(1, 5))
       expect(m.get('welcome-resume-link').getAttribute('href')).toBe('/welcome')
       expect(m.find('no-ai-card')).toBeNull()
       expect(called('PATCH /api/onboarding/welcome')).toEqual([])
@@ -158,6 +166,68 @@ describe('Home without AI', () => {
       calls = []
       useAiAccess.getState().reset()
     }
+  })
+})
+
+describe('"팀에 준비된 것" without AI (docs/DECISIONS.md "W6.3")', () => {
+  test('a member: the block read-only under the card (rows, no 써 보기 or 물어보기); an owner or admin: the card alone', async () => {
+    signIn('member')
+    useChats.setState({ chats: [], chatsLoaded: true })
+    access = { usable: false, action: 'ask_owner', requested: false }
+    let m = await home()
+    try {
+      await m.until(() => m.find('no-ai-card') && m.find('team-prepared'), 'the card and the block')
+      expect(m.get('team-prepared-skill').textContent).toContain('카드뉴스')
+      expect(m.find('team-prepared-try')).toBeNull()
+      expect(m.find('team-prepared-ask')).toBeNull()
+      expect(m.get('team-prepared-files').textContent).toContain('Acme')
+    } finally { await m.unmount() }
+    for (const role of ['owner', 'admin'] as const) {
+      calls = []
+      useAiAccess.getState().reset()
+      signIn(role)
+      useChats.setState({ chats: [], chatsLoaded: true })
+      access = { usable: false, action: 'connect_team', requested: false }
+      markStepsSeen('olga')
+      m = await home()
+      try {
+        await m.until(() => m.find('no-ai-card'), 'the card')
+        await m.settle(40)
+        expect(m.find('team-prepared')).toBeNull()
+        expect(called('GET /api/skills/examples')).toEqual([])
+      } finally { await m.unmount() }
+    }
+  })
+
+  test('「자주 쓰는 스킬」 stays out while the block lists skills; once the person ran a team skill it is back', async () => {
+    signIn('member')
+    useChats.setState({ chats: [], chatsLoaded: true })
+    access = { usable: true, action: 'ask_owner', requested: false }
+    popular = ['card-news', 'promo-video'].map((n) => ({ path: `skills/general/${n}/SKILL.md`, name: n, description: n, uses: 3, users: 2 }))
+    let m = await home()
+    try {
+      await m.until(() => m.find('team-prepared-skill'), 'the skill rows')
+      await m.settle(60)
+      expect(m.find('popular-skills')).toBeNull()
+    } finally { await m.unmount() }
+    ranTeamSkill = true
+    m = await home()
+    try {
+      await m.until(() => m.find('popular-skills'), 'the popular skills')
+      expect(m.find('team-prepared-skill')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('with AI: a member gets the block with its one filled 써 보기 under the box', async () => {
+    signIn('member')
+    useChats.setState({ chats: [], chatsLoaded: true })
+    access = { usable: true, action: 'ask_owner', requested: false }
+    const m = await home()
+    try {
+      await m.until(() => m.find('team-prepared-try'), 'the block')
+      expect(m.get('team-prepared').getAttribute('data-primary')).toBe('skill')
+      expect(m.find('no-ai-card')).toBeNull()
+    } finally { await m.unmount() }
   })
 })
 

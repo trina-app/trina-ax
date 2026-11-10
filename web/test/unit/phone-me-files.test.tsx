@@ -188,7 +188,9 @@ describe('보안·기기: signing another device out', () => {
 
 describe('Files rows on a phone', () => {
   const page = () => mount(<MemoryRouter initialEntries={['/files']}><Files /></MemoryRouter>)
-  const row = (m: { container: FakeElement }, name: string) => m.container.querySelectorAll('tr[data-testid="file-row"]').find((r) => r.textContent?.includes(name))!
+  // a top folder's row shows its word (docs/DECISIONS.md "Team folder basics"): found by it, opened by its path
+  const WORD: Record<string, string> = { shared: '전사 공유', skills: '팀 스킬', groups: '부서' }
+  const row = (m: { container: FakeElement }, name: string) => m.container.querySelectorAll('tr[data-testid="file-row"]').find((r) => r.textContent?.includes(WORD[name] ?? name))!
   const nameButton = (r: FakeElement) => r.querySelectorAll('button').find((b) => b.getAttribute('aria-current') === null && !b.getAttribute('data-testid'))!
   const pointer = (el: FakeElement, type: string) => act(async () => void el.dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', pointerId: 1, isPrimary: true, button: 0, clientX: 20, clientY: 20 })))
   const opened = (path: string) => calls.some((c) => c.startsWith(`GET /api/files/tree?path=${path}&`))
@@ -234,6 +236,10 @@ describe('Files rows on a phone', () => {
     const m = await page()
     try {
       await m.until(() => m.find('file-row'), 'the rows')
+      // the team root in its fixed order (the server listed groups, shared, skills): 전사 공유, 부서, 팀 스킬
+      // (부서 is pass-through here: its row also carries the "이동만" badge after the name)
+      const names = m.container.querySelectorAll('tr[data-testid="file-row"]').map((r) => nameButton(r).textContent?.trim() ?? '')
+      expect(names.map((n, i) => n.startsWith(['전사 공유', '부서', '팀 스킬'][i]!))).toEqual([true, true, true])
       const shared = nameButton(row(m, 'shared'))
       await pointer(shared, 'pointerdown')
       await m.settle(650)

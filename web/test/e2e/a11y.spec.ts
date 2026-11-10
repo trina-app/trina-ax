@@ -12,7 +12,7 @@ for (const address of ['/', '/?prompt=Draft%20from%20a%20link']) {
     await signIn(page, { username: 'bob', password: 'bob password 1' })
     await page.goto(address)
     const input = page.getByTestId('composer-input')
-    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(page.getByTestId('team-prepared')).toBeVisible()
     await expect(input).not.toBeFocused()
     if (address.includes('prompt')) await expect(input).toHaveValue('Draft from a link')
     await page.keyboard.press('Tab')
@@ -54,7 +54,7 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await expect(page.locator('a[href="#main"]')).toBeFocused()
 })
 
-test('choosing examples and frequent questions focuses the filled composer', async ({ page }) => {
+test('choosing the ready question and frequent questions focuses the filled composer', async ({ page }) => {
   await reset(page)
   await page.route('**/api/questions/frequent', r => r.fulfill({ json: { days: 30, sampled: false, items: [
     { question: 'Summarize my weekly report', count: 3, lastUsedAt: '2026-10-20T00:00:00.000Z' },
@@ -62,7 +62,7 @@ test('choosing examples and frequent questions focuses the filled composer', asy
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/')
   const input = page.getByTestId('composer-input')
-  const example = page.getByTestId('example').first()
+  const example = page.getByTestId('team-prepared-ready')
   const text = await example.innerText()
   await example.focus()
   await page.keyboard.press('Enter')
@@ -98,9 +98,9 @@ test.describe('home focus on touch devices', () => {
     await page.goto('/')
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
     const input = page.getByTestId('composer-input')
-    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(page.getByTestId('team-prepared')).toBeVisible()
     await expect(input).not.toBeFocused()
-    const example = page.getByTestId('example').first()
+    const example = page.getByTestId('team-prepared-ready')
     const text = await example.innerText()
     await example.tap()
     await expect(input).toHaveValue(text)
@@ -231,7 +231,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.waitForTimeout(300)
       await audit(page, `admin/${s}`)
     }
-    for (const s of ['security', 'providers', 'memory', 'apps']) {
+    for (const s of ['security', 'providers', 'memory', 'allowances', 'apps']) {
       await page.goto(`/settings/${s}`)
       await page.waitForTimeout(300)
       await audit(page, `settings/${s}`)
@@ -376,6 +376,9 @@ for (const scheme of ['light', 'dark'] as const) {
     const colour = (sel: string) => page.evaluate((v) => { const e = document.createElement('span'); e.style.color = `var(${v})`; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c }, sel)
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-muted'))
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).not.toBe(await colour('--c-danger'))
+    // in the page the main button comes first and the quiet "no" last (a phone stacks them so; a computer shows the row
+    // reversed, [거부] [항상 허용] [이번만 허용]): the keyboard goes 이번만 허용 → 항상 허용 → 거부
+    await expect(site.getByTestId('ask-choices').getByRole('button')).toHaveText(['이번만 허용', '항상 허용', '거부'])
     await site.getByRole('button', { name: '항상 허용' }).focus()
     await page.keyboard.press('Tab')
     await expect(deny).toBeFocused()

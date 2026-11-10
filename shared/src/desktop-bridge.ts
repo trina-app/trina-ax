@@ -75,9 +75,10 @@ export interface DesktopBrowserSettings {
   teamAllowsAll: boolean
 }
 
-/** How a test notification went: 'shown' (the system took it), 'off' (the system refused it: notifications are off for
- * the app, or the app may not post them), 'unsupported' (this system has no notifications), 'limited' (too many this
- * minute), 'unknown' (handed over, but the system said nothing within a few seconds). */
+/** How a test notification went: 'shown' (the system took it: Windows, Linux), 'off' (the system refused it:
+ * notifications are off for the app, or the app may not post them), 'unsupported' (this system has no notifications),
+ * 'limited' (too many this minute), 'unknown' (handed over, but the system said nothing within a few seconds; on macOS
+ * also when it took it: macOS takes a notification it will not show, so taking it says nothing there). */
 export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
 
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
@@ -114,8 +115,10 @@ export interface DesktopBridge {
   /** Native notification (a chat or a room that wants the person, admin alerts). Shown only while the window is not
    * focused, at most 10 a minute. `tag`: one notification per tag (a newer one replaces it; "chat-<id>": one per chat).
    * `open`: an address of the team page ("/c/<chatId>", "/rooms/<id>") the page goes to when the person clicks it
-   * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. */
-  notify(n: { title: string; body: string; tag?: string; open?: string }): void
+   * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. `read`: a room
+   * notification's "Mark as read" button (macOS), "<room id>@<seq>" or "<room id>/<thread root id>@<seq>", given back
+   * through onRead when pressed; older desktop apps show no button. */
+  notify(n: { title: string; body: string; tag?: string; open?: string; read?: string }): void
   /** Settings › Notifications' "Test notification": one notification now, even while the window is focused (the person
    * asked for it), in the desktop app's own words (the page gives none) and a small limit a minute of its own; a newer
    * test replaces the older one. Says how it went (DesktopNotifyTest). Optional: desktop apps before this addition do
@@ -124,9 +127,14 @@ export interface DesktopBridge {
   /** A notification's click asks the page to go to its address (an app path, checked by the desktop app). Optional:
    * desktop apps before session markers do not have it. */
   onOpen?(cb: (path: string) => void): () => void
+  /** A notification's "Mark as read" was pressed: the page marks that room (or thread) read up to seq (the token from
+   * notify's `read`). Optional: older desktop apps do not have it. */
+  onRead?(cb: (token: string) => void): () => void
   /** The dock badge (macOS only; Windows shows no count): how many chats and rooms want the person (docs/DECISIONS.md
-   * "Session markers"); 0 clears it. Optional: older desktop apps do not have it. */
-  setBadgeCount?(n: number): void
+   * "Session markers"); 0 clears it. `dot` with n 0: a plain dot instead, some room has unread messages n does not
+   * count ("The Dock's dot for unread rooms"); desktop apps before it ignore the flag (nothing at 0). Optional: older
+   * desktop apps do not have it. */
+  setBadgeCount?(n: number, dot?: boolean): void
   /** Whether this window is focused, as the desktop app sees it. The page's own document.hasFocus() is false while the
    * in-app browser pane holds the keyboard, which is still the person looking at the window. Optional (older apps). */
   focus?: {

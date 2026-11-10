@@ -3,6 +3,7 @@ import { endpoint } from './endpoint'
 import { ScheduleRunOutcome } from './schedules'
 import { QuietHours, RoomNotifyDefault } from './room-alerts'
 import { RoomKind } from './rooms'
+import { UserId } from '../ids'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
 /** Rooms (docs/DECISIONS.md "대화방 알림 설정", room-alerts.ts): roomLevel is my default for rooms without a level of
  * their own (direct: every message of 1:1 and group chats and what mentions me elsewhere; all: every message; none:
@@ -14,6 +15,9 @@ export const NotificationPreferences = z.object({
   roomMessages: z.boolean().optional(),
   roomLevel: RoomNotifyDefault.optional(),
   roomThreadReplies: z.boolean().optional(),
+  /** a room notification on a device (a push, the desktop app) shows the message's first line (default on); off: who
+   * and where only, with the generic line. Older servers omit it (they never show the text). */
+  messagePreview: z.boolean().optional(),
   quietHours: QuietHours.optional(),
 })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
@@ -29,7 +33,11 @@ export function plainLabel(s: string, max = 80): string {
 /** Events that can also go to OS push. Room notices (room.dm: a message for me, by the room's level: a DM or group chat
  * message, any message of a room at 모든 메시지, a reply in a thread I follow; room.mention: an @mention) are kept in
  * room_notices with their own deliveries (room_push_deliveries); the rest in notification_inbox (push_deliveries). */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention'])
+/** owner.lead_joined: someone joined with the owner's lead link; owner.reauth_locked: the owner's password re-check
+ * locked after too many wrong tries (docs/DECISIONS.md "W6"; handover_notices with their own deliveries,
+ * handover_push_deliveries): no setting of their own, the owner may be away for days, and a note left only in the app
+ * would reach the very session that may be stolen. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -43,14 +51,22 @@ export type PushEventType = z.infer<typeof PushEventType>
  * "Templates"), and for admins a Drive shared with the team that stopped working and needs a new sign-in
  * (drive_share_notices; docs/GOOGLE-DRIVE.md "Sharing a Drive with the team"), and for the owner at the end of the
  * welcome steps the skills to merge that waited for it (skill_merge_notices; docs/DECISIONS.md "W5"), and a change to the team's AI an admin made
- * (told to the owners) or to a member's own connection (told to that member; credential_change_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change'])
+ * (told to the owners) or to a member's own connection (told to that member; credential_change_notices), and the
+ * handover's (docs/DECISIONS.md "W6"; handover_notices): owner.lead_joined to the owner when someone joins with their
+ * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
+ * when a password re-check of theirs locked after too many wrong tries. */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
+  /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
+   * there: its title, one plain line (plainLabel), so the Inbox says which task it was. Read when the notice is read,
+   * never stored with it, and never in a push (the lock screen stays generic, server/src/notifications/text.ts). A
+   * deleted task and older servers omit it: the app then says "a scheduled task". */
+  schedule: z.object({ title: z.string() }).optional(),
   /** 'integration.request' only, while the request is there: the service's name and the host of its address (where the
    * member's key or sign-in would go); older servers omit it */
   request: z.object({ name: z.string(), host: z.string() }).optional(),
@@ -90,6 +106,9 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
+  /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
+   * access was taken away, or it is in the trash); older servers omit it */
+  projectGone: z.literal(true).optional(),
   /** 'room.dm' and 'room.mention' only, while the person is still in the room and may read the message: the room (link
    * 'room' opens /rooms/<id>), who wrote it, by name, and for a reply in a thread the thread's root (/rooms/<id>/t/<thread>);
    * older servers omit it. The rest says where and why (docs/DECISIONS.md "알림함의 대화 알림"; older servers omit each,
@@ -99,9 +118,10 @@ export const InboxNotification = z.object({
    * characters, '' for one with only files, then `files`) and time (`at`), and the message to open it at (`message`: the
    * first of them, the first unread one while unread). Names and the line are one plain line (plainLabel). The kind and
    * name of the room (name null: a DM, or a group chat without a name of its own); the reason (the strongest of the row:
-   * mention, everyone ("@전체"), reply, message). `preview` only in the Inbox's list; `label` ("민준 · #마케팅 › 스레드",
-   * a DM "민준", in the person's language) only in the single notice a push opens, for the notification's title: never
-   * the message's text there. */
+   * mention, everyone ("@전체"), reply, message). `preview` in the Inbox's list, and in the single notice a push opens
+   * only while the person's messagePreview is on (the notification's body; never for a private message); `label`
+   * ("민준 · #마케팅 › 스레드", a DM "민준", in the person's language) only in the single notice a push opens, for the
+   * notification's title. */
   room: z.object({
     id: z.string(), from: z.string().nullable(), thread: z.string().optional(),
     kind: RoomKind.optional(),
@@ -116,7 +136,35 @@ export const InboxNotification = z.object({
     people: z.number().int().positive().optional(),
     at: z.string().optional(),
     label: z.string().optional(),
+    /** the message's place in its room (the single notice a push opens only): a notification's "Mark as read" moves my
+     * read position there (markRoomRead, or markRoomThreadRead for a reply in a thread). Older servers omit it. */
+    seq: z.number().int().nonnegative().optional(),
   }).optional(),
+  /** The handover's notices (docs/DECISIONS.md "W6"); older servers omit it.
+   * lead_joined ('owner.lead_joined', the owner who flagged the invite): the owner's own words for whom the link was
+   * (`leadFor`) beside the joiner's account (name, username, null once deleted) and the join time; `open` while it
+   * still holds (the joiner is active, the flag stands, I am still the owner): the row's [넘기기] opens the confirm
+   * from this notice, never from an address.
+   * transferred ('owner.transferred'): `me` from (I handed it over), to (I am the new owner) or other (an admin); from
+   * and to by name while their accounts are there; `removable` (for me = to while I am the owner): the old owner is an
+   * active admin I may disable ([내보내기]); `setupUnfinished` (me = to): the welcome steps wait for me; `recovery`
+   * hosted: the hosting account can still reset passwords; `ended`: what the old owner ended at the transfer; `pending`:
+   * what is still to end.
+   * reauth_locked ('owner.reauth_locked', the owner): a password re-check of the owner (팀장 넘기기, updates, restore,
+   * the current password …) locked after 5 wrong tries in 15 minutes; also pushed. */
+  handover: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('lead_joined'), leadFor: z.string(), user: z.object({ id: UserId, name: z.string(), username: z.string() }).nullable(), joinedAt: z.string(), open: z.boolean() }),
+    z.object({
+      kind: z.literal('transferred'), me: z.enum(['from', 'to', 'other']),
+      from: z.object({ id: UserId, name: z.string() }).nullable(), to: z.object({ id: UserId, name: z.string() }).nullable(),
+      removable: z.boolean(), setupUnfinished: z.boolean(), recovery: z.enum(['hosted']).nullable(),
+      ended: z.object({ teamAi: z.number().int().nonnegative(), driveShares: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), connections: z.number().int().nonnegative().optional() }),
+      /** me = to while I am the owner: what the old owner asked to end and is not ended yet (a failure, or the server
+       * stopped before it could); the row's [끊기] sends POST /api/admin/handover/end-pending */
+      pending: z.array(z.object({ kind: z.enum(['team_ai', 'drive_share', 'team_connection']), id: z.string(), label: z.string() })).optional(),
+    }),
+    z.object({ kind: z.literal('reauth_locked') }),
+  ]).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),

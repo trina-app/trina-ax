@@ -158,11 +158,14 @@ describe('the AI never saves under skills/ without the person confirming (fail c
     expect(h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turnId)).toEqual({ summary: 'write -> not allowed by the user (team skills)', ok: 0 })
   })
 
-  test('no answer (the card times out) = nothing written', async () => {
+  test('no answer (the card times out) = nothing written, and the AI is told it timed out, not that the person said no', async () => {
     const r = await aiTurn('carol', fake({ tool: 'write', args: { file_path: 'skills/timeout.md', content: '# t\n' }, sayResult: true }), null)
     expect(r.card!.origin).toBe('server')
-    expect(r.content).toContain('did not allow saving')
+    expect(r.content).toContain("Nothing was saved to 'skills/timeout.md' in skills/")
+    expect(r.content).toContain('did not answer the confirmation card in time')
+    expect(r.content).not.toContain('did not allow')
     expect(exists('skills/timeout.md')).toBe(false)
+    expect(h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turnId)).toEqual({ summary: 'write -> no answer in time (team skills)' })
   })
 
   test('save: written, with an audit entry (by AI) and a banner for the other admins and the owner', async () => {
@@ -210,11 +213,12 @@ describe('the AI never saves under skills/ without the person confirming (fail c
 })
 
 describe('change tracking of people\'s changes', () => {
-  test('save, move and delete under skills/ are audited with who and which file, with a history / trash link', async () => {
+  test('save, move and delete under skills/ are audited with who and which file, with a history / files trash link', async () => {
     await save('carol', 'skills/tracked.md', '# v1\n')
     await h.api('carol').call(API.move, { body: { from: 'skills/tracked.md', to: 'skills/moved.md' } })
     await h.api('carol').call(API.remove, { query: { path: 'skills/moved.md' } })
-    await socks.dana!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.link === '/trash')
+    // a deleted file is in 파일 › 휴지통 (/trash is the deleted AI chats)
+    await socks.dana!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.link === '/files?view=trash')
     const page = await h.api('dana').call(API.listSkillChanges, { query: { limit: 10 } })
     const mine = page.items.filter((x) => x.actor?.id === 'carol' && ['skills/tracked.md', 'skills/moved.md'].includes(x.path))
     expect(mine.map((x) => [x.change, x.path, x.from])).toEqual([['delete', 'skills/moved.md', null], ['move', 'skills/moved.md', 'skills/tracked.md'], ['create', 'skills/tracked.md', null]])

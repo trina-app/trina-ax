@@ -6,6 +6,7 @@
 // touch screens (they have the long-press sheet), on event lines or on deleted messages (RoomMessages decides).
 import clsx from 'clsx'
 import { EllipsisVertical, MessageSquareText } from 'lucide-react'
+import { AiMark } from './AiFace'
 import type { RoomMessage, RoomReactionEmoji } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
@@ -18,7 +19,8 @@ export const QUICK_REACTIONS: readonly RoomReactionEmoji[] = ['✅', '👀', '�
 
 const BTN = 'inline-flex size-7 items-center justify-center rounded-md text-faint transition hover:bg-hover hover:text-ink'
 
-export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, more }: { roomId: string; m: RoomMessage; below?: boolean; reactOn: boolean; onThread?: () => void; more: MenuItem[] }) {
+/** `onAsk`: "Ask Trina about this" (✦): the room's side chat opens with this message quoted */
+export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, onAsk, more }: { roomId: string; m: RoomMessage; below?: boolean; reactOn: boolean; onThread?: () => void; onAsk?: () => void; more: MenuItem[] }) {
   const t = useT()
   const mine = new Set((m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji))
   return (
@@ -54,6 +56,13 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, m
         <Tooltip label={t('rooms.replyInThread')}>
           <button type="button" aria-label={t('rooms.replyInThread')} onClick={onThread} className={BTN} data-testid="message-thread">
             <MessageSquareText size={16} aria-hidden />
+          </button>
+        </Tooltip>
+      )}
+      {onAsk && (
+        <Tooltip label={t('sideChat.askAbout')}>
+          <button type="button" aria-label={t('sideChat.askAbout')} onClick={onAsk} className={BTN} data-testid="message-ask-trina">
+            <AiMark place="bar" />
           </button>
         </Tooltip>
       )}

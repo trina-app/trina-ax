@@ -10,13 +10,14 @@ import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { folderView, runMayWrite, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
+import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
 import { DENIED_NAMES, DENIED_RANGES, RUN_ID_RE, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
-import { _held, holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
+import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
 import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, requiredWarningVersion, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
@@ -110,7 +111,8 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
   const runOf = (start: string | null) => folderView(FIXTURE_RULES, PEOPLE.alice!, { start })
   test('a shared writable group folder is read-only in a run; the start folder and the own folder are writable', () => {
     const v = runOf('projects/falcon')
-    expect(v).toEqual({ read: ['shared', 'skills', 'groups/marketing'], write: ['projects/falcon', 'users/alice'], denyRead: ['groups/marketing/salaries'], denyWrite: ['projects/falcon/public'] } as FolderView)
+    // the project's and her own skills folders stay read-only in a run (review S8: what people's AI follows)
+    expect(v).toEqual({ read: ['shared', 'skills', 'groups/marketing'], write: ['projects/falcon', 'users/alice'], denyRead: ['groups/marketing/salaries'], denyWrite: ['projects/falcon/public', 'projects/falcon/skills', 'users/alice/skills'] } as FolderView)
     expect(viewAccess(v, 'groups/marketing/brief.md')).toBe('read')
     expect(viewAccess(v, 'shared/s.md')).toBe('read')
     expect(viewAccess(v, 'projects/falcon/src/x.ts')).toBe('write')
@@ -124,6 +126,50 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
       const v = runOf(start)
       for (const f of ['shared/repo/.git/hooks/pre-commit', 'shared/repo/package.json', 'groups/marketing/Makefile', 'groups/marketing/.envrc']) expect([start, f, viewAccess(v, f)]).toEqual([start, f, 'read'])
     }
+  })
+  test('skill folders are never written by a run (review S8): the project\'s, her own, and any start in or above them', () => {
+    const v = runOf('projects/falcon')
+    // a command could write or delete a project's skills, or her own, with no card
+    for (const f of ['projects/falcon/skills/launch/SKILL.md', 'projects/falcon/skills/new.md', 'users/alice/skills/mine/SKILL.md', 'users/alice/skills/x.md']) expect([f, viewAccess(v, f)]).toEqual([f, 'read'])
+    expect(viewAccess(v, 'projects/falcon/src/app.ts')).toBe('write')
+    expect(viewAccess(v, 'users/alice/notes.md')).toBe('write')
+    for (const f of ['projects/falcon/skills', 'projects/falcon/skills/a', 'users/alice/skills/b']) expect(runMayWrite({ start: 'projects/falcon' }, 'alice', f)).toBe(false)
+    expect(runMayWrite({ start: 'projects/falcon' }, 'alice', 'projects/falcon/skillset')).toBe(true)
+    // a chat with no project: still not her own skills
+    expect(viewAccess(runOf(null), 'users/alice/skills/x.md')).toBe('read')
+    // a start that is a skill folder, in one, or groups/ or projects/ themselves writes no team folder (an admin's run)
+    for (const start of ['skills/ops', 'projects/falcon/skills', 'groups/marketing/skills/brief', 'projects', 'groups']) {
+      const a = folderView(FIXTURE_RULES, PEOPLE.carol!, { start })
+      expect([start, viewAccess(a, `${start}/x.md`)]).toEqual([start, 'read'])
+      expect(viewAccess(a, 'users/carol/x.md')).toBe('write')
+    }
+    // a group's folder as the start: its skills folder is read-only too
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'groups/marketing' }), 'groups/marketing/skills/brief/SKILL.md')).toBe('read')
+    expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'groups/marketing' }), 'groups/marketing/brief.md')).toBe('write')
+  })
+  test('an absent skills folder is there for the run\'s life (an srt mount point), and goes when the last run ends if empty', () => {
+    const team = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-skills-'))
+    fs.mkdirSync(path.join(team, 'projects/falcon'), { recursive: true })
+    fs.mkdirSync(path.join(team, 'users/alice/skills/mine'), { recursive: true })
+    const rels = runSkillFolders({ start: 'projects/falcon' }, 'alice')
+    expect(rels).toEqual(['users/alice/skills', 'projects/falcon/skills'])
+    const a = holdSkillFolders(team, rels)
+    expect(fs.statSync(path.join(team, 'projects/falcon/skills')).isDirectory()).toBe(true)
+    const b = holdSkillFolders(team, rels)
+    a(); a()
+    expect(fs.existsSync(path.join(team, 'projects/falcon/skills'))).toBe(true)
+    b()
+    // made for the runs and still empty: gone; hers was there before: kept
+    expect(fs.existsSync(path.join(team, 'projects/falcon/skills'))).toBe(false)
+    expect(fs.existsSync(path.join(team, 'users/alice/skills/mine'))).toBe(true)
+    expect(_heldSkills().size).toBe(0)
+    // never through a link: a project folder that is a link gets nothing made in it
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-skills-out-'))
+    fs.mkdirSync(path.join(team, 'projects'), { recursive: true })
+    fs.symlinkSync(outside, path.join(team, 'projects/link'))
+    holdSkillFolders(team, ['projects/link/skills'])()
+    expect(fs.readdirSync(outside)).toEqual([])
+    fs.rmSync(team, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
   })
   test('a chat with no project (the work folder): every team folder is read-only, except the own folder', () => {
     const v = runOf(null)
@@ -196,7 +242,7 @@ describe('the srt settings file', () => {
     expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', '/tmp', '/var/log', '/run', '/home', '/root', `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
     expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`])
     expect(s.filesystem.allowWrite).toEqual([`${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`])
-    expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`])
+    expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`, `${TEAM}/projects/falcon/skills`, `${TEAM}/users/alice/skills`])
     expect(settingsProblems(s, input)).toEqual([])
   })
   test('a chat with no project: its work folder is writable too, and no team folder but the own one', () => {
@@ -351,7 +397,9 @@ describe('the argv of a run', () => {
     expect(lock.packages['node_modules/@anthropic-ai/sandbox-runtime'].version).toBe(SRT_VERSION)
     for (const [k, v] of Object.entries(lock.packages as Record<string, { integrity?: string }>)) if (k) expect(v.integrity).toMatch(/^sha512-/)
     const sh = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
-    expect(sh).toContain(`SRT_VERSION=${SRT_VERSION}`)
+    // the version comes from the one list of packages (tests/unit/system-packages.test.ts checks the rest)
+    expect(JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8')).artifacts.srt.version).toBe(SRT_VERSION)
+    expect(sh).toContain('SRT_VERSION=$(pk_art srt any version)')
     const files = /SERVER_FILES_OUTSIDE_BASE="([^"]*)"/.exec(sh)![1]!.split(' ').map((f) => f.replace('$ID', 'mycel'))
     expect(files).toEqual(serverFilesOutsideBase('mycel'))
     expect(sh).toContain('ReadWritePaths=-$BASE/devenv')
@@ -391,6 +439,31 @@ describe('the plan file (the same rules as mycel-boxd)', () => {
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', { ...plan, network: '' }).network).toBe('offline')
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', null)).toMatchObject({ cpus: 1, memoryMiB: 2560, network: 'open', maxRunning: 2 })
     expect(sliceValues(plan)).toEqual({ MemoryMax: '1536M', CPUQuota: '150%', TasksMax: 2048 })
+  })
+})
+
+describe('the srt attack image builds from what it copies (tests/linux/Dockerfile.srt)', () => {
+  test('the files the attack suite loads import only node, @mycel/shared, the srt folder and policy/access.ts', () => {
+    // the image copies shared/, server/src/devenv/srt and server/src/policy/access.ts only: a new import of anything else
+    // breaks the CI step "Dev environment on srt, attack suite" (it did once: skills/guard from access.ts)
+    const docker = fs.readFileSync(path.join(REPO, 'tests/linux/Dockerfile.srt'), 'utf8')
+    expect(docker).toContain('COPY server/src/devenv/srt /opt/mycel/server/src/devenv/srt')
+    expect(docker).toContain('COPY server/src/policy/access.ts /opt/mycel/server/src/policy/access.ts')
+    const seen = new Set<string>()
+    const visit = (rel: string) => {
+      if (seen.has(rel)) return
+      seen.add(rel)
+      const text = fs.readFileSync(path.join(REPO, rel), 'utf8')
+      for (const m of text.matchAll(/^(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/gm)) {
+        const spec = m[1]!
+        if (spec.startsWith('node:') || spec === 'bun:sqlite' || spec.startsWith('@mycel/shared')) continue
+        const next = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)) + '.ts'
+        expect([rel, spec, next.startsWith('server/src/devenv/srt/') || next === 'server/src/policy/access.ts']).toEqual([rel, spec, true])
+        visit(next)
+      }
+    }
+    for (const m of fs.readFileSync(path.join(REPO, 'tests/linux/srt-attack.ts'), 'utf8').matchAll(/from\s+'\.\.\/\.\.\/(server\/src\/[^']+)'/g)) visit(`${m[1]}.ts`)
+    expect([...seen]).toContain('server/src/devenv/srt/access.ts')
   })
 })
 
@@ -531,7 +604,7 @@ beforeAll(async () => {
   h = await startHarness({ name: 'dev-env-srt' })
   devBase = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-base-'))
   setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
-  falconId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: FALCON, instructions: '' } })).id
+  falconId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: FALCON, instructions: '' })).id
   chatFalcon = (await h.api('alice').call(API.createChat, { body: { projectId: falconId } })).id
   chatPlain = (await h.api('alice').call(API.createChat, { body: {} })).id
   chatPlain2 = (await h.api('alice').call(API.createChat, { body: {} })).id
@@ -614,7 +687,10 @@ describe('a command follows the person, not the project', () => {
     expect(s.filesystem.allowWrite).toEqual([t(FALCON), t('users/alice'), personHome(devBase, 'alice')])
     expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared'), t('groups/marketing')]))
     expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system'), t('groups/marketing/salaries')]))
-    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public')])
+    // the skills folders are made as mount points for the run (read-only there) and go again after it
+    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public'), t('projects/falcon/skills'), t('users/alice/skills')])
+    expect(fs.existsSync(t('projects/falcon/skills'))).toBe(false)
+    expect(fs.existsSync(t('users/alice/skills'))).toBe(false)
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/finance', 'projects/atlas', 'users/bob']) expect(p.startsWith(t(no))).toBe(false)
     // the output goes to the person's logs, and the files are gone after the run
     expect(run.spec.stdoutFile.startsWith(personLogs(devBase, 'alice') + '/')).toBe(true)

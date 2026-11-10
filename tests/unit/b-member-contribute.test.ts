@@ -15,10 +15,11 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, CONTRIBUTE_LIMITS, GENERAL_TASKS_SKILL, PPT_SUGGEST_CHARS, SKILL_SHARE_LIMITS, type ContributedSkills, type ShareSkillIn, type SkillSuggestion } from '@mycel/shared/api'
+import { API, CONTRIBUTE_LIMITS, PPT_SUGGEST_CHARS, SKILL_SHARE_LIMITS, teamHome, type ContributedSkills, type ShareSkillIn, type SkillSuggestion } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { notificationsOf } from '../../server/src/notifications/service'
-import { landingSkill, readWelcome } from '../../server/src/onboarding/welcome'
+import { landingSkill, readWelcome, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { focusSkill, goalProgress } from '../../server/src/onboarding/goal'
 import { skillMakerName } from '../../server/src/skills/author'
 import { MIGRATIONS_DIR } from '../../server/src/db'
@@ -28,14 +29,20 @@ setDefaultTimeout(90_000)
 
 let h: Harness
 let teamFolder = ''
+/** the landing skill: a team skill the owner shared from 내 스킬 가져오기 (no pack skill stands in: docs/DECISIONS.md "DS3") */
+const LANDING = 'skills/team/weekly-notes/SKILL.md'
 const socks: Record<string, TestSocket> = {}
 beforeAll(async () => {
   h = await startHarness({ name: 'b-member-contribute' })
-  // the owner's start: the general pack (할 일 정리 is the landing skill) and the team's group with its folder
+  // the owner's start: the general pack and the team's group with its folder; the skill the owner shared lands
   await h.api('dana').call(API.updateWelcome, { body: {} })
   await h.api('dana').call(API.setupWelcomeTeam)
+  fs.mkdirSync(path.join(h.team, path.dirname(LANDING)), { recursive: true })
+  fs.writeFileSync(path.join(h.team, LANDING), '---\nname: weekly-notes\ndescription: weekly-notes — this week\'s notes by person\n---\n# Notes\n')
+  setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING), shared: { at: '2026-11-08T00:00:00.000Z', skills: [{ path: LANDING, title: '주간 메모' }], landing: LANDING } })
   const g = readWelcome(h.ctx)!.teamGroup!
-  teamFolder = g.folder.replace(/\/+$/, '')
+  // the team's home: shared/ since docs/DECISIONS.md "Team folder basics" (everyone writes it)
+  teamFolder = teamHome(g).replace(/\/+$/, '')
   // bob joined through the team link (its group); alice another way (no group)
   h.ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(g.id, 'bob')
   for (const u of ['dana', 'carol', 'bob']) { socks[u] = await h.ws(u, { windowId: `win-mc-${u}` }); await socks[u]!.next('hello') }
@@ -78,43 +85,51 @@ const dbText = () => {
 }
 
 describe('the contribute line under a member\'s first good run of the landing skill', () => {
-  test('the landing skill is 할 일 정리 (nothing shared); bob writes the team folder, alice does not', () => {
-    expect(landingSkill(h.ctx)).toBe(GENERAL_TASKS_SKILL)
-    expect(teamFolder).toMatch(/^groups\//)
+  test('the landing skill is the one the owner shared; the team folder is shared/', () => {
+    expect(landingSkill(h.ctx)).toBe(LANDING)
+    expect(teamFolder).toBe('shared')
   })
 
   test('first done run only (not a failed or scheduled one, not a later one); above the PPT; with the team folder bob can write', async () => {
     const long = '## 이번 주\n' + '가'.repeat(PPT_SUGGEST_CHARS)
     // a failed run and a scheduled run come first: not good runs
-    expect(await suggestionFor('bob', answer('bob', { skill: GENERAL_TASKS_SKILL, status: 'error', content: long }))).toBeNull()
-    answer('bob', { skill: GENERAL_TASKS_SKILL, scheduleId: 'sched-mc' })
-    const first = answer('bob', { skill: GENERAL_TASKS_SKILL, content: long })
+    expect(await suggestionFor('bob', answer('bob', { skill: LANDING, status: 'error', content: long }))).toBeNull()
+    answer('bob', { skill: LANDING, scheduleId: 'sched-mc' })
+    const first = answer('bob', { skill: LANDING, content: long })
     // the contribute line, not the PPT that a long answer gets
     expect(await suggestionFor('bob', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: teamFolder })
     // the same answer on a phone: the folder link only (it has one)
     expect(await suggestionFor('bob', first, true)).toEqual({ kind: 'contribute', key: 'contribute', folder: teamFolder })
     // a later run: the usual suggestion (PPT here), never the line again
-    expect(await suggestionFor('bob', answer('bob', { skill: GENERAL_TASKS_SKILL, content: long }))).toEqual({ kind: 'ppt', key: 'ppt' })
+    expect(await suggestionFor('bob', answer('bob', { skill: LANDING, content: long }))).toEqual({ kind: 'ppt', key: 'ppt' })
     // the first answer stays the first: asked again, it still shows (until ✕)
     expect((await suggestionFor('bob', first))?.kind).toBe('contribute')
   })
 
-  test('alice cannot write a team folder: no files part; on a phone the next suggestion instead', async () => {
+  test('alice joined another way: shared/ is everyone\'s, so it is her folder too; one she cannot write: no files part, on a phone the next suggestion instead', async () => {
     const long = '가'.repeat(PPT_SUGGEST_CHARS)
-    const first = answer('alice', { skill: GENERAL_TASKS_SKILL, content: long })
-    expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: null })
-    expect(await suggestionFor('alice', first, true)).toEqual({ kind: 'ppt', key: 'ppt' })
+    const first = answer('alice', { skill: LANDING, content: long })
+    expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: 'shared' })
+    // shared/ read-only for her (an admin's rule) and no group folder of hers she can write
+    const f = h.ctx.db.query("SELECT id FROM folders WHERE path = 'shared'").get() as { id: string }
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_mc_alice', ?, 'user', 'alice', 'read')").run(f.id)
+    try {
+      expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: null })
+      expect(await suggestionFor('alice', first, true)).toEqual({ kind: 'ppt', key: 'ppt' })
+    } finally {
+      h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_mc_alice'").run()
+    }
   })
 
   test('never for an owner or admin, never under another skill or no skill', async () => {
-    expect(await suggestionFor('dana', answer('dana', { skill: GENERAL_TASKS_SKILL }))).toBeNull()
-    expect(await suggestionFor('carol', answer('carol', { skill: GENERAL_TASKS_SKILL }))).toBeNull()
+    expect(await suggestionFor('dana', answer('dana', { skill: LANDING }))).toBeNull()
+    expect(await suggestionFor('carol', answer('carol', { skill: LANDING }))).toBeNull()
     expect(await suggestionFor('erin', answer('erin', { skill: 'skills/general/other/SKILL.md' }))).toBeNull()
     expect(await suggestionFor('erin', answer('erin', {}))).toBeNull()
   })
 
   test('✕ closes it for good', async () => {
-    const first = answer('erin', { skill: GENERAL_TASKS_SKILL })
+    const first = answer('erin', { skill: LANDING })
     expect((await suggestionFor('erin', first))?.kind).toBe('contribute')
     expect((await post('erin', '/api/onboarding/suggestion/dismiss', { key: 'contribute' })).status).toBe(204)
     expect(await suggestionFor('erin', first)).toBeNull()
@@ -325,7 +340,7 @@ describe('the review: owners and admins only, grouped by person on the web', () 
     const listed = (await h.api('alice').call(API.listSkills)).items.find((s) => s.path === 'skills/quote-maker/SKILL.md')
     expect(listed).toMatchObject({ title: '견적 만들기', suggestedBy: 'Bob Lee' })
     expect(skillMakerName(h.ctx.db, 'skills/quote-maker/SKILL.md')).toEqual({ id: 'bob', name: 'Bob Lee' })
-    expect((await h.api('alice').call(API.listSkills)).items.find((s) => s.path === GENERAL_TASKS_SKILL)?.suggestedBy).toBeUndefined()
+    expect((await h.api('alice').call(API.listSkills)).items.find((s) => s.path === LANDING)?.suggestedBy).toBeUndefined()
     // never the invite's or the goal's skill
     expect(landingSkill(h.ctx)).toBe(landing)
     expect(readWelcome(h.ctx)!.shared ?? null).toEqual(shared)

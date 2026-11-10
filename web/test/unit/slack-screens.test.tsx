@@ -1,13 +1,13 @@
-// Admin › Slack and Settings › App connectors › Slack (docs/SLACK.md): the setup is four steps, each with its Slack page,
+// Admin › Slack and Settings › Connectors › Slack (docs/SLACK.md): the setup is four steps, each with its Slack page,
 // and no manifest on the page; a refused token is said under its own field until the next try, never in a toast; once
 // set up, one status line with one button, a problem names the one place to fix it, "Remove" waits behind "Replace
-// tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the Slack line sits under the
-// app cards; "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
+// tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the person's Slack line
+// (SlackAccount, under Connectors' list); "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { MySlack, SlackAdmin } from '@mycel/shared/api'
 import AdminSlack from '../../src/pages/admin/Slack'
-import ConnectorConnections from '../../src/pages/ConnectorConnections'
+import { SlackAccount } from '../../src/components/settings/SlackAccount'
 import { useLocaleStore } from '../../src/i18n'
 import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom } from './dom-host'
@@ -178,23 +178,21 @@ describe('Admin › Slack', () => {
   })
 })
 
-describe('Settings › App connectors', () => {
-  const settings = () => mount(<MemoryRouter><ConnectorConnections /></MemoryRouter>)
+describe('Settings › Connectors › Slack', () => {
+  const settings = () => mount(<MemoryRouter><SlackAccount /></MemoryRouter>)
 
-  test('the team uses Slack: the Slack line under the app cards, no empty card', async () => {
+  test('the team uses Slack: the Slack line', async () => {
     const m = await settings()
     await m.until(() => m.find('slack-account'), 'the Slack line')
     await m.settle()
-    expect(m.find('connectors-empty')).toBeNull()
-    expect(m.find('drive-card')).not.toBeNull()
     expect(m.get('slack-account').textContent).toContain('Mention @Trina AX in Acme')
     await m.unmount()
   })
 
-  test('no Slack: no Slack line; the app cards (Google Drive) are there', async () => {
+  test('no Slack: no Slack line', async () => {
     me = { ...me, available: false }
     const m = await settings()
-    await m.until(() => m.find('drive-card'), 'the Google Drive card')
+    await m.until(() => calls.includes('GET /api/slack/me'), 'the Slack state read')
     await m.settle()
     expect(m.find('slack-account')).toBeNull()
     await m.unmount()
@@ -211,17 +209,17 @@ describe('Settings › App connectors', () => {
     expect(assigned[0]).toStartWith('https://slack.com/openid/connect/authorize')
     await m.unmount()
     me = { ...me, link: { slackUserId: 'U0ME', slackName: 'me.slack', linkedAt: new Date().toISOString() } }
-    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=linked']}><ConnectorConnections /></MemoryRouter>)
+    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=linked']}><SlackAccount /></MemoryRouter>)
     await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
     expect(m.get('slack-signin-outcome').textContent).toBe('Your Slack account is linked. You can ask in Slack now.')
     expect(m.find('slack-unlink')).not.toBeNull()
     await m.unmount()
-    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_other_user']}><ConnectorConnections /></MemoryRouter>)
+    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_other_user']}><SlackAccount /></MemoryRouter>)
     await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
     expect(m.get('slack-signin-outcome').textContent).toContain('signed in to a different account')
     await m.unmount()
     // an outcome that is not one (a name every object has): the general failure, no crash
-    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=constructor']}><ConnectorConnections /></MemoryRouter>)
+    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=constructor']}><SlackAccount /></MemoryRouter>)
     await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
     expect(m.get('slack-signin-outcome').textContent).toBe('Could not link with the Slack sign-in. Try again in a moment.')
     await m.unmount()
@@ -231,7 +229,7 @@ describe('Settings › App connectors', () => {
     let path = ''
     const Where = () => { path = useLocation().pathname + useLocation().search; return null }
     me = { ...me, signIn: true }
-    const m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_cancelled&tab=x']}><ConnectorConnections /><Where /></MemoryRouter>)
+    const m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_cancelled&tab=x']}><SlackAccount /><Where /></MemoryRouter>)
     await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
     await m.until(() => !path.includes('slack='), 'the address without it')
     expect(path).toBe('/settings/connectors?tab=x')

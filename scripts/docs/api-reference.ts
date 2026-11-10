@@ -34,6 +34,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ONBOARDING: 'Onboarding (company profile)',
   TEAM_LINKS: 'Team invite link',
   WELCOME: 'Onboarding: welcome steps',
+  ONBOARDING_FILES: 'Onboarding: team files picked from a folder',
   ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
   DEMO: 'Demo mode (development demo server only)',
   PEOPLE: 'People directory and profiles',
@@ -44,6 +45,8 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   INTRO_DECK: 'Company intro deck (the welcome steps\' first result): PowerPoint and PDF',
   SKILL_SHARES: 'Bring my skills to the team (share proposals)',
   KNOWLEDGE_GRAPH: 'Knowledge graph: the code map of the team folders (CodeGraph), its folders, rebuild',
+  AI_ALLOWANCES: 'What I allowed the AI in advance',
+  HANDOVER: 'Owner handover (the lead link\'s card and the owner\'s own connections)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

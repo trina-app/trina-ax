@@ -5,7 +5,7 @@
 // a chat), and where it may be dropped.
 import { describe, expect, test } from 'bun:test'
 import { ApiError, type FileEntry } from '@mycel/shared/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, narrowedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, narrowedBy, projectSkillsOn, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
 import { TEAM_FILE_DRAG_TYPE } from '../../src/lib/teamAttach'
 
 const entry = (path: string, o: Partial<FileEntry> = {}): FileEntry => ({ name: path.slice(path.lastIndexOf('/') + 1), path, type: 'file', size: 1, mtime: '2026-10-28T00:00:00.000Z', mime: null, access: 'write', ...o })
@@ -89,6 +89,25 @@ describe('moveMany', () => {
     expect(r.done).toEqual([])
     expect(r.declined.map((e) => e.path)).toEqual(['m/b.pdf', 'm/c.pdf'])
     expect(r.failed.map((f) => [f.entry.path, f.error])).toEqual([['m/a.png', forbidden]])
+  })
+
+  test('a project\'s folder into projects/: its skills switch on, so that item is asked about by name, then moved with skillsOk', async () => {
+    const on = new ApiError(409, { code: 'conflict', message: 'skills', params: { reason: 'project_skills_on', skills: 'margin\nquote', count: 2 } })
+    expect(projectSkillsOn(on)).toEqual(['margin', 'quote'])
+    expect(projectSkillsOn(new ApiError(409, { code: 'conflict', message: 'exists' }))).toBeNull()
+    const calls: { from: string; skillsOk?: boolean }[] = []
+    const asked: string[][] = []
+    const r = await moveMany([entry('shared/pricing'), entry('shared/other')], 'projects', {
+      move: async (body) => { calls.push(body); if (body.from === 'shared/pricing' && !body.skillsOk) throw on; return {} },
+      confirmNarrow: async () => true,
+      confirmSkills: async (names) => (asked.push(names), true),
+    })
+    expect(asked).toEqual([['margin', 'quote']])
+    expect(calls.map((c) => [c.from, !!c.skillsOk])).toEqual([['shared/pricing', false], ['shared/pricing', true], ['shared/other', false]])
+    expect(r.done.map((e) => e.path)).toEqual(['shared/pricing', 'shared/other'])
+    // "no": left where it was
+    const no = await moveMany([entry('shared/pricing')], 'projects', { move: async (body) => { if (!body.skillsOk) throw on; return {} }, confirmNarrow: async () => true, confirmSkills: async () => false })
+    expect(no.declined.map((e) => e.path)).toEqual(['shared/pricing'])
   })
 
   test('nothing that narrows: nobody is asked', async () => {

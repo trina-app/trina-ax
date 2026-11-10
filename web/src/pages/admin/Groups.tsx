@@ -1,16 +1,22 @@
-// Groups: name, description, members. Folder rules can name a group; deleting a group removes its rules too.
+// Groups: name, description, members. Folder rules can name a group; deleting a group removes its rules too, and
+// switches off the team AI connections only it may use (the confirmation names them).
 // Laid out like Members (and the Claude Console): title with the count, one line, New group, a search box, then quiet
-// rows (name · members · skills switch · "…"); Edit and Delete are in the row's "…".
+// rows (name · members · "…"); Edit and Delete are in the row's "…". The members column starts with their faces
+// (FaceStack: at most 3 and "+N", 2 on a phone), then the count and the names in words. Who may change team skills is
+// on the Team skills page (SkillManagers.tsx), not here: a group's own skills are its members' anyway
+// (docs/DECISIONS.md "Group skills").
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Group, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { FaceStack, FACES_SHOWN } from '../../components/FaceStack'
+import { useFaceOf } from '../../store/people'
 import { useMeStrict } from '../../store/session'
 import { AdminPageHeader, CountBadge, Loadable, SearchBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
-import { SkillManagerCell, useSkillManagers } from './SkillManagers'
 import { MemberMenu } from './RowMenu'
+import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 
 export default function Groups() {
   const t = useT()
@@ -18,17 +24,21 @@ export default function Groups() {
   const actOk = useActionOk()
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const skillManagers = useSkillManagers()
+  const connections = useLoad(loadConnections)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [query, setQuery] = useState('')
   const q = query.trim().toLocaleLowerCase(locale)
   const focus = useFocusAfterRemove(groups.data, () => document.querySelector<HTMLElement>('[data-testid="group-new"]'))
   const name = (id: string) => users.data?.find((u) => u.id === id)?.name ?? id
+  const faceOf = useFaceOf()
   const remove = async (g: Group) => {
-    if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body: t('groups.deleteBody'), confirm: t('common.delete'), danger: true }))) return
+    // AI connections only this group may use are switched off by the delete (never given to the whole team): named here
+    const off = connectionsOnlyFor(connections.data, { subjectType: 'group', subjectId: g.id })
+    const body = off.length ? <><p>{t('groups.deleteBody')}</p><p className="mt-2" data-testid="group-delete-ai-off">{t('groups.deleteAiOff', { names: off.join(', ') })}</p></> : t('groups.deleteBody')
+    if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body, confirm: t('common.delete'), danger: true }))) return
     if (!(await actOk(() => api.call(API.deleteGroup, { params: { id: g.id } })))) return
     focus.removed(groups.data?.findIndex((x) => x.id === g.id) ?? 0)
-    void skillManagers.reload()
+    if (off.length) void connections.reload()
     await groups.reload()
   }
   return (
@@ -63,27 +73,30 @@ export default function Groups() {
             return (
               <>
                 {/* the column names of the rows below (each row reads on its own, so this is for the eye only) */}
-                <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem] gap-4 border-b border-line py-2.5 text-label font-medium text-muted md:grid">
+                <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_2.5rem] gap-4 border-b border-line py-2.5 text-label font-medium text-muted md:grid">
                   <span>{t('auth.name')}</span>
                   <span>{t('groups.members')}</span>
-                  <span className="leading-tight">{t('skillMgr.column')}</span>
                   <span />
                 </div>
                 <ul className="divide-y divide-line border-b border-line max-md:border-t" data-testid="group-list">
                   {list.map((g) => (
-                    <li key={g.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 py-3.5 text-sm md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem]">
+                    <li key={g.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 py-3.5 text-sm md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_2.5rem]">
                       <span className="min-w-0">
                         <span className="block truncate font-medium text-ink">{g.name}</span>
                         {g.description && <span className="block truncate text-xs text-faint">{g.description}</span>}
                       </span>
-                      {/* a phone: the menu sits next to the name, the members and the switch go under them */}
-                      <span className="min-w-0 text-muted max-md:col-span-2 max-md:row-start-2">
-                        <span className="block text-label">{t('groups.memberCount', { n: g.memberIds.length })}</span>
-                        <span className="block truncate text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
-                      </span>
-                      <span className="flex items-center gap-3 max-md:col-span-2 max-md:row-start-3">
-                        <span className="text-xs text-muted md:sr-only">{t('skillMgr.column')}</span>
-                        <SkillManagerCell subject={{ type: 'group', id: g.id, name: g.name }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
+                      {/* a phone: the menu sits next to the name, the members go under them */}
+                      <span className="flex min-w-0 items-center gap-2.5 text-muted max-md:col-span-2 max-md:row-start-2">
+                        {/* a slot as wide as 3 faces and "+99" (2 on a phone), so the counts below each other line up */}
+                        <span className="flex min-w-20 shrink-0 max-sm:min-w-16">
+                          {g.memberIds.length > 0 && (
+                            <FaceStack people={g.memberIds.slice(0, FACES_SHOWN).map((id) => faceOf({ id, name: name(id) }))} count={g.memberIds.length} testId="group" />
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-label">{t('groups.memberCount', { n: g.memberIds.length })}</span>
+                          <span className="block truncate text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
+                        </span>
                       </span>
                       <span className="flex justify-end max-md:col-start-2 max-md:row-start-1">
                         <MemberMenu

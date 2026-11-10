@@ -1,14 +1,14 @@
 // A conversation's "⋯" and hidden conversations in the browser (docs/DECISIONS.md "대화 숨기기";
-// components/rooms/RoomMenu.tsx): the menu in a room's header by kind (a group chat's 대화방 나가기, a DM's 대화 숨기기,
-// a team room's 숨기기, 알림 설정 opening the bell's levels, 링크 복사), on a sidebar row (hover, keyboard, right-click),
+// components/rooms/RoomMenu.tsx): the menu in a room's header by kind (a group chat's 이름 바꾸기 and 대화방 나가기, a DM's
+// 대화 숨기기, a team room's 숨기기, 알림 설정 opening the bell's levels, 링크 복사), on a sidebar row (hover, keyboard, right-click),
 // on a phone a long press on a row of the 대화 list; hidden rooms out of the sidebar and the counts, under "숨긴 대화 N"
 // on the conversations page with 다시 보이기, and shown again when opened. The rooms are answered through page.route
-// (rooms-mock.ts routeRooms). With SHOTS_DIR set, the last test saves the screens for review (1440 and 390, light and
-// dark).
+// (rooms-mock.ts routeRooms). In English at 1440 and 900 px, the notification menus stay inside the window. With
+// SHOTS_DIR set, the last tests save the screens for review (1440 and 390, light and dark; 1440 light in English).
 import fs from 'node:fs'
 import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
@@ -28,8 +28,8 @@ const ROOMS: MockRoomSpec[] = [
   { id: HIDDEN_DM, kind: 'dm', name: null, peers: [JIWOO], unread: 2, ago: 1, last: '지난번 자료 감사해요', hidden: true },
 ]
 
-async function start(page: Page, rooms = ROOMS) {
-  await reset(page)
+async function start(page: Page, rooms = ROOMS, locale?: 'en') {
+  await reset(page, locale ? { teamLocale: locale, usersFollowTeam: true } : {})
   const state = await routeRooms(page, rooms)
   await signIn(page)
   return state
@@ -58,7 +58,7 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
   await page.mouse.move(0, 0)
   await row.getByTestId('sidebar-room').click({ button: 'right' })
   const items = page.getByRole('menu').getByRole('menuitem')
-  await expect(items).toHaveText(['알림 설정', '링크 복사', '대화 숨기기'])
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
   await expect(page.getByTestId('sidebar-room')).toHaveCount(3)
@@ -80,14 +80,35 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
   await expect(team.getByTestId('sidebar-room-menu')).toBeFocused()
 })
 
-test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 링크 복사', async ({ page }) => {
+test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 이름 바꾸기; 링크 복사', async ({ page }) => {
   const state = await start(page)
   const items = page.getByRole('menu').getByRole('menuitem')
-  // a group chat: leave (with the confirm)
+  // a group chat: rename (its members may), leave (with the confirm)
   await page.goto(`/rooms/${GROUP}`)
   await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['알림 설정', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
+  // 이름 바꾸기: the info's name field in a prompt, the members' names where it is empty; the room's info has no 나가기
+  await page.getByTestId('room-menu-rename').click()
+  const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
+  await expect(prompt.getByText('비우면 멤버 이름으로 보여요.')).toBeVisible()
+  const field = prompt.getByRole('textbox', { name: '대화방 이름' })
+  await expect(field).toHaveValue('디자인 리뷰')
+  await expect(field).toBeFocused()
+  await expect(field).toHaveAttribute('placeholder', '김소라, 이민수')
+  await field.fill('디자인 리뷰 2차')
+  await field.press('Enter')
+  await expect.poll(() => state.updated).toEqual([{ roomId: GROUP, body: { name: '디자인 리뷰 2차' } }])
+  await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰 2차')
+  // the keyboard is back on the "⋯"
+  await expect(page.getByTestId('room-menu')).toBeFocused()
+  state.updated.length = 0
+  await page.getByTestId('room-members-button').click()
+  await expect(page.getByTestId('room-info')).toBeVisible()
+  await expect(page.getByTestId('room-leave')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('room-menu').click()
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
   // 알림 설정: the bell's own four levels, the keyboard in them
   await page.getByTestId('room-menu-notify').click()
   await expect(page.getByRole('menuitemradio')).toHaveCount(4)
@@ -109,7 +130,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   // a DM: hide; hiding the room on screen goes to the list
   await page.goto(`/rooms/${DM}`)
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['알림 설정', '링크 복사', '대화 숨기기'])
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
@@ -122,7 +143,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   for (const id of [TEAM, ALL]) {
     await page.goto(`/rooms/${id}`)
     await page.getByTestId('room-menu').click()
-    await expect(items).toHaveText(['알림 설정', '링크 복사', '숨기기'])
+    await expect(items).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '숨기기'])
     await page.keyboard.press('Escape')
   }
 })
@@ -207,6 +228,78 @@ test('the conversations page: a row\'s "⋯" over its end, the preview stopping 
   expect(before).not.toBe('56px')
 })
 
+// a computer's menu inside the window (components/rooms/MenuButton.tsx menuSpot), in English, whose words are the
+// longest: a sidebar row's notification menu is wider than the room left of the row's "⋯" and slides right; it is no
+// longer cut by the window's left edge (nor by the sidebar's list, which scrolls)
+const inWindow = async (page: Page, menu: Locator) => {
+  const box = (await menu.boundingBox())!
+  const view = page.viewportSize()!
+  expect(box.x).toBeGreaterThanOrEqual(8)
+  expect(box.y).toBeGreaterThanOrEqual(8)
+  expect(box.x + box.width).toBeLessThanOrEqual(view.width - 8)
+  expect(box.y + box.height).toBeLessThanOrEqual(view.height - 8)
+}
+// 900 px with reduced motion: every property then has a short transition (index.css), which must not hold the menu at 0,0
+for (const [width, reducedMotion] of [[1440, 'no-preference'], [900, 'reduce']] as const) {
+  test(`at ${width}px, in English: a sidebar row's and the room header's notification menus stay inside the window, each item on one line`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({ reducedMotion })
+    await start(page, ROOMS, 'en')
+    const row = sidebarRow(page, '김소라')
+    await row.hover()
+    await row.getByTestId('sidebar-room-menu').click()
+    await row.getByTestId('room-menu-notify').click()
+    let menu = row.getByRole('menu', { name: 'Notify me about' })
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
+    await expect(page.getByTestId('room-notify-default')).toBeFocused()
+    await inWindow(page, menu)
+    // under the row, wider than the sidebar's room left of the "⋯": moved right rather than cut at the left
+    const rowBox = (await row.boundingBox())!, box = (await menu.boundingBox())!
+    expect(box.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height)
+    expect(box.width).toBeGreaterThan(rowBox.x + rowBox.width - 8)
+    // drawn past the sidebar, not cut by its scrolling list: its right end, over the main column, is the menu
+    const sidebar = (await page.locator('nav:has([data-testid="sidebar-rooms-list"])').boundingBox())!
+    expect(box.x + box.width).toBeGreaterThan(sidebar.x + sidebar.width)
+    expect(await menu.evaluate((m, p) => m.contains(document.elementFromPoint(p.x, p.y)), { x: box.x + box.width - 4, y: box.y + box.height / 2 })).toBe(true)
+    // the longest item ("Default (from settings) · All messages") on one line, as tall as "Off"
+    const height = async (id: string) => (await page.getByTestId(id).boundingBox())!.height
+    expect(await height('room-notify-default')).toBe(await height('room-notify-off'))
+    // Esc closes it and gives the keyboard back to the row's "⋯"
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(row.getByTestId('sidebar-room-menu')).toBeFocused()
+
+    // the room header's "⋯" › Notification settings: the bell's menu, at the window's right
+    await page.goto(`/rooms/${GROUP}`)
+    await page.getByTestId('room-menu').click()
+    await page.getByTestId('room-menu-notify').click()
+    menu = page.getByRole('menu', { name: 'Notify me about' })
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
+    await inWindow(page, menu)
+    expect(await height('room-notify-default')).toBe(await height('room-notify-off'))
+    // its right edge in line with the bell's
+    const bell = (await page.getByTestId('room-notify').boundingBox())!
+    const header = (await menu.boundingBox())!
+    expect(Math.abs(header.x + header.width - (bell.x + bell.width))).toBeLessThanOrEqual(1)
+  })
+}
+
+test('at a short window: a sidebar row\'s menu opens above the row where it would run off the bottom', async ({ page }) => {
+  await start(page, ROOMS, 'en')
+  const row = sidebarRow(page, '김소라')
+  // the window ends a little under the row
+  const at = (await row.boundingBox())!
+  await page.setViewportSize({ width: 1440, height: Math.round(at.y + at.height + 60) })
+  await row.getByTestId('sidebar-room').click({ button: 'right' })
+  const rowBox = (await row.boundingBox())!
+  const menu = row.getByRole('menu')
+  // 상단에 고정, 알림 설정, 링크 복사, 대화 숨기기
+  await expect(menu.getByRole('menuitem')).toHaveCount(4)
+  await inWindow(page, menu)
+  const box = (await menu.boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(rowBox.y)
+})
+
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
@@ -222,7 +315,7 @@ test.describe('phone', () => {
     await page.waitForTimeout(650)
     await row.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
     const sheet = page.getByRole('menu')
-    await expect(sheet.getByRole('menuitem')).toHaveText(['알림 설정', '링크 복사', '숨기기'])
+    await expect(sheet.getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '숨기기'])
     // the room it is about, on top of the sheet (the row is under the scrim)
     await expect(sheet.getByTestId('menu-sheet-title')).toHaveText('개발팀')
     // a sheet from the bottom, 48px rows, the room still on screen under it (no room opened by the finger lifting)
@@ -239,7 +332,7 @@ test.describe('phone', () => {
     await page.goto(`/rooms/${DM}`)
     await expect(page.getByTestId('room-menu')).toBeVisible()
     await page.getByTestId('room-menu').click()
-    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['알림 설정', '링크 복사', '대화 숨기기'])
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
   })
 })
 
@@ -279,6 +372,27 @@ test('screenshots at 1440: header menus by kind, a sidebar row and its menu, the
     await page.getByTestId('rooms-row').first().hover()
     await shot(`1440-${scheme}-rooms-hidden`)
   }
+})
+
+test('screenshots at 1440 in English (light): the notification menu from a sidebar row and from the room header', async ({ page }) => {
+  test.skip(!process.env.SHOTS_DIR, 'SHOTS_DIR not set')
+  const shot = shots(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+  await start(page, ROOMS, 'en')
+  await page.goto(`/rooms/${TEAM}`)
+  await expect(page.getByTestId('room-message')).toHaveCount(1)
+  const row = sidebarRow(page, '김소라')
+  await row.hover()
+  await row.getByTestId('sidebar-room-menu').click()
+  await row.getByTestId('room-menu-notify').click()
+  await expect(page.getByRole('menu', { name: 'Notify me about' })).toBeVisible()
+  await shot('1440-light-en-sidebar-row-notify')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('room-menu').click()
+  await page.getByTestId('room-menu-notify').click()
+  await expect(page.getByRole('menu', { name: 'Notify me about' })).toBeVisible()
+  await shot('1440-light-en-header-notify')
 })
 
 test.describe('phone screenshots', () => {

@@ -11,6 +11,10 @@ const cm = () => 'cm-' + crypto.randomUUID()
 const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'room.png', { type: 'image/png' })); return f }
 export const ROOM_SPECS: Record<string, Spec> = {
   listRooms: { build: (c) => c.get('/api/rooms'), scope: 'self' },
+  // "이 방에서는 항상 허용" (rooms/ai-grants.ts): each person lists their own; an id that is not theirs answers like one that
+  // is not there (another person's grant: tests/unit/b-room-ai-grants.test.ts)
+  listAiAllowances: { build: (c) => c.get('/api/ai-allowances'), scope: 'self' },
+  deleteAiAllowance: { build: (c) => c.del('/api/ai-allowances/019a0000-0000-7000-8000-00000000a11f'), scope: 'nobody' },
   // everyone opens their DM with frank (an active member); the DM itself is checked by the cases below
   createRoom: {
     build: (c) => c.post('/api/rooms', { kind: 'dm', userId: 'frank' }), scope: 'self',
@@ -133,6 +137,22 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (still.json?.hidden !== undefined) throw new Error('the DM is left hidden for the caller')
     },
   },
+  // pinning a conversation to the top of my own list (docs/DECISIONS.md "Pinned conversations"): the DM's two people,
+  // each for themselves. The check takes the pin off again (the world stays as it was), and the other person's view is
+  // untouched
+  pinRoom: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/pin`), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      const me = w.as[who]
+      if (r.json?.id !== w.ids.dmRoom || typeof r.json?.pinnedAt !== 'string') throw new Error(`the DM was not pinned for the caller: ${r.text.slice(0, 200)}`)
+      const peer = await w.as[who === 'memberIn' ? 'other' : 'memberIn'].get(`/api/rooms/${w.ids.dmRoom}`)
+      if (peer.status !== 200 || peer.json?.pinnedAt !== undefined) throw new Error(`pinning changed the other person's view: ${peer.status} ${peer.text.slice(0, 200)}`)
+      const back = await me.req('DELETE', `/api/rooms/${w.ids.dmRoom}/pin`)
+      if (back.status !== 200 || back.json?.pinnedAt !== undefined) throw new Error(`the DM was not unpinned: ${back.status} ${back.text.slice(0, 200)}`)
+    },
+  },
+  unpinRoom: { build: (c, w) => c.del(`/api/rooms/${w.ids.dmRoom}/pin`), scope: 'room-dm' },
   uploadRoomFile: { build: (c, w) => c.req('POST', `/api/rooms/${w.ids.dmRoom}/files`, undefined, { form: form(), headers: { [CSRF_HEADER]: '1' } }), scope: 'room-dm' },
   // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
   // erin, in the DM, is refused like everyone else), the sources of a message (both)
@@ -143,5 +163,16 @@ export const ROOM_SPECS: Record<string, Spec> = {
   roomFile: {
     build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files/${w.ids.dmFile}?download=1`), scope: 'room-dm',
     check: (r) => { if (r.status === 200 && !r.headers.get('content-disposition')?.includes(C.dmFileName)) throw new Error('the member did not get the room file') },
+  },
+  // a Hangul file's pages (the HWP Preview plugin): the room file's checks first, so the DM's two people pass them and
+  // are told the picture is no Hangul file (503 unsupported, never the plugin's state); everyone else, the owner and
+  // the admin included, gets 404 as for the file itself
+  roomFileHwpPreview: {
+    build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files/${w.ids.dmFile}/hwp-preview?page=1`), scope: 'room-dm',
+    check: (r, _w, who) => {
+      const status = who === 'anon' ? 401 : who === 'pwchange' ? 403 : who === 'memberIn' || who === 'other' ? 503 : 404
+      if (r.status !== status) throw new Error(`${who} roomFileHwpPreview status: ${r.status}`)
+      if (status === 503 && r.json?.error?.params?.reason !== 'unsupported') throw new Error(`${who}: expected unsupported, got ${r.text.slice(0, 200)}`)
+    },
   },
 }

@@ -86,7 +86,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(page.getByTestId('invite-list')).toContainText('팀원')
 
   // groups
-  await page.getByRole('link', { name: '그룹' }).click()
+  await page.getByRole('link', { name: '부서' }).click()
   await page.getByTestId('group-new').click()
   await page.getByTestId('group-name').fill('영업팀')
   await page.getByRole('dialog').getByLabel('Bob').check()
@@ -121,7 +121,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
 
   await page.getByRole('link', { name: '사용량' }).click()
   await expect(page.getByTestId('usage-table')).toContainText('Olga')
-  await page.getByRole('link', { name: '기록' }).click()
+  await page.getByRole('link', { name: '활동 로그' }).click()
   // actions in words; the id stays in the tooltip
   await expect(page.getByTestId('audit-list')).toContainText('초대 링크 만듦')
   await expect(page.getByTestId('audit-list').locator('[title="invite.create"]').first()).toBeVisible()
@@ -526,32 +526,8 @@ test('settings: removing the key on a "this server" team keeps its "Turn video s
   expect(realErrors(errors)).toEqual([])
 })
 
-// QA R2-PERM-10: the owner gives the role to another person in Team settings, with the password again; the old owner
-// is an admin at once, so the transfer card and the team name input go away
-test('settings: the owner transfers ownership with the password again and becomes an admin', async ({ page }) => {
-  await reset(page)
-  const errors = watchConsole(page)
-  await signIn(page)
-  await page.goto('/admin/settings')
-  await expect(page.getByRole('heading', { name: '팀장 넘김' })).toBeVisible()
-  const start = page.getByTestId('transfer-start')
-  await expect(start).toBeDisabled()
-  await page.getByTestId('transfer-target').selectOption('bob')
-  await start.click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText('Bob님을 팀장으로 정할까요?')
-  await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill('wrong password')
-  await dialog.getByRole('button', { name: '넘기기', exact: true }).click()
-  await expect(page.getByText('비밀번호가 맞지 않아요. 다시 입력해 주세요.')).toBeVisible()
-  await expect(dialog).toBeVisible()
-  await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill(OWNER.password)
-  await dialog.getByRole('button', { name: '넘기기', exact: true }).click()
-  await expect(page.getByText('이제 Bob님이 팀장이에요.')).toBeVisible()
-  await expect(dialog).toBeHidden()
-  await expect(page.getByRole('heading', { name: '팀장 넘김' })).toBeHidden()
-  await expect(page.getByLabel('팀 이름')).toBeDisabled()
-  expect(realErrors(errors).filter((e) => !/status of 403/.test(e))).toEqual([])
-})
+// QA R2-PERM-10 (the owner hands the role over with the password again; the old owner is an admin at once) moved to
+// handover.spec.ts with the Team settings card: it is Admin › Members' "…" › 팀장 넘기기 now (docs/DECISIONS.md "W6")
 
 for (const locale of ['ko', 'en', 'id'] as const) {
   for (const role of ['owner', 'admin'] as const) {
@@ -701,8 +677,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await item.hover()
     await item.getByRole('button', { name: t['chat.menu'], exact: true }).click()
     await item.getByRole('menuitem', { name: t['common.delete'] }).click()
-    await expect(page.getByRole('dialog')).toContainText(translate(locale, 'chat.deleteBody', { days: 5 }))
-    await expect(page.getByRole('dialog')).not.toContainText(translate(locale, 'chat.deleteBody', { days: 7 }))
+    await expect(page.getByRole('dialog')).toContainText(translate(locale, 'chat.deleteBody', { days: 5, trash: translate(locale, 'sidebar.trash') }))
+    await expect(page.getByRole('dialog')).not.toContainText(translate(locale, 'chat.deleteBody', { days: 7, trash: translate(locale, 'sidebar.trash') }))
     await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
     expect(loads).toBe(0)
   })

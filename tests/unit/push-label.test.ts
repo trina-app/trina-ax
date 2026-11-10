@@ -9,6 +9,7 @@ import { plainLabel } from '@mycel/shared/api'
 import { PushService, LABEL_PER_MINUTE, pushOf } from '../../server/src/notifications/push-service'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { TEXT } from '../../server/src/notifications/text'
+import { savePreferences } from '../../server/src/notifications/preferences'
 import { setUserLocale } from '../../server/src/auth/users'
 import type { NativeSend } from '../../server/src/notifications/push-native'
 import type { Logger } from '../../server/src/log'
@@ -50,7 +51,7 @@ async function world(o: { log?: Logger; http?: boolean } = {}) {
   return { owner, mia, nora, otto, team, key, token, device, sent, send, noticeOf, pushed, ask, clock: { get now() { return now }, set now(v: number) { now = v } } }
 }
 
-test('a DM, a mention and a thread reply: the browser push\'s title and body, in the person\'s language, never the text', async () => {
+test('a DM, a mention and a thread reply: the browser push\'s title and body, in the person\'s language; the text only with the message preview on', async () => {
   const w = await world()
   const n = notificationsOf(h.ctx)
   const dm = await w.mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: w.nora.id })
@@ -58,6 +59,10 @@ test('a DM, a mention and a thread reply: the browser push\'s title and body, in
   const dmNotice = await w.pushed(hello.id)
   // the phone was sent this notice through the gateway, ids only
   expect(w.sent.map(s => s.payload.notificationId)).toContain(dmNotice)
+  // the message preview on (the default): the message's first line is the body
+  expect(w.ask(dmNotice)).toEqual({ title: 'MIA', body: '비밀 계획: 금요일 출시', roomId: dm.id })
+  // off: the generic line, never the text
+  savePreferences(h.ctx.db, w.nora.id, { messagePreview: false })
   const a = w.ask(dmNotice)
   expect(a).toEqual({ title: 'MIA', body: TEXT['room.dm'].ko, roomId: dm.id })
   // the same title as a browser push (GET /api/notifications/:id room.label)
@@ -266,6 +271,8 @@ test('HTTP: no session, never cached, 200 {} for every failure, and nothing of t
   h.ctx.db.query('UPDATE users SET name = ? WHERE id = ?').run('Miasecret', w.mia.id)
   const dm = await w.mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: w.nora.id })
   const id = await w.pushed((await w.send(w.mia.client, dm.id, 'textsecret')).id)
+  // the message preview off: the answer holds the generic line (with it on, the line; never in the log either way)
+  savePreferences(h.ctx.db, w.nora.id, { messagePreview: false })
   const anyone = h.client()
   const post = (body: unknown, device = w.device.id) => anyone.raw('POST', `/api/push/devices/${device}/label`, body)
   const ok = await post({ key: w.key, notificationId: id })

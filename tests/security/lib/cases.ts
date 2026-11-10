@@ -21,6 +21,7 @@ import { INTRO_DECK_SPECS } from './intro-deck-cases'
 import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { KNOWLEDGE_GRAPH_SPECS } from './knowledge-graph-cases'
 import { knowledgeGraphOf, type LookupResult } from '../../../server/src/knowledge-graph/service'
+import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -32,6 +33,7 @@ type Scope =
   | 'finance'         // finance folder resource: bob + owner + admin (read or write as noted)
   | 'finance-write'   // finance folder write: bob + owner + admin
   | 'falcon-read'     // projects/falcon: alice(write) + bob(finance read) + owner + admin
+  | 'alice-project'   // who sees and changes the participants of alice's team project: alice (its creator) + owner + admin
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
@@ -145,7 +147,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'own-alice': case 'own-alice-chat': case 'users-alice': return who === 'memberIn'
     case 'finance': case 'finance-write': return who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
-    case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
+    case 'suggestion-alice': case 'alice-project': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
     case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
@@ -161,6 +163,8 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   // The preview probe uses Alice's text file: she passes access checks but gets 503 no_preview (and 400 "not an HTML
   // file" from the HTML print, whether this machine has a browser or not).
   if (['preview', 'hwpPreview', 'saveHtmlPdf', 'downloadHtmlPdf'].includes(route) && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
+  // the room HWP preview probe uses the DM's picture: its two people pass the room checks and get 503 unsupported
+  if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }
@@ -179,6 +183,7 @@ export const SPECS: Record<string, Spec> = {
   ...INTRO_DECK_SPECS,
   ...SKILL_SHARE_SPECS,
   ...KNOWLEDGE_GRAPH_SPECS,
+  ...ONBOARDING_FILES_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
@@ -238,6 +243,8 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's chat`) } },
   restoreChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/restore`), scope: 'own-alice-chat' },
   markChatSeen: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/seen`), scope: 'own-alice-chat' },
+  pinChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/pin`), scope: 'own-alice-chat' },
+  unpinChat: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}/pin`), scope: 'own-alice-chat' },
   listMessages: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages`), scope: 'own-alice-chat' },
   sendMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages`, { clientMessageId: cm(), attachmentIds: [], content: 'hi from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
@@ -249,6 +256,16 @@ export const SPECS: Record<string, Spec> = {
     check: (r, _w, who) => {
       if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's answer`)
       if (r.status < 300 && r.json?.status === 'confirm' && /erin|Erin/.test(r.text)) throw new Error(`the confirm answer names a member: ${r.text}`)
+    } },
+  // "프로젝트 사람들과 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
+  // chat); it is in no project that shares chats, so even she is refused (409) and nothing is shared. A confirm, if one
+  // came, names nobody
+  shareChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/share`, {}), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
+      if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
     } },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
@@ -267,14 +284,30 @@ export const SPECS: Record<string, Spec> = {
     } },
   listProjects: { build: (c) => c.get('/api/projects'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceProjInstr)) throw new Error(`${who} sees alice's private-folder project`) } },
-  createProject: { build: (c) => c.post('/api/projects', { name: 'p', folderPath: 'shared', instructions: '' }), scope: 'shared' },
+  // a team project: any member makes one (a new projects/<name>; the team setting may keep it to admins), never on an
+  // existing folder such as shared/ (400 project_location for everyone)
+  createProject: { build: (c) => c.post('/api/projects', { name: 'p', participants: [], instructions: '' }), scope: 'self',
+    check: async (r, w, who) => {
+      const there = await w.as[who].post('/api/projects', { name: 'p', folderPath: 'shared', instructions: '' })
+      if (who !== 'anon' && who !== 'pwchange' && there.status !== 400) throw new Error(`${who}: a project on shared/ was not refused (${there.status})`)
+    } },
+  // who sees alice's team project: alice (its creator), the owner and admins see and change it; erin is a participant
+  // but did not make it (403), bob does not see it (404)
+  previewProjectAccess: { build: (c, w) => c.post('/api/projects/access-preview', { projectId: w.ids.projTeam, participants: [] }), scope: 'alice-project' },
+  getProjectAccess: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/access`), scope: 'alice-project' },
+  putProjectParticipants: { build: (c, w) => c.put(`/api/projects/${w.ids.projTeam}/participants`, { participants: [{ subjectType: 'user', subjectId: 'bob' }], expectedHash: 'not-the-hash' }), scope: 'alice-project',
+    check: (r, w, who) => {
+      if (r.status < 300) throw new Error(`${who}: participants changed with a stale rules hash`)
+      const bob = w.inst.ctx.db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/Team plan' AND r.subject_id = 'bob'").get()
+      if (bob) throw new Error(`${who}: bob was added to alice's team project`)
+    } },
   getProject: { build: (c, w) => c.get(`/api/projects/${w.ids.projAlice}`), scope: 'users-alice' },
   updateProject: { build: (c, w) => c.patch(`/api/projects/${w.ids.projAlice}`, { instructions: 'pwned' }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} edited alice's project`) } },
   deleteProject: { build: (c, w) => c.del(`/api/projects/${w.ids.projAlice}`), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's project`) } },
   // sharing by copy (sec/r1-sharing-works): reading the source is alice's alone; dryRun so the allowed pass copies nothing
-  shareProject: { build: (c, w) => c.post(`/api/projects/${w.ids.projAlice}/share`, { toParent: 'shared', dryRun: true }), scope: 'users-alice',
+  shareProject: { build: (c, w) => c.post(`/api/projects/${w.ids.projAlice}/share`, { participants: [], dryRun: true }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} shared alice's private project`) } },
 
   // ---- memories (own only) ----
@@ -309,6 +342,17 @@ export const SPECS: Record<string, Spec> = {
       if (who === 'memberIn' && !r.text.includes(C.aliceSkill)) throw new Error('alice does not see her personal skill')
     } },
   listSkillIssues: { build: (c) => c.get('/api/skills/issues'), scope: 'self' },
+  // moving a skill between levels (docs/DECISIONS.md "Project skills"): alice's personal skill is hers alone. The options
+  // carry its whole text, so nobody else gets them (not the owner or an admin either: they do not read users/alice/);
+  // the move carries a token nobody has, so alice passes the permission check and is refused after it (nothing moves)
+  skillMoveOptions: { build: (c) => c.get('/api/skills/move?path=users/alice/skills/mine.md'), scope: 'users-alice',
+    check: (r, _w, who) => { if (who === 'memberIn' && r.status === 200 && !r.text.includes(C.aliceSkill)) throw new Error('alice does not get her own skill\'s text') } },
+  moveSkill: { build: (c) => c.post('/api/skills/move', { path: 'users/alice/skills/mine.md', to: { level: 'team' }, token: 'matrix-token' }), scope: 'users-alice',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} moved alice's personal skill with a made-up token`) } },
+  // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): the caller's own skills and a document count of the team folder as
+  // the caller; the canary check covers the finance skill and alice's personal skill (never in anyone else's answer)
+  skillExamples: { build: (c) => c.get('/api/skills/examples'), scope: 'self',
+    check: (r, w, who) => { if (r.status === 200 && r.text.includes(C.aliceSkill)) throw new Error(`${who} sees alice's personal skill as prepared by the team`) } },
   // team skills: suggestions are seen by their suggester and the managers of the target folder only (skills/suggestions.ts)
   skillsOverview: { build: (c) => c.get('/api/skills/overview'), scope: 'self' },
   listSkillSuggestions: { build: (c) => c.get('/api/skills/suggestions?scope=review'), scope: 'self',
@@ -425,6 +469,10 @@ export const SPECS: Record<string, Spec> = {
   resetPassword: { build: (c) => c.post('/api/admin/users/bob/reset-password'), scope: 'byLevel' },
   createResetLink: { build: (c) => c.post('/api/admin/users/bob/reset-link'), scope: 'byLevel' },
   transferOwnership: { skipPositive: true, build: (c) => c.post('/api/admin/transfer-ownership', { userId: 'carol', password: 'wrong-pass' }), scope: 'byLevel' },
+  // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕ are the owner's only (an unknown invite: 404)
+  handoverState: { build: (c) => c.get('/api/admin/handover'), scope: 'byLevel' },
+  dismissLeadCard: { build: (c) => c.post('/api/admin/handover/dismiss', { inviteId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
+  endPendingConnections: { build: (c) => c.post('/api/admin/handover/end-pending', { transferId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
   listInvites: { build: (c) => c.get('/api/admin/invites'), scope: 'byLevel' },
   createInvite: { build: (c) => c.post('/api/admin/invites', { role: 'member', groupIds: [] }), scope: 'byLevel' },
   revokeInvite: { build: (c, w) => c.del(`/api/admin/invites/${w.ids.invite}`), scope: 'byLevel' },

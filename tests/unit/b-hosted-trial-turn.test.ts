@@ -179,26 +179,49 @@ describe('a turn on the trial credit runs on the API engine, never in Claude Cod
     expect(orSeen).toEqual([])
     expect(hostedChatUsedUsd(h.ctx.db)).toBe(0)
   })
-  test('only ChatGPT / Codex connected: a Claude Code chat is answered by Codex (a step says so), not by the credit, also once it is used up', async () => {
+  test('only ChatGPT / Codex connected, "다른 AI로 대신 답하기" on: a Claude Code chat is answered by Codex (a step says so), not by the credit, also once it is used up', async () => {
     grant()
     addCred(credentialsOf(h.ctx), 'openai-api-key', OKEY, { label: 'codex' })
+    setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, true)
+    try {
+      const chat = await newChat('claude-code', 'opus')
+      for (const used of [false, true]) {
+        if (used) chargeHostedChat(h.ctx.db, 1)
+        seen.length = 0
+        const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+        expect(done.status).toBe('done')
+        expect(done.content).toContain('codex answered')
+        expect(done.engine).toBe('codex')
+        expect(done.steps.map((x: { label: string }) => x.label)).toContain('No AI connection for Claude Code; answering with Codex, which is connected')
+        expect(seen.map((x) => x.key)).toEqual(['openai'])
+        // a Claude model name means nothing to Codex: its default
+        expect(turnRow(started.turnId)).toMatchObject({ engine: 'codex', model: null })
+      }
+      expect(orSeen).toEqual([])
+      expect(hostedChatUsedUsd(h.ctx.db)).toBe(1)
+      // the chat keeps its engine: a Claude connection added later answers it again
+      expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
+    } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
+  })
+  test('no trial key at all (taken away, or the team\'s own server): the switch alone decides; off, the usual "no AI connection" and never the credit', async () => {
+    addCred(credentialsOf(h.ctx), 'openai-api-key', OKEY, { label: 'codex' })
     const chat = await newChat('claude-code', 'opus')
-    for (const used of [false, true]) {
-      if (used) chargeHostedChat(h.ctx.db, 1)
-      seen.length = 0
-      const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
-      expect(done.status).toBe('done')
+    setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, true)
+    try {
+      const { done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+      expect(done).toMatchObject({ status: 'done', engine: 'codex' })
       expect(done.content).toContain('codex answered')
-      expect(done.engine).toBe('codex')
-      expect(done.steps.map((x: { label: string }) => x.label)).toContain('No AI connection for Claude Code; answering with Codex, which is connected')
-      expect(seen.map((x) => x.key)).toEqual(['openai'])
-      // a Claude model name means nothing to Codex: its default
-      expect(turnRow(started.turnId)).toMatchObject({ engine: 'codex', model: null })
-    }
+    } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
+    seen.length = 0
+    const off = await ask(h, alice, 'alice', chat.id, 'hi', { ms: 30_000 })
+    expect(off.done.status).toBe('error')
+    expect(off.done.error).toMatchObject({ params: { reason: 'no_credential' } })
+    expect(seen).toEqual([])
+    // the same with an active credit: the team has AI of its own, so the credit does not answer
+    grant()
+    const credit = await ask(h, alice, 'alice', chat.id, 'hi', { ms: 30_000 })
+    expect(credit.done.error).toMatchObject({ params: { reason: 'no_credential' } })
     expect(orSeen).toEqual([])
-    expect(hostedChatUsedUsd(h.ctx.db)).toBe(1)
-    // the chat keeps its engine: a Claude connection added later answers it again
-    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
   })
 })
 
@@ -212,6 +235,12 @@ describe('the composer while the credit answers (GET /api/engines)', () => {
       expect(await ids()).toEqual([])
       grant()
       expect(await ids()).toEqual(['claude-code', 'codex'])
+      // a Codex connection: the credit no longer answers Claude Code chats; Codex does while "다른 AI로 대신 답하기" is on
+      addCred(credentialsOf(h.ctx), 'openai-api-key', OKEY, { label: 'codex' })
+      expect(await ids()).toEqual(['codex'])
+      setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, true)
+      try { expect(await ids()).toEqual(['claude-code', 'codex']) } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
+      h.ctx.db.query('DELETE FROM engine_credentials').run()
       grant({ enabled: false })
       expect(await ids()).toEqual([])
     } finally { engine.authMode = was }
@@ -287,24 +316,24 @@ describe('the onboarding paths on the trial credit', () => {
     expect(JSON.stringify(orSeen[1]!.body.messages.at(-1))).toContain('Only pages of acme.co.kr')
     expect(launches).toEqual([])
   })
-  test('a marketing pack skill run from its form (the welcome steps\' first result): the skill goes with the message', async () => {
+  test('a pack skill run from its form: the skill goes with the message', async () => {
     grant()
-    const pack = installSkillPack(h.ctx, 'dana', 'marketing')
-    const skill = pack.skills.find((x) => x.name === 'ad-copy')!
+    const pack = installSkillPack(h.ctx, 'dana', 'work')
+    const skill = pack.skills.find((x) => x.name === 'humanizer')!
     expect(skill).toBeTruthy()
     const body = fs.readFileSync(path.join(h.team, skill.path), 'utf8')
     // what SkillForm sends (web/src/lib/skillForm.ts composeSkillMessage): "/<name>" and one line per field
-    const { done } = await ask(h, alice, 'alice', (await newChat()).id, '/ad-copy\nProduct: Acme desk fan', { ms: 30_000 })
+    const { done } = await ask(h, alice, 'alice', (await newChat()).id, '/humanizer\nText: Acme desk fan, quiet and small', { ms: 30_000 })
     expect(done.status).toBe('done')
     expect(done.model).toBe(HOSTED_CHAT_MODEL)
     const sent = orSeen[0]!.body.messages.at(-1)!.content!
-    expect(sent).toContain('Product: Acme desk fan')
+    expect(sent).toContain('Text: Acme desk fan, quiet and small')
     // the skill's own instructions (a line from its body) reach the model
     const instructions = body.replace(/^---\n[\s\S]*?\n---\n/, '').trim()
     const line = instructions.split('\n').find((l) => l.trim().length > 30)!
     expect(line).toBeTruthy()
     expect(sent).toContain(line)
-    expect(sent).toContain('<team_skill name="ad-copy"')
+    expect(sent).toContain('<team_skill name="humanizer"')
     expect(launches).toEqual([])
   })
 })

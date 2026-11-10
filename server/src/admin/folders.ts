@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { Access, Folder, FolderRule, FolderRuleInput, Locale, PreviewResponse, Role } from '@mycel/shared/api'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, TEMPLATES_FOLDER } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
@@ -17,10 +17,12 @@ import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
+import { teamDefaultLocale } from './settings'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash } from './access-edit'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
+import { sharedChatsHidden } from '../chat/shared'
 import { syncRoomsNow } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
@@ -121,6 +123,31 @@ export function dropProjectMarker(db: Database, p: string): void {
   if (db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) return
   if (db.query('SELECT 1 FROM projects WHERE folder_path = ? LIMIT 1').get(p)) return
   dropFolderRow(db, f.id)
+}
+
+/** projects/<name>: a team project folder whose participants its edit screen manages (one name below projects/;
+ * chat/project-access.ts). */
+export const isProjectsFolder = (p: string): boolean => { const s = p.split('/'); return s.length === 2 && s[0] === 'projects' && !!s[1] }
+
+/** The folders that hold a rule of this subject (for keepProjectFloors). */
+export const foldersWithRuleOf = (db: Database, subjectType: 'user' | 'group', id: string): string[] =>
+  (db.query('SELECT DISTINCT folder_id FROM folder_rules WHERE subject_type = ? AND subject_id = ?').all(subjectType, id) as { folder_id: string }[]).map((r) => r.folder_id)
+
+/**
+ * Deleting a person or a group takes their rules away: a project folder in projects/ is never left with none (that
+ * would open it to whoever reads the folder above; docs/DECISIONS.md "Projects live only in projects/"). Call inside the
+ * transaction, after the delete, with foldersWithRuleOf() from before it: each that a project uses and that has no rule
+ * left gets "everyone: none", so the project fails closed to the owner and admins.
+ */
+export function keepProjectFloors(db: Database, folderIds: readonly string[], actor: string | null): void {
+  const now = new Date().toISOString()
+  for (const id of folderIds) {
+    const f = getFolder(db, id)
+    if (!f || !isProjectsFolder(f.path)) continue
+    if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(id)) continue
+    if (!db.query('SELECT 1 FROM projects WHERE folder_path = ? LIMIT 1').get(f.path)) continue
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?, ?, 'everyone', NULL, 'none', ?, ?)").run(newId(), id, actor, now)
+  }
 }
 
 /** Rules must name existing subjects, at most once each. */
@@ -343,6 +370,14 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
     const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
+  // shared project chats follow their project's audience (chat/shared.ts): whoever no longer sees one has it dropped from
+  // their lists and project pages, by its id alone (the chat's details never go to someone who cannot see it). After
+  // the replay buffers above were emptied, so a window resuming gets these too. Never throws: the change is saved
+  try {
+    const afterIds = new Set(after.principals.map((p) => p.id))
+    const who = new Set([...accessChanged, ...before.principals.filter((p) => !afterIds.has(p.id)).map((p) => p.id)])
+    for (const [userId, chats] of sharedChatsHidden(ctx.db, before, after, who)) for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
+  } catch (e) { ctx.log.warn('shared chat removals failed', { err: e }) }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
@@ -399,12 +434,31 @@ export function previewRules(ctx: AppContext, changes: readonly { path: string; 
   return { folders, losing }
 }
 
-/** Default folders of a new team (tab 2 "폴더 만들기와 기본 규칙"). */
+/** Default folders of a new team (tab 2 "폴더 만들기와 기본 규칙"), and shared/양식/ for forms and templates
+ * (docs/DECISIONS.md "Team folder basics"). Safe to run again: nothing that is there is changed. */
 export function createDefaultFolders(ctx: AppContext): void {
   const root = ctx.files.fx.root
   for (const d of ['shared', 'skills', 'groups', 'projects', 'users']) fs.mkdirSync(path.join(root, d), { recursive: true, mode: 0o700 })
+  ensureTemplatesFolder(root, teamDefaultLocale(ctx.db))
   const shared = ensureFolderRow(ctx.db, 'shared')
   if (!rulesOf(ctx.db, shared.id).length) replaceRules(ctx.db, shared.id, [{ subjectType: 'everyone', subjectId: null, access: 'write' }], null)
   const skills = ensureFolderRow(ctx.db, 'skills')
   if (!rulesOf(ctx.db, skills.id).length) replaceRules(ctx.db, skills.id, [{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'role', subjectId: 'admin', access: 'write' }], null)
+}
+
+/**
+ * shared/양식/ (TEMPLATES_FOLDER, named in the team's language): the place the AI's instructions point to for forms and
+ * templates (chat/prompt.ts templatesFolder). Made only when shared/ holds no templates folder under any language's name
+ * (NFC, any letter case: "templates" counts), so a team that has one never gets a second. It inherits shared/'s rule (no folder row). Returns the folder made, or null.
+ */
+export function ensureTemplatesFolder(root: string, locale: Locale): string | null {
+  const shared = path.join(root, 'shared')
+  let names: string[]
+  try { names = fs.readdirSync(shared) } catch { return null }
+  const fold = (n: string) => n.normalize('NFC').toLowerCase()
+  const known = new Set(Object.values(TEMPLATES_FOLDER).map(fold))
+  if (names.some((n) => known.has(fold(n)))) return null
+  const name = TEMPLATES_FOLDER[locale] ?? TEMPLATES_FOLDER.en
+  fs.mkdirSync(path.join(shared, name), { mode: 0o700 })
+  return `shared/${name}`
 }

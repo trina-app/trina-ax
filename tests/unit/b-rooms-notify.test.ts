@@ -68,8 +68,12 @@ test('preferences: the room default, thread replies and quiet hours; strict; the
   const got = await nora.client.call('GET', '/api/notification-preferences')
   expect(got).toEqual({
     scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true,
-    roomMessages: true, roomLevel: 'direct', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false },
+    roomMessages: true, roomLevel: 'direct', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false },
   })
+  // the message preview (default on) is saved like the rest
+  expect(await prefs(nora.client, { messagePreview: false })).toMatchObject({ messagePreview: false })
+  expect(h.ctx.db.query('SELECT message_preview FROM notification_preferences WHERE user_id = ?').get(nora.id)).toEqual({ message_preview: 0 })
+  expect(await prefs(nora.client, { messagePreview: true })).toMatchObject({ messagePreview: true })
   expect(await prefs(nora.client, { roomLevel: 'all', roomThreadReplies: false, quietHours: { on: true, start: '23:30', end: '07:15', weekends: true } }))
     .toMatchObject({ roomLevel: 'all', roomMessages: true, roomThreadReplies: false, quietHours: { on: true, start: '23:30', end: '07:15', weekends: true } })
   expect(h.ctx.db.query('SELECT room_level, room_messages, room_thread_replies, quiet_on, quiet_start, quiet_end, quiet_weekends FROM notification_preferences WHERE user_id = ?').get(nora.id))
@@ -112,7 +116,7 @@ test('migration 255: someone who had turned room messages off is 받지 않음; 
 test('a room\'s own level: PATCH notifyLevel (members only, strict), muted in step, what the list and the events say', async () => {
   const { owner, ada, nora, otto, hub, rooms, dm, team, chat, level } = await setup()
   const list = await nora.client.call('GET', '/api/rooms')
-  expect(list.alerts).toEqual({ threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: expect.any(String) })
+  expect(list.alerts).toEqual({ threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: expect.any(String), messagePreview: true })
   const of = (id: string) => list.items.find((r: any) => r.id === id)
   expect(of(dm.id).notify).toEqual({ own: null, byDefault: 'all', level: 'all' })
   expect(of(chat.id).notify).toEqual({ own: null, byDefault: 'all', level: 'all' })

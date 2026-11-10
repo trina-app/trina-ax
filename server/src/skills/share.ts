@@ -19,6 +19,7 @@
 //            (Codex: AGENTS.md) lines as a team rule (skills/<일하는-방식>.md, no header); remote MCP servers as
 //            connection templates (no key). Idempotent per skill; the welcome steps learn what went in, and 내 스킬
 //            is done (onboarding/welcome.ts recordShared).
+//   stop     the AI check ended by its proposer (내 스킬 waits 30 seconds): ready, nothing recommended.
 //   dismiss  나중에 하기: its staged files go. A share expires after SKILL_SHARE_LIMITS.days (read, create sweep). A
 //            dismissed or expired share keeps nothing of what it proposed (close).
 import { SKILL_SHARE_LIMITS, errorMessage, skillLabel, skillTitle, IntegrationTemplateInput, type ApplySkillShare, type CreateSkillShare, type Locale, type Role, type ShareApp, type ShareCandidate, type ShareRule, type ShareTool, type SkillShare, type SkillShareSource, type SkillShareStatus } from '@mycel/shared/api'
@@ -155,17 +156,17 @@ const TEXT = {
   },
   // a share to a group (docs/DECISIONS.md "Group skills")
   proposedGroup: {
-    ko: "{who}님이 '{group}' 그룹에 스킬 {n}개를 공유하자고 했어요 · 확인", en: "{who} proposed sharing {n} skills with the group '{group}' · Review",
+    ko: "{who}님이 '{group}' 부서에 스킬 {n}개를 공유하자고 했어요 · 확인", en: "{who} proposed sharing {n} skills with the group '{group}' · Review",
     id: "{who} mengusulkan berbagi {n} skill dengan grup '{group}' · Periksa", ja: "{who}さんがグループ「{group}」にスキル {n} 件の共有を提案しました · 確認",
     es: "{who} propuso compartir {n} habilidades con el grupo '{group}' · Revisar",
   },
   notGroupWriter: {
-    ko: '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.', en: 'Only a member of this group who may write its skills folder can do this.',
+    ko: '이 부서의 스킬 폴더에 넣을 수 있는 부서 멤버만 할 수 있어요.', en: 'Only a member of this group who may write its skills folder can do this.',
     id: 'Hanya anggota grup ini yang boleh menulis folder skill-nya yang bisa melakukan ini.', ja: 'このグループのスキルフォルダーに書き込めるメンバーだけができます。',
     es: 'Solo un miembro de este grupo que pueda escribir en su carpeta de habilidades puede hacerlo.',
   },
   targetGone: {
-    ko: '이 공유 제안의 그룹이 없어졌어요. 스킬을 다시 찾아 주세요.', en: 'The group of this share proposal is gone. Look for the skills again.',
+    ko: '이 공유 제안의 부서가 없어졌어요. 스킬을 다시 찾아 주세요.', en: 'The group of this share proposal is gone. Look for the skills again.',
     id: 'Grup usulan berbagi ini sudah tidak ada. Cari skill-nya lagi.', ja: 'この共有の提案のグループがなくなりました。もう一度スキルを探してください。',
     es: 'El grupo de esta propuesta ya no existe. Vuelva a buscar las habilidades.',
   },
@@ -544,6 +545,25 @@ export function getSkillShare(ctx: AppContext, rt: ChatRuntime, userId: string, 
   let r = ownRow(ctx, userId, id)
   if ((r.status === 'checking' || r.status === 'ready') && Date.parse(r.expires_at) <= Date.now()) { close(ctx, rt, r, 'expired'); r = rowOf(ctx, id)! }
   return toShare(ctx, settle(ctx, rt, r), userId)
+}
+
+/** The AI check ended now by its proposer (docs/DECISIONS.md "W6", walk review M2: 내 스킬 waits 30 seconds, not
+ * JUDGE_MAX_MS): an answer already in is read first (settle); otherwise the judge's turn is stopped and the share is
+ * ready with nothing recommended (ai failed), so it can be applied, and a late answer changes nothing (finish writes
+ * once). A share no longer checking is returned as it is. Only its proposer: anyone else gets 404. */
+export function stopSkillShareCheck(ctx: AppContext, rt: ChatRuntime, userId: string, id: string): SkillShare {
+  let r = rowOf(ctx, id)
+  if (!r || r.created_by !== userId) return fail('not_found')
+  if ((r.status === 'checking' || r.status === 'ready') && Date.parse(r.expires_at) <= Date.now()) { close(ctx, rt, r, 'expired'); r = rowOf(ctx, id)! }
+  r = settle(ctx, rt, r)
+  if (r.status === 'checking') {
+    const chat = judgeChatOf(ctx, r.id)
+    if (chat) rt.stopChat(chat)
+    finish(ctx, rt, r, 'failed', null)
+    audit(ctx.db, { actor: userId, action: 'skills.share_stop_check', target: id, detail: { source: r.source } })
+    r = rowOf(ctx, id) ?? r
+  }
+  return toShare(ctx, r, userId)
 }
 
 /** 나중에 하기: the share is dropped with its staged files (and a judgement still running). A share already over stays.

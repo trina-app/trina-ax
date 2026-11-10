@@ -1,11 +1,12 @@
 // The AI at work in a room (docs/DECISIONS.md "대화방의 트리나"), under the messages. My own question: the AI's name,
 // "답하는 중" (or its place in the queue), what it does now in plain words ("파일 찾는 중", "'예산' 문서 읽는 중": no
-// search patterns or paths), a card it asks me (ask_user, a confirmation) and Stop; when it stopped or failed, one line
+// search patterns or paths), a card it asks me (ask_user, a confirmation: read again with the room after a reload or
+// a reconnect, store/rooms.ts loadAi) and Stop; when it stopped or failed, one line
 // I can close under that question (EndedRun, in RoomMessages). Anyone else's question: only "트리나가 답하는 중",
 // nobody named and no steps (step labels name files and searches). A finished answer is a message of the room (or my
 // private preview); one that stayed private to someone else ends as "○○ 님에게만 답했어요" under their question
 // (RoomMessages, PrivateAnswered).
-import { Lock, Sparkles, Square, X } from 'lucide-react'
+import { Lock, Square, X } from 'lucide-react'
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomAiRun } from '@mycel/shared/api'
@@ -17,6 +18,7 @@ import { useRooms, type RoomAi } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import AskCard from '../chat/AskCard'
 import { Button, IconButton } from '../ui'
+import { AiFace } from './AiFace'
 
 const NONE: RoomAi = { answering: 0, runs: [] }
 
@@ -36,7 +38,7 @@ export function RoomAiStatus({ roomId, threadRootId = null }: { roomId: string; 
       ))}
       {others > 0 && (
         <div className="flex items-center gap-3 pt-3" role="status" data-testid="room-ai-answering">
-          <AiMark />
+          <AiFace size={32} />
           <span className="text-sm text-muted">{t('rooms.aiAnswering')}</span>
           <Dots />
         </div>
@@ -74,14 +76,6 @@ export function PrivateAnswered({ name }: { name: string }) {
   )
 }
 
-function AiMark() {
-  return (
-    <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
-      <Sparkles size={15} />
-    </span>
-  )
-}
-
 function Dots() {
   return (
     <span className="flex items-center gap-1" aria-hidden>
@@ -113,7 +107,7 @@ function MyRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
   }
   return (
     <div className="flex gap-3 pt-3" data-testid="room-ai-run" data-state={run.state} aria-busy>
-      <AiMark />
+      <AiFace size={32} />
       <div className="min-w-0 flex-1">
         <p className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
           {/* "트리나가 답하는 중" names the AI already; waiting in the queue says whose turn it is */}

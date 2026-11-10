@@ -96,6 +96,10 @@ type updater struct {
 	// place (updateRoot finished), so what failed was the app: the long hold
 	attempted bool
 	rootIn    bool
+	// syncOnlyRun: the scheduled gate found no release for root to install now, but the system packages' sync is
+	// pending (sync.go): run installs nothing and syncs. verified: the bundle folder VerifyDir accepted ("" = none)
+	syncOnlyRun bool
+	verified    string
 	// hooks for tests (default: the real thing)
 	liveTurns func() (int, error)
 	runAsSrv  func(args []string, env []string) (string, error)
@@ -281,8 +285,7 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	if why != "" {
 		clearDeferred(u.e)
 		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
-		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
-		return false, nil
+		return u.syncOnly(why), nil
 	}
 	// a release that failed here a short while ago waits (root/update-failed.json); a newer one ends the hold
 	if h := readFailed(u.e); h != nil {
@@ -290,8 +293,7 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		case compareVersions(feed.Version, h.Version) > 0:
 			clearFailed(u.e)
 		case feed.Version == h.Version && h.active(u.e.now()):
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, h.String()
-			return false, nil
+			return u.syncOnly(h.String()), nil
 		}
 	}
 	// the staged roll-out of a stable release (rollout.go, the app's rule): this server's turn may come a day or two
@@ -304,8 +306,7 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 			if d := readDeferred(u.e); d != nil && d.Version != feed.Version {
 				clearDeferred(u.e)
 			}
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, w.detail(feed.Version, s.loc)
-			return false, nil
+			return u.syncOnly(w.detail(feed.Version, s.loc)), nil
 		}
 	}
 	u.gateVersion = feed.Version
@@ -405,6 +406,12 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	u.work = work
 	defer os.RemoveAll(work)
 	dir := filepath.Join(work, "bundle")
+	// the system packages last, after the root files and the app (neither waits for apt or a download), and also when
+	// there was nothing to install but the list in place is not synced here (sync.go)
+	defer u.syncAfter()
+	if u.syncOnlyRun {
+		return nil // the gate found no release for root to install now; syncAfter syncs the list in place
+	}
 	needsRoot := true
 	if bundleFile != "" {
 		u.attempted = true
@@ -449,6 +456,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		u.res.Result = "verify_failed"
 		return err
 	}
+	u.verified = dir // its bin/bun may read the list as root (syncAfter); never a folder that did not verify
 	if version != "" && m.Version != version {
 		u.res.Result = "verify_failed"
 		return fmt.Errorf("the bundle is version %s, not %s", m.Version, version)
@@ -494,6 +502,8 @@ func rootNeeded(f *ReleaseFeed, root string) bool {
 // that runs is 0.2.18 or older (a server whose app the bootstrap rolled back to one, 0.2.19 review S3) and reads only
 // needsRoot: it refuses a release with needsRoot, so root installs it, the root files already in place (and so when
 // no app/current is there to take it).
+// A pending sync of the system packages (sync.go) is not part of it: a release the app takes by itself stays the app's
+// (two updaters switching versions would garble state.json's previous), and the timer syncs beside it (syncOnly).
 func rootJob(f *ReleaseFeed, root, app string) bool {
 	return rootNeeded(f, root) || f.NeedsRoot && (app == "" || compareVersions(app, lastOldUpdater) <= 0)
 }

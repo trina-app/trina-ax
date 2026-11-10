@@ -86,6 +86,34 @@ export function openHistory(ctx: AppContext, roomId: string, userId: string, o: 
   return true
 }
 
+/** How long wouldSeeFrom may walk a room's old answers, once per owner or admin per save (like rooms/ai.ts
+ * DECIDE_HISTORY_MS for the walks at a turn's end): past it the answer is no, so the wider-audience card shows. */
+export const WOULD_SEE_MS = 100
+
+/**
+ * Would `userId` see this team room from `fromSeq` on if they joined it now (an owner or admin may add themselves to any
+ * group, and so to its room: docs/DECISIONS.md "대화방에서 새 파일은 미리 허용")? The same walk as a later member's
+ * (walk): the room's whole history but the old answers hidden from them, none of which may be at or after `fromSeq`.
+ * Only a team room; anything that cannot be worked out in `budgetMs` (a walk out of time, an account not loaded, an
+ * error, a room gone or archived) is no: fails closed.
+ */
+export function wouldSeeFrom(ctx: AppContext, roomId: string, userId: string, fromSeq: number, budgetMs = WOULD_SEE_MS): boolean {
+  const deadline = Date.now() + budgetMs
+  try {
+    const room = roomRow(ctx.db, roomId)
+    if (!room || room.archived_at || room.kind !== 'team') return false
+    const who = loadPrincipal(ctx.db, userId)
+    if (!who) return false
+    const hidden = walk(ctx, ctx.files.rules(), roomId, userId, room.last_seq, who, deadline)
+    // the walk looks at the clock every 256 answers: a smaller room past the budget is out of time too
+    if (Date.now() > deadline) return false
+    return !hidden.some((h) => h.see >= fromSeq)
+  } catch (e) {
+    if (!(e instanceof HistoryOutOfTime)) ctx.log.warn('room history: would-see not worked out', { err: e })
+    return false
+  }
+}
+
 /** A walk that ran out of the time its caller had (`deadline`): nothing was written, the member keeps waiting (they see
  * the room from their join on, and an answer decided meanwhile counts them as not known: rooms/ai.ts decide). */
 export class HistoryOutOfTime extends Error {}

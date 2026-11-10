@@ -1,8 +1,10 @@
 // The room's info, opened from its title (docs/DECISIONS.md "그룹 대화와 방 이름"): its name (a tap edits it inline,
-// for those who may: Room.canRename), "초대하기" (a group chat: into it; a DM: a new group chat with the other person
-// ticked), who is in it (GET /api/rooms/:id/members: names only, never anyone's read position; photo and title from
-// the people directory; the manager marked, and "…" › 내보내기 on a row for the manager and owners or admins in it), and
-// last "대화방 나가기" (a group chat, after a confirm). Rows and hairlines, no boxes. A bottom sheet on phones (Modal).
+// for those who may: Room.canRename; the room's "⋯" has 이름 바꾸기 too), "초대하기" (a group chat: into it; a DM: a new
+// group chat with the other person ticked), and who is in it (GET /api/rooms/:id/members: names only, never anyone's
+// read position; photo and title from the people directory; the manager marked, and "…" › 내보내기 on a row for the
+// manager and owners or admins in it). 대화방 나가기 is in the room's "⋯" only (RoomMenu.tsx), not here a second time.
+// Rows and hairlines, no boxes. A bottom sheet on phones (Modal).
+// Each picture carries the person's online dot, mine too (components/Presence.tsx; docs/DECISIONS.md "접속 상태").
 import clsx from 'clsx'
 import { Pencil, Plus, UserMinus } from 'lucide-react'
 import { useState } from 'react'
@@ -13,10 +15,10 @@ import { usePeople } from '../../store/people'
 import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Avatar } from '../Avatar'
+import { PresenceFace, PresenceText } from '../Presence'
 import { Button, confirmDialog, inputCls, Modal, Skeleton } from '../ui'
 import { MenuButton } from './MenuButton'
-import { useRoomTitle } from './RoomIcon'
+import { useNameFallback, useRoomTitle } from './RoomIcon'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
   const t = useT()
@@ -32,17 +34,6 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
     const ok = await confirmDialog({ title: t('rooms.info.removeTitle', { name }), body: t('rooms.info.removeBody'), confirm: t('rooms.info.remove'), danger: true })
     if (!ok) return
     await useRooms.getState().removeMember(room.id, id).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
-  }
-  const leave = async () => {
-    if (!room) return
-    const ok = await confirmDialog({ title: t('rooms.info.leaveTitle'), body: t('rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
-    if (!ok) return
-    try {
-      await useRooms.getState().leave(room.id)
-      onClose()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
   }
   const row = 'flex w-full items-center gap-3 px-5 py-2.5 text-left max-sm:px-4'
   return (
@@ -62,16 +53,17 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
             <Skeleton lines={4} />
           </div>
         ) : (
-          <ul className="divide-y divide-line" data-testid="room-members">
+          <ul className="divide-y divide-line [--presence-bg:var(--c-surface)]" data-testid="room-members">
             {sorted.map(({ user }) => {
               const p = byId[user.id]
               const name = p?.name ?? user.name
               return (
                 <li key={user.id} className={clsx(row, 'group')} data-testid="room-member">
-                  <Avatar user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
+                  <PresenceFace user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-baseline gap-1 text-sm">
                       <span className="truncate font-medium text-ink">{name}</span>
+                      <PresenceText userId={user.id} offline />
                       {user.id === meId && <span className="shrink-0 text-faint">· {t('rooms.you')}</span>}
                       {group && user.id === room?.managerId && <span className="shrink-0 text-faint" data-testid="room-manager">· {t('rooms.info.manager')}</span>}
                     </span>
@@ -92,11 +84,6 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
             })}
           </ul>
         )}
-        {group && (
-          <button type="button" onClick={() => void leave()} className={clsx(row, 'py-3 text-sm font-medium text-danger hover:bg-hover')} data-testid="room-leave">
-            {t('rooms.info.leave')}
-          </button>
-        )}
       </div>
     </Modal>
   )
@@ -107,11 +94,8 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
 function NameRow({ room }: { room: Room }) {
   const t = useT()
   const locale = useLocale()
-  const titleOf = useRoomTitle()
-  const title = titleOf(room)
-  const me = useMe()
-  // what an empty name shows: the members' names, the everyone room's word, the group's name
-  const fallback = room.kind === 'team' ? (me?.groups.find((g) => g.id === room.groupId)?.name ?? '') : titleOf({ ...room, name: null })
+  const title = useRoomTitle()(room)
+  const fallback = useNameFallback()(room)
   const [draft, setDraft] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const save = async () => {

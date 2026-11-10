@@ -36,7 +36,7 @@
 - **충돌 알림**: 서버 안 이벤트(`FileService.events`의 `'conflict'`)와 `file_events`에 더해, 실시간 `files.conflict {path, copyPath, by}`를 저장한 사람과 먼저 바꾼 사람 두 명에게 보낸다(4번 탭 PUT content "두 사람에게 알린다"). 보내기 직전에 그 사람이 원본과 사본을 둘 다 읽을 수 있는지 다시 확인하고(사본 이름에 저장한 사람 이름이 들어 있다), 내용은 싣지 않는다. 웹은 '사본 열기'가 달린 알림을 띄운다. PUT /api/files/content는 설계의 409 + conflictCopyPath 대신 지금처럼 200 `{conflict:true, path:<사본>}`을 돌려준다(편집기가 저장 결과로 다루기 쉬워서, 보안 검토 r1에서 기록).
 - **턴당 쓰기 한도 50MB·200파일**(디스크 채우기 방지, 7번 탭).
 - **오피스 파일은 `write`로 쓸 수 없다**(`make_file`은 나중). 사람의 파일 화면 저장(`humanSave`)은 같은 규칙(해시 기준 충돌)을 쓴다.
-- **삭제 도구는 AI에게 주지 않았다.** 서버 함수 `deleteFile`/`restoreTrash`만 있고(휴지통 30일, 되돌리기는 원래 경로에 쓰기 권한이 있을 때만) 테스트로 확인했다. AI용 삭제를 줄지는 Stage 2에서 정한다.
+- **AI의 삭제는 `delete_files` 하나, 휴지통으로만**(2026-11-09, 아래 "AI가 휴지통으로 옮기기"). 파일 화면의 삭제와 같은 `TeamFiles.remove`를 부르고(`FileService.deleteFile`은 쓰지 않는다: 30일 고정, 관리 폴더 확인·알림·세션 정리 없음), 사람이 서버 카드에서 "예"를 눌러야 하며 그 "예"는 카드가 보여 준 목록(디스크의 각 항목, 볼 수 있는 사람, 휴지통 보관 일수)에 묶인다. 사람의 개인 채팅에서만, 한 번에 200개(폴더 안까지 센다)까지, 최상위·관리·스킬·남의 폴더와 첨부·플러그인·업로드 링크 대상은 관리자에게도 막는다.
 
 ## grep / glob
 
@@ -364,7 +364,7 @@
 인증·세션·CSRF, 권한 함수와 파일 경로 입구(REST·도구), web_fetch, 아티팩트·CSP, 데스크톱, 중계, 설치, 비밀값을 다시 봤다. 고친 것:
 
 - **공개 범위 확대 확인**(7번 탭 "공용 폴더를 거친 유출"): `chats.session_read_scope`(마이그레이션 202)에 모델 문맥에 들어간 출처를 모은다. read·grep 결과 파일마다 가장 가까운 규칙 폴더(`folders.id`, 없으면 `{type:'root'}`), `users/<id>/`(첨부 포함)는 `{type:'user'}`, 앱 안 브라우저 결과는 요청한 사람, 프로젝트 지침은 그 폴더. write·edit·make_file(source 파일 포함) 앞에서 대상 폴더를 읽을 수 있는 사람이 출처마다의 읽을 수 있는 사람보다 많으면 서버가 도구 호출 안에서 카드를 띄운다. 거절하면 쓰지 않고 감사 기록. 허용한 폴더는 그 턴에서 다시 묻지 않는다. 확인 자체가 실패하면 저장하지 않는다. **설계와 다른 점**: 다시 생성·수정으로 만든 가지도 채팅의 C를 그대로 쓴다(메시지별 `read_scope_snapshot` 없음, 더 묻는 쪽). 관리자의 '표시만' 설정과 파일 요약의 '공개 범위 넓어짐' 표시는 아직 없다.
-- **서버가 띄운 확인 카드 표시**: web_fetch 주소·공개 범위·remember 확인은 `AskUserRequest.origin = 'server'`이고 화면은 "팀 서버의 안전 확인" 머리글로 그린다. AI의 ask_user는 이 값을 넣을 수 없다(입력 스키마에 없음).
+- **서버가 띄운 확인 카드 표시**: web_fetch 주소·공개 범위·remember 확인은 `AskUserRequest.origin = 'server'`이고 화면은 "팀 서버의 안전 확인" 머리글로 그린다(2026-11-08부터 "확인해 주세요": "대화방에서 새 파일은 미리 허용"). AI의 ask_user는 이 값을 넣을 수 없다(입력 스키마에 없음).
 - **API 응답에 `Cross-Origin-Resource-Policy: same-origin`**: 팀 주소는 모두 같은 사이트(`*.treesoop.com`)라 다른 팀 페이지의 `<img>`·`<video>`가 SameSite=Lax 쿠키를 싣고 이 팀의 API·다운로드를 불러올 수 있었다(내용은 못 읽어도 존재·크기·이미지 치수가 샌다).
 - **사무실 공인 출구 IP**(7번 탭 "내부망 공격"): 중계의 핸드셰이크 응답 `AuthOk.seenIp`(제어 연결이 온 주소, 운영은 CF-Connecting-IP, 기록하지 않음)를 서버가 최근 8개까지 기억하고(`server/src/tools/egress.ts`) web_fetch가 모든 홉에서 거부한다. 서버가 시작된 뒤 아직 받은 적이 없으면(중계 없음·연결 전) 모든 web_fetch 주소에 확인 카드.
 - **모델 프록시 전달 규칙**(7번 탭 "모델 프록시를 통한 외부 전송"): POST `/v1/messages`·`/v1/messages/count_tokens`(쿼리 `beta=true`만), `claude-*` 모델, 사용자 정의 도구 + `web_search_*` 서버 도구, 데이터가 본문에 든 블록만(이미지·문서의 url·file 출처, mcp_servers, container, 모르는 블록은 403 + `proxy.refused` 감사). 허용 모양은 Claude Code 2.1.305가 실제로 보내는 요청을 기록용 가짜 상위 서버로 잡아 정했다. 엔진 버전 피드 policy로 옮기는 것은 후속.
@@ -1068,7 +1068,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **이미 있는 채팅은 쓰던 엔진을 그대로 쓴다.** 그 엔진을 관리자가 껐으면(또는 설치가 끔: 사무실 모드의 Codex) 엔진을 적지 않은 다음 턴은 팀 기본값으로 돌고, 답변에 단계 "{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다"(`tool: 'engine'`, 화면 언어로 다시 그림)가 남고 채팅의 엔진도 기본값으로 바뀐다.
 - **내 기본 엔진/모델**(설정 > 프로필): 고를 수 있는 사람만 보고 저장한다(`prefs.engine/model`, null이면 팀 기본값으로). 고를 수 없는 사람의 요청에서는 이 두 값을 빼고(테마 등은 저장), `/api/me`도 돌려주지 않는다. 새 채팅은 서버에서도 이 값(켜진 엔진일 때) → 팀 기본값 순. 채팅 안에서 엔진을 바꿔도 내 기본값은 더 이상 바뀌지 않는다(전에는 "마지막에 쓴 엔진"을 저장).
 - **"다른 모델로 다시 시도"**: 실패·거절된 답 옆, 고를 수 있는 사람에게만 `다시 시도`와 함께 보인다(켜진 엔진·모델 목록, 다시 생성 요청에 engine/model). 다른 사람은 `다시 시도`만.
-- **"Claude 한도에 닿으면 Codex로 넘기기"**(`engines.limitFallback`, 기본 꺼짐): 켜면 관리자 화면에 "대화가 OpenAI로도 보내진다"는 경고가 뜬다. Codex가 꺼져 있으면(관리자가 끔, 또는 사무실 모드 `codexBin: ''`) 켤 수 없고(409), Codex를 끄면 이 설정도 꺼진다(다시 켤 때 조용히 살아나지 않게). 턴에서는 **Claude가 구독 한도/429를 보고했을 때만**(모델 프록시의 한도 알림 또는 엔진의 rate_limit 오류 → `rate_limited`) 같은 질문을 Codex로 새 세션(분기 기록 포함)에서 답한다. 예산 초과·거절·충돌·문맥 초과에는 넘기지 않는다. 운영 설치의 Codex 베타(owner + `codexUsers`) 밖의 사람에게도 넘기지 않는다. 답변에 단계 "Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다", 알림, 감사 기록 `engine.limit_fallback`(행위자 = 그 사람, 대상 = 턴, detail `{from, to, model}`, 내용 없음)을 남기고 그 답변·턴의 엔진은 codex로 적는다(사용량이 Codex로 잡힘). 채팅의 엔진은 Claude 그대로라 다음 질문은 다시 Claude가 받는다. Claude 세션에는 Codex의 답이 없으므로 채팅의 엔진 세션을 지워 다음 Claude 턴은 기록으로 새로 시작한다.
+- **"Claude 한도에 닿으면 Codex로 넘기기"**(`engines.limitFallback`, 기본 꺼짐; 2026-11-08부터 "다른 AI로 대신 답하기", 아래 그 항목): 켜면 관리자 화면에 "대화가 OpenAI로도 보내진다"는 경고가 뜬다. Codex가 꺼져 있으면(관리자가 끔, 또는 사무실 모드 `codexBin: ''`) 켤 수 없고(409), Codex를 끄면 이 설정도 꺼진다(다시 켤 때 조용히 살아나지 않게). 턴에서는 **Claude가 구독 한도/429를 보고했을 때만**(모델 프록시의 한도 알림 또는 엔진의 rate_limit 오류 → `rate_limited`) 같은 질문을 Codex로 새 세션(분기 기록 포함)에서 답한다. 예산 초과·거절·충돌·문맥 초과에는 넘기지 않는다. 운영 설치의 Codex 베타(owner + `codexUsers`) 밖의 사람에게도 넘기지 않는다. 답변에 단계 "Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다", 알림, 감사 기록 `engine.limit_fallback`(행위자 = 그 사람, 대상 = 턴, detail `{from, to, model}`, 내용 없음)을 남기고 그 답변·턴의 엔진은 codex로 적는다(사용량이 Codex로 잡힘). 채팅의 엔진은 Claude 그대로라 다음 질문은 다시 Claude가 받는다. Claude 세션에는 Codex의 답이 없으므로 채팅의 엔진 세션을 지워 다음 Claude 턴은 기록으로 새로 시작한다.
 - **API**: `GET /api/engines`(누구나: `canChoose`, 팀 기본값, 고를 수 있으면 켜진 엔진과 모델), `/api/me`의 `user.canChooseEngine`, `GET/PATCH /api/admin/engines`에 `memberChoice`·`limitFallback`·`limitFallbackAvailable`. 없는 그룹·사람은 400. 바뀌면 모두에게 `notice engine_choice_changed`를 보내 열린 창이 새로 고침 없이 선택기를 보이거나 숨긴다. 마이그레이션은 필요 없다(설정은 키/값 표).
 - **시험**: `tests/unit/engine-choice.test.ts`(가짜 엔진: 기본은 owner·관리자만, 모두/그룹/사람, 보내기·수정·다시 생성·새 채팅·채팅 바꾸기 거부, 꺼진 엔진 거부, 꺼진 엔진의 채팅이 기본값으로 + 단계, 내 기본값, 한도 대체 꺼짐/켜짐/Codex 꺼짐/사무실 모드, 다른 오류에는 안 넘김), `tests/security/r5-engine-choice.test.ts`(실제 세션: 팀원은 고를 수 없음, 거부되면 턴 없음, prefs에 저장 안 됨, 스스로 허용하거나 한도 대체를 켤 수 없음), 권한 매트릭스에 `GET /api/engines`와 바뀐 `PATCH /api/admin/engines`, `web/test/e2e/engine-choice.spec.ts`(팀원: 선택기·다른 모델로 다시 시도·내 기본 엔진 없음, 요청에 엔진 없음 / owner: 모두 있음 / 관리자가 허용하면 열린 창에 바로 보임, OpenAI 경고, Codex를 끄면 한도 대체 꺼지고 못 켬). 기존 채팅 시험들은 팀원이 엔진을 고르므로 시험 하네스(`tests/lib/b-harness.ts`)는 기본으로 `everyone`을 켠다.
 
@@ -1100,12 +1100,13 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 
 소유자 결정: "누가 스킬을 관리하나"를 분명하고 안전한 권한으로. 팀 스킬과 팀 규칙(`skills/`)은 팀 전체 AI가 따르는 지침이라, 바꾸는 사람이 적고 분명해야 하며 바뀐 것이 모두 드러나야 한다.
 
-- **스킬 관리자 = `skills/`(또는 그 하위 폴더)에 쓰기 권한이 있는 사람.** 따로 권한 표를 두지 않았다. 관리자 > 멤버·그룹의 **"팀 스킬 관리"** 스위치는 그 사람·그룹의 쓰기 규칙을 `skills/` 또는 `skills/재무/` 같은 하위 폴더(두 단계까지, 없으면 만듦)에 넣고 뺀다(`PUT /api/admin/skill-managers`, `server/src/skills/managers.ts`). 폴더 규칙 기계(`replaceRules`, `folder.rules` 감사, `afterAccessChange`)를 그대로 쓰므로 관리자 > 폴더 권한에 같은 규칙이 "팀 스킬 관리" 표시와 함께 보이고, 거기서 바꾼 것도 스위치에 그대로 나온다. 끌 때는 그 사람·그룹의 그 폴더 규칙만 빠지고(다른 규칙은 그대로), 그 때문에 규칙이 하나도 남지 않은 하위 폴더 행은 지워 `skills/`의 규칙을 다시 따르게 한다. owner·관리자는 언제나 관리자라 스위치 대신 "항상"이 보인다(서버도 400). 하위 폴더에 사람 규칙 하나가 생겨도 다른 사람의 접근은 그대로다(그 폴더에 맞는 규칙이 없으면 위 폴더의 규칙을 따름).
+- **스킬 관리자 = `skills/`(또는 그 하위 폴더)에 쓰기 권한이 있는 사람.** 따로 권한 표를 두지 않았다. **팀 스킬** 화면의 "고칠 수 있는 사람" 줄과 그 **[바꾸기]** 창(owner·관리자만, 아래 "화면 옮김")이 사람·그룹의 쓰기 규칙을 `skills/` 전체에 넣고, `skills/` 또는 `skills/재무/` 같은 하위 폴더(두 단계까지)의 규칙을 뺀다(`PUT /api/admin/skill-managers`, `server/src/skills/managers.ts`; API는 없는 하위 폴더를 만들어 넣을 수도 있다). 폴더 규칙 기계(`replaceRules`, `folder.rules` 감사, `afterAccessChange`)를 그대로 쓰므로 관리자 > 폴더 권한에 같은 규칙이 "팀 스킬 관리" 표시와 함께 보이고, 거기서 바꾼 것(하위 폴더만 맡기기 포함)도 그 창에 그대로 나온다. 뺄 때는 그 사람·그룹의 그 폴더 규칙만 빠지고(다른 규칙은 그대로), 그 때문에 규칙이 하나도 남지 않은 하위 폴더 행은 지워 `skills/`의 규칙을 다시 따르게 한다. owner·관리자는 언제나 관리자라 "항상"으로 보이고 뺄 수 없다(서버도 400). 하위 폴더에 사람 규칙 하나가 생겨도 다른 사람의 접근은 그대로다(그 폴더에 맞는 규칙이 없으면 위 폴더의 규칙을 따름).
+- **화면 옮김 (feat/team-skill-editors, 2026-11-07, product owner).** 처음에는 관리자 > 멤버와 관리자 > 그룹의 "팀 스킬 관리" 열(사람·그룹마다 스위치)과 폴더 권한의 `skills/` 안내, 세 곳에 있었고 팀 스킬 화면에는 누가 고칠 수 있는지가 없었다. 그룹 열은 "그룹 단위 기능인가?"로 읽혔다(그룹 스킬 `groups/<폴더>/skills/`는 원래 그 그룹 멤버가 스위치 없이 관리한다). 그래서 두 열을 없애고 **팀 스킬** 화면 제목 아래에 owner·관리자만 보는 한 줄 `고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님 [바꾸기]`을 둔다. 그 목록은 폴더 권한이 `skills/`에 대해 말하는 것과 같은 서버 답(`GET /api/admin/access/tree?path=skills`, `skillEditorsText`)이라 본인 규칙·그룹·모두·팀 폴더 전체 규칙으로 고칠 수 있는 사람이 다 들어가고, 길면 "외 N명"으로 줄인다. `skills/` 안에서 따로 맡긴 폴더(그 폴더의 규칙이 팀장·관리자 말고 누군가에게 쓰기를 줌: 사람·그룹·모두·예전 팀원 전체)는 끝에 "폴더별로 맡긴 곳 N개"로 센다. 폴더 권한이 쓰는 규칙 목록(`GET /api/admin/folders`) 한 번으로 세고 폴더마다 묻지 않으며(처음에는 사람 수를 폴더마다 물어 셌으나 "모두" 규칙을 놓치고 요청이 많았다, fix/team-skill-editors-line), 그런 폴더가 있으면 "팀장과 관리자만"이라고 하지 않는다. 규칙을 못 읽으면 "만" 없이 아는 사람만, `skills/` 답을 못 읽으면 "불러오지 못했어요 · 다시 시도". 관리자가 된 뒤에도 남은 예전 규칙은 "항상" 줄에 들어가 빼기 버튼이 없다(서버가 거부하므로). **[바꾸기]** 창은 `skills/` 전체를 위한 사람·그룹 고르기다: 팀장·관리자("항상"), 사람·그룹마다 본인 규칙(하위 폴더면 그 폴더와 함께)과 **빼기**(확인 문구, "그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요" 안내, 서버 호출은 예전 스위치와 같음), 다른 규칙(모두, 팀 폴더 맨 위)으로 고칠 수 있는 사람은 한 줄과 폴더 권한 링크, 그리고 폴더 권한 편집 패널과 같은 사람·그룹 검색(`admin/AddNamed.tsx`)으로 고른 뒤 경고(`skillMgr.warn`)를 보고 **팀 스킬 관리 켜기**(`path: 'skills'`). 새 하위 폴더 범위는 여기서 만들지 않고 "폴더별로 맡기려면 폴더 권한에서" 링크로 보낸다. 서버 규칙·API·감사는 그대로이고 예전에 켠 것도 그대로 보인다.
 - **바뀐 것은 모두 기록하고 알린다.** 팀 파일의 모든 변경이 남기는 `fileEvent`에 걸어(`files/store.ts onFileEvent`, `server/src/skills/changes.ts`) `skills/` 아래의 만듦·수정·이동(밖으로 나간 것 포함)·삭제·되돌림을 사람·AI 구분 없이 감사 기록 `skills.change`(행위자, 파일, `{change, from, byAi, turnId, kind: skill|rule|folder|other, tool}`)로 남기고, 바꾼 본인을 뺀 owner·관리자에게 알림(`notice skill_changed`)을 보낸다. 알림의 새 `link` 필드(앱 안 주소만 허용)는 그 파일의 버전 기록(`/files?…&history=<path>`, 지운 것은 휴지통)을 열어 바로 이전 버전으로 되돌릴 수 있게 한다. 메일은 보내지 않는다. 지난 변경은 왼쪽 **팀 스킬 > 최근 변경**(관리자, `GET /api/admin/skill-changes`)과 감사 기록에서 본다.
 - **AI는 확인 없이 `skills/`에 저장하지 못한다(실패하면 닫힘).** write·edit·make_file이 `skills/` 아래에 저장하기 전에 서버가 카드를 띄운다(`origin:'server'`, "팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따릅니다", 새 스킬·스킬 수정·새 팀 규칙·규칙 수정 구분, AskUserRequest의 새 `preview`에 unified diff와 +/− 줄 수). owner·관리자를 포함한 모두에게 뜬다. "저장"이면 그 턴의 `TurnFiles.skillApprovals`에 **그 바이트의 sha256**(make_file은 경로만)을 남기고, 파일 계층(`requireSkillApproval`: write·edit·충돌 사본·`placeProduced`)이 승인 없는 AI 쪽 쓰기를 모두 거부한다. 그래서 카드를 빼먹은 도구, 예약 실행(물어볼 사람 없음), 카드 뒤에 달라진 내용, 검사 중 오류(프로토콜이 거부로 처리), 대소문자만 다른 `SKILLS/` 모두 "쓰지 않음"으로 끝난다. 거절·무응답은 감사 `skills.ai_write_refused`, 도구 기록은 `write -> not allowed by the user (team skills)`. 사람이 파일 화면에서 저장할 때는 폴더 규칙만 본다(카드 없음). 생성 영상(generate_video)은 `skills/`에 저장할 수 없다(크레딧을 쓰기 전에 거부). 쓸 수 없는 사람의 AI는 카드 없이 폴더 규칙이 먼저 거부한다. 지침의 "Team skills"는 쓸 수 있는 폴더와 카드가 뜬다는 것을 알려 주고, 못 쓰는 사람에게는 "스킬로 제안"을 안내한다.
 - **스킬로 제안 → 등록/거절.** 누구나 자기 채팅의 답변이나 자기 폴더(`users/<나>/`)의 파일에서 제안할 수 있다(다른 사람의 대화·파일은 404, 없는 것과 같은 답). 제안은 `skill_suggestions` 표(마이그레이션 105, 이름 붙인 열, FK는 ON DELETE CASCADE)에 있고 `skills/`에는 들어가지 않는다. **제안한 사람과 대상 폴더의 스킬 관리자(그 폴더에 쓰기)만** 볼 수 있다. 볼 수 있는지는 읽을 때의 폴더 규칙으로 계산한다(규칙이 바뀌면 바로 따라감, 다른 사람에게는 목록·숫자·단건 모두 없음 = 404). 관리자는 미리보기·편집(이름, 설명, 내용, 파일 이름, 관리하는 폴더 안에서 폴더)한 뒤 **[등록]**: 서버가 머리말을 붙여 **관리자 본인의 권한으로** 저장한다(같은 이름의 파일이 있으면 409, 위의 변경 기록·알림이 그대로 따라옴, 감사 `skills.suggestion_approved`). **[거절]**은 이유(선택)와 함께. 제안이 오면 대상 폴더의 관리자에게, 처리되면 제안한 사람에게 알림이 간다. 제안한 사람은 **팀 스킬 > 내 제안**에서 상태를 본다.
 - **화면**: 왼쪽 **팀 스킬**(검토할 제안 수), 그 안의 검토 대기(관리하는 사람) / 쓸 수 있는 스킬(모두, 처음 여는 탭) / 내 제안 / 최근 변경(관리자). **쓸 수 있는 스킬**은 "/" 메뉴와 같은 `GET /api/skills`(읽을 수 있는 `skills/`의 스킬과 내 개인 스킬)를 읽기 전용으로 보여 준다: 이름·설명·파일, **채팅에서 쓰기**(`/이름 `을 넣은 새 채팅)와 **파일 보기**뿐이다(2026-11-01 앱 심사 준비: 팀원 화면에 스킬이 하나도 안 보였다). 답변 아래와 내 폴더 파일 메뉴의 **스킬로 제안**. 글을 줄인다(2026-11-02): 페이지 설명 없이 제목 줄에 탭·검색을 두고, 스킬은 한 줄씩 보여 준다. 행을 누르면 그 스킬로 새 채팅, "…"에서 파일 보기. 전체 설명은 행의 툴팁과 파일에 있고, 개인 스킬은 따로 묶는다. 이 화면의 "자주 쓰는 스킬" 묶음은 같은 스킬을 두 번 보여 주므로 없애고(새 채팅 첫 화면에는 그대로), 최근 30일 상위 10개(`/api/skills/popular`)의 사용 횟수를 행 오른쪽에 적어 위로 올린다. 행과 "/"는 스킬 이름으로 시작하므로 이름이 같은 스킬이 둘이면 서버가 하나를 고른다(`invokedSkill`).
-- **시험**: `tests/unit/skill-managers.test.ts`(가짜 엔진: 스위치 없는 팀원은 HTTP·AI 도구 모두 못 씀, 하위 폴더 스위치는 그 폴더만, 폴더 권한과 같은 행, 승인 없는 AI 쓰기는 owner도 거부·다른 내용의 승인도 거부, 카드 거절·무응답은 안 씀+감사, 저장은 감사+알림+버전 기록 링크, edit의 diff, make_file 카드, 사람의 저장·이동·삭제 기록, 제안이 다른 사람에게 보이지 않고 내용이 새지 않음, 등록·거절·알림, 그룹 스위치를 끄면 검토도 못 함), 권한 매트릭스에 새 경로 9개(앨리스의 제안 카나리아는 앨리스와 owner·관리자에게만), `web/test/e2e/team-skills.spec.ts`(스위치·경고·하위 폴더·폴더 권한 표시·끄기·그룹, 서버 카드와 diff·저장·버전 기록 링크·최근 변경, 제안→검토→편집→등록→제안자 알림, 거절 이유).
+- **시험**: `tests/unit/skill-managers.test.ts`(가짜 엔진: 스위치 없는 팀원은 HTTP·AI 도구 모두 못 씀, 하위 폴더 스위치는 그 폴더만, 폴더 권한과 같은 행, 승인 없는 AI 쓰기는 owner도 거부·다른 내용의 승인도 거부, 카드 거절·무응답은 안 씀+감사, 저장은 감사+알림+버전 기록 링크, edit의 diff, make_file 카드, 사람의 저장·이동·삭제 기록, 제안이 다른 사람에게 보이지 않고 내용이 새지 않음, 등록·거절·알림, 그룹 스위치를 끄면 검토도 못 함), 권한 매트릭스에 새 경로 9개(앨리스의 제안 카나리아는 앨리스와 owner·관리자에게만), `web/test/e2e/team-skills.spec.ts`(팀 스킬 화면의 "고칠 수 있는 사람" 줄은 관리자만, [바꾸기] 창의 사람·그룹 추가·경고·빼기·하위 폴더 규칙·폴더 권한 표시, 그룹이나 모두로 고칠 수 있는 사람, 서버 카드와 diff·저장·버전 기록 링크·최근 변경, 제안→검토→편집→등록→제안자 알림, 거절 이유).
 
 ## API 엔진: OpenAI 호환 모델 (feat/api-engine, 2026-10-21)
 
@@ -5740,6 +5741,16 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
   A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
 
+### Dev environment: no line on the project page (chore/remove-project-devenv-row, 2026-11-08)
+
+Owner: "프로젝트에서 이제 dev environment 저거 필요없지 않아?" The project page's 개발 환경 line (`DevEnvSection.tsx`) is
+removed; the feature stays. Why: on srt the setting is the team's and any chat can use it, yet the line's modal saved
+that team setting from inside one project; admins edit it in Team settings › Dev environment; a chat shows its own runs
+(the queue line with Cancel, the command step); there is no preview without a preview domain; shared project chats
+have no dev environment. The `/api/projects/:id/dev-env*` endpoints stay for older clients, with no web caller now.
+What only the line had: the project's run list with Stop for other people's runs, the activity, the preview, and on the
+box runner the per-project on/off and the box (stop, restart, processes).
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.
@@ -7646,7 +7657,8 @@ that case. Ordinary API use of the app's own agent falls under the Commercial Te
   chose the API engine, so the chat shows no "switched to API" divider and back; the answer's model names the trial
   model. Nothing else changes (no engine-api.json is written, the team default stays). A turn decided on its connection
   that loses it mid-answer is not handed to the credit (B did that inside Claude Code); the next message is.
-- **The team's own AI first, on either engine (review of the branch).** One rule, `credentials/access.ts
+- **The team's own AI first, on either engine (review of the branch).** (Since 2026-11-08 the other engine answers only
+  while "다른 AI로 대신 답하기" is on, with or without a trial key: that entry below.) One rule, `credentials/access.ts
   connectionRoute`, decides a managed Claude Code or Codex turn on a server that holds a trial credit (any state), and
   `canUseAi` (A's `/api/me/ai-access` `usable`, Admin › Members "No AI", the profile step) uses the same rule, so the
   banner and the answer agree: its own engine when a connection of the person works there; the other of the two when
@@ -8383,7 +8395,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - Every change waits for the asker: in a room session any call outside `ROOM_READ_ONLY_TOOLS` (writes, edits, moves,
     make_file, save_url, schedules, connections' tools, tools added later) raises a server card to the asker first
     (`confirmRoomChange`), whatever the room's messages said; no answer or "don't" changes nothing. Always, not only when
-    other people's words are in the context: simpler, and it fails closed.
+    other people's words are in the context: simpler, and it fails closed. (Amended 2026-11-08: new team files in a
+    folder every member may write can be allowed for the rest of an answer or in advance for the room, and a call that
+    also needs the wider-audience card gets that one card: "대화방에서 새 파일은 미리 허용" below.)
   - Answer file links: `RoomMessage.openable` lists the team files an AI answer links to or shows that the viewer may
     open now; the app shows the others as plain text (no chip, no picture loaded).
   - An account that cannot be loaded (disabled, deleted, still listed) fails every check.
@@ -9030,6 +9044,59 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   or else its full name, read when the tokens are saved and at each connection (a rename in Slack shows up), with the
   manifest's name when Slack does not say. `auth.test` gives the user name (`trinaax`), which `@` and `/invite` do not
   find.
+- **Post to channel checks what the answer used (fix/slack-post-check, 2026-11-08).** A Slack question is a normal turn
+  of the asker's, with their whole reach (their groups' folders, their own folder, memories, personal connections), and
+  the button posted at once: an HR member asking in #general for a summary of the salary review put `groups/hr/` in
+  front of the channel with one click, while 대화방에 보내기 and the room's @트리나 both check first. The owner decided:
+  - **The whole team is the test.** Slack does not tell the app reliably which of a channel's members are which
+    accounts here (no e-mail for some, guests, people of no account at all), so the audience is every active account but
+    the asker. Everything the answer used readable by all of them: posted at once, as before. Otherwise the first press
+    replaces the ephemeral answer with a notice to the asker: "This answer used places not everyone on the team can see:
+    groups/hr/. Post it to the channel anyway?", with *Post anyway* and *Cancel*. Cancel puts the answer back with its
+    button (pressing it asks again). DMs are unchanged.
+  - **One classifier.** The check is 대화방에 보내기's (`chat/answer-share.ts` `provenanceChecker` over `branchUse`: the
+    files every answer on the branch read with their sha256 and the hash rule, the chat's read scope when it describes
+    the answer, "not all known" for an answer it does not describe or one that ran dev environment commands);
+    `integrations/slack/post-check.ts` adds only what is Slack's. A team connection or a shared Drive counts as not team-wide whoever its rules let use it, as for the
+    room's AI (`rooms/ai.ts` decide): what it returned is outside content. The whole branch counts, so a later answer in
+    the same Slack thread carries what an earlier one read.
+  - **Memories do not count** (the manager, 2026-11-08, on the PR). Post to channel posts one answer, as 대화방에 보내기
+    does, and that check does not count memories: they are the asker's own notes, and the asker sees the very text that
+    is posted. Counting them (`share-chat.ts` `memoriesInPlay`, as the first version did) put the notice on almost every
+    answer of anyone with a memory. Sharing a whole chat still counts them (`chat/share-chat.ts`): there the others see
+    the whole conversation, every answer of it.
+  - **Names count in a Slack chat.** A personal chat's scope records file contents (read, grep), not the names a
+    listing or a glob showed; a room session records those too. The first review posted "list groups/hr/" to the
+    channel at once, file names and all. A chat of a Slack thread (`slack_threads`, or a turn asked from Slack) now
+    records them the same way (`chat/turn.ts` `noteReads`: the folders whose files a listing or a glob showed, and the
+    sub-folders it showed as names). That scope is the chat's, so a widening card can come sooner in such a chat too.
+  - **A team of one.** With nobody else active, the asker's own material and an answer not all known still count: the
+    channel has people all the same.
+  - **Never posted** (as 대화방에 보내기 refuses them, confirmed or not): a confidential conversation (safe operations 1A,
+    `safe-ops/confidential.ts`; while 1A is on, every conversation is one, so Post to channel always says why), and an
+    answer that read a room some member would see but for old answers hidden from them. Pressed, the answer stays with
+    the asker with the reason and no button; an answer of a confidential conversation comes without the button. Chosen
+    over a notice: the owner's two buttons are for places, and 1A material stays in its conversation everywhere else.
+  - **Named as the asker sees them, never what or who.** Folders the asker may read now by their path, a team connection
+    or shared Drive by its name, a team room by its group's name, "1:1 and group conversations", and the asker's own
+    material apart: "your folder", "the in-app browser", "your personal connections" (the read scope records a personal
+    connection as the person's own, not which one, so it is not named). Anything else is "other
+    material". No file name, no content, no count of people. The notice is a `plain_text` section, so a name is never
+    markup, a mention or a link. In the asker's language (five).
+  - **Post anyway goes through every check again**: the asker, the link and the account, the chat not deleted, Slack
+    asked again whether the channel is shared with another organization, the once-only claim. Its value is the request
+    id and a keyed hash (`confirmMac`, `kind: 'slack.post'`, this server process's secret) over the request, the asker,
+    the sources and who misses them, the places and the flags the notice showed. Without the hash it is no value of
+    ours ("can no longer be posted"); with another request's, or from before something changed (a rule, a member, a
+    restart), it shows the notice again, never posts. `slack.posted` gets `confirmed: true` for such a post (no names, no
+    content).
+  - Not chosen: naming people or counting them (a Slack channel is not the team); the link check of 대화방에 보내기's
+    part A (a Slack answer's links name files the answer read or listed, which the check above covers).
+  - Tests: `tests/unit/c-slack.test.ts` "Post to channel checks what the answer used" (shared/ posted at once; a group
+    folder's notice, Cancel, and Post again; Post anyway once and audited, replayed and forged values, a key from before
+    a new member; Slack Connect and an unknown channel on Post anyway; a team connection, a personal connection, the
+    browser, memories not counted, Korean; list and glob names; not all known; a team of one; Cancel after an unlink; a confidential
+    conversation, also its next answer; hidden room answers; a DM).
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 
@@ -11034,32 +11101,36 @@ Details: `docs/GOOGLE-DRIVE.md` "Hosted teams"; control plane side: trina-cloud 
 
 ## DS — Every skill pack is a default (2026-11-06)
 
+> **Superseded by DS3 (2026-11-08):** no skill is added by itself any more (the seeder and its timer are gone), and
+> only the four skills with a known origin ship. The lines below are kept as the history of what DS did.
+
 넣을 곳: trina-ax `server/src/onboarding` (default-skills.ts, skill-packs.ts) and `resources/skill-packs/work`, 이유: the
 owner asked for every skill in the repository to be in every team without anyone installing it.
 
-- **What a team has by itself.** The packs in `DEFAULT_SKILL_PACKS` (shared/src/api/onboarding-packs.ts): general
+- **What a team has by itself** (superseded by DS3: nothing; `DEFAULT_SKILL_PACKS` is gone). The packs in `DEFAULT_SKILL_PACKS` (shared/src/api/onboarding-packs.ts): general
   (5), marketing (7) and the new work pack (6), 18 skills, under `skills/<pack>/<name>/SKILL.md` in the team's
   language (Korean or English; id, ja and es get English, as the packs already did). The marketing pack's four
   `shared/` folders are not made by the default: they stay with the pack's own install (the welcome steps' marketing
   choice, the Team skills page), so a team that is not a marketing team gets no empty marketing folders.
-- **The work pack** is the six README example skills (`examples/skills/`), rewritten for the team's own files: no
+- **The work pack** (superseded by DS3: its six skills are deleted, natural writing stays) is the six README example skills (`examples/skills/`), rewritten for the team's own files: no
   fictional `shared/demo/` inputs, a title and a short form each, and the same limits (read only what the person
   names, draft only, a person decides, sends and pays). Each one has a job of its own next to the other packs:
   meeting-summary (decided / open / next, for people who were not there) beside meeting-tasks (tasks by person);
   weekly-team-report "Weekly roundup / 주간 종합" (several teams on one page for the CEO, `recurring: weekly`) beside
   marketing's weekly-report (one team's report); brand-brief "Creative brief / 제작 요청서" (a hand-off to a designer
   or agency) beside campaign-plan. The examples stay as they are: they are the fictional quick-try with their data.
-- **Once per skill, recorded** (settings `onboarding.defaultSkills`, `<pack>/<name>` → status). Written as the first
+- **Once per skill, recorded** (superseded by DS3: the row is no longer read; this build only records the old seeder's
+  keys in it as `retired`, so an older build run again adds nothing) (settings `onboarding.defaultSkills`, `<pack>/<name>` → status). Written as the first
   active owner through placeSkill, the pack install's own step: folder rules decide, the file event is marked
   `pack_install` (the owner is not the maker), the skills/ change audit follows, one `onboarding.default_skills` audit
   row per run that added something. Recorded without writing when the file is there (`present`, or `kept` when someone
   edited it: never replaced), when another team skill has the name (`blocked`: no second "/<name>"), or when nothing
   is at the path but file_events have it (`removed`: deleted or moved on purpose, kept at least 365 days). Only a
   write the folder rules refused stays unrecorded and is tried again. A later delete is never undone (the record).
-- **When.** At the server's start (5 s after, never under `bun test`) and every 10 minutes, and in the welcome steps
+- **When** (superseded by DS3: never). At the server's start (5 s after, never under `bun test`) and every 10 minutes, and in the welcome steps
   right after the general pack (setupWelcomeTeam), so a new team has the 18 skills from its first steps. Nothing runs
   before setup (no owner). With everything recorded a run reads one settings row.
-- **Existing teams** get, on the first start of this version: the skills they never had; nothing for skills they have
+- **Existing teams** (superseded by DS3: they keep their files, nothing more is added) get, on the first start of this version: the skills they never had; nothing for skills they have
   (edited or not), deleted or have under another path.
 - Rejected: seeding in `bootstrapOwner` (setup) — every test harness sets up through it, and the welcome steps run
   right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
@@ -11181,6 +11252,9 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
 - Version impact: **minor** (a new endpoint, two optional fields, one additive migration).
+- **Appearance leaves the account menu (2026-11-08, the owner's request).** The theme (system, light, dark) is chosen in
+  Settings › Profile only, so there is one place for it and the menu is shorter (lean UI). The menu keeps 자리 비움으로
+  표시, Settings, Usage, Deleted chats and Sign out. No API or data change; the stored `theme` preference is unchanged.
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,
@@ -11257,6 +11331,18 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
 - **A team switch closes the desktop notifications** the team page made (review SHOULD 8): they name that team's chats,
   and a click must not open an address in the next team's page (`makeNotifier().closeAll`, and a click on a stale one
   only brings the window up).
+- **macOS asks about notifications while the window is in front** (2026-11-08, the Mac App Store app showed none).
+  Electron asks the system the first time the app touches notifications, and macOS asks an app only once: an app that
+  quits before the answer keeps notifications off and is never asked again; while the question waits, notifications go
+  to Notification Center without a banner. The first notification only comes while the window is in the back, so the
+  question came when nobody looked. `makeNotifier().ask()` touches them when a team page has loaded or the window gets
+  focus with a team open, once per run, only while focused. If notifications are already off, the person turns them on
+  in System Settings › Notifications › Trina AX. macOS also accepts a notification it will not show without an error,
+  so there Settings › Notifications › Desktop app notifications › Test notification answers `unknown`
+  (`desktopNotify.unknown`: "Test notification sent. If it does not show, turn notifications on in System Settings ›
+  Notifications › Trina AX."), never `shown`. Electron 44 cannot read the permission; `Notification.getHistory()` could
+  tell, but its restored objects share identifiers with live ones and Electron hands a click to the first match, so a
+  real notification's click could stop opening its room: not used.
 - **Engines.** Claude, Codex and the API engine give the same states: the cards are our own `TurnRequest` (ask_user,
   confirmations, connect), the outcome is the stored message's status and stop reason
   (`tests/unit/b-session-markers.test.ts` runs all three).
@@ -11281,11 +11367,15 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
 
 ## DS2 — Natural writing as a default, Korean HR documents as an optional pack (2026-11-06)
 
+> **Superseded in part by DS3 (2026-11-08):** natural writing stays (it has a known origin), but it is no longer added
+> by itself; the HR pack is deleted, with its "인사 서류 스킬 3개 넣기" line.
+
 넣을 곳: trina-ax `resources/skill-packs/work/{ko,en}/humanizer`, `resources/skill-packs/hr` and
 `server/src/onboarding/skill-packs.ts`, 이유: the owner asked for the company's general-purpose skills to be Trina's
 default skills, accepting that they become public here, leaving out anything internal or with customer data.
 
-- **Natural writing (`work/humanizer`) is a default skill**, added once to every team like the rest of DS (existing
+- **Natural writing (`work/humanizer`) is a default skill** (superseded by DS3: it ships, but only the empty Team skills
+  page's button adds it), added once to every team like the rest of DS (existing
   teams get it on the next run; the 19th default skill). Korean: a company-written Korean skill condensed into one
   SKILL.md (genre registers for blog, review, official channels, Shorts, Instagram, proposals and notices; the AI tells
   and their fixes), without its lint script (a pack ships one SKILL.md) and with **every quoted real title, caption or
@@ -11293,7 +11383,7 @@ default skills, accepting that they become public here, leaving out anything int
   its pattern list rewritten with our own examples (its Wikipedia-derived examples are left out); its MIT notice is at
   the end of the SKILL.md a team gets and as `LICENSE` next to it. Both: every fact stays, nothing invented, the
   original file is never changed.
-- **Korean HR documents (`hr`) are an optional pack** (`OPTIONAL_SKILL_PACKS`): employment contract, employment
+- **Korean HR documents (`hr`) are an optional pack** (superseded by DS3: deleted, origin not known) (`OPTIONAL_SKILL_PACKS`): employment contract, employment
   certificate (employment / career / leaving) and annual leave (days and a leave request), Korean and English. Made
   general for any Korean company from an industry-specific edition: no industry, clinic or person names, no data; the
   templates are inline, the leave calculation is in the text (art. 60, with its 5-employee threshold), the minimum wage
@@ -11307,6 +11397,63 @@ default skills, accepting that they become public here, leaving out anything int
   third-party generators that need paid credits.
 - Rejected: shipping the Korean lint script (a pack is one SKILL.md, and the checks are in the text); making the HR
   pack a default (labour-law forms only some teams need, and wrong for teams outside Korea).
+
+## DS3 — Only skills with a known origin ship; no auto-add (2026-11-08)
+
+넣을 곳: trina-ax `resources/skill-packs`, `server/src/onboarding` (skill-packs.ts, welcome.ts, goal.ts,
+retired-skills.ts), `server/src/auth/team-links.ts`, `web/src/components/AvailableSkills.tsx`, 이유: the owner learned
+that most of the 22 pack skills were written by AI sessions with no known origin, and ordered the ones without a source
+deleted and the auto-add removed ("자동 추가가 있다고?? … 굳이 물어보게 해야해?").
+
+- **Kept (Korean and English):** `general/intro-deck` (the welcome steps' first result), `general/card-news` and
+  `general/promo-video` (each calls a tool of its own), `work/humanizer` (Korean: written by the company from its own
+  korean-humanizer skill; English: adapted from the open-source "humanizer" skill, Siqi Chen, MIT, its `LICENSE` kept).
+- **Deleted (18):** `general/meeting-tasks` (할 일 정리) and `general/doc-brief`; the whole `marketing` pack (7) with
+  its four `shared/` folders (브랜드, 캠페인, 보고서, 경쟁사) and the Files screen's hints for them; `work/`
+  meeting-summary, weekly-team-report, sales-follow-up, brand-brief, expense-review, new-hire-guide; the whole `hr`
+  pack (3). With them: `POST /api/onboarding/welcome/pack`, the pack ids `marketing` and `hr`, the progress's `pack`
+  and `general.tasksPath` / `briefPath`, `WELCOME_PACK_SKILLS`, `WELCOME_RESULT_SKILL`, `TEAM_TYPE_PACK`,
+  `HR_PACK_SKILLS`, `DEFAULT_SKILL_PACKS`, `OPTIONAL_SKILL_PACKS`, `REPORT_SKILLS`, `RECURRING_PACK_SKILLS`, the marketing
+  `PACK_FOLDERS` (the brand folder's names stay, as `BRAND_FOLDER`: the team's own brand folder groups/<team>/브랜드
+  holds what the intro deck, the card news and the promo video read), and the Team skills page's "마케팅 스킬 7개 넣기"
+  and "인사 서류 스킬 3개 넣기" lines.
+- **No auto-add, and nothing in its place.** `server/src/onboarding/default-skills.ts` (the seeder, 5 s after the
+  start and every 10 minutes) and its call in `setupWelcomeTeam` are gone; no "new skills, add them?" prompt. The
+  welcome steps still install the general pack once (now 3 skills); the empty Team skills page's one admin button
+  ("추천 스킬 4개 넣기") installs the general and work packs. Members keep their line. (Superseded by W6: the button
+  became the catalog fold "트리나가 준비한 스킬 · N개 더", and each skill goes in by name.)
+- **할 일 정리 gone:** the skill everything points at (`landingSkill`) is the shared skill only, else none: the invite
+  link lands on Home and the end screen offers 홈으로 alone. The general pack is recorded once any of its skills is
+  there (no one skill decides), so a missing 할 일 정리 never holds the team's start back or makes the page ask again.
+  The team link's starter (the lead's meeting notes and "내 할 일 정리해 줘" / "내가 알아야 할 것만 알려 줘") is removed
+  from the API, the server and the web app; its `team_links.starter` column stays unread (no migration). A PATCH that
+  still sends `starter` (a tab opened on an older app) is accepted and ignored for one release.
+- **Invite links that open the intro deck** (older versions' welcome steps made them, v0.4.0-beta.10 among them) are
+  pointed once, at the server's start, at the landing skill when someone joining can open it, else at no skill, so
+  people who join land on Home; recorded either way (`repointDeckLinks`), so no link stays on the deck for good. The
+  run has a mark of its own, `onboarding.deckLinksClearedAt`: earlier releases (beta.10 among them) also set the first
+  run's `onboarding.deckLinksRepointedAt` when a server started with no deck link, before its welcome steps made one,
+  and that mark must not stop this run. An owner's own deck link from such a release is cleared once too (accepted). The
+  welcome steps' own link, made when nothing was shared, never copies a ran-out link's skill.
+- **The goal never counts the intro deck.** Without a landing skill the card took the skill most people ran, which
+  right after the steps is the owner's own intro deck: its [다시 보내기] would have sent members to the 회사 소개서 form.
+  The deck's paths (`onboarding/goal.ts` deckPaths: the pack path and the one the steps recorded) are now left out of
+  the whole goal: the card's skill, the best skill, reaching the goal, the people who ran a skill and the owners'
+  first-run notices. With nothing else run there is no goal skill, and a team link that still opens the deck is no
+  stand-in on the card either.
+- **Rollback guard.** An older build's seeder adds every `<pack>/<name>` its settings row `onboarding.defaultSkills`
+  does not record. This build writes the 19 keys that seeder knew (general 5, marketing 7, work 7; a frozen list) as
+  `retired`, only where missing and never over an entry that is there, at every start and in `setupWelcomeTeam`: a
+  settings write, no files. So a dev server installing an older build, or a customer downgrading, adds nothing.
+- **Existing teams keep their files.** Nothing is deleted from a team folder; old welcome rows keep their `pack` and
+  `general.tasksPath` (no longer read), and new `general` records still write `tasksPath: null, briefPath: null` so an
+  older build reads them after a rollback; the audit screen still names old `onboarding.default_skills` rows; the
+  hosting status still counts a team with only `skills/marketing/` or `skills/hr/` as having a pack. No migration.
+- **Notice.** The English natural-writing skill's MIT notice (Siqi Chen) is in `NOTICE` and
+  `docs/THIRD-PARTY-NOTICES.md`, besides its `LICENSE` and the end of its SKILL.md.
+- Rejected: asking "새 스킬이 있어요, 넣을까요?" in place of the seeder (the owner: no prompt); deleting the files the
+  seeder put in existing teams (they are the team's own files now).
+- Version impact: **minor** (skills, a route and API fields removed; nothing a running team stored is lost).
 
 ## 메시지 상자의 멘션 — mentions stand out in a room's message box (feat/composer-mention-highlight, 2026-11-06)
 넣을 곳: trina-ax `web/src/components` (TokenTextarea.tsx, rooms/useMentionMenu.tsx) and `web/src/lib` (textTokens.ts,
@@ -11933,8 +12080,8 @@ writes", Admin › Groups), so no permission table was added.
   and admins outside the group do not manage them). They count in `managedSkillFolders` (the group root even before it
   exists on disk), `visibleSkillFolders` (where one may suggest) and `managersOf` (who is told of a suggestion), so
   **스킬로 제안** can target a group's skills and only its members review and approve it (`SkillSuggestion.targetGroup`;
-  `SkillFolderPath` takes `groups/<folder>/skills[/a[/b]]`). Admin's "팀 스킬 관리" switch stays team-only. Members'
-  own skill folders (MC) still go to `skills/` and the owner and admins.
+  `SkillFolderPath` takes `groups/<folder>/skills[/a[/b]]`). "팀 스킬 관리" (the Team skills page's "who can edit"
+  line and dialog) stays team-only. Members' own skill folders (MC) still go to `skills/` and the owner and admins.
 - **Skill issues.** A group skill that does not load shows to the group's members who may write it; a group root over
   the entry cap is a `too_many` for them.
 - **Usage and popular.** Group skills are recorded in `turn_skill_usage` (`recordSkillUse` takes `groups/<x>/skills/…`),
@@ -12083,7 +12230,7 @@ core next to the theme.
 
 - **One control, next to the theme.** Settings › Profile › 글자 크기: a native range slider from a small 가 to a large
   가 (the letter follows the language: A, あ), five steps 작게 · 기본 · 크게 · 더 크게 · 아주 크게, and one sample line in
-  the reading size of chats. No reset button: 기본 is a step. Not in the account menu's Appearance (one place, lean UI).
+  the reading size of chats. No reset button: 기본 is a step. Not in the account menu (one place, lean UI: Appearance left the menu on 2026-11-08).
 - **What it does: the root font size.** The step sets `font-size` on `<html>` (90%, none at 기본, 112.5%, 125%, 140%), a
   percentage so a larger default font in the browser still counts. Tailwind's sizes and spacing and the app's own tokens
   are rem, so text, rows, buttons and gaps grow together and nothing gets cut, unlike scaling only the text. The app's
@@ -12461,6 +12608,58 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
     "권한이 없어 열 수 없어요", and so does a tap (a toast: touch has no tooltip). Nothing of the file is loaded. An AI
     answer in a room uses the same. An attached file's download button is named by what it shows (name, size) and then
     "내려받기" (WCAG 2.5.3). The toast after sending says "{room}에 보냈어요 · 파일 {n}개 첨부".
+  - **Links follow the attachment; files open (feat/room-files-open, 2026-11-07, product owner).** The owner: "다운받는
+    것도 있으면 좋긴 한데, 그냥 열어주면 안되는거야? 그리고 필요하면 다운받고? 링크도 그냥 유지하면 안되니? 지금은 링크가
+    you don't have access라 떠서.. 어차피 첨부한거라면 말이지?"
+    - A link in the answer to a team file that went with the message opens the **team file** for a member who may open
+      it now (`openable`, as before), else the **attached copy** (no lock, the same link; its tip says "첨부된 파일을
+      열어요"), and shows the lock only when there is neither. Pictures the same way (a link to the copy; its thumbnail
+      is under the message).
+    - Which copy a link stands for is kept when the message is sent, in the message's existing `source_scope` JSON
+      (`attached: [{ file, path, links }]`: the room file, the team path it was copied from, and every link of the answer
+      part that resolved to that path, e.g. `a/./b.html` and `a/b.html`). No migration: the column is migration 264's,
+      and `rooms/history.ts` reads only `sources` and `unknown` from it. The client gets `RoomMessage.attachedLinks`
+      (`[{ path, fileId }]`) computed per viewer in `messagesOut`: only for a message they see (a withheld or deleted one
+      gets none), only links the answer part has (by `answerFilePaths`, the text the body already carries) and only
+      files of that message. The stored team path never leaves the server, so a link written another way than the path
+      tells nobody the path. An answer shared before this keeps its locks (no `attached`).
+    - Rejected: matching a copy to a link by its file name (two files of one name), and storing the mapping on
+      `room_files` (no JSON column there; it would need a migration for the same result).
+- **Room files open in the preview panel (feat/room-files-open, 2026-11-07).** Every file under a room message, uploads
+  and attached copies alike, opens on a click in the side panel (`FilePanel`, a full-screen sheet below 768 px) with
+  the source `{ source: 'room', roomId, fileId, name }`: the bytes come from `GET /api/rooms/:id/files/:fileId` (the
+  member check on every read; a page or script type inline as `text/plain` with the sandbox CSP and nosniff) bounded by
+  `previewLimit`, and are drawn by the viewers team files use. HTML and SVG run only in the sandbox frame
+  (`/sandbox/frame`, `sandbox="allow-scripts"`, opaque origin, its CSP) or the static frame, never srcdoc or a blob:
+  page of the app; a room file is in no team folder, so a page pulls in no team images, and a room Markdown file shows
+  a team picture it names as a link to open, never loaded (another person's file cannot put the viewer's own pictures
+  into its page; a file picked on this computer the same). HEIC and Hangul files (the server's team-file conversions)
+  and types without a viewer show the "이 형식은 미리 볼 수 없어요" notice with a download.
+  - **Inline types that can run.** Shown inline (the room route and team files' `disposition=inline`), every XML
+    document type is sent as `text/plain` too, not only HTML, SVG, XML and JavaScript: `+xml` types (RSS, Atom, RDF,
+    XSLT, MathML, SMIL, XUL), `text/mathml` and WML, where an XHTML script would run, and scripts under other names
+    (`application/ecmascript` for `.es`, JScript, LiveScript), which a page could load as its own script (security
+    review). The sandbox CSP stayed on every such response before as well. Left as it was: with `download=1` (and a team
+    file's `disposition=attachment`) a script type keeps its type.
+  - **More people reach the in-app viewers (accepted).** A click on a chip now sends a file from anyone in a DM or group
+    chat through pdf.js, docx-preview, the PowerPoint and sheet viewers and Markdown (mermaid, KaTeX, highlighting) in
+    the app's origin, where a team file reached them only from people who can write to a folder the viewer reads; in
+    the desktop app that origin has the preload bridge. These are the viewers team files and the AI chat already use
+    (Word altChunks off, links through `guardLinks`); a bug in one is fixed there for both.
+  - **The chip.** Its name and size open the panel; a small download icon at its end downloads (a tooltip "내려받기",
+    named "{name} 내려받기"; 44 px wide on phones so its tap area stays off the name). A file the panel cannot show (no
+    viewer, a server conversion, past the viewer's size limit; text is cut, so any size opens) stays one download
+    button, as before. Photos keep their thumbnails, which open the same panel. The panel's download is the room file's
+    `?download=1`; it has no "AI에게 묻기", "파일 화면에서 열기" or edit (not a team file). No other new button.
+  - **Download-only files stay downloads.** A room file whose bytes are on safe operations' download-only list is sent
+    only with `download=1`: no inline read, which is what the panel reads, and no thumbnail (a small picture was sent as
+    its own thumbnail before); 503 `quarantined`, and the panel says it can only be downloaded. A `download=1` going into
+    a page's picture, frame, player, object or script (Fetch Metadata's destination) is refused too, as a team file's
+    download; unlike that, a fetch (destination empty) is not: the phone app saves downloads through `fetch`
+    (`lib/mobile.ts downloadToApp`) and could save such a room file before; no app view reads a room file with
+    `download=1`. The check is the stored hash: a photo uploaded before its bytes were listed was stored with its
+    metadata cut out and does not match a later listing (team files listed by publication or inode cannot be attached:
+    `authorize` refuses them).
   - **Audited** as `room.answer_share`: the room as audit rows name it, the number of people (who cannot open a linked
     file that did not go, or see material it used), confirmed, cut and the number of files attached; no content, no names.
   - **Not done: "이미 보냄"** in the room picker. A room message does not record which answer it came from (migration 261
@@ -12474,6 +12673,9 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
   unable).
 - **Rejected:** posting as the AI (the room AI's share rule decides what the AI says in a room; this is the person
   quoting it), a link back to the chat (nobody else may open it), and naming the people who cannot open the files.
+- **Amended 2026-11-10 ("post_to_room" below):** the AI of the person's own chat may start the same send with its
+  `post_to_room` tool, behind one server card; the checks are the button's (`prepareShare` / `sendShare`, split out of
+  `shareAnswerToRoom`, whose behaviour is unchanged) and the audit row adds `via: 'ai'`.
 ## The installed web app's icon badge (feat/pwa-badge, 2026-11-07)
 
 The owner installed Trina AX as a web app (PWA) on a MacBook: a notification came, but the Dock icon showed no number.
@@ -12802,6 +13004,163 @@ in the room, it knows what was said in the threads.
   block and through room_thread, with the stored scope; the tool reading only this room and answering alike for what it
   cannot read; a thread question reading its own thread only; paging; tags neutralised; a planted instruction in a reply
   waiting for the asker's card; the instructions and the allowlists), `step-labels-tools`, `b-codex-rooms`.
+
+## One list of system packages (feat/one-package-list, 2026-11-07, product owner and infra engineer)
+
+Input: the hosted image (`scripts/image/*`) had srt, Chromium, CJK fonts, ffmpeg, python3 and build tools; a server made
+with `scripts/install-linux.sh` got the core packages only, the dev environment was a separate manual step, and an
+office Mac had no browser. One release behaved differently by install path (HTML to PDF needs a Chromium). The owner and
+the infra engineer agreed on one shared list, a CI check that fails when the scripts disagree, and pinned versions.
+
+- **One list.** `scripts/system/packages.json`: the supported systems (Debian 12, 13, Ubuntu 24.04; amd64, arm64), groups
+  of apt packages by purpose (core, documents, media: `always`; fonts, devenv, browser: `default`; image, srt, boxes:
+  `on-request`, only the script that names them), per-system names where releases differ (`on`: the t64 libraries of
+  Debian 13 and Ubuntu 24.04; Debian's chromium, a snap on Ubuntu), and the downloaded programs pinned exactly: a version,
+  and a url, sha256 and size for every platform (node, srt, chrome-headless-shell).
+- **One reader.** `scripts/system/packages.sh`, sourced by every install path and run by `mycel-ctl update`. It reads the
+  list with a bun the caller trusts (the kit's or the bundle's, from an empty folder with no environment) or with jq
+  (customize.sh installs jq when neither is there), into flat lines that awk reads. Bash 3.2, for the Mac.
+- **Self-hosted = hosted.** `install-linux.sh` installs the `always` and `default` groups, as the image does through the
+  same installer (`--image-mode`, no `--minimal`). `--minimal` installs the `always` groups only, which is what the
+  installer installed before; it is kept in `install.json` (`--no-minimal` turns it back). An `always` package that
+  cannot be installed or is below its floor stops the install, as before; a `default` one only warns (the server runs
+  without it; `repair` tries again).
+- **The dev environment: packages only.** Its tools (python3, git, build tools, Debian's chromium …) are installed by
+  default, because installing them changes no service, account or sandbox. Turning it on (polkit rule, slice, server
+  drop-in, node and srt in `/opt/trina`) stays `install-srt.sh`, an explicit choice; it reads its packages (groups core,
+  media, fonts, devenv) and the node and srt pins from the list.
+- **apt versions.** The distribution release is the pin: the installers accept only the list's systems, and apt installs
+  from that release's archive and its security updates. Each package may have a floor (`>=`) that is checked after the
+  install (the floors `scripts/linux/deps.txt` had; the file is gone). Exact versions are not pinned: Debian and Ubuntu
+  mirrors keep only the newest version of a package in a release, so an exact pin breaks the first install after a
+  security update and would hold that update back. For an image that must be rebuilt with the same versions,
+  `--apt-snapshot <time>` (`build.sh`, `build-ami.sh`, `customize.sh`) installs from snapshot.debian.org with apt's
+  `--snapshot` (apt 2.7+, Debian 13); not for self-hosted installs (slow, rate limited, and it freezes security fixes).
+- **The browser.** Chrome for Testing's `chrome-headless-shell` 157.0.8103.38 (Stable on 2026-11-07), with the sha256 of
+  the files as downloaded (Google publishes none): linux64, linux-arm64, mac-arm64, mac-x64. The plan named Debian's
+  `chromium-headless-shell` for Linux arm64 because Chrome for Testing had no such build; it has one now, so every
+  platform takes the same pinned program (Ubuntu 24.04 arm64 has no Debian package either). Linux:
+  `/opt/trina/chrome-headless-shell/<version>/<dir>`, root's, a `current` link, `MYCEL_HTML_PDF_BROWSER` in
+  `/etc/default/<id>` (the line is ours; every other line stays; uninstall removes it). Office Mac:
+  `<prefix>/browser/chrome-headless-shell/<version>`, the office account's, outside `app/` so an update downloads it only
+  for a new version; the supervisor sets `MYCEL_HTML_PDF_BROWSER` when it is there. Both are folders nobody else can
+  write (html-pdf.ts `trustedBrowser`). Its libraries are the browser group (from `ldd` on each system).
+- **Updates.** The list, its flat copy and its reader are root files of the bundle (`root/packages.json`,
+  `root/packages.flat`, `root/packages.sh`), so a changed list, a new browser version included, is a root change without
+  a rule of its own (publish-server.ts `rootManaged`, `rootSince`). After the root files and the app, `mycel-ctl update`
+  starts `packages.sh sync` and does not wait for it (below, "Out of the update command"), and the sync writes
+  `root/packages.synced` (the list's sha256, the system it ran on, and ok, incomplete or blocked). The flat copy lets root read the list with awk
+  alone: no bun, no jq.
+- **Catch-up after an older mycel-ctl (review, must-fix; second review S2).** A server whose update is done by an older
+  `mycel-ctl` gets the root files of a release with the list, including the new `mycel-ctl`, but that older binary never
+  syncs, and an app-only release never calls `mycel-ctl` at all. So the new binary checks `root/packages.synced` against
+  the list in `root/` on every run. A pending sync is not a reason for root to install a release: `rootJob` does not count
+  it (a release the app takes by itself stays the app's; two updaters switching versions garble `state.json`'s previous).
+  Instead, whenever the scheduled gate finds nothing for root to install now (no release, an app-only one, a staged
+  roll-out wait, a hold), it goes on with a sync-only run: nothing is downloaded, the sync reads the list's flat copy in
+  `root/`. The first update timer run of the new binary inside the update window does it; on a hosted VM, which has no
+  timer, the control plane's next `mycel-ctl update`. An incomplete sync is tried again by the timer after 6 hours. A
+  blocked one (an install from before the list or with `--skip-apt` may not run apt unattended; a full disk) waits: the
+  timer does not retry it, an administrator's own `mycel-ctl update` (or the control plane's) does, as does
+  `install-linux.sh repair`. A sync that ends without writing its record (stopped at the deadline, the script failing
+  early, a full disk) gets an incomplete record from `mycel-ctl`, so it is not run again at every check. `mycel-ctl status`
+  and Admin › System › Diagnostics ("System packages") show the state, with the record's time in the team's zone and who
+  does it next (the timer, an administrator when automatic updates are off, the hosting service). Other ways were weighed
+  and dropped: an `ExecStartPost=` in the update unit (the running job keeps its old definition), the firewall timer (wrong
+  layer), or a status call that changes the system.
+- **Out of the update command (PR #164 review, High 2).** The control plane gives `mycel-ctl update` 1800 s, and a timeout
+  is `app_rolled_back` and counts toward a roll-out halt; a sync inside the command (20 minutes, plus the 600 s turn wait)
+  could turn a healthy update into one. So on a server with systemd the update starts `mycel-ctl packages-sync` as the
+  transient unit `<id>-packages-sync.service` (`systemd-run --no-block --collect`, the proxy variables with `--setenv`,
+  `RuntimeMaxSec` as a safety net), adds a note, and returns. The unit name keeps one sync at a time (a running one stays;
+  the next check syncs a newer list); a unit that cannot start writes an "incomplete" record. The sync never takes the
+  update lock (an update meanwhile is not "busy", code 30) and runs a private copy of `root/packages.{sh,json,flat}`, so an
+  update that replaces `root/` meanwhile does not change a script bash is reading; the record names the list the copy had,
+  and the next check syncs the new one. It reads the flat copy: the update's bundle folder is gone by then. Without
+  systemd (a container) the sync stays inside the command, capped at 10 minutes.
+- **A record per system (PR #164 review, Medium 1).** `root/packages.synced` is on the data disk, which a reimage keeps.
+  The record has `os`: `<ID>-<VERSION_ID>/<machine-id>` (packages.sh `pk_os_identity`, mycel-ctl `osIdentity` and the
+  server's `osIdentity` read the same files the same way; `customize.sh` empties the machine-id, so each clone has a new
+  one). A record of another system, or one from before the field, is pending: every server syncs once after this change.
+  A hosted install (`"hosted": true` in install.json, not `skipApt: true`) may run apt unattended: the hosting service owns
+  the machine, and hosted VMs from before the list wrote no `skipApt`.
+- **Bounded, never in the way (review, must-fix; second review S1).** The sync has a 20-minute deadline (10 inside the
+  update command) in its own process group (`Setpgid`); at the deadline the group gets SIGTERM, which stops a download. apt does not run in
+  that group, nor in the update unit's cgroup: during a sync each `apt-get update` and `apt-get install` is a transient
+  systemd unit of its own (`systemd-run --wait --collect`, output appended to `/var/log/trina-packages-apt.log`). systemd
+  stops a unit's whole cgroup when it ends or hits `TimeoutStartSec`, so a `setsid` child (the first version) would have
+  been killed with the update job; a transient unit is not, and no pipe a dying caller could close carries its output.
+  Checked in a systemd container: killing the `systemd-run` client and stopping the service that started it both leave
+  the apt unit running, and the exit code comes back. Elsewhere (an administrator's installer, a chroot image build, where
+  `systemd-run` would reach the host's systemd) apt runs directly. apt waits up to 5 minutes for dpkg's lock
+  (`DPkg::Lock::Timeout=300`) and runs only after a free-space check (apt's own estimate plus 256 MB; too little is
+  "blocked": an administrator frees space). Downloads are bounded in packages.sh (20 s to connect, give up below 10 KB/s for
+  60 s, all tries within 8 minutes, and a watchdog that stops curl whatever it does). The proxy variables of the run are
+  passed through. The browser's libraries go in a transaction of their own, before the other groups. Only a bundle that
+  `VerifyDir` accepted lends its bun to root; otherwise the flat copy is read.
+- **The browser switch (review, must-fix; second review N1, S5).** A new version is downloaded into `.new.*`, checked, and
+  started once (`--version`) before it gets its version folder's name; `current` moves only to a version that starts (one
+  rename of a temporary link), and a version that does not start is kept as `.untested-<version>` and tested again next
+  time without a new download. The version a switch replaced is recorded in `.previous` and kept until the next switch,
+  whichever install id syncs in between, as a print may still use it. A version newer than the list's (another install's
+  newer kit, a repair from an older one) stays current and is never deleted. When nothing starts, `current` and the env
+  line go. One `flock` serializes every install on the machine; the folder and its parent are 755 whatever the umask;
+  `/etc/default/<id>` is written next to itself and renamed. The env line is written by the sync, after the app restarted,
+  so `findPdfBrowser` (server/src/files/html-pdf.ts) also looks at `/opt/trina/chrome-headless-shell/current/
+  chrome-headless-shell` when `MYCEL_HTML_PDF_BROWSER` is not set, through the same `trustedBrowser` check.
+- **Browser pin: staleness and roll-back (PR #164 review, High 1).** The pinned `chrome-headless-shell` prints untrusted
+  HTML with `--no-sandbox` and gets no security updates of its own, so the pin must follow Chrome for Testing Stable.
+  Owner of the bumps: the trina-ax maintainers. A bump changes `version` and, for every platform, `url`, `sha256` (of the
+  file as downloaded) and `size`; it is a root change like any change of the list. CI checks the pin in the main job
+  (`bun scripts/system/browser-staleness.ts`, step "Pinned browser against Chrome for Testing Stable", 2 minutes at most,
+  against `last-known-good-versions.json`). Policy: the pin at Stable is ok; behind Stable in the same major (a new build,
+  often security fixes) is a warning, and the maintainers bump it within 7 days; one major behind, or newer than Stable (a
+  Beta), is a warning; two or more majors behind (about four weeks or more without Stable's fixes) fails CI. A network
+  error only warns: CI never goes red because Chrome for Testing cannot be reached. `release.yml` publishes only when
+  `ci.yml` passes, so a release (a hotfix too) needs a pin at most one major behind Stable: the bump is a list edit in the
+  same release. A bad pin is rolled back with
+  `"revoked": ["<version>", …]` on the artifact: the list pins the good version again and names the bad one. Normally a
+  version newer than the pin stays (another install's newer kit); a revoked version does not: the sync switches back to
+  the pin and removes the revoked folder, never keeps it as the previous version, and, when the pin is not ready,
+  removes `current` (HTML to PDF off rather than a revoked browser). The list check refuses a `revoked` that names the
+  pin. Two install ids on one machine with kits on both sides of a revocation would switch back and forth until both
+  are updated; hosted VMs have one id.
+- **Office updates (review, must-fix).** `office-install.sh` downloads and tests the browser while the server still runs
+  (at most 4 minutes during an automatic update, which stops the installer after 10 minutes and rolls back), and only
+  switches `current` after the server has stopped. A failure only warns: it can neither fail nor roll back an update.
+- **Docker (second review S4).** The Docker image is another install path: `docker/Dockerfile` installs the list's always
+  groups and an on-request `docker` group from the kit's own list (its `packages.sh` and flat copy), and the entrypoint runs
+  the installer with `--minimal --skip-apt`, as the image carried the always groups only before. HTML to PDF in Docker is
+  a build argument (PR #164 review, question 4): `--build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser"` adds the CJK fonts,
+  the browser group and the pinned browser in `/opt/trina/chrome-headless-shell`; the default image has none of them (a
+  smaller image, less to attack). The packages step runs in bash (`SHELL`): packages.sh is bash, and sh stopped the build.
+- **The CI check** (`tests/unit/system-packages.test.ts`, in `bun run test:unit`): the list is well formed; every
+  artifact has a version, url, sha256 and size for every platform it must have; bun and jq read the same lines as the
+  TS reader (jq is required in CI); packages.sh picks the same packages for every system and profile and refuses a name
+  that is not a package name; every shell script under `scripts/` and `docker/` and every Containerfile/Dockerfile is
+  scanned (comments out, continuation lines joined, options before the command, apt in a variable, dnf, yum, zypper, apk,
+  brew and pip too, and commands inside quotes unless the quotes are a message of echo, printf, die, warn or say), and none
+  names three packages on a line or installs a name, nor carries a sha256, a pinned download address or a version of its
+  own, except an allowlist with a reason, per command and not per file (PR #164 review, M5: a command is allowed by a
+  fragment it holds, the file's other commands are checked as usual, and a fragment no command holds any more fails as
+  stale; a test container that pins node must pin the list's); the image
+  installs the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has one
+  version in the list, the server and the lockfile; the list is a root file and in the office zip; the browser switch,
+  the stalled download, the env file, the record and apt as a transient unit behave. The Go side:
+  `native/cmd/mycel-ctl/syncsystem_test.go`.
+- **One list per image (PR #164 review, M3).** `build.sh` and `build-ami.sh` stage the kit's `app/<v>/root/packages.{json,sh}`
+  and stop when they are missing (a kit from before the list) or differ from the checkout's `scripts/system/`; a kitless
+  dry run takes the checkout's. `ami-chroot.sh` prints the image's free disk in the build log and warns below 5 GiB
+  (question 2).
+- **A Linux copy of the list in the Linux bundle (PR #164 review, question 7, owner).** `build-bundle.ts` writes
+  `root/packages.json` as `packages.ts linuxList`: the list without the darwin platforms and with a fixed `_about`. A
+  Mac-only change leaves `root/` byte for byte the same, so it is no root release (each root release restarts the
+  launcher and loads the firewall again on every server). `build.sh` and `build-ami.sh` compare the kit's copy with the
+  checkout's Linux copy (`bun scripts/system/packages.ts linux`); the office zip keeps the full list.
+- **The dev environment's packages stay in the default groups (PR #164 review, M4, owner).** Every server installs them,
+  because the dev environment is on by default ("Dev environment: one queue, on by default", Dion); M4's "on request" is not done.
+- Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The office Mac
+  shows no sync state in Diagnostics (it has no root/; the browser is there or not).
 
 ## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)
 넣을 곳: trina-ax `server/src/rooms/inbox.ts` (with `notifications/service.ts`, `notifications/text.ts`, migration 262),
@@ -13593,10 +13952,12 @@ enters a shared transcript; that check is new here, and turns never run on the c
   `project.share_chats`. 409 with `project_personal` (a personal project: one reader, never shared), `safe_ops`
   (turning it on while 1A is on) or `project_in_trash`. A chat is shared only when it is made (`chats.shared_at`,
   `POST /api/chats` in a project whose setting is on: `chat/shared.ts sharesNewChats`); a chat made before, a chat
-  moved in, a chat made while 1A is on and a scheduled run's chat stay one person's. Who sees a shared chat is not
+  moved in, a chat made while 1A is on and a scheduled run's chat stay one person's (the creator of the first two may
+  share it after a check: "An existing chat shared" below). Who sees a shared chat is not
   stored: the project's audience now (`canSeeProject`: who can read its folder, owner and admins included; while the
   folder is in the trash, owner and admins only). Losing access hides the chat, from its creator too; gaining it shows
-  the whole history (the card said "project people"). Owner decisions: turning the setting off keeps the chats already
+  the history (the card said "project people"), but for answers built on what the newcomer may not read (decided
+  since: "People who see a shared chat later" below). Owner decisions: turning the setting off keeps the chats already
   shared (D1); no "나만 보기" per chat (D2); attachments are team files only, a computer upload is refused with "공유
   채팅에는 팀 파일만 붙일 수 있어요…" (D3).
 - **Every chat id goes through `chatFor`** (`ChatStore.ownChat` stays only for the server's own flows on a person's
@@ -13649,8 +14010,9 @@ enters a shared transcript; that check is new here, and turns never run on the c
   anyone but the creator (for their own turns). Team-file references in messages are checked against each viewer's
   access whoever attached them (their name only); the widening card does not name a place of the chat's read scope the
   runner cannot see ("이 채팅에서 다른 사람이 연 곳").
-- **Around it.** Deleting a project deletes its shared chats for good (the dialog says how many; `Project.sharedChats`)
-  and keeps its private chats without project. A purged account's shared chats stay under its tombstone name. Export
+- **Around it.** Deleting a project keeps its private chats without project and moves its shared chats to their
+  creators' trash (replaced on 2026-11-08, "Shared project chats: the trash and live lists" below; until then they were
+  deleted for good and the dialog said how many). A purged account's shared chats stay under its tombstone name. Export
   holds only one's own shared chats one still sees. `markConfidentialTurn` refuses a shared chat. **Rollback guard:**
   this build marks every turn (`turns.shared_checked`); at start, a shared chat with an unmarked turn after `shared_at`
   (an older build ran it without the gate) stops being shared and turns queued there by others stop.
@@ -13666,11 +14028,51 @@ enters a shared transcript; that check is new here, and turns never run on the c
   tainted. (5) A display name loses brackets, parentheses and quotes in the transcript labels; step labels keep a path's
   spellings on disk too. (6) A team-file attachment by a creator who lost the project is refused. Left as a design
   point for the owner: an admin repoint (or a folder rule change) shows existing shared transcripts to the new readers;
-  the repoint dialog says how many chats and people, nothing asks again.
+  the repoint dialog says how many chats and people, nothing asks again (decided since: the rooms' rule, "People who
+  see a shared chat later" below).
 - **Not in phase 1.** Live answers for viewers, unseen markers per viewer, a chat file store for uploads, connections
   and Drive behind the gate, share-to-room for every viewer, a gate that checks searches after they run. Not added: a
-  toggle per chat, sharing existing chats, avatars, deleting single messages, a people picker, push or Inbox notices, a
-  "Shared" sidebar section, queued sends.
+  toggle per chat, sharing existing chats (added since: "An existing chat shared" below), avatars (added since: "Who
+  asked" below), deleting single messages, a people picker, push or Inbox notices, a "Shared" sidebar section, queued
+  sends.
+- **Who asked** (feat/shared-chat-authors, 2026-11-08, product owner: each message sent to the AI shows its sender's
+  picture and name; plan `docs/AGENTS/plan/20261108-0049-shared-chat-authors.md`). Every question of a shared chat, mine
+  too, has one quiet row above the bubble, on the right like it: the name (muted, one line, cut with an ellipsis; as it
+  is, so no "님" is added, and mine is my name, not "나", so a screenshot passed around still says who asked), then a
+  20 px picture at the bubble's edge (`Messages.tsx MessageAuthor`). It replaced the name line only other people's
+  questions had. No box or chip, no API change: the picture is the people directory's (`useAvatarOf`, as in rooms;
+  `GET /api/people` and the photo are `auth: 'user'`, so every role reads them), and the row asks for the directory
+  itself, since a chat page may show without the rooms list; the name is the directory's too (a rename shows at once).
+  Without a photo, or while the directory is not there or failed, the letter tile; my own photo also comes from
+  `/api/me`. The picture is decorative (empty alt, `aria-hidden`); the name is text, read once before the question. A
+  question with no author (only a message without an author id) shows an empty tile and "알 수 없는 사용자"
+  (`rooms.goneUser`), not nothing: in a chat where every question has a row, one without would read as the previous
+  person's or as mine. Chats of one person show no row. Left as they are: the letter tile's faint fill (the sidebar's
+  account row and rooms use the same tile) and a picture sized in px that does not follow the text-size setting (as in
+  rooms; at the largest size the name is still smaller than the picture). Tests:
+  `web/test/unit/shared-chat-authors.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`. Version impact: minor.
+- **The faces on the project page** (feat/project-chat-faces, 2026-11-08, product owner: "여기서도 Mina 프로필 사진 같은게
+  나오도록 하면 안되니? 아니면 누가 작업을 했는지를 프로필을 겹쳐서 보여주거나?"; plan
+  `docs/AGENTS/plan/20261108-0531-project-chat-faces.md`). A shared row of a project page's "채팅" shows, in place of the
+  creator's name, the faces of the people who wrote in the chat (sent a question there, its creator included), the most
+  recent first, overlapping (20 px, 4 px tucked under the one before), at most 3 and then
+  "+N"; on a phone at most 2, and the title truncates first. One person (or nobody yet: the creator): that face and the
+  name, `(M) Mina · 1분 전`. Photos from the people directory, the letter tile without one (`SharedChat.tsx ChatFaces`).
+  The faces are decorative; the row's link reads "Mina, Sam 참여" (one person: the name), and on a computer the shared
+  tooltip lists the names on the faces and while the row has keyboard focus (the tooltip's new `focusFrom`: the row's
+  link takes the focus, the faces take none). The faces' rings take the row's colour, the hover colour on a hovered
+  row. A private chat has no face (unchanged: the owner prefers lean rows, and my own face on every private row says
+  nothing). The people icon stays as the shared mark; removing it was put to the owner, not done. Data: `Chat.shared.people` (up to `CHAT_PEOPLE_SHOWN` = 3 `UserRef`) and `peopleCount`, only in
+  `GET /api/chats?projectId=` (not the trash) and only for the shared chats that list shows (its "I see the project
+  now" filter, `chatFor` 'view'): people the viewer sees in the chat anyway, also someone who lost the project since.
+  One grouped query for the page (`chat/shared.ts chatPeople`): users × the page's chats, each pair a seek on the
+  covering `messages_author_chat` index (migration 265), the order by the messages' rowid (the order they were written,
+  as the share check), names from `users` in the same pass; a test checks the plan and that one query runs. Its cost
+  grows with the team's accounts times the page's chats (the project page asks for 50), not with how long the chats
+  are. The tooltip
+  names those three and counts the rest ("Leo, Jun, Ari 외 2명"): the list sends three names, not everyone's. No
+  migration. Tests: `tests/unit/b-shared-chat-people.test.ts`, `web/test/unit/project-chat-faces.test.tsx`,
+  `web/test/e2e/shared-project-chats.spec.ts`. Version impact: minor.
 - **For the approved follow-up** (a room's @트리나 reads a shared chat only when every member of the room is in its
   project's audience; else the answer stays the asker's or a card asks): the check is one set-based function,
   `sharedChatAudienceCovers(db, files, chatId, userIds)` on `projectSeenByAll` (also behind `visibleSharedChat` and
@@ -13679,6 +14081,264 @@ enters a shared transcript; that check is new here, and turns never run on the c
 - Tests: `tests/unit/b-shared-chats.test.ts`, `tests/security/shared-project-chats.test.ts` (roles × routes × states),
   rows in `permission-matrix`, `p4-route-coverage` and `safe-ops-matrix`, `web/test/e2e/shared-project-chats.spec.ts`.
 - Version impact: **minor** (a new feature, optional API fields, an add-only migration).
+
+### An existing chat shared — 프로젝트 사람들과 공유 (feat/share-existing-chat, 2026-11-08, product owner)
+
+The owner: "공유 프로젝트로 옮겨도 그 채팅은 계속 나만 봐요 -> 왜? 그럼 이거 공개로 바꿀 수 없어?" Plan:
+`docs/AGENTS/plan/20261108-0137-share-existing-chat.md`. A chat made before the setting, or moved into a sharing project,
+stayed one person's because its earlier turns had no read card: their visible answers may carry content from places
+narrower than the project's audience (another group's folder, the person's own folder, personal connections, Drive, the
+in-app browser, rooms) and from personal memories. Other people's turns already start a fresh session fed only the
+visible transcript, so the visible messages are what gets disclosed: the same informed decision as "대화방에 보내기"
+(its provenance line), with its code.
+
+- **`POST /api/chats/:id/share` `{confirmKey?}`** (`chat/share-chat.ts`). The chat's creator only (`chatFor` 'view':
+  anyone else gets the 404 of a missing chat). 409 with a reason: `project_not_sharing` (no project, a project the
+  creator does not see, or its setting off: one reason, so it says nothing about a project they cannot see),
+  `project_personal`, `project_in_trash`, `safe_ops` (1A on, or a confidential chat), `already_shared` (also to the
+  others who see a shared chat), `scheduled_run` (`title_source` 'schedule', or a turn with a `schedule_id`), `chat_busy`
+  (a turn queued or running) and `share_hidden` (below). Every request takes one of the room-send tokens first, as
+  "대화방에 보내기" does (429): the check is no free probe of who may read what.
+- **The check, over every branch** (viewers switch branches). Every answer's `message_sources` (each with its sha256),
+  the session read scope when it describes every answer, and memories. The scope is emptied when a session starts on a
+  first message and every turn since adds to it on any branch, so it describes every answer when none was made before
+  the newest answer to a first message; otherwise "not all known" (an older chat, or the first message edited since):
+  "이 채팅이 참고한 자료를 다 알 수 없어요" and everyone else counts. The order is the order answers were written (rowid),
+  not the clock. An answer that ran dev environment commands (a `box_shell` step or a `devEnvRun`, also a sub-agent's)
+  is "not all known" too, also when a crash lost the step and only its `dev_env.command` audit line (with the turn id)
+  is left: a command reads whatever the person may read there and neither the source list nor the scope records it
+  (`useOf`, so "대화방에 보내기" counts it the same way now; the PC runner must too once it is merged). The
+  audience is the project's people now but the creator. Left out: what all of them read, and the hash rule (identical content a turn of this chat saved where all of
+  them read it now, still there). `rooms_seen` without a room in the scope counts everyone, and a member who would see a
+  room it read but for old answers hidden from them is never shown it: 409 `share_hidden`, confirmed or not (as
+  `answer_share_hidden`). **One copy:** `answer-share.ts provenanceChecker(ctx, userId, audience, savedBy).of(uses,
+  leftOut)` is the provenance part of `answerCheck`, now called by both (`BranchUse`, `useOf` and `confirmMac` exported);
+  `answerCheck` keeps its rows, attachments and `kept` sources on top. **Memories:** every turn of a person's own chat has
+  their memories in its instructions, so they were in play when a memory of theirs existed while an answer here was
+  written; a memory is deleted for good, so one deleted since the chat's first answer (`memory.delete`/`memory.clear`
+  audited, the AI's `forget` a step of their answers) counts too.
+- **The answer.** Nothing applies (nobody misses a source, nothing unknown, no memories): shared at once, unless the
+  request says `ask` (the title menu's item: an irreversible share from a menu asks first, with the sentence alone). The
+  memory note counts with nobody else in the project too (whoever gets access later sees the whole chat). Otherwise `confirm` with `audience` (the project's people but me), `provenance` (#163's
+  shape: how many, places named only where the creator may look now, `otherPlaces`, `unknown`), `memories` and an opaque
+  `confirmKey`: an HMAC with the process secret of "대화방에 보내기" over `kind: 'chat.share'`, the chat, the project, the
+  audience, each source with who misses it, the places, the memories and the id of every message on every branch. Sent
+  back while nothing changed, it shares; anything changed (someone joined or left, a rule, a new message on any branch,
+  a restart) is asked again with `reason: 'changed'`. A key that is sent must match also when nothing applies (a yes to
+  "share with 3 people?" is no yes once 30 would see it), and the audit's `confirmed` means a key matched. The check waits for file hashes, so the state it was made for
+  (the chat's project, its people, every message) is read again synchronously right before the update; a change during
+  the wait (the chat moved to another project, someone joined, a new message) is checked again, never shared as it is.
+- **Sharing.** The refusals are checked again synchronously right before the update, so no turn of the private chat
+  can start between the check and it (a private turn would run without the read card). Then, in one transaction:
+  `chats.shared_at = now`; the engine session forgotten (`engine_session_id`, `engine_session_leaf_id` and the stash: the
+  creator's private session keeps the memories of its instructions and tool results the transcript does not have, so
+  the creator's next turn starts from the visible transcript like anyone's; resuming it would carry them past the read
+  card); every earlier turn marked `shared_checked = 2` (`SHARED_LATER`: checked by the share). **Rollback guard:** `unshareUncheckedChats` has no time filter
+  (a clock set back must not hide a turn), so a turn from before migration 265 (column default 0) would unshare the
+  chat at the next start; those turns were just checked (the guard looks for 0). A turn an older build runs after the
+  share still unshares it.
+  Audited `chat.share` with `{audience, people, unknown, memories, confirmed}`: no names, no places, no content. Nothing
+  unshares it (D1); a shared chat never moves (`shared_chat_move`).
+- **The earlier steps.** Steps of a private turn were stored with their whole label (a path, an address, a query, a
+  remembered text) and no per-viewer copy (`sv`). An answer whose turn is marked `SHARED_LATER` (or has no turn row, in
+  a chat shared later) shows its steps in full to the person whose turn it was; everyone else gets the words alone
+  (`stepWords`: the tool's verb, else a word for its kind, "작업" for the rest) without detail, search results, pictures,
+  a dev environment run, or the tool's name unless it is one of ours (`knownStepTool`: a connection's tool is named
+  after the connection) (`MessageView.sharedLater`, `ChatStore.viewSteps`). The turn's mark, not the clock: a clock set
+  back must not show a private step. The answers' text, attachments (per viewer as before), file summaries and sources lists follow
+  #171's per-viewer rules.
+- **The app.** The move dialog (`ChatProject.tsx`, from the title menu and from a chat row's "…" menu) shows one switch
+  under the projects, off by default, when the chosen project shares new chats (`mayShareChat`: a chat of one person, not
+  confidential, a team project with the setting on, not in the trash, 1A off): "프로젝트 사람들과 공유", with
+  "공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요." under it. Saved with it on: the move, then the share
+  (`ShareChat.tsx ShareChatFlow`); the move's own toast only when the chat ends up not shared (on a phone it covered
+  the confirm's lines; shared, the one toast is the share's). The title menu (`ChatTitleMenu.tsx`) has "프로젝트 사람들과 공유…" for such a chat
+  already in that project. The confirm: title "이 채팅을 프로젝트 사람 {n}명과 공유할까요?", first that sentence, then #163's
+  provenance line style ("이 채팅에는 프로젝트 사람 {m}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}", or the unknown
+  line), "개인 메모리를 참고한 답이 있을 수 있어요" when it applies, "그 사이 바뀐 것이 있어요. 다시 확인해 주세요" when asked
+  again; [취소] [공유하기], 공유하기 focused. Cancel keeps the chat moved and private. Shared: "프로젝트 사람들과 공유했어요",
+  and #171's header mark and line under the box. Five languages. `placeName` is shared with `ShareToRoom.tsx`. A chat
+  row's "…" (`Sidebar.tsx`, #182) now keeps its move dialog in the sidebar, not in the row: the moved chat's row goes to
+  another group (a date, a project; phones always group by date) and is made again, which closed the dialog before the
+  share could ask.
+- **Independent security review (2026-11-08).** Fixed: dev environment commands were not counted, so a chat that
+  `cat` a finance file through `box_shell` was shared at once (must-fix: "not all known", above, for both features);
+  the title menu's item shared on one click (now `ask`); "before the share" and the scope's order went by the clock (now
+  the turns' mark and rowid); earlier steps kept a connection's tool name; the memory note was skipped with nobody else
+  in the project; a move during the check could share into a project nobody checked (fixed during the review). Round 2
+  (on the fixes): a stale or made-up key shared when nothing applied (should-fix: any key sent must match); notes taken:
+  the command check also reads the `dev_env.command` audit line, an answer without a turn row counts as before the share.
+  An older build after a rollback shows the earlier steps in full (inherent to rolling back). Kept,
+  written down: names the AI saw only through list or glob, and the folder, skill and connection lists of a private
+  chat's instructions, are not recorded (the known limit of "대화방에 보내기", here for a whole chat); in a project of two
+  the count says whether the other can read a place (as a two-person room does for "대화방에 보내기"; both behind the
+  send budget); a disabled account is not in the audience and sees the chat if enabled again (as for every shared chat).
+- **Not here.** Unsharing; sharing from the project page; a list of what was read (the line names places, as #163's).
+- Tests: `tests/unit/b-share-existing-chat.test.ts`, `tests/security/shared-project-chats.test.ts` ("an existing private
+  chat shared later"), a `permission-matrix` row (`p4-route-coverage` covers the route), `b-answer-share` unchanged,
+  `web/test/e2e/share-existing-chat.spec.ts`.
+- Version impact: **minor** (a new endpoint and an audit action; no migration).
+
+### People who see a shared chat later — 나중에 보는 사람 (fix/shared-chat-audience, 2026-11-08, product owner)
+
+A design audit of dev: the audience of a shared chat is whoever can read its project folder now, so people who gain
+access later saw the whole transcript, also what the read card confirmed only for the people there then (Mina confirms
+`groups/finance/` for five people; twenty join a group that reads the project and see it). The owner decided: the same
+rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/plan/20261108-0940-shared-chat-audience.md`.
+
+- **The rule** (`chat/shared-answers.ts`). An answer stays visible to the person whose turn it was, to the people who
+  saw the chat when it read what it used, and to anyone who may read every one of those places now; for everyone else
+  it is one faint line in its place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요", `rooms.withheldAnswer`).
+  The walk goes down each branch, so an answer built on one hidden from a viewer is hidden from them too, unless that
+  one was not in its context (its runner did not see it either). People's messages always show (as in rooms).
+- **What is kept** (migration 273 `shared_answer_reads`, add-only). Per answer: groups `{c, s, x?}` (the people who saw
+  the chat, the places read then; `x`: not all known, so only `c`) and `left_out` (the answers above it its runner did
+  not see). The read gate records every call's sources when it lets the call go on (`confirmSharedRead`: with the
+  card's audience on a yes, with everyone then when nobody missed a place; calls, "/name", attached team files,
+  sub-agents), and the turn the team rules and company profile its instructions hold, as a room does. A record that
+  cannot be written refuses the read, and the turn does not start without its `left_out` (fails closed). The record
+  exists from `createTurn` (in its transaction); an answer without one is hidden from everyone but its runner. A chat
+  shared later (`chat/share-chat.ts`) records every earlier answer for the share's audience and its creator, with the
+  places the check counted, not known when the check could not tell or memories were in play; answers from before
+  this build get, once at start, the people who see the chat then, not known (`recordOlderAnswers`; a project in the
+  trash: the readers of its folder).
+- **Everywhere the transcript reaches someone.** `Message.withheld` (optional, `true`): content '', no steps, files,
+  sources, artifacts, model or error; its branch switch stays; never on an answer of one's own question. The sources
+  list answers empty; an artifact version made by a hidden answer is not listed or opened, nor any later version of
+  the same key but one's own (a version may carry the one before it, on any branch: fails closed), an `update` by
+  someone it is hidden from finds no artifact and a new version takes nothing from it (its number goes on). Chat
+  search counts a word only in a title or a message the person sees, from one full-text search per request (the chat
+  id is not indexed). Export: the line
+  in place of a hidden answer (without the check, every answer of a shared chat). The engine of a later reader's turn
+  gets `WITHHELD_ANSWER` in place of each hidden answer (`labelledTranscript` / `sharedTranscriptText` take the hidden
+  set), and no "the previous answer paused" note for one; a resumed session is only the runner's own (as before), and
+  its answer's `left_out` keeps only what its earlier answer left out too. Notifications and live text were the
+  runner's already.
+- **A room's @트리나** (`chat/room-project-chats.ts`). `project_chat` reads the transcript as the asker sees it (a
+  hidden answer is one line). What the answers it was given read joins the question's read scope (`carry`), as a
+  file's folder does: `decide()` keeps the room answer private for a member who may not read it and names the folders
+  the asker may open, and `rooms/history.ts` judges a member who joins the room later by it. An answer whose reads are
+  not all known (or has no record) counts as something outside the team files (never to the room by itself, hidden
+  from later members), and so does a question whose answers someone here may not see when their places alone would
+  not keep it private (built on another hidden answer). `project_chats` counts a word only in a title, a project name,
+  a person's message, or an answer the asker and everyone in the room who sees the project see; the answers it
+  counted through are carried the same way. At most 200 chats are looked into through their answers per search (each
+  is worked out for every member).
+- **Group skills are their members' only, in shared chats too.** One helper for rooms and shared chats,
+  `chat/skills.ts everyoneMayUse` / `mayNotUse` (read it, and for `groups/<folder>/skills/…` be in that group; the
+  owner and admins read every group folder). The skill list, the skill tool's names and `find_skills` of a shared chat
+  go by it (`TurnExec.audienceReadable`), and loading a group's skill when someone who sees the chat is not in the group
+  asks on the card with its own words: "AI가 {곳}의 스킬을 쓰려고 해요. 이 채팅을 보는 프로젝트 사람 {n}명 중 {m}명은 이
+  스킬을 쓸 수 없어요. 쓰면 모두가 이 채팅에서 내용을 보게 돼요." (five languages; the tool and "/name").
+- **Decided here, the least visible change that never widens access.** A covered person whose own access narrowed
+  keeps the answer (rooms keep theirs too); the runner always keeps theirs. A read nobody had to confirm counts like a
+  confirmed one (its group is everyone then): a later reader who may not read the place gets the line. The
+  instructions' skill list is not recorded (rooms do not either). A room's answer built on a shared chat goes by what
+  its members may read, as for a file: someone the card covered who may not read the place keeps the chat's answer
+  but not a room's answer about it (the room's decision has places, not people).
+- **Rollback.** A build with migration 265 and without 273 shows every answer to everyone who sees the chat again while
+  it runs (as before this change; raising `min_compatible_reader` would refuse the database instead, which is worse);
+  when this build comes back, the answers that build made are recorded for the people who see the chat then.
+- **Independent security review (2026-11-08).** Fixed: an artifact version on another branch built on a hidden one
+  (an `update` of the same key) showed its title and text to a later reader (must-fix: later versions of a key are
+  hidden with it); a room's `project_chats` search counted words in answers hidden from someone in the room, so a find
+  or a "no match" told them about it (should-fix: only messages everyone there sees count); a search ran one full-text
+  query per shared chat (should-fix: one per request); every viewer's walk read and parsed the chat again (should-fix:
+  read once per request, `c` as a set); the migration's note on older builds was wrong for builds with 265 (fixed,
+  above). Kept, written down: a chat that stops being shared is its creator's own again (the rollback guard, a lost
+  project), and they see every answer in it (changed since: such a chat keeps these rules for its creator, "Shared
+  project chats: the trash and live lists" below); the skill names and folder lists of the instructions are not recorded (as
+  in rooms); the URL gate counts addresses a hidden answer's web search showed as seen (no content reaches anyone);
+  each answer's groups keep the audience's ids (a few KB for a big team). Round 2 (on the fixes): no must-fix; a
+  search walked every chat for every member with a fresh account and rule cache (should-fix: kept per person for the
+  request, a person's message counts without a walk, at most 200 chats through answers, the full-text search limited
+  to the candidate chats); a room answer's kept places were only the project, so a member who joins the room later
+  was judged without the answers it was built on (should-fix: their places always go with it). Kept: a search's "no
+  match" says nothing about answers a later room member may not see only for the members there when it ran.
+- **Not here.** A card when someone joins; the chat's title (no `set_title` in shared chats; a chat shared later keeps
+  its private title); a source type of its own for a project in rooms.
+- Tests: `tests/unit/b-shared-chat-audience.test.ts` (a confirmed read and an unconfirmed one, covered, reader, later
+  reader continuing, built on a hidden answer, search, sources, artifacts, export, older answers, a missing record,
+  group skills), `tests/unit/b-rooms-ai-shared-chats.test.ts` ("an answer hidden from someone who sees the chat"),
+  `b-share-existing-chat`, `web/test/unit/shared-chat-withheld.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`.
+- Version impact: **minor** (an optional API field, an add-only migration, a stricter rule for later readers).
+
+### Shared project chats: the trash and live lists — 프로젝트를 지우면 공유 채팅은 휴지통으로 (fix/shared-chat-trash-live, 2026-11-08, product owner)
+
+A design audit of dev found three problems. Plan: `docs/AGENTS/plan/20261108-1155-shared-chat-trash-live.md`.
+
+- **Deleting a project** (owner decision, replacing "deleted for good" above). Deleting one shared chat puts it in the
+  trash for the team's retention, but deleting its project purged every shared chat of it: the bigger action was the
+  one that could not be undone. Now each shared chat goes to its creator's trash, as a single delete does
+  (`routes/chats.ts deleteProject`), one already in the trash keeping its time there. It stops being shared and loses
+  its project (`shared_at`, `project_id` NULL, as the rollback guard unshares a chat): restored, it is its creator's
+  chat without project, which nobody else opens (404). Everyone else who saw it gets `chat.updated` 'purged' (its id
+  only), as before; the creator 'deleted' with their chat. Turns there stop first; a turn of someone else that ends
+  after the delete tells only the creator (`ChatRuntime.publishChat`: a chat of one person goes to its person, never to
+  another person's window), and a chat in the trash leaves the web's list whatever change says so.
+  - **What a restored chat shows** (the task: other people's turns not exposed wrongly). It keeps the rules of a chat
+    several people wrote in (`chat/shared.ts severalAuthors`: someone other than its creator sent a question there, not
+    a room's session), as the rollback guard's did for the AI (review fix 4 above: a labelled transcript, resuming only
+    one's own session, the folder emptied, the session tainted; `chat/turn.ts othersWrote`). New: the viewer's view too
+    (`messageView`): its creator sees other people's turns as they did while it was shared (no usage, failure reason or
+    step detail of theirs, paths and file summaries only where they may look) and an answer hidden from them ("People
+    who see a shared chat later") stays one line: on screen, in the sources list, in a search (a word only through a
+    message they see), out of their engine (`sharedWithheld`, no record written), in an export, in its artifacts.
+    "대화방에 보내기" takes their own turns' answers only, and "스킬로 제안" refuses the chat (someone else's words), as in
+    a shared chat; so do the server's own flows on a person's chat (`ChatStore.ownChat`: skill drafts, merges). The
+    wider-audience card names a place the chat read only when its creator may see it ("이 채팅에서 다른 사람이 연 곳"), an
+    attachment is judged as they see it, and the URL gate counts only addresses they typed (`url-gate.ts sharedChat`;
+    an address allowed on a card there is learned, within the link budget, since the record does not say who allowed
+    it).
+    Its marker and last outcome come from the creator's own answers. This applies to the rollback guard's chats too: an
+    answer of another person there with no record (an older build ran it) is hidden from the creator (fails closed;
+    rare: only after a rollback).
+  - **Who would not see it.** A chat whose creator would not see the project at that moment (they lost its folder, or
+    the account was deleted) is deleted for good as before (`accountSeesProject`; the audit's `sharedChatsPurged`
+    counts them): nobody could restore it, and giving it back would show its creator what was said after they lost it.
+    A disabled account counts as if enabled again (it would see its shared chats again then): its chats go to its
+    trash. A project whose folder is in the files trash (only admins see it then) is judged by the folder's own rules
+    as if it were back (`rulesInPlace`: the parked rules at its old path, as the files trash judges a restore), so an
+    admin who trashes the folder and then deletes the project does not purge its people's chats. A folder purged from
+    the files trash since has no rules of its own any more (the folder above may let in people it kept out): then only
+    the owner and admins count. The dialog does not say the rare purge.
+  - **The confirm** drops the red "공유 채팅 N개도 함께 지워져요." line (`projects.deleteShared` removed). With shared chats:
+    "프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요. 공유 채팅은 {days}일 동안 만든 사람의 "{trash}"에 있어요.", the
+    days the team's chat retention, `{trash}` the sidebar's name of the trash (`sidebar.trash`, "삭제한 기록"), so a
+    rename there follows. Without: the plain sentence as before.
+- **The editor's trash.** An editor of the project who deletes someone else's shared chat put it in the creator's trash
+  only (`user_id = me`), so they could not find what they had just deleted, though restore already let them. Now
+  `chats.deleted_by` (migration 274, add-only, a partial index) keeps who deleted a chat; set by every delete (and by a
+  project delete for the chats it moves), cleared on restore. The trash lists my own chats and the shared chats I
+  deleted, in one query (once each), and of shared chats only those I may restore now (`chatFor` 'manage': I see the
+  project and made the chat or may edit the project): one I deleted is gone from my trash once I lose the project or
+  the right to edit it, and once it is unshared (a deleted project's). An older build ignores the column.
+  The single delete's confirm said the chat goes to "삭제한 채팅", a screen that does not exist: it now names the trash
+  through `sidebar.trash` ('{days}일 동안 "{trash}"에 있다가 완전히 지워져요…', five languages), not a copy of its name.
+- **Live lists.** `afterAccessChange` (rules, groups, roles, accounts) sent nothing about chats: someone who lost the
+  project folder kept the shared chat in their list, and it opened to a 404. Now whoever saw a project with shared chats
+  (not in the trash) before the change and does not after gets `chat.updated` 'deleted' with no chat for each of them
+  (`chat/shared.ts sharedChatsHidden`: one read of the shared chats, each project judged under both states for the
+  people whose access changed or who are gone only; after the replay buffers are emptied; never throws). The chat's details never go to someone who cannot see it. The web's
+  chat list also reloads on the `access_changed` notice (a chat seen again comes back). The project page loaded its
+  chats once: it now applies `chat.updated` of its project (`store/live.ts chatChanged`, every event, also those the
+  chat list does not keep): a new, renamed, restored or moved-in chat shows, a deleted, moved-out or hidden one goes;
+  a row keeps the faces it had (they come with the list only). The mock follows (`/__test/revoke` sends the removals).
+- **Independent review (2026-11-08).** Must-fix: the wider-audience card of a restored chat named places other
+  people's turns read (fixed above). Should-fix, fixed: a project whose folder was in the trash purged its members'
+  chats; the URL gate took addresses others typed as the creator's; `ownChat` (skill drafts, merges) took the chat.
+  Nits fixed: the removal check runs for the people whose access changed only; a late notice of another person's turn
+  is not told to the creator; the marker and last outcome. Round 2 (on the fixes): no must-fix; a project whose folder
+  was purged from the trash judged its creators by the folder above (should-fix: owner and admins only). Kept: the confirms name the trash by the sidebar's label
+  (`sidebar.trash`, what one clicks to get there; the page's heading `trash.title` reads the same).
+- **Not here.** A project repoint or its folder moved to the trash also change who sees its chats, outside
+  `afterAccessChange`: no removal is sent then (the next list load drops them, as before). Unsharing by hand.
+- Tests: `tests/unit/b-shared-chat-trash.test.ts` (project delete: the trash, the events, restore, the per-viewer
+  view, hidden answers everywhere (with the card's words, artifacts and the URL gate), the creator who would not see it,
+  a disabled creator, a folder in the files trash, a turn that outlives the share; the trash: the deleter's, once, only while they may restore; access changes: the removal to who lost it,
+  nothing to the others), `tests/unit/b-shared-chats.test.ts`, `web/test/unit/project-list-menu.test.tsx`,
+  `web/test/e2e/shared-project-chats.spec.ts` ("live lists", "the trash"), `web/test/e2e/project-list-menu.spec.ts`.
+- Version impact: **minor** (an add-only migration, a changed project delete, a wider trash list).
 
 ## 대화방의 트리나가 공유 프로젝트 채팅을 읽는다 — a room's AI reads shared project chats (feat/room-reads-shared-chats, 2026-11-07, product owner)
 
@@ -13781,3 +14441,3645 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## ⌘K에서 대화방 메시지 찾기 — room, 1:1 and group chat messages in the search palette (feat/search-room-messages, 2026-11-08, product owner)
+넣을 곳: trina-ax `server/src/rooms` (search.ts, service.ts, store.ts), migration 267, `shared/src/api/rooms.ts`,
+`web/src/components/SearchDialog.tsx`, `web/src/store/rooms.ts`, `web/src/pages/Room.tsx`, 이유: rooms, their visibility
+rule and the search palette are core chat.
+
+From the team chat: "Chat search: search the messages in rooms and DMs", "search chat must be included on the search
+menu with cmd+k". The owner approved it on 2026-11-08.
+
+- **Where: the palette there is.** No new screen, no new tab, no filter chips. On the 전체 tab, after the chat records
+  (기록), a "대화방 메시지" section: the first 5 hits, then "메시지 더 보기", which shows more in place and asks for the
+  next page when those run out (the dialog stays, the keys stay with the box). Arrows, Enter, Esc, ← → as before. The
+  placeholder says it: "기록·대화 메시지, 파일, 프로젝트 등 검색", shorter than the one before, so it still fits a 390 px
+  phone; five languages. Rejected: a 대화 tab (one more chip in a row that already scrolls on a phone; the owner wants
+  lean screens), Slack's from:/in:/date filters (not asked for; the AI's own `rooms` tool has them).
+- **Who sees a hit: the rooms' one rule, not a copy.** A hit is a message the person would see by opening its room now.
+  Candidates come only from `reader.ts myRooms` (the rooms they are in now, not archived: what the rooms list holds,
+  hidden rooms included as its "숨긴 대화"), and who sees which is decided in the query itself: `store.ts
+  SEE_MEMBER_SQL` is `SEE_SQL` filled with the values of the member row of each message's room (from the same list of
+  parameters as `seeArgs`, `seeParts`; a test checks it against `canSee` for every member and message of the suite's
+  rooms), and `canSee` runs again on each row. So the page, its LIMIT and its cursor only count or name messages they
+  see. What the rule gives: where they see the room from (a later member of a group chat or a 1:1 from their join,
+  per member; a team room's and the everyone room's whole history once it is opened, `Rooms.syncFor` before each
+  search, as for the person's own AI chat), others' private previews never (their own, yes, as in the room), the old
+  answers hidden from them (#161) and everything in their threads never. Leaving or being taken out ends it at once (no
+  member row). Deleted messages and event lines have body '' and never match. The hit is built from `messagesOut`'s own
+  row (a `withheld` one is dropped), so the snippet is the message's own visible text: never a quote, a file name or a
+  hidden answer's words. A thread reply is found by whoever sees its thread; its hit names the thread and opens it.
+- **The text as one part**, as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
+  NFC. "견적" finds "견적서를"; "견적 보내" finds that phrase, not two words apart.
+- **Index: FTS5 trigram, migration 267**, as `messages_fts` (201) for the chat records. `room_messages_fts(body)`, its
+  rowid the message's rowid, kept by triggers: insert (body not ''), `UPDATE OF body` (an edit replaces it, a delete
+  empties it: the row goes) and delete (a room deleted with its messages); backfilled and `optimize`d in the migration
+  (without it the first new messages paid 2–4 ms of merge work each). 3+ characters: a phrase `MATCH` (the index);
+  1–2 characters ("견적"): the trigram `LIKE`, a scan of the index's text. Both read newest first by rowid and stop when a
+  page is full; `CROSS JOIN` keeps SQLite on the index first (a test reads the plan). Every candidate's own body is
+  matched again with `LIKE … ESCAPE`, so an index row out of step can never show a message without the text. Rowids of
+  `room_messages` survive VACUUM and VACUUM INTO (the backups; a test checks a backup copy and a VACUUM). Note: the chat
+  records' `LIKE … ESCAPE` is never handed to FTS5 (an ESCAPE is a 3-argument `like()`), so that search scans
+  `messages_fts`; here the phrase `MATCH` is used instead.
+- **Why not the bounded LIKE** (what the person's own AI chat's `rooms` tool does, `reader.ts searchRooms`: the newest
+  20,000 positions of each room, 100,000 in all). Measured on this Mac before choosing (150,000 messages in 20 rooms,
+  the person in 5, one of 50,000): a newest-first LIKE over the person's rooms took 85–345 ms per query (a rare word or
+  none walks everything); the FTS stream 0.1–1.7 ms, a 2-character word that matches nothing 17 ms over 100,000 rows.
+  The AI tool keeps its own scan (its filters by person and date are not this).
+- **Measured in the suite** (`b-rooms-search.test.ts`, a 50,000-message team room, the whole `searchRoomMessages`
+  call, median of 5, with visibility in the query): "견적" 10.1 ms, "네" 9.1, "견적서" 9.1, "budget" 10.7, "특별견적" (1 in
+  1,000) 9.5, a 6-character word that matches nothing 0.5, a 2-character word that matches nothing 15.1. Most of a page with hits is `messagesOut`'s
+  `threadSummaries`, whose grouped count takes the room's `(room_id, seq)` index over the whole room (about 5 ms on
+  50,000 messages; the same in every timeline page of such a room; left for its own change). Migration 267 backfills
+  about 2–3 s per 100,000 messages, once.
+- **Pages.** At most 30 a page (20 by default), newest first, the cursor below the page's last hit (a message they
+  see). The index is walked past matches they do not see until the page is full.
+- **API.** `GET /api/room-messages?q=&cursor=&limit=` (`searchRoomMessages`; `/api/rooms/search` would be taken by
+  `/api/rooms/:id`): `items` (id, roomId, threadRootId, authorKind, author, askedBy, markdown, snippet, createdAt),
+  `rooms` (each hit's room: kind, name, peers, memberCount, from `store.ts roomNaming`, which `roomOut` now uses too),
+  `nextCursor`. The snippet: room links as `#name`, one line, at most 200 characters, up to 60 before the match.
+- **Opening a hit: the room at that message.** `/rooms/:id?m=<message>`, a reply `/rooms/:id/t/:root?m=<reply>` (as the
+  Inbox). The room used to look 10 older pages back for `?m=` (500 messages); a search hit can be years back, so
+  `ListRoomMessagesQuery.around=<id>` now gives the page around a message the person can see (a reply that stays in its
+  thread: around its first message; anything else is not looked for: the newest page, as for an id that is not there)
+  and `newerCursor` while the page does not reach the newest. The timeline is then a window: newer pages load on
+  scrolling down; new messages are not added to it until it reaches the newest (no gap); nothing in it is marked read; a
+  "최근 메시지로" pill goes back to the newest, and so does sending. The Inbox's links use the same (one request). A thread
+  still looks 10 pages back for its reply.
+- **The row.** The sender's picture (32 px; the AI's face for its answer), name (14 px), the room (12 px: `#name` for a
+  team room and the everyone room, "1:1 대화" for a DM, with the other person when they did not write it, a group chat's
+  name), "· 스레드" for a reply, the time (12 px, as the rooms list) and one line of the text (14 px, an answer's Markdown
+  as plain text) from a little before the match, the match marked as elsewhere in the palette. On a phone the room name
+  gives way first.
+- **Not here.** Room file names and file contents, filters, results in the 기록 tab, highlighting more than the first
+  match, searching the AI's steps. Known limits: a word that spans a room link (`#[name](room:…)`) or Markdown marks in
+  the middle ("견적**서**") is not found as typed; the order is the order the messages were written (an AI answer posted
+  from a preview later sorts by when the preview was made). The time a search takes grows with the matches the index
+  walks past, those in rooms the person is not in too: a word written thousands of times only in other rooms takes
+  tens of milliseconds more, and a 1–2 character word scans the index's text (as the chat records' search does); the
+  same for matches in their own rooms they do not see (from before they joined, others' previews). A request has no
+  upper bound: at worst one pass over every match in the index (a row budget whose cursor went on from the last row
+  looked at would bring the cursor leak below back). Over a network that tells little (one match or none is
+  microseconds); scoping the index walk to the person's rooms (a room column FTS5 can filter on) is left for its own
+  change.
+- **Independent review (security, 2026-11-08) fixes.** The first version filtered with `canSee` after the query and
+  looked at 2,000 candidates a request at most; a page that ran out answered with a cursor at the last candidate looked
+  at, often a message the person does not see: an empty page with a cursor told that unseen messages held the word, the
+  cursor gave its position, and a cursor made by hand one above and at an unseen message told whether it held a word
+  (reproduced on a group chat joined late). Now visibility is decided in the query (above) and the cursor is always
+  the page's last hit; a test makes cursors at, above and below an unseen message. A NUL in the text ended the index's
+  query (500): refused by the contract (400) and dropped by the function. `around` with `limit=1` gave no
+  `newerCursor`: fixed. Deleted and edited text stays in the index's pages, so in the database file and its backups,
+  until its segment is merged (found by the review; the chat records' `messages_fts` is the same): FTS5
+  `secure-delete` would take it out at once, but SQLite before 3.42 refuses the option, so 267 would stop a server on
+  macOS 13 (whose own SQLite 3.39 bun uses there) from starting, and an index that used it cannot be read by such a
+  SQLite again (a database moved there would refuse every room message). Left as a known limit; the round-2 review
+  found this. Not leaking, per the review: `around` for an id they cannot see (the same newest page as for
+  none), which rooms, hidden answers and their threads, private previews, the rowid join (a stale index row cannot
+  show another message's text), the FTS query quoting (operators, wildcards, odd Unicode), the web.
+- **Tests.** `tests/unit/b-rooms-search.test.ts` (a non-member, an owner and an admin get nothing; after leaving a group
+  chat and after being taken out of a team room, nothing; a later member of a group chat finds nothing from before their
+  join nor a later reply in an older thread; a later member of a team room finds the history; a hidden answer never
+  matches, nor its thread, and its words are in no response, a quote of it is found by its own words; a DM only by its
+  two people; a private preview only by its person; archived rooms; thread replies; edited and deleted text gone, from
+  the index too; Korean parts, case, `%` and `_`, NUL; the snippet; pages; no cursor at an unseen message, also made by
+  hand; `SEE_MEMBER_SQL` against `canSee`; 50,000 messages and the plan; a backup copy and VACUUM; the migration's
+  backfill; `around`, also with a page of one), `web/test/unit/search-room-messages.test.tsx`,
+  `web/test/e2e/search-room-messages.spec.ts` (⌘K → a word → Enter opens an old message in its room with the pill; a
+  thread hit opens the thread; nothing found; axe light and dark; the phone; `SHOTS_DIR` for 1440 and 390, light and
+  dark).
+- Version impact: **minor** (a new result type in search, one endpoint, an optional query field and response field,
+  one additive migration).
+
+## 대화방에서 새 파일은 미리 허용 — "이 방에서는 항상 허용" (feat/room-ai-allowances, 2026-11-08, product owner)
+
+Amends "Every change waits for the asker" ("대화방의 트리나"). The owner (2026-11-08): in a room every change @트리나 makes
+raises the server card, so a daily job such as "@트리나 /견적서 만들어줘" stops one to three times on every answer, and one
+save could raise two cards (the room card, then the wider-audience card). The card remembered only the identical call
+(tool and JSON arguments) within one answer. The plan went through a UX review and a security review (the security
+re-check added the writers rule, the merged card's details and "made in this answer" from the file layer). One principle:
+**creating new team files can be allowed in advance; anything that cannot be undone or reaches more people still asks
+every time.** Team files keep their versions and a trash bin.
+
+- **The room card's choices.** [이번만 허용] [이 방에서는 항상 허용] [허용 안 함], with one line under them: "내가 부를 때, 이
+  폴더에 새 파일을 만들 때만 적용돼요." (`AskUserRequest.buttons`, `note`; the web shows the three in one row, stacked full
+  width on a phone; the address card and the schedule card keep their radios). The second is offered only when the call
+  can be covered (`TurnExec.roomGrantTarget`, all of these):
+  - the session is a room's (not the person's own chat after a room read, not a scheduled run, not a confidential chat);
+  - the tool is write, make_file or edit_hwp making a new file, or edit, write or edit_hwp of a file this same answer
+    made. Never edit_files, moves, copies, renames, save_url, save_room_file or any other tool;
+  - the path as the file layer resolves it for the person (`authorize(…, 'write')`: letter case, NFC/NFD, ".." and
+    links refused there), in a folder that is there, below the top folders: never the team root, a top folder, a group's
+    or a person's own folder (`groups/<g>`, `users/<id>`), a plugin's folder, a skills folder (`inSkills`), a hidden
+    folder, or an instruction-like file (`instructionLike`);
+  - **every member of the room may write it** (the same `authorize` for each member, security re-check): a grant adds
+    nothing anyone in the room could not do. A read-only member or a guest who cannot write there means two buttons
+    and no grant; otherwise any member's message could steer the AI into making files that member could not make
+    (a planted "단가표_v2.md" a skill later reads);
+  - the team's switch is on;
+  - the question used nothing from outside the team files (`chats.room_outside`: a web page or a search, review of
+    PR #198): such a page's author is no member, and a planted link could steer new files into a granted folder. Then
+    no grant and no [이번만] cover apply, and the card is the two-button one, as before.
+- **"Made in this answer"** comes from the file layer's create events of this turn (`file_events` `create`, not a move
+  into place), and nobody else (a person, another answer) changed the file since. Not `filesWritten`, which also holds
+  updated files: one allowed edit of an existing file must not let a later edit of it through.
+- **[이번만 허용]** covers the rest of this answer for that folder and its subfolders, for the same kind of calls only (new
+  files, files made in this answer), and only when the card offered "always" (every check above passed: the switch on,
+  the folder there, every member writing, nothing from outside). On any other card it is that call only (review of
+  PR #198: with the switch off one yes let later files through with no card and no audit row). Each call it lets
+  through is audited like a grant's use (`room.ai_grant_use` with `once`, no grant), its step line ends "이번만 허용으로
+  진행", and its file is named under the answer. Anything else keeps the exact-call memory, and an edit of a file that
+  was there before the answer always gets its own card.
+- **make_file** is checked where it saves: its output with the format's extension (`tools/make-file.ts`); an output
+  that ends in "/" gets the card.
+- **Checked again right before the write** (`TurnExec.recheckRoomCover`, from `chat/tools.ts` after the wider-audience
+  card): a call a grant or [이번만] let through still needs every member writing the target and nothing from outside;
+  otherwise the room card is asked then, without any cover. make_file's own wider-audience card for the pictures or the
+  template it embeds (`tools/make-file.ts confirmSources`, known only after parsing) can wait after that check, so the
+  same check runs again after that card (`chat/tools.ts toolContext`, before anything is placed).
+- **Subfolders.** Coverage stops at the first subfolder with folder rules of its own, and the target's own folder must
+  have the same readers and writers as the granted folder (`folderAudience`: the active people with access there and
+  theirs, hashed like `tools/file-moves.ts` compares audiences; people with no access are left out, so a new account
+  that cannot open the folder changes nothing).
+- **The grant** (migration 266, `room_ai_grants`): asker × room × folder (and subfolders) × new files, 30 days
+  (`ROOM_GRANT_DAYS`). With a good grant `confirmRoomChange` asks nothing; the step line ends "항상 허용으로 진행" and the
+  room's answer ends with "미리 허용한 폴더에 저장한 파일: …" (links; each viewer gets a chip only for a file they may open),
+  so the room sees what was saved. Checked again **when it is used** (`rooms/ai-grants.ts grantFor`): 30 days not passed;
+  the person still in the room and the room not archived; nobody joined at or after its card was raised
+  (`members_since`: a writer who joins while the card is open counts); the folder's readers and writers the same; the
+  person may still write the folder; the same folder on disk (`folder_id`, its device and inode: a folder renamed away
+  and another made with its name is not it); then for the target the subfolder rule, its folder's audience and every
+  member writing it. A lapse deletes the grant (audited, a later change back does not revive it);
+  the team's switch off only ignores grants (kept). Leaving a room deletes the person's grants there
+  (`Rooms.forgetMember`). Making another grant for the same folder renews it.
+- **Audit.** `room.ai_grant` (made), `room.ai_grant_revoke` (reason: person, left, expired, member_joined, audience,
+  no_write, folder_changed) and `room.ai_grant_use` (the file, the tool, the turn; `once` for [이번만]). A DM or a group chat is named by its kind only
+  (`roomAuditRef`), a team room or the everyone room by its id, as the other room audits do.
+- **One card per call.** For write, edit, make_file and edit_hwp the wider-audience need is computed before the room
+  card is raised (`TurnExec.widenNeed`; `chat/tools.ts widenOf` passes where the call saves and what it copies). When the
+  call needs both, only the wider-audience card is shown, with the room card's details (what it writes; an instruction
+  file's whole text) and no "항상"; its yes is the room yes of that call, its no refuses it. In the person's own chat after
+  a room read the same, with the rooms-seen line in front. make_file's later card (pictures, a template known only after
+  parsing) is never the room's yes. The checks keep their order (room, skill-write card, wider audience); only the asking
+  is merged. A granted folder still gets the wider-audience card when the answer read something fewer people can see.
+- **Unchanged.** The skill-write card (`confirmSkillWrite`, exact bytes), the caller's permission check (`authorize`),
+  the room-share decision (`RoomAi.decide`), edit_files' one card per batch, and every other tool's card.
+- **Words.** Every server card is titled "확인해 주세요" (was "팀 서버의 안전 확인"). The room card says what the AI will do
+  and that changed files can be restored ("트리나가 영업/견적서에 새 파일을 저장하려고 해요: 견적서_A사.hwpx. 바뀐 파일은
+  기록에서 되돌릴 수 있어요."); "대화방에는 다른 사람의 메시지도 있어요" is gone (it read as distrust of teammates). Buttons:
+  이번만 허용 / 이 방에서는 항상 허용 / 허용 안 함 (also the own chat's card: 이번만 허용 / 허용 안 함). Five languages.
+- **Settings › 트리나에게 허용한 것** (account group; "AI에게 허용한 것" where the product is not named after its AI):
+  one row per grant, "디자인 리뷰 → 영업/견적서" over "새 파일 저장 · 11월 8일", with [지우기] (no confirm: deleting only means
+  being asked again); a room as the person sees it (a 1:1 as "소라님 · 1:1"); an empty list is one line. `GET` and
+  `DELETE /api/ai-allowances[/:id]` (`shared/src/api/ai-allowances.ts`): one's own only, another person's id answers 404
+  like one that is not there. A union by `kind` so the sites allowed for a conversation can join it later (PR 2).
+- **Admin › Team settings › AI: "대화방에서 '항상 허용' 쓰기"** (`TeamSettings.roomAlwaysAllow`, on by default), one line of
+  help. Off: no third button, grants ignored at use (kept).
+- **A team room's words and the owner and admins** (design change after the review of PR #198). A room question whose
+  context holds earlier messages adds the room to the read scope (its members are its readers), so a save from a team
+  room to the group's own folder raised the wider-audience card on every answer: the owner and admins read every group
+  folder and are seldom in its room. They may add themselves to any group (`PATCH /api/admin/groups/:id`), which puts them
+  in its team room, and a team room shows its history to a later member except the old answers built on what they cannot
+  read (rooms/history.ts). So `TurnExec.widenNeed` drops a narrower source that is a team room when every person who
+  could read the target and not the room (`missingReaders`) is an active owner or admin who would see the room from the
+  context's first message if they joined now (`wouldSeeFrom`, the history walk, at most `WOULD_SEE_MS` = 100 ms per
+  owner or admin and save; out of time is no, so the card shows). An answer built on a DM there, or a member who is not
+  an owner or admin who can read the folder, keeps the card. The rule sits in `widenNeed`, so it applies to every save
+  that asks the wider-audience question there: from a room session, from the person's own chat after a room read,
+  save_url, save_room_file, and make_file's sources (its source, pictures and template). DMs, group chats and the everyone room
+  are unchanged, and so is who reads a room (`viewersOf`, `roomViewers`). The owner and admins get no join line and no
+  audit row for this read: acceptable, as they already read every group folder without one.
+- **Known limit.** Outside that case (a folder people outside the room read who are not owners or admins, a DM or a
+  group chat), saving where people outside the room can read still raises the wider-audience card on every such
+  answer, a grant or not: one card instead of two.
+- Tests: `tests/unit/b-room-ai-grants.test.ts` (the card's words and buttons; a grant and the next file without a card,
+  the step line and the answer's file list; an existing file; one allowed edit not letting a second through; [이번만] for
+  a second new file and a made file but not an existing one; NFC/NFD and letter case; a ruled subfolder; top, group,
+  personal, skills, instruction, plugin and hidden folders; edit_files and moves; the merged card and its no; a granted
+  save with the wider-audience card alone; each lapse, a writer who joins while the card is open, a new account and a
+  folder made again under the same name; a read-only member, apart from the join; the switch, and [이번만] on a card
+  without "always"; a web search in the question; make_file's real path; the check again at write time; a team room to
+  its group folder without the card, and with it for an answer built on a DM, a non-admin reader, a DM and a group
+  chat; the own chat and a scheduled run; DM, group and team audit rows; the list and delete endpoints), updated `b-rooms-ai` and
+  `b-chat-rooms` (the merged card), `web/test/unit/ask-card-confirm.test.tsx`, `web/test/e2e/room-ai-allow.spec.ts`
+  (the three buttons and their answers, a phone, "항상" and the next answer without a card, the merged card, the settings
+  list and delete, the admin switch).
+
+## W6 — Onboarding v6: skills catalog and 내 스킬 (feat/onb6-catalog, 2026-11-08, product owner)
+
+넣을 곳: trina-ax `server/src/onboarding/skill-packs.ts`, `server/src/routes/onboarding-packs.ts`,
+`server/src/skills/share.ts`, `shared/src/api`, `web/src/components` (onboarding/SkillsStep.tsx, AvailableSkills.tsx,
+skills/), 이유: onboarding v6.2 (FLOW-v6 §2, §2.2, §2.5, §4.1, §4.2, §6): nothing goes into a team without a press that
+names it, and the four kept skills (DS3) are chosen, not installed for the owner.
+
+- **The catalog** (`GET /api/onboarding/packs`, owners and admins; `skillPackCatalog`): every kept skill in `CATALOG`'s
+  order (회사 소개서, 카드뉴스, 홍보 영상, 자연스러운 글), with its title (the SKILL.md's, in the language of the text the
+  team gets), one line in the caller's language (`SUMMARY`, five languages; the SKILL.md description is written for the
+  AI), `inTeam` (its path, or another team skill of its name: `/<name>` would run either one, so `placeSkill` blocks
+  it), `visual` (made from the company profile), its example, its locale and its source; and `profile` (a company profile
+  is saved). A test holds `CATALOG` to `SKILL_PACKS`, so a skill shipped later is one more row: it only raises "N개 더",
+  with no notice, Inbox line, dot, toast or prompt.
+- **Install by name.** `POST /api/onboarding/packs/:id/install` takes `skills` (absent: the whole pack, as before). A name
+  not in the pack is refused before anything is written. An install holding a visual skill runs the hooks of
+  `onVisualSkillInstall` first; a hook that throws is logged and the skill still goes in. The route registers the brand
+  action there (welcome-result.ts `ensureBrand`: the website's pictures and 회사 소개.md in the brand folder, FLOW-v6
+  §1A), **on the team owner's own press only**. An admin's press leaves the brand not done: run under the admin's
+  account it would be marked done (`brandAt`) with whatever that account reaches, and nothing would fill it again. Left
+  open, the owner's next 회사 소개 save, the server's run on a read, or the owner's own install places it as the owner.
+  The simpler of the two ways (running it as the owner instead would write the owner's files on an admin's press and
+  name the owner in the audit for it). An owner's install
+  that put anything in marks 내 스킬 done while the steps are under way (not finished), like a share applied anywhere
+  (`recordShared`); an admin's does not. A skill the team deleted goes in again on a press that names it.
+- **Sources** (`PackSkillSource`): `team` "트리나 팀이 만들었어요" for the three visual skills; `team_writing` for the Korean
+  자연스러운 글 (the company's own Korean writing skill); `adapted` for the English one (Siqi Chen's MIT "humanizer",
+  rewritten), the only link out ("원본 보기 ↗" → github.com/blader/humanizer). Teams in id, ja and es get the English text,
+  so its source line and example.
+- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` (`onboarding/skill-examples.ts`, which the web tests'
+  mock imports too) by the language of the skill text and the skill name; all eight are in (each kept skill in Korean
+  and English), made by the skills themselves on a local dev server for the invented 예시커피 / Example Coffee
+  (`examples/data/example-coffee/`: its intro, a type-only wordmark, no photos, no web search), so the viewer says
+  "예시를 준비하고 있어요" only for a skill shipped without one. Each records the `skillHash` of the SKILL.md it was made
+  from (the first 12 hex digits of its sha256), and the catalog test fails when a SKILL.md changes until its example is
+  made again; `web/scripts/skill-examples.ts` makes the picture from the artifact. An image is
+  `web/public/skill-examples/<locale>/<name>.webp` (≤ 90 KB, `PACK_EXAMPLE_LIMITS`), loaded only when the viewer opens;
+  a text is `resources/skill-packs/<pack>/<locale>/<name>/EXAMPLE.md`, imported as text like the SKILL.md (front matter
+  `fictional: true`, `company`, `made`, `engine`, `skillHash`, then a before → after excerpt in Markdown, ≤ 900 / 1,200
+  characters), sent without its front matter and drawn in the page's own theme. EXAMPLE.md is never installed. A test
+  checks every registered example's file and size.
+- **The viewer** (`skills/SkillExampleViewer.tsx`): one dialog, the phone's sheet on phones, one example per open: no ‹ ›
+  to the next row and no "넣기" mirror (FLOW-v6 §2.4; the row has the checkbox, and the owner prefers lean screens).
+  "가상의 회사 '예시커피'로 만든 예시예요 …" only when an example is shown; an image that fails shows the line and "예시를
+  불러오지 못했어요". ✕, Esc and a tap outside close it, the focus back on that row's 예시.
+- **내 스킬** (`onboarding/SkillsStep.tsx`): the kept skills the team lacks, snapshotted when the step first gets them
+  (rows and checks never move under the pointer), then bring-your-own (`SkillShareReview` embedded: no primary of its
+  own), under ONE primary that names what goes in: every skill, kept and own alike, up to three items ("회사 소개서·카드뉴스·
+  홍보 영상 넣기", "카드뉴스·주간 업무 보고 넣기"; the team rule and the tools, which have no skill name, as "… 외 {n}개"),
+  "팀에 넣기 · {n}개" from four on. Pre-checks without AI: the visual three when a profile is saved,
+  never 자연스러운 글, none on a revisit of a done step. On press the own skills go in first (their apply records the step),
+  then the kept ones per pack; all in: a toast and 팀 파일. When anything of the press failed, either part, the step stays:
+  it marks what went in and says why for the rest (a name taken, folder rules, a request that failed, with 다시 for only
+  those; "내 스킬 {k}개는 넣었어요 · 준비한 스킬은 넣지 못했어요" when own skills went in and kept ones did not). An own
+  skill's error stays on screen until the press is sent again (its 다시 or the primary, which also sends the kept skills
+  that failed); the kept skills' 다시 never moves the step on while it stands. With nothing left to send the primary
+  reads 다음. 나중에 하기 installs
+  nothing and drops an open own list; on a phone too (`skillsLater` is no longer set; old rows still read it). The
+  Claude Code·Codex line is behind one disclosure. A phone: the same rows with their one line (how a person chooses), and
+  one line that own skills go in on a computer.
+- **A real 30-second end for the own-skill check** (walk review M2). While own skills are checked the primary is disabled
+  ("내 스킬 살펴보는 중…"). A share still checking 30 seconds after the page showed it is ended by
+  `POST /api/skill-shares/:id/stop-check` (the proposer only; anyone else 404): an answer already in is read first;
+  otherwise the judge's turn is stopped and the share is `ready` with `ai: failed` (nothing recommended), so it can be
+  applied, and a late answer changes nothing (`finish` writes once). Audited `skills.share_stop_check`. A failed request
+  shows the network error with 다시; 그만 찾기 still drops the list. The server's own 10-minute limit stays for proposals
+  nobody watches (Claude Code, Codex). The Team skills sheet uses the same 30 seconds; `/skills/share/:id` does not.
+- **Team skills** (`AvailableSkills.tsx`): the empty page's "추천 스킬 4개 넣기" (DS3) becomes the fold "트리나가 준비한 스킬 ·
+  N개 더" under the lists, owners and admins only, nothing pre-checked, [팀에 넣기 · n개]; the rows that went in move up
+  into the list (the catalog is read again on `skillsChanged`). Hidden while the search box has text, absent when nothing
+  is missing; a failed read says "준비한 스킬을 불러오지 못했어요" with 다시. Then "내 스킬 가져오기" for everyone on a
+  computer: owners and admins pick a folder and apply it (`skills/BringSkillsSheet.tsx`: the same picker as 내 스킬,
+  [팀에 넣기 · n개] with [닫기] beside it, not 나중에 하기); members get `ContributeSheet` (스킬로 제안). On a phone one plain line: "쓰던 스킬은
+  컴퓨터에서 넣어요". A member's empty page: "아직 팀 스킬이 없어요 · 팀장이나 관리자가 넣으면 여기에 보여요" and the
+  스킬로 제안 hint. Members see 회사 소개서 when the team put it in: an ordinary team skill (OPEN Q3).
+- **Left to the other v6 parts:** the brand action itself and `brandAt` (`ensureBrand`, registered here), the
+  general pack leaving `setupWelcomeTeam`, 준비 끝's first result, 팀 파일, 도구 연결, the handover, the member suggestion's
+  new trigger, the desktop folder window and the example files.
+- Tests: `tests/unit/b-skill-catalog.test.ts` (the catalog, install by name, the hook, the brand on the owner's press
+  only, the welcome record, stop-check),
+  the web unit tests of the step, the viewer and the fold, and `web/test/e2e/onb6-skills.spec.ts`.
+- Version impact: **minor** (two endpoints, an optional request body, new screens; no migration).
+
+## W6 — Onboarding v6: steps, 회사 소개 without a deck, 도구 연결, 준비 끝 (feat/onb6-core, 2026-11-08, product owner)
+
+Plan: `docs/AGENTS/plan/20261108-0508-onb6-core.md`. The owner's v6.2 decisions: nothing goes into a team without a press
+that names it, no automatic company intro deck, one tools step with Google Drive and one generic MCP line (no
+Higgsfield), lean screens with a way back from every exit. Other v6 parts (내 스킬's kept-skill rows and the Team skills
+catalog, 팀 파일's folder flow, the owner handover) are their own PRs.
+
+- **The steps.** AI 연결 (only while no AI answers the owner) → 회사 소개 → 내 스킬 → 팀 파일 → **도구 연결** → 팀원 초대
+  → 준비 끝. `tools` joins `WELCOME_STEPS` and `WELCOME_COUNTED`; the bar counts n/5 on every team (n/6 with the AI
+  step), because the generic MCP line works on every server. `WELCOME_COMPUTER_ONLY` = `tools`: a phone walks past it and
+  records it put off (`phoneSkips`; the sign-ins it starts do not come back to the phone app yet), ← 이전 skips it there,
+  and a phone's setup row neither names nor resumes it. A computer's setup row reaches it while the setup is unfinished.
+  `welcomeFinished` needs it answered; a row already finished stays finished (`finishedAt` is stored), and an unfinished
+  row from before reads it as open.
+- **회사 소개 saves the profile only.** Its 저장하고 계속 calls `POST /api/onboarding/welcome/brand` (owner): the team
+  group and brand folder when missing, the website's staged pictures into the brand images folder, and 회사 소개.md from
+  the profile and the pages read unless the owner gave intro files (an existing one is kept). No AI, no chat, no skill.
+  One line under the button says so ("저장하면 웹사이트 사진과 회사 소개 파일을 팀 브랜드 폴더에 넣어요"). Safe to repeat
+  (고치기 saves call it again). It records `brandAt`; a failure leaves the profile saved, the steps go on, and 내 스킬
+  says so once. `profileAnswered` = saved or put off. The server runs it once on a welcome read for an unfinished old
+  row whose profile was saved without a deck (`brandTriedAt`); `ensureBrand` is exported for the installs of 회사
+  소개서, 카드뉴스 and 홍보 영상. `POST …/welcome/first-result`, `startFirstResult`, `deckChatFor` and `introDeckSkill`
+  are gone; `deckStarted`, `settleDeck` and `resultChatId` stay readable for rows whose deck started (준비 끝 keeps their
+  line). The deck tier stays in Admin › Team settings for any 회사 소개서 run.
+- **The team's start installs nothing.** `setupWelcomeTeam` makes the team group and folders and writes
+  `general: { at, tasksPath: null, briefPath: null }` (no paths), so an older build after a rollback reads the pack as
+  handled and installs nothing; a team that has skills under `skills/general/` is recorded as it is. The readers no
+  longer take a missing `general` as "not set up": the web asks for the team's start only while the group or its brand
+  folder is missing; the deck readers (goal, team links, landing skill) fall back to the pack path.
+- **도구 연결.** One screen (`ToolsStep.tsx`): the Google Drive row where this server has Drive (`configured`: its own
+  client, or the hosting service's sign-in once it answered; while it has not, the row is hidden and the count stays),
+  and one quiet "다른 도구 연결하기 (MCP)" line that opens today's add-a-connection dialog for a team connection, its
+  sign-in right after the save. Once something is connected the primary "다음: 팀원 초대" replaces 나중에 하기. Drive's
+  [연결] names both effects while members may not connect their own: the owner's own sign-in, and the members' switch,
+  which turns on only with the confirmed account. Exits: 다른 계정 and 취소 change nothing ("연결하지 않았어요"), a refused
+  sign-in says a company account needs its Google admin, the hosting service down says so, a blocked popup shows the
+  link, a reload resumes the flow this tab started. After the setup the way back is Settings › 커넥터.
+- **Drive N1.** `prepare()` lets an active owner or admin start their own sign-in while the switch is off;
+  `complete(…, { membersOn: true })` (`CompleteDriveFlowBody`) then turns the switch on in the same transaction as the
+  connection, audited `drive.members_switch {via: own_connect}`. Without `membersOn`, or for a member, it is refused
+  (`members_off`) and nothing changes. Settings › 커넥터's Drive card gives an owner or admin one button, "팀원도 연결할 수
+  있게 켜고 내 드라이브 연결하기", instead of the dead end "관리자가 먼저 켜야 해요" (members still read that).
+- **준비 끝.** One primary: AI 연결하기 (no AI) → "'{skill}' 먼저 써 보기" (an own landing skill) → "'{skill}' 만들어
+  보기" for the first kept skill the team has, 카드뉴스 → 회사 소개서 → 홍보 영상 → 자연스러운 글 ("써 보기"), by path or
+  name (`firstResultSkill`) → 홈으로 alone. The press opens that skill's form on 팀 스킬 only (`/skills?run=`); its
+  defaults read the company intro and the brand folder; nothing runs until its own 실행, and closing it stays on 팀 스킬.
+  The goal card still leaves 회사 소개서 out (no change).
+- **Not here.** The kept-skill rows on 내 스킬 and the Team skills catalog (they should call `ensureBrand` before
+  installing 회사 소개서, 카드뉴스 or 홍보 영상), the 팀 파일 folder flow, the handover, a frozen `toolsPlan` (dropped by
+  the owner's update: the step is on every team, only the Drive row depends on the server).
+- Tests: `b-onboarding-cardnews` (the brand action, the read-time run, `ensureBrand`), `b-onboarding-v5-welcome` (the
+  finish rule, old rows, no first-result route), `b-onboarding-welcome`, `b-onboarding-team-space`, `c-default-skills`
+  (no install from the steps), `c-drive-shares` (N1), `b-welcome-share-goal`; web `welcome.test.tsx`, `setup-row`,
+  `goal-card`, `home-no-ai`; e2e `welcome-tools.spec.ts`, `welcome-notes.spec.ts`, `welcome-skills.spec.ts`,
+  `auth.spec.ts`.
+- **Independent review (2026-11-08), fixed:** a phone coming back for a put-off invite on an older row with 도구 연결
+  open was sent Home once the walk's record finished the setup (the resume step is now decided before the record);
+  회사 소개.md was written beside the owner's own intro files when a later press sent none (`brandOwnFiles` mark); the
+  confirm decided `membersOn` from the switch state the page loaded (an owner or admin now always asks, the server
+  ignores it while the switch is on); a read's brand run used the oldest owner instead of the one whose website reading
+  it is; one failed poll ended a Drive sign-in that was still going. Kept: a resumed sign-in after a reload shows no
+  "Google에서 계속" link (the window opened before it is still there); the brand-failure note shows only when 내 스킬
+  comes next.
+- Version impact: **minor** (a new step, an endpoint replaced, a Drive rule for owners and admins; no migration).
+
+## W6 — Desktop: the folder window (feat/onb6-desktop, 2026-11-08)
+
+Onboarding v6 asks the owner to pick folders (the .claude, .codex or .agents folder for skills; a company-documents
+folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app's folder window now; the one-press read of
+~/.claude comes later. Placement: Team AX core (`desktop/src/main/security.ts`, `desktop/src/common/folder-access.ts`).
+
+- **What was blocked (checked in Electron 44.7.2's source and with the real binary, walk review M6).** The direct-download
+  app (dmg, Windows) is Chromium, so the team page calls `showDirectoryPicker`. The window opened and the person picked,
+  then:
+  - the team session's request handler refused `fileSystem` (not in the page's permission list), and with a check
+    handler set Electron answers every read of a handle from the check handler alone, which refused it too. The pick
+    ended as the page's `AbortError`, which the page reads as Cancel: nothing happened, with no message.
+  - a pick of a folder Chromium's blocklist refuses (the home folder, Desktop, Documents and Downloads themselves;
+    ~/Library, ~/.ssh, app data) fires the session event `file-system-access-restricted`. Nothing listened, so the
+    pick never answered at all.
+  - `<input webkitdirectory>` (the file screen's folder upload) was never affected: Electron's own dialog answers it,
+    with no permission. The Mac App Store build answers the page's file inputs with its own window (`answerFileChoosers`)
+    and its page never calls the folder window (`answersFileInputs()`); the session rules below and the Info.plist
+    strings apply to it too, and change nothing there.
+- **What is allowed now.** `fileSystem` with `fileAccessType: 'readable'` only:
+  - the request (sent right after a pick, for the picked folder): the team page's top frame at the team address or its
+    office address, for a folder only (a single file is never remembered), and never the home folder or a folder that
+    holds it (`opensHome`, below). The folder is remembered for that origin while the app runs (`FolderGrants`), for
+    the person signed in: a sign-out, or another person signing in on the same team (the app's `GET /api/me` read, as
+    for the in-app browser's data), forgets every pick, and a pick still being checked then is not remembered. After a
+    forget, a `File` the page already read stays readable (it is the page's copy); nothing new can be read, listed or
+    opened until a new pick (pinned in the spec);
+  - the check (before every read): an allowed origin, and the folder is one picked for that origin, or inside one
+    (`.` and `..` resolved). Electron gives a check no frame, so a read counts for the origin: whatever of the team page
+    holds the handle (its frames and workers at that origin) reads it. Only the pick is limited to the top frame;
+  - `writable` is refused in both, so no handle can write, create or remove anything (a save window,
+    `showSaveFilePicker`, still makes the empty file the person names in it, as before this change; nothing can be
+    written into it);
+  - `file-system-access-restricted`: `allow` for exactly Desktop, Documents and Downloads (`PICKABLE_BLOCKED_ROOTS`
+    through `app.getPath`), as a folder, from the top frame at an allowed origin, unless that folder is home or holds
+    it; `deny` (the page's `AbortError`) for the home folder itself and everything else. Lifting the block grants
+    nothing by itself: the request and the check still decide, read only.
+- **Why this is safe.** The person picks every folder in the system window; the pick is the consent (on macOS the open
+  panel counts as consent for Desktop, Documents and Downloads, and Info.plist now says why if macOS asks anyway). A
+  handle that did not come from the window is not readable: a dropped folder (the page's drops use `webkitGetAsEntry`,
+  which needs no permission) and one the page saved in an earlier run need a new pick. A page's own
+  `requestPermission()` never reaches the request handler (Electron answers it from the check), so a page cannot widen
+  what it has. Artifacts and previews (sandboxed frames, no origin), other origins, the in-app browser pane and the app's
+  own screens get nothing; no other permission changed (the page list, the pane's list and the net guard are as before).
+- **The home folder stays refused (owner, 2026-11-08).** Picked, it would let the page read ~/.config (the GitHub CLI's
+  token among others), ~/.aws, ~/.netrc, ~/.codex/auth.json and the like (Chromium blocks only ~/.ssh, ~/.gnupg,
+  ~/Library and app data under it), and the app cannot narrow what is readable inside a pick: every read through a
+  handle is checked against the picked folder itself. Folders inside home (a .claude or .codex folder) are no blocked
+  root and stay pickable.
+- **Home under another name (security review must-fix).** A root can be home, or above it: Windows lets people move
+  Documents, Desktop or Downloads to `C:\Users\<name>` or `C:\`, and on macOS ~/Desktop can be a link to ~. So both
+  the restricted folder and the request refuse a path that is home or holds it (`opensHome`): as written and with its
+  links resolved (`fs.realpath`, which looks at the path's own entries only), against home as written,
+  resolved and, on macOS, under the Data volume's name (`/System/Volumes/Data/Users/<name>`, so `/System` and
+  `/System/Volumes/Data` count as holding home), without case on Windows and macOS. Then by identity (re-review):
+  the pick's device and file number (`fs.stat` with `bigint`, links followed) against home's and each folder above
+  it, which catches what no name rule knows: a mapped drive (`H:` onto `\\localhost\c$\Users\<name>`), a junction
+  or a `subst` drive onto the profile. Anything it cannot tell refuses: no home, an identity of 0 (some NAS shares
+  give no file number, so such a drive cannot be picked), a realpath or stat that fails or takes over 3 s (each runs
+  off the main thread with a time limit, so a slow network drive never freezes the app), and every network or device
+  path written as one (`\\server\share`, `\\?\…`; a share of the profile is one), refused without asking the
+  network (pick its mapped drive letter instead). Under Desktop, Documents and Downloads, Chromium still refuses files
+  that are or link into its blocked folders, checked per file (Chromium 152's directory-iteration blocklist check, on
+  by default).
+- **Not here.** The one-press read with no window (OPEN Q1, later; it needs the main process's own confirm, the fixed
+  path list and key removal, walk M5). The page's hint when macOS refuses a folder anyway. Single files picked with
+  `showOpenFilePicker` are never remembered, so they stay unreadable (the request refuses anything but a folder; the
+  page picks files with `<input type=file>`). Links inside a picked folder are neither listed nor followed on macOS
+  (`NotFoundError`; a link to home and one to a file are measured and pinned in the spec, so an Electron that starts
+  following them fails it); Windows junctions inside a picked folder are not measured.
+- Tests: `tests/unit/e-desktop-folder-window.test.ts` (the request, the check and the restricted folder, every refusal,
+  Windows paths, the wiring, the pane and the store build), `desktop/e2e/folder-window.spec.ts` (the real Electron with a
+  hidden window: a dropped folder and the page's own requestPermission() (never reaching the request handler), the
+  request a pick sends, reads, a file, a write, a folder inside, links inside it (not followed), a sign-out (the read
+  `File` stays, nothing new), Downloads (allowed), the home folder (refused, also when Desktop is moved there), a link
+  to home, app data, another origin; fails on the previous rules). Tests never
+  touch this computer's home: the unit tests use made-up paths with a made-up `realpath`, and the real-Electron spec
+  runs in a made-up home in a temporary folder (HOME and every `app.getPath` point there; the fixture refuses to start
+  otherwise) with a made-up secret that must stay unread. Run the spec by hand on a Mac on every Electron upgrade
+  (`bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`): it pins Electron behaviour these rules rely on,
+  and CI does not run the desktop e2e.
+- Version impact: **patch** (a desktop fix; no API, database or setting change).
+
+## W6 — Onboarding v6: 팀 파일 recommendations (feat/onb6-files, 2026-11-08, product owner)
+
+The owner's decisions (2026-11-08): the AI recommends from file names and metadata, the person confirms once, then the
+files upload. Never fully automatic; no file content leaves before the upload. The 팀 파일 step becomes a folder pick, a
+local list, the AI's picks, one confirm and the upload (FLOW v6 §3). `web/src/components/onboarding/TeamFilesStep.tsx`
+(moved out of `pages/Welcome.tsx`, which only mounts it and passes the next step's label), `web/src/lib/teamFiles.ts`.
+
+- **F1 start.** [폴더 고르기]: Chrome, Edge and the desktop app open `showDirectoryPicker({ id: 'team-files', mode: 'read', startIn:
+  'documents' })` (never `webkitdirectory`, whose Chrome dialog says "Upload # files"); Safari and Firefox the folder
+  input, with "폴더를 살펴보는 중…" once the window has gone until the files or a cancel arrive. The hint says the
+  browser does not open 문서·데스크탑·다운로드 themselves ("바탕 화면" on Windows); the folder input's says big folders take a
+  while. A cancel, a folder Chrome refuses and "허용 안 함" are all `AbortError`: nothing happens. Quiet "파일 직접 올리기"
+  (hand-picked files go up at once) and 나중에 하기. A dropped folder goes to the list, dropped files go up.
+- **The local walk** (in the page, before anything leaves): breadth first, it stops at 5,000 documents or 50,000
+  entries walked, 6 folders down or 15 s, with the cut line. Never listed: dot entries, system names, app bundles,
+  node_modules, .git, Library (and AppData, Office's `~$` lock files). Documents: pdf, doc(x), hwp(x), xls(x), csv,
+  ppt(x), key, pages, numbers, txt, md, rtf; png and jpg only under a folder named like logo, brand, 브랜드 or 로고. A file
+  is opened (for its size and date) only when it is a document; over 50 MB it is counted, not offered. The walk reads no
+  content; the upload reads only the ticked files.
+- **Personal-looking names** (a word list, Korean and English, matched against every part of the path, the picked
+  folder's own name included: 인사/급여/2026-10.xlsx) are never sent to the AI and never ticked by default; they sit in their own group, and a ticked
+  one says "{팀} 모두가 봐요". FLOW §3.2 sent them to the AI; the build brief (2026-11-08) said never, and that is what is
+  built (fewer personal names leave). When every file looks personal no AI call is made, that group opens, and the line
+  reads "개인 정보일 수 있는 파일이 많아요 · 직접 골라 주세요".
+- **The AI's picks: `POST /api/onboarding/files/rank`** (owners and admins; the Files screen offers the step to admins
+  too). At most 500 entries, chosen by name words first (양식, 템플릿, 서식, 규정, 소개서, 매뉴얼, 가이드 and English ones), then
+  office files before text and pictures, then newest: id, name, the folder inside the picked one, type, size, date.
+  The pick IS a chat turn of the caller (there is no AI call outside a turn), run like the skill share's judgement:
+  `server/src/onboarding/file-rank.ts` marks the chat in `onboarding_file_ranks` (migration 272), its turns have no
+  tool (the file tools are refused), no team rules, skills, memories, project, attachments, browser, sub-agents or web
+  search, and their own instructions with the entries as one JSON line each inside `<material>` (its closing tag broken
+  in names). The request waits at most 30 s; then, or when the page drops it ([그만 보기], its own 30 s), the turn is
+  stopped and the answer is ignored. The answer is read defensively (known ids once, a known reason word, at most 200).
+  The chat is never listed and is deleted after (a leftover of a restart within minutes); its turns stay (the usage is
+  the caller's). No AI, a timeout or an
+  error: the list shows unticked with "AI 없이 살펴봤어요 · 직접 골라 주세요".
+- **F3 the list.** The AI's top 20 ticked with their reason word (양식 · 회사 소개 · 보고서 · 회의록 · 브랜드 자료 · 규정·정책 · 교육
+  자료 · 제안서); "이미 있어요" (the same path in the target folder with the same size, or in a run of the step: never
+  ticked, a renamed "(1)" copy never matches; only folders that are there are listed, from the target down); the
+  personal group; "다른 파일도 보기" (the AI's further picks, then the rest newest first; a search above 30 rows; the
+  50 MB line in its footer); the personal group has its own search above 30 rows. "폴더 더 고르기" merges (a file listed twice shows once), ranks again, keeps the ticks; new
+  picks arrive unticked. "넣을 곳" only with more than one place. At most 100 ticked: "한 번에 100개까지 올려요". The
+  primary reads "추천 N개 올리기" while the ticks are the AI's, "{n}개 올리기" after a change, "다른 폴더 고르기" with none.
+  The list, the answer and the ticks stay in the tab while it is open (← 이전 and 다음, another page and back: no second
+  AI call); sign-out forgets them.
+- **F4/F5 run on the file screen's folder runs** (MUST 3 / MUST A): `startFolderUpload` gained a tag (`welcome-files`)
+  and an `onLanded` callback; `lib/folderRuns.ts` keeps the newest run of a tag after its row leaves the file screen,
+  until sign-out. Runs go on across pages, guard reload and close (`beforeunload`), upload 3 at a time, make folders
+  parent first, each picked folder's own name first. The step opens on its newest run (F4 while it runs, F5 after),
+  never on F1; a finished step without a run in the tab opens on F1 with "다음: …" as the primary and 폴더 고르기 beside
+  it. Hand-picked and dropped files run the same way with no folder level, skipping a file of the same name and size
+  in the target folder or in a run of the step ("이미 올린 파일 n개는 건너뛰었어요"). [그만 올리기] stops a run (what went up
+  stays, the server drops the unfinished files). F5: "Acme 폴더에 k개를 올렸어요", the next step, quiet "폴더 더 고르기";
+  failed or stopped files show their reason and 다시 goes back to F3 with them ticked (a hand-picked run sends them again).
+- **팀 파일 recorded by the run: `POST /api/onboarding/files/landed`** (owners and admins), called by the run with its
+  first landed file's path. The server records the step done once, only on a team whose steps were opened, only for a
+  file written within the hour that is there in a group's folder and readable by the caller (`server/src/onboarding/team-files.ts`), with the
+  current owner as the one whose steps end. Not `PATCH /welcome`, which is the owner's: after a transfer the old owner is
+  an admin and their run still records the step (review M5). FLOW said "the upload carries the run's tag"; a call of its
+  own keeps the upload contract (component C) as it is, and the run makes it from any page.
+- **Phone:** no folders. "휴대폰에서는 폴더째 살펴볼 수 없어요…" with [파일 직접 올리기], then F4/F5.
+- **After setup:** on a computer's Files screen, owners and admins see one quiet line "폴더에서 회사 문서 추천받기" at the top
+  and in the team folder while the team folder holds no file (its own folders do not count). It opens the same steps in
+  a dialog ("닫기" instead of the next step, no 나중에 하기).
+- **Desktop app:** the folder window, as in Chrome (its File System Access works since "W6 — Desktop: the folder
+  window"), without the browser's hint (the app opens Documents, Desktop and Downloads themselves); the Mac App Store
+  build answers the folder input with its own window (`answersFileInputs`).
+- **Not here / said out loud.** `FolderUploads` still shows only on the file screen: on another page a run goes on and
+  its guard holds, without a row. ← 이전 stays enabled during F4 (the run goes on; coming back shows it). The step plan,
+  the tools step and the "다음:" wording belong to the step-plan branch: the label is a prop here.
+- Tests: `tests/unit/b-onboarding-file-rank.test.ts` (the answer read defensively, the fence, the turn on the fake
+  engine: not listed, its own instructions, no tool, a refused tool call, a JSON answer, the timeout and a dropped
+  request, the route's roles and body checks, the landed record), `tests/security/lib/onboarding-files-cases.ts`,
+  `web/test/unit/team-files.test.ts` (the walk and its limits, never-listed names, types, personal names, what goes to the
+  AI, the groups, the cap, merge and dedupe, "이미 있어요", hand-picked skips, the tagged run), `web/test/unit/welcome.test.tsx`,
+  `web/test/e2e/welcome-team-files.spec.ts` (F1–F5, leaving during F4 and coming back, 0 recommendations and no AI, the
+  phone, the Files screen's dialog).
+- Version impact: **minor** (two API routes, migration 272, a new step screen).
+
+## 접속 상태 — online status, a dot on a person's picture (feat/presence-dots, 2026-11-08, product owner)
+
+넣을 곳: trina-ax core (`server/src/realtime/presence.ts`, `server/src/realtime/hub.ts`, `server/src/routes/people.ts`,
+`shared/src/api/ws.ts`, `shared/src/api/people.ts`, `web/src/lib/presence.ts`, `web/src/store/presence.ts`,
+`web/src/components/Presence.tsx` and the rooms screens), 이유: a team member asked "Online status: see if someone is
+online, away, or offline (a dot on their picture)"; the owner approved it on 2026-11-08. Plan:
+`docs/AGENTS/plan/20261108-0649-presence-dots.md`. Reference: Slack's help page "Set your Slack status and availability"
+and its developer page "User presence and status" (what was copied and what was not: the plan).
+
+- **Three states, from the windows the app already has open.** No table and no second channel: the realtime hub's
+  windows (`/api/ws`) are the source. Each window says `active` or `idle` (client frame `presence`); a window that has
+  just connected counts as active until it says otherwise, which it does right after `hello`. A person is **online**
+  when a window of theirs is active and they did not set themselves away, **away** when windows are open but none is
+  active (or they set themselves away), **offline** when none is open. Several devices: the most online one, as Slack's
+  "at least one client connected".
+- **When a window is idle (lib/presence.ts).** A computer: 10 minutes without input (pointer, keys, touch, wheel, the
+  window's focus), Slack's desktop rule. A page cannot see the rest of the computer, so a hidden tab simply gets no
+  input: away 10 minutes after the last; coming back to it counts as input. A phone (the phone app, or a browser whose
+  only pointer is a finger): visible is in use and hidden is idle at once, whatever the time since the last touch, as
+  Slack's "away when you leave the app" (the screen locks by itself). The phone app needs no native change: its WebView
+  tells the page it is hidden when the app goes to the background, before the system stops it, so the frame still goes
+  out; offline follows when the socket drops (a suspended iPhone app's socket can stay until the WebSocket idle timeout,
+  120 s).
+- **No flood, no flicker.** The page sends only changes (input only notes the time, at most once a second), and its
+  current state again after each `hello`; nothing is queued while disconnected (only the newest state matters). The
+  server tells a change once it has held 1.5 s (an idle tab that reconnects says "idle" within milliseconds: nobody sees
+  it flick to online; a quick back and forth tells nobody) and offline only after 30 s without any window (a reload or a
+  relay reconnect is not "offline"). One person's changes are told at most once per 5 s, the newest winning, so a page
+  that flips its state on purpose cannot keep every window of the team busy. Changes within 250 ms go out as one frame
+  (a reconnect wave after a restart).
+- **A restart or a deploy does not blink the dots.** The state is in memory, so after a start everyone is offline until
+  their windows come back (the reconnect backoff is at most about 10 s). For the first 15 s after a start a window gets
+  its whole list only at the end of it; changes still go out as they come. An early list would take every dot off a
+  screen that had them, and the dev server installs every build.
+- **On the wire: a control frame, not an event.** `presence {full, people: [{id, state}]}` has no seq and is never kept
+  in the replay buffer: it is a state, and a replay of old states would only be wrong. `full: true` (the whole list:
+  everyone who is online or away; anyone not in it is offline) goes to each window right after its `hello` and any
+  replay, on every connection; then `full: false` with changes, to every open window. Only ids and states: no device,
+  window count, client kind or time. The page reads the frame person by person: an entry it cannot read (a state a
+  later server adds) is skipped, not the whole frame, so an older page keeps every other dot. An old page ignores the unknown frame (not a known event, so no reload) and sends
+  no state (its windows count as in use while open); a new page on an old server gets an `error` frame for its state,
+  which it ignores.
+- **Who sees it.** Everyone signed in to this team's server (one team per server), and nobody else: the hub's sockets
+  are its signed-in sessions (a session that must change its temporary password gets none, as before). Only active
+  accounts are listed online or away (`users.status = 'active'`, not deleted); offline is told about anyone, so an
+  account turned off never stays on screen as online: the account is changed before its sockets close, and then
+  offline is told at once, without the grace (nobody waits for it to come back). Turned off while the grace of its last
+  window already runs (no window left to close), the hub's "every session ended" (`Hub.onUserEnded`, from
+  `disconnectUser`) makes presence look again, so it is offline at once there too; an active account's grace (a password
+  change ends every session as well) is left as it was. The accounts are read once for a whole list or a batch of
+  changes, not once per person. The
+  AI (@트리나) is no account and has no dot; there are no other bot or service accounts (Slack: auto presence does not
+  apply to bots). Admins learn nothing members do not; nothing is written to the audit log.
+- **No "last seen".** Slack shows none for offline, and it would tell when someone worked. `users.last_seen_at` stays
+  an admin's column (Admin › Members) and is not on the wire.
+- **Set yourself away** (Slack's "Set yourself as away"): one item at the top of the computer's account menu, "자리
+  비움으로 표시", and "접속 중으로 표시" while it is set; its mark is the dot it leads to. `PUT /api/me/away {away}`
+  (strict body: only the caller's own), kept in `users.prefs` JSON as `away` (no migration) until changed, across
+  sign-ins and devices, as Slack's "persists between connections"; it wins over windows in use. `Me.user.prefs.away`
+  shows it; `PATCH /api/me` cannot set or clear it (dropped from its body). The person's other windows read their
+  account again (`my_profile_changed`). Not on the phone: the phone app has no account menu (a settings page or a second
+  control was out of scope).
+- **Where the dot shows.** The sidebar's DM rows, the DM rows of the conversations page (the phone's 대화 tab), the DM
+  header (on the 24 px picture on a computer; on a phone, which shows no picture there, a dot before the name), each
+  person in a room's member list (me too), and my own picture in the account row. Not on message avatars (the request
+  and Slack), not on team rooms, the everyone room or group chats (Slack shows none on a group DM: whose would it be?
+  Their member list has each one's), not in the people picker or the @ menu. There is no profile card to put it in.
+- **Look.** Online: a filled dot in the `ok` green; away: hollow, a 2 px `faint` ring with the background inside;
+  offline: none. Filled, hollow or none, so the state never hangs on colour alone; forced colours draw it in the
+  system's colours. A 2 px ring in the colour behind the picture, as Slack draws it: `.presence-dot` in `index.css`
+  reads `--presence-bg`, which a row sets to its own colour, its hover and the current row included. 8 px on 20–28 px
+  pictures (the sidebar, the account row, the header), 10 px from 32 px (the member list, the phone's 40 px list
+  pictures), on the picture's lower right. The picture is decorative (the name is beside it): the state is said after
+  the name for screen readers (", 접속 중"; offline only in the header and the member list, where it is news, not in
+  lists) and is the shared tooltip on the picture with a mouse. Five languages.
+- **The hub tells `open` only for a window that is still there** (review of this branch): a socket dropped while its
+  `hello` or replay went out (too slow, gone) was already told `closed`, and its `open` came after it, so presence kept
+  that window for good. `attach` now stops there. The browser relay, the only listener before, did not care.
+- **Out:** last seen, a do-not-disturb mark, status text (the owner's "한 줄 상태는 쓰지 않는다" stands), presence on
+  message avatars, group chats, the picker or the @ menu, a history of states, any native change.
+- Tests: `tests/unit/b-presence.test.ts` (the state machine on a fake clock: devices merge, idle → away, the grace and a
+  reload inside it, settle, the min gap, batching, the warm-up, manual away, team scoping and non-accounts; on the real
+  app and hub: the frame after hello, its exact keys, changes to others, the client frame, nothing replayed,
+  `PUT /api/me/away` and PATCH not setting it, a disabled account offline at once, a window dropped during its hello), `web/test/unit/presence.test.tsx` (the tracker on a computer and a phone, the frame
+  in the realtime client and its never-queued state, the store, the dot, its words and tooltip, RoomIcon and the AI
+  without one), `web/test/e2e/presence.spec.ts` (a second member's dot online → away → offline in the sidebar and the
+  DM header, the list again after a reload, the member list with axe, the account menu's item, the phone's list and
+  header).
+- Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).
+
+## First run: one box (feat/first-run-one-box, 2026-11-08, product owner)
+
+The desktop and phone apps' first screen asked for "팀 주소", which nobody is told: people get an invite link or a team
+link in KakaoTalk or Slack. Plan: `docs/AGENTS/plan/20261108-0930-first-run-one-box.md` (with the exit walk). Owner
+approval 2026-11-08 (phases 1 and 2); the design review's must-changes are folded in. Placement: Team AX core (apps,
+accounts, relay names); nothing about plans or billing.
+
+- **One box takes everything** (screen ①, both apps): "팀에 들어가요 / 팀장에게 받은 초대 링크를 붙여 넣어 주세요. 팀
+  주소(예: acme)를 알면 주소만 넣어도 돼요." It reads an invite link (`/invite/<t>`), a team link (`/join#t=<t>`, the
+  fragment kept), a full address, a bare name (`acme` → `https://acme.<teamDomain>`) and any pasted text: the first
+  invite or team link in it, else its first http(s) address (a KakaoTalk long-press copies the whole bubble, sentences
+  around the link; a Korean word, punctuation or a zero-width character glued right after the link ends it; input is
+  NFKC-normalized first, so fullwidth `ｈｔｔｐｓ：／／` reads as ASCII; `/invite` and `/join` match in any letter case).
+  Another page of the team (an address copied from a browser) opens the team's start. Rejected: a "처음이세요?" question (ambiguous), a name-only box (nobody is told the
+  name), an email lookup (no central member list, and it would say who is a customer).
+- **One parser, two copies.** `shared/src/team-link.ts` is pure (no imports). The phone app cannot import `shared/` (its
+  own npm project and Metro), so `mobile/src/team-link.ts` is a byte-identical copy; `tests/unit/team-link.test.ts` fails
+  when they differ and runs one table (every input kind, every hint, the safety rules) against both. Desktop:
+  `loopbackHttp` (plain http only to this machine); phone: https only. Hosts are ASCII as the URL parser gives them
+  (punycode); a parser that cannot make one is refused.
+- **Hints instead of "형식이 맞지 않아요"**: Hangul or jamo typed ("ㅁ츼" is `acme` typed in 한글 mode) → "한글로
+  입력됐어요. 한/영 키를 누르고 다시 입력하거나 초대 링크를 붙여 넣어 주세요."; an email → "이메일 주소는 쓰지 않아요.
+  초대 링크나 팀 주소를 넣어 주세요."; a cut-off invite or team link (its token shorter than the 43 characters every token
+  has) → "링크가 중간에 잘린 것 같아요…" (never silently the sign-in page). Trailing punctuation is trimmed with a loop,
+  in linear time. The address is checked only on the button, only under the team domain: no other domain is tried.
+- **What the relay answered** (`x-relay-error`, `relayAnswer`): 404 `team_unknown` → "'{name}' 팀을 찾지 못했어요.
+  철자를 확인하거나 초대 링크를 붙여 넣어 주세요."; 403 `team_suspended*` → "이 팀은 지금 이용이 멈춰 있어요. 팀장에게
+  물어보세요."; the relay's offline answers and gateway errors → "cannot reach". Before, 404 and 403 both said "not a
+  team server". The JSON `code` is `not_found`/`forbidden`; the kind is only in `reason` and the header.
+- **A renamed team** (308 from the relay, control-plane D40) is followed only to another `<name>.<teamDomain>` with the
+  same scheme and port (`relayRename`; `<name>.localhost` for the desktop's development relay), and the new address is
+  the one remembered after the person said yes ("팀 주소가 {host}(으)로 바뀌었어요. 새 주소로 연결할까요?"). Neither app
+  lets the network stack follow a redirect: the desktop reads the health answer with `net.request` and `redirect:
+  'manual'` (Electron's `net.fetch` throws on 'manual'), the phone with expo/fetch's `redirect: 'manual'` (iOS and
+  Android return the 3xx). One hop only; any other redirect (another host, plain http, an office address, a trailing
+  dot) is "not a team server".
+- **Screens ② and ③.** ② "주소를 모르겠어요": paste the link you got (a used link leads to the sign-in page), Settings ›
+  앱 on a signed-in device, ask your team lead; [뒤로]. ③ "아직 팀이 없어요": "팀은 팀장이 만들고, 팀원은 초대 링크로
+  들어와요." [팀 만들기 ↗] (the account site, `https://<accountHost>/`; the repository does not know the signup page's
+  path), [직접 설치 안내 ↗], "팀을 만들면 팀 주소가 생겨요. 브라우저에서 설정을 마친 뒤 이 화면으로 돌아와 그 주소를
+  넣어 주세요." (after signup the owner gets a one-time `/setup#token=` link, not an invite), [팀 주소 넣기]. Esc and
+  Android back go back too; the typed text stays.
+- **No [팀 만들기] in store builds.** App Review 3.1.1(a) bans calls to action for purchases outside the app (the signup
+  leads to a paid plan after the trial; 3.1.3(f) applies only without one), so the iPhone app and the Mac App Store build
+  have none, and their docs link is the repository's install guide (`docs/INSTALL-LINUX.md`, `.en.md`), which links no
+  plan, signup or product site (a test checks); the docs site's install page has the plans link. Google Play's payments
+  policy also bans leading users to another payment method from the app, so Android gets the same rule. The Microsoft
+  Store allows a non-game app its own payment: the Windows store build keeps the button. The desktop's main process
+  picks both addresses (`firstRunLinks`); the screen only names which (`ui:open-link`), so a screen can never open
+  another address. The phone opens the guide in the browser sheet; closing it returns to ③.
+- **The app draws the host, not the page.** A fake server can draw any address on its own sign-in page, and the desktop
+  app may show the page from the office-network address (direct.ts), so `location.host` is not the team address there.
+  Both apps show it on the sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`) **and on every
+  page until the team answered GET /api/me for a signed-in person** (`hostLineShown`, shared), because a fake sign-in
+  page can sit at `/` or `/signin`. Desktop: a 36 px strip above the page, "팀 주소 acme.trina.app [다른 팀]", in its
+  own UI view (`hostbar.html`, its IPC answered only for that view); signed in = the main process's own `/api/me` read
+  (`fetchTeamInfo`, after every load and in-page navigation). Phone: the footer shows the host above "다른 팀에
+  연결"; the app injects one `/api/me` fetch into the page after each load and route change (`src/session-check.ts`)
+  and hides the footer only on a yes. A fake server can answer its own `/api/me`; the line is for the person on a real
+  team who meets a look-alike page, not a proof. Always the team address the app connected to, in punycode with its port. The
+  web login page gets no host line. Off the sign-in pages the line waits up to 300 ms for that `/api/me` answer before it
+  takes space (`hostLineNow`, shared), so a signed-in open does not show it and then hide it (the page jumped on every
+  team open); a sign-in page shows it at once, a signed-out answer or no answer in time shows it. **The line is a hint,
+  not the protection**: on the phone a page script can answer the injected check and hide the footer, on the desktop a
+  fake server can answer its own `/api/me`. The protection is ④ (a link names its host before it connects) and the
+  question before the first connect to an address outside trina.app. Links from outside never point the desktop at this
+  machine, also written as an IPv4-mapped (`[::ffff:127.0.0.1]`) or unspecified address (`[::]`, `0.0.0.0`, `0`).
+- **The first connect to an address the hosted service does not run asks once**: "트리나가 운영하는 주소가 아니에요.
+  회사에서 직접 설치한 서버인지 확인하세요." [취소] [연결], the focus on [취소]. Not for this machine, not for a team
+  already remembered (desktop) or the one the phone is in, not in a phone build without a team domain. Look-alikes
+  (`acme.trina.app.evil.example`, an IP address) are outside.
+- **The phone leaves its team only after the new one answered and the person said yes.** "다른 팀에 연결" and the failure
+  screen's "팀 주소 바꾸기" used to remove the phone from its team at once. Now they open ① over the team page (kept
+  mounted, hidden from screen readers) with [{old}(으)로 돌아가기]; the new address must answer `/api/health`, then
+  "{old}에서 나가고 {new}에 연결할까요? 이제 {old} 알림은 이 휴대폰으로 오지 않아요." with the new host and the
+  outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
+  delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). If the app stops between the
+  two, the next start finds the old team's device record (`startRemovals`: a device for another origin than the saved
+  team) and makes it a removal still owed, so the old team's push does not stay on the phone. The stored devices change one
+  short storage step at a time with no network inside (the start, a leave, a registration, a retry), and a retry takes
+  out only what it removed: a slow removal can neither write an older owed list over the old team's entry nor hold back
+  a leave or the new team's device. The new team's push starts only after sign-in there, so the question promises nothing about
+  it. The same team again opens the link's page in place.
+- **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
+  is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀
+  목록·추가…"; a kit build still fills in its address; the welcome screen draws in dark mode too.
+- **Settings › 앱: "팀 주소 · 새 기기에서 앱을 열고 이 주소를 넣으세요 [복사]".** `GET /api/me` `team.address`
+  (`teamAddressOf`): the relay address when the server has one, else `https://<publicAddress>`, else absent (no row).
+  Signed-in people only (it is in `/api/me`); never the address a request came in at, so the office-network address
+  never shows. The install pictures draw the same address (they drew `location.host`). Anonymous visitors still get no
+  team name (`SetupStatus.teamName` stays null).
+- **Used or expired links lead with signing in**: the invite and team-link problem pages add "이미 가입했다면
+  로그인하세요." and a full-width [로그인]; both join forms end with "이미 가입했어요? 로그인".
+- **Reserved relay names**: `acme` (the screens' example: someone typing it must never reach a real team), `trina`,
+  `trina-ax`. The demo company (`scripts/demo/acme`, `bun run demo:company`) registers `acme` on its local development
+  relay: `scripts/dev.ts` now adds its own `--team` to `RELAY_DEV_NAMES`. The relay tests use `acme-co` / `acme-inc`.
+  A team already called `acme` on a live relay keeps working (routing reads the teams table, not reservations) but could
+  not be renamed back to it; the live registry and the signup's own list need the same names (outside this repository).
+- **Docs**: the install page and the Linux guides say what the apps need from a server of your own: a certificate the
+  computer trusts (desktop), a public-CA certificate and no redirect on `/api/health` (phone), `MYCEL_PUSH_GATEWAY` for
+  phone notifications, and where people find the address.
+- Tests: `tests/unit/team-link.test.ts` (the table on both copies, relay answers, renames), `e-desktop-common` (the
+  desktop address shape, invite and team links kept, the health verdict, the outside question, the sign-in paths,
+  punycode, the store links, the merged menu), `mobile-security` (stored addresses, bare names, the edition's domain and
+  guide, the phone strings and the switch copy, no signup link, leaving only in `connect`), `f-frames` (reserved names),
+  `a-team-address` (the `/api/me` field), `web/test/unit/first-run.test.tsx`, `web/test/e2e/first-run.spec.ts`.
+
+## Migrations that would be skipped say so (chore/migration-guard, 2026-11-08)
+
+- **Why.** The runner (`server/src/db.ts` `readMigrations`) applies only `NNN_<lower-case letters, digits, _>.sql`
+  and skipped any other file without a word, while the builds ship every `.sql` file. Applied migrations are known by
+  number only, and three numbers were on dev under another name before a rename (214 `b_schedule_sources` → 215, 222
+  `b_onboarding_notices` → 231, 326 `b_chat_skill_lists` → 217). A database that ran the old file skips the new file
+  at that number, and runs the moved one again: for 214 and 222 that fails ("duplicate column", "already exists") and
+  the server does not start.
+- **CI catches a misnamed file.** `tests/unit/p1-migration-files.test.ts`: every file in `server/migrations/` matches
+  `MIGRATION_FILE` (now exported, the runner's own pattern), `readMigrations` returns every `.sql` file, and no two
+  files share a number (`readMigrations` already throws on that at start).
+- **A warning, not a refusal.** At start-up the server logs one warning per recorded migration whose file was renamed
+  since (`renamedMigrations`): the file now at that number never runs on this database, or the recorded name is now
+  under another number, or both, each named. It comes before pending migrations run, so a failure after it has its
+  reason in the log. The server still starts: dev and customer databases already hold renamed entries. A recorded
+  number with no file and no file of the same name is a newer build's migration after a downgrade: no warning. Only the
+  server passes its log (`openDb(file, { log })`); the CLIs stay quiet.
+- **B gets a second range, 400–499** (owner, 2026-11-08). 200–299 had 27 numbers left after 272 at about ten a day.
+  D and E have no server DB, so 400–599 was free, and 4xx files sort after B's 2xx files, so they may build on them.
+  docs/WORKPLAN.md §4 and the `db.ts` header say so. **A number already on dev is never renamed**: a clash is fixed by
+  renumbering the newer branch before it merges. No file is renumbered here.
+- Tests: `tests/unit/p1-migration-files.test.ts` (the folder checks; the runner skipping a hyphen, a capital, four digits
+  and `.SQL`; two files with one number; a new file at the old number, a move with a new file at the old number before
+  the "duplicate column" failure, a move with none, a downgrade and a matching database without a warning).
+- Version impact: **patch** (a server log line and a test; no API, setting or data change).
+
+## Budget notices and connection limits count in the team's time zone (fix/team-time-zone, 2026-11-08)
+
+- **Why.** A hosted server runs in UTC. Budgets' spend (`checkBudgets`, which blocks a send) and the Usage page already
+  counted the team's day and month (`teamTimeZone`, see "팀 시간대(명세 D16)"), but three places still used the process's
+  zone: the once-per-period key of `budget_notices` (`periodStart` without a zone in `admin/budget-watch.ts`),
+  `periodEnd` without a zone, and a connection's monthly limit (`localDay`, `monthStart`, `nextMonthStart` in
+  `credentials/store.ts`, whose comment still said "like budgets and usage"). A Korean team's daily block budget used up
+  at 14:00 KST and again at 08:00 KST the next day was one UTC day: the second notice was ignored while the person was
+  blocked. A connection's month reset at 09:00 KST on the 1st, and its "this month" differed from the Usage page.
+- **The rule.** Every day or month that limits someone or that they see is the team's. `periodStart` and `periodEnd`
+  take the zone as a required argument (the process-zone branch is gone). A budget notice is keyed by the start of the
+  team's day or month. `credential_usage_daily.day` is the team's day (`teamDay`), a connection's month sums from the
+  team's `YYYY-MM-01` (`teamMonthKey`, also the `credential_notices` key), and a used-up monthly limit comes back at
+  00:00 on the team's 1st (`nextMonthStart(db, now)`, through `periodEnd`). The ChatGPT refresh audit (once a day) uses
+  the team's day too, so budgets and connections keep no server-zone helper. The monthly limit's hint says "팀 시간대"
+  (five languages). `zonedParts` keeps one formatter per zone (building one took about 0.2 ms, and the model proxy now
+  asks for the team's day on every request).
+- **Stored formats unchanged, no migration.** The keys are still an ISO instant, `YYYY-MM-DD` and `YYYY-MM-01`. On a Mac
+  whose zone is the team's nothing changes: the same instants and day strings come out.
+- **At the switch-over** (only where the process zone differs from the team's: hosted servers, a self-hosted Linux
+  server in UTC, a Mac whose team zone was set to another one): a budget notice already sent for the current day or
+  month under the old key (midnight in the process's zone) may be sent once more under the new one (midnight in the
+  team's); none is skipped, because the two keys differ unless both zones have the same offset that day, and then the
+  key is the same. Requests counted before the update
+  stay on the UTC day they were filed under, so one month boundary of a connection sits where it was (for Seoul, a
+  request between 00:00 and 09:00 KST on the 1st, filed before the update, counts to the previous month). For a team
+  behind UTC whose update lands in the hours between the UTC 1st and its own, that month's connection notice can be
+  skipped (the UTC month already used its `YYYY-MM-01` key). Accepted: once, on one server, and the limit itself still
+  blocks. Changing the team's zone in Admin › Team settings later has the same one-off effect.
+- **Not changed.** Schedules (already `rt.timeZone`). Hosted voice input's free hours keep Korea's month on purpose
+  (`credentials/hosted-speech.ts`). Log file names (`log.ts`), the TLS stamp and the export's UTC dates are not a count.
+  Follow-ups, names and times that show but do not count: connection notices and details (`credentials/i18n.ts`
+  `fmtTime`/`fmtDate`) and two dates in diagnostics (`system/ops.ts`) are formatted in the process's zone, and
+  `conflictCopyName` still falls back to it where a caller gives no zone (`devenv/track.ts`). `zonedToUtc` gives 23:00
+  the day before in a zone whose clocks jump forward at midnight (America/Santiago); older than this change.
+- Tests: `tests/unit/a-budget-watch.test.ts` (process in UTC, team in Asia/Seoul: a daily block budget crossed on two
+  Seoul days of one UTC day notifies both days with Seoul-day keys; a connection's month resets at 00:00 KST, files a
+  request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
+  `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
+- Version impact: **patch** (a fix and one hint string; no API, setting or data format change).
+
+## First run, phase 2: a tapped link opens the app, behind screen ④ (feat/first-run-open-links, 2026-11-08, product owner)
+
+Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-first-run-open-links.md`.
+
+- **One link reader** (`readAppLink`, `shared/src/team-link.ts`, the phone's copy identical): `trina-ax://open?url=<encoded
+  team link>`, nothing else in it (one `url`, no other parameter, no fragment, no user, no port, host `open`), and on the
+  phone also the hosted domain's own invite or team link (`https://<name>.trina.app/invite/…`, `/join#t=…`, a universal
+  link / app link). The address inside goes through the box's rules: https (http only to this machine on the desktop),
+  no user:password, no `javascript:` / `file:` / `data:` / scheme-relative / bare names, no text around it. The host is
+  what the URL parser makes of it, so a numeric trick (`0x7f.1`, `2130706433`, `127.1`) shows as `127.0.0.1` and a
+  backslash ends the host (`evil.example\@acme.trina.app` is `evil.example`); none of them counts as hosted.
+- **Screen ④ for every link from outside**, in both apps: "{host}에 연결할까요? 직접 받은 링크가 맞을 때만
+  연결하세요.", the phase-1 outside note ("트리나가 운영하는 주소가 아니에요…") when the hosted service does not run it,
+  and on a phone in another team the switch line ("이제 {old} 알림은 이 휴대폰으로 오지 않아요.", [바꾸기]). [취소] has
+  the focus. Nothing is fetched or loaded before the yes; the yes runs the phase-1 path (health check, relay answers,
+  the link's page; the phone leaves its old team only then). `LinkGate` keeps the offer: a yes counts only for the host
+  ④ showed, only 600 ms after ④ reported itself on screen (also when it appears late, after a cold start), and once; a
+  newer link replaces the waiting one (each offer has an id; the phone's ④ keeps its state per offer and drops an
+  answer whose link is no longer the one on screen), and a team view taking over drops it. A rename found after the
+  yes is asked once more with the new host ("팀 주소가 {host}(으)로 바뀌었어요…"). [연결] is off (greyed) for its first
+  650 ms on screen, so a tap never silently does nothing. A tapped universal link that was cut
+  off says so; a bad scheme link never covers a waiting ④. Esc and Android back answer no.
+- **Desktop**: the packaged app is the scheme's handler (`app.setAsDefaultProtocolClient(PRODUCT.linkScheme)`; a
+  development run only with `MYCEL_DESKTOP_REGISTER_SCHEME=1`, so tests and dev builds never take the scheme over);
+  macOS `open-url` (registered before `ready`, so the link that launched the app is kept until the window exists);
+  Windows and Linux: the first instance's argv and the second instance's argv (`linkFromArgv`, only an argument that
+  starts with the scheme). A link never points the desktop app at this machine (`readDesktopLink`: https only, no
+  loopback host, so a web page cannot aim the team view and its bridge at a local port; a typed address keeps http to
+  this machine for development). Every path calls `AppWindow.offerLink`, which fetches nothing; only `answerLink` connects,
+  and only with the gate's offer. The renderer names the host it showed; the main process holds the link. The base
+  electron-builder config declares `protocols`, which the dmg and the Mac App Store build turn into `CFBundleURLTypes`
+  and the Microsoft Store package into a `windows.protocol` extension (its manifest template's `${extensions}`).
+- **Phone**: `Linking.getInitialURL()` and the `url` event; the `trina-ax` scheme was already registered (`scheme`);
+  `ios.associatedDomains: applinks:*.trina.app` and an Android intent filter with `autoVerify` for
+  `https://*.trina.app` `/invite/…` and `/join`, both only for an edition with a team domain (the neutral app declares
+  none).
+- **The scheme is `PRODUCT.linkScheme`** (`trina-ax`), the phone's `scheme` in `editions/trina/branding/mobile.json`; a
+  test keeps them equal. The web's "앱에서 열기" uses it too.
+- **Team servers serve the platforms' files** (`server/src/routes/app-links.ts`, off the API contract like the OAuth
+  metadata): `/.well-known/apple-app-site-association` (iOS 13+ `components`: `/invite/*`, and `/join` with `#t=*`; the
+  app id `<appleTeamId>.<bundleId>` from the branding, `shared/src/app-links.ts`) and `/.well-known/assetlinks.json`
+  (the package and the app's signing certificates' SHA-256 list: the upload key, which signs the APK at updates.trina.app,
+  is in; Google Play's app signing key is added once Play signs the app; 404 only while the list is empty, never the web
+  app's page). Public, the same for everyone, nothing about the team; JSON, no redirect, no cookie. Self-hosted servers serve
+  them too (harmless), but the apps declare only `*.trina.app`: on a domain of one's own a tapped link opens the
+  browser, and the join page's "앱에서 열기" is the way into the app.
+- **"앱에서 열기"** on both join pages (one line under "이미 가입했어요? 로그인"), only in a web browser. The link carries
+  the invite or team-link token (the team link's from memory: the page already took it out of the address bar), and a
+  team link joins without anyone's approval, so it goes only where our own app receives it (review must-fix): on
+  **Android** an `intent://open?url=…#Intent;scheme=trina-ax;package=app.trina.ax;end` link, which only our package can
+  take (a bare custom scheme can be claimed by any app); on **macOS and Windows** `trina-ax://open?url=…`, answered by the
+  installed desktop app; on an **iPhone none** (iOS gives a custom scheme to whichever app claims it and lets no link
+  name the app; the verified universal link, the team link itself, opens the app there once Apple's setup is done);
+  nothing on Linux or anything else. Residual risk on computers: another program the person installed could register
+  `trina-ax` too and receive the token; it would already run as that person. Five languages.
+- **Outside this repository** (the PR lists them): the App ID's Associated Domains capability before a signed iOS build;
+  the files on `trina.app` itself for the wildcards (Android checks a wildcard host at its root; for Apple, serve both);
+  Google Play's app signing fingerprint added to `shared/src/app-links.ts` once Play signs the app (the upload key is in); new iOS, Android and Mac App Store builds; the signup's
+  last page.
+- Tests: `tests/unit/team-link.test.ts` (the reader on both copies: every crafted case, universal links, the gate),
+  `e-desktop-common` (the desktop reader, argv, the handlers reaching only `offerLink`, `answerLink` only with the
+  gate's offer, the configs declaring the scheme), `mobile-security` (the edition's associated domains and intent
+  filter, links only through ④), `app-links.test.ts` (the files, served signed out over the relay and directly, the
+  ids equal to the branding), `web/test/unit/first-run.test.tsx` and `web/test/e2e/first-run.spec.ts` ("앱에서 열기").
+
+## The release feed also serves the Android APK (feat/feed-android-apk, 2026-11-08, product owner)
+
+- **Why.** The Android app is in Google Play review, so the website links an APK people install themselves. GitHub's
+  `releases/download/` addresses answered 504 for every repository for over an hour on 2026-11-08, while the same files
+  came through the API; the Windows installer the website links is already on the feed (`office/<version>/`).
+- **What.** The feed Worker serves `apps/android/<version>/<file>.apk` only (no other platform, no other extension),
+  immutable, with Range, like `plugins/`. The root line stays `Updates: office/, server/, plugins/` because
+  publish-server.ts and its tests read it. Redeploy once (`bun scripts/release/hosting.ts setup`) before uploading.
+- **Not.** No listing, no "latest" alias, no signature: the APK's own signature is what Android checks, and the website
+  shows the SHA-256 on the GitHub release.
+
+## A deleted team skill opens 파일 › 휴지통; @트리나's private answer counts as unread at once (fix/skill-trash-room-unread, 2026-11-08)
+
+Two bugs from a design audit of dev. Placement: Team AX core (web app, `server/src/skills/changes.ts`); no contract,
+setting or data change.
+
+- **The files trash has an address: `/files?view=trash`** (`web/src/pages/Files.tsx`), like `?view=people` in Admin ›
+  Folder permissions. The 팀 폴더 / 휴지통 tabs set it (the folder and the search stay in the address, so the 팀 폴더
+  tab comes back to them, as the tab state did), so a link, a reload and Back open the right tab. Both read the tab
+  from the address itself (as Folder permissions does): the "folder gone" climb, whose listing callback lives as long
+  as the folder, keeps the tab on screen, and the tab already selected adds no Back step. Before, 휴지통 was a tab
+  state with no address.
+- **A deleted team skill points there.** 팀 스킬 › 최근 변경's 삭제 row had "삭제한 기록", and the server's skill-change
+  notice for a deleted file had a link, both to `/trash`: the deleted AI chats, where the file never is. Both now go
+  to `/files?view=trash` (`FILES_TRASH` in `web/src/lib/nav.ts`, `historyLink` on each side). The button says the
+  trash tab's own word, 휴지통 (`files.trash`, no new string); the notice's button stays 열기. A notice from before
+  this change keeps its `/trash` link and opens the chats, as it did.
+- **One judge of who sees a room message.** The server counts a private @트리나 answer (`visibility 'private'`, the
+  asker's only) as unread for the asker (`unreadCount`), but the web added to the live badge only for
+  `visibility === 'room'`, and the answer sends no `room.read`. Asking @트리나 and going to another room showed 0 on the
+  room in the sidebar (and in the dock badge where the room counts every message: a DM, a group chat, 모든 메시지), 1
+  after a reload. The server sends a room message only to those who may see it
+  (`canSee`), so `withMessage` (`web/src/store/rooms.ts`) no longer tests visibility: what arrives counts as the
+  server counts it. It also counts only after my read position (the server's `seq > last_read_seq`): sharing my
+  private answer to the room from another window reads the room up to it first (`room.read` before the message), and
+  this window added 1 for it. Not chosen: each member's unread count with every `room.message` (one count query per
+  member per message, hundreds in the everyone room) for a rule the web follows from what it is sent.
+- Tests: `tests/unit/skill-managers.test.ts` (the notice's link), `web/test/unit/rooms-store.test.ts` (a private answer
+  counts, not on screen and not after a read), `web/test/unit/live.test.ts` (the notice's 열기 for the new and the old
+  link), `web/test/e2e/files.spec.ts` (the address: tab, reload, Back, a link), `web/test/e2e/team-skills.spec.ts`
+  (a deleted skill: the notice and the 최근 변경 row open the trash with the file; the mock records it as a 삭제 change).
+- Version impact: **patch** (two fixes; no API, setting or data change).
+
+## App connectors: a read scope per MCP session, refusal reasons for write and edit, team rules for connected AIs (fix/connector-scope, 2026-11-08, product owner)
+
+넣을 곳: trina-ax `server/src/connectors/remote-mcp/` (new `scope.ts`) and migration 118, 이유: a design audit of dev
+found that one read through the connector blocked a person's saves for weeks, that `write`/`edit` hid why a save was
+refused, and that connected AIs never saw the team rules every in-app turn follows.
+
+- **The problem.** Everything a connected AI read joined one list per connection (`remote_mcp_grants.sources`) that
+  nothing cleared, so it lasted as long as the sign-in (up to 30 days). Someone whose Claude Code read one note in their
+  own folder had every later save to a shared folder refused, in every new Claude Code session, and the refusal did not
+  say what to do. The in-app chat starts each new chat with nothing read and asks with a card.
+- **One scope per MCP session (the owner's decision).** `initialize` answers with an `Mcp-Session-Id` (MCP Streamable
+  HTTP, `tax_mcp_s_` + 32 random bytes), the client sends it on every later request, and the scope is kept per
+  connection and session in `remote_mcp_scopes` (keyed by the id's sha256, never the id). A new session starts with
+  nothing read; the same session keeps its scope, across a server restart too. Only the scope is per session: the call
+  queue (one call at a time, at most four waiting), the memory slot and the `TurnFiles` (files read before an `edit`,
+  the write counters) stay the connection's, as before. A client can send any id, and one id per call must not give it
+  more calls at once, other people's memory slots or a fresh write budget (the review of this branch found that a
+  per-session queue let one token run 128 calls at once and lock everyone else out). So a session may `write` or
+  `edit` an existing file another session of the connection read; that file then joins this session's scope too, as
+  what edit answers ("old_string not found", the change itself) tells about its text.
+- **The id is a name, not a key.** The bearer token is the auth. The id is never required, and an id the server never
+  gave, or forgot, is a new and empty scope; it is never answered with 404, which some clients do not recover from
+  without a reconnect. That gives a client nothing it could not get by initializing again. An id that is not visible
+  ASCII or is over 128 characters is a 400. `DELETE /mcp` stays 405 (the spec allows a server not to end sessions on
+  request); a session's scope ends with the connection, and a connection keeps at most 256 session scopes (the least
+  recently used beyond them go), so a client that opens a session per request cannot grow the table. Every run of an
+  app on one computer shares the connection, so 256 is far above what parallel work uses. `initialize` ignores the
+  header (a malformed id there is no 400).
+- **Clients without a session.** Calls that send no id share one scope per connection, forgotten after **1 hour without
+  a tool call** (any tool call that gets past the connection's permission check counts as use, a refused save too; one
+  refused for a missing scope, an unknown tool, a full queue or the rate limit does not). An hour is how long an access
+  token lives, longer than the pauses between the calls of one piece of work and shorter than the gap before most new
+  ones. An idle scope is dropped
+  when the next call opens it, so its old sources never come back with a later read, and the connector's housekeeping
+  (`oauth.ts` ingress, with an index on `(session, used_at)`) removes idle rows. A session's scope has no idle expiry:
+  "the same session keeps it". Open: if a client turns out to keep one MCP session across many conversations (not
+  checked for claude.ai or ChatGPT: that needs their live apps), its scope lasts as long as that session; a backstop idle
+  expiry for session scopes (a day, say) is the next step, and it is the owner's to decide because it widens.
+- **The update forgets nothing.** Clients connected before it send no id until they initialize again, so migration 118
+  moves each connection's old list into its scope without a session, used now: it is forgotten an hour after the last
+  call, and a new session starts empty. The grant's column stays (add-only) and is no longer written; an older build
+  run again goes by that list, what was read before this update.
+- **Upload links** remember the session that made them (`remote_mcp_upload_links.session`, the same key): the PUT checks
+  what that session read by the time the bytes come. A link made before this has none and goes by the calls without a
+  session.
+- **The refusals say what to do.** A save: "Not saved: this folder would show material this session read to more
+  people. Save it in a folder with the same or narrower access, or, if this work does not use that material, ask the
+  person to start a new session in their AI app: a new session starts with nothing read." Without a session it ends
+  "What this connection read is forgotten after 1 hour without tool calls." instead. `room_send`'s refusal and the
+  2,000-source limit say "session" the same way.
+- **Accepted trade-off.** A client that resumes an old conversation in a new MCP session still has that content in its
+  own context, and a new session lets it save where the old one could not. The owner sees the connector's guard as a
+  guide, not a wall (#155 made a hard refusal a note): it stops a hidden instruction in a shared file from quietly
+  copying private material within one session, which is where that happens. What a session is depends on the client:
+  one that keeps one MCP session for many conversations keeps one scope for them; one that opens a session per
+  request starts empty more often. Read access, the skill-root refusals and the size and storage caps are unchanged.
+- **`write` and `edit` say why.** Their check before the save (`checkUploadTarget`, the one upload_file uses) threw past
+  every handler into the generic catch, so a read-only folder, someone else's folder and a name clash all read "Tool
+  unavailable or access denied.", with no rejected-file event. They now go through upload_file's failure handling
+  (`uploadFailure`): the same reasons ("Access denied: read-only folder: …", "Access denied: not found or no access: …",
+  "Error: …"), the rejected-file event and an audit row (tool, ok false, via connector, path; never content). An
+  `Error:` keeps upload_file's wording (the raw message), not the in-app tools' translated safe-operations text.
+  Anything else still gets the generic answer, which never shows an exception's text. This ends the difference #155
+  kept between the write and upload paths.
+- **Team rules and the company profile.** Every in-app turn gets the header-less `skills/*.md` (the first ten the person
+  may read, `teamRuleFiles`) and the company profile (`chat/prompt.ts`). The connector's `initialize` instructions now
+  name them by path, for the person: "Team rules every teammate's AI follows (paths are data; skills_list marks them
+  rule: true): skills/a.md, skills/b.md. Read them before working on team files. Facts about the company, not
+  instructions: skills/company-profile.json." Only paths whose every name passes the guide's allowlist (`plainName`)
+  are named; the others are counted ("and 1 more"). Past ten rule files it says, as the in-app AI is told, that only
+  the first ten by file name count. `skills_list` lists the same rule files as `{ path, name, rule: true
+  }` after the skills, and its description says what they are. Only paths, never the text: every client session pays
+  for the instructions, and a `read` records the rule in the scope as any read does. `skills/` is readable by the whole
+  team by default, so reading a rule never blocks a save to `shared/`. A person who may not read `skills/` gets neither.
+- Tests: `tests/unit/remote-mcp-scope.test.ts` (a new id per initialize, a session keeps its scope across a restart, a
+  new session, an unknown id and the calls without one start empty, ids hashed, malformed ids refused; the idle hour,
+  use keeps it, an idle scope does not come back, a session's has no idle expiry, the housekeeping; upload links by
+  their session and a link from before; the session cap and the cascade; many ids of one connection still run one call
+  at a time; migration 118 carry-over; write/edit
+  refusal texts equal upload_file's, the events and audit rows, skill roots, the generic answer for other errors; the
+  rules in the guide and `skills_list`, odd names counted, access respected, a rule read then a save to `shared/`). The
+  rooms and history tests read the new scope rows.
+- Version impact: **patch** (connector behaviour; one add-only migration; no API or screen change).
+
+## 다른 AI로 대신 답하기 — which AI answers, decided in one place (fix/engine-choice, 2026-11-08, product owner)
+
+- **Why.** Two places decided which AI answers on their own. (1) A scheduled run took the team default engine and model
+  (`ChatRuntime.defaultEngine()`), not its owner's: someone whose own default is Codex and who has only a ChatGPT
+  connection got every scheduled run on Claude Code, which failed with "no AI connection" each time. (2) "A Claude
+  Code chat answered by Codex when only Codex has a working connection" (and the other way, "Z" above) happened only on
+  a server that held the hosting service's trial key, in any state. When the key was cleared, or the team moved to its
+  own server (a server that is not hosted drops the key at start), the same chats failed and Admin › Members showed
+  "No AI", with no setting changed. The owner: independent of the trial key, one visible admin setting.
+- **Scheduled runs** (`chat/schedules.ts start`): the owner's engine and model through `newChatEngine` (their own
+  default when they may pick and it is on, else the team default) and `turnEngine` (a switched-off engine: the team
+  default with the usual step), the same as Slack and rooms, decided at each run, so a later change of either applies.
+  Every run is a new chat ("<title> · <date>"), so there is never an existing chat whose engine a run keeps.
+- **One switch.** The existing `engines.limitFallback` (Team settings, the row under "팀원이 엔진 고르기 허용") is now
+  **"다른 AI로 대신 답하기"**: "채팅의 AI에 쓸 수 있는 연결이 없거나 Claude 사용 한도에 닿으면, 연결된 다른 AI(Claude
+  Code 또는 Codex)가 대신 답해요. 답변에 넘어갔다는 표시가 남아요." One label and description cover both cases
+  honestly, because both are "the chat's AI cannot answer now, the other one does, and the conversation goes to that
+  AI's company"; the description names the limit case as Claude's (there is no Codex-limit fallback). The warning names
+  both companies (OpenAI or Anthropic). Same key, same API fields (`limitFallback`, `limitFallbackAvailable`), same
+  rules: never while Codex is off (409, and switching Codex off turns it off). No new card or section.
+- **The no-connection case** (`credentials/access.ts connectionRoute`, used by the turn, `/api/me/ai-access` and
+  Admin › Members): with the switch on, a managed Claude Code or Codex turn whose engine has no working connection of
+  the person goes to the other engine when that one is on here and has one (the step "No AI connection for Claude Code;
+  answering with Codex, which is connected"). The trial key plays no part. With the switch off, the chat's own engine
+  answers or gives its usual "no AI connection". The trial credit still answers only when no connection of the person
+  works on either engine: a team that has AI of its own never spends it, the switch on or off (so with the switch off
+  and only ChatGPT connected, a Claude Code chat gets "no AI connection", not the credit). A connection only at its
+  limit while the other engine has one: the usual wait, or, for Claude with the switch on, the limit case as before.
+  The same rule everywhere that says who has AI: `newMemberAi` (the invite link's line) counts the other engine while
+  the switch is on and the credit only when the other engine has no connection either; the composer
+  (`chatEnginesFor`) offers an engine without a connection of the person while the credit is active only when the
+  credit or the other engine would answer it; Admin › Members does not count as "No AI" someone whose Claude
+  connections all wait out a limit while the switch is on and they have a Codex connection (Codex finishes those
+  answers). Switching it tells open windows (`engine_choice_changed`), so the "no AI" banner follows. Servers whose
+  engines sign in on their own (`authMode` other than managed) have no per-person connections: there the switch has
+  only its limit case, as before.
+- **The default: what keeps hosted teams and does not surprise self-hosted ones.** Hosted teams relied on the
+  no-connection case (it came with the trial key, whatever the switch said); a self-hosted team never had it, and
+  turning it on sends a team's conversations to a second AI company, which a team must choose. So: a server that is not
+  hosted keeps the switch as it is (off unless an admin turned it on: unchanged behaviour). A hosted server
+  (`deployment: "hosted"`) turns it on once, at its first start with this version (`admin/engine-choice.ts
+  settleHostedFallback`, called in `main.ts`; marker `engines.limitFallbackHostedSet`; an audit row `engines.update`
+  `{ limitFallback: true, reason: 'hosted_default' }` without an actor), while Codex is on there. It is written down, so
+  Team settings shows it, it stays when the key goes, and the team's backup takes it to its own server, where its chats
+  go on working. It is set over a stored `false`: Team settings' save sent `limitFallback: false` with every "who may
+  pick" change, and that `false` only ever meant the limit case. The one visible change for hosted teams: the Claude
+  limit case comes on with it (a Claude answer at its limit is finished by Codex when the person has a Codex
+  connection; the owner accepted this, 2026-11-08); an admin who does not want either turns the switch off, and it
+  stays off. A hosted server with Codex
+  off at that start is left off (switching Codex on later does not quietly turn it on, as before).
+- **Not changed.** No API shape, no migration file (settings rows), no Codex-limit fallback to Claude Code, no audit
+  row for a no-connection answer (the step says it; an audit row on every turn of a ChatGPT-only team would drown the
+  log). Earlier entries above ("Claude 한도에 닿으면 Codex로 넘기기", "Z") describe the switch and the route before
+  this change.
+- Tests: `tests/unit/schedules.test.ts` (a run on its owner's own default, the team default when they may not pick,
+  the team default at run time, a switched-off engine), `tests/unit/a-hosted-trial-credit.test.ts` (the switch, not the
+  key; off with a credit: never the credit; Members "No AI" after the key goes and in the limit case; the invite
+  line), `tests/unit/b-hosted-trial-turn.test.ts` (turns with and without a key, the switch on and off, the composer),
+  `tests/unit/engine-choice.test.ts` (the hosted default: self-hosted untouched, on once over a stored false, an
+  admin's off stays, Codex off; the notice), `web/test/e2e/engine-choice.spec.ts` (the new label and warning).
+- Version impact: **patch** (a scheduled run follows its owner's engine; the switch's wording and its no-connection
+  case; no API or data shape change).
+
+## What a deleted member or group leaves behind (fix/removal-leftovers, 2026-11-08)
+
+넣을 곳: trina-ax core (`server/src/credentials/assignees.ts`, `server/src/admin/groups.ts`, `server/src/admin/users.ts`,
+`server/src/credentials/service.ts`, `server/src/team-files/service.ts`, migration 117, the group and member delete
+dialogs), 이유: a design audit of dev found what deleting a member or a group left in place; members, groups, AI
+connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-leftovers.md`.
+
+- **AI connection assignments go with the group or person, and never widen access.** A team connection with any
+  assignment serves only the groups and people it names (`credentials/resolve.ts` `candidates`); one with none serves
+  the whole team. Deleting a group or a person now removes their `engine_credential_assignments` rows inside the
+  delete's transaction (`pruneAssignments`, which removes every row whose group or person is gone). A connection that
+  would be left with none is **switched off** (`disabled`), the state a connection already has, rather than left to
+  serve everyone: a paid key for one group must not suddenly be the whole team's. It is also **marked**
+  (`meta.assigneesGone`, also when it was off already), so a later click cannot widen it either: the row says "쓰던
+  그룹·사람이 삭제돼서 꺼졌어요. '대상 바꾸기'에서 그룹이나 사람을 고른 뒤 켜 주세요.", the bare switch-on (`PATCH
+  {disabled: false}`) is refused with that text (409 `assignees_gone`), and a save that picks a group or person clears
+  the mark. The edit dialog always sends its list, and for such a connection that is the empty "팀 전체" it opens with,
+  so an empty list is not a choice (a rename keeps the mark); the whole team counts only when the same request also
+  switches it on (`{assignments: [], disabled: false}`, never the dialog's save). Through the screens the way to the
+  whole team is the one for any connection: pick someone, then change it to the whole team. The token-file sync
+  (`credentials/migrate.ts`), which rewrites `meta`, keeps the mark. Each connection changed gets its own
+  `credential.update` line (reason `assignees_deleted`, before and after), `group.delete` / `user.delete` list the
+  connections switched off (`aiConnectionsOff`), an admin's delete tells the owner like any admin's switch-off
+  (`noticeOwners` 'disabled'), the engines' state is read again, and the connector's `group_delete` names them.
+- **The confirmation names them.** The group delete and member delete dialogs add one line, "이 그룹만 쓰던 AI 연결이
+  꺼져요: …" / "이 사람만 쓰던 AI 연결이 꺼져요: …", for the switched-on team connections assigned to that group or
+  person alone. The list is read with the page (`GET /api/admin/credentials`, which owners and admins see), so the
+  dialog opens as fast as before and keeps its focus return; when it cannot be read the line is left out (the server
+  switches them off either way).
+- **Saving a connection that names a group or person that is gone.** The edit dialog sends its whole form, and a dead
+  id has no checkbox to untick, so every save of such a connection failed with `unknownAssignee`. `updateCredential`
+  now drops ids whose group or person is gone; when none of the ones sent is left, the connection is switched off and
+  marked in the same write (also when the request says `disabled: false`), never saved as team-wide. A person who is
+  disabled but not deleted still counts: their rows stay everywhere. An empty list sent on
+  purpose still means the whole team. Adding a connection keeps refusing an unknown id: there is nothing to keep.
+- **"Chosen groups and people" with none ticked.** In the add and the edit dialog, picking that option and ticking
+  nobody used to save an empty list, which the API reads as the whole team. Neither dialog saves it now: the button
+  stays off and one line under the list says "그룹이나 사람을 하나 이상 골라 주세요." The server cannot refuse it
+  too: the request body has one list, and an empty list is how the whole team is asked for, so "chosen, none" and
+  "team" look the same there. Telling them apart would need a new field in the contract; not done.
+- **Rows earlier deletes left: migration 117.** Data only (reader 1). The same rule once: a team connection every one
+  of whose assignments is gone served nobody, so it is switched off before its rows go, with an Activity log line
+  without an actor (`via: upgrade`), like migration 216 did for paused schedules. A migration rather than the sweeper:
+  this is a one-time repair of what older builds wrote, and the delete paths keep it from coming back.
+- **A deleted person's profile and own AI connections.** Users are tombstones, so the `ON DELETE CASCADE` of
+  `user_profiles` (migration 115) and of `engine_credentials.owner_user_id` never ran: the photo, title and status, and
+  the person's own Claude or ChatGPT token or API key, stayed (Admin › AI providers still listed the connection). Both
+  are deleted inside `deleteUser`'s transaction now, like their own service connections already were; migration 117
+  does it for people deleted before. The photo is a BLOB in `user_profiles`, so there is no file to remove. App Store
+  account deletion (5.1.1(v)) needs the profile gone.
+- **The personal folder's transfer is a move.** `personalFolder=transfer` (the default, kept: owner decision
+  2026-11-08) used a raw rename. It now runs `TeamFiles.archiveFolder`, the database and disk part of `move` (now one
+  private step, `relocate`, that both use): version rows, folders rows, projects and the text cache follow the folder,
+  two file events say where it went (`tool: member-delete`), and the Files screen and the knowledge graph hear of it.
+  The chat attachments (`.attachments/`) are still removed first. No access check: nobody can open a deleted
+  account's folder, and the delete was the decision. So the member's personal projects (name and instructions, which
+  live only in the database) follow too and the owner sees them in the archive, as the task asked; before, they pointed
+  at a path nobody had. Two rules of `move` stay as they are: items the member had put in the trash do not follow
+  across the edge of a personal folder, and a version saved where only the member could read stays theirs
+  (`versionVisible` judges it by `path_at_save`; a version whose folders row moved with it is judged by that row, a
+  rare case), so the owner mostly sees the files and their history from the transfer on, not the member's earlier
+  versions. Changing that would show the owner drafts the member never shared: left for the owner to decide. The
+  archive name now also skips a name a folders row or a project already holds.
+- **A photo upload during the delete.** `saveAvatar` reads the whole upload before it writes; it now refuses (401) when
+  the account was deleted meanwhile, so the photo does not come back after `deleteUser` removed it.
+- **Docs.** `docs/security-and-permissions.md` (and the Korean copy) said only owners remove members; owners and
+  admins do (admins plain members, after their password). `docs/PERMISSIONS.md` says the personal folder moves to the
+  owner's archive on delete, what happens to AI connection assignments, and has a table of who reviews each kind of
+  skill proposal as the code works today (documentation only: nobody's review changed).
+- Tests: `tests/unit/a-removal-leftovers.test.ts` (group delete by an admin: a connection only for it switched off and
+  not team-wide, a mixed one keeps the person, audit lines and the owner's notice; team-wide and already-off
+  connections untouched; saving with dead ids; member delete: profile, own connection, assignment; the transfer's
+  history, project and file events; migration 117 on an older database).
+- Version impact: **patch** (fixes what deletes left behind; one data-only migration, no API change).
+
+## 방에 올리기… — a private room answer asks, also after a hidden earlier answer (feat/room-answer-post-ask, 2026-11-08, product owner)
+넣을 곳: trina-ax `server/src/rooms` (earlier-sources.ts, ai.ts, ai-redecide.ts, store.ts), `shared/src/api/rooms.ts`,
+`web/src/components/rooms/RoomMessages.tsx`, 이유: the room AI's share rule and permissions are core.
+
+The owner, on "🔒 나만 볼 수 있어요 · 방 사람 중 일부에게 가려진 예전 답을 참고해서 대화방에 올릴 수 없어요": "그냥 포스팅을 못한다고
+하면 어케해? 포스팅을 할지 물어봐야지". This amends "대화방의 트리나" (where the answer goes, posting a preview, the UX review's
+one-sentence reasons) and "지난 대화" (the AI's share rule: a preview that used an old answer hidden from some member was
+not postable, 409 `room_ai_hidden`, because its asker could not see what was at stake for them).
+
+- **What a hidden earlier answer was built on is followed and named** (`rooms/earlier-sources.ts`, called from
+  `RoomAi.decide`). For the old answers hidden from the members who keep the answer private (the ones `decide()` found
+  before, the asker's own hidden ones still exempt), what each used as kept (`room_ai_turns.scope`, a person's
+  message's `source_scope`) is followed: this room as a source through the answers in it hidden from those members that
+  the answer could have seen (before its own seq), a hidden thread reply through its thread's first message when that is
+  hidden too, a hidden answer through the answers in its thread; at most 8 levels (`EARLIER_DEPTH`) and 100 answers
+  (`EARLIER_MAX`), each once. When every source reached is one the asker may open now (a team folder or the top of the
+  team folder they may read, a name where they may read it, so it is named like a folder, their own folder), those
+  sources join the answer's own in `decide()`
+  and are judged as its own are: named folders, `personal`. `hidden` is then cleared and `earlier` set; such an answer
+  never goes to the room by itself (`post` is false even when every member could read all of it now, e.g. a hidden row
+  not checked again yet): its asker decides.
+  - **Why this is safe.** "The asker cannot see what is at stake" was true because the preview named nothing. What a
+    member who cannot see the old answer would learn from the new one is what the old answer was built on, and that is
+    now in the asker's sight: every source is one they may open themselves, named to them, with how many members cannot
+    see it. Following more than the old answer used (an answer of the room it did not see) only names more folders the
+    asker may open, or refuses. The others are never named; the count is the one the share-to-room dialog already gives
+    ("대화방에 보내기", A and B), not who.
+  - **Still refused** (no button, 409 `room_ai_hidden`, the reason alone: "가려진 예전 답을 참고해서 방에 올릴 수 없어요."):
+    a source in another room (a 1:1, a group chat, another team room), a connection, a shared Drive, the web or any tool
+    outside the team files, nothing kept, a source type this build does not know, someone else's own folder, a folder or
+    name the asker cannot open now, people's words (a message in a hidden answer's thread, deleted ones too since they
+    may have been given; a hidden person's message other than a shared answer without a note, as the note or a message
+    an AI app sent is their own words; a deleted person's message, whose content is gone) and files on a hidden message
+    (no team file to name), too deep or too many, and a team room's or the everyone room's member whose history is not
+    worked out yet (what they will see is not known). Also an answer of the room's AI that read shared project chats
+    (`project_chats` / `project_chat` in its turn's tool lines): the scope keeps such a read as the project's folder
+    (`chat/room-project-chats.ts`), whose rule can be wider than the chat's audience, so the confirm would name a folder
+    where a private chat was read (naming the chat would need the chats it read, which nothing records by design). And a
+    name that is not there now (moved or renamed): it would be judged on a path that no longer says what it was. No "ask
+    again" hint: asking again in the same place brings the same messages back.
+- **Counts.** `Decision.unable` (in `room_ai_turns.decision`, JSON, no migration) keeps for each named folder how many
+  members other than the asker cannot see it (read, or list for a name); `RoomMessage.preview.unable` and
+  `preview.earlier` carry them to the asker only.
+- **One line, one button, a confirm.** The preview's top line is "🔒 나만 볼 수 있어요 · 방에 올리기…" and under it one plain
+  line (supersedes the UX review's sentence per reason): "방 사람 중 일부가 볼 수 없는 자료를 참고한 답이라 지금은 나만 보고
+  있어요." (a 1:1: "상대가 볼 수 없는 …"; the web or a connection alone: "웹이나 연결된 서비스의 내용을 참고한 답이라 …"; no
+  reasons kept: "올리면 대화방 모두가 이 내용을 봐요."). The button shows exactly when `!preview.hidden`, the server's own
+  rule in `share()`. It opens the app's generic `confirmDialog` (no new dialog; the share-to-room dialog is not used, as
+  it posts as the person from their own chat and attaches copies): "이 답을 방에 올릴까요?", one row per reason ("단가표 · 방
+  사람 중 2명은 못 봐요", "… · 다른 사람은 못 봐요" when nobody else can, "다른 폴더 · 방 사람 중 일부는 못 봐요" for folders
+  the asker cannot open and the skills folders, "내 폴더 · 다른 사람은 못 봐요", "들어오기 전 대화 · ○○ 님은 못 봤어요", "웹이나
+  연결된 서비스의 내용"), a line when it went through a hidden earlier answer ("… 위 목록에는 그 답이 참고한 자료도 들어
+  있어요."; with no row left, as when every member can now read what it used: "… 그 답이 참고한 자료는 이제 방 사람 모두가
+  볼 수 있어요.", never "올리면 대화방 모두가 …" as if nothing were behind it), then [방에 올리기] / [취소]. 취소 changes
+  nothing. Every postable preview asks this way, also the ones one click posted before: posting something some members
+  cannot see always shows what is at stake first. Posting is `share()` as before (the AI's message, "○○ 님이 물어봄", the
+  sources some cannot read leave its list, `room.ai_share` audited, now with `earlier: true` when it applies).
+- **Reasons that changed.** `share()` decides again; a different decision, now also a different count (a member who
+  cannot see a folder joined), is saved, sent as `room.message.updated` and answered 409 `room_ai_reasons_changed`; the
+  app shows the server's sentence as a toast and the notice follows the update. A decision kept before the counts is
+  compared without them (`reasonsChanged`), so it is not asked again for that alone.
+- **Previews kept as not postable before this** (`rooms/ai-redecide.ts`, amended after the PR review). Every private
+  preview whose decision says `hidden` and that was made before this build's first start (`until`) is decided again
+  once, on its own question's scope, oldest first, in steps (20 rows or 250 ms, at least one row, 2 s apart, the first
+  5 s after start, when the server listens): never in the way of start-up. Where it got to (`after`: the last row by
+  creation time and turn id) is kept in `settings` (`rooms.redecideHidden.v2`) after every row, so a restart goes on
+  from there, a row is never tried twice and the pass ends when no row is left (not after a fixed number). A row's own
+  cost is decide()'s (`DECIDE_HISTORY_MS`, `EARLIER_DEPTH`, `EARLIER_MAX`). One that now qualifies gets its button: its
+  decision is saved and the preview sent to the asker's windows again. Nothing is posted. Previews made after `until`
+  were decided by this build.
+- **When people leave.** A member out of a team room or the everyone room (`Rooms.forgetMember`), or members' view of
+  its history changing (a later member's hidden answers checked again, `historiesOpened`), decides that room's refused
+  previews of the last 14 days again (at most 10), off the request (`redecideRoomSoon`, through the
+  `Rooms.onAccessChanged` hook set at start: `service.ts` does not import it, which would be a cycle). Amended
+  (fix/room-redecide-guards, re-review of #212): rooms wait in one queue per server and go one at a time, a step being
+  one room's previews for about 250 ms (at least one; the rest of that room in the next step), steps 200 ms apart, the
+  first on the next turn of the event loop; rooms with nothing to decide are looked past. People removed from many
+  rooms at once (a group's members changed, accounts removed: `Rooms.sync` calls `forgetMember` per row) so never run
+  every room's `decide()` back to back. A new decision is saved only on a turn still private (`AND status =
+  'private'`): one its asker posted meanwhile keeps what it is, and nothing is sent. Known limit: a
+  folder rule change that makes a refused preview postable without changing anyone's hidden answers (e.g. the asker
+  gets read access to a folder the earlier answer used) is not followed; that preview gets its button only when it is
+  sent again (the asker asks anew, or someone leaves).
+- **Independent review (2026-11-08) fixes.** A shared answer's note and a reply deleted from a hidden answer's thread
+  were let through unnamed (both are people's words); a name the asker could only list showed as "다른 폴더" instead of
+  by name (now a name must be readable by the asker); the start-up pass ran at every start; a preview whose only reason
+  was the hidden earlier answer had a confirm saying everyone would see it with nothing behind it.
+- Tests: `tests/unit/b-rooms-history.test.ts` ("an answer built on an old answer hidden from someone": followed through
+  two answers to the folder with its count, 404 for anyone else, posted and audited; another room, a connection,
+  someone else's folder, a folder the asker cannot open and people's words in its thread refused with 409; a note, a
+  deleted reply, files and an AI answer in a hidden thread refused, a shared answer without a note followed; a hidden
+  reply through its hidden first message; the asker's own folder and a name; a chain to `EARLIER_DEPTH` and past it; a
+  member whose history cannot be worked out refused; a count that changed answered 409 and then posted; a thread; the
+  start pass in steps over more rows than one step takes, each tried once, done when none is left; someone leaving;
+  project chats and a name no longer there refused; `reasonsChanged`), `b-rooms-ai.test.ts`,
+  `web/test/unit/room-messages.test.tsx`, `web/test/e2e/room-answer-post.spec.ts`.
+
+## 대화방의 확인 카드는 다시 읽는다 — a room's AI cards come back (fix/room-card-reload-scroll, 2026-11-08)
+
+- **Why.** Hands-on QA on dev: a card @트리나 raises for the person who asked in a room (the AI's question, a
+  confirmation) is sent once over the socket (`turn.request`). A chat reads its open cards again when it loads
+  (`GET /api/chats/:id/requests`); a room read only `GET /api/rooms/:id/ai`, which has none. After a reload, in another
+  browser, on the phone or after a reconnect the server could not resume, the sidebar showed the "?" and the room
+  "트리나가 답하는 중" with [멈추기], and nothing to answer: the question waited until the card timed out.
+- **The rule.** A room's cards come back like a chat's. `GET /api/rooms/:id/ai/requests` lists the open cards of the
+  caller's own questions in that room, its threads included, in the shape a chat's list has (`OpenTurnRequest`, both
+  from `TurnExec.cardsFor`): not a card for another desktop window, never a connect card (a room does not show one).
+  The web app reads it with `GET /api/rooms/:id/ai` whenever it reads the room's AI (opening the room, `resync` after a
+  reconnect) and merges it as a chat does (`mergeOpenRequests`, scoped to this room's questions of mine: a card that
+  came over the socket meanwhile stays, one closed meanwhile stays closed, other rooms' and chats' cards are left).
+- **The asker's only.** A card's question, its details and its preview can hold what only the asker may read (a file's
+  text, a folder some members cannot open). The list reads only the caller's active questions (`room_ai_turns.user_id`)
+  and checks the running turn's owner and room again; another member gets an empty list (they see the count,
+  "트리나가 답하는 중", as before), someone outside the room 404. Answering stays `POST /api/turns/:id/answer`, which
+  takes the caller's own turn only (anyone else: 404, the card stays open): unchanged, now tested.
+- **Its own endpoint, not a field of `RoomAiState`.** `shared/src/api/rooms.ts` cannot import `TurnRequest`: `ws.ts`
+  and `chats.ts` import `rooms.ts`, and the cycle would break at load. The endpoint is declared in `chats.ts` beside
+  `listTurnRequests`. An older server answers 404 and the app shows what comes over the socket, as before.
+- **A new card in view.** The room (and its thread panel, and the chat) took any scroll event more than 80 px above the
+  bottom for the reader scrolling up. The scroll event of the list's own jump to the bottom comes a frame later; when
+  the card arrived in between (the step event and the card come together), the room stopped following and the card
+  stayed below the message box with only "확인해 주세요" in sight (3 of about 9 cards). Now only a move up stops the
+  following (`followsAfterScroll`, `lib/stickToBottom.ts`), measured from where the list last was: its last scroll
+  event or its own last jump to the bottom (`jumpToBottom`, and the size watcher says when it jumped), so a link's
+  message scrolled into view in the same frame as that jump still stops it; the size watcher (`stickToBottom`, a ResizeObserver on the
+  content) keeps the whole card in view as it appears or grows. A reader who scrolled up is left where they are. Rooms
+  have no "new below" button; none was added.
+- **One button order.** Amends "대화방에서 새 파일은 미리 허용", whose three buttons put the main one first while the
+  yes/no card and dialogs put it last. Every server card now has the quiet "no" first and the main one last, on the
+  right: [허용 안 함] [이 방에서는 항상 허용] [이번만 허용]; the address and dev-environment cards too (`ChoiceRow` in
+  `AskCard.tsx`). On a phone the three stack full width with the main one on top, as the skill share card's stacked
+  buttons. Labels unchanged (docs/DESIGN-SYSTEM.md, Confirmation cards).
+- Tests: `tests/unit/b-rooms-ai-cards.test.ts` (the asker gets the card back on a new socket and in another window and
+  answers it from there; another member gets no card, no event and none of its words, and is refused; outside the room
+  404; timed out or answered it is gone; a thread's question; another room's card stays out), web unit tests
+  (`room-ai-cards.test.ts`, `stick-to-bottom.test.ts`, `ask-card-confirm.test.tsx`), `web/test/e2e/room-ai-cards.spec.ts`
+  (reload, the asker's phone and another member, the card in view at 1440 and 390 with the race forced, button order).
+- Version impact: **patch** (fixes; one read-only endpoint, additive).
+
+### Follow-up after review (fix/askcard-order-a11y, 2026-11-08)
+
+- **Reading order of the three buttons.** `ChoiceRow` put the main button last in the page and showed it on top on a
+  phone with `flex-col-reverse`, so on a phone Tab went bottom to top (WCAG 2.4.3). Now the page holds the server's
+  order (main, "always", "no"): the phone stacks them so, and from `sm` the row is reversed (`sm:flex-row-reverse`), so
+  a computer still shows [허용 안 함] [이 방에서는 항상 허용] [이번만 허용]. One page order cannot match both layouts; the
+  phone's stack is where position and reading order must agree, and on a computer Tab now starts at the main button on
+  the right. A failed answer's reason comes after the buttons (under the row), not before them in the row. The address
+  and dev-environment cards are the same `ChoiceRow`. Buttons are keyed by their place, not their label.
+- **No chat id in a room's card list.** `GET /api/rooms/:id/ai/requests` answers `RoomTurnRequest` (turn, message,
+  question): the room's AI session is a chat that is never listed or opened as a chat, and the room finds a card by its
+  turn, so the chat id told the web nothing. `OpenRequest.chatId` is optional in the web store; the socket's
+  `turn.request` still carries it.
+- **A turn that ended between the two reads.** `loadAi` reads the runs and the cards side by side. A turn that ended
+  between them and that the window does not know is outside the list's scope: its listed card is not merged and a copy
+  the socket brought is not dropped by that read; the turn's `turn.request.closed` removes it (the end of a turn closes
+  its cards first). Commented in `store/rooms.ts` and tested (`room-ai-cards.test.ts`).
+- **People no longer there.** Tested in `b-rooms-ai-cards.test.ts`: a member taken out of the room gets 404; the asker
+  taken out has their question stopped (`stopFor`), its card closed, 404 for the list and 409 for an answer; a disabled
+  account's question stops (`stopTurnsOf`), it leaves the team room (404) and nobody else gets its card.
+
+## W6 — Onboarding v6: easy owner handover (feat/onb6-handover, 2026-11-08)
+
+The owner: "이거 너가 같이 고려해서 만들어줘" (onboarding v6 §12), then decided: the first account stays the owner and
+nobody is asked "팀장이세요?"; the handover is made easy instead; no "넘긴 뒤 나는 이 팀에서 나가요" box (unclear): the
+helper's way out is the new owner's [내보내기] and Admin › 멤버. Our own staff often set up a customer's team, so the
+handover must leave them no hidden access. Placement: Team AX core (`server/src/admin/handover.ts`, `admin/users.ts`
+transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, migration 270). No new pages.
+
+- **The race (security review S1).** Two transfers at once made two owners: the role check ran before the body read and
+  the slow password check, and the swap never looked at what it changed. `transferOwnership` is one `.immediate()`
+  write that reads the caller (active owner) and the target again, requires exactly one row changed by the demote and
+  by the promote, and answers 409 `owner_changed` ("이미 팀장이 바뀌었어요") otherwise. Targets: active, not me, past the
+  temporary password and signed in at least once (`last_seen_at`): an expiring temporary password would strand the team,
+  since nobody can reset an owner (409 `target_not_ready`). Sessions are not ended: the role is read on every request.
+- **The lead flag** ("이 사람이 팀장이에요 · 들어오면 팀장을 넘길지 물어볼게요", with "누구에게 보내나요?") lives on a
+  single-use invite (`CreateInviteBody.leadFor`, ≤ 60 characters, control and format characters out, shown as text
+  only). Only the owner sets it, on the server (403 for an admin; the hidden checkbox is not the guard). The invite is
+  always a **member** in the team's group for **3 days**, whatever the request says (role admin with the flag is 400):
+  admin and owner rights come only with the owner's [넘기기], so a forwarded link gives a stranger a member's seat that
+  any admin can disable. One lead invite is open: a new one revokes the open one and clears older hints in the same
+  write (and the partial unique index `invites_one_open_lead` holds it). A transfer stops an open lead link (its message
+  promised a handover by someone who is no longer the owner) and clears every flag, used or not; only the owner may stop
+  a lead link by hand. In
+  the invite step and in Admin › 멤버's invite form (owner only); the message is the one-person one ("…들어오면 {name}님이
+  팀장을 넘겨 드려요: {url} · 한 사람만 쓸 수 있는 링크예요"), with no particle after a variable (받는 사람: {label}).
+- **The card** (Home's top slot, one thing at a time) and its Inbox notice `owner.lead_joined` (also pushed to phones and
+  browsers: `handover_notices` is a third push source with its own deliveries; and a desktop notification through the
+  realtime notice `owner_lead_joined`). They show only facts the joiner could not set: the owner's words for whom the
+  link was, the account's name and username side by side and the join time. Shown only while it holds: the flagging
+  owner is still the owner, the flag stands and the joiner is active (read at every read; the push checks it too). ✕
+  hides the card only (`lead_hint.dismiss`); the notice keeps its [넘기기], which opens the confirm from the notice
+  itself, never from an address with a user id.
+- **The confirm** (card, Inbox, Admin › 멤버 › ··· › 팀장 넘기기; the Admin › 팀 설정 card is gone, Account deletion's link
+  goes to Admin › 멤버): 받는 사람, what moves (팀 이름, 관리자 지정, 업데이트·백업; admins already manage the team AI), the
+  connections made with the leaver's own accounts (team AI sign-ins: a Claude or ChatGPT subscription whose token is
+  theirs on record, written when the connection is made, its token replaced or signed in again, or a member's own one
+  moved to the team;
+  Drive shares signed in with their Google account; team connections to services, an MCP server such as Higgsfield,
+  whose OAuth sign-in is theirs, read from `team_sign_ins` alone (written by the sign-in, cleared when it ends; a sign-in
+  from before that record is unknown and neither listed nor ended); team API keys and keys typed into a connection
+  are the team's and never listed), each ticked "넘기면
+  끊어요" (untick the company's own seat), the line on who can still reset passwords (hosted, the office server Mac, a
+  self-installed server), and the password. The rule: settings move with the role; connections in a person's own name
+  are ended by that person, at the handover. Which ones is written in the transfer's own write (`owner_transfers.to_end`,
+  only what is the caller's then), and they are ended **after the commit** (`owner.transfer.disconnect` per connection;
+  a Drive share or a team connection keeps its settings and rule, loses its tokens, and the service is asked to revoke
+  them; the Drive admins are asked to sign in again); a failure never undoes the transfer, and the result goes to both
+  people. What is not ended (a service failed, or the server stopped right after the commit) is tried again at the
+  server's next start (audited with no actor, `retry: true`), and the new owner sees it in the transfer's notice as "아직
+  끊지 못한 연결" with [끊기] (`POST /api/admin/handover/end-pending`), so the old owner's tokens never keep serving the team
+  unnoticed. Neither ends a sign-in made after the transfer (a new decision) or anything once the old owner is the owner
+  again, and an ended result is never overwritten by a later try.
+- **The password** is today's `owner-reauth`: 5 wrong tries per person per 15 minutes, `auth.reauth_failed`. The limit is
+  shared by every re-check of the person (updates, restore, the API engine, the current password), so a wrong try that
+  locks **any** of the owner's re-checks gives the owner one note `owner.reauth_locked` per window, in the Inbox and as a
+  push that goes out even once the note is read (a stolen session is the case it guards against: it could mark the
+  note read; `auth/service.ts onReauthLocked`). The note sends the owner to 설정 › 보안 to sign out a device they do not
+  know first (that asks for no password, which is locked now), then to change the password. There is no sign-in
+  without a password to bypass it.
+- **After it.** In the same write: the old owner's admin invites stop (today), every lead flag goes, the transfer is
+  recorded (`owner_transfers`, `via` lead_card | members_menu decided on the server), audited `owner.transfer {from, to,
+  via}`; reset links made by nobody (the server's CLI, the control plane) for either person stop, so one minted before
+  the handover never signs its holder in as the new owner. After the commit nothing can turn the transfer into an error
+  (each step on its own): `afterAccessChange`, then both people and the admins are told before the slow part (ending the
+  connections, which records its result on the transfer afterwards). The deletion-request notices follow the roles, the
+  old owner's lead notices are settled, and the notices `owner.transferred` go to the new owner ("지수님이 팀장을 넘겼어요 · 지수님은 관리자로 남아
+  있어요" [내보내기], the existing disable, and 설정 이어서 하기 while the welcome steps wait), the old owner ("박민준님이
+  팀장이 되었어요 · 나는 관리자예요") and every other admin ("팀장이 박민준님으로 바뀌었어요"). Both people's open windows
+  get the realtime notice `owner_changed` (per user id, every socket) and refresh their role: the old owner's /welcome
+  and setup row go at once. `notOnSelf` stays: the helper cannot remove themselves; the new owner can.
+- **Hosted teams (re-check N4).** The control plane can mint a reset link for the owner (`reset-link {owner:true}`, which
+  resolves to whoever is owner now) or anyone by `{username}`, with `createdBy null`, so the team server cannot limit it
+  through `resetUsable`. Until the control plane refuses owner and admin targets after a handover in both forms (until
+  the new owner claims recovery in the product), a hosted team gets no flag and no card (`HandoverState.flag` false,
+  `createInvite` 409 `lead_not_offered`), only ··· › 팀장 넘기기, and both people are told that the hosting account can
+  still reset passwords. The operator turns on `handoverSafe` in server.json when the control plane is ready; then the
+  transfer sets the recovery lock inside its write, `mycel-ctl reset-link` refuses every owner or admin target in both
+  forms while it is set (admin.js exit 3 `owner_recovery_locked`, also `mycel-account reset-link`; members stay
+  reachable), a link made by nobody is refused for an owner or admin target at redemption while it holds (one minted
+  earlier, or for a member later made admin), and `admin.js owner-recovery-claimed` (for the control plane, after the
+  claim) clears it. **2026-11-09:** `owner-recovery-claimed` is a tenant command now (`TENANT_COMMANDS`, mycel-ctl
+  `{ ok, cleared }`), and `mycel-ctl reset-link` exits 3 with `owner_recovery_locked` while the lock holds (before, it
+  exited 1 like any failure). `handoverSafe` still stays off until the control plane runs the command after the new
+  owner's claim; the hosted side still has to build the claim link and the recovery contact.
+- **Checked and written down (review S6).** Realtime goes per user id and owner fan-out is looked up when sent; CSRF is
+  covered and the password is needed too; the old owner keeps `mcp:admin` grants, as any admin does; a self-hosted
+  server's admin can still run `reset-link` (the dialog says so). Not here: Higgsfield and team MCP connections in the
+  dialog (owner: no Higgsfield now).
+- **Independent security review (2026-11-08).** Fixed: a temporary-password reset racing the transfer could land on the
+  new owner (the reset read the target before its slow hash; it now reads the caller and the target again inside an
+  immediate write, and so does every member change); a reset link made by the CLI before the handover still worked on
+  the new owner, also under the hosted lock (stopped at the transfer, refused for owners and admins under the lock);
+  the lockout note fired only on the transfer's own check (now any re-check, and pushed); a step after the commit could
+  answer 500 for a done transfer and leave nobody told; the joiner's display name reached the card raw (now one plain
+  line, and the web isolates it); an open lead link outlived the transfer; a lead notice stayed open after the flag was
+  turned off. Round 2 (PR review): the lock note's push could be stopped by marking the note read; it sent the owner to
+  a password change that is locked too; what to end was only in memory until the commit's aftermath ran; team OAuth
+  connections were not listed. Round 3: whose sign-in a team connection is came from the audit log, whose details hold
+  the connection's and its tools' names (an admin, or the MCP server, could name one "signIn" and become its signer);
+  now `team_sign_ins` only. Round 4: team AI sign-ins were still matched by `created_by` and `created_at`, which a token
+  replaced or reconnected later does not change (an admin's token in an owner-made connection listed as the owner's; a
+  reconnect after the transfer looked older); they are on `team_sign_ins` too now (`team_ai`), with unknown ones failing
+  closed. Every place that ends a sign-in clears its record (an end, a removal, a stop, an owner gone, a moved address),
+  and the callback writes it only when its tokens were stored. Kept, written down: admins see an open lead invite's words in the invites list; a backup
+  from before a transfer can still be restored, and the team exported, by whoever runs those on the hosting side (the
+  reset-link lock does not cover them); the joiner picks the name and username the card shows, and only the owner's
+  words and the join time come from the owner's side (the card says so by showing them side by side).
+- Tests: `tests/unit/a-handover.test.ts` (the race with concurrent requests, targets, the admin refusal, the shape of a
+  lead invite, one open flag, expiry, a forwarded link, the card and ✕, a disabled joiner, the connections listed and
+  ended, notices, realtime, audit, the password limit and its note, hosted gating and the reset-link lock),
+  `web/test/unit/handover*.test.tsx`, `web/test/e2e/handover.spec.ts`.
+- Version impact: **minor** (new endpoints and fields, an invite flag, notices and a push event; migration 270, additive).
+
+## Web tidy-ups: one name for AI chats, one row menu, rename in a room's "⋯" (chore/web-tidy, 2026-11-08)
+
+넣을 곳: trina-ax core (`web/src/i18n/`, `web/src/components/Sidebar.tsx`, `web/src/components/rooms/RoomMenu.tsx`,
+`web/src/components/rooms/MembersDialog.tsx`, `web/src/components/ui.tsx` promptDialog, `web/src/pages/Projects.tsx`,
+`web/src/components/settings/SettingsDialog.tsx`), 이유: a design audit of dev found these on the chat, room and
+settings screens, which are core. Plan: `docs/AGENTS/plan/20261108-1241-web-tidy.md`.
+
+- **AI chats are 기록 in Korean (the owner's choice).** The sidebar already said "트리나 기록" and "삭제한 기록", rooms are
+  "대화". The project page's list heading is now the sidebar's own message, "{AI name} 기록", in every language (the
+  key `projects.myChats` is gone). Korean lines that name the list or a past chat say 기록: the trash banner and the
+  team setting row (삭제한 기록), the project's empty list and its project dialog, scheduled runs (기록 열기, 새 기록에
+  남아요), a memory's source, member and account deletion, Slack, the secret warning, the row menu's name (기록 메뉴),
+  and the delete confirms (기록을 삭제할까요?, 기록을 삭제했어요, and the project's "폴더와 (내) 기록은 그대로 남아요";
+  its "공유 채팅은 … 휴지통" line keeps the feature's name). The confirms were changed by `fix/shared-chat-trash-live`
+  at the same time and done here after it merged.
+  Left as 채팅, because 기록 would not read: verbs and the chat in front of the person (새 채팅, 채팅에서 물어볼 때, 이
+  프로젝트에서 채팅, 채팅 입력창, 채팅에 추가, 채팅에서 쓰기, the footer under a chat, whose shared twin says 이 채팅, and
+  the skill form's line in a chat), chats that go on (the access change lines: "채팅 N개는 … 이어가요"), the dev
+  environment's and engine settings' lines about chats as they run, admin lines where 기록 reads like "the log"
+  (restore, export, Drive sharing's stop) and the 공유 채팅 family (a feature's name). Server messages other than the
+  confidential one keep their words.
+- **Confidential mode stays 기밀 대화** (the owner: "기밀 기록" sounds odd): the two artifact notices and the server's
+  share refusal said 기밀 채팅.
+- **Admin's audit log is 활동 로그.** It read "기록", like chat history. One key gives its menu row, page title and
+  card; the team setting row and the lines that send people there (감사 기록, 활동 기록) say 활동 로그 too, as English
+  says "Activity log" everywhere, and so do the Korean guides and docs that named the page (guide, office guide,
+  OFFICE.md, PERMISSIONS.md, PLUGINS.md). Other languages changed only where they had the same mismatch: Japanese named the
+  setting アクティビティログ beside the page's 操作ログ, and English, Indonesian, Japanese and Spanish named the trash
+  setting "Deleted chats" beside the trash page's own name; both now use the page's name.
+- **Chat rows use the rooms' row menu** (`MenuButton` and `useRowMenu`, as in "대화 숨기기" above). The same items for
+  the same people (이름 바꾸기, 프로젝트로 옮기기… or 프로젝트 바꾸기…, 삭제). A right-click on the row opens it, Shift
+  keeping the browser's own; on a touch screen a long press does, a sheet on a phone with the chat's title on top, and
+  the finger lifting opens no chat. The row's link has `user-select: none` and no callout on a coarse pointer, so a
+  long press starts no text selection (rooms do the same). Unlike a room row, the "···" stays on screen on a phone (it
+  was there before, and a screen reader reaches the menu by it) and the row's marker sits left of it. The row is
+  highlighted while its menu is open. The hand-made popover and its own Esc and outside-click code are gone. Two
+  MenuButton changes for every menu: a click within 800 ms of a long press that opened it does not close it (a long
+  press on the phone's visible "···" opens it, and the finger lifting clicks the same button), and the menu is as wide
+  as its longest item, at least 176 px (the popover was `w-max`; "Pindahkan ke proyek…" would wrap in a fixed 176 px).
+- **이름 바꾸기 in a room's "⋯"**, after 알림 설정, when `Room.canRename` (the server's rule, unchanged: a group chat's
+  members; owners and admins in a team room or the everyone room; never a DM). It is in every place the "⋯" is (the
+  header and the rows), like the menu's other items. It opens the rename prompt the chat rows use (`promptDialog`, now
+  with `placeholder`, `allowEmpty` and `maxLength`), with the info dialog's hint, the name an empty field goes back to
+  as the placeholder (`useNameFallback` in RoomIcon.tsx, shared with the info's field) and 80 characters; it saves through the same
+  `useRooms.rename`. Not the info dialog's own field inside a dialog: a dialog rendered from a row is a portal whose
+  pointer and right-click events reach the row's long-press and right-click handlers, which would open the row's menu
+  behind it; the prompt lives in the app's one dialog host. The tap on the title still edits the name in the info.
+  The prompt does not check the name before sending (neither does the info's field): a name the server refuses
+  (invisible or control characters) shows its error, and the prompt has closed.
+- **대화방 나가기 only in the "⋯".** The room's info had it at its end too. The header's "⋯" is on screen on phones and
+  computers, so the info no longer repeats it (the owner prefers fewer buttons).
+- **Leftovers.** `pages/ConnectorConnections.tsx` was imported nowhere (Settings › Connectors shows Drive and Slack);
+  its Slack tests mount `SlackAccount` itself. The Settings dialog's phone sets no longer name the removed
+  `integrations` section (its old address still leads to Connectors). Not changed: the Connectors page has its own
+  title row, so on a phone its name shows in the bar and again on the page; putting `connectors` in `OWN_TITLE` would
+  fix that, a visible change left for the owner. 65 i18n keys no code uses are gone from all five languages, found by
+  a script that also turns every template literal into a pattern; keys built in templates stay (`kg.offTitle`,
+  `kg.docs.*`: `${k}.offTitle` in `KnowledgeGraph.tsx`). Two unit tests used removed keys and use live ones now.
+- Tests: `web/test/unit/sidebar.test.tsx` (a chat row's right-click and long press, on the row and on its "···", the
+  sheet's title, no navigation),
+  `room-hide.test.tsx` (이름 바꾸기 by kind and permission; the prompt's value, placeholder and hint; an empty name
+  sent as null), `room-info.test.tsx` (no 나가기 in the info), `slack-screens.test.tsx`; the e2e specs that named the
+  old words.
+- Version impact: **patch** (wording, one menu, dead code; no API or data change).
+
+## W6.3 — What a new member sees first (feat/onb6-members, 2026-11-09, product owner)
+
+The owner invited a member on the dev server and the member saw a bare Home: with 할 일 정리 gone the invite lands on
+Home, and nothing there named what the team had prepared (FLOW-v6 §6 said "members unchanged"). The owner approved the
+direction ("그럼 ㄱ"); the plan was reviewed per persona (5 MUST, 16 SHOULD, 4 CUT) and revised before building. No new
+page, no migration. Placement: Team AX core (Home, the skills routes, onboarding components). Plan:
+`docs/AGENTS/plan/20261108-1734-onb6-members.md`.
+
+- **Where an invite lands is unchanged.** A link with the owner's shared skill opens its form; every other link lands
+  on Home. Not the first kept skill's form: 회사 소개서, 카드뉴스 and 홍보 영상 make company material, and a member's first
+  run would remake the company's cards on the team's AI.
+- **One member endpoint, `GET /api/skills/examples`** (`auth: 'user'`, server/src/skills/examples.ts), read as the
+  caller. It returns only:
+  - `skills`: the caller's own team and group skills (what "/<name>" runs for them; personal skills left out), the
+    landing skill first, then the kept skills **at their pack path** in a member's order (자연스러운 글 → 카드뉴스 → 홍보
+    영상 → 회사 소개서), then the others by name. Each has its title and one line in the caller's language (a kept
+    skill's own line, else the first line of its description). Only a kept skill at its own pack path carries Trina's
+    example, its language and its source line: an owner's own "card-news" in another folder is the team's skill, not
+    Trina's (the catalog's `inTeam`, which also matches by name, was the wrong rule for this);
+  - `teamFolder`: the welcome steps' team group folder (the group's current folder), its documents counted **as the
+    caller**, all levels down (팀 파일 uploads into subfolders, so a one-level count found none), at most 100 (`more`),
+    and at most 5,000 entries looked at; folders are read entry by entry (`opendirSync`), so the walk stops at the cap
+    instead of reading whole folders. A count is reused for 45 seconds per person and folder (every open Home and the
+    Files screen read it, and a busy `groups/` folder is not walked for each); the person's own change in the folder
+    (the file screen, an upload, their AI's save: `publishChanges` now says who made a change) drops theirs at once,
+    someone else's shows within that time. `without` names the two folders left out, for the 물어보기 question. Not counted: the steps' own brand folder (회사 소개.md and the website's
+    pictures would make every team with a profile look like it had files), the group's own skills folder (those are
+    skills, listed above), dot files, Office lock files (`~$`), the files an operating system makes (`isSystemName`,
+    now in shared/src/api/files.ts for the folder upload and the count), links, hard links and odd names. A folder
+    hidden from the caller does not count for them. `null` for a team without a group and for a caller who cannot list
+    the folder (a member who joined another way): no file count, no name;
+  - `landing`: the invite's skill (`landingSkill` as the caller) only when it is in the caller's list;
+  - `ranTeamSkill`: the caller has a `turn_skill_runs` row (team skills only, migration 223) in an answer that
+    finished and that they started themselves (a failed run and a scheduled run do not count, as for the goal and the
+    suggestions);
+  - `hasProfile`: a company profile is saved (the profile itself is not sent).
+  Nothing owner-only: the welcome state and the catalog stay `auth: 'admin'`, the install stays 403 for members, no
+  file names go out. Owners and admins get the same shape.
+- **"팀에 준비된 것" on Home** (web/src/components/onboarding/TeamPrepared.tsx) in place of the first-time folder card
+  and its three example boxes:
+  - skills: up to 3 rows (title · one line · 예시 when there is an example · 써 보기), then "팀 스킬 N개 더 ›" (팀 스킬).
+    They show **until the person ran a team skill**, however many chats they have (people who chatted before this
+    change included; keyed on `ranTeamSkill`, not on chats). 써 보기 opens the skill's form over Home (✕ back to the
+    block). **자연스러운 글's 써 보기 fills the box** with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" and a new line, as the
+    "/" menu's compose does: its form has inputs and so no box for the text, and a run without the text would be the
+    AI asking for it;
+  - team files: while the person has no chats and the count is above 0: "{폴더} · 파일 n개" ("n개 넘게") with 물어보기,
+    which puts "{path} 폴더의 파일 이름과 종류만 보고(브랜드, skills 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘" in
+    the box (the path named, as the old examples did; names and types only, so it does not open 18 PDFs on a member's
+    own key; the folders the count leaves out are left out of the question too). Not sent. The
+    folder's name is not a link (파일 is in the sidebar);
+  - nothing of that, no chats yet: "이렇게 시작해 보세요" and one filled question that needs nothing from the team ("우리
+    회사가 하는 일을 3줄로 정리해 줘" with a saved profile, which the prompt carries; else `home.example1` on the person's
+    own folder), then the old "no team folder" line when they can open no team folder. Same on a phone. No "준비 중"
+    line for anyone: the client cannot know it is true;
+  - **one filled button for a member**: the first skill's 써 보기, else 물어보기, else the question. **Owners and admins
+    get no filled button in the block**: the goal card or the setup row stays the one thing on Home ("Y"). With nothing
+    prepared they see "스킬 넣기 · 팀 파일 넣기" (팀 스킬, 파일) instead of a question;
+  - **no AI**: a member gets the block read-only under the no-AI card (rows and 예시; 써 보기, 물어보기 and the question
+    come back when AI answers, as the card reloads AI access); owners and admins get the card alone. Both keep the demo
+    and project rules (`extras`, `!projectId`);
+  - phones: a skill row's tap is 써 보기 and 예시 is its own 44 px target at the row's end; "팀 파일 · 파일 18개 · 물어보기"
+    is one row; no frame;
+  - it reads again on skill, access and team-folder changes, once per burst (1.5 seconds after the last change: a
+    folder upload is one read, not one per file; a skill removed meanwhile leaves); an example that cannot be read
+    leaves the row without 예시; a failed read is one quiet "다시 불러오기", never the empty state;
+  - **「자주 쓰는 스킬」 stays out while the block's skill rows show** (the owner's call after the review, lean UI: two
+    lists of skills side by side); it waits for the block's answer, so it never flashes first, and comes back once the
+    person ran a team skill.
+  Removed: `FirstTime`, its `Access` and `AccessLegend` and their strings (`home.foldersTitle`, `home.foldersCount`,
+  `home.example2`, `home.example3`, `files.canWrite`, `files.canWriteTip`); `home.example1` and `home.noFolders` stay.
+  Kept as it is: the frequent questions.
+- **The invite step's line** (InviteStep, the welcome steps' 5/5 and the goal card's invite): with no team skill and no
+  document (the same count; a count that stopped at its cap before it found a document is no empty team), one quiet
+  line above the message, "지금 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일
+  넣기". In /welcome the links open 내 스킬 and 팀 파일 and the next step after each is 초대 again (the next open step);
+  elsewhere they go to 팀 스킬 and 파일. It never blocks (copying works as before), and it is gone while "이 사람이
+  팀장이에요" is ticked: the lead is the one who will set up. No product we looked at warns before an invite in the
+  product (Slack's onboarding template says "wait to add others until you've customized it"); ours is one line.
+- **The Files screen's "폴더에서 회사 문서 추천받기"** shows while the same count is 0 and did not stop at its cap (it
+  checked one level only, so after a folder upload it still offered itself).
+- Not built (CUT in the review): "쓰던 스킬 가져오기" in the empty state (non-developer teams have no skill folder; 팀
+  스킬 offers it), a link on the folder's name, a second endpoint, a separate landing rule. Optional and not built: a
+  "팀원에게 이렇게 보여요" label for owners.
+- i18n: `home.prepared.*` in the five languages.
+- Tests: `tests/unit/b-skill-examples.test.ts` (member and owner; the count recursive, without the brand folder, the
+  group's skills, dot, lock and system files and links, a hidden folder for the member only, the cap; the pack-path
+  match and an owner's same-name skill; a personal skill of a kept name; the landing skill a member cannot open;
+  `ranTeamSkill` (not a failed or a scheduled run); the reused count and what drops it; nothing owner-only, the
+  welcome state and the install 403; a gone group), the permission matrix case
+  (`tests/security/lib/cases.ts`), `web/test/unit/team-prepared.test.tsx` (every persona, the order, one filled button
+  by role, the compose, the form, the viewer, phones, the retry, the invite line and the lead box hiding it, a count
+  stopped at its cap), `home-no-ai.test.tsx` (the read-only block for a member, none for owners and admins;
+  「자주 쓰는 스킬」 out while the skill rows show), e2e `team-prepared.spec.ts` (1440 and 390).
+- Version impact: **minor** (a new endpoint and a visible change on a member's first screen and the invite step; no data
+  change).
+
+## 알림 미리보기 — the message's first line in a room notification (feat/notification-preview, 2026-11-09)
+
+- **Decision:** a room notification on a device shows the message's first line as its body, behind a per-person switch
+  `NotificationPreferences.messagePreview` (Settings › Notifications › 메시지 미리보기 표시), **on by default**, as
+  Slack, KakaoTalk and WhatsApp do. This amends "알림함의 대화 알림" and "아이폰 알림의 이름", which said a push never
+  shows the text. Off gives the old behaviour exactly.
+- **Where the line comes from:** never the push payload. The push gateway still gets ids only. The browser's service
+  worker reads `room.preview` from its signed-in `GET /api/notifications/:id`; the iPhone extension reads `body` from
+  `POST /api/push/devices/:id/label`; the desktop app takes it from the `room.message` event it already has
+  (`RoomAlertSettings.messagePreview` from `GET /api/rooms` says whether to). All three use the Inbox's rule
+  (rooms/inbox.ts previewLine: the first line with text, plain, at most 200 characters).
+- **Never a line:** a private message (an @트리나 answer only the asker sees), a message with only files (''), a
+  notice the person may no longer read (`roomNoticeOut` returns null, as before), the AI-waits notice.
+- **Why default on:** without the text people open the app for every message to see if it matters; the lock-screen
+  risk is the person's choice to make, and the switch is one tap away.
+- Migration 275 (additive, reader 1): `notification_preferences.message_preview INTEGER NOT NULL DEFAULT 1`.
+
+## Transparent pictures keep their transparency in thumbnails (fix/transparent-thumbnails, 2026-11-09)
+
+A bug the owner saw: a red seal stamp (a PNG with a transparent background) sent in a team room showed on a black
+square. Placement: Team AX core (`server/src/uploads/image.ts`, `server/src/rooms/files.ts`,
+`server/src/uploads/attachments.ts`, two web components); no contract change, no migration, two settings rows.
+
+- **Why black.** Room and chat-attachment thumbnails were always JPEG (ffmpeg's mjpeg: 640 px in rooms, 320 px for
+  attachments). JPEG has no alpha, so ffmpeg flattened the see-through pixels to black. The metadata cleaning that runs
+  before a room thumbnail (`cleanImage` with PHOTO) was checked and keeps transparency: a PNG's alpha channel is in its
+  picture data and `tRNS` is on the keep-list, a WebP keeps `ALPH`, VP8L's own alpha and the VP8X alpha flag. GIFs are
+  not cleaned.
+- **A PNG thumbnail when the picture has see-through pixels, a JPEG one otherwise** (`makeThumbnail`). `mayHaveAlpha`
+  reads the first bytes: a PNG of colour type 4 or 6 or with `tRNS`, a WebP with the VP8X alpha flag or VP8L's
+  alpha bit, any GIF. Only those get a first ffmpeg run that writes the alpha plane at the thumbnail's size
+  (`format=rgba,alphaextract`, raw, one byte a pixel); any byte under 255 makes the thumbnail an RGBA PNG, scaled
+  premultiplied (`premultiply` / `unpremultiply`: with straight alpha the black of the see-through pixels bled into
+  the edges, a dark outline round a red stamp). An alpha channel with nothing see-through (macOS screenshots are RGBA)
+  keeps a JPEG: a 640 px PNG of a UI screenshot was 56 KB against 20 KB. When that first run fails the JPEG one is
+  made, as before. Cost: such an upload is decoded twice (a 5K screenshot about 500 ms instead of 250 ms), and a
+  noisy transparent photo's 640 px PNG can be several hundred KB.
+- **PNG, not WebP**: the PNG encoder is part of every ffmpeg, libwebp is optional (the dev Mac's Homebrew ffmpeg 8.1
+  has no WebP encoder), and iOS Safari before 14 shows no WebP. Every picture still comes on stdout, never as a file
+  in the converter's folder (tools/isolate.ts), and is written under a temporary name and renamed.
+- **Names and types.** Rooms: `<id>.thumb.png` or `<id>.thumb.jpg` beside the file (`room_files.thumb` stays 0/1, its
+  CHECK allows nothing else); `?thumb=1` sends the PNG when there is one, else the JPEG, named `<name>.png` or
+  `<name>.jpg`, so `streamFile` says `image/png` or `image/jpeg`. Attachments: `thumb_path` is `thumbs/<id>.png` or
+  `thumbs/<id>.jpg`, and the served name takes its ending. The start's `reconcile` and both sweeps know both endings
+  (else a PNG thumbnail would be set aside as an orphan, or deleted as one without a row), and deleting a room file
+  removes both.
+- **Thumbnails made before.** An old `.jpg` is served as it was. Once, a minute after start, in the background (one at
+  a time, below interactive work), each room picture and image attachment whose thumbnail is still a JPEG and whose
+  original may have alpha is looked at again (`refreshThumbs`, `transparentOnly`); a transparent one gets its PNG and
+  the JPEG goes. Done is kept in settings (`rooms.thumbsTransparent`, `attachments.thumbsTransparent`); a stop on
+  close leaves it unset, so the next start goes on. Passed over: a file on the download-only list, an attachment whose
+  file is no longer the bytes attached (sha256) or that its sender can no longer read, a picture ffmpeg cannot read
+  (it keeps its JPEG). Not run, and not marked done, while there is no ffmpeg or the room files folder or the team
+  folder is missing or empty (a share not mounted yet). A picture's first bytes are read before an attachment is
+  hashed, so JPEG and HEIC photos are not read through. Not chosen: making it again on first read (the first person
+  to look would still see black, and a read would start ffmpeg). Going back to an older build: its start moves
+  `.thumb.png` files aside as orphans and its sweep deletes `thumbs/<id>.png`, so those pictures show their original
+  when it is 2 MB or less and a file card otherwise; coming back to this build does not make them again.
+- **The web paints nothing behind a loaded picture.** The room image's button and the chat attachment's box had
+  `bg-subtle` behind the picture: a place-holder while it loads, but behind a transparent picture afterwards (#2b2a27
+  in dark mode, a grey square). The soft box now shows only until the picture loads; then the picture sits on the
+  message and the page, light and dark. The 1 px frame stays. The file panel's preview draws the original, with no
+  background.
+- **The phone app** (`mobile/`) is a WebView of the web app: thumbnails are the web's `<img>`, and its downloads are the
+  originals (`download=1`). Nothing there expects a JPEG; no change.
+- Tests: `tests/unit/transparent-thumbnails.test.ts` (which first bytes may have alpha; a PNG with see-through pixels →
+  a PNG thumbnail whose corner pixel is transparent; a JPEG and an opaque RGBA PNG → JPEG; `transparentOnly`; rooms and
+  attachments: the type and name served, an old `.jpg` still served, reconcile and the sweep keep both kinds, the
+  one-time refresh, its stop and its settings row, a changed attachment passed over),
+  `tests/unit/sec-converter-output-links.test.ts` (the new return value; a picture that may have alpha: neither run
+  takes a planted `thumb.png` or `thumb.jpg`), `web/test/unit/room-messages.test.tsx` and
+  `web/test/unit/attachment-thumb.test.tsx` (the soft box only while loading), e2e `room-transparent-image.spec.ts`
+  (a seal stamp in a room, light and dark: nothing painted behind it).
+- Version impact: **patch** (a fix; no API or data change).
+
+## Desktop: a right-click menu; a pasted picture shows as one above the box (fix/image-copy-paste-preview, 2026-11-09)
+
+Two things the owner met in team rooms: in the Mac app a right-click on a photo to copy it did nothing, and a picture
+pasted into a room's box showed no picture above the text. Placement: Team AX core (`desktop/src/`, the two message
+boxes); no contract, setting or data change.
+
+- **Why nothing happened on a right-click.** Electron shows no context menu of its own: without a `context-menu`
+  handler a right-click on a photo, a link or selected text does nothing in the app. The web app takes none of them
+  (checked: a message's long press blocks the menu only right after a finger touched it, the voice mic only while held;
+  the thumbnail is an `<img>` under the pointer, not a background or a covered button), so a browser's own menu
+  (Copy Image) works on the message's thumbnail and on the preview panel's picture. An e2e now guards that. Phones are
+  left as they are: a long press on a message opens its own menu (reactions, copy), and the message keeps the phone's
+  image callout away.
+- **The menu** (`desktop/src/common/context-menu.ts` picks the items, pure and unit-tested; `desktop/src/main/
+  context-menu.ts` runs them), on the team page: a photo **이미지 복사** / **이미지 저장…**, a link **링크 복사**,
+  selected text **복사**, a text field **잘라내기 / 복사 / 붙여넣기 / 모두 선택** (greyed out when they cannot apply).
+  Only what applies shows; empty space gets no menu. The app's own screens (the first-run box for the invite link, the
+  browser pane's address) get the text and link items too, never the photo items. Words in the five languages, in the app's language like its other
+  menus; the Korean ones are the browser's context-menu words (the menu bar keeps macOS's 오려두기 / 복사하기).
+  - **The photo items only where the team page itself was right-clicked**: its top frame, at the team or office
+    address (`isTeamPage`, checked again at the click). A frame inside it (an artifact, an HTML preview) gets the link
+    and text items only. An artifact's script can make an `<img>` that points at any team address; it cannot load it
+    (the frame's CSP, its opaque origin), but it still reports that address, and 이미지 저장… would fetch it from the
+    app with the person's session: any signed-in GET, saved. Also, `copyImageAt` hit-tests from the top frame.
+  - 이미지 복사 is Electron's `copyImageAt` at the click: the picture as drawn. The preview panel draws the original
+    from its bytes (a `blob:` address), so copying there copies the original; a message copies its thumbnail, as a
+    browser does.
+  - 이미지 저장… is `downloadURL`, so the app's usual save dialog asks where (Electron's default; the web's own
+    downloads go the same way). Only for the team page's own images: the team or office address, or a `blob:` picture
+    of those origins; another site's picture is copied, not saved through the app (the save would fetch it with the
+    team's session). What it saves is what a browser's Save Image As saves: on a message, the thumbnail (named
+    `<name>.jpg` or `.png` by the server); in the preview panel, the original under a name the browser makes up for a
+    `blob:` picture, which the dialog lets the person change. The panel's own download button keeps the file's name. Not
+    chosen: saving the original from a thumbnail (the app would have to know the web's file addresses).
+  - 링크 복사 writes the address as text; no item opens a link or navigates (the page's own rules for links stay as
+    they are, `security.ts`). No Inspect, also not in a development build.
+  - The text items call the right-clicked page's own `cut / copy / paste / selectAll`, not Electron's edit roles: a
+    role goes to whichever view has the focus (on a Mac the first responder), which can be another view of the window.
+  - Not on the in-app browser pane's tabs (the AI's browser, with rules of its own). The menu opens at the pointer,
+    also from the keyboard's menu key.
+- **A pasted picture shows as one.** Both boxes put a pasted file in their row at once and upload it in the background
+  (nothing waited for the upload). The AI chat's chip already drew a picture; the room's chip showed a file icon and
+  the name "image.png", which read as "no preview". The room's chip now draws the picture from the file itself (one
+  `ChipThumb` for both boxes, 32 px), with the spinner after the name while it uploads and its ✕; a photo of a send the
+  server gave back shows its room thumbnail. A picture that cannot be drawn (a HEIC photo in Chrome, a thumbnail that
+  did not load) falls back to the file icon. A paste whose `clipboardData.files` is empty takes the file items (`web/src/lib/paste.ts`); in
+  Chromium a screenshot and a picture copied from a page (its HTML with the picture) both come as files, and the HTML is
+  not pasted as text. Not chosen: a larger picture tile above the box (a new look for one case; the chip is the
+  pattern both boxes have).
+- Tests: `tests/unit/e-desktop-common.test.ts` (the items for a photo, a linked photo, a link, text, a field, empty
+  space; which images may be saved; photo items only on the team page's top frame, not in a frame or the own screens;
+  wired to both, nothing that opens), `desktop/e2e/context-menu.spec.ts` (a right-click in the app: the menu caught
+  where it would pop up; the first-run box's edit items; a photo in a button and a `blob:` original copy and save, the
+  save reaching will-download; a picture from elsewhere copy only; link, text, field, empty space; pictures in an
+  artifact frame nothing, its link 링크 복사; nothing on the computer's clipboard), `web/test/unit/paste.test.ts`, e2e
+  `composer-paste-preview.spec.ts` (both boxes: a screenshot and a page's picture show as pictures before the upload
+  ends, ✕, then attached / sent; a refused room send comes back with the photo's thumbnail) and
+  `room-files-open.spec.ts` (the right-click reaches the browser's menu on the thumbnail and the panel's original).
+- Version impact: **patch** (a fix; no API or data change).
+
+## 읽음으로 표시 — "Mark as read" on a room notification (feat/notification-mark-read, 2026-11-09)
+
+- **Decision:** a room notification gets one button, **Mark as read**, where the system shows buttons: Web Push
+  (Chrome, Edge, Android) and the Mac desktop app (Electron's notification actions are macOS only). It moves my read
+  position to that message (`markRoomRead`, or `markRoomThreadRead` for a reply in a thread), as opening the room
+  would, so the room's notices count as read too; nothing opens. The AI-waits notice has no button (a question to
+  answer).
+- **Where the place comes from:** Web Push: the `seq` (new) and the thread of the single signed-in notice
+  (`GET /api/notifications/:id`), stored with the notification at show time, never from the payload. Desktop: the
+  `room.message` event; the page gives `read: "<room>[/<thread root>]@<seq>"`, the main process checks its shape
+  (`readTokenOf`) and gives it back through `bridge:read`, and the page calls the API as itself.
+- **Words:** the server's (`/api/push` `messages.markRead`) for Web Push, the desktop app's own i18n for the Mac.
+- **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
+  yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
+
+## Trina side chat (트리나 사이드 채팅) — a private side chat beside a room (feat/trina-side-chat, 2026-11-09, product owner)
+
+- **Decision (option A of the "Trina side chat: decision" doc, 2026-11-09):** people ask @트리나 about a room in a
+  private side chat beside it, and share an answer to the room on purpose. PR 1 (this one) adds the side chat; @트리나
+  in the room's timeline stays as it is. PR 2 removes @트리나 from rooms and DMs (the composer and the "@" list) and
+  decides what happens to old private previews.
+- **Model: the side chat is an ordinary chat of the person** (`chats.side_room_id`, migration 276), not a room
+  message. Rooms gain no private messages, so the timeline, threads, unread counts, badges, notices, the Inbox, room
+  search and other members' AI context are untouched. The AI already reads rooms from a person's own chat with its
+  room tools (chat/room-tools.ts: the person's own view, read scope, the change cards after reading a room), and the
+  answer goes to the room only through "대화방에 보내기" (chat/answer-share.ts), which already checks linked files and
+  material some members cannot see.
+- **The AI is told the room** (chat/prompt.ts sideRoomSection, chat/side-room.ts) while the person is still in the
+  room and it is not archived: its kind, name and id, that "this discussion" means it, that it reads it with room_read,
+  and that nothing it writes goes to the room. Never in a room session's or a shared project chat's instructions (the
+  allowlists say false). After the person leaves the room the chat stays theirs, as an ordinary chat.
+- **API:** `CreateChatBody.sideRoomId` (the person must be in the room: else the same 404 as a room that is not there;
+  never with a project), `ListChatsQuery.sideRoomId` (the person's own side chats of that room, newest first),
+  `Chat.sideRoomId`. No new endpoint.
+- **Web:** the ✦ button in the room header (components/rooms/SideChatPanel.tsx) opens the panel where a thread opens,
+  one of the two at a time. It opens the room's newest side chat; "New chat" starts another with the next question;
+  "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
+  raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
+  answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
+  the dialog starts with this room picked (since replaced by one click: "Trina side chat: send here" below). In the chat
+  history a side chat shows its room ("# design") after its
+  title, while I am in that room.
+- **Defaults for the doc's open questions (to confirm):** old private previews stay inline (PR 2); the room context is
+  what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
+  the whole screen like a thread. Side chats are also listed in the person's chat history.
+
+## 내 AI 채팅에서 대화방 파일 저장 — the AI chat saves a room's file into the team folder (feat/room-file-to-team, 2026-11-09, product owner)
+
+Amends "내 AI 채팅에서 대화방 읽기" and "Files sent in the room" ("대화방의 트리나"). The owner, in the AI chat: "leads 채널에 올린
+트리나 사업자 등록증, 다른 사람들도 다 볼 수 있게 저장해줘". The AI could read the PDF as text (`room_file`) but had no way to
+copy it (`write` saves text), so it asked for the PDF again. A room's own @트리나 session already had `save_room_file`
+("not offered in personal chats" until now).
+
+- **Decision:** the person's own AI chat gets `save_room_file` too, with the room session's name (as `room_file` has one
+  name in both): `room` (as room_read takes it), `file` (its file_id only: two files may share a name, and the card's
+  yes is for that one file) and `save_as` (a folder keeps the file's own name; the person's downloads by default).
+  `SaveRoomFileInput` is the own chat's input, `SaveRoomFileHereInput` the room session's.
+- **One path for both** (`chat/room-tools.ts` `saveTarget`, `saveRoomFile`). Reading: `findRoomFile` with the person's
+  member row, the check `room_file` uses (a room they are in now and not archived, a message they see from their join
+  on, a thread by its root, never an old answer hidden from them nor someone else's private preview, not deleted), then
+  `RoomFiles.open` again after the cards. A non-member gets the answer of a room that does not exist. Writing: the AI's
+  other byte saves' path (`placeProduced`: write access again right before the write, the skill approval it requires,
+  the storage check and per-turn file count, versions, file events, text extraction, files.changed), the placement
+  note (`chat/file-placement.ts`) and the audit line (`tool_events`).
+- **Refused before any card** (`Tool.refuse`): a name instead of a file id, a file the person cannot see, a held file,
+  skills/, an instruction file's name and, new for both, a place the person may not write (`authorize(…, 'write')`: a
+  read-only folder, one they cannot see). A call refused there counts as nothing read.
+- **The download-only list is the quarantine list.** The brief named two lists; in the code they are one
+  (`safe_ops_artifacts`, "download-only" in its messages). Such bytes are refused, as `room_file` refuses to read them
+  and as the AI cannot copy a team file with them (`authorize` refuses it without `download`). Not chosen: saving them
+  "as a file": it would hand the AI a way past the list for room files only.
+- **The room is the bytes' source.** The wider-audience check counts the room from the file's message on (a reply by its
+  root's seq), and the person alone when the message is their own private preview, as room_read records one. The owner
+  and admins rule for team rooms (`withoutTeamRoomsAdminsSee`) applies as for every save.
+- **One card per call** (as "대화방에서 새 파일은 미리 허용" for write and make_file). A tool may now say where it saves and
+  where its bytes come from (`Tool.widen`, `WidenOf.read`; `TurnExec.widenNeed` takes read sources), so the
+  wider-audience need is known before the rooms-seen card (own chat) or the room card (room session). Both needed: the
+  wider-audience card alone, with the rooms-seen line in front in the own chat and the call's details (the file by its
+  name, its room as the person sees it in the own chat ("#leads"), sender, time and size; where it goes); its yes saves
+  it. The owner's request is exactly that card and one yes. Only one of them: that one. The own chat's call marks the
+  chat (`markRoomsSeen`) before it looks anything up, a refused call too, so every save there asks one card, also first
+  thing in a new chat (a file id planted in a team file or a page copies nothing unasked). The room session's save had
+  two cards until now.
+- **No silent overwrite:** as save_url and make_file, a file already at the target that was not read in this turn is
+  kept and the copy goes next to it (a conflict copy, told to the AI); one read in this turn is updated with a version.
+- **Room sessions:** no "이 방에서는 항상 허용" for a copy. "대화방에서 새 파일은 미리 허용" left save_room_file out of grants
+  on purpose (copies, moves, save_url); the room card keeps its two buttons. Not widened here.
+- **Audit:** a save names the saved team path (it is a team file now); a refusal is audited without its words
+  ("refused: access denied", or the error's code), since they name the room file's place; no room, person or file id
+  anywhere. In a room session that was the refusal's text until now.
+- **Independent review (security, tried to break it):** two leaks fixed, both from the new refusal before the card.
+  In a room session, a refused place (read-only, hidden) told the AI what is there before `noteRoomTool` ran, so the
+  answer went to the whole room: a refusal about the place now counts save_as as a name read (`place`), and such an
+  answer stays private for a member who cannot see it. In the own chat, a refusal could show room names (several match
+  the name) or the file's name before the chat was marked as one that read rooms: the call now marks it first. Also: the
+  card's place is the place written (`plannedTargets`: a folder made where save_as named a file while the card waited
+  refuses the save). Left as is: a leading "/" in save_as is dropped (as before); a call whose input fails the schema
+  still gets the card before its error (as every tool).
+- **Words:** no new strings. The step and the card reuse "대화방 파일 저장" and the cards' strings in the five languages.
+  The instructions (`ROOMS_RULE`) and `room_file`'s description say a room file can be saved as it is, and not to ask for
+  it again; `room_file`'s notes for video, audio and scanned PDF pages point to save_room_file in a chat (the connector
+  keeps its own words).
+- **Not here:** the MCP connector. It has no card, so its read-scope guard (`checkUploadTarget`) would refuse a room
+  file into any folder wider than the room, the owner's case (shared/). Follow-up once the connector has a confirmation
+  path; until then it reads room files only.
+- Tests: `tests/unit/b-chat-rooms-save.test.ts` (offered and in the instructions; a member's PDF from a team room into a
+  new folder in shared/ with one card naming the room, the same bytes, the step, the audit line and the file event; the
+  same file again next to a changed one; a "no"; into one's own folder first thing in a new chat, the rooms-seen card
+  alone; a refusal marks the chat; a place changed while the card waited; a non-member like an unknown room; a hidden
+  answer's file, another's private preview and a name refused, the preview's owner may save; a read-only target, a
+  held file, skills/ and CLAUDE.md refused before any card; a planted request in a room needs the yes),
+  `b-rooms-ai-files.test.ts` (one card into shared/; the room card, two buttons, into one's own folder; a refused place
+  keeps the answer private), `b-chat-rooms`, `b-codex-rooms`, `b-chat`, `b-browser`, `i-wiring` (the tool in the own
+  chat's list).
+- Version impact: **minor** (a new tool in the AI chat; no API, setting or data change).
+## A picture in a message box shows as a 64 px square (fix/bigger-paste-preview, 2026-11-09)
+
+Since #234 a pasted or picked picture showed as itself in its chip above the box, in a room and in the AI chat, but at
+32 px: too small to tell one screenshot from another. The owner: at least 64. Placement: Team AX core
+(`web/src/components/ChipThumb.tsx`, the two message boxes); no contract, setting or data change.
+
+- **A square, not a bigger chip.** Slack and iMessage show a picture waiting to be sent as the picture itself, a
+  rounded square with no name, its ✕ on the corner; files get a card. Here: a 64 × 64 square (`object-cover`, 8 px
+  corners, a hairline edge so a white screenshot keeps its outline on the white box), one `PictureTile` for both boxes.
+  Not chosen: the chip with a 64 px picture and the name and size beside it. On a 390 px phone such a chip is about
+  180 px wide, so three pictures took three rows (about 230 px above the box, with the keyboard open); three squares
+  take one row of 70 px.
+- **What the chip said moves.** The name is the picture's alt text and its tip on hover (no tip on touch); the status
+  (uploading, attached, the size) stays in the same live regions, now for screen readers only, so a screen reader still
+  hears each change. While it uploads the picture is a shade darker with the spinner on a dark pill (readable on a light
+  or a dark picture), with the AI chat's percent when it is known; "준비 중" / "마무리 중" are not shown there (too
+  wide for 64 px in Indonesian and Spanish). A failed one gets a red edge and its reason beside it, as words.
+- **The ✕** is a 20 px dark dot (light in dark mode) standing 6 px out of the top-right corner, on a ring of the box's
+  colour; it takes a 36 px tap, 44 px on phones (an `::after`, not `touch-hit`, which would make the absolutely placed
+  dot `relative` on phones). The tap area reaches further out to the right than over the picture, so a tap on the
+  picture's corner stays the picture's (in the AI chat it opens it), and not above the box's top edge. The row item
+  keeps the 6 px the dot stands out (`pt-1.5 pr-1.5`), so the dot touches neither the box's top edge nor the next
+  picture, and the next picture, painted after it, keeps its own clicks.
+- In the AI chat a click on the picture opens it (the side panel's preview), as a click on its name did; the room's
+  chip had no such click and still has none.
+- A file that is not a picture keeps its compact chip; the row centres its items, so a chip beside a square keeps its
+  own height (before, the row's items stretched, which only mattered once one was taller). A chip restored after a
+  reload (no file in the tab, only the attachment) stays a file chip, as before. A picture the browser cannot draw (a
+  HEIC photo in Chrome) shows a square with a picture icon, named for screen readers as the picture was.
+- Tests: e2e `composer-paste-preview.spec.ts` (the square is 64 × 64 and `cover` in both boxes, the spinner while it
+  uploads, the name as alt text; on a 390 px phone three pasted pictures in one row inside the box, each ✕ taking a tap
+  20 px above and below its dot's centre, inside the box, and 16 px to its left; a ✕ takes out that picture only; a
+  text file on a picture's row a compact chip under 40 px tall, centred on the picture).
+- Version impact: **patch** (a fix; no API or data change).
+## The Dock's dot for unread rooms (fix/dock-unread-dot, 2026-11-09)
+
+The owner saw a red "2" on a team room in the Mac desktop app's sidebar and nothing on the Dock icon, while Discord in
+the same Dock showed a red dot. The Dock number is the one count n ("Session markers"): AI chats that need me and rooms
+that want me by my level for them. A plain message in a team room or the everyone room at its default (mentions only)
+is unread in the sidebar but not in n, so the Dock stayed empty.
+
+- **Decision (as Slack and Discord):** n stays as it is. When n is 0 and some room has unread messages n does not
+  count, the Dock shows a plain dot "•"; when they are read, it clears. A number always wins over the dot.
+- **Which rooms light it** (web/src/lib/rooms.ts `roomLightsDot`): unread messages or followed replies (`roomUnread`,
+  the sidebar's count), in a room I did not hide and did not turn off: level 끄기, its own or by my default "nothing"
+  (an older server without levels: `muted`). A followed reply while "내가 참여한 스레드의 답글" is off lights it too: the
+  sidebar shows it.
+- **The bridge:** `setBadgeCount(n, dot?)`; the page sends `dot` only with n 0 (lib/sessionMarkers.ts `iconBadge`). The
+  main process accepts a whole number or the dot, nothing else (`dockBadgeOf`: the dot only for a flag that is exactly
+  `true`), and shows it with `app.dock.setBadge('•')`. `app.setBadgeCount(0)` sets the same Dock label, so a team
+  switch still clears it (checked on Electron 44). Desktop apps before this ignore the flag: nothing at 0, as before.
+- **The installed web app follows:** `navigator.setAppBadge()` with no number is the browser's dot (as the service
+  worker's for a push with no window open), so an installed web app on Windows (Chrome, Edge) now shows a dot on its
+  taskbar icon too. What an iPhone Home Screen web app shows for it is not checked (the worker's push already made the
+  same call). Windows has no Dock: the desktop app is unchanged there.
+- **Unchanged:** the tab title "(n)", the phone ☰ dot and the 대화 tab's count. No new setting.
+## The schedule card offers only the connections the task names (fix/schedule-card-connections, 2026-11-09, product owner)
+
+- **Why.** Every schedule card (the AI's `schedule_create`, "수정" in Settings, "다시 확인") named every "allow" team
+  connection the person could use ("이 연결 서비스는 AI가 묻지 않고 보내도록 설정돼 있어요: …") with three answers, and
+  the answer with sends allowed them all. A one-time news briefing asked about an image service the team had once added
+  as an example.
+- **The rule** (`tools/schedules.ts taskConnections`). The card names, and offers sending to, only the "allow" team
+  connections the task names: the connection's whole name in the title or the instruction (the rule for a template
+  named in an instruction, `schedule-needs.ts namesTemplate`: any case, not part of a longer Latin word, a Korean
+  particle after it is fine, too short or everyday a name never matches), or listed in `schedule_create`'s new optional
+  `connections` (by name, slug or `team_<slug>` key, ignoring case). With none, the card has no connections line, the
+  plain answers (만들기 / 만들지 않기, 바꾸기 / 바꾸지 않기, 다시 켜기 / 계속 멈춰 두기), and runs send to no connection.
+  Only what the card offered is stored (`write_connections`), so a task sends to the same or fewer connections than
+  before; the run-side gate is unchanged.
+- **`connections`.** A listed name that is not an "allow" team connection the person can use (a connection that asks,
+  a personal one, a misspelling) is refused before the card and nothing is created: the AI is told the names a run can
+  send to and, when the task needs none of them, to tell the user that runs cannot send there. The tool description
+  says to list a connection only when runs must call its tools that change something there. A "send" is any tool not
+  marked read-only (the run-side gate), so a task that only searches a service whose search tool is not marked so must
+  list it too.
+- **Edit and "다시 확인".** An edit offers the connections the edited title or instruction names plus the ones the task
+  may already send to (a task the AI listed a connection for has it on offer again when only its time changes; plain
+  "바꾸기" drops the sends, as before). A task nobody confirmed
+  never had any allowed: its card offers only the names in its title or instruction. Both cards' `requestId` binds the
+  offered connections (id and version) instead of every "allow" one, so a change to an unrelated connection no longer
+  invalidates the card.
+- **Accepted.** A task that needs a service it does not name cannot send there in a run; the run's refusal now tells
+  the AI that the card offers only named connections and that the user can edit the task (or create it again) naming
+  it. A connection the task names only as a topic ("GitHub 소식 요약") is still offered; the person chooses on the card.
+  Tasks made before this keep their record (no migration): one that was allowed every "allow" connection on the old
+  card keeps those sends, and its edit card offers them again until the person saves with plain "바꾸기". Pruning them
+  would change what existing runs do, so it is left to the person.
+- **Not changed.** The card's wording, the address checks, `allowed_urls`, the unattended rules. No API, migration or
+  web change.
+- Tests: `tests/unit/schedule-connections.test.ts`.
+- Version impact: **patch** (fewer connections on a card; one optional tool input).
+## Menus stay inside the window (fix/menu-viewport-clip, 2026-11-09)
+
+A bug the owner saw in the English UI: a sidebar room row's "…" › Notification settings opened under the row with its
+right edge at the "…" and ran off the window's left edge, cutting the first words of each choice ("…ult (from
+settings)"). Placement: Team AX core (`web/src/components/rooms/MenuButton.tsx`); no contract, data or text change. Plan:
+`docs/AGENTS/plan/20261109-0720-menu-viewport-clip.md`.
+
+- **Why.** Since chore/web-tidy (#221) the shared menu is as wide as its longest item (`w-max`). Right-aligned to a
+  button about 270 px from the window's left, a 300 px English menu started at -30 px. It was also `absolute` inside
+  the sidebar's list, which scrolls, so the list cut whatever lay outside its box.
+- **On a computer the menu is fixed to the window and placed by measuring it** (`menuSpot`, in a layout effect, before
+  it is drawn): under the button with right edges in line, 4 px apart, as before; above it where it would run off the
+  bottom (the real height, not the old guess of 40 px an item); moved in to stay 8 px clear of each side, so the
+  sidebar's menu slides right over the main column's edge. Wider than the window less 16 px: capped, the words wrap.
+  Taller: capped, it scrolls. It is measured at 0,0 first, so a parent with a transform (which holds fixed boxes) does
+  not move it; it has no transition (with reduced motion index.css gives every property a 0.01 ms one, which held it
+  at 0,0 in a test and would spoil that measure). It follows the button on any scroll outside it and on resize, and
+  closes once the button is scrolled out of its list's sight (the list used to cut it off with the button). Not
+  followed: a layout shift without a scroll or resize (a banner appearing), rare while a menu is open.
+- **Kept:** the menu stays in the DOM where it was (clicks in it are not "outside", tests find it in its row or card);
+  phones (below 768 px) keep the bottom sheet; the anchor is the box the old `absolute` menu hung from (MenuButton's
+  wrapper: the button's own box, a row's full height, or the 0×0 point at a row's bottom right for the row's level menu,
+  which has no button of its own), so each menu opens where it did.
+- **Not changed:** menus with their own code and fixed widths (Files rows, admin rows, the account menu, the recents
+  filter, which was already fixed and kept inside).
+- Tests: `web/test/unit/menu-spot.test.ts` (the rule), e2e `room-leave-hide.spec.ts` (English, 1440 and 900 px: a
+  sidebar row's and the room header's notification menus inside the window, the longest item on one line, under the
+  row, its right end over the main column; 900 px with reduced motion; a short window opens a row's menu above it).
+- Version impact: **patch** (a fix; no API or data change).
+## 알림함의 앱 알림 — the app's own notices read like conversation rows (fix/inbox-notice-rows, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/settings/Notifications.tsx` (`NoticeRow`, `noticeText`, `noticeLink`),
+`server/src/notifications/service.ts` and `shared/src/api/notifications.ts`, 이유: the Inbox is core.
+
+The owner, on a screenshot of the Inbox: the scheduled task's row with its small "결과 열기" link looks bad. Beside the
+message rows ("알림함의 대화 알림") it was not clickable, its date sat on a line of its own, and it did not say which task.
+
+- **A row is a row.** The bell where a message row has the photo, the words, the time on the right in the 대화 list's
+  format (`listTime`). With a place to open (`link`, or the review notice's 예약 작업), the whole row is one link to it, with
+  the hover and focus ring of a message row, and opening it reads the notice; while unread a dot sits where a message row
+  has its count. The separate links under the words (결과 열기, 대화 열기, 대화방 열기, 확인하기, the page names) are gone; their
+  test ids are on the row. A notice with nowhere to go is not a link, has no hover and keeps **읽음 표시** (the only way to
+  read it). A job's log and the handover's lines and buttons stay under the link, not in it (no button inside a link; the
+  log is there to be selected). A dev job's project, which the old link named, is a quiet line under the words.
+- **Not kept: 읽음 표시 on a row that opens something.** It sat beside the time and would be a button inside the link;
+  the message rows have none either. Opening the row reads it.
+- **Which task.** `InboxNotification.schedule.title` for one task's run (a run, an admission skip, a run that needed my own
+  key), read from `schedules` when the notice is read, while the task is mine (`user_id`) and there; one plain line
+  (`plainLabel`). Not stored with the notice ("Inbox stores only generic event metadata", migration 207), so no
+  migration, and a deleted task, an older server and the review notice (several tasks) keep the generic line. Read now,
+  so a renamed task shows its new name on older notices too, and notices from before this change get it. A push's
+  text stays generic (`notifications/text.ts`: never a task name on a lock screen). Words: `"{title}" 예약 작업이
+  끝났어요` and the same for 마치지 못했어요, 일부 단계가 안 됐어요 and 내 키가 필요해요: the title comes first, so no 이(가)
+  after it; the title in `<bdi>` (`isolate`).
+- Tests: `web/test/unit/inbox-notice-rows.test.tsx` (the words with and without a title, where each row goes, the row as
+  one link with its time and dot that reads, no link with 읽음 표시, the log outside the link), `tests/unit/notifications.test.ts`
+  (the title for a run, a skip and a needed key; never another person's task; none once deleted), e2e
+  `inbox-rooms.spec.ts` (the run's row among message rows: its words, its time where theirs is, one link);
+  `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
+  still covers a row with no link and its 읽음 표시.
+- Version impact: **patch** (additive API field; no data change).
+
+## Projects live only in projects/ — 프로젝트는 projects 폴더 안에만 (feat/projects-in-projects, 2026-11-09, product owner)
+
+The owner decided on 2026-11-09: a team project lives only in `projects/<name>/`, a personal one only in
+`users/<me>/projects/<name>/`. Any member can make a team project, like a chat channel, and chooses who sees it; an admin
+switch can keep that to admins (default: members). The creator and admins see and change who sees it from the project's
+edit screen. A review before building asked for eight changes, all built:
+
+- **No other place.** `POST /api/projects` with a folder anywhere else (an existing team folder, `shared/`, `groups/`,
+  the root, a deeper path, `users/<me>/` outside `projects/`) is 400 `project_location`; the "기존 폴더" kind is gone.
+  A `folderPath` of `projects/<name>` only names the new folder. Sharing a personal project
+  (`POST /api/projects/:id/share`) makes a new `projects/<name>` with the participants chosen and copies the files into it
+  (`TeamFiles.copyFolderInto`, the same walk and limits as `copyFolderTree`); `toParent` is accepted only as `projects` from
+  older clients. Pointing a project at another folder stays for admins only, only for a project whose folder is in the
+  trash or gone from disk, only to an existing `projects/<name>` no other project uses (nothing is made for it).
+- **Private by rule.** A new project folder gets each participant and the creator `write` and `everyone: none`
+  (`chat/project-access.ts newProjectRules`), so an admin's root `everyone: read` does not open it. Deleting a person or a
+  group never leaves a `projects/<name>` folder that a project uses with no rules: `keepProjectFloors` (admin/folders.ts)
+  writes `everyone: none` there, also for folders older builds made without the floor.
+- **Made as the system.** Members have no write on `projects/`. The server checks the switch, then makes the folder with
+  `resolveFolderPath` (the system principal, the same name checks), never as the caller. The name steps around folders on
+  disk, folders rows and the paths projects name ("-2"). **This tells a member that a folder of that name exists in
+  `projects/` even when they cannot see it.** Accepted: the name says nothing of its contents, and refusing instead would
+  tell the same.
+- **One writer.** The edit screen's participants are the folder's rules (`write` for groups and people). It saves exactly
+  like Admin › Folder permissions: the rules hash it read (`ProjectAccess.rulesHash`, the same hash as `Folder.rulesHash`)
+  is checked inside the transaction (409 `rules_changed` either way round), `replaceRules`, then `afterAccessChange`
+  (fresh sessions, notices, the project's shared chats dropped from whoever lost it), audit `folder.rules` with
+  `via: 'project'` and the project id. Rules the screen does not change (read-only people or groups, roles, an everyone
+  rule other than the floor, rules on folders inside it) are kept as they are and listed read-only, with a link to Admin
+  for admins; naming such a person or group as a participant is 400 `participant_fixed`. The creator's rule is always
+  kept. Participants are changed only for a project in `projects/<name>` whose folder is in place.
+- **Only a folder the server made is the creator's** (independent review, must-fix). Older builds let a member make a
+  project on an existing `projects/<name>` an admin had made with rules; that member is its creator. `projects.folder_made`
+  (migration 280, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
+  points the project at an existing folder. A member changes participants, or trashes the folder with the project, only
+  when it is 1; admins change any `projects/<name>` project. For a project a member may not change, the access answer
+  gives them the count only (no names of an admin's rules, and no rules hash: an unsalted hash would let them confirm a
+  guess), and admins alone see that summary in the dialog. Rules on folders inside a member's project are listed to them
+  only for folders they can read (not one they can only list because something below it is readable), and the dry run
+  counts only files the caller can read (an admin's restricted folder inside is neither named nor counted).
+- **The widening confirm is the server's.** `POST /api/projects/access-preview` (the creator or an admin for a project;
+  whoever may make team projects for a new one): how many people would see it, who gains and loses it, and for the people
+  who gain it the files they could read there (skills/ left out), those someone other than the caller put there (the
+  last write recorded for the file, else for the nearest folder above it inside the project; nothing recorded counts as
+  someone else's), its shared chats (each with its whole history) and its project skills (`skills/<name>/SKILL.md`,
+  counted and named by path, no dependency on the project-skills code: widening the folder also widens who uses those
+  skills, with no other card, so the confirm names them: "프로젝트 스킬 2개(견적서, 견적-현장)도 3명이 더 쓰게 돼요"). The web asks once when someone gains it; narrowing saves
+  at once. The people who saw the project before get a notice (`project_access_widened`) when it widens. The folder walk
+  stops at 20,000 entries.
+- **Who may be chosen.** Members choose from the people directory (`/api/people`) and their own groups (`Me.groups`);
+  admins any group. `GET /api/admin/groups` and `/api/admin/users` stay admin-only. The server enforces the same: a member
+  names only their own groups (a group already on the folder may stay) and active people.
+- **Delete.** `DELETE /api/projects/:id?trashFolder=1` also puts a `projects/<name>` folder in the files trash, by the
+  creator or an admin (a member's project folder carries rules, so only admins could trash it otherwise). The trash item
+  is a project folder there: admins restore it. Only the project's own folder is let through: for a member, anything
+  managed inside it (a rule folder, a group's folder, another project's folder) still refuses it, as does a folder
+  inside they cannot write, and then the project and its chats stay as they are (the folder goes before anything else
+  of the delete). Off unless ticked in the confirm.
+- **Files.** "프로젝트로 만들기" is gone; "프로젝트 열기" stays. Projects older builds made on other folders keep working
+  unchanged, with no data migration and no label for members; admins read one line in the edit dialog that it is outside
+  `projects/` and is changed in Admin › Folder permissions.
+- **The switch.** `TeamSettings.projectCreators` (`members` | `admins`, a settings key), enforced in create and share
+  (403 `projects_admins_only`) and in the new-project dry run; `Me.team.projectCreators` tells the web.
+- **The creator gone.** Disabled: their rule stays (they see it again when enabled) and admins manage it. Deleted: their
+  rule goes with the account; with nobody else on it the floor leaves it to the owner and admins.
+- **Groups are called 부서** in the Korean copy of these screens ("영업 부서"), as the rest of the UI is moving to.
+- Tests: `tests/security/r1-project-create.test.ts` (members, the switch, the refused places, the floor),
+  `tests/security/project-participants.test.ts` (who may see and change it, the dry run's counts, narrowing and shared
+  chats, the rules-hash race with Admin, the deleted creator, share and delete), the permission matrix's new rows,
+  `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`. Suites about what a project does
+  make older projects the way older builds did (`tests/lib/legacy-project.ts`).
+
+## CI unit tests in shards (ci/shard-unit-tests, 2026-11-09)
+
+- **Why:** of the ~35 minutes of the one CI job, ~30 were the unit tests (about 440 files, one after another). Every
+  PR waited for them.
+- **Decision:** the unit tests run as 5 jobs at once (`unit`, a matrix), beside `static` (typecheck, docs, native
+  build, go test, the pinned browser) and `other` (fast fuzz, web tests and build, relay). scripts/ci/unit-shard.ts
+  splits the files by their times in an earlier CI run (scripts/ci/unit-times.json): the longest first, each to the
+  shard with the least time so far, a new file counted as the median. Expected: about 6 minutes of tests per shard,
+  about 10 minutes per run.
+- **The required check stays:** the last job keeps the old name, "typecheck, native, unit, fast fuzz, web, relay",
+  which the default branch's ruleset requires and release.yml's test waits for; it passes only when every job passed.
+- **Cost:** public repository, standard runners: no charge. Each run now holds 8 jobs at a time (the organisation's
+  free plan allows about 20 at once); 5 shards, not more, for that.
+- **Caches** (actions/cache): pandoc's package by version, bun's package store by bun.lock, and the pinned rhwp CLI
+  by resources/hwp/manifest.json (prepare:hwp still checks its sha256). A cached run does not reach GitHub releases or
+  the npm registry for them (GitHub's anonymous downloads gave HTTP 504 on 2026-11-09); a miss downloads as before.
+- **Refresh the times** when the split drifts: `bun scripts/ci/unit-shard.ts --times <the unit step's log>`.
+
+## Pinned chats — 상단에 고정 in 트리나 기록 (feat/pin-chats, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/chat/pins.ts`, `server/src/routes/chats.ts`, migration 277, `shared/src/api/chats.ts`,
+`web/src/components/Sidebar.tsx`, `web/src/pages/Projects.tsx`), 이유: chats and their list are core. Plan:
+`docs/AGENTS/plan/20261109-0825-pin-chats.md`.
+
+The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자." A chat row's "···" in the sidebar's 트리나 기록 has
+**상단에 고정** / **고정 해제**, and pinned chats stay at the top of the list.
+
+- **A pin is the person's own.** One row per person and chat, `chat_pins(user_id, chat_id, pinned_at)` (migration 277),
+  not a column on chats. A shared project chat someone else made can be pinned too, for the one who pinned it only:
+  `Chat.pinnedAt` is worked out per viewer (`ChatStore.toChat`'s `viewer`, from `chatView` and `publishChat`), so a
+  shared chat's `chat.updated` carries each person's own pin, and nobody else hears of a pin or an unpin.
+- **Who may pin.** Anyone who may view the chat (`chatFor` 'view', not in the trash; 404 otherwise, as every chat route;
+  also 404 for the server's own draft chats, which are in no list).
+  Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned when not
+  pinned: no change. At most 50 pins (409 `chat_pins_full`, "상단에 고정은 50개까지 할 수 있어요…"), so the first page
+  that carries them all stays bounded; pins of chats the person no longer sees do not count.
+- **What takes a pin away.** The trash: a delete drops everyone's pin of the chat (also a deleted project's shared chats
+  going to their creators' trash); restored, it comes back unpinned. A purge: the foreign key's cascade. A deleted
+  person: their pins go in the delete's transaction (the users row stays as a tombstone, so the cascade never runs). A
+  chat the person can no longer see (a shared chat whose project they lost, one that stopped being shared and is
+  someone else's now): not shown, and its pin is dropped when their chat list's first page is read (`dropUnseenPins`).
+  A pin is not dropped at the moment access goes; regaining access before the list is read keeps it.
+- **The order.** `GET /api/chats` without a search or the trash (my list, and a project's page with `projectId`): the
+  first page starts with my pinned chats of that list, the most recently pinned first, and every page leaves them out of
+  the rest, so paging still gives each chat once. A pinned shared chat shows in my list only when it would anyway (I
+  made it or wrote in it). A search and the trash keep their order and mark the pins. Older clients see the pinned
+  chats on the first page and sort them by date as before. ⌘K's 최근 reads the same first page: it now sorts by date
+  before it takes the newest eight, so old pins do not push the recent chats out.
+- **The sidebar (lean).** No header of their own: a 12 px pin before the title (named 고정됨 for screen readers, as the
+  shared chat's people icon is named) on pinned rows. On a computer the short list has at most ten pins, the most
+  recently pinned first, then the five latest of the others and the chat on screen; "모두 보기" and the phone's drawer
+  have every pin first, then the date groups (the filters apply to pins too; a pinned chat that does not pass them is not
+  shown). "답 필요 N" counts what neither part shows. The project page lists my pins there first with the same pin.
+  Not built: drag to reorder (no manual order), pinning from the chat's title menu or from the project page's rows.
+- **The row menu.** 상단에 고정 / 고정 해제 is the first item of every row's "···" (the shared row menu of #221/#241, so
+  right-click, long press and the phone's sheet work too), with the pin and pin-off icons. A shared chat I may neither
+  rename nor delete used to have no "···"; it now has one, with only the pin.
+- **Live.** A pin or unpin answers the chat and sends `chat.updated` ('updated') to the person's own windows only.
+- Tests: `tests/unit/b-chat-pins.test.ts` (pin, unpin, idempotent, my windows only; the order and its pages, a project's
+  page, a search, the trash; a shared chat's pin per viewer, also on a later turn's events; lost access hides and drops
+  it; delete, restore, purge, a deleted project, a deleted person; the cap), the security permission matrix (only the
+  chat's person), `web/test/unit/sidebar.test.tsx` (the menu items, the order and the cap, the drawer, pin and unpin from
+  the menu), `web/test/unit/search-room-messages.test.tsx` (⌘K's 최근 by date with nine pins), e2e `chat-pins.spec.ts`
+  (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
+  a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## Onboarding v6 polish: the caret after a fill, plain copy, one name (fix/onb6-polish, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/chat/Composer.tsx`, `web/src/pages/Home.tsx`, `web/src/components/onboarding/`
+(`TeamPrepared`, `GoalCard`, `InviteStep`, `SkillsStep`, `ProfileStep`), `web/src/components/AvailableSkills.tsx`,
+`web/src/pages/Skills.tsx`, `web/src/pages/Welcome.tsx`, `web/src/lib/` (`tabs.ts`, `team-link.ts`, `nav.ts`), 이유:
+onboarding, Home and the team skills page are core.
+
+A walk through a real build of onboarding v6 ("W6", "W6.3") before the beta found these:
+
+- **The caret goes after text put in the box.** Home starts the box again with the chosen text and focused it with the
+  caret at the start, so a text pasted after 자연스러운 글's 써 보기 landed in front of "/humanizer …" and the command
+  broke. Now a box opened with text (`autoFocus`) and a recovery draft (`prepareDraft`) put the caret after the text
+  (`focusAtEnd`, the end scrolled into view). Phones still do not focus the box by themselves (the keyboard stays down).
+- **A request that needs the person's text is not sent alone** (Composer `waitsFor`). While the box holds only
+  "/humanizer 아래 글을 자연스럽게 다듬어 줘:" (and no file), send is off (the button and Enter) and the note under the box says
+  "다듬을 글을 붙여 넣어 주세요" (`role="status"`). Any text after it, or a file, and it goes. The other fills (물어보기, the
+  ready question, the suggestions) are whole questions and send as they are.
+- **No developer paths or English in the block's questions.** 물어보기 names the folder as people read it and says what
+  it leaves out in words: "예시커피 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 …" (the brand folder by its
+  real name, from `teamFolder.without[0]`), never "groups/…" or "(브랜드, skills 폴더는 빼고)". The AI finds the folder by
+  its name. The ready question without a company profile is no longer "users/<id> 폴더에 …" (`home.example1`, removed):
+  it is a first question that needs no file, "우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘"
+  (`home.prepared.startAsk`). A member's empty 팀 스킬 no longer says "skills/ 폴더": the title already says the owner or
+  an admin adds them; the line says how to suggest one. The AI's own words are not touched, nor the admin-only skill
+  rows' "general ·" and "/card-news" or the MCP dialog's labels (owners and admins who manage skills read those).
+- **An empty team's goal card leads to skills.** With no team skill (GET /api/skills/examples as the owner, the count
+  the invite step's line uses, read again as skills change), "팀 스킬은 아직 써 보기 전이에요" with a filled [다시 보내기]
+  asked members to try what does not exist. The line now says skills come first ("민지님이 들어왔어요. 팀 스킬을 넣으면 같이
+  써 볼 수 있어요.", or "아직 팀 스킬이 없어요. …" when nobody waits), the one filled button is [스킬 넣기], and the card's own
+  button ([다시 보내기], [초대 문구 복사] or [팀원 초대]) stays beside it, quiet. Until the read answers, and when it fails,
+  the card is as before. Phones keep their rule: no [다시 보내기] there.
+- **"스킬 넣기" opens the ready-made skills.** From Home's block, the empty-team line and the goal card it goes to
+  `/skills?catalog=open` (`SKILL_CATALOG`), where the owner's fold "트리나가 준비한 스킬 · N개 더" starts open, nothing
+  ticked.
+- **One name for the product in the copy beside the AI's.** "{product}가 준비한 스킬", "{product} 팀이 만들었어요" (and the two
+  other source lines) and the invite message ("…님이 {product}에서 …") said the product's full name next to "트리나에게
+  묻기" and "트리나가 바로 써요". They now take the name the app gives its AI in each language (`namedProduct`, as
+  `aiName`: 트리나, Trina, トリナ), never a literal; the core edition keeps its product name. Other `{product}` lines
+  (the app, the desktop, plugins, licences) keep the product's name.
+- **Smaller:** the profile step's line under 저장하고 계속 names the website's photos only when there is a website
+  ("저장하면 회사 소개 파일을 팀 브랜드 폴더에 넣어요" without one; it follows the website field of the review as it is typed);
+  a phone's skill row says 써 보기 at its end (its tap's action, as the files row says 물어보기; the filled one's in the
+  accent colour); the ready question wraps inside its button on a phone (it ran past the button's edge: the Button's
+  own `whitespace-nowrap` and height won over the block's); the member's skill sheet is titled "내 스킬 가져오기" like the
+  line that opens it (`contribute.title` removed).
+- Tests: `web/test/unit/composer-fill.test.tsx` (the caret after a fill, a paste after the command, no focus on a phone,
+  send waiting with the note until text follows), `team-prepared.test.tsx`, `goal-card.test.tsx`,
+  `available-skills-install.test.tsx` (the fold open from the start), `welcome.test.tsx` (the brand line with and
+  without a website), `team-link.test.tsx`, `onb6-skills.test.tsx`; the unit DOM now gives a textarea its default value
+  as a browser does (`dom-host.ts`), so a component's effects see the text it mounted with; e2e `team-prepared.spec.ts`
+  (typing and pasting after the fill, send off until then, the folder by its name, the ready question, the phone's 써
+  보기, the open catalog, the empty team's goal card), `states.spec.ts`, `onb6-skills.spec.ts`, `team-skills.spec.ts` (the
+  member's empty 팀 스킬 without "skills/").
+- **Independent review (2026-11-09) fixes.** `/skills?catalog=open` landed on 검토 when suggestions were waiting (the
+  managers' landing ran anyway); a link that opens the catalog now keeps the skills tab, like `?mine=`
+  (`member-contribute.test.tsx`). A failed attachment no longer lifts the wait for the person's own text: only a file
+  that uploaded counts, as only those are sent. Left for later: the write-access retry in a chat still names the
+  member's folder by its path (`files.summary.askOwnFolderPrompt`), which the AI needs to save in the right place.
+- Version impact: **patch** (fixes and copy; no API or data change).
+
+## One image viewer — a picture opens over the whole window, like Slack (feat/image-viewer, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/lib/imageViewer.ts`, `web/src/lib/zoom.ts` and the places
+that open a picture, 이유: rooms, chat and file previews are core. Plan: `docs/AGENTS/plan/20261109-0817-image-viewer.md`.
+
+The owner, on a screenshot: a picture clicked in a room opened in the right-hand panel, small, with no zoom; a screenshot
+of a web page could not be read. Pictures should open like Slack, across the app.
+
+- **The rule, app-wide: a picture opens the viewer; a name, chip or link opens the panel.** Pictures: a room or thread
+  photo's thumbnail, an AI chat attachment's, a team picture in an answer (AI chat, a room's AI answer, a shared answer,
+  and Markdown elsewhere: a `.md` file in the panel, an artifact, project instructions, skills), a picture in either
+  message box (the room's box now opens its pictures too, like the AI chat's), and the picture the file panel shows
+  (Files, FileView, links and sources keep opening the panel, with its actions; its picture opens the viewer alone). Not
+  pictures: file chips (an image without a thumbnail too), links, the deck stepper, the skill example's own dialog,
+  artifacts' frames (a frame cannot and should not open the page's viewer), external pictures (never loaded).
+- **No new address.** A room photo: its thumbnail, then `GET /api/rooms/:id/files/:fileId` inline (the member and
+  message check on every read), download `?download=1`. An attachment: its thumbnail, then the team file by its path
+  (`/api/files/download?disposition=inline`), a HEIC photo as `/api/files/preview`. An answer's team picture is the
+  original already. A box's picture and the panel's picture are drawn from the bytes the page has. A picture the panel
+  could not show either (a HEIC sent in a room, anything over the 20 MB image preview limit) keeps its thumbnail, with a
+  line saying so and the download.
+- **Loading and transparency.** The thumbnail is drawn at once at the original's stored size (when its shape matches,
+  else its own), under the original, which is decoded before it shows; then the thumbnail is removed. Nothing else is
+  painted behind the picture (fix/transparent-thumbnails): a transparent one sits on the dark backdrop, no checkerboard.
+  The backdrop is opaque; the page shows through only while a swipe down is closing it.
+- **Zoom, hand-written** (`lib/zoom.ts`, pure and unit-tested; Pointer Events and one CSS transform): fitted = the whole
+  picture in the stage at most 100 %, centred; a click toggles fitted and 100 % (2× the fitted size for a picture already
+  shown at 80 % or more) about the click; ⌘/Ctrl + wheel and Chromium's trackpad pinch (wheel + ctrlKey, a non-passive
+  listener so the page never zooms) and Safari's `gesture*` events zoom about the pointer; a drag (4 px with a mouse, 10
+  px with a finger) pans and is no click; + − 0 and the bar's − / % / + step by 1.5×, stopping at 100 % on the way (or
+  landing on it when a step would end within 5 % of it); 400 % at most; a right-click or a Mac's control-click is left
+  to the menu. Not chosen: a
+  library (react-zoom-pan-pinch, yet-another-react-lightbox, PhotoSwipe: MIT, roughly 10–25 kB gzipped each), which
+  brings its own DOM, styles and item model to bend to the app's bar, words, focus trap and the one-picture rule below.
+- **Next / previous: the pane that was clicked** (`ImageGroup`): the room's timeline (replies also sent to the room
+  included), the thread panel (its root and replies), the AI chat (this branch: attachments and answers' pictures), a
+  room's side chat with the AI (its own pane, like the AI chat), a message box's row. Each picture registers itself and the list is the pane's pictures in page order, which is message
+  order; only pictures drawn on the page are in it, so a file someone may not open (a lock), a withheld answer or an
+  unavailable attachment never is. It never crosses into another thread or loads older messages. A picture outside any
+  pane opens alone. The list follows the pane while open ("3 / 8" when a photo arrives).
+- **The bar**: the sender's picture (the AI's mark for an answer), the file's name, who and when (where known: not for a
+  picture not sent yet), "3 / 7", − % + (computers), download, the original in a new tab, ✕. Always shown on a computer;
+  on a phone it overlays the picture and a tap shows or hides it with the arrows. The new tab is for a plain browser only:
+  the desktop app and the phone app would open the system browser, which is not signed in. The download is the one the
+  panel uses (`startDownload`): in the phone app (iOS and Android) the page fetches the file with its own session and
+  hands the bytes to the app over the bridge, which opens the system share sheet (`downloadToApp`, up to 50 MB; a
+  larger one says so); a WebView swallows a plain link download, so that path is never used there.
+- **Phones**: pinch about the fingers, double tap to toggle, one finger pans when zoomed; when not zoomed a swipe down
+  (past a fifth of the height, or a flick) closes and a swipe sideways steps (added to the brief: the arrows hide with
+  the bar). `touch-action: none` on the stage.
+- **Back closes it.** Opening pushes one history entry at the same address with the router's state copied (React
+  Router's `idx`, `key`, `usr`), so the router, `lib/back.ts` and deep links see the page they saw; a `popstate` that
+  leaves the entry closes the viewer (the browser's Back, Android's back through the phone app's WebView, iOS's edge
+  swipe). ✕, Esc, the backdrop and a swipe call `history.back()` while that entry is the current one, so none is left
+  behind; stepping to another picture adds none. Closed and opened again before that back has landed, the new entry is
+  added once it lands (else its `popstate` would close the new viewer). A page change while it is open (a notice) closes
+  it without going back; Back from that page then lands on the viewer's entry, which goes on back (Forward onto it goes on
+  forward: React Router's `idx` against the page last shown says which way). The router re-renders on that `popstate`
+  with the same location key, so effects keyed on the pathname or the key do not run again. Left over: after a reload
+  with the viewer open, one Back lands on the same page again.
+- **The desktop app's 이미지 복사** (fix/image-copy-paste-preview) copies the picture under the pointer
+  (`copyImageAt`): the viewer is a portal on the team page's `<body>`, never a frame, the thumbnail takes no pointer and
+  is gone once the original is there, so the original is what is copied and what 이미지 저장… saves. A right-click is
+  left to the browser or the app (no zoom, no close). Each showing draws its pictures anew, so the same picture twice in
+  a pane (two answers showing one chart) loads each time. Nothing drawn (a HEIC in a box in Chrome): a click or a swipe
+  down still closes.
+- **Focus and screen readers**: `role="dialog"`, `aria-modal`, named "이미지 보기: {name}"; the app's `useFocusTrap`
+  (Tab stays inside, Esc closes); focus starts on the stage (the keys work at once, no button ring; Tab and Shift+Tab go
+  from there to the bar's first and last buttons) and goes back to the picture that opened it, found again by its key
+  when its message was drawn anew. While it is open the page's own shortcuts (⌘K search, ⌘⇧O new chat) wait. The name and "3 / 7" are announced
+  on a step. Reduced motion: the eases are CSS transitions, which index.css already turns off.
+- Tests: `web/test/unit/image-zoom.test.ts` (fit never upscales, the click target, zoom about a point, the pan's limits,
+  steps, wheel, pinch, swipes, the layout size before the original), `web/test/unit/image-viewer.test.ts` (page order,
+  pictures off the page, a group's notices, each kind's addresses, Back: one entry with the router's state, ✕ goes back,
+  Back closes, a page change does not go back, a step adds none, a reopen before the back lands, the left-behind entry
+  skipped both ways), e2e `image-viewer.spec.ts` (a room photo fitted with
+  its bar and download, no upscale, click zoom about its point, drag, ⌘/Ctrl + wheel, keys, ← → with focus back after
+  Esc, backdrop, ✕ and Back, the right-click on the original on the page itself, an AI chat attachment, both boxes'
+  pictures and the file panel's picture, a thread's own pane, a room AI answer's picture twice, a phone's swipe sideways
+  and down; screenshots), `room-files-open.spec.ts` (the photo
+  opens the viewer over the panel; the right-click there reaches the original).
+- Version impact: **minor** (a visible UX change; no API or data change).
+
+## Trina side chat, PR 2: no "@트리나" in rooms (feat/remove-room-trina-mention, 2026-11-09, product owner)
+
+- **Decision (option A, after PR 1 added the side chat):** "@트리나 …" in a room's timeline, a thread or a DM no longer
+  asks the AI. The text is an ordinary message. People ask in the side chat (✦) and share an answer with "Share to
+  room".
+- **How:** server.json `roomAiMentions` (AppConfig, absent = off) gates the ask in Rooms.send; `Me.server.roomAiMentions`
+  tells the app, which then offers the AI in the "@" list and the old placeholder. Off: no AI row, and the empty room's
+  box says "✦ asks Trina beside the room". The room AI code (rooms/ai.ts) stays for the switch and for earlier answers:
+  their private previews, "Post to room…" and sources keep working.
+- **"Ask Trina about this"** on a message (✦ in its hover bar; the long-press menu on a phone; a thread's messages too,
+  which closes the thread): the side chat opens with the message quoted above the box (who, when, its lines) and three
+  quick questions (Translate into my language, Summarize with its thread, Explain). The quote goes in front of the
+  question as a Markdown quote (at most 4,000 characters; the AI reads the rest of the room with room_read). It is what
+  "@트리나 translate this" was used for.
+- **Tests:** the test harness turns the switch on (tests/unit/a-lib.ts testConfig), so the room AI tests keep covering
+  the old way while it exists; tests/unit/b-room-ai-mentions-off.test.ts covers the default.
+- **Later:** remove the room AI ask and its switch once no team needs it (a decision of its own).
+
+## Side chat starters and files (feat/side-chat-starters, 2026-11-09, product owner)
+
+- **From Slackbot** (screenshots of the owner's Slack, 2026-11-09): an empty side chat shows what it looks at ("Looking at
+  #design with you"), three starters (Catch up: what I have not read; Anything for me?: mentions, questions, tasks;
+  Summarize: the latest discussion), and one line that the AI can make mistakes. Not taken: a toggle to stop it reading
+  the room (the room is the side chat's point), a global Slackbot button outside rooms (later, a decision of its own).
+- **A file sent in a room:** its preview (components/FilePanel.tsx, the app's right panel) has "Ask Trina". The room
+  page opens its side chat with the file quoted by name and file_id (lib/sideChatAsk.ts carries it from the panel to
+  the page); the AI opens it with room_file, as the person. File questions: Summarize, Key points, Check it.
+- **Later:** a large file viewer with page thumbnails on the left and the side chat (or the message's thread) on the
+  right, as Slack's file view.
+
+## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
+artifact panels' headers, 이유: the side panel is core. Step (a) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`), its question 7 answered by the
+owner: not remembered.
+
+- **One toggle, left of ✕**, in the file panel's and the artifact panel's headers (also while an intro deck is built),
+  not on the Browser pane: ⤢ **크게 보기** / ⤡ **나란히 보기** (`Maximize2` / `Minimize2`, an `IconButton`, so its name
+  is its tooltip). Computers only (`max-md:hidden`): below 768 px the panel is a full-screen sheet already.
+- **Big:** `<main>` is hidden (`md:hidden`, still mounted: the chat, its draft and its scroll stay; Chromium and WebKit
+  keep a scroll box's position across `display: none`), the panel is `flex-1` beside the sidebar, without its own left
+  line (the sidebar's edge is the line) and without its divider. Beside a room's open thread it covers room and thread
+  alike. The skip link goes to the panel then. Side by side again, the divider mounts and fits the width it remembers
+  (`mycel.sidePanel.widthFraction`), so the panel comes back at the width it had.
+- **What runs behind it:** the two message boxes (`Composer`, `RoomComposer`) measure their height when their text or
+  hint changes; not drawn, they measured 0 and came back as a sliver (an answer that ended behind the panel changes the
+  hint). Now a box that measures 0 keeps its height and is measured again when the page shows. The thread's and side
+  chat's dividers fit a 0-wide row while hidden and fit again when it shows (they never store that).
+- **The place being read:** the file panel's viewers fit its width, so a PDF's pages grow when it goes big. The panel
+  keeps the scroll position as a share of the scroll height and brings it back for 0.8 s after a width change, while the
+  pages settle, until the person scrolls (also for the divider and a window resize). Before, a PDF read at page 4 showed
+  the end of page 3 once big.
+- **The header at its narrowest:** the new button takes 28 px; in a panel under 448 px (`@container`, the divider at its
+  least) "AI에게 묻기" shows as its icon (the name stays its accessible name and tooltip), so the file's name keeps room.
+- **How long:** `expanded` in `lib/sidePanel.ts`, beside the panel itself, never stored. Another file or an artifact
+  opened in the panel keeps it (a link in a Markdown file, the AI opening an artifact); closing the panel (✕, Esc, a
+  page that does not keep it) or the Browser pane taking it ends it, so the next panel opens side by side. Any move
+  (`location.key`: the sidebar's **Files**, a folder link, a link to the page already open) ends it too: a page the
+  person went to must show, and a page that keeps the panel (the Files screen) would otherwise stay hidden behind it.
+  The image viewer's history entry is not a move (it copies React Router's state).
+- **Actions:** download, edit and save, PDF로 저장, copy and the artifact's versions work in place. **Add to chat**,
+  **Ask AI** (`useTeamAttach`) and **Show in Files** first go back side by side: their result is in the page behind the
+  panel (a chip in the composer, the folder with the file selected), which a big panel would keep hidden.
+- **Esc order** (`escapeAction`, Layout's window handler): a dialog keeps its Esc; the phone drawer closes; a big panel
+  goes back side by side; then the panel closes. The Files screen's own Esc, which clears a selection before the panel
+  closes, waits while the panel is big (the list it would clear is hidden), so there it is: side by side, the
+  selection, the panel. On a phone width a leftover big state counts as not big (`panelExpandedNow`), so Esc closes.
+  The image viewer (#246) over a big panel is a dialog whose focus trap takes its Esc: the first Esc closes the viewer
+  (focus back on the panel's picture), the next one brings the panel side by side, the third closes it. The viewer's
+  history entry is at the same address, so opening or closing it does not end the big state.
+- **Not done:** no keyboard shortcut and no double-click on the header; the PDF keeps fitting the panel's width (as a
+  panel dragged wide does), with no reading-width cap. The PDF toolbar's "fit width" also draws `Maximize2`; left as
+  is (it sits in the toolbar under the header, with its own tooltip).
+- Tests: `web/test/unit/side-panel-expand.test.ts` (nothing open, kept for another file or an artifact, ended on close
+  and by the Browser pane, the Esc order), e2e `side-panel-expand.spec.ts` (from the AI chat: the chat hidden, the
+  panel as wide as the page area, no divider, Esc and the button back at the divider's width, Esc twice closes,
+  reopened side by side; add to chat; from Files: a link in a big Markdown file opens the PDF still big, editing works
+  there, Esc before the selection, Show in Files; an answer that ends behind a big panel leaves the message box whole;
+  the image viewer over a big panel and Esc's order; no button at 390 px).
+- Version impact: **minor** (a visible UX addition; no API or data change).
+
+## Pinned conversations — 상단에 고정 in 대화 (feat/pin-rooms, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/rooms/service.ts`, `server/src/rooms/store.ts`, migration 278,
+`shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`, `SidebarRooms.tsx`, `web/src/pages/Rooms.tsx`), 이유:
+rooms and their lists are core. Plan: `docs/AGENTS/plan/20261109-0931-pin-rooms.md`.
+
+The owner, after "Pinned chats" above: the same for the team chat list. A room, DM or group chat in the sidebar's
+**대화** and on /rooms gets **상단에 고정** / **고정 해제**, and pinned conversations stay at the top. It follows the chat
+pins wherever a room allows it.
+
+- **A pin is the person's own.** One row per person and room, `room_pins(user_id, room_id, pinned_at)` (migration 278),
+  not a column on `room_members`, as `chat_pins` is its own table. `Room.pinnedAt` is worked out per member in
+  `roomOut`, so every `room.updated` a room's members get (a rename, a member change) carries each one's own pin, and
+  nobody else hears of a pin or an unpin. Not audited, as hiding is not.
+- **Who may pin.** A member of the room (`Rooms.mine`; 404 otherwise, the owner and admins included, as every room
+  route). Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned
+  when not pinned: no change and nothing sent. At most 50 pins, the same as chats (409 `room_pins_full`, "상단에 고정은
+  50개까지 할 수 있어요. 고정한 대화 하나를 해제한 뒤 다시 해 주세요."); only pins of rooms the person is still in count.
+- **Hidden rooms: hiding unpins.** Of the two choices (pinning shows a hidden room again, or hiding unpins it), hiding
+  unpins: a person who hides a conversation wants it out of the way, and it should not come back at the top when a
+  new message brings it back. So a room is never pinned and hidden at once: `setHidden` drops the pin in the same
+  transaction, a hidden room's "⋯" has no 상단에 고정 (다시 보이기 is there), and the server refuses to pin one (409
+  `room_hidden`, "숨긴 대화는 고정할 수 없어요. 다시 보이게 한 뒤 고정해 주세요."; only an older window or a script can
+  ask). The hide's toast 실행 취소 shows it again and pins it again when it was pinned (as the newest pin). A group chat
+  is never hidden (it is left).
+- **What takes a pin away.** Leaving or being taken out of a group chat, leaving a team room's group, a disabled or
+  deleted account leaving its rooms: all of them run `Rooms.forgetMember`, which now drops `room_pins` with the other
+  rows of the member. A room that goes: an archived room has no members left (the last one out, a deleted group's team
+  room), and the room's row going cascades. A deleted person: their DMs keep their member row (a DM keeps its two), so
+  `deleteUser` drops their pins in its transaction, as it drops their chat pins. In a room, seeing it is being a member,
+  so "can no longer see it" is one of the above. An older build (reader 1) keeps pins when someone hides or leaves a
+  room, so only a pin of the membership now shows or counts (`pinOf`): never one of a hidden room, nor one older than
+  the member's `joined_at`; hiding a room that is hidden already drops such a row, and pinning again replaces it.
+- **The order (the app's, not the server's).** `GET /api/rooms` stays by latest activity (it is not paged, so the pins
+  need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
+  pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
+  대화 (lean, as the chat pins): at most ten pins, then the five latest of the others, and the room on screen wherever it
+  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before. /rooms (모든 대화) and the
+  phone's 대화 tab (the same page): the 트리나 row stays the very first row (computers), then every pin, then the
+  others. Hidden rooms stay under "숨긴 대화" (never pinned). Other room lists (⌘K, the room picker, the AI's room
+  list) keep their order.
+- **The look.** No header: the chat pins' 12 px pin, named 고정됨 for screen readers, after the name (room rows start with
+  the room's picture, so a pin before the name would push the pinned names out of line with the others), beside the
+  muted bell; in the sidebar it gives way to the "⋯" on hover like the bell. Unread pills, the "?" and presence dots
+  are unchanged.
+- **The menu.** 상단에 고정 / 고정 해제 is the first item of the room's "⋯" (`RoomMenu`), as on the AI chats' rows, with the
+  pin and pin-off icons and the chat pins' words (`chat.pin`, `chat.unpin`, `chat.pinned`). It is the one menu of every
+  row (hover, keyboard, right-click, long press and the phone's sheet) and of the room's header, so the header has it
+  too (no change to `Room.tsx`).
+- **Live.** A pin or unpin answers the room and sends `room.updated` ('updated') to the person's own windows only; hiding
+  sends the one it sent before, now without the pin.
+- Tests: `tests/unit/b-rooms-pins.test.ts` (pin and unpin of every kind, idempotent, my windows only, each member's
+  copy with their own pin; the order of pins; members only; leaving, removal, a group change and a disabled account
+  take it; a deleted group's room, the last one out and the row's cascade; a deleted person; hiding unpins, a hidden
+  room is refused and a new message brings it back unpinned; the cap and pins that do not count; pins an older build
+  left), the security
+  permission matrix (`pinRoom` / `unpinRoom`: the DM's two people only), `web/test/unit/room-pins.test.tsx` (the order
+  and the caps, the rows and their pin on the sidebar and the conversations page, the menu's pin and unpin, the hide's
+  undo, a refused hide, another window's event), `web/test/unit/room-hide.test.tsx` (the menu by kind), e2e `room-pins.spec.ts` (the
+  sidebar's "⋯", a right-click, after a reload, unpin, hide and undo; the conversations page's order; the phone's long
+  press) and the menu lists in `room-leave-hide.spec.ts`.
+- **Independent review (2026-11-09) fixes.** The endpoints' summaries named the menu in Korean (the language test; dev
+  had fixed the chat pins' the same way); a refused hide left a pinned room unpinned on screen (the store puts the pin
+  back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
+  pin ahead of the clock.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
+
+Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:
+"플러그인 기능이면 해". A team file in Hangul (HWP, HWPX) opens as pages in the side panel while the HWP Preview plugin is
+on ("Plugins, stage 1"); the same file sent in a room only downloaded, because the preview took a team path only.
+
+- **Decision:** a room's Hangul file gets the same preview from the same plugin, at
+  `GET /api/rooms/:id/files/:fileId/hwp-preview?page=&cacheId=` (`roomFileHwpPreview`), next to the room file's own
+  address and with the team route's answer (`HwpPreviewPage`). Not `/api/files/hwp-preview` with a room reference: that
+  route's checks are the team folder's, and one route with two kinds of check is easier to get wrong.
+- **The checks are the inline read's**, on every request, before any cache lookup or render, and again after the render
+  (`RoomFiles.hwpSource`, called by `HwpPreviews.pageOf` both times): `RoomFiles.open` (in the room now and not archived;
+  the message visible to me from my join on, never an old answer hidden from me nor someone else's private preview, not
+  deleted; or my own upload not sent yet; else 404, an admin outside the room too) and the download-only list, which is
+  the quarantine list (503 `quarantined`, the inline read's answer: no inline read, no preview). A cached page is served
+  only after these pass, so a page made before someone left, a message was deleted or its bytes went on the list is not
+  served after. The bytes are read through the request's `SearchAdmission` (no link, no hard link, no swap between the
+  check and the read, a quarantined hash refused) and must be the bytes the file was sent with (the row's sha256; else
+  `changed`). Not a Hangul name: `unsupported`, before the renderer.
+- **One renderer, cache and set of limits.** `HwpPreviews` takes a source (`OpenHwpSource`); the team path is one, a
+  room file the other. The engine is resolved per request from the plugin (off, removed, revoked, not usable here: the
+  disabled engine, 503 `unavailable` with reason `disabled`, word for word the team file's answer). The 20 MB input,
+  200 pages, isolation, one render per person and per server (shared with team previews), the 128 MB cache and its
+  invalidation are the team preview's. The cache keys a room file by its room, its id and its sha256 (`room:<room>/<id>`;
+  team paths are `team:<path>` now, so the two never meet); a cache id is still never a capability.
+- **How the web knows: `Me.server.hwpPreview`** (the plugin's package is usable here, `PluginManager.hwpPreviewOn`), as
+  `htmlPdf` tells whether the HTML print can run. The brief asked to reuse the signal the web has for team files; it has
+  none before a click: the team panel always asks and shows the server's "off" notice. Asking first that way for a room
+  file would change what a click does while the plugin is off, which the owner ruled out. With the flag on, a room's
+  Hangul chip opens the panel (within the 20 MB the preview reads; a larger one downloads as before); off or absent, the
+  chip downloads and the panel shows its "cannot preview" card, as before. `Me` is read at sign-in, so a plugin turned
+  on shows after a reload; one turned off while the page is open shows the team file's "off" notice with the download.
+- **Download-only in the viewer:** `HwpView` shows the server's download-only words with the download (no retry), for a
+  room file and for a team file (a team file showed "cannot be used on this server" before).
+- **Not here:** the new file viewer (plan steps b–e) uses this route when it lands; HEIC previews of room files.
+- **Words:** no new strings.
+- **Independent review (security, tried to break it):** no must-fix; no page, page count, hash, cache hit or telling
+  answer for someone who cannot read the file inline. The cases it asked to guard are now tests (a late joiner, leaving
+  after a cached page, an archived room, links, the shared per-person render, over 20 MB, outsiders and held files with
+  the plugin off). Left as is: with the plugin off the file is still read before "disabled" (as the team route; the web
+  asks only while the flag is on), and the flag does not run the renderer's own isolation and binary checks, so on a
+  server where the plugin is on but cannot run the chip opens the panel's notice with the download.
+- Tests: `tests/unit/b-rooms-hwp-preview.test.ts` (a member's pages with no browser cache, one render for two people, a
+  cache id reused and a guessed one refused, pages out of range; not a member, an admin outside, another room's
+  address, no session, a cached page's id for an outsider; my unsent upload mine only; a hidden old answer's file,
+  another person's private preview's file, a deleted message's file; a late joiner, leaving after a cached page, an
+  archived room; a download-only file refused before the renderer and after a page of it was cached; a message deleted
+  during the render; changed bytes, a hard link, a symbolic link; one render per person across team and room; over
+  20 MB; not Hangul; the plugin off for a room and a team file alike, outsiders and held files answered first, and
+  `Me.server.hwpPreview` following it; a team file's preview), the permission matrix
+  (`roomFileHwpPreview`: the DM's two people pass the room checks, everyone else 404), `hwp-preview.test.ts`,
+  `web/test/unit/room-files-open.test.tsx` (the chip opens only with the flag and within the limit), e2e
+  `room-files-open.spec.ts` (the room's HWP in the panel, a page step; the chip downloads with the plugin off).
+- Version impact: **minor** (a new endpoint and `Me.server.hwpPreview`; no data change).
+
+## Team folder basics — 전사 공유·부서·프로젝트 on screen, what each folder is for, 양식, the company start in shared/ (feat/team-folder-basics, 2026-11-09, product owner)
+
+넣을 곳: trina-ax `shared/src/folder-labels.ts`, `web/src` (Files, the pickers, `web/src/i18n/ko.ts`),
+`server/src/chat/prompt.ts` and `chat/file-placement.ts`, `server/src/admin/folders.ts`, `server/src/onboarding/`, 이유:
+files, the AI's instructions and onboarding are core. Plan: `docs/AGENTS/plan/20261109-0839-team-folder-basics.md`.
+
+The owner approved these on 2026-11-09. A new team has `groups/`, `projects/`, `shared/`, `skills/` and `users/`, and
+Files showed those English disk names. Onboarding put the company's own material (회사 소개, 브랜드, 회의록, the uploaded
+company files) in `groups/<회사명>/`, which a member who joined another way does not see: two company-wide homes. There
+was no place for forms and templates and no archive convention, and the AI was told which folders it may write but not
+what each one is for.
+
+- **Folder names on screen, not on disk.** One table (`shared/src/folder-labels.ts`, five languages): `shared` →
+  전사 공유 (Company-wide), `groups` → 부서 (Groups), `projects` → 프로젝트, `skills` → 팀 스킬, `users` → 개인, the
+  person's own `users/<id>` → 내 폴더. Only the exact top-level disk names get words (a folder named "Shared" deeper
+  down is that folder's name). The web shows them through `lib/folderLabels.ts` in Files (breadcrumbs, rows, the move
+  and copy toasts, the search scope, the upload lines), the folder picker (move, save to team folder, projects, admin
+  rules), the team-file picker of the message box (its rows, breadcrumbs, path lines; it already named 내 폴더), the
+  message box's team file chips, Home's team files line and the 팀 파일 step; a step line names shared/ the same way
+  (`STEP_PLACE.shared`). A row's hover title stays the disk name. At the team root the five come first in a fixed order,
+  전사 공유, 부서, 프로젝트, 팀 스킬, 개인 (`topFoldersFirst`: Files, the folder picker and the team-file picker), then the
+  rest as the server lists it; a deeper folder keeps that sorting (display only: the API's order and pages do not
+  change). Disk names, API paths, links, drag and drop and every path the AI is given are unchanged. Not changed: the Admin › 폴더 권한 pages (they set rules on paths and show them),
+  the Projects page's folder lines.
+- **"부서" for admin groups in Korean.** Every ko string that names an admin group says 부서 (Admin › 부서, rules, the
+  access views and editor, pickers for AI connections, credentials, integrations and budgets, usage, audit lines, group
+  skills and skill shares, the team link's "들어온 사람이 속할 부서", the room picker's list of groups, the server's ko
+  messages for groups and group folders). The particles follow (부서를, 부서가, 부서로). "그룹 대화" (hand-picked group
+  chats: the room picker's 그룹 대화 만들기 and its name field, notifications, Slack's 1:1·그룹 대화) stays, and so do the
+  server's "자원 그룹" lines (Linux cgroups). The other languages keep their word for groups, which is also their folder
+  label, so each language uses one word for both.
+- **What each folder is for, in the AI's instructions** (`folderPurposeLines`, in the person lines after the folder
+  lists, so a resumed session and a room session get it). One line per top folder with the name the screen shows in
+  the person's language ("shared/ ("전사 공유"): company-wide; everyone in the team can see it…"), the person's own
+  folder by its words, and, when `shared/양식/` (any language's name) is there and readable (in a room: by everyone
+  there), "Forms and templates are in shared/양식/. When you make that kind of document …, start there". Written in
+  English like the rest of the instructions, not the brief's Korean sentence. No team data except that one folder name.
+- **보관, a convention.** The placement rule (`filePlacementRule(move, archive)`) says that when the person asks to tidy
+  up, finished work moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/),
+  made like any new folder, and nothing is deleted unless asked. The word follows the templates folder's language (the
+  team's); a team without one is told to name it like the folders already there ("보관" in Korean, "Archive" in
+  English), so members who read the app in different languages do not make one each. No button, no feature.
+- **projects/ in the loose-file note.** A new file directly in `projects/` (beside the project folders, not in one) gets
+  the server's note like `shared/` (`looseArea`), in the in-app AI and the app connector (`connectors/remote-mcp/upload.ts`,
+  its guide line). Its note names the project folders and never suggests a new folder in `projects/` (people make
+  projects in the app; a folder there would look like one and not be one). `projects/` joins `groups/` and `users/` as a
+  root folder never offered as a place for a loose file. A project's own folder is still where its chats save.
+- **`shared/양식/` for a new team** (`createDefaultFolders` → `ensureTemplatesFolder`): made at the team's creation (setup
+  and the server CLI), named in the team's language (양식, Templates, Templat, テンプレート, Plantillas), inheriting
+  shared/'s rule (no folder row, so the owner checklist's 폴더 권한 step is unchanged). Safe to run again; never a second
+  one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
+  touched (nothing runs it for them). No department folders.
+- **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
+  puts joiners in it; its team room), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
+  (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
+  회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
+  folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
+  shared/ and the other groups' folders, not the team group's own folder. A row without `home` (every team that started
+  before) keeps `groups/<team>/` as its home and its files where they are: no migration, nothing moved; only a team
+  group that is gone and made again starts in shared/. After a rollback, an older build that runs the team's start
+  again re-saves the row without `home` (it does not know the field) and makes `groups/<team>/브랜드/` beside the
+  recorded `shared/회의록/`; rolled forward, that row reads as an older team's. Nothing is lost; the material is in two
+  places until someone moves it.
+- **What reads those paths.** Home's 팀에 준비된 것 count (`skills/examples.ts`: shared/ without the brand folder, for
+  everyone in the team; the block reloads on shared/ changes), the member's 올리기 suggestion (`memberTeamFolder`: the
+  home), 팀 파일 recorded by the run (`onboarding/team-files.ts`: a file in shared/ or a group's folder), the step
+  labels (`placeName`: shared/브랜드, shared/브랜드/이미지 and shared/회의록 by their words), the Files screen's
+  "폴더에서 회사 문서 추천받기" line (the home), the pack skills 회사 소개서, 카드뉴스 and 홍보 영상 (they read
+  shared/브랜드/ first, groups/<team>/브랜드/ for a team that started before; installed copies keep their text). The promo
+  video's picture check already took `shared/<브랜드>/`. Not affected: the company profile (`skills/company-profile.json`),
+  the file ranks (#195, migration 272: names from the person's computer, no team path), the owner checklist, the demo
+  company (it seeds its own files).
+- Tests: `tests/unit/team-folder-basics.test.ts` (the labels table and paths, the step labels, `shared/양식` made once
+  and never twice, the prompt lines with the person's words and the templates line (not in a room that cannot read
+  it, not when hidden), 보관 in the team's language, the loose note for projects/, the team's start in shared/ with
+  Home's count, the member's folder and 팀 파일 landed there, an older row kept); updated: `b-onboarding-team-space`,
+  `b-onboarding-cardnews` (the brand folder in shared/), `b-onboarding-file-rank`, `b-member-contribute` (shared/ is
+  everyone's folder), `b-skill-examples` (now an older row), `b-chat-file-placement`, `remote-mcp-placement`,
+  `remote-mcp-guide`, `step-labels-tools`, `i18n-languages`; web `folder-labels.test.ts`, `team-prepared.test.tsx`,
+  `access-view.test.ts`, `steps-subtasks.test.tsx`; e2e `welcome-team-files.spec.ts`, `team-prepared.spec.ts`,
+  `files.spec.ts` and the specs that read 그룹.
+- **Independent review (2026-11-09), fixed:** the archive word fell back to each person's language on teams without a
+  templates folder; the purpose lines said everyone sees shared/ (now "by default") and only admins change skills (now
+  also the people they let edit skills), and pointed at the User line's groups, which a room session has none of; the
+  projects/ note could suggest a new folder there; the 팀 파일 step's who-sees-it count could be overwritten by a slower
+  answer for the place chosen before; the handover note said "팀 부서" for the team group (now "팀원으로 들어가요").
+  Kept: the rollback effect above.
+- Version impact: **minor** (new teams get another layout and folder, the AI places files differently, new words on
+  screen; no API path, no migration).
+
+## The image viewer's 복사 — copy the picture from the viewer's bar or with ⌘C (feat/viewer-copy-image, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/copyImage.ts` and `web/src/components/ImageViewer.tsx`, 이유: the image viewer is core.
+Plan: `docs/AGENTS/plan/20261109-1050-viewer-copy-image.md`.
+
+The owner: "이미지 copy 기능도 있어야해". The viewer ("One image viewer") had download, a new tab and ✕; a picture copied
+only by a right-click (the browser's Copy Image, the desktop app's 이미지 복사).
+
+- **복사 in the bar, left of the download** (the copy icon, the tooltip and name 복사 like the download's 내려받기), and
+  **⌘C / Ctrl+C** anywhere in the viewer, unless a text in the viewer is selected (none can be today: the viewer is
+  `select-none`; a selection left on the page behind is not what is on screen, so the key copies the picture). With a
+  Korean input source the key reads ㅊ: the key's place (`KeyC`) says it is C, but only when the key is no Latin letter,
+  so another layout's C stays its own letter. A held key copies once.
+- **What goes: the picture the viewer drew, as a PNG, with no new request or address.** A PNG whose bytes the page has
+  (a picture in a message box) goes as it is. Everything else (a JPEG, WebP or GIF; the server's JPEG of a HEIC; a PNG
+  the page has only by its address) is drawn on a canvas from the viewer's own `<img>` and goes as a PNG: browsers take
+  `image/png` reliably and other types not at all. Nothing is painted first, so transparency stays. A copy pressed while
+  the original loads waits for it (up to 15 s, then the thumbnail, said so). An SVG with no size of its own (an answer's
+  drawing) is drawn at its size on screen, in device pixels. A picture with no original drawn (over the 20 MB preview limit, a HEIC sent in a
+  room, an original that failed) copies the thumbnail on screen, and the toast's second line says so ("원본 대신 화면에
+  보이는 작은 사진을 복사했어요."); one that cannot be shown at all has no 복사. A canvas too big to make is tried once
+  more within iOS Safari's 4096 × 4096 and a 16384 px side, and the toast says it was made smaller; a moving GIF copies
+  the frame on screen.
+- **How**: `navigator.clipboard.write([new ClipboardItem({ 'image/png': promise })])`, the item made and written inside
+  the click or the key press (Safari takes the write only there), with the PNG a promise that may come later.
+- **A copy given up writes nothing.** A copy still waiting (its original loading) is given up by the next press and when
+  the viewer closes: its PNG promise is rejected, so the browser writes nothing and no toast shows. Otherwise a picture
+  could land on the clipboard over text copied since, with a toast out of nowhere (Chromium runs each write on its
+  own), or Safari could cancel the first write itself and report a refusal.
+- **Only where it works; never a button that does nothing.** Shown with `navigator.clipboard.write`, `ClipboardItem`
+  and, where the browser has it, `ClipboardItem.supports('image/png')`. So not on a plain http page (no async
+  clipboard) or in an older Firefox. Not in an Android WebView: it puts no picture on the clipboard (Chromium writes
+  pictures there through a file provider that only Chrome has), so its write would succeed and leave nothing. That is
+  the Android phone app and every in-app browser on Android (a chat app opening a shared team link), told by the user
+  agent's "; wv)". Chrome on Android, the iPhone app's WebView and iOS Safari take it. Not chosen: a bridge for the
+  phone apps (no change to them).
+- **The desktop app needs nothing new**: its team page may already write the clipboard (`clipboard-sanitized-write` for
+  the team origin, `desktop/src/main/security.ts`; image/png is a sanitized write like text/html), and its team address
+  is always https or this machine, a secure page. `desktop/e2e/clipboard.spec.ts` now writes a PNG with a transparent
+  half from the team page and reads it back from the system clipboard, transparency kept. Not chosen: a preload
+  `copyImage(url)` with the main process fetching the original, a second way to the same bytes with its own address
+  checks.
+- **Feedback**: a toast, which sits above the viewer: 이미지를 복사했어요, or 이미지를 복사하지 못했어요 with one line of
+  why (the browser refused the clipboard: click or tap the window and try again; too big even made smaller: download
+  it; the picture did not load; anything else: try again, else download it). The same words go to a status line inside
+  the dialog: the toast is outside the `aria-modal` dialog, where a screen reader (VoiceOver) may not read it.
+- **Not in the room message's ⋮ menu or long-press sheet**: they act on the message (copy its text, edit, delete) and
+  have no item per attachment. A picture opens the viewer, where 복사 is.
+- Tests: `web/test/unit/copy-image.test.ts` (where it is offered, an Android WebView by its user agent, a PNG as it is,
+  other types drawn at their size, the thumbnail and a smaller drawing said so, a long strip within the side limit, the
+  item written inside the click, a copy given up writing nothing, each reason, the key with a Korean input source and
+  another layout), e2e `image-viewer.spec.ts` (복사 beside the download, the original read back from Chromium's clipboard
+  as a 2880 × 1800 PNG with no new request, ⌘C and Ctrl+C, the status line in the dialog, a WebP's transparency and a
+  JPEG as PNGs, a copy that waits for the original (its thumbnail a different size), a copy given up by closing the
+  viewer leaving the text copied since, the thumbnail of a picture over 20 MB, no button without ClipboardItem;
+  screenshots), desktop e2e `clipboard.spec.ts` (a PNG from the team page). The browser tests use Chromium's own
+  clipboard (granted in `playwright.config.ts`); the desktop test puts back what was on the computer's clipboard. Not
+  tested: Safari (Playwright's WebKit may write the computer's own clipboard), and ⌘C through the real viewer in the
+  desktop app next to its Edit menu's Copy (the page gets the key first; the desktop e2e's team page is a fake one).
+- Version impact: **patch** (one button and one key in the viewer; no API, setting or data change).
+
+## FileBody — the side panel's file body as a component of its own (refactor/file-body, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/FileBody.tsx` (moved out of `FilePanel.tsx`), 이유: the room file viewer is to
+draw the same bodies, and file previews are core. Step (b0) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`).
+
+- **Moved, not copied:** the panel's loader effect (now `useFileBlob(file, rev, limits)`: the bytes by source, the
+  limits, the download-only, busy, too large, missing and network errors), its body switch and its module-private
+  renderers (`Viewer`, `PanelPicture`, `MediaView`, `TextKinds`) are in `FileBody.tsx`; `FilePanel` keeps its header,
+  actions, edit mode, PDF로 저장, `chatActionsFor`, and its scroll box with the width it measures and the place it keeps
+  for 크게 보기, and draws `<FileBody>` there. The same components, props, classes and test ids: no visible change.
+- **What the next step's viewer gets:** `useFileBlob(file, rev, limits)` takes the source (`PreviewFile`: a team path
+  with its place `at`, a room's file `{ roomId, fileId }` as #179 reads it, or a file from this computer) and the
+  limits (default `previewLimit`); `<FileBody>` takes the same `file`, what was read, `width`, `download`, `onRetry`,
+  and `openPicture`: a picture's click is the caller's, and the picture is then not registered with the image viewer.
+  Only sources that exist: a room's Hangul file gets its pages as #254 made it (while the HWP preview is on); a room
+  HEIC photo stays the card.
+- **One order, one place:** `bodyRenderer(loaded)` says what the body draws (the card, busy, an error, a Hangul
+  file's pages, loading, then pdf, docx, pptx, sheet, picture, media or text); the body and its unit test use the same
+  function.
+- **Hangul kept thin:** #254 (a room's Hangul file through the room) landed while this was open; its kind line (now in
+  `useFileBlob`) and its team and room HWP branches (now in `FileBody`) moved as they were. `bodyRenderer` says 'hwp'
+  for any Hangul kind; which source draws it stays in those two branches.
+- **The one visible change:** the PDF toolbar's 너비에 맞추기 drew `Maximize2`, the ⤢ that #249 gave 크게 보기 in the
+  header right above it. It now draws ↔ (`MoveHorizontal`), with the same name and tooltip. `ArrowLeftRight` reads as
+  "swap", `Columns2` as a layout.
+- Tests: `web/test/unit/file-body.test.tsx` (each kind's renderer, the states before it, files from this computer drawn
+  by kind, no request for a file with no preview here, a room's Hangul file with the HWP preview on and off, the
+  download-only card, retry, a picture's click with and without `openPicture`); the panel's e2e specs unchanged.
+- Version impact: **patch** (an icon; no API or data change).
+
+## The room file viewer — a file from a team conversation opens over the whole window, like Slack (feat/room-file-viewer, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/components/ViewerDocument.tsx`,
+`web/src/lib/imageViewer.ts` and the room's file chips (`web/src/components/rooms/RoomMessages.tsx`), 이유: rooms and file
+previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "One image viewer"
+(#246) and "FileBody" (#259).
+
+- **One viewer, two stages.** The image viewer's item gains `kind: 'file'`, its source (`file`: the side panel's
+  `PreviewFile`), its size and, for a file with no preview here, `card`. A room file chip registers through
+  `useViewerItem` as a room photo does (`roomFileItem`), so a pane's list (the timeline, a thread; in rooms, DMs and
+  group chats alike) holds pictures and files together in page order, which is message order, and ← → walk both
+  ("3 / 7"; plan decision 6). A picture keeps the picture stage (zoom, pan, gestures, 복사); a file gets the document
+  stage. The host, portal, focus trap, history entry (Back closes it), the close on a page change and the focus return
+  are the image viewer's. A picture without a thumbnail that the browser draws is a picture; a HEIC one or one past
+  20 MB is a file with its card.
+- **Where:** a chip's name in a room, DM, group chat or thread (plan decision 4); every chip has its own download icon
+  now (a ZIP's or a Hangul file's chip was one download button). Unchanged, as decided: the AI chat's attachments and the
+  Files page keep the side panel (it sits beside the AI, with its actions); team-file links in answers and a shared
+  answer's link to its attached copy (links, not chips) still open the panel; the room box's unsent pictures.
+- **The document stage** (`ViewerDocument.tsx`): `<FileBody>` (the side panel's renderers, limits and reads through the
+  room, `useFileBlob`) in a reading column up to 960 px wide, in the side panel's shape (a surface, and in it the scroll
+  box the body fills, so a sheet keeps its tabs in view below its rows), in the app's own light or dark on the dark
+  backdrop; the viewers fit the column's width. A PDF keeps its toolbar (zoom, fit to width) and a Hangul file its page
+  buttons: no second zoom in the bar. The column takes the focus and is in the Tab order (a region named by the file),
+  so ↑ ↓ PageUp PageDown Space scroll it; the wheel over the dark sides scrolls it too. A picture inside a document is
+  shown where it is (no viewer over the viewer); a link in it that opens the side panel (a team file named in a
+  Markdown file) closes the viewer, which would cover the panel. One file at a time: the file is read once while it is
+  open (the chip builds its item anew on each render; the body keeps the source it was given) and a step drops the last
+  one's bytes.
+- **The card** (type icon, name, type and size, why, download): at once, with nothing read, for a file with no preview
+  here (`roomNoPreview`: no viewer for its kind, a Hangul file while the HWP preview is off, past its limit;
+  `roomFileOpens` says the same from it); after the read for a download-only file (503 `quarantined`, the server's own
+  words) and for one not found (then no download). A Hangul file while the preview is on shows its pages (#254's route).
+- **The bar:** the sender's picture, the file's name, "who · when · where" ("#디자인 리뷰에서"; "{room}에서" for a group
+  chat; "{name} 님과의 1:1 대화에서" for a DM; room photos get it too), "3 / 7", download, **패널에서 열기** (the side
+  panel beside the conversation; computers only, as on a phone both are the whole screen), ✕. Pictures keep − % +, 복사
+  and the new tab. **No 링크 복사:** the app has room and message links (`/rooms/<id>?m=`) but none that opens a file.
+- **Keys:** ← → step from a document too, except from a text field, a video or a sound in it, or a part of it that
+  scrolls sideways (a wide sheet, a zoomed PDF: ← → scroll it there, the edge arrows step); a frame keeps its own keys,
+  as frames do; + − 0 are the page's in a document. Esc closes, and focus goes back to the chip; a step that removes the
+  focused control puts the focus back on the stage, so the keys keep working.
+- **Deleted while open:** told by the message as this window has it (`store/rooms.ts` `roomFileGone`: deleted, or the
+  file no longer on it), not by the chip leaving the page: the timeline goes back to its newest page on a resync or a
+  member change, and a file from an older page must not read as deleted then. The viewer says "메시지가 삭제되어 이
+  파일은 더 이상 볼 수 없어요." with no download or panel and nothing of it drawn (a room photo too). A file off the page
+  for either reason keeps its place: ← → reach the nearest ones still there (`stepTargets`, from the list as last
+  seen). Hidden answers and other people's private previews draw no chip, so they are never in the list. A file the
+  read did not find has no download in the bar either.
+- **Phones (< 768 px):** the whole screen; the bar always shows above the document (no tap to hide), with ‹ › around
+  "3 / 7" (the edge arrows would sit on the text); a swipe sideways on a document or a card steps only where nothing
+  under the finger scrolls sideways (a zoomed PDF, a wide sheet, a long code line keep their scroll; a frame never
+  passes touches up, so the bar's ‹ › step there). The picture stage keeps its gestures.
+- **The right side is free for step c:** the stage spans the window under the bar and the column is centred, so the
+  thread / Trina column will narrow the stage from the right, with its toggle in the bar before ✕.
+- **Access:** no new address or endpoint: the inline read, `?download=1` and the room's HWP preview, each with the
+  room's checks on every read. Nothing kept beyond the open file's bytes.
+- **Words:** `viewer.fileLabel`, `prevFile`, `nextFile`, `openInPanel`, `inRoom`, `inGroup`, `inDm`, `gone`, in 5
+  languages.
+- **Independent review** (must-fix, all fixed): the viewer opened with no pane re-rendered without end (the one-item
+  list was a new array on each render); the open document was read again whenever the room drew again; "deleted" was
+  guessed from the chip leaving the page; a sheet lost its pinned tabs; a team-file link in a document opened the panel
+  under the viewer. Also taken: no bar download for a file not found, the media and sideways-scroll keys, the swipe on
+  the cards, the column in the Tab order, "미리보기" said only for a chip with a preview. The sheet's own scroll box
+  (`SheetView`, in the panel too) is now in the Tab order, named by the sheet, so a keyboard can scroll a long or wide
+  sheet (axe's `scrollable-region-focusable` flagged it once a sheet of 80 rows was audited).
+- Tests: `web/test/unit/image-viewer.test.ts` (a document's source and download, a picture without a thumbnail, each
+  card case, pictures and files in message order and their steps, a deleted file's steps, the swipe),
+  `web/test/unit/room-files-open.test.tsx` (the chip's name opens the viewer with its message, every chip has its
+  download icon, the card for a ZIP and for a Hangul file with the preview off, `roomNoPreview`, `roomFileGone`),
+  `web/test/unit/room-file-viewer.test.tsx` (the viewer mounted: it settles when opened with no pane; a document is read
+  once while the room draws again), e2e `room-file-viewer.spec.ts` (a PDF's pages with who, when and where, ← → to a
+  photo and back, Esc and Back with the focus back on the chip, ✕, 패널에서 열기, the chip's download icon, a ZIP's card
+  with nothing read, a download-only PDF's card with no preview, a thread's own list, a sheet's tabs in view, a team
+  link in a document opening the panel, deleted while open, a room HWP with the plugin on and off, 390 px with the
+  swipe; screenshots), and `room-files-open.spec.ts` updated (the chips open the viewer; the panel through 패널에서 열기
+  and a copy's link).
+- Version impact: **minor** (a visible UX change; no API or data change).
+
+## Project skills — a fourth level only a project's chats use (feat/project-skills, 2026-11-09, product owner)
+
+- **Why:** a team asked the AI, in a project chat, to move a lead group's quoting skills into the project. Skills had
+  three levels (the team, a group, one person) and nothing was "for this project's chats only"; the AI could not move a
+  skill, so it left a README in the project folder as a stand-in.
+- **Where:** `projects/<name>/skills/<skill>/SKILL.md` of a live team project whose folder is exactly
+  `projects/<name>` (owner's option A: team projects live in `projects/<name>/`). Not a personal project, not an older
+  project on another folder, not a nested one; a parent project's skills are never inherited. Only `SKILL.md` folders
+  load: a single `.md` there is told it is in the wrong place, a README is a file. The rule is one function,
+  `skills/guard.ts projectLevelPossible`.
+- **Who gets them:** the chats of that project (private, shared and scheduled), for the people who see the project
+  (`projectForChat`: they read its folder and it is not in the trash). Owners and admins too, in their own project
+  chats. Never rooms (a room session has no project), never the person's other chats. A side chat beside a room
+  ("Trina side chat") is made without a project and so gets none; moved into a project later, it gets them like any
+  chat of that project (it is the person's own chat, and it gets the project's instructions then too).
+- **Same name:** the rule people read is **"프로젝트 스킬은 새 이름만 더할 수 있어요"**: personal > group > team >
+  project. A project skill is also hidden when its name is a wider skill's file or folder name ("/report" runs
+  `skills/report.md`), and "/name" never picks it over a wider skill of the same length. The save card looks at every
+  level the saver sees: a new project skill under a taken name is not saved (it would never run); the card offers
+  **이름 바꿔 저장**, **팀 것 고치기** (or the group's or one's own, when they may write it) and **저장하지 않기**.
+  Saving a wider skill over a project skill's name says that one will be hidden. The Skills page puts a small
+  **같은 이름: 팀 전체** chip on such project rows only.
+- **Who edits:** whoever the folder rules let write `projects/<name>/skills`, as for group skills, recorded knowingly:
+  a project's participants write its folder. Its reach is its project's chats and it cannot replace a name. The AI's
+  write goes through the same card ("프로젝트 '견적'의 스킬로 저장할까요? 이 프로젝트 채팅에서 AI가 따라요"). Every change
+  is audited as `skills.change` with `project {id, name}`; the notice goes to the owner and admins and to the project's
+  creator while they can read its folder.
+- **Shared chats:** the skills everyone who sees the chat may use are picked first, then each name's winner, so a team
+  skill everyone may use is not hidden by a group's only some may (before, a lead's group "quote" won and was then
+  filtered out of the list). A project skill never takes a name the sender has at a higher tier, whatever the audience
+  may use: someone outside finance must not be able to put an "approve" in front of a finance member. A name the sender
+  has a personal skill of stays theirs, as before: no wider skill of that name is listed, and "/name" and the `skill`
+  tool both load the personal one after the read card (the re-review found the tool loading the team's). "/name" runs
+  the sender's own skill (a group's too) as before, after the read card when some who see the chat cannot read it; the
+  `skill` tool loads what the list names, so for a group's name that is the team skill everyone may use.
+- **Prompt injection:** project members write instructions everyone in the project follows. Limits: no name can be
+  replaced, the AI's card and the audit apply, the AI's list marks them `[project: <name>]` (the name one line, cut at
+  40, no brackets, neutralised) with a note that anyone who writes the folder may have written them, nothing is
+  granted, and a run with "/name" taints the session (as project instructions do).
+- **The guard decides by path:** any `projects/<name>/skills` (letter case and Unicode form folded), with or without
+  a project there, like `groups/<g>/skills`; no database lookup. The AI's write needs the card; move, copy and rename
+  refuse it; the AI cannot move a folder holding a `skills/` folder into `projects/<name>`, nor `projects/<name>` or
+  `projects/` holding one; connectors refuse it as a real skill root.
+- **Moving between levels:** one action, `skills/move.ts`, for the AI's `move_skill` and the Skills page's
+  **옮기기…**. Write on both places, no skill of that name at the target, a SKILL.md folder for a project, and for a
+  project no wider skill of the name. A skills folder that is not there yet (a project's first skill, a person's first
+  own skill) is made, with no rules of its own. The card says who gains and who loses it in one line ("2명이 새로 쓰고
+  2명은 못 쓰게 돼요 (3명 → 3명)": never "2 more (3 → 3)"), who may change it there ("옮기면 3명이 고칠 수 있어요. 그중
+  1명은 새로 고칠 수 있게 돼요") and lists every file; its yes is bound to a hash of every file, the name, the target, who
+  gets it and who may change it there, checked again as it moves (anything different: refused, look again; the AI is
+  told what changed and to call `move_skill` again for a new card).
+- **The AI moves like the Skills page, behind the server card** (owner, 2026-11-10; this replaces "the AI only narrows"
+  of the #248 review). The owner asked the AI to move two leads skills into the project "견적서 제작"; `move_skill`
+  refused ("2 more people would get this skill (3 → 3)"), could not say who, and sent the owner to the Skills page. The
+  owner found the narrowing-only rule too restrictive ("왜케 제약이 많아?? … 이유도 모르고?"), and it was not the design
+  they had approved: the card says who gains and loses, and the person decides on a card the AI cannot forge. Now:
+  - `move_skill` may propose any move the person could make with 옮기기…, with the same checks; `AI_MOVES` and the
+    "more people / more editors" refusals are gone. Still refused in scheduled runs; not offered in rooms, shared chats
+    or sub-agents.
+  - **Names only where the person can already see them:** the owner and admins see who gains, loses and newly may
+    change it by name (Admin › People and folder permissions show it), a project's creator for that project's side (its
+    access screen shows it); everyone else gets the counts in the line above. Members do not see group membership or a
+    project's participants anywhere (`/api/people` has no groups; `GET /api/projects/:id/access` is its creator's and
+    admins'). The AI gets the same names or counts, so it can answer "who?" without guessing.
+  - **SKILL.md is always on the card**, from the bytes the token binds: in full when anyone new gets it or it would be
+    followed ahead of where it is now (out of a project's chats, where it was marked `[project: …]`; into a group or the
+    person's own), folded after its start (one click) otherwise. A planted project skill asking to be moved into the
+    person's own skills now reaches a card with every word of it, instead of a refusal.
+  - A move to a wider level over a project skill's name says that project skill is hidden for the people who get this
+    one (personal > group > team > project).
+  - **Every refusal says why and what to do**, in the tool result: whose folder cannot be written and who can (by the
+    same name rule), which name is taken where, the user's groups or projects when the one named is not theirs.
+  - Moving into a person's own skills needs no more than before: the AI already writes `users/<me>/skills/` without a
+    card. A card for that is a follow-up.
+- **Copies** (owner, 2026-11-10: "복사도 안 되면 새 스킬은 추가할 수 있어? 그거나 복사나 같은 거 아냐?"). The AI could
+  write a new project skill behind the save card, which is a copy in effect, but every text told it never to copy, so
+  it refused when asked. `move_skill` with `keep: true` copies (the original stays), with an optional `name`:
+  - One card, like a move's, for the whole skill: read on the original is enough, write on the target; nobody loses it
+    ("2명이 새로 쓰게 돼요 (3명 → 5명)": the after count holds either one). The copy is every file byte for byte, the
+    bytes the token binds (binary files too); with `name` only the folder (or file) name and SKILL.md's `name:` line
+    change, and the card shows the SKILL.md the copy will have.
+  - **Same name at a narrower level:** one name runs personal > group > team > project, and the person keeps the
+    original, so a project copy under the name of their group's or team's skill would never run for them (nor for the
+    others who have that one). It is refused with that reason in the AI's text, which suggests a `name` or moving
+    instead. The owner's leads → quotation copy needs a name.
+  - A skill folder with folder rules inside it is not copied (the copy would land without them).
+  - Code review follow-ups (fix/skill-copy-followups): a hard-linked file in the skill folder refuses a move or a copy,
+    as every other walker skips one (a copy would make it an ordinary file at a level more people read); a copy's
+    `name` follows the skill parser's own rule (`SKILL_NAME_RE`: no `a--b`), the name line rewrite also takes a name
+    written as a block (`name: >-`), and the SKILL.md as it would be must load under the new name (`checkSkill`) or
+    nothing is copied; a folder of the target's name in other letter case counts as taken; the card lists where each
+    file lands and says the text is cut at 65,536 characters.
+  - Audited as `skills.copy` (both levels, a person's own folder never named; the files; the SKILL.md written and the
+    original's hashes; by the AI or not; the turn); its file event carries `copiedFrom`, which Admin › 팀 스킬 shows as
+    the change's `from`. Nothing is written into the skill's files.
+  - The file tools still never move or copy a skill folder; their refusal points at `move_skill` for both and says
+    never to leave a README or an empty skills folder as a stand-in.
+- **Switching on:** three ways turn skills on in a project's chats, after "Projects live only in projects/": a person
+  moving a project's folder into `projects/<name>` from elsewhere on the Files screen, an admin pointing a project whose
+  folder is in the trash or gone at an existing `projects/<name>` that holds skills (that folder had no project, so its
+  skills were off), and sharing a personal project, whose `skills/` is copied into the new `projects/<name>`. Each asks
+  first with their names (409 `project_skills_on` unless `skillsOk`; the project form and the share dialog ask and
+  send again) and records each skill as `skills.change` (`skills/switch-on.ts`). The AI writes a personal project's
+  `skills/` without a card (no chat follows it there); sharing it is where it asks. Making a project never switches any
+  on: it always makes a new, empty folder. Widening a team project's participants is the other branch's confirm, which
+  names its project skills (`ProjectAccessPreview.skillNames`).
+- **Scheduled tasks:** a task whose project its owner no longer sees is skipped, paused and the owner told once (inbox,
+  the task's last result "프로젝트 없음"); before, the run's chat silently dropped the project. Migration 279 (add-only,
+  `schedule_project_skips`; 276–278 are taken on dev, and 280 by the project folder migration: the runner applies each
+  missing number, so 279 applies on a database that already has 280).
+- **Out:** sharing a skill to a project from the share flow, project skill usage in Admin › Usage (not recorded, as
+  personal skills), the project-folder word bonus in `find_skills` (removed).
+- Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts` (the owner's case, names and counts, copies, refusals, stale cards), cases in `c-file-moves`, `b-rooms-ai`,
+  `b-shared-chats`, `skill-permissions` and `remote-mcp-share`; web e2e `project-skills.spec.ts`.
+- Version impact: **minor** (a new level, a tool, two endpoints, optional API fields, one add-only migration).
+
+## Lazy PDF pages and the viewer's page thumbnails — a big PDF opens fast (feat/pdf-lazy-pages, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/viewers/PdfView.tsx`, `web/src/lib/pdfPages.ts`, and a slot in
+`web/src/components/ViewerDocument.tsx`, 이유: file previews are core. Step (d) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file viewer" (#261).
+
+- **Every page has its place, a few are drawn.** `PdfView` (the side panel, 크게 보기 and the room file viewer alike)
+  lays out a placeholder per page, as tall as that page at the column's width (the pdf.js viewport at scale 1, floored as
+  react-pdf floors its canvas). Only the pages within 1.5 screens above and below the visible part of the scroll box
+  (`MARGIN_SCREENS`) get a canvas, a text layer and a link layer; the rest are blank white pages and a page that leaves
+  the window is unmounted, which releases its canvas, and tells pdf.js to drop what it kept for the page (its drawing
+  commands and decoded pictures, `page.cleanup()`, as pdf.js's own viewer does; pdf.js waits while the page's thumbnail
+  still draws). A 60-page A4 file in the viewer holds 2 or 3 canvases.
+- **The window is computed, not observed per page.** A scroll listener (one frame at a time) and a ResizeObserver on the
+  scroll box run `pageWindow` and `currentPage` (`lib/pdfPages.ts`, unit-tested) on the page sizes, instead of an
+  IntersectionObserver on each placeholder. The same numbers then give the window, the current page and the reading
+  position kept on zoom; the window stays one run of pages; and the math is testable without a browser. The scroll box
+  is the nearest ancestor that scrolls (the panel's body, the viewer's column). The thumbnails, a plain list with no
+  current-page or anchor needs, do use an IntersectionObserver (rows within one rail height of its view).
+- **Sizes:** page 1's for every page at first, then each page's own, read from pdf.js 16 at a time in the background
+  (pdf.js's own viewer does the same); a drawn page that turns out other than assumed reports its size too. A file
+  whose first page cannot be read shows the "cannot open" notice, as before; a later one that cannot be read keeps page
+  1's size and the others go on.
+- **The place being read stays put** when the pages change size (zoom, fit to width, a wider panel, 크게 보기, a page's
+  real size known): an anchor (a page and how far down it the view's top is) is kept from the scroll and restored after
+  each layout; the browser's scroll anchoring is off for the PDF (`overflow-anchor: none`) so it does not fight it, in
+  Chrome and Safari alike. Zoomed past the column, the middle stays in the middle sideways. The side panel's own restore
+  on a width change (FilePanel: the place as a share of the scroll height, for 800 ms) leaves a body that keeps its own
+  place alone (`data-keeps-place`), so the two do not fight. A move of less than a pixel is not written (on a phone it
+  would stop a flick when only pages below the view changed size).
+- **A page gone to** (the start page of an answer's source, a thumbnail, a link inside the file to one of its pages) is
+  put just under the toolbar and stays the current page, kept at the top while sizes come in, until the person scrolls
+  (the box is no longer where it was put). This replaces the old "follow the start page while the pages above are
+  drawn". A link inside the file now goes through `onItemClick`, since the target page may not be drawn; react-pdf keeps
+  the first `onItemClick` it is given (before anything is laid out), so it calls the latest one through a ref.
+- **Pages are not read through Suspense** (`suspense={false}` on each `Page`): a page suspending showed the whole
+  file's "loading" before, and React holds back a Suspense reveal for about 300 ms, which cost the first page that much.
+  Read in an effect, a page shows its blank placeholder until drawn. A page that cannot be read or drawn still turns the
+  preview into the "cannot open" notice; a text or link layer that fails no longer does (the page stays).
+- **Canvas size:** at most twice the screen's pixels, at most 4,096 px wide and at most 16.7 megapixels (Safari's limit
+  on iPhone and iPad, where a larger canvas stays blank: a long receipt at 2×); beyond, the canvas is scaled by CSS, so
+  300 % on a wide 크게 보기 does not make 100-megapixel canvases.
+- **Thumbnails, in the room file viewer only, on computers (≥ 1024 px), for more than one page.** `ViewerDocument` keeps
+  an empty slot left of the reading column (`empty:hidden`) and passes it as FileBody's `thumbnails`; once it is filled,
+  a space as wide on the column's right keeps the column centred where it was (no jump when the rail appears), and on a
+  narrower stage (1,024–1,215 px, or step c's column open) that space gives way first, then the column narrows; PdfView portals its rail into it, so the
+  rail uses the one loaded document (no second parse) and `ImageViewer.tsx` is not touched (step c's right column is
+  being built there at the same time). The rail is 128 px: 96 px pictures without text or link layers, not registered
+  as link targets, each with its number under it; the current page has a light box behind it, follows the scroll and is
+  centred in the rail when it would leave its view; a click goes to the page. One Tab stop (the current page's), ↑ ↓
+  Home End go to the page before, after, the first and the last; ← → still step through the room's files. The wheel
+  over the rail scrolls the rail, not the document, and a touch on it stays there (React would pass it through the
+  portal to the column's swipe, which steps on an iPad). The toolbar then shows "3 / 60" before the zoom; the side panel and
+  a phone show neither. Differences from the plan, as the task set them: 1,024 px instead of 1,100, no toggle to hide
+  the rail, and the PDF's zoom stays in its own toolbar (not the viewer's bar).
+- **Names:** each thumbnail is named by the number it shows (WCAG 2.5.3, label in name; "1쪽으로 이동" failed axe's
+  `label-content-name-mismatch`), inside the list named 페이지 목록. New words: `pdfView.pageOf`, `pdfView.pages`, in 5
+  languages.
+- **The file's blob URL is revoked a second after the preview closes**, not at once: a panel closed while the PDF
+  loads let pdf.js start reading a URL already revoked, which the browser logs as an error (`side-panel-expand.spec.ts`
+  failed 4 of 10 runs on dev for it; 12 of 12 pass now).
+- **Not drawn, not found:** the browser's find (⌘F) and select-all reach only the text of the pages drawn, a few around
+  the view. The app has no search inside a PDF; one would go through pdf.js's text, not the page.
+- **Measured** (the 60-page fixture opened from a room at 1440 × 900, device pixel ratio 2, headless Chromium, median
+  of 5): first page drawn 1,023 ms → 666 ms after the click; canvases 60 → 2 (3 mid-document); canvas pixels 292 MP →
+  15.4 MP (thumbnails included). The rest of the 666 ms is reading the file and starting pdf.js.
+- **Independent review** (must-fix, fixed): a link inside the file did nothing anywhere (react-pdf's kept first
+  `onItemClick` saw no layout); the e2e now clicks one. Also taken: `page.cleanup()` on leaving, FilePanel's restore
+  skipping a PDF, the 16.7-megapixel limit, a page that cannot be read not stopping the size reads, no sub-pixel scroll
+  writes, the rail's touches kept to it, the column not jumping when the rail appears, find and select-all noted.
+- Tests: `web/test/unit/pdf-pages.test.ts` (the layout, the window at the top, middle and end of 60 pages, at the
+  margin's edge, zoomed in and out, in a gap; the current page; the anchor across zoom and a late page size), e2e
+  `pdf-lazy-pages.spec.ts` (60 placeholders of the page's size, a few canvases, the rail and its lazy pictures with the
+  column still at its place, a link inside the file to page 45 in the viewer and the panel, a click to page 40, the current page following the scroll and kept in the rail's view, zoom and fit keeping page 20, the text
+  selected and copied, the rail's keys, a one-page PDF with no rail, the side panel with no rail and few canvases, 390 px;
+  screenshots), and the PDF specs that were there (`previews`, `side-panel-expand`, `answer-sources`,
+  `room-file-viewer`, `room-files-open`) unchanged.
+- Version impact: **minor** (a visible addition, the rail; faster previews; no API or data change).
+
+## The room's right column — the file's thread or the Trina side chat beside a file in the viewer (feat/room-viewer-column, 2026-11-09, product owner)
+
+넣을 곳: trina-ax `web/src/components/rooms/` (`RoomSideColumn.tsx`, `ViewerColumn.tsx`, `ThreadPanel.tsx`,
+`SideChatPanel.tsx`), `web/src/store/rooms.ts`, `web/src/store/sideChats.ts` and the viewer
+(`web/src/components/ImageViewer.tsx`), 이유: rooms, the side chat and file previews are core. Steps (c0) and (c) of the
+plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file viewer" (#261) and "Trina side chat"
+(#236, #247).
+
+- **One thing at a time (owner, replacing the plan's 스레드 · 트리나 switch):** like Slack's file viewer and the room page
+  since #247, the column shows the file's thread or my Trina side chat, never a tab bar over both. On computers it is a
+  400 px column at the viewer's right; the stage narrows from the right (`--viewer-col`) and its right arrow moves with
+  it. A toggle in the bar before ✕ (스레드·채팅 숨기기 / 보기: "대화 숨기기" is already a DM's "hide from my list") hides
+  and shows it; a panel's own ✕ hides it too. The column takes the focus of a click on its text (tabIndex -1), and a
+  swap or a hide gives it back to the stage, so the keys stay the viewer's and the page's shortcuts stay away. A link in
+  it that opens the side panel closes the viewer, as a link in the document does.
+- **The thread** is `ThreadPanel` itself (frame={false}), not a copy: the message's root (a reply's `threadRootId`, the
+  reply marked), with its reply box; a message without replies alone with the box (the first reply starts the thread);
+  a message that cannot be a root (`threadable` false: an AI answer only its asker sees) alone without a box, from what
+  the window has (`ThreadPanel alone`: no thread is asked for, the server has none). A step to another message's file
+  moves the thread with it. Items get `room.rootId` and `room.threadable` from the message (`ViewerMeta`).
+- **Trina:** ✦ 트리나에게 묻기 in the bar switches the column to the side chat with the file quoted, through #247's
+  `SideSeed.file` (`file_id` in the quote, read with `room_file`): **no new field or endpoint**; the plan's question 2 is
+  answered by that quote. While the side chat shows, a step keeps it and quotes nothing new. "스레드로 돌아가기" at its top
+  brings the file's thread back. ✦ on a message in the column's thread asks about that message there. The column starts
+  on the side chat when the room page had it open. No ✦ for a download-only file or one whose message was deleted (the AI
+  is refused those bytes).
+- **팀 폴더에 저장 through Trina (plan question 3):** one more quick question under a quoted file, "이 파일을 팀 폴더에
+  저장해 줘.", which goes through `save_room_file` and its card (#237); no direct button. In the room page's side chat
+  too. Five languages.
+- **Phones (< 768 px):** no column in this step (step e adds a sheet). ✦ stays: it closes the viewer and, once the
+  viewer's history entry is gone (`closeImageViewer(back, then)`, so a thread the room page closes is not undone by that
+  Back), opens the room page's side chat with the file quoted (`askTrinaInRoom`).
+- **c0, no visible change on the room page:** `RoomSideColumn` is the frame (section, sizing, divider) around either
+  panel; both panels draw it themselves by default and leave it to the caller with `frame={false}`. What the room page
+  shows besides the thread in the address moves into the rooms store (`side[roomId]: 'trina'`), so the viewer, a portal
+  outside the page, can start the same way; it goes when the page leaves the room, as the page's own state did.
+  `threadView` (one slot, wiped by any close) becomes `threadViews` by `placeKey` with a count of the panels that show
+  each: the page's thread and the viewer's (even the same one) no longer wipe each other. Every live change (a reply, an
+  edit, a delete, a reaction, a summary) reaches every view; a reconnect and a member change read every view again; each
+  view's reads have their own generation, so a read that comes back after its view closed fills nothing.
+- **One side chat per room on this page** (`store/sideChats.ts`, like `roomDrafts`): the chat shown, the draft and the
+  quote, so the page's and the viewer's are one chat. Kept for the page's life (gone at sign-out): closing and opening ✦
+  shows the chat and draft last shown, read again (one deleted meanwhile: the room's newest). An ask (`SideSeed.key`) is
+  quoted once (the room keeps its last 20 asks): a panel drawn again with the room page's last ask does not quote it
+  again, also after the viewer asked about a file meanwhile. Leaving a room drops its side state. The newest
+  side chat is looked for once however many panels open together. `SideChatPanel autoFocus` (default true): the viewer
+  opening on the side chat leaves the focus on the file; ✦ gives the box the focus.
+- **Keys:** keys typed in the column are its own (← → in a box, ⌘C on selected text); Esc still closes the viewer unless
+  something in the column took it (the mention list, a menu); drafts stay (`roomDrafts`, the side chat's store).
+- **The same thread in two boxes** (the room page's and the viewer's): each `RoomComposer` keeps its own text, so the
+  one that stays takes the other's draft (and mentions) when it goes; a refused send comes back into one of them only.
+- **Dialogs over the viewer:** `Modal` (confirms, Share to room) moved from z-50 to the viewer's z-[55]; of the two, the
+  one opened last is on top (each portal goes to the end of `<body>`), so a delete's confirm or Share to room from the
+  column is over the viewer, and a picture opened from a dialog is over that.
+- **Independent review** (must-fix, fixed): a click on the column's text left the focus on the page behind, so ⌘K
+  opened search under the viewer and ← → stopped. Also taken: an older ask quoted again over the viewer's file, the two
+  boxes of one thread drifting apart, the toggle's words, no ✦ for a file the read did not find, a phone's second tap,
+  tests for a confirm over the viewer, a phone's ✦ from a thread and no ✦ for a download-only file.
+- **With step d's page thumbnails (#262, rebased on):** the rail, the document and the column share the stage left of
+  the column (the space on the document's right gives way first); `pdf-lazy-pages.spec.ts` hides the column where it
+  measures the document's own layout and checks the three together once. The rail still shows from a 1,024 px window,
+  so between 1,024 and about 1,430 px with the column open the document is narrower than 960 px: a later tweak could
+  key the rail to the stage's width.
+- **Left out:** a divider for the viewer's column (the stage is not a column the divider can share the width with: the
+  column is a fixed 400 px); the plan's "보는 중: {name}" line (the quote names the file); 링크 복사 and ⋯ (step b).
+- Tests: `web/test/unit/rooms-store.test.ts` (every thread on screen gets replies, edits, deletes, reactions and
+  summaries; one thread in two panels; a read after the last close; reconnect and member change; the side state),
+  `room-thread.test.tsx` (two panels of a thread, one closing; alone), `side-chat.test.tsx` (two panels are one chat
+  and draft, an ask quoted once, `autoFocus`, 팀 폴더에 저장, the asks), `image-viewer.test.ts` (an item's thread;
+  `closeImageViewer`'s `then`); e2e `room-file-viewer.spec.ts` (a reply from the viewer in the room's thread, which the
+  viewer leaves whole; the thread follows a step; ✦ with the file quoted, 팀 폴더에 저장, 스레드로 돌아가기; the side
+  chat across ← →; the toggle; starting on Trina with the page's draft; a phone's ✦; screenshots),
+  `image-viewer.spec.ts` (a room photo fits the stage left of the column), `room-hover-bar.spec.ts` (the bar walked as
+  it is since #247, ✦ included).
+- Version impact: **minor** (a visible UX change; no API or data change).
+
+## Files in the Trina side chat — 📎, paste and drop, as in the AI chat's box (feat/side-chat-attachments, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/rooms/SideChatPanel.tsx` and the AI chat box's files part
+(`web/src/components/chat/ComposerFiles.tsx`, `web/src/lib/teamAttach.ts`), 이유: chat and files are core. Plan
+`docs/AGENTS/plan/20261109-1632-side-chat-attachments.md`.
+
+- **The same parts, not a copy:** the AI chat box's files (`Composer.tsx`) move unchanged into `ComposerFiles.tsx`: the
+  chips kept per person and draft (the `teamAttach` stash), uploads into the chat (chunked when large), the limit (20
+  per message, `composer.tooMany`), ✕, the chip row (a picture as its 64 px `PictureTile`, any other file as its chip,
+  an upload's error beside it), the drop target and the paste. The AI chat's box shows and does what it did. The side
+  chat's box uses them: 📎 (files from this computer; a phone's picker offers the camera itself), a file or picture
+  pasted into the box, files dropped anywhere on the panel (the box shows the drop), the chips above the box.
+- **Where they go:** into the side chat itself (`kind: attachment`, the person's own `users/<me>/.attachments/<chat>/`),
+  as for any chat of theirs; the side chat is never shared (`createChat` refuses a project with `sideRoomId`). A room
+  with no side chat yet gets one from its first file or its first question, through one path (made once however many
+  files and questions come at once, so a file pasted while the first question makes the chat goes into that chat), which
+  the panel shows from then on. A side chat with nothing in it yet (made for a file) is a new chat already: "New chat" is
+  off there, so no empty chat is left in 🕘. No new endpoint, no server change: nothing on the server treats a side
+  chat's attachments apart (the upload checks it is the person's own chat, the message resolves them by chat).
+- **What takes them:** what is typed in the box (or the files alone). A starter or a quick question under a quote goes
+  alone and leaves the files in the box, as it leaves the typed text; an answer to the AI's question is its text alone
+  (the files stay), as in the AI chat's box. Nothing goes while a file is still uploading. Sent, the files leave the box:
+  a send that fails keeps them on the message, with "send again".
+- **Kept per room on this page, like the draft:** the stash key is `side:<room id>`, so the room page's panel and the
+  one beside a file in the viewer show the same files. The stash now tells every box showing a draft (it told one), so
+  a file added or taken out in one shows in the other. Not kept across a reload (the chat shown is not either). Each
+  room remembers the chat its files were uploaded into, and once another chat shows (New chat, 🕘, the chat deleted
+  meanwhile, the room left and joined again) they go.
+- **Share to room is unchanged:** it posts the answer's text (`chat/answer-share.ts`), never the question's uploads. A
+  file goes only when the answer links to it, on the confirm step with how many more people will see it; an answer that
+  used an attachment counts as material the others cannot see (the provenance line).
+- **Left out:** team-folder files (the AI chat's 팀 폴더에서 menu and a team file dragged from the file screen): the
+  side chat is about the room; the full chat has them.
+- **Independent review** (must-fix, fixed): the first question and a file at the same moment each made a side chat (the
+  file then went into the other one and its message could never be sent); now one path makes it. Also taken: an empty
+  chat made for a file no longer left behind by "New chat", the files tied to their chat whatever replaced it, the
+  error line cleared with them, no drop-ring flicker across the panel, tests for an answer to the AI's question, 🕘 and
+  an upload stopped by ✕.
+- Tests: `web/test/unit/side-chat.test.tsx` (📎, paste, ✕ stops the upload, drop, the send body, a failed upload, the
+  limit, the chat made for a first file, a first question and a file at once, a starter alone, an answer alone, New chat
+  and 🕘 drop them, two panels), `web/test/unit/team-attach.test.ts` (two boxes of one draft),
+  `web/test/e2e/side-chat-attachments.spec.ts` and `room-file-viewer.spec.ts` (beside a file in the viewer).
+- Version impact: **minor** (a new ability in the side chat; no API or data change).
+
+## Your own app — sign in where a service does not register apps itself (feat/oauth-own-client, 2026-11-09, product owner)
+
+- **Why:** the owner asked whether NAVER WORKS and Google can be connected. Google's MCP servers
+  (`*mcp.googleapis.com/mcp/v1`, checked 2026-11-09: their protected-resource metadata names `accounts.google.com`,
+  which has no registration address) and NAVER WORKS (an OAuth REST API, no MCP server of its own) both need an app
+  made in their console. Sign-in here needed dynamic client registration (`oauth.ts register`), so neither could sign
+  in; INTEGRATIONS.md listed "Gmail / Calendar style OAuth apps" as not in phase 1.
+- **One generic change, not one integration per service:** a connection or template may carry `oauthClient` (client ID,
+  secret, optional addresses, scope). The MCP sign-in uses it instead of registering; an HTTP API gets sign-in as a
+  choice next to a key when it has one. Google's Gmail, Calendar, Docs, Sheets and Chat servers and the NAVER WORKS API
+  need no code of their own. A built-in NAVER WORKS bot for rooms (like the Slack connector) is separate and later.
+- **Templates carry the app:** the common case is the team's one app with each member signing in with their own
+  account. The secret is sealed for the template and only ever used by the server at the token address; members never
+  see the secret, and the API shows them nothing of the app (no field in `MyIntegrationTemplate`, null on their
+  connection, refused on their patch; the client ID and scopes are in the sign-in address, as with any OAuth app). Requests to one
+  member stay without an app (a third place for a secret, for a case a template covers).
+- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in, like a new address,
+  and revokes it where the sign-in has a revocation address (found addresses may name one; given addresses have none,
+  so there the tokens are only dropped here); on a template it deletes the members' connections (they are told to
+  connect again). The same app sent again (no secret, or the same secret retyped) keeps the sign-in.
+- **A stored secret only goes where it went before** (review 1, must-fix): a change without the secret keeps it only
+  with the same client ID, the same sign-in and token addresses and, for an app whose addresses are found, the same
+  server address (`service.ts appAfter`, shared by connections and templates); else it goes. Before the fix, a second
+  admin could set another token address and have the first admin's secret sent there. The dialog applies the same rule
+  (`storedSecretStays`), so it asks for the secret again where the server would drop it.
+- **A found token address is remembered** (review 1): the first sign-in of an app with a secret and no given addresses
+  stores the token address it found; a later one that finds another is refused before anything is sent. Without it the
+  MCP server's metadata decided where the secret went at every sign-in. A new secret or another app forgets it.
+- **Review 2:** a change that leaves the app where it was keeps the sealed secret without opening it (must-fix: an
+  unreadable key folder made a rename drop the secret and, on a template, every member's connection); it is opened
+  only to compare a secret typed again. A scope change alone keeps the found token address. A client secret goes to a
+  revocation address only on the token address's own server. The found address is written only onto the app as it was
+  read for that sign-in (compare-and-set on `oauth_client` and `oauth_client_enc`). A template's member whose server
+  moved its token address is told to ask the admin.
+- **Review 3** (after the merge, fixed forward in `fix/oauth-own-client-secret-rules`):
+  - A stored secret also stays only with the **same service address**, for given addresses too (should-fix): before, a
+    second admin who never saw the secret could point a template whose app has given addresses at another host; the
+    members signed in at the real consent screen for the team's app and their tokens then went to that host. One rule
+    for templates, team connections (the same two-admin case) and personal ones (one rule, and the dialog's
+    `storedSecretStays` follows it): moving a member's own connection asks for its secret again.
+  - **The same secret entered again forgets the found token address** (should-fix), as the refusal `appTokenMoved`
+    tells the admin to do; before, it kept the address and the next sign-in was refused again. The sign-in made with
+    that app stays (the app did not change).
+  - **The token address is remembered once a sign-in worked**, in the callback after the code was exchanged, not when
+    a sign-in starts: one never finished decided where the secret could go. The callback refuses a sign-in whose app
+    remembers another address meanwhile (two sign-ins started before either finished): before the code is exchanged
+    when the other finished first, else (the exchanges overlapped) its tokens are not kept, so no refresh sends the
+    secret to the address that lost; they are not revoked either, which would send it there once more. A sign-in
+    through a template's app finishes only on the template's version it started with (the same secret entered again
+    can bring the app's stored text back to what it was before an address was remembered).
+  - **Forgetting the found token address is audited** (`changed: ["tokenAddress"]`): the same secret entered again
+    changes nothing else, but it is a choice to trust the next address the server names.
+  - **A template's member signs in only while it is for them**, checked at the start, in the callback and on "check
+    again" (which may refresh a token with the team's app): until the next list swept the connection, someone moved out
+    of the template's group could still use the app.
+  - **`iss` with given addresses** must be on the sign-in address's server (origin; an issuer may have a path).
+  - **The secret is bound to its service address** (`boundUrl` in `oauth_client`): migration 338 keeps reader level 1,
+    so an older build can change a connection's or template's address without dropping the secret; a secret entered
+    for another address is then not used and the next save drops it (`store.ts secretHere`). A column or a higher
+    reader level would cost a migration or block rolling back for this one case.
+  - The scope hint for an MCP server with both addresses given says an empty scope asks for none.
+- **Members of a template see "ask your admin"** when the service registers no apps (`oauth_no_registration_member`);
+  people who can set an app see the own-app hint (`oauth_no_registration`); `oauth_unsupported` keeps its old words for
+  a server with no usable sign-in at all.
+- **Small service rules, in one place each:** Google gets `access_type=offline&prompt=consent` (`oauth.ts extraParams`;
+  without it no refresh token, a new sign-in every hour). The secret goes in the body unless the metadata lists only
+  basic (NAVER WORKS documents body parameters only). `expires_in` as text is read (NAVER WORKS sends `"86400"`). An HTTP
+  API sends no resource indicator. An `iss` is checked against the issuer found or, with given addresses, the sign-in
+  address's origin (review 3). `api_request` refreshes
+  once after a 401 (an MCP call already did, `withMcp`).
+- **The redirect address** shown in the dialog is the page's own address plus `/api/integrations/oauth/callback`, which
+  is what the server builds from the request's origin (`linkBase`). Office mode on the server Mac's localhost maps to the
+  office address on the server and not in the dialog; documented as "register every address people sign in from".
+- **Policy triggers:** the three new columns are policy columns of both tables, like `secret_enc` and `key_version`
+  (migration 338 redefines the two update triggers with them; `safe-ops-policy-epoch.test.ts` R2-2 checks that every
+  column is either policy or bookkeeping). Remembering a found token address moves the policy generation, as a sign-in
+  does.
+- **Not verified for real:** no Google or NAVER WORKS app existed; the fake services cover a server without
+  registration, client-secret checks, a text `expires_in` and a REST API taking the tokens.
+- Tests: `tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`, web e2e
+  `integrations.spec.ts` "your own app"; `safe-ops-policy-epoch.test.ts` and every `c-integration*`, `c-drive*`,
+  `c-slack*` test file pass.
+- Version impact: **minor** (optional API fields, one add-only migration).
+
+## Skill folders: the AI's file actions (feat/ai-skill-folder-actions, 2026-11-10)
+
+The refusal audit (2026-11-10, A6, A7 and bug 3) found every AI move, copy or rename into or out of a skill folder
+refused with one text about moving skills, even an admin renaming a project folder that only holds skills. People do
+all of it on the Files screen. The plan ("B1") was narrowed by the security review; this is the narrowed design.
+
+- **A tool of its own, `skill_files`**: one item per call, move, copy or rename. `move_files`, `copy_files` and
+  `rename_file` keep refusing skill folders, with a text that says what to use for each case (skill_files, `move_skill`
+  for a whole skill to another level, write / edit for text, the Files screen for the rest).
+- **Three kinds, everything else refused before any card** (skills/folder-actions.ts):
+  - **N**: a group's or project's folder (`groups/<g>`, `projects/<p>`) that holds skills renamed in place, only when
+    nothing changes for anyone: the same skills, followed by the same people, changed by the same people, the same
+    readers of every file, before and after, judged by the folder rules as they will be (a moved folder's rules go
+    with it; the group or project follows its folder). A plain card. Admin-only rules for managed folders stay. A
+    skill's own folder renamed in its skills folder is the same kind of card with its SKILL.md `name:` line changed
+    with it (else the skill stops loading), the new SKILL.md in full, the name checked at its level.
+  - **O**: files, skills or rules leaving a skill root: moved out, a file copied out, the skills folder itself renamed,
+    or a group's or project's folder moved out of its place (its skills stop). The card names the skills (only those
+    the asker can read; the rest counted) and how many people stop getting them; who stops is named only to the owner,
+    admins and a project's creator for its project (`seesWho`, as `move_skill`), counts for everyone else; who gains or
+    loses the files is counted.
+  - **I**: a SKILL.md folder of text files going into a skill root at an exact target that is not there. It goes
+    right into the skills folder and must load there. The card shows the full text of every file in it (refused above
+    60,000 characters, never cut; a text or a file name with a character a person cannot see there, zero-width,
+    direction or tag characters, is refused: the card shows every word), who newly gets it, who may change it and who
+    of them is new, and the same name elsewhere: for how many of the people who get it a project skill of that name
+    would be hidden, or (into a project) a wider skill of that name runs instead. Those counts look only at skills and
+    projects the asker can read themselves (never someone's own skills), so a count tells no name.
+  - **Cut: nothing that is not text goes in** (product owner, 2026-11-10, after the review). No picture, sound,
+    video, font, Office file, PDF or any other file that is not text goes into a skill folder through the AI, on its
+    own or inside a SKILL.md folder: its content could not be shown on the card, and words drawn into a picture reach
+    the AI when it reads it (vision, OCR). The refusal says why and gives the user the next step in their language
+    ("스킬 폴더에 그림을 넣으려면 파일 화면에서 직접 올려 주세요."): a person uploads it on the Files screen. A thumbnail on the card
+    could bring pictures back later, as a change of its own. Nor does a single file go in: a .md on its own is a team
+    rule or a single-file skill (no team rule is ever made by a file action), and any other text is written with write /
+    edit, where the card shows it. Instruction file names (CLAUDE.md, AGENTS.md, GEMINI.md) are refused anywhere in
+    the folder.
+  - **Refused**: moves within or between skill folders (`skills/hr/x` to `skills/x` is "team to team" but reaches the
+    whole team; a whole skill goes with `move_skill`), the person's own skills folder (`move_skill`), `groups/` and
+    `projects/` themselves, folders that would switch a group's or project's skills on (cut by the review: switching on
+    goes through `move_skill` per skill), deletes, and producers (save_url, generate_video, room files) writing into
+    skill folders.
+- **Which skills a change touches** is listed as the loader finds them (chat/skills.ts `skillEntriesOnDisk`, next to
+  `walkSkillRoot`): SKILL.md folders below the root, single-file skills in any subfolder up to three levels (a team's
+  or a group's), the team's rules right in `skills/`. The card, its token, the rename check and the on/off records all
+  use that one list (the second review found a single-file skill in `skills/sales/` left off the card while it stopped
+  for everyone).
+- **A skill's SKILL.md is not moved out on its own**: the rest of its folder would stay, and a SKILL.md folder or a
+  `.md` skill inside it, hidden while the SKILL.md was there, would start to apply without having been on the card. The
+  refusal says to move the whole skill folder. A copy of it out is fine (nothing changes in place).
+- **One name, several levels**: a skill put into a group's folder says for how many of the people who get it it takes
+  the place of the team's skill of that name; a team skill says for how many a group's skill of that name runs
+  instead. Counted only over skills the asker can read.
+- **The team's `skills/` folder itself** is never moved or renamed by skill_files (it would stop every team skill and
+  rule at once), like `groups/` and `projects/`.
+- **Who may call it**: only the main AI of the person's own chat. Rooms and shared chats do not offer it; a chat others
+  wrote in, a Slack thread's chat (a channel may read its answer), a scheduled run, a template run, a confidential
+  chat, a draft and a sub-agent (`PARENT_ONLY_TOOLS`, and
+  refused on the server too: a call whose agent is not the main AI's) get the reason before any card, never a card that
+  answers itself. A chat that read a team chat room puts nothing into a skill folder.
+- **The card is what runs**: the server's card (origin `server`) for every call, never covered by an earlier answer, a
+  room grant or "always". Full resolved paths, every file. Its yes is bound to a token over every file's path and hash,
+  the target, who follows each skill and who may change it, who can see the files. The file service takes a grant for
+  exactly that operation (person, turn, action, both paths; `onExists: 'fail'`, never a " (2)"), once, and plans the
+  action again right before the rename or copy: a file added or changed after the card refuses it. "I" places the bytes
+  the card showed as new files, so a dev-environment job that kept the old file open cannot change the skill after the
+  yes (for "I", text only); they go into place in the move's own step (the database part and both renames happen together or not at all),
+  and a skill's folder renamed gets its SKILL.md with the new name line the same way, the old text kept as a version.
+  What was moved is then removed only where it is what the card showed; anything else (written after the last check,
+  by a dev-environment job, say) goes to the trash at its old path, never away for good.
+  A script keeps its execute bit. Without such a grant the service refuses every AI turn's move or copy into or out of
+  a skill folder (a copy out too, now), as before.
+- **Audit**: `skills.files` (kind, paths, the skills and counts), `skills.files_refused` for a no or no answer; each
+  skill change as `skills.change` with the usual notices. A folder move that carries skills (an AI's or a person's on
+  the Files screen) records each skill whose place changes, `switchedOff` when it leaves the skill roots (with the
+  group or project it was in), `switchedOn` when it comes into one; a skills folder moved or renamed out of the skill
+  roots records each skill in it too. Before, only a project's switch-on was recorded, without a notice.
+- **Independent review (2026-11-10)** before the PR: hidden characters on the card (fixed), a text named like a picture,
+  a placement that could fail open, a rename that could stop halfway, counts that told names, per-skill records for a
+  skills folder moved out, Slack chats, a cleanup or an undo that could fail open after the move (all fixed). It also
+  found that a picture's own content was not on the card; rather than accept that, pictures and every other non-text
+  file going in were cut (above). Left: an empty skills folder made as a dev-environment mount point counts as a folder
+  holding skills while a run lives, and a person's move into a skill folder on the Files screen is recorded per folder,
+  not per skill.
+- Tests: `tests/unit/skill-files.test.ts` (an attack for each MUST), `dev-env-srt.test.ts` (the no-write list and the
+  mount points), `c-file-moves`, `move-skill`, `project-skills`.
+- Version impact: patch (a new AI tool behind a card, stricter checks; no HTTP API change, no migration).
+
+## The room file viewer on phones — the file's thread and Trina in a sheet over it (feat/room-viewer-phones, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/components/rooms/ViewerColumn.tsx`,
+`web/src/lib/imageViewer.ts` (with small props on `ThreadPanel` and `SideChatPanel`, and the PDF rail in
+`ViewerDocument.tsx` / `viewers/PdfView.tsx`), 이유: rooms and file previews are core. Step (e) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room's right column" (#263) and "Lazy PDF pages" (#262).
+
+- **The column is a sheet on a phone (< 768 px, the phone app):** 💬 in the bar opens the file's thread in it, with the
+  reply count beside the icon when there are replies ("스레드 보기, 답글 3"); ✦ opens my Trina side chat in it with the
+  file quoted, and no longer closes the viewer for the room page's side chat (step c's way, `askTrinaInRoom`, stays the
+  side panel's). The sheet is `ViewerColumn` with `sheet`: the same `ThreadPanel` and `SideChatPanel` as on computers and
+  on the room page, not a copy, one thing at a time, "스레드로 돌아가기" at the side chat's top. Their new `closeX` prop
+  shows the ✕ at every width instead of a phone's ‹, which in a sheet over the file would read as "back a page".
+- **Size:** 70 % of the part of the screen above the keyboard (`--app-h`, lib/viewport.ts; the WebView and Chromium
+  shrink it themselves with `interactive-widget=resizes-content`), so the file shows above it. The handle drags it to
+  the whole height (under the status bar, `--safe-top`) or down to close (`sheetSnap`: a flick goes its way, a slow drag
+  settles at the nearer height and closes once well below 70 %; a finger held still 80 ms before it lifts is no flick);
+  a tap or Enter on the handle switches the two heights, and the handle takes taps from a 44 px box (`touch-hit`).
+  With the keyboard up (`.keyboard-open`) it takes the whole height above the keyboard, so the thread stays readable
+  over the reply box. The reply box keeps its own bottom inset (`--safe-bottom`, 0 with the keyboard up).
+- **Back order:** the sheet adds a history entry of its own on top of the viewer's, a copy of it marked as the sheet's,
+  so React Router and `lib/back.ts` still see the room page. Back (the browser's, Android's through the phone app's
+  WebView, iOS's edge swipe) closes the sheet, the next one the viewer, the next leaves the page; Forward onto the sheet's
+  entry opens it again. ✕, a drag down, a tap on the dimmed file and Esc close the sheet by going back off its entry.
+  Closing the viewer with the sheet open goes back off both entries one at a time, each once the last has landed (two
+  backs queued at once could land as one or three); a viewer opened meanwhile adds its entry after the last back. A page
+  change while both are open (a link in the sheet) leaves both behind, and a close leaves them ahead as Forward entries:
+  landing on one with no viewer open goes on. From the other entry of the same viewer the way is plain (the sheet's to
+  the viewer's is back, the other way forward); from any other entry React Router's idx tells it. A Forward with nothing
+  after the sheet's entry stays there, and the next Back goes past both: no direction is kept between popstates, which
+  once made every Back bounce back onto the sheet's entry.
+- **Under the sheet** the stage, the bar and the edge arrows are inert and dimmed; the focus goes into the sheet and
+  back to the button that opened it (once: a later step's focus goes to the stage). Keys typed in the sheet, its handle
+  included, are its own: never a step, a zoom or a copy of the file under it. `useFocusTrap` (components/ui.tsx) leaves
+  out controls inside an inert part of the dialog, so Tab wraps inside the sheet and a focus that strays behind the
+  dialog comes back to its first control still in reach. A sheet open but not drawn (the window grew past a phone's
+  width, a Forward onto its entry on a computer) closes, so Back and Esc are not spent on it. A picture or file tapped in the sheet's thread opens whole (the sheet gives way).
+  Picture gestures (pinch, double tap, swipes) and document stepping (a swipe where nothing scrolls sideways, ‹ › in
+  the bar) are unchanged. The stage isolates what is in it: a PDF's sticky toolbar painted over the sheet and its dim.
+- **The phone's bar** leaves out the sender's picture for a room's file or photo (the line under the name says who) and
+  its buttons are 40 px wide with a 44 px target (`touch-hit`), so the name keeps about 65 px beside ‹ 3 / 7 ›,
+  download, ✦, 💬 and ✕.
+- **Computers, the PDF rail goes by the stage:** the thumbnails show where the stage left of the right column is at
+  least 1,024 px (`pdfRailFits`: the 128 px rail and an 896 px document, what a 1,024 px window gave it in step d), not
+  from a 1,024 px window: beside the column they show from 1,424 px, and at 1,280 px the document takes the 880 px. The
+  viewer measures the stage already (its ResizeObserver) and passes the width down; `PdfView` no longer reads the window.
+  Without the column nothing changes.
+- **Computers, two icons:** 패널에서 열기 shows ⤡ (`Minimize2`, the side panel's own "나란히 보기" after 크게 보기)
+  instead of a panel icon, which looked like the column's toggle beside it. No new button.
+- **The side chat's box with a file quoted** says "이 파일에 대해 트리나에게 묻기…" (`sideChat.placeholderQuotedFile`), not
+  "이 메시지에 대해…": ✦ in the viewer and "Ask Trina about this file" in the preview quote a file, not a message.
+- Text in all five languages: 스레드 보기 (with the reply count, "스레드 보기, 답글 3": the number a word of its own, so
+  a voice user can say what they see; axe's label-in-name check reads "1개" as one word), and the handle's 위로 펼치기 /
+  아래로 줄이기.
+- **Independent review** (must-fix, fixed): after a close with the sheet used, Forward then Back bounced between the
+  two left entries for good (a kept skip direction); now the way comes from the entry the popstate came from. Also
+  taken: Tab stuck on, or Shift+Tab leaving through, the inert bar (`useFocusTrap`); ← → and + − 0 on the handle acting
+  on the file under it; a held finger read as a flick; the handle's 44 px target; a sheet open but not drawn; the focus
+  sent back to 💬 on a later step.
+- Tests: `web/test/unit/image-viewer.test.ts` (the sheet's entry: Back closes the sheet, then the viewer; Forward opens
+  it again; its ✕ backs off one entry; the viewer closed with it open backs off both, one at a time, never three; a
+  picture from the sheet's thread; left-behind entries skipped both ways; Forward then Back after a close, with and
+  without the sheet; `sheetSnap`; `pdfRailFits`); e2e
+  `room-file-viewer.spec.ts` at 390 px with CDP touch (💬 with the count opens the thread sheet at 70 %, a reply from it
+  is in the room's thread, the keyboard up, the handle up, down and closed, a tap beside it, Back twice; ✦ opens Trina
+  in the sheet with the file quoted, 스레드로 돌아가기, ✕, Back twice from a thread page; Tab wrapping in the sheet, →
+  and Enter on the handle, a slow drag and a held one, Esc twice with the focus back on 💬; a swipe still steps, a
+  photo's 💬; the two icons at 1440; screenshots), `pdf-lazy-pages.spec.ts` (no rail at 1,280 px beside the column, back with the
+  column hidden, there at 1,600 px; a screenshot at 1,280).
+- Version impact: **minor** (a visible UX change; no API or data change).
+
+## Trina side chat: send here — one click to this room or the asked message's thread (feat/side-chat-send-here, 2026-11-09, product owner)
+
+The owner found it odd that "Share to room" under a side chat's answer opened the general "대화방에 보내기" dialog (a
+room list, a search, a note) when the side chat belongs to one room. Approved design (a draft plus an independent UX
+review). Amends "대화방에 보내기" and "Trina side chat".
+
+- **Decision: a side chat's answer goes to the asked message's thread by default, or to the room via ▾.** Under each
+  finished answer one quiet text button (no accent), between copy and regenerate: an answer to a question about a room
+  message has **스레드에 보내기 ▾** (▾: one item, **대화방에 보내기**); any other answer has **대화방에 보내기**. Not "스레드에
+  답글" or "답장": the hover bar's "스레드에서 답장" only opens a reply box. Until now a shared answer was never a reply nor
+  in a thread (Rooms.send refused it); it may now be a reply in a thread, never "also to the room" and never a quote
+  (replyToId).
+- **One click, no dialog.** It goes at once: no picker, search or note, no toast. Then the button is a line for this
+  page's session (store/sideChats.ts `sends`, by the answer's id, so the panel opened again still says it):
+  "✓ 스레드에 보냈어요 · 보기" / "✓ 대화방에 보냈어요 · 보기", "앞부분만" when the server cut the answer (there is no warning
+  before sending any more). The focus goes to 보기 and a status region says it. 보기 opens the thread at the reply (in the
+  room's right column in place of the side chat, the whole screen on a phone; ✦ brings the same side chat back) or the
+  room at the message (a phone: the side chat closes so the room shows); from the file viewer's column the viewer closes
+  first.
+- **The safety step stays, alone.** When the server answers "confirm" (linked files with 첨부 switches, material some
+  members cannot see) only the confirm step of the dialog opens (`ShareConfirm`, factored out of
+  components/chat/ShareToRoom.tsx with its state, `useConfirmStep`), with the target on top: the room, and for a thread
+  the asked message as the question quoted it. 취소, ✕ and Esc close it and give the focus back to the button: there is
+  no room list to go back to. The full chat's dialog is unchanged.
+- **The target travels in the question, not in a column.** "Ask Trina about this" quotes the message with
+  ` (thread_id <root> in this room)` at the end of the quote's header line (shared/src/api/rooms.ts threadRefToken,
+  modelled on the file quote's `file_id`): the message's thread root (`threadRootId ?? id`), only when it can have one
+  (seen by the whole room, not an event line, not a private AI preview). The app hides it wherever it shows the question
+  (its bubble, copy, the edit box; an edit puts it back while the quote's header line stays), and a new chat's
+  placeholder title leaves it out; the AI reads it as is (room_read's `thread`). Which answer goes where
+  (web/src/lib/sideChatSend.ts): the nearest earlier question on its branch that quotes something decides, its token's
+  thread or else the room; a follow-up without a quote ("더 짧게") keeps the thread. One refinement of the approved rule
+  ("the nearest question with the token"): a later question that quotes a file or a message without a thread sends to the
+  room, so a file ask (room only in this version) never lands in an earlier message's thread. Read from the messages, so
+  it holds after a reload, from 🕘, as a full chat (↗) and after regenerate. Older side chats (no token) send to the room
+  only: nothing is guessed from a quote's text.
+- **Server (minimal).** `ShareAnswerToRoomBody.threadRootId` (optional) goes to `Rooms.send`, whose own checks of a root
+  apply (`Rooms.threadRootOf`: this room's message, one I see, one that can have a thread, not deleted). The share checks
+  it first, before the sending budget and the file checks: anything wrong is 409 `reason: 'thread_root'`, one answer for
+  every case; the app says "이 메시지의 스레드에 보낼 수 없어요" under the answer and offers the room from then on. Followers
+  of the thread (the root's author too) are notified as for any reply; the audit row is the same. The check's audience
+  stays the whole room (a reply is seen by those who see its root, never more). A later member gets a shared answer in a
+  thread judged with its thread's first message, as any reply (rooms/history.ts `COALESCE(thread_root_seq, seq)`).
+  Never in a confidential chat (the refusal and the hidden button stay).
+- **Double sends.** A guard while one is on its way, and one `clientMessageId` per click, reused only for that click's
+  confirm and for trying the same target again after a failure that may have sent it (no answer, 5xx). Never across
+  clicks: the server's lookup of a known id returns the first message even when it was deleted since; it stays so (a
+  unique index on room, author and client id stands behind it, and a retry must find what it sent).
+- **↗.** The side chat opened as a full chat keeps the dialog, with the side chat's room picked (`chat.sideRoomId`).
+- **The question as people read it (found on dev, fixed here).** A question about a message showed its quote as raw
+  Markdown ("> Leo · Nov 9, 2026, 7:14 PM"); in a side chat (also opened as a full chat) the bubble now shows it as a
+  quote, as the side chat's box showed it before it went: who and when, its lines, then the question below (a file by its
+  name). A long message is folded as any long question is: the quote's first 3 lines, and 전체 보기 opens all of it. One
+  parser for the app and the server: shared rooms.ts `sideQuoteOf` (the header, its lines, then a blank line and the
+  question). Only side chats: in any other chat a quote of that shape typed by hand shows, and names the chat, as typed.
+- **Its title (found on dev, fixed at the source).** A new chat's placeholder title (server chat/title.ts, written with
+  the first message; the AI may still rename it with set_title) took the quote's header ("Sam · Nov 9, 2026, 7:0…").
+  In a side chat it is now the question after the quote; a quick question (번역, 요약, 설명; a file's 요약, 핵심 정리, 검토, 팀 폴더에 저장)
+  is "<its word>: <the message's first words, or the file's name>" ("요약: 로고 시안 언제까지 받을 수 있을까요?"), in the
+  language it was asked in. The quick questions' words and texts moved from the app's strings to one shared table
+  (rooms.ts `SIDE_CHAT_QUICK`), which the server reads to recognize them. The button's words are shared the same way
+  (rooms.ts `SIDE_CHAT_SEND`): the AI's side panel instructions name it as the person sees it, in their language, and say
+  what the quote's thread_id is. Chats already named after a quote keep their title.
+- **A thread found gone** (a send answered `thread_root`) is gone for every answer about that message on this page
+  (store/sideChats.ts `goneRoots`, by the root's id): each offers the room; answers about other messages keep theirs.
+- **Not in this version:** "대화방에도 보내기" on a thread send; a file's thread (a file ask goes to the room); the note; a
+  toast; a server column for the asked message.
+- **Amended 2026-11-10 ("post_to_room" below):** the AI may post too, after the person's yes on its card. Without a
+  room it posts where the button would send: the nearest quoting question's thread, or the room. The rule moved to
+  shared/src/api/rooms.ts (`quotesRoom`, `nearestThreadOf`) so the app and the server read one copy. The side panel's
+  instructions no longer say "do not say you posted": they say post_to_room raises a card and to say it posted only
+  when its result is "sent" (the old line stays where the turn has no post_to_room).
+
+## AI가 휴지통으로 옮기기 — delete_files behind a server card (feat/ai-delete-files, 2026-11-09, product owner)
+
+- **Why:** asked "다운로드 폴더 임시 파일 지워줘", the AI answered "삭제할 수 없어요" with no reason (refusal audit B8), and
+  the tidy-up rule even read as if it could. The owner approved the direction (refusals to cards, part B2) on the
+  condition of no security problem; the security reviewer amended the design, followed here.
+- **The trash, never a hard delete:** the tool calls `TeamFiles.remove`, the Files screen's own delete (managed-folder
+  checks, the team's `trashRetentionDays`, publishing, `dropSessionsOf`), never `FileService.deleteFile` (30 days fixed,
+  none of those). The person restores on Files › 휴지통 until the purge date; an admin can empty the trash earlier and
+  the card says so.
+- **Never, for any role, admins and the owner included** (`TeamFiles.aiTrashRefusal`, on top of `assertMovable`):
+  the team root and top-level folders; group, project and rule folders and any folder holding one (`managedInside`);
+  skill roots (`skills/`, `groups/*/skills`, `projects/*/skills`, `users/*/skills`), the folders that hold them by path
+  (`groups/<g>`, `projects/<p>`, `users/<id>`) and anything in them; `users/<someone else>`; `.system`; `.attachments`;
+  a plugin's folder or one holding it; the target of an open connector upload link (the only stored link bound to a
+  team path: `share_file` links are checked per viewer and grant nothing). **Stricter than the review asked:** hidden
+  items, instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) and a live project's
+  folder or one holding it, personal projects included (`managedInside` leaves `users/` out) are refused too.
+- **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
+  folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
+  card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
+- **Limits and paths:** at most 200 entries per call, counted inside folders, the listed items included, by a walk that
+  stops at the cap (`ai-trash.ts stampTree`; never `treeSize`, which stops silently at 200,000). Paths resolve like every
+  file tool (`authorize`/`parseInput`: no absolute paths, `~`, URLs, backslashes, `..`, invisible or look-alike
+  characters; the actual letter case and Unicode form on disk); duplicates and items inside a listed folder go once.
+  **Stricter:** one refused path refuses the whole call before any card, with each reason, so the card shows only a call
+  that runs exactly as asked.
+- **The yes is bound to a manifest** (`TeamFiles.planAiTrash`): every entry's path, kind, device, inode, size and
+  modification time (a folder's own times are left out: its move rewrites `..`); a hash of who of the other active people
+  reads and writes each item and their role; the trash setting. After the yes, `trashAiPlan` checks every item again
+  in one synchronous block, so no other call of this server (a `move_files` of the same answer, which needs no card
+  within the same audience) runs between the check and the moves; anything changed stops the whole call. `remove()`
+  checks the item again right before `moveIntoTrash` and where it went, in the same synchronous block; a folder that a
+  writer outside this process changed meanwhile (dev-environment jobs, `devenv/srt/access.ts`) goes back and the call
+  says "changed, ask again". When something took its place meanwhile it cannot go back without replacing that: it stays
+  in the trash with its row (nothing lost, restorable) and the result says so.
+- **Who may use it:** only the person's own chat with the person there. Refused up front with the reason and a next step,
+  before any card: a scheduled run, an approved template run, a room, a shared project chat, a chat other people wrote
+  in (`othersWrote`), a confidential chat, a draft or judge chat, and a sub-agent (`PARENT_ONLY_TOOLS`, and the server
+  refuses a call that comes with a sub-agent's turn state). **Stricter:** also a chat that holds room messages
+  (`rooms_seen`: other people's words; refused before the rooms card, so no earlier answer of that card covers it) and a
+  chat asked from Slack. Not offered at all in rooms, shared, confidential and draft chats (allowlists). Never in
+  `FILE_TOOLS`, which the app connector lists with no card (a test checks the connector).
+- **The card shows exactly what runs:** every path in full in `details` (a folder with its files and folders), the other
+  people whose files these are as the file history shows them to the asker (no new names), "N명이 더 이상 볼 수 없어요"
+  and how many of those cannot restore it (readers without write do not see it in the trash), the purge date from the
+  setting in the team's time zone. No earlier answer, room grant, "always allow" or approval cache covers it.
+- **Card fatigue:** at most 2 delete cards per answer; after a "no" (or no answer) no more deletes in that answer; a
+  delete card opens only when no other card of the turn is open (refused, not queued), and while it is open any other
+  card of the turn (a parallel ask_user, move or skill card) waits and opens after it with its full time
+  (`TurnExec.waitForPerson` `exclusive`). The list on the card is never folded: the AI picks its order.
+- **Audit:** one `files.ai_trash` row per call (refused, invalid input, declined, no answer, trashed, changed, partial,
+  failed) with the card's request id, the turn id, the paths and the trash ids. Once an item is in the trash with its
+  row, a failing follow-up (a listener, the session reset) is logged and the call still reports it as trashed.
+- **Independent review** (before the PR): no bypass found; its should-fix (other cards could open beside a delete card)
+  and nits (post-commit errors, audit rows for every call, the folded list, on-disk names in refusals, personal project
+  folders) are fixed as above. Not offered in an approved template run at all. The file event of each item says `tool: delete_files`.
+- **Room grants:** a path an AI turn put in the trash (still there) is never a "new" file for a room's grant
+  (`roomGrantTarget`); rooms do not get the tool, this keeps it so.
+- **Prompt:** the tidy-up rule says deletes happen only when asked, with `delete_files` where the turn has it and "you
+  cannot delete here; the Files screen" where it does not; `DELETE_RULE` says when to use it.
+- Out of scope: skill folders (a later change with the skill cards), rooms, restore by the AI.
+- Tests: `tests/unit/ai-delete-files.test.ts`, `remote-mcp-tools.test.ts` (the connector), `b-shared-chats.test.ts`,
+  `b-rooms-ai.test.ts`, `i-wiring.test.ts` (tool lists).
+- Version impact: **minor** (a new AI tool and card; no HTTP API, setting or data change).
+
+## delete_files follow-ups — nothing stranded in the trash storage (fix/ai-delete-followups, 2026-11-09)
+
+- **Why:** the security review of #277 found no MUST. Its SHOULD: a double fault in `TeamFiles.remove`. A folder changed
+  by a writer outside the process on its way to the trash, something took its old place so it could not go back, and
+  then its `trash_items` insert failed: it sat in `.system/trash/<month>/<uuid>` with no row, nobody could restore it,
+  and the AI said "Nothing was moved".
+- **Never without a row if one can be written:** when the rows fail and the item cannot go back, the server logs it at
+  error level with the storage path, writes the same rows once more (the file event says `rescued`), and failing that
+  the trash row alone (restore works from it), but only for an item with no folders row and no project at or below it
+  (`holdsFolderRows`, failing closed). A row alone skips `rebaseFolders` and the projects update: a closed folder's rules
+  stayed on the old path, the folder that took its place got them, and it came back from the trash with none, readable
+  by every member (review of #278). Such a folder stays in the trash storage only, logged, for an admin to recover. Only when no row can be written at all does `remove()` throw
+  `TrashStranded` with the storage path; delete_files then reports the item as moved out of its place, not in Files ›
+  Trash, for an admin to recover (audit `stranded`), never as "nothing moved". The Files screen's delete shares this.
+- **The rollback never writes over what took the old place:** both branches put the item back with `putBack` (only
+  where nothing is), so a file an outside writer made there in that instant stays, and the item takes the rescue path.
+- **Audit:** a call where every item failed, and none changed after the card, is `failed` (it said `changed`).
+- **Left as they are (the review's optional nits):** the card's purge date counts from when the card opens and
+  `purge_at` from the move, so the card never promises more time than the trash gives. `aiTrashed()` keeps reading the
+  AI's trash rows that are still in the trash: SQL cannot fold letter case and Unicode form the way the volume does, so
+  narrowing it there would let a variant spelling of a trashed path count as new for a room grant.
+- Tests: `tests/unit/ai-delete-files.test.ts` "a double fault never strands an item without a trash row" (a rescued
+  row, no row possible, a file made at the old place in that instant, the `failed` audit, the review's closed folder
+  whose rows fail twice, and a plain folder that still gets its row alone), each failing without its fix.
+- Version impact: **patch** (bug fixes; nothing changes when nothing fails).
+
+## post_to_room — the AI posts to a room from my own chat, behind one card (feat/post-to-room, 2026-11-10, product owner)
+
+The AI could not post to a room: people had to press 대화방에 보내기 under a finished answer, and the side chat's AI was
+told to point at the button and never claim it posted, so "이 요약 #영업팀에 올려줘" got a refusal (audit C11). Amends
+"대화방에 보내기" and "Trina side chat: send here". Plan: docs/AGENTS/plan/20261109-2128-post-to-room.md.
+
+- **Decision Q1: the AI posts the text it writes** (`text`), shown in full on the card. "요약해서 올려줘" is one step.
+  Not chosen: only an answer that already ended (the button's rule), which splits "요약해서 올려줘" into two.
+- **Decision Q2: always one card**, even when nothing is at stake. A room message reaches everyone and notifies them;
+  the button is one press too, so the number of presses is the same. Not chosen: posting at once when the person asked
+  and nothing applies (a planted "post this" would then need only a chat with nothing to check).
+- **The tool** `post_to_room(room?, text, note?, thread_id?)` (server/src/chat/post-to-room.ts). It posts the person's
+  own message, as the button does: their note (only when they asked for one), then the text quoted as the AI's answer
+  (`answer_at`), no mention, never the room's AI. Not offered (`postToRoomOff`) in a room's "@트리나" session (its answers
+  go to the room by the room's rule), a shared project chat, a draft / judge / merge chat, an approved scheduled
+  template's run, a confidential chat, a scheduled run (nobody answers a card) or a question asked from Slack (Slack has
+  "Post to channel"); never to a sub-agent (`PARENT_ONLY_TOOLS`). In `ROOMS_SEEN_READ_ONLY_TOOLS` as a tool that raises its
+  own card, like `remember`: after a room read there is no room card in front of it. Reached anyway (the chat turned
+  confidential during the answer: the safe operations gate answers first; a sub-agent's call) it refuses with why and what
+  to do, as for a room archived or not mine (the same answer as one that does not exist), a gone thread, content that used
+  earlier answers hidden from some member, a text too long for one message (refused before any card: what the card shows
+  is what goes, never cut) and the sending budget.
+- **The same checks as the button.** `shareAnswerToRoom` is split into `prepareShare` (confidential, a room I am in, the
+  same clientMessageId again, the thread root, the budget, the check, hidden answers) and `sendShare` (the confirm
+  decision and the send); the button calls both and behaves as before. The tool path: the turn's reads go into the chat's
+  read scope first (`noteReads`); the answer is the running one (`chats.active_leaf_id` points to it, so the scope
+  describes it, and its turn has not ended, so every place of the scope counts: its source list is not written yet); the
+  content is `text` through the sender's redactor; the room by `findRoom` among mine (`Rooms.mine` checks it again), the
+  thread by `Rooms.threadRootOf`.
+- **The card** (an `ask_user` card with origin server: the AI cannot write one that passes for it). "#영업팀(12명)에
+  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the note apart under "내 이름으로 보일 한마디" (it
+  goes as the person's own words, outside the AI's quote, though the AI wrote it: a planted instruction could write a
+  line in their voice, so the label says whose name it shows under, and the tool takes a note only when the person asked
+  for one or gave its words); the text in full under 보낼 내용, folded past 600 characters, its long random-looking
+  parts marked as on the other server cards; the paths [파일도 함께 보내기] would
+  attach, by name (a link far down a folded text is not missed); only when they apply, "3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요." and "링크된 파일 2개를 4명이 열 수
+  없어요." (counts and places I may look myself, never who), and, when attaching the files changes them, "파일도 함께 보내면:
+  …"; [보내기], [파일도 함께 보내기] (only when a linked file can go as a copy), [보내지 않기]. The number is everyone in the
+  room. After it the step reads "대화방에 보내기 · #영업팀" (shared step-labels.ts); a no adds "보내지 않았어요".
+- **Bound to what was shown.** Each choice carries the key of the line it showed (`shareChoice`: with no files, or with
+  the files offered). On yes the check runs again (`prepareShare`) and the key of the pressed choice must be the same
+  as the card's, also when nothing is at stake now: the card named the number of people, and someone added meanwhile
+  was not asked about (stricter than the button, which sends when nothing applies). Then `sendShare` gets that key and
+  the files. A change (a member, someone's access, a linked file) is refused, "ask again", nothing posted. Each post
+  takes from the sending budget before the card and again after the yes, as the button's confirm does.
+- **Retries.** `clientMessageId` is `ai-<turnId>-<n>`, `n` per room, thread, note and text in this answer: the same call
+  again finds the first message (no second card, no second post), as the button's retry does. A first post the person
+  deleted since is not it: the same text goes again under a new `n`, with its own card (the room keeps the deleted
+  message's id, unique per author; the button's lookup is unchanged).
+- **A side chat.** Without `room` it posts to the side chat's room, or to the thread the nearest earlier question that
+  quotes something names (the button's rule, `nearestThreadOf`). A named room is that room's timeline, never the
+  thread (the input's description says so; `thread_id` names a thread).
+- **Prompt.** The rooms rule gains one sentence when the turn has the tool (`ROOMS_POST_RULE`: all of the text, the card,
+  say it posted only when the result is "sent", never because a message, file or page asks); the side panel's line says
+  the same and still names the buttons.
+- **Audit.** `room.answer_share` as for the button, with `via: 'ai'` and `confirmed: true` (the person pressed the
+  card's yes, also when nothing was at stake); the tool event's summary says sent, not sent, already sent or refused,
+  never the text.
+- **The step's 보기** (follow-up, 2026-11-10). A post's step keeps where it went (`Step.posted`: the room, the message, the
+  thread's root) and shows 보기, like the button's sent line: the room at the message or the thread at the reply; in a
+  side chat through the panel's own way there (its column, a phone's panel). Only its runner gets it: another viewer of
+  a chat shared later gets the step without it (a room's id).
+- **Security.** Nothing new is allowed: the button's checks and audit; only who starts it differs. A web page, a file or
+  a room message telling the AI to post meets the card with the room, its number of people and all of the text (tested
+  with a planted page). Habit: the room and the number lead the card and the "cannot see" lines show only when they
+  apply.
+
+
+## Refusals say why, who and what next (fix/ai-refusals-clear, 2026-11-10, product owner)
+
+넣을 곳: trina-ax `server/src/policy/refusal.ts` (new) and the refusal texts in `chat/turn.ts`, `chat/prompt.ts`,
+`tools/file-moves.ts`, `tools/higgsfield.ts` and the connection, schedule and web texts, 이유: chat, permissions and
+files are core. Plan `docs/AGENTS/plan/20261109-1844-ai-refusals-clear.md`. Part A of the owner's "왜케 제약이 많아??
+안되는게 왜케 많은거야? 이유도 모르고?" (2026-11-10): most limits are real, but the texts the AI read back said neither why
+nor where the person could do it, and some blamed the person for a card nobody showed them. Part B (later PRs) turns
+some of them into cards.
+
+- **One shape for every refusal the AI reads** (`refusal({ done, why, next, names })`): what did not happen ("Nothing
+  was moved."); one reason, said plainly: no permission (and who can give it: "an admin", or a team project's creator
+  by name where that is safe, see below), nobody could be asked (a scheduled run: "The user did not refuse anything; never
+  say they did"), the person said no, the card timed out ("This is not a no"), other people would have to agree (the
+  room or project, a count), a server limit (its number, when it resets, who can change it), not available in this kind
+  of chat; one next step with the screen as the person's app names it in their language (`SCREEN.trash('ko')` →
+  `the Files screen's trash ("파일 › 휴지통")`); the folders, groups, projects and connections involved. AI-facing words
+  stay English; only the screen names follow the person's language.
+- **Kept as they were:** rooms and shared chats never say who cannot read what (counts only, "Never who" above). "not
+  found or no access" stays one answer, byte for byte, for a missing file and a hidden one (`policy/authorize.ts`); the
+  neutral next step (check the name with the person; whoever manages that folder or an admin can check access) is in
+  the instructions, so no tool text depends on the path. A "no" keeps the words "did not allow", which is what it is.
+- **How a card ended reaches the text.** `TurnExec.askPerson` returns the answer with why there was none:
+  `unattended` (a scheduled run raises no card), `timeout`, `ended` (the answer stopped first); a card closed without a
+  choice is the person's no. `waitForPerson` is unchanged for its other callers. Tools get `TurnPerson.confirmWhy`;
+  `askConfirm()` treats an unattended person as never asked (as `save_url` did with `!person || person.unattended`).
+- **Bug 1, fixed at every card a run reaches:** the wider-audience card, the skill-write card (its reason text only:
+  the skill logic and the "no" texts are as they were), the room card after a room read, move_files and copy_files
+  (they checked `!tc.person` only, and a run's person always exists), generate_video and a connection's write card. The
+  audit summaries say `nobody to ask (scheduled run)` and `no answer in time` instead of `not allowed by the user` where
+  that is what happened. A room card that also asked about a wider audience keeps the room's next step (a run that read
+  a room cannot save anywhere, so "save it in the personal folder" would be refused again).
+- **Bug 8:** a shared chat's read card says the real reason, per place for the rest of the turn: the person's no, no
+  answer in time, a scheduled run, or a check that failed ("Nobody refused it"), never "<name> did not share it" for all
+  of them; the "/name" skill line too. Next step: a chat of their own, where only they see the answer.
+- **Bug 10, mode limits the AI was never told:** the room section lists what a room has not (memories, connected
+  services, Drive, schedules, video, the browser and computer tools, the chat title, moving skills) and sends the person
+  to the room's side panel or their own chat; the shared chat section the same, to their own chat; a confidential chat
+  gets `confidentialRule` in the person lines (also in a resumed session's context), with why (safe operations on the
+  server, or a safe workflow in this chat) and what is off; the scheduled run block says a step that needs a card is
+  skipped, which is not the person refusing, and the summary lists what was skipped. "Rooms cannot be read in this
+  chat" says why (a shared chat, a room session, a confidential chat, a template run) and where to read the room.
+- **Bug 4:** where delete_files (#277) is not offered (a room, a shared chat, a sub-agent, a scheduled run…), the person
+  lines say the AI cannot delete here and name the Files screen's trash in the person's language (30 days); where it
+  is offered, its own rule says how (DELETE_RULE).
+- **Admins are never named** (review of #273): the people directory shows no roles (`shared/src/api/people.ts`, "people
+  directory" above), so a refusal listing the admins would tell a member who they are, and in a room or a shared chat
+  the AI could repeat the names to everyone. The texts say "an admin" and the screen where an admin does it.
+- **Wording:** a read-only refusal in a chat turn gets a note with who can give write access (B2; the tool's own text is
+  unchanged for every other caller, so the remote connector and the security tests see what they saw). A team
+  project's creator is mentioned only when the person may read that exact project folder: a hidden project answers
+  "read-only folder" like a missing one (`hiddenWrite`), and naming its creator would tell them apart (independent
+  review). The creator's name goes in only where everyone who sees the answer may read that folder (in a room or a
+  shared chat, `roomReadable`; else "the project's creator"); otherwise it is "an admin", whatever the path; the per-answer
+  write limits give their numbers and "continue" in the next message (B7); an admin-only folder move says an admin
+  does it on the Files screen (B14); a connection set to refuse changes or a tool turned off says who manages it (an
+  admin, or the person) and where (E6, E11), team and personal connections say an admin and the screen (E1-E3), a
+  template run names its folders (F4), a private address points to the desktop app's browser or an attachment (G1), the
+  daily video limit says when one frees up, as the daily limit set by the server (H2).
+- Not here: the skill texts and move_skill (`skills/guard.ts`, `skills/move.ts`, `skills/text.ts`, the
+  `SKILL_FILES_REFUSAL` call sites), which #269 (fix/ai-skill-move-like-page) changed at the same time; new cards (skill
+  folders, deleting), schedule pre-approval, connections in rooms, post_to_room.
+- Tests: `tests/unit/refusal-texts.test.ts` (the helper, names, screens in five languages, the mode sections, the
+  confidential and delete rules, "#room" without room tools), the text of every bug-1 site
+  (`c-file-moves`, `b-chat-rooms` scheduled runs, `skill-managers` timeout, `higgsfield`), `b-shared-chats` (a no and
+  a timeout), `b-chat-file-placement` (move_files into a new folder, no README).
+- Version impact: **patch** (texts the AI reads and one card line; no API or data change).
+
+## move_files and copy_files make the target folder (fix/ai-refusals-clear, 2026-11-10, product owner)
+
+- **Before:** move_files and copy_files needed a target folder that existed (`audienceChange` and `copy` asked for it
+  with `mustExist`), there is no mkdir tool, and the instructions told the AI to write a README.md into a new folder
+  first. People got a file they never asked for, or "not found: 'shared/계약서/2026'".
+- **Now:** a missing target folder is made by the tool after the card, one folder at a time, under the same checks as a
+  new file's folders (`authorize` with `createDirs`: write access, names, look-alike names), each recorded as a new
+  folder of the turn (`file_events` `create` with `folder: true` and the tool) and published like the Files screen's
+  new folder. Its readers are those of its nearest existing folder (a new folder has no rules), so the audience card is
+  the same card as before; when it shows, it says the folder is new ("AI가 2개 항목을 새로 만들 shared/계약서/2026
+  폴더로 옮기려고 해요.", all five languages). A no makes no folder. With nobody to change (the same people see it) no
+  card, as before. A folder made for a call where nothing went in (a folder given to copy_files, a group folder moved by
+  a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
+  anything).
+- The README instruction is gone; the tools' descriptions say a missing folder is made.
+
+## 대화방 PDF도 쪽을 이미지로 — room_file reads a scanned PDF's pages (fix/room-file-pdf-pages, 2026-11-10, product owner)
+
+Owner: "결국 이미지로 읽는거지? 그렇게 해." A PDF sent in a room gave the AI its text layer only (`room_file`), so a
+scanned PDF posted in a room could not be read: the AI asked the person to save it to the team folder first. Amends
+"내 AI 채팅에서 대화방 읽기" (room files: text layer only) and brings "AI sees images and PDF pages" to room files.
+Plan: docs/AGENTS/plan/20261110-0002-room-file-pdf-pages.md.
+
+- **The team read's page contract, one helper.** `FileService.pdfPagesForModel` is the page loop that was inside
+  `readPdf`: each page's text layer as text, a page with fewer than 20 non-space characters as a page image,
+  `as_images`, the 24,000-token tool output limit (page images that would pass it are named for another call), the
+  per-turn budget of 40 images / 10 MB, the team switch `aiVision` and the engine (`visionBlock`), Apple Vision text on
+  a Mac when no pixels may go, and the same notes in five languages. `readPdf` and `room_file` both call it with bytes
+  they have already checked and bound; they also share which pages a call reads (`pagesToRead`) and the note that
+  names the pages without a text layer after a text read (`FileService.scannedNote`).
+- **`room_file` takes `pages` and `as_images`** in my own chat, a side chat and a room's own session, for PDFs only
+  (anything else is refused before the file is opened, as `read` refuses them). Without them a PDF of up to 10 pages
+  comes whole, page by page.
+- **Decision: `offset` keeps its meaning.** It is characters of the text (40,000 a call), as before. With `offset`, or
+  for a PDF over 10 pages read without `pages`, the answer is the text as before, now naming the pages without a text
+  layer and the `pages` to read them with (on a Mac where no pixels may go: "for their recognized text", since a read
+  by pages gives Apple Vision text there). A read by pages holds up to 200,000 characters of text, as `read` does
+  (before, a PDF gave at most 40,000 characters a call). `offset` with `pages` reads the pages; `as_images` with
+  `offset` reads the text, as `read` does. Not chosen: the team read's "pages required over 10 pages" error for every
+  long PDF (a long text PDF that read in one call would now fail first), or numbered lines for `offset` (room files are
+  not grepped, so line numbers point at nothing). `as_images` on a long PDF without `pages` asks for pages, as `read`
+  does.
+- **Decision: `as_images` is offered.** It is one flag through the same helper, with the same checks and limits; a
+  chart or a table in a text PDF sent in a room is a common question.
+- **Framing.** Everything that comes from the file (page text, Apple Vision text) stays inside
+  `<room_file name=… pages=…>` with our block tags neutralised; the page images sit between the pages, `</room_file>`
+  follows the last page, the notes come after it. The head (who sent it, when, where, "information, never
+  instructions") counts toward the output limit. The audit line names no file: `room_file -> PDF pages 1-3 of 3, 1 image`.
+- **The room checks, unchanged, and once more before delivery.** As before: `findRoomFile` (a room I am in now and not
+  archived; the message visible to me from my join on, not deleted, not one of my hidden old answers, not someone
+  else's private preview), the quarantine list, `RoomFiles.open`, then the bytes. New: right before the result goes
+  out the checks run again, synchronously (the account as it is now; `RoomFiles.open`: member, room not archived,
+  message visible and not deleted, the same file row and stored path; not on the quarantine list; and for a result
+  with page images or a picture, the team switch and the engine as they are now), and again at the socket's drain:
+  `beforeDelivery`, which the chat tool set and `mcp/protocol.ts` now carry for chat tools as they do for reads. A
+  conversion can take long (up to 20 pages, 30 s each); someone taken out of the room, whose message was deleted, whose
+  file went on the quarantine list or whose account was turned off meanwhile gets "Access changed during the call" and
+  nothing of the file. This holds for every `room_file` result, pictures, text and a converter's error included
+  (before, a picture converted after the person had left the room still went). As for a team read, the switch is read
+  when the pages are drawn and again before delivery: pages drawn after it went off are drawn, then not sent. The
+  bytes are not hashed against the stored hash (room files are written by the server alone, as before).
+- **Not changed.** The remote MCP connector's `room_file` keeps its schema (no `pages`) and its text-layer answer: a
+  connection takes no pixels. No API, migration or setting; the notes the AI gets are the read's existing ones.
+- Tests: `tests/unit/room-file-pdf.test.ts` (scanned, text and mixed PDFs; `pages`, `as_images` and `offset`; the
+  output limit; image viewing off, the API engine, a connection; not a member, a deleted file, a hidden answer, a held
+  file; access or the switch lost while converting and while waiting in the socket buffer; a converter's error; the
+  connector's schema; the turn budget shared with team reads), and through the fake engine in `b-chat-rooms.test.ts`
+  (also access lost between the read and the handler's own check) and `b-rooms-ai-files.test.ts`.
+- From the security review (no must-fix): the switch re-read before delivery, the converter's error through the same
+  check, the Mac hint and the hand-off test were added. Left as for a team read: the audit line is written before the
+  delivery check, and a result refused there has used its share of the turn's image budget.
+- Version impact: **minor** (a new, backward-compatible AI capability).

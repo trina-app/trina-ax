@@ -8,20 +8,24 @@
 // spinner or a dot), so the AI never sinks under many rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its
 // own row between the two. People and the AI never share a word: no bare "채팅" here. Each folds, and each one's whole
 // list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
-// Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens above the profile line. Below
+// Usage (their own, in Settings), Deleted history, Sign out), which opens above the profile line. Below
 // 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top,
 // 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat is the 트리나 tab itself, the
 // Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
 // A shared project chat I made or wrote in (docs/DECISIONS.md "Shared project chats") is a row like any other, with the
-// people icon before its title (no section of its own); its "···" offers only what I may do there.
+// people icon before its title (no section of its own); its "···" offers only what I may do there. A chat of my own has
+// "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
+// in its project. Every row's "···" has "상단에 고정" / "고정 해제" (docs/DECISIONS.md "Pinned chats"): my pinned chats
+// come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
+// most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { teamIconUrl } from '@mycel/shared'
-import type { Chat, Theme } from '@mycel/shared/api'
-import { api, API } from '../lib/api'
+import type { Chat } from '@mycel/shared/api'
+import { api, API, errorText } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
 import { aiName } from '../lib/tabs'
 import { useLogout } from '../lib/logout'
@@ -34,11 +38,16 @@ import { sharedRights } from '../lib/sharedChat'
 import { SharedIcon } from './chat/SharedChat'
 import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
-import { useUi } from '../store/ui'
-import { Avatar } from './Avatar'
+import { toast, useUi } from '../store/ui'
+import { PresenceDot, PresenceFace, PresenceText } from './Presence'
 import { useChatActions } from './chat/chatActions'
+import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
+import { MenuButton, type MenuItem } from './rooms/MenuButton'
+import { useRowMenu } from './rooms/RoomMenu'
+import { useRoomTitle } from './rooms/RoomIcon'
+import { useRooms } from '../store/rooms'
 import { SetupRow } from './onboarding/SetupRow'
 import { SidebarSectionTitle, useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
@@ -103,6 +112,10 @@ const OPEN_KEY = 'mycel.sidebar.recents'
 const ALL_KEY = 'mycel.sidebar.recentsAll'
 /** a computer: AI chats shown before "모두 보기" */
 const LATEST = 5
+/** a computer: pinned chats shown above them (the rest are first in "모두 보기") */
+const PINS_SHOWN = 10
+/** my pinned chats, the most recently pinned first (docs/DECISIONS.md "Pinned chats") */
+const pinnedFirst = (list: Chat[]) => list.filter((c) => c.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
 
 export default function Sidebar() {
   const t = useT()
@@ -113,6 +126,10 @@ export default function Sidebar() {
   const setAllChats = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAllChatsState(v))
   const me = useMeStrict()
   const chats = useChats((s) => s.chats)
+  // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
+  // goes to another group (a date, a project) and is made again, as the share right after the move needs
+  // (components/chat/ChatProject.tsx, the switch "프로젝트 사람들과 공유")
+  const [moving, setMoving] = useState<Chat | null>(null)
   const loaded = useChats((s) => s.chatsLoaded)
   const cursor = useChats((s) => s.chatsCursor)
   const loadChats = useChats((s) => s.loadChats)
@@ -145,7 +162,8 @@ export default function Sidebar() {
   const groups = useMemo(() => {
     const now = Date.now()
     // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
-    const shown = chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now))
+    // pinned chats come first, without a header (`pinnedRows`); the groups hold the rest
+    const shown = chats.filter((c) => !isUnused(c) && !c.pinnedAt && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now))
     const when = (c: Chat) => (view.sort === 'created' ? c.createdAt : c.updatedAt)
     shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
     const g = new Map<string, { label: string | null; items: Chat[] }>()
@@ -157,12 +175,18 @@ export default function Sidebar() {
     }
     return [...g.entries()]
   }, [chats, view, cards, here, projects, t])
+  const pinnedRows = useMemo(() => {
+    const now = Date.now()
+    return pinnedFirst(chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now)))
+  }, [chats, view, cards, here])
   const listId = useId()
   const peek = useChatPeek()
-  // a computer: the five latest AI chats and the chat on screen, unless the whole history is open (or filtered)
+  // a computer: my pinned chats (at most ten), then the five latest of the others and the chat on screen, unless the
+  // whole history is open (or filtered)
   const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
   const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
-  const latest = useMemo(() => used.filter((c, i) => i < LATEST || c.id === openChat), [used, openChat])
+  const pins = useMemo(() => pinnedFirst(used).filter((c, i) => i < PINS_SHOWN || c.id === openChat), [used, openChat])
+  const latest = useMemo(() => [...pins, ...used.filter((c) => !c.pinnedAt).filter((c, i) => i < LATEST || c.id === openChat)], [used, pins, openChat])
   // the hidden chats that need me, counted on "모두 보기" as their rows would show them (session markers: a "?" or a dot,
   // not a spinner: a chat that runs again shows the spinner); amber when one of them is a "?"
   const hiddenNeeds = useMemo(() => {
@@ -254,7 +278,7 @@ export default function Sidebar() {
         <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
           {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
           {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
-          {loaded && chats.some((c) => !isUnused(c)) && !groups.length && (
+          {loaded && chats.some((c) => !isUnused(c)) && !groups.length && !pinnedRows.length && (
             <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
               {t('sidebar.filter.none')}
             </p>
@@ -262,7 +286,7 @@ export default function Sidebar() {
           {!full && (
             <ul data-testid="ai-chats-latest">
               {latest.map((c) => (
-                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
               ))}
             </ul>
           )}
@@ -280,12 +304,19 @@ export default function Sidebar() {
               )}
             </button>
           )}
+          {full && pinnedRows.length > 0 && (
+            <ul className="mb-2" data-testid="ai-chats-pinned">
+              {pinnedRows.map((c) => (
+                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
+              ))}
+            </ul>
+          )}
           {full && groups.map(([key, { label, items }]) => (
             <div key={key || 'all'} className="mb-2">
               {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
               <ul>
                 {items.map((c) => (
-                  <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+                  <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
                 ))}
               </ul>
             </div>
@@ -312,6 +343,7 @@ export default function Sidebar() {
         </div>
       </div>
       {peek.card}
+      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => useChats.getState().upsertChat(c)} />}
       {wide ? (
         <AccountMenu />
       ) : (
@@ -378,38 +410,50 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
   )
 }
 
-function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => void; peek: ChatPeek }) {
+/** A row of the AI's history. Its "···" is the rooms' row menu (rooms/MenuButton.tsx): on hover or keyboard focus on a
+ * computer and always on a phone; a right-click on the row opens it too, and on a touch screen a long press (a sheet on
+ * a phone, the chat's title on top; the finger lifting opens no chat, and starts no text selection). Every row has it:
+ * "상단에 고정" / "고정 해제" is anyone's who sees the chat. A pinned row has a pin before its title. */
+function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void }) {
   const t = useT()
-  const [menu, setMenu] = useState(false)
+  const more = useRef<HTMLButtonElement>(null)
   const actions = useChatActions()
-  // a shared chat: rename for its creator, delete for its creator or a project editor; nothing to offer, no "···"
+  // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; a pin for anyone
   const rights = sharedRights(chat, useMeStrict().user.id)
-  const hasMenu = rights.creator || rights.canDelete
   // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
   // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
   const { marker, reason } = useChatMarker(chat)
   const ref = useRef<HTMLLIElement>(null)
-  useEffect(() => {
-    if (!menu) return
-    const h = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setMenu(false)
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [menu])
-
-  const rename = () => {
-    setMenu(false)
-    void actions.rename(chat)
-  }
-  const del = () => {
-    setMenu(false)
-    void actions.remove(chat)
-  }
+  const menu = useRowMenu()
+  const title = chat.title || t('chat.untitled')
+  // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
+  const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
+  const roomTitle = useRoomTitle()
+  const items: MenuItem[] = [
+    chat.pinnedAt
+      ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-unpin' }
+      : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-pin' },
+    ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat), testId: 'chat-row-rename' }] : []),
+    // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
+    ...(rights.canMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: 'chat-row-move' }] : []),
+    ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void actions.remove(chat), testId: 'chat-row-delete' }] : []),
+  ]
 
   return (
-    <li ref={ref} className="group relative" onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)} onMouseLeave={peek.hide} data-marker={marker?.kind}>
+    <li
+      ref={ref}
+      className="group relative"
+      {...menu.row}
+      onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)}
+      onMouseLeave={peek.hide}
+      data-marker={marker?.kind}
+      data-pinned={chat.pinnedAt ? '' : undefined}
+    >
       <NavLink
         to={`/c/${chat.id}`}
-        onClick={() => {
+        onClick={(e) => {
+          menu.guard(e)
+          if (e.defaultPrevented) return
           peek.hide()
           onNavigate()
         }}
@@ -417,70 +461,55 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
         onBlur={peek.hide}
         onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
         className={({ isActive }) =>
-          clsx('flex h-9 items-center gap-2 rounded-lg pl-3 text-sm hover:bg-hover max-md:h-11', hasMenu ? 'pr-9 max-md:pr-11' : marker ? 'pr-9' : 'pr-3', hasMenu && marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
+          clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
         }
       >
+        {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
         {rights.shared && <SharedIcon className="text-faint" />}
-        <span className="truncate">{chat.title || t('chat.untitled')}</span>
+        <span className="truncate">{title}</span>
+        {sideRoom && <span className="shrink-0 truncate text-xs font-normal text-faint max-w-[40%]" data-testid="chat-row-room">{sideRoom.kind === 'dm' ? roomTitle(sideRoom) : `# ${roomTitle(sideRoom)}`}</span>}
         {marker && (
           // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
           // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
           // on a phone "···" always shows and it sits left of it
-          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', hasMenu && 'max-md:right-11', menu ? 'opacity-0' : hasMenu && 'md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
+          <span className="pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center group-has-[[aria-expanded=true]]:opacity-0 max-md:right-11 md:group-focus-within:opacity-0 md:group-hover:opacity-0" data-testid="chat-marker">
             <SessionMarker marker={marker} label={reason} />
           </span>
         )}
       </NavLink>
-      {hasMenu && (
-      <Tooltip label={t('chat.menu')}>
-        <button
-          type="button"
-          aria-label={t('chat.menu')}
-          aria-expanded={menu}
-          onClick={() => setMenu((v) => !v)}
-          className={clsx('absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink max-md:right-0 max-md:inline-flex max-md:size-11 max-md:items-center max-md:justify-center', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100')}
-        >
-          <MoreHorizontal size={15} aria-hidden />
-        </button>
-      </Tooltip>
-      )}
-      {menu && hasMenu && (
-        <div role="menu" className="absolute top-8 right-1 z-30 w-40 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          {rights.creator && (
-            <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={rename}>
-              <Pencil size={14} aria-hidden /> {t('chat.rename')}
-            </button>
-          )}
-          {rights.canDelete && (
-            <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-danger hover:bg-danger-soft" onClick={del}>
-              <Trash2 size={14} aria-hidden /> {t('common.delete')}
-            </button>
-          )}
-        </div>
-      )}
+      {/* 28 px (WCAG 2.2 target size: it sits on the row's link), 44 px on a phone */}
+      <MenuButton
+        label={t('chat.menu')}
+        items={items}
+        className="absolute inset-y-0 right-1 flex items-center max-md:right-0"
+        buttonClassName="hover:bg-surface max-md:size-11 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
+        openSignal={menu.openSignal}
+        openRequest={menu.openRequest}
+        sheetTitle={title}
+        buttonRef={more}
+        testId="chat-row-menu"
+      />
     </li>
   )
 }
 
-/** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then Settings (a dialog over
- * the page, components/settings/SettingsDialog.tsx), Usage (their own usage in Settings; the team's is Admin > Usage),
- * Appearance (the theme, chosen right there), Deleted chats and Sign out. Arrow keys, Home and End move in the menu; Esc
- * closes it and gives the keyboard back. */
+/** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then "자리 비움으로 표시" ("접속
+ * 중으로 표시" while set: Slack's "Set yourself as away", docs/DECISIONS.md "접속 상태"; its mark is the dot it leads to),
+ * Settings (a dialog over the page, components/settings/SettingsDialog.tsx), Usage (their own usage in Settings; the
+ * team's is Admin > Usage), Deleted chats and Sign out. The theme is not here, it is chosen in Settings. My picture carries my
+ * own online dot, as the team sees it. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard
+ * back. */
 function AccountMenu() {
   const t = useT()
   const me = useMeStrict()
   const [open, setOpen] = useState(false)
-  const [appearance, setAppearance] = useState(false)
-  const setTheme = useSession((s) => s.setTheme)
   const setDrawer = useUi((s) => s.setDrawer)
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
-  const theme: Theme = me.user.prefs.theme ?? 'system'
   const hide = (focusBack: boolean) => {
     setOpen(false)
-    setAppearance(false)
     if (focusBack) button.current?.focus()
   }
   useEffect(() => {
@@ -511,6 +540,12 @@ function AccountMenu() {
     else if (e.key === 'End') go(-1)
   }
   const logout = useLogout()
+  const locale = useLocale()
+  const away = !!me.user.prefs.away
+  const toggleAway = () => {
+    hide(true)
+    void useSession.getState().setAway(!away).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  }
   const item = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
   return (
     <div ref={ref} className="relative border-t border-line p-2" onKeyDown={onKey}>
@@ -519,6 +554,12 @@ function AccountMenu() {
           <p className="truncate px-2.5 pt-1 pb-1.5 text-xs text-faint" data-testid="account-who">
             {me.user.email || me.user.username}
           </p>
+          <button role="menuitem" type="button" className={clsx(item, '[--presence-bg:var(--c-surface)] hover:[--presence-bg:var(--c-hover)]')} onClick={toggleAway} data-testid="account-away">
+            <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
+              <PresenceDot state={away ? 'online' : 'away'} size={10} />
+            </span>
+            {away ? t('presence.setActive') : t('presence.setAway')}
+          </button>
           <button
             role="menuitem"
             type="button"
@@ -547,20 +588,6 @@ function AccountMenu() {
           >
             <Gauge size={16} className="text-muted" aria-hidden /> {t('sidebar.usage')}
           </button>
-          <button role="menuitem" type="button" aria-expanded={appearance} className={item} onClick={() => setAppearance((v) => !v)} data-testid="account-appearance">
-            <Palette size={16} className="text-muted" aria-hidden /> {t('sidebar.appearance')}
-            <ChevronRight size={14} className={clsx('ml-auto text-faint transition-transform', appearance && 'rotate-90')} aria-hidden />
-          </button>
-          {appearance && (
-            <div role="group" aria-label={t('sidebar.appearance')} className="pl-6">
-              {(['system', 'light', 'dark'] as Theme[]).map((x) => (
-                <button key={x} role="menuitemradio" aria-checked={theme === x} type="button" className={clsx(item, 'h-8')} onClick={() => void setTheme(x).catch(() => {})} data-testid={`account-theme-${x}`}>
-                  {t(`settings.theme.${x}`)}
-                  {theme === x && <Check size={14} className="ml-auto text-accent-text" aria-hidden />}
-                </button>
-              ))}
-            </div>
-          )}
           <Link
             role="menuitem"
             to="/trash"
@@ -585,13 +612,14 @@ function AccountMenu() {
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => (open ? hide(false) : setOpen(true))}
-        className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-hover"
+        className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left [--presence-bg:var(--c-subtle)] hover:bg-hover hover:[--presence-bg:var(--c-hover)]"
         data-testid="account-menu"
       >
-        <Avatar user={me.user} size={24} />
+        <PresenceFace user={me.user} size={24} />
         {/* the team's name is on top of the sidebar (a computer), not said twice here */}
         <span className="flex min-w-0 flex-1 items-baseline gap-1">
           <span className="truncate text-sm font-medium">{me.user.name}</span>
+          <PresenceText userId={me.user.id} />
         </span>
         <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
       </button>

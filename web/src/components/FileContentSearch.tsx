@@ -15,6 +15,7 @@ import { highlightParts, type TextPart } from '../lib/highlight'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { locChip } from './chat/SourcesList'
+import { useFolderWords } from '../lib/folderLabels'
 import { EmptyState, ErrorNote, Skeleton } from './ui'
 
 /** the wait after the last key press before a search starts */
@@ -83,6 +84,7 @@ export function FileContentList({ res, query, folderLabel }: { res: FileContentH
   const t = useT()
   const documents = res.documents ?? []
   const words = queryWords(query)
+  const folderWords = useFolderWords()
   const groups: [string, FileContentHit[]][] = []
   for (const h of res.items) {
     const last = groups[groups.length - 1]
@@ -121,7 +123,7 @@ export function FileContentList({ res, query, folderLabel }: { res: FileContentH
               <button type="button" className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2 text-left text-sm hover:bg-hover" onClick={() => openTeamFile(p)} data-testid="content-hit-file">
                 <FileText size={15} className="shrink-0 text-faint" aria-hidden />
                 <span className="min-w-0 flex-1 truncate font-medium">{hits[0]!.name}</span>
-                <span className="min-w-0 shrink truncate text-xs text-faint max-sm:hidden">{p}</span>
+                <span className="min-w-0 shrink truncate text-xs text-faint max-sm:hidden" title={p}>{folderWords.path(p)}</span>
               </button>
               <ul className="border-t border-line">
                 {hits.map((h) => (

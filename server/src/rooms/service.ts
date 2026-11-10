@@ -21,17 +21,23 @@
 // for them arrives, decided here when the message is stored (notify → unhideFor), so every device agrees; a hidden room
 // that stays hidden makes no notice. Opening it again (the app, openDm) shows it again.
 //
+// Pinning (docs/DECISIONS.md "Pinned conversations"): a member pins a room to the top of their own 대화 list (pin;
+// room_pins, migration 278). Nobody else is told: Room.pinnedAt is each member's own. The pin goes when they leave or
+// are taken out (forgetMember), when they hide the room (a hidden room is never pinned: pinning one is refused), with
+// the room and with the person.
+//
 // The AI (rooms/ai.ts, docs/DECISIONS.md "대화방의 트리나"): send() is the one place a person's message is written,
 // and a message that calls the AI ("@트리나 …") starts its turn there, checked before the message is written. The
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
+import { dropGrantsOf } from './ai-grants'
 import { notificationsOf, type RoomNoticeEvent } from '../notifications/service'
 import { getPreferences, getPreferencesOf } from '../notifications/preferences'
 import { cancelPushUser } from '../notifications/push-events'
@@ -39,12 +45,13 @@ import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
-  lastSeqFor, MENTIONS_SQL, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
+  lastSeqFor, MENTIONS_SQL, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
 import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
+import { searchRoomMessages, type SearchInput } from './search'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
 import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
@@ -62,6 +69,8 @@ export const GROUPS_PER_HOUR = 10
 const HOUR_MS = 3_600_000
 /** How long one sync works on members still waiting for a room's history (the rest on the next one) */
 const HISTORY_BUDGET_MS = 250
+/** The most rooms one person pins (docs/DECISIONS.md "Pinned conversations"), as many as chats (chat/pins.ts). */
+export const ROOM_PINS_MAX = 50
 
 export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; mentionsAll?: boolean; fileIds: string[]; clientMessageId: string }
 /** Rooms.send's `answer` (never from a request body): the message carries an answer of the sender's own AI chat
@@ -71,7 +80,9 @@ export interface SendInput { body: string; replyToId?: string | null; threadRoot
  * number of files, never their names). `scope`: what it used, as checked (chat/answer-share.ts AnswerScopeKept JSON),
  * kept with it for those who join the room later (rooms/history.ts). The caller took the sending budget's token for the
  * request already (before its check): send takes none more. */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string }
+/** `via`: 'ai' when the AI's post_to_room sent it after the person's yes on its card (chat/post-to-room.ts); absent: the
+ * button under an answer. */
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai' }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -80,6 +91,9 @@ export class Rooms {
   private sendBudget = new Map<string, { tokens: number; at: number }>()
   /** the sending budget's clock (tests fix it) */
   clock: () => number = () => Date.now()
+  /** someone left this room, or members' view of its history changed: its refused AI previews are decided again
+   * (rooms/ai-redecide.ts redecideRoomSoon, set at start; not imported here, which would be a cycle) */
+  onAccessChanged?: (roomId: string) => void
   /** when each person made their group chats in the last hour (GROUPS_PER_HOUR) */
   private groupsMade = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
@@ -267,14 +281,51 @@ export class Rooms {
   setHidden(userId: string, roomId: string, hidden: boolean): Room {
     const { room, me } = this.mine(userId, roomId)
     if (hidden && !hideable(room.kind)) fail('forbidden')
+    // hiding it unpins it ("Pinned conversations"): shown again, it is in its place by activity. Hidden already: a pin an
+    // older build kept goes too (it never shows)
+    const unpin = () => this.db.query('DELETE FROM room_pins WHERE user_id = ? AND room_id = ?').run(userId, roomId)
+    if (hidden && me.hidden_at) unpin()
     if (hidden && !me.hidden_at) {
-      this.db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ? AND hidden_at IS NULL').run(nowIso(), roomId, userId)
+      this.db.transaction(() => {
+        this.db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ? AND hidden_at IS NULL').run(nowIso(), roomId, userId)
+        unpin()
+      })()
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
       cancelPushUser(this.ctx, userId)
       // its rows leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
       if (countedUnreadIn(this.db, userId, roomId)) this.notifySignal(userId)
     } else if (!hidden) this.unhide(roomId, [userId])
+    return this.get(userId, roomId)
+  }
+
+  /** Pin the room to the top of my own 대화 list (docs/DECISIONS.md "Pinned conversations"; "상단에 고정"). A member's
+   * own: nobody else is told, and it changes nothing about who sees the room. Pinned already: kept as it was (its place
+   * does not move). A hidden room: 409 (hiding unpins, so a room is never both). At most ROOM_PINS_MAX (409). Only my
+   * windows get the room (room.updated). */
+  pin(userId: string, roomId: string, locale: Locale = DEFAULT_LOCALE): Room {
+    const { me } = this.mine(userId, roomId)
+    if (me.hidden_at) fail('conflict', tr('roomPinHidden', locale), { params: { reason: 'room_hidden' } })
+    if (pinOf(this.db, roomId, me)) return this.get(userId, roomId)
+    // the pins that show (pinOf) of rooms I am still in: a pin leaves with its member row (a deleted person's DM is the
+    // exception), and one an older build left does not count
+    const n = (this.db.query(`SELECT COUNT(*) n FROM room_pins p JOIN room_members m ON m.room_id = p.room_id AND m.user_id = p.user_id
+      JOIN rooms r ON r.id = p.room_id AND r.archived_at IS NULL WHERE p.user_id = ? AND ${PIN_COUNTS_SQL}`).get(userId) as { n: number }).n
+    if (n >= ROOM_PINS_MAX) fail('conflict', tr('roomPinsFull', locale, { n: String(ROOM_PINS_MAX) }), { params: { reason: 'room_pins_full' } })
+    // one pin a millisecond after my last at most: two pins in the same instant still keep their order
+    const last = (this.db.query('SELECT MAX(pinned_at) t FROM room_pins WHERE user_id = ?').get(userId) as { t: string | null }).t
+    let at = new Date().toISOString()
+    if (last && at <= last) at = new Date(Date.parse(last) + 1).toISOString()
+    // (a pin an older build left, which does not show, is replaced)
+    this.db.query('INSERT INTO room_pins (user_id, room_id, pinned_at) VALUES (?, ?, ?) ON CONFLICT (user_id, room_id) DO UPDATE SET pinned_at = excluded.pinned_at').run(userId, roomId, at)
+    this.roomEvent(roomId, 'updated', new Set([userId]))
+    return this.get(userId, roomId)
+  }
+
+  /** "고정 해제": not pinned, nothing changes (and nothing is sent). */
+  unpin(userId: string, roomId: string): Room {
+    this.mine(userId, roomId)
+    if (this.db.query('DELETE FROM room_pins WHERE user_id = ? AND room_id = ?').run(userId, roomId).changes) this.roomEvent(roomId, 'updated', new Set([userId]))
     return this.get(userId, roomId)
   }
 
@@ -394,12 +445,15 @@ export class Rooms {
     for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
   }
 
-  /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go. */
+  /** Someone is out of a room: their member row, notices, the threads they followed, their reactions and their pin there
+   * go, and so do the folders they let @트리나 save new files in there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
   private forgetMember(roomId: string, userId: string) {
+    this.onAccessChanged?.(roomId)
     // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
     const counted = countedUnreadIn(this.db, userId, roomId)
+    dropGrantsOf(this.db, { id: roomId }, userId)
     // (and the old answers hidden from them: joining again works them out again, rooms/history.ts)
-    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers', 'room_pins']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
     if (counted) this.notifySignal(userId)
   }
 
@@ -427,17 +481,48 @@ export class Rooms {
   }
 
   // ---------------- messages ----------------
-  messages(userId: string, roomId: string, o: { cursor?: string; limit?: number }) {
+  /** A page of the timeline: the newest, one older than a cursor ({s}), one newer than a cursor ({n}: newerCursor), or
+   * the page around a message I can see (`around`: a link or a search result older than the newest page). */
+  messages(userId: string, roomId: string, o: { cursor?: string; limit?: number; around?: string }): RoomMessagesPage {
     const { me } = this.mine(userId, roomId)
-    const cur = decodeCursor(o.cursor, ['s'])
-    if (o.cursor && (!cur || !/^\d+$/.test(cur.s))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+    const older = decodeCursor(o.cursor, ['s'])
+    const newer = older ? null : decodeCursor(o.cursor, ['n'])
+    if (o.cursor && !(older && /^\d+$/.test(older.s)) && !(newer && /^\d+$/.test(newer.n))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
     const limit = Math.min(200, Math.max(1, o.limit ?? 50))
     // the timeline: replies that stay in their thread are not in it (listThread)
     // an old answer hidden from me is in it as one line (LIST_SQL, messagesOut), never what is in its thread
-    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${LIST_SQL} AND ${TIMELINE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
-      .all(...(cur ? [roomId, ...seeArgs(me), Number(cur.s), limit + 1] : [roomId, ...seeArgs(me), limit + 1])) as MessageRow[]
+    const timeline = (where: string, order: 'ASC' | 'DESC', ...args: number[]) => this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${LIST_SQL} AND ${TIMELINE_SQL} ${where} ORDER BY m.seq ${order} LIMIT ?`)
+      .all(roomId, ...seeArgs(me), ...args) as MessageRow[]
+    const olderCursor = (first: MessageRow | undefined, more: boolean) => (more && first ? encodeCursor({ s: String(first.seq) }) : null)
+    const newerCursor = (last: MessageRow | undefined, more: boolean) => (more && last ? encodeCursor({ n: String(last.seq) }) : null)
+    if (newer) {
+      const rows = timeline('AND m.seq > ?', 'ASC', Number(newer.n), limit + 1)
+      const page = rows.slice(0, limit)
+      return { items: messagesOut(this.db, page, me), nextCursor: null, newerCursor: newerCursor(page.at(-1), rows.length > limit) }
+    }
+    // around a message: only one I can see (anything else is not looked for: the newest page, as for an id that is not
+    // there); its place in the timeline, or its thread's first message's for a reply that stays in its thread
+    const target = !older && o.around ? messageRow(this.db, roomId, o.around) : null
+    if (target && canSee(this.db, target, me)) {
+      const at = target.thread_root_id && !target.also_in_room ? target.thread_root_seq ?? target.seq : target.seq
+      const after = Math.floor(limit / 2), upTo = limit - after
+      const before = timeline('AND m.seq <= ?', 'DESC', at, upTo + 1)
+      const later = timeline('AND m.seq > ?', 'ASC', at, after + 1)
+      const head = before.slice(0, upTo).reverse(), tail = later.slice(0, after)
+      // (newer ones after the page's last: with a page of one, the message itself)
+      return { items: messagesOut(this.db, [...head, ...tail], me), nextCursor: olderCursor(head[0], before.length > upTo), newerCursor: newerCursor(tail.at(-1) ?? head.at(-1), later.length > after) }
+    }
+    const rows = older ? timeline('AND m.seq < ?', 'DESC', Number(older.s), limit + 1) : timeline('', 'DESC', limit + 1)
     const page = rows.slice(0, limit).reverse()
-    return { items: messagesOut(this.db, page, me), nextCursor: rows.length > limit && page[0] ? encodeCursor({ s: String(page[0].seq) }) : null }
+    return { items: messagesOut(this.db, page, me), nextCursor: olderCursor(page[0], rows.length > limit) }
+  }
+
+  // ---------------- search ----------------
+  /** ⌘K: the messages I can see in my rooms that hold the text (rooms/search.ts). My team rooms and the everyone room are
+   * put right first, and their histories opened, as before my AI chat reads them (syncFor). */
+  search(userId: string, o: SearchInput): RoomSearchPage {
+    this.syncFor(userId)
+    return searchRoomMessages(this.db, userId, o)
   }
 
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
@@ -445,7 +530,9 @@ export class Rooms {
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
    * mentions nobody (nor "@전체") and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer
-   * are the AI's words, not a call), and is neither a reply nor in a thread; its files are linked files attached.
+   * are the AI's words, not a call), and never quotes a message (replyToId); it may be a reply in a thread (a side
+   * chat's answer to a question about a message: threadRootId, never "also to the room"); its files are linked files
+   * attached.
    * `carried` (connectors/remote-mcp/rooms.ts only): what an AI app's connection had read, kept for later members. */
   send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark, carried?: string | null): RoomMessage {
     const { room, me } = this.mine(userId, roomId)
@@ -463,20 +550,21 @@ export class Rooms {
     }
     let root: MessageRow | null = null
     if (b.threadRootId) {
-      root = messageRow(this.db, roomId, b.threadRootId)
-      // the same answer whatever is wrong (not there, not one I see, an event line, a reply itself, deleted, private)
-      if (!root || !canSee(this.db, root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
+      root = this.threadRootOf(roomId, b.threadRootId, me)
+      if (!root) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
-    if (answer && (b.threadRootId || b.replyToId || answer.at < 0 || answer.at > b.body.length)) fail('validation')
+    if (answer && (b.replyToId || b.alsoInRoom || answer.at < 0 || answer.at > b.body.length)) fail('validation')
     const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
       if (n !== fileIds.length) fail('validation', undefined, { fields: { 'body.fileIds': 'unknown file' } })
     }
-    // "@트리나 …" (a person picked from the list under the same name wins); anything that stops the question stops the send
+    // "@트리나 …" (a person picked from the list under the same name wins), only while the server allows it
+    // (AppConfig.roomAiMentions; off by default: the side chat asks the AI beside a room); anything that stops the
+    // question stops the send. Off: the text is an ordinary message.
     const people = mentions.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${mentions.map(() => '?').join(',')})`).all(...mentions) as { name: string }[]).map((r) => r.name) : []
-    const ask = !answer && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
+    const ask = !answer && this.ctx.config.roomAiMentions && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
     const now = nowIso(), id = newId()
     // a reply that stays in its thread does not bring the room to the top of the list
     const inTimeline = !root || !!b.alsoInRoom
@@ -490,7 +578,7 @@ export class Rooms {
         b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0, answer ? answer.scope : carried ?? null)
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}) } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
@@ -507,6 +595,15 @@ export class Rooms {
     if (root) this.afterReply(root)
     if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
+  }
+
+  /** The message `rootId` of the room as the first message of a thread `me` may reply in: there, one I see, one that can
+   * have a thread (store.ts threadable: in the timeline, not a reply, an event line or a private AI preview) and not
+   * deleted. null whatever is wrong (the same answer for each: not there, another room's, not mine to see). Also the
+   * check of a shared answer's thread before anything else (chat/answer-share.ts). */
+  threadRootOf(roomId: string, rootId: string, me: MemberRow): MessageRow | null {
+    const root = messageRow(this.db, roomId, rootId)
+    return root && canSee(this.db, root, me) && threadable(root) && !root.deleted_at ? root : null
   }
 
   /** Inside the reply's transaction: its author follows the thread and has read it up to the reply; the root's author
@@ -935,6 +1032,7 @@ export class Rooms {
    * ('members' is the change that makes an open room load its newest page and thread again). */
   private historiesOpened(opened: readonly { roomId: string; userId: string }[], added?: ReadonlyMap<string, string[]>) {
     for (const o of opened) if (!added?.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'members', new Set([o.userId]))
+    for (const roomId of new Set(opened.map((o) => o.roomId))) this.onAccessChanged?.(roomId)
   }
 
   private drainTimer: ReturnType<typeof setTimeout> | null = null

@@ -190,6 +190,18 @@ export const AppConfigFile = z.object({
    * the default) or "hosted" (the hosted service: the operator owns server.json, the team's server account only reads
    * it; the control plane writes it at enrolment). Office mode and dev stay what `office` / `mode` say. */
   deployment: z.enum(['self', 'hosted']).optional(),
+  /** 팀장 넘기기 on the hosted service (server/src/admin/handover.ts, docs/DECISIONS.md "W6"): the hosting operator sets it
+   * once its control plane refuses owner and admin reset links after a transfer (both forms of `reset-link`) until the
+   * new owner claims recovery. Until then a hosted team gets no lead flag and no card, and both people are told who can
+   * still reset passwords. With it on, a transfer sets the recovery lock that `mycel-ctl reset-link` keeps until
+   * `admin.js owner-recovery-claimed` clears it (the tenant command `owner-recovery-claimed`, shared/src/cloud-protocol and
+   * mycel-ctl). Do not turn it on before the control plane runs that command after the new owner's claim: until then a
+   * lock could not be cleared, and nobody could reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
+  handoverSafe: z.boolean().optional(),
+  /** "@트리나 …" in a room asks the AI there (rooms/ai.ts). Off by default since the side chat (docs/DECISIONS.md
+   * "Trina side chat", option A): people ask the AI beside a room and share an answer on purpose. On: the old way, for
+   * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
+  roomAiMentions: z.boolean().optional(),
   /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
    * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any.
    * `meaning`: search by meaning in the document index (the model runs on this server); on unless false (wave 3 of
@@ -240,6 +252,10 @@ export interface AppConfig {
   validateResponses: boolean
   /** see AppConfigFile.deployment; absent = "self" (server/src/system/deployment.ts deploymentOf) */
   deployment?: 'self' | 'hosted'
+  /** see AppConfigFile.handoverSafe; absent = off */
+  handoverSafe?: boolean
+  /** see AppConfigFile.roomAiMentions; absent = off */
+  roomAiMentions?: boolean
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
@@ -341,6 +357,8 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
+    ...(f.handoverSafe ? { handoverSafe: true } : {}),
+    ...(f.roomAiMentions ? { roomAiMentions: true } : {}),
     ...(demo ? { demo } : {}),
     ...(f.knowledgeGraph && (f.knowledgeGraph.codegraph !== undefined || f.knowledgeGraph.meaning !== undefined) ? { knowledgeGraph: {
       ...(f.knowledgeGraph.codegraph !== undefined ? { codegraph: f.knowledgeGraph.codegraph === '' ? '' : abs(f.knowledgeGraph.codegraph) } : {}),
