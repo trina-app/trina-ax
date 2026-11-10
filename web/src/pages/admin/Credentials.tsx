@@ -312,8 +312,9 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   useEffect(() => {
     if (login?.state !== 'done' || toasted.current === login.loginId) return
     toasted.current = login.loginId
-    toast({ level: 'success', text: replace ? t('credentials.connected') : t('credentials.added') })
-  }, [login, replace, t])
+    // the order hint only where an order can be changed: the team's list (not one's own, not the welcome steps)
+    toast({ level: 'success', text: replace || personal || simple ? t('credentials.connected') : t('credentials.added') })
+  }, [login, replace, personal, simple, t])
 
   const submit = async () => {
     if (!kind || !ready) return
