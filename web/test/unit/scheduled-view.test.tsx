@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Schedule } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { cardLine, outcomeReason, outcomeTone, scheduleState } from '../../src/lib/scheduleText'
+import { cardLine, onceDate, outcomeReason, outcomeTone, scheduleState } from '../../src/lib/scheduleText'
 import { snippetAround, titleFirst } from '../../src/components/SearchDialog'
 import { ScheduleView } from '../../src/pages/Scheduled'
 
@@ -129,4 +129,17 @@ describe('scheduled task page', () => {
     for (const o of ['error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable'] as const) expect(outcomeTone(o)).toBe('danger')
     expect(decode(render({ ...base, lastOutcome: 'done', lastChatId: 'c' }))).toContain(t('scheduleTemplates.outcome.done'))
   })
+})
+
+test("a one-time task's day reads in the person's language, never shifted (QA TC-073)", () => {
+  expect(onceDate('2026-10-29', 'en')).toBe('Oct 29, 2026')
+  expect(onceDate('2026-01-01', 'en')).toBe('Jan 1, 2026')
+  expect(onceDate('2026-10-29', 'ko')).toContain('2026')
+  expect(onceDate('2026-10-29', 'ko')).toContain('29')
+  expect(onceDate('2026-10-29', 'id')).toContain('Okt')
+  // anything that is not a plain day stays as it is; none gives ''
+  expect(onceDate('soon', 'en')).toBe('soon')
+  expect(onceDate(null, 'en')).toBe('')
+  const en = (key: MessageKey, params?: Params) => translate('en', key, params)
+  expect(cardLine({ ...base }, en, 'en')).toBe('Once on Oct 29, 2026 at 04:18')
 })
