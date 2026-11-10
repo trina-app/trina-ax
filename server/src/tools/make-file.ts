@@ -625,6 +625,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   c.signal?.throwIfAborted()
   c.user=ctx.files.principal(c.user.id)
   guard?.()
+  c.beforePlace?.()
   const rules = files.rules()
   let conflictOf: string | undefined
   let action: 'create' | 'update' = 'create'
