@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-10 13:36
 - Branch: `feat/phone-admin-list` (PR 1a); then `feat/phone-page-patterns` (PR 1b), `feat/phone-admin-lists` (PR 2),
   `feat/phone-admin-forms` (PR 3)
-- Status: draft (reviewed once, see "Review")
+- Status: in progress (approved by the owner 2026-11-10; reviewed, see "Review")
 - Where: trina-ax core web (`web/src/pages/admin/`, `web/src/components/settings/`, a new `web/src/components/phone/`,
   `web/src/lib/`). Why: phone navigation and the admin pages are core web UI; the phone app is this web app in a web
   view (see docs/REPOSITORY-RULES.md and DECISIONS "Phone navigation: four tabs").
@@ -19,7 +19,8 @@ big cards. Every page keeps the strip, a visible title, buttons that wrap onto t
 three-line rows, and a sticky header that can take a third of the screen (Members: a 266 px header, the first member
 about 450 px down a 844 px screen). Settings already opens on a list, but the phone's own Back skips that list. This
 plan gives both the iPhone-Settings shape: a grouped list, a tap pushes the page, Back returns to the list. It also gives
-every page the same phone patterns from shared components, not page-by-page fixes. Computers and tablets do not change.
+every page the same phone patterns from shared components, not page-by-page fixes. Computers do not change; tablets get
+Admin's sidebar (the owner's decision).
 
 ## References (what we borrow, and what we do not)
 
@@ -86,9 +87,9 @@ Spanish); the sticky headers; tap targets under 40 px. Browser (Settings) exists
 In:
 
 **1. Breakpoint.** Phones are below 768 px (`max-md`, `useMediaQuery('(max-width: 767.98px)')`, the same as the tab bar
-and the phone top bar), in a browser and in the phone app. From 768 px nothing changes: 768 to 1023 px keeps today's
-title and strip, 1024 px and up keeps the sidebar (`lg:`). (The brief said "the sidebar from 768 px"; in the code it
-starts at 1024 px.) Components this plan touches that switch at 640 px today (`SettingRow`, `OneLine`'s two lines,
+and the phone top bar), in a browser and in the phone app. From 768 px Admin is the sidebar and a page: the owner
+decided that tablets (768 to 1023 px, which showed the title and the cut-off strip; the sidebar started at 1024 px)
+get the sidebar too, so the strip is gone everywhere. 1024 px and up does not change. Components this plan touches that switch at 640 px today (`SettingRow`, `OneLine`'s two lines,
 `SearchBox`, `Card`'s header, Activity log's Filters) switch at 768 px, so 640 to 767 px is not half phone, half not.
 
 **2. The Admin root on a phone (/admin).**
@@ -188,13 +189,18 @@ instead of a lone "More" row. Removed: the ← arrow, the "More" row.
 name), `common.filtersOn` ("{count} filters on", read out with the Filters button), `adminHome.setupLeft` ("Before you
 start · {count} left"). "Filters" reuses `activity.filters`; everything else reuses today's strings.
 
-Out: tablets (see Open questions), Team settings split into pages, the desktop layouts, any API or permission change.
+**7. Team settings on phones (PR 3, owner's decision).** Below 768 px Team settings is a list of its own groups, each
+a pushed page (the groups the page really has, e.g. General, Time and updates, Keeping data, Members and AI, Voice
+input, AI defaults, Usage limits, Knowledge graph), with the same list, bar and Back as Admin. Links into it keep
+working: `#ai`, `#ai-limits`, `#speech` open the page that holds that group. Computers and tablets keep one page.
+
+Out: the desktop layouts beyond the 768 px sidebar, any API or permission change.
 
 ## Steps
 
 PR 1a (`feat/phone-admin-list`), navigation: `PhoneList`, `PhonePageBar` (also for the phone top bar's pages),
 `useListUnderPage`, `useKeptScroll`, back labels, `useAdminOverview` (cached) out of Home, the Admin phone root and bar
-in `AdminLayout`, Settings' list, bar and pushes. DECISIONS entry ("Admin and Settings on phones: a list
+in `AdminLayout`, the sidebar from 768 px, Settings' list, bar and pushes. DECISIONS entry ("Admin and Settings on phones: a list
 you tap into"), CHANGELOG fragment, 5 languages, full web e2e.
 
 PR 1b (`feat/phone-page-patterns`): the phone header rule (with Connectors' and AI apps' own headers), `PageActions`
@@ -203,10 +209,10 @@ PR 1b (`feat/phone-page-patterns`): the phone header rule (with Connectors' and 
 PR 2 (`feat/phone-admin-lists`), list pages: Groups, Folder permissions, Providers (both), Connectors (both, rows),
 AI apps (both), Usage (both, with `StatGrid`), Activity log.
 
-PR 3 (`feat/phone-admin-forms`), document pages: `SettingRow`, `InfoRow`, flat cards, kept drafts; Team settings,
-System, Plugins, Slack, Profile, Apps.
+PR 3 (`feat/phone-admin-forms`), document pages: `SettingRow`, `InfoRow`, flat cards, kept drafts; Team settings
+(split into pages on phones, 7 above), System, Plugins, Slack, Profile, Apps.
 
-Each PR: screenshots at 1440 and 390, light and dark, as owner and as admin, plus 900 px to show tablets unchanged; one
+Each PR: screenshots at 1440 and 390, light and dark, as owner and as admin, plus 820 px for the tablet sidebar; one
 independent review.
 
 ## Risks
@@ -235,7 +241,7 @@ independent review.
   list with its scroll; `/admin/connectors` opened directly → Back → list → Back leaves; an Inbox notice → page → Back
   → list → Back → Inbox; Members → Team settings' usage limits → "‹ Members & invites"; `/admin/settings#ai-limits`
   keeps its place; `/admin/slack` as an admin who is not the owner → the list, one entry; a member gets no list;
-  By folder ↔ By person adds no history; no page wider than the screen in en and es; 1440 and 900 px unchanged.
+  By folder ↔ By person adds no history; no page wider than the screen in en and es; 820 px shows the sidebar and no strip; 1440 px unchanged.
   Settings: section → Back → list; a section opened from a link → Back → list.
 - PR 1a: the full web e2e once. Later PRs: the specs of the touched pages.
 
@@ -272,11 +278,10 @@ Settings › Usage's 30 px Refresh, the folder tree's 2 lines (kept on purpose),
 Not taken: tapping 나 while inside it pushes /settings again, so Back returns to the admin page. That is today's
 behaviour on every tab; replacing the entry only moves the oddity (Back would then open the list). A separate fix.
 
-## Open questions for the owner
+## Owner's answers (2026-11-10)
 
-1. Tablets (768 to 1023 px) keep the cut-off strip. Recommend the sidebar from 768 px in a follow-up.
-2. Team settings is one long page (6,694 px today, shorter after PR 3). Split it into pages on phones (General, Data,
-   Members and AI, Voice, AI defaults, Usage limits, Knowledge graph)? Not planned now.
+1. Tablets: the sidebar from 768 px, so 768 to 1023 px no longer shows the strip (PR 1a, Scope 1).
+2. Team settings: split into pages on phones; computers keep one page (PR 3, Scope 7).
 
 ## Result
 
