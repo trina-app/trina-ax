@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 09:40
 - Branch: `fix/prune-old-versions-now`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, `server/src/system/prune.ts` and its tests. Why: the server's own updates are core
   (docs/REPOSITORY-RULES.md).
 - Version impact: patch. A server that updates often keeps fewer old version folders; no API, data or text change.
@@ -50,4 +50,8 @@ where Docker is available.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `prune.ts` has `PRUNE_OLDER_GRACE_MS` (1 hour) for a version folder not newer than app/current; a
+newer one keeps `PRUNE_GRACE_MS` (24 hours). The check right before removal uses the re-read app/current. A new unit
+test uses dev-build names; it fails on the old code. The Linux Docker test passes (27/27) without a change in its
+checks: its real-clock run comes minutes after staging, inside the hour. Docs updated: DECISIONS.md, INSTALL-LINUX.md
+and INSTALL-LINUX.en.md (the installer's older kit now stays one hour, not one day).

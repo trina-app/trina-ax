@@ -4237,8 +4237,9 @@ Trina should feel like Claude Code, which has WebSearch.
 - **Rule** (`server/src/system/prune.ts`, run by the server account: it owns `app/versions` and `app/engines`, so no
   root step). Kept: the target of `app/current`, the running version, `state.json` `current` and `previous` (Roll back;
   the bootstrap's way back when the current version does not verify, `native/cmd/mycel-bootstrap` `rollBack`), the
-  newest staged version newer than current (`UpdateManager.status().available`), and any version folder whose mtime
-  or ctime is in the last 24 hours. Removed: every other folder directly under `app/versions` named like a version
+  newest staged version newer than current (`UpdateManager.status().available`), a version folder newer than current
+  whose mtime or ctime is in the last 24 hours, and one not newer than current changed in the last hour (changed
+  2026-11-10, below). Removed: every other folder directly under `app/versions` named like a version
   (`<n>.<n>.<n>[-+…]`; "notes" or "backup" stays), `.staging-*` and `*.partial` once a day old, and engine folders
   `current` no longer points to once both `current` and the folder are a day old. `lstat` only: a link is left (or,
   inside a removed folder, unlinked), never followed; `app/`, `app/versions`, `app/engines` and `<name>` must be real
@@ -4250,6 +4251,14 @@ Trina should feel like Claude Code, which has WebSearch.
   `stage-update` are switched to later by hand. A rename, chown or chmod moves ctime, and `cp -a` keeps the kit's
   mtime but not its ctime, so a just-copied folder always looks fresh. The cost is at most one extra version for a
   day.
+- **One hour, not a day, for older versions** (fix/prune-old-versions-now, 2026-11-10). The dev test server updates
+  about 40 times a day, so the 24-hour grace kept about 40 version folders (22 GB). The grace protects a folder that is
+  about to be switched to. A folder newer than current can wait long for that (a scheduled `mycel-ctl update` waits for
+  the team's update window), so it keeps the day. A folder not newer than current is switched to only by a roll-back:
+  `admin.js switch <older>` and Admin's Roll back touch it and switch within seconds, and `mycel-ctl update --version
+  <older>` copies or touches it and waits at most `--max-wait` (600 s) for running turns. One hour covers both. The
+  check right before removal compares with the re-read `app/current`. An older kit that the installer only stages now
+  goes at a run an hour later; to go back to it, run `mycel-ctl update --version <v>` or the installer again.
 - **When.** 10 minutes after the server starts (the bootstrap's health check takes at most 120 s, `mycel-ctl update`
   waits 180 s), then hourly, under the operations lock (`OpsService.tryLock('prune')`: never during an update,
   backup, restore or export started from Admin). Not in office mode. `admin.js prune-versions [--dry-run]` runs it

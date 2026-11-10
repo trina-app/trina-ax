@@ -355,7 +355,8 @@ func TestUpdateFromBundle(t *testing.T) {
 		t.Fatalf("second run %d %+v", code, r)
 	}
 	// back on 0.1.0 (a roll-back) with 0.2.0 still staged: the update uses that folder again (no fresh copy) and touches
-	// it first, so the server's old-version prune, which leaves folders changed in the last 24 hours, cannot take it
+	// it first, so the server's old-version prune, which leaves folders changed recently (an hour, or 24 hours when newer
+	// than current), cannot take it
 	dest := filepath.Join(tb.base, "app/versions/0.2.0")
 	must(t, os.Remove(filepath.Join(tb.base, "app/current")))
 	must(t, os.Symlink("versions/0.1.0", filepath.Join(tb.base, "app/current")))
