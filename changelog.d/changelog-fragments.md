@@ -1,0 +1,1 @@
+- Contributors: a pull request now adds its changelog entry as one new file, `changelog.d/<slug>.md`, instead of a line under `## Unreleased` here, so open pull requests no longer conflict on this file. A release moves the files in with `bun run changelog:collect`; `bun run check:docs` fails on a new line under `## Unreleased` and says where it goes. No product change.

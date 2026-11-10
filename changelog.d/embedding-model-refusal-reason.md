@@ -1,0 +1,1 @@
+- Search by meaning: when the embedding process refuses its model files ("model files do not match"), the server now keeps that reason. It could read the process's end first and log only "the embedding process ended (exit 0)", at random; this also made a unit test fail now and then on CI.

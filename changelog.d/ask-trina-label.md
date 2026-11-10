@@ -1,0 +1,1 @@
+- Room header ✦ button: the label and tooltip read "Ask Trina" now, without "privately" (also in Korean, Spanish, Indonesian and Japanese). The side chat itself is unchanged.

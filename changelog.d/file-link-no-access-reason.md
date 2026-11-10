@@ -1,0 +1,1 @@
+- A team file in a message that you cannot open no longer always says "You don't have access". A file that was moved or deleted after the message showed the same lock, so the words now name every reason: "Can't open: moved, deleted or no access" (five languages). It still does not say which one.

@@ -1,0 +1,1 @@
+- Admin › Activity log names the AI's chat naming in words: "AI used Name the chat" (five languages) instead of "AI used set_title". The step stays hidden under the answer.

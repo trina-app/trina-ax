@@ -1,0 +1,1 @@
+- Admin › Usage tells removed AI connections apart. With two or more removed, the AI connection filter and the chart showed "Removed connection" for each; they are now "Removed connection 1", "Removed connection 2" (five languages). One removed connection keeps the plain name.

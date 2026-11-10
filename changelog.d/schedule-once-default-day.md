@@ -1,0 +1,1 @@
+- Changing a scheduled task to **Once** now suggests today in the team's time zone. It took the UTC day, so in Jakarta before 07:00 (Seoul before 09:00) it suggested yesterday, a time that had already passed.

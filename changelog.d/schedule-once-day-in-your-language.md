@@ -1,0 +1,1 @@
+- A one-time scheduled task's day reads in your language on the Scheduled pages: "Once on Oct 29, 2026 at 17:20" (ko "2026. 10. 29.") instead of the stored "2026-10-29". The weekday of a weekly task already did. The day is never shifted by your device's time zone.

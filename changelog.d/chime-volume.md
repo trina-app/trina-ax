@@ -1,0 +1,1 @@
+- The room notification chime is about three times louder (master gain 0.12 to 0.36, same two notes and length); its mixed peak (about 0.43) stays below clipping. The on/off switch in Settings › Notifications is unchanged, and a phone in the background still uses the system notification sound, which its own volume controls. No API or data change.

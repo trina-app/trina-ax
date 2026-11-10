@@ -1,0 +1,1 @@
+- The Files search says when no line has the words. A word that no file has used to show only **Related documents** (files found by meaning, which always finds some), with no "nothing found"; that label now reads "No line has “…”. Documents close in meaning:" whenever no line matches. No API or data change.

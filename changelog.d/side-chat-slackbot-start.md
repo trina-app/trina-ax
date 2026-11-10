@@ -1,0 +1,1 @@
+- The side chat starts like Slackbot: it says which room it looks at, offers **Catch up**, **Anything for me?** and **Summarize** when empty, and says that the AI can make mistakes. A file sent in a room has **Ask Trina** in its preview: the side chat opens with the file quoted (by name and id, Trina reads it) and offers **Summarize**, **Key points** and **Check it**.

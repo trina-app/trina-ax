@@ -1,0 +1,1 @@
+- In a PDF's preview, the toolbar's **너비에 맞추기** button now shows ↔ instead of ⤢, which is the **크게 보기** button in the panel's header right above it. No API or data change.
