@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-10 02:32
 - Branch: `feat/project-members-tool` (on `feat/project-members-panel`, which is not merged yet: whoever merges second
   rebases)
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/`, `server/src/rooms/ai-tools.ts`, `shared/src/`, one detail field in the web
   card). Why: chat, permissions and AI tools are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new AI tool and a card; no API change, no migration.
@@ -78,4 +78,9 @@ Docker, the project e2e specs.
 
 ## Result
 
-Filled in at the end.
+Built as planned. From the security review of this branch (two must-fixes, then a re-review with none left): the red mark
+looks only at the subject's own whole name as a word in the person's words (never the name or project alias the AI
+gave: a part of a name or a look-alike picked by its id would pass otherwise), and reads the newest 200,000 characters of
+them; two accounts of one name cannot be told apart on a card, so an admin's card shows the account's username and
+anyone else is sent to the members panel; a step after the save that fails is reported as saved. delete_files's own
+side-chat gap (M1) is left for its own change.
