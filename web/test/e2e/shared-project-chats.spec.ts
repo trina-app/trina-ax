@@ -579,11 +579,13 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const memo = { name: '견적 메모.txt', mimeType: 'text/plain', buffer: Buffer.from('acme quote notes') }
       const chip = page.getByTestId('attachment-chip')
       const line = page.getByTestId('shared-upload-line')
+      // Olga and Bob read marketing/: the count is the one the line under the box gives
+      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
       // 📎 > from the computer (the file input behind it): the chip as usual, one line under it, no refusal
       await page.getByTestId('file-input').setInputFiles(memo)
       await expect(chip).toHaveAttribute('data-status', 'done')
       await expect(chip).toContainText('견적 메모.txt')
-      await expect(line).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 프로젝트 사람 4명이 볼 수 있어요')
+      await expect(line).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 프로젝트 사람 2명이 볼 수 있어요')
       await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0)
       const folder = async () => ((await (await page.request.get(`/api/files/tree?path=${encodeURIComponent('marketing/채팅 첨부')}`)).json()) as { entries: { name: string }[] }).entries.map((e) => e.name)
       expect(await folder()).toEqual(['견적 메모.txt'])
@@ -611,7 +613,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // in the chat itself the same: a second file goes there too, with the line; a taken name gets " (2)"
       await b.getByTestId('file-input').setInputFiles(memo)
       await expect(b.getByTestId('attachment-chip')).toContainText('견적 메모 (2).txt')
-      await expect(b.getByTestId('shared-upload-line')).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 프로젝트 사람 4명이 볼 수 있어요')
+      await expect(b.getByTestId('shared-upload-line')).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 프로젝트 사람 2명이 볼 수 있어요')
       await audit(b, 'shared chat box with a file from the computer')
       await b.context().close()
     })

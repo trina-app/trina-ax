@@ -129,8 +129,10 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
           const r = await uploadFile(it.file!, target, { client: api, signal: it.abort.signal, onProgress: (progress) => update(it.id, { progress }) })
           if (r.kind !== 'attachment') throw new Error('unexpected upload result')
           // removed just as it finished: what it saved in a shared chat's project folder goes too
-          if (it.abort.signal.aborted) return savedInProject({ source: 'upload', attachment: r.attachment }) ? discardSaved(r.attachment) : undefined
-          update(it.id, { status: 'done', attachment: r.attachment })
+          const saved = savedInProject({ source: 'upload', attachment: r.attachment })
+          if (it.abort.signal.aborted) return saved ? discardSaved(r.attachment) : undefined
+          // saved in the project folder: the chip shows the name it got there ("견적 (2).pdf", "CLAUDE (2).md")
+          update(it.id, { status: 'done', attachment: r.attachment, ...(saved ? { name: r.attachment.name } : {}) })
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
           if (it.abort.signal.aborted) return it.abort.signal.reason === SIGNED_OUT ? undefined : void cancelUpload(it.file!, target, api)
