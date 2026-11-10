@@ -56,11 +56,22 @@ export class Attachments {
 
   /** A file from the computer may go into this chat: the caller's own chat (not deleted), or a shared project chat they
    * see whose project folder they may write (the file goes there: uploads/shared-chat.ts sharedUploadPlace, which
-   * refuses otherwise). Checked again when the file is placed (a long upload: rules may change meanwhile). */
-  assertUploadChat(userId: string, chatId: string) {
+   * refuses otherwise; with its reference's limits and, `sha256` known, the download-only list, so a large upload is
+   * refused before its bytes are sent). Checked again when the file is placed (rules may change meanwhile). */
+  assertUploadChat(userId: string, chatId: string, sha256?: string) {
     const shared = visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
-    if (shared) { sharedUploadPlace(this.ctx, this.files, userId, shared); return }
+    if (shared) { this.sharedChecks(userId, shared, sha256); return }
     this.assertOwnChat(userId, chatId)
+  }
+
+  /** The place of a shared chat's upload and what refuses it before anything is written. */
+  private sharedChecks(userId: string, chat: ChatRow, sha256?: string) {
+    const place = sharedUploadPlace(this.ctx, this.files, userId, chat)
+    // the safety check's download-only list: such bytes are never a team file the AI could be handed
+    if (sha256 && this.ctx.files.quarantine.hasHash(sha256)) throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
+    if (!this.refs) throw new HttpError('unavailable')
+    this.refs.assertRoom(userId, chat.id)
+    return place
   }
 
   private assertOwnChat(userId: string, chatId: string) {
@@ -126,21 +137,34 @@ export class Attachments {
    * cannot be made sends the file to the trash, so nothing is left behind for an attachment that never was.
    */
   private async createShared(userId: string, chat: ChatRow, name: string, src: string, sha256: string): Promise<Attachment> {
-    if (!this.refs) throw new HttpError('unavailable')
-    const place = sharedUploadPlace(this.ctx, this.files, userId, chat)
-    // the safety check's download-only list: such bytes are never a team file the AI could be handed
-    if (this.ctx.files.quarantine.hasHash(sha256)) throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
-    this.refs.assertRoom(userId, chat.id)
+    const place = this.sharedChecks(userId, chat, sha256)
     if (!place.exists) {
       // another upload of the same moment may have made it just now
       try { this.files.mkdir(userId, place.folder) } catch (e) { if (!(e instanceof FileError && e.key === 'exists')) throw e }
     }
     const id = newId()
+    // the bytes were checked against sha256 (the upload's own check) and moved into place as they are: what was placed is
+    // known by its inode, so the reference does not read the whole file again
+    const before = fs.statSync(src)
     const entry = await this.files.placeUpload(userId, place.folder, name, src, 'rename', sha256, { action: 'upload', detail: { attachment: id, chatId: chat.id } }, { taken: instructionFile })
-    try { return await this.refs.create(userId, chat.id, entry.path, { id }) } catch (e) {
-      try { this.files.remove(userId, entry.path) } catch (err) { this.ctx.log.warn('an upload whose attachment failed could not go to the trash', { err }) }
+    let placed: fs.Stats | null = null
+    try { placed = fs.lstatSync(path.join(this.files.root, ...entry.path.split('/'))) } catch { /* gone already: create says so */ }
+    const known = placed && placed.isFile() && placed.size === before.size ? { sha256, ino: placed.ino, dev: placed.dev, size: placed.size } : undefined
+    try { return await this.refs!.create(userId, chat.id, entry.path, { id, known }) } catch (e) {
+      // only the file this upload put there (not one that took its place meanwhile)
+      try {
+        const now = fs.lstatSync(path.join(this.files.root, ...entry.path.split('/')))
+        if (placed && now.ino === placed.ino && now.dev === placed.dev) this.files.remove(userId, entry.path)
+      } catch (err) { this.ctx.log.warn('an upload whose attachment failed could not go to the trash', { err }) }
       throw e
     }
+  }
+
+  /** An upload whose chip was taken out before its answer reached the box (a cancelled session, a dropped request): a
+   * file it put in a shared chat's project folder goes to the trash (TeamFileRefs.discard); anything else stays. */
+  discardSaved(userId: string, a: Attachment | null | undefined) {
+    if (a?.source !== 'team' || !this.refs) return
+    try { this.refs.discard(userId, a.id) } catch (e) { this.ctx.log.debug('a removed upload was not taken out', { err: e }) }
   }
 
   private row(id: string): Row | null { return this.ctx.db.query(`SELECT ${COLS} FROM attachments WHERE id = ?`).get(id) as Row | null }

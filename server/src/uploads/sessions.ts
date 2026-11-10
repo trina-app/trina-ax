@@ -59,7 +59,7 @@ export class UploadSessions {
     const db = this.ctx.db
     const open = (db.query('SELECT COUNT(*) AS n FROM upload_sessions WHERE user_id = ? AND result IS NULL AND expires_at > ?').get(userId, new Date().toISOString()) as { n: number }).n
     if (open >= MAX_OPEN_SESSIONS) fileError('rate_limited', 'tooManySessions')
-    this.checkTarget(userId, target)
+    this.checkTarget(userId, target, sha256)
     let free = Infinity
     try { const s = fs.statfsSync(this.dir()); free = s.bavail * s.bsize } catch (e) { this.ctx.log.warn('statfs failed', { err: e }) }
     // part files are sparse: what unfinished sessions will still write counts as used
@@ -78,13 +78,13 @@ export class UploadSessions {
   }
 
   /** Early checks (complete checks again: rules may change during a long upload). */
-  private checkTarget(userId: string, t: UploadTarget) {
+  private checkTarget(userId: string, t: UploadTarget, sha256: string) {
     if (t.kind === 'path') {
       const user = this.files.principal(userId)
       const r = authorize(this.files.fx, this.files.rules(), user, t.path, 'write', { mustExist: false })
       if (r.exists && (r.st!.isDirectory() || t.onExists === 'fail')) fileError('conflict', 'exists', { path: r.rel })
     } else if (t.kind === 'attachment') {
-      this.attachments.assertUploadChat(userId, t.chatId)
+      this.attachments.assertUploadChat(userId, t.chatId, sha256)
       const bad = t.name.includes('/') ? 'names cannot contain "/"' : badSegment(t.name.normalize('NFC'))
       if (bad) fileError('validation', 'badName', { name: bad })
     } else if (!this.transcribe) {
@@ -188,9 +188,20 @@ export class UploadSessions {
     return result
   }
 
-  cancel(userId: string, id: string) {
-    this.row(userId, id)
-    if (this.completing.has(id)) fileError('conflict', 'completing')
+  /** Drop an upload. An attachment's chip taken out while its file was being put in place, or just after (the person
+   * never got its id): a file a shared chat put in its project folder goes to the trash once it is there
+   * (TeamFileRefs.discard, which leaves anything sent, changed or attached elsewhere). */
+  async cancel(userId: string, id: string) {
+    const r = this.row(userId, id)
+    const running = this.completing.get(id)
+    if (running) {
+      if ((JSON.parse(r.target) as UploadTarget).kind !== 'attachment') fileError('conflict', 'completing')
+      const done = await running.catch(() => null)
+      this.attachments.discardSaved(userId, done?.kind === 'attachment' ? done.attachment : null)
+      return
+    }
+    const done = r.result ? JSON.parse(r.result) as UploadComplete : null
+    if (done?.kind === 'attachment') this.attachments.discardSaved(userId, done.attachment)
     this.drop(id)
   }
   private drop(id: string) {

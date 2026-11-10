@@ -169,7 +169,13 @@ export const filesRoutes: RouteModule = {
       assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
-      try { return await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha) } finally { fs.rmSync(p, { force: true }) }
+      try {
+        const a = await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha)
+        // the request was dropped while the file was put in place (its chip taken out): the box never learns its id, so a
+        // file a shared chat put in its project folder goes to the trash again
+        if (c.req.raw.signal.aborted) C.attachments.discardSaved(auth.user.id, a)
+        return a
+      } finally { fs.rmSync(p, { force: true }) }
     }, 'name'))
     kit.handle(API.attachmentThumbnail, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const t = C.attachments.thumbnail(auth.user.id, params.id)
@@ -195,6 +201,6 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.uploadChunk, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.putChunk(auth.user.id, params.id, Number(params.n), body)))
     kit.handle(API.getUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.get(auth.user.id, params.id)))
     kit.handle(API.completeUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.complete(auth.user.id, params.id)))
-    kit.handle(API.cancelUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => { C.uploads.cancel(auth.user.id, params.id) }))
+    kit.handle(API.cancelUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), async () => { await C.uploads.cancel(auth.user.id, params.id) }))
   },
 }

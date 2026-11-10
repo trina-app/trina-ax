@@ -371,7 +371,8 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
 export function SharedUploadLine({ files, audience, className }: { files: Pending[]; audience: number; className?: string }) {
   const t = useT()
   const team = useMe()?.team.defaultLocale
-  const ups = files.filter((f) => f.source === 'upload' && f.status !== 'failed')
+  // on its way, or saved there (an upload of my own folder from before the chat was shared is not: the send refuses it)
+  const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || savedInProject(f)))
   if (!ups.length) return null
   const saved = ups.find((f) => savedInProject(f))?.attachment?.path
   const folder = saved ? folderOf(saved).slice(folderOf(saved).lastIndexOf('/') + 1) : CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE]

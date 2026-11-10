@@ -104,9 +104,10 @@ export class TeamFileRefs {
    * missing, a folder, .system/, another person's users/<id>/, a link, a look-alike path — is the same 404. The same
    * unchanged file attached again to the same chat gives back the reference it already has (no new row, no hashing).
    * `id`: the new reference's id, named beforehand (a computer upload in a shared chat records it in its upload event:
-   * always a new reference then).
+   * always a new reference then). `known`: that upload's checked hash, for the file with this inode, device and size
+   * (it is not read again).
    */
-  async create(userId: string, chatId: string, input: string, o: { id?: string } = {}): Promise<Attachment> {
+  async create(userId: string, chatId: string, input: string, o: { id?: string; known?: { sha256: string; ino: number; dev: number; size: number } } = {}): Promise<Attachment> {
     // the caller's own chat, or a shared project chat they see (its people continue it with team files: chat/shared.ts)
     const own = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND shared_at IS NULL').get(chatId, userId)
       ?? visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
@@ -129,8 +130,9 @@ export class TeamFileRefs {
     const known = this.ctx.db.query(`SELECT sha256 FROM team_file_refs WHERE user_id = ? AND path_at_attach = ? AND ino = ? AND dev = ? AND size = ? AND mtime_ms = ?
       UNION ALL SELECT cur_sha256 FROM team_file_refs WHERE user_id = ? AND path = ? AND cur_ino = ? AND dev = ? AND cur_size = ? AND cur_mtime_ms = ? AND cur_sha256 IS NOT NULL LIMIT 1`)
       .get(userId, rel, st.ino, st.dev, st.size, mtime, userId, rel, st.ino, st.dev, st.size, mtime) as { sha256: string } | null
+    const placed = o.known && st.ino === o.known.ino && st.dev === o.known.dev && st.size === o.known.size ? o.known.sha256 : null
     let sha: string
-    try { sha = known?.sha256 ?? await hashChecked(abs, st) } catch { throw new HttpError('not_found') }
+    try { sha = known?.sha256 ?? placed ?? await hashChecked(abs, st) } catch { throw new HttpError('not_found') }
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     const id = o.id ?? newId()
     this.ctx.db.query(`INSERT INTO team_file_refs (id, user_id, chat_id, path, path_at_attach, name, size, mime, kind, sha256, mtime_ms, ino, dev, event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
@@ -331,7 +333,8 @@ export class TeamFileRefs {
    * reference: uploads/shared-chat.ts), not sent in any message, and still the very file put there (the same place, the
    * same inode, unchanged), the file goes to the team trash like a delete on the Files screen (restorable from Files >
    * Trash until it is purged): `trashed`. Anything else stays where it is: a team file picked from the folder, one moved,
-   * renamed or edited since, one in a message. Someone else's reference, or none: 404.
+   * renamed or edited since, one in a message, one another reference also points to. Someone else's reference, or none:
+   * 404.
    */
   discard(userId: string, id: string): { trashed: boolean } {
     const row = this.row(id)
@@ -339,8 +342,12 @@ export class TeamFileRefs {
     if (this.ctx.db.query('SELECT 1 FROM messages WHERE chat_id = ? AND instr(attachments, ?) > 0 LIMIT 1').get(row.chat_id, id)) return { trashed: false }
     const uploaded = this.ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND json_extract(detail, '$.attachment') = ? AND json_extract(detail, '$.chatId') = ? LIMIT 1")
       .get(row.path_at_attach, userId, id, row.chat_id)
+    // another reference to the very file (someone attached it from the folder meanwhile, or this person in another chat)
+    // keeps it where it is
+    const shared = this.ctx.db.query('SELECT 1 FROM team_file_refs WHERE id <> ? AND ino = ? AND dev = ? AND (path = ? OR path_at_attach = ?) LIMIT 1')
+      .get(id, row.ino, row.dev, row.path, row.path_at_attach)
     let trashed = false
-    if (uploaded) {
+    if (uploaded && !shared) {
       const s = this.locateSync(userId, id, true)
       if (s.state === 'ok' && !s.moved && !s.changed && s.st.ino === row.ino && s.st.dev === row.dev) {
         try { this.files.remove(userId, s.rel); trashed = true } catch (e) { this.ctx.log.warn('a removed chip\'s upload could not go to the trash', { err: e }) }

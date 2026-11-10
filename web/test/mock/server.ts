@@ -333,9 +333,9 @@ export class MockServer {
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
-  /** a shared chat's computer uploads saved in the project folder (attachment id -> its path): removing the chip before
-   * sending moves that file to the trash (DELETE /api/attachments/:id) */
-  savedUploads = new Map<string, string>()
+  /** a shared chat's computer uploads saved in the project folder (attachment id -> its path and who uploaded it):
+   * removing the chip before sending moves that file to the trash (DELETE /api/attachments/:id) */
+  savedUploads = new Map<string, { path: string; by: string }>()
   jobs = new Map<string, Job>()
   pendingAsk = new Map<string, (v: unknown) => void>()
   /** open cards by turn (GET /api/chats/:id/requests after a reload) */
@@ -2401,12 +2401,14 @@ export class MockServer {
     // sent and still where it was saved, goes to the trash; anything else stays
     discardAttachment: (c) => {
       const a = this.attachments.get(c.params.id!) ?? fail('not_found', 404)
-      const path = this.savedUploads.get(a.id)
+      const saved = this.savedUploads.get(a.id)
+      if (saved && saved.by !== c.user.id) fail('not_found', 404)
+      if (this.messages.some((m) => m.attachments?.some((x) => x.id === a.id))) return { trashed: false }
       this.attachments.delete(a.id)
       this.savedUploads.delete(a.id)
-      const sent = this.messages.some((m) => m.attachments?.some((x) => x.id === a.id))
+      const path = saved?.path
       const n = path ? this.files.get(path) : undefined
-      if (!path || sent || !n || n.type !== 'file') return { trashed: false }
+      if (!path || !n || n.type !== 'file') return { trashed: false }
       this.files.delete(path)
       this.trash.push({ id: uuidv7(), originalPath: path, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + this.settings.trashRetentionDays * 86400_000).toISOString(), node: n })
       return { trashed: true }
@@ -4674,7 +4676,7 @@ export class MockServer {
       const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name: path.slice(path.lastIndexOf('/') + 1), path, size: data.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'other', source: 'team',
         sha256: new Bun.CryptoHasher('sha256').update(data).digest('hex'), data }
       this.attachments.set(a.id, a)
-      this.savedUploads.set(a.id, path)
+      this.savedUploads.set(a.id, { path, by: u.id })
       const { data: _d, ...out } = a
       return out
     }

@@ -14215,15 +14215,25 @@ the person's own attachments folder, which the chat's other people cannot read);
   limits, at most 20 files per message, the team-file reference limits, checked before anything is placed), the same
   checks (name rules, the storage check, sha256, the safety check's download-only list) and the same records: the
   team-file `upload` event by the person (its detail names the attachment and the chat), text extraction, the live file
-  list, and the reference's `file.attach` audit. A reference that still cannot be made sends the placed file to the
-  trash, so no file is left for an attachment that never was.
+  list, and the reference's `file.attach` audit. A chunked upload is refused at its start (the write check, the
+  reference limits, the download-only list), before its bytes are sent. The reference takes the upload's checked hash
+  for the file it placed (same inode and size), so a large file is not read again. A reference that still cannot be
+  made sends the placed file (that very inode) to the trash, so no file is left for an attachment that never was.
 - **Taking it out** (`DELETE /api/attachments/:id`, `TeamFileRefs.discard`). ✕ on the chip before sending removes the
   reference; when it is that person's upload into that chat (its own upload event names the reference), sent in no
   message and still the very file put there (the same place and inode, unchanged), the file goes to the team trash like
   a delete on the Files screen, restorable from Files › 휴지통 until it is purged (the norm for team files; nothing is
   deleted for good). The ✕ says so: "{name} 빼기 · 프로젝트 폴더에 저장된 파일은 휴지통으로 가요". A sent file, one moved,
-  renamed or edited since, and a team file picked from the folder stay where they are; someone else's reference is 404.
-  A file whose chip was neither sent nor taken out stays in the folder, a team file like any other.
+  renamed or edited since, one that another reference points to (someone attached it from the folder meanwhile), and a
+  team file picked from the folder stay where they are; someone else's reference is 404. A chip taken out while its
+  file was still being put in place (the box never got its id): a chunked upload's cancel waits for it and sends it to
+  the trash the same way (also a cancel just after it finished), and a small upload whose request was dropped is taken
+  out by the server. A file whose chip was neither sent nor taken out stays in the folder, a team file like any other.
+  Independent review (2026-11-10): no must-fix; should-fix items in (another reference keeps the file, ✕ while
+  finishing, no second read of the file), nits in (the line counts only files saved or on their way, the mock's owner
+  check). The chip shows the name the file got there ("견적 (2).pdf"). Left: someone who only reads the project folder still sees "내 컴퓨터에서
+  올리기" and gets the refusal (the box does not know folder access); a folder under one of the names that the person
+  cannot see makes every upload a 403.
 - **What the person sees.** The chip looks as usual (a picture as itself while it uploads). One short line under the
   chips while a file from the computer is attached, only in shared chats (`SharedUploadLine`): "프로젝트 폴더(채팅 첨부)에
   저장돼요 · 프로젝트 사람 3명이 볼 수 있어요", the folder it went to and the count the line under the box uses ("프로젝트 사람

@@ -198,6 +198,30 @@ describe('✕ before sending', () => {
   })
 })
 
+describe('✕ while the file is being put in place, or attached elsewhere', () => {
+  test('a chunked upload cancelled after it was placed (the box never got its id): the file goes to the trash', async () => {
+    const chat = await newShared()
+    const data = new TextEncoder().encode('late chip')
+    const s = await h.api('alice').call(API.createUploadSession, { body: { target: { kind: 'attachment', chatId: chat.id, name: 'late.txt' }, size: data.length, sha256: sha(data) } })
+    expect((await h.req('alice', `/api/upload-sessions/${s.id}/chunks/0`, { method: 'PUT', body: data, headers: { 'content-type': 'application/octet-stream' } })).status).toBe(200)
+    const done = await h.api('alice').call(API.completeUploadSession, { params: { id: s.id } })
+    expect(fs.existsSync(disk(`${FOLDER}/late.txt`))).toBe(true)
+    expect((await h.req('alice', `/api/upload-sessions/${s.id}`, { method: 'DELETE' })).status).toBe(204)
+    expect(fs.existsSync(disk(`${FOLDER}/late.txt`))).toBe(false)
+    expect(db().query('SELECT 1 FROM trash_items WHERE original_path = ?').get(`${FOLDER}/late.txt`)).toBeTruthy()
+    expect(db().query('SELECT 1 FROM team_file_refs WHERE id = ?').get(done.kind === 'attachment' ? done.attachment.id : '')).toBeNull()
+  })
+
+  test('someone attached the file from the folder meanwhile: ✕ leaves it there', async () => {
+    const chat = await newShared()
+    const r = await upload('alice', chat.id, 'popular.txt', 'everyone wants this')
+    const other = await newShared('bob')
+    await h.api('bob').call(API.attachTeamFile, { body: { chatId: other.id, path: r.body.path } })
+    expect(await (await discard('alice', r.body.id)).json()).toEqual({ trashed: false })
+    expect(fs.readFileSync(disk(`${FOLDER}/popular.txt`), 'utf8')).toBe('everyone wants this')
+  })
+})
+
 describe('around it', () => {
   test('a chat of one person keeps its uploads in the person\'s own folder', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
