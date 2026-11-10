@@ -12,7 +12,7 @@
 // picture and name, the room ("#팀방", "1:1 대화", a group chat's name), "스레드" for a reply, the time, and one line of
 // the text around the match; it opens the room at that message (a reply: its thread), marked for a moment.
 import clsx from 'clsx'
-import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Link2, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { skillTitle, type Chat, type FileEntry, type Integration, type Project, type RoomSearchHit, type RoomSearchRoom, type Schedule } from '@mycel/shared/api'
@@ -28,6 +28,7 @@ import { useEdgeFade, useFocusTrap } from './ui'
 import { contentQueryReady } from './FileContentSearch'
 import { skillFileLink } from './AvailableSkills'
 import { useChatActions } from './chat/chatActions'
+import { useCopyChatLink } from './chat/copyChatLink'
 import { Tooltip } from './Tooltip'
 import { Avatar } from './Avatar'
 import { AiFace } from './rooms/AiFace'
@@ -126,6 +127,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   const locale = useLocale()
   const navigate = useNavigate()
   const chatActions = useChatActions()
+  const copyChatLink = useCopyChatLink()
   const ref = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -570,6 +572,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
           <div role="menu" aria-label={t('search.rowActions')} data-testid="search-row-menu" className="absolute right-6 z-10 w-44 rounded-xl border border-line bg-surface p-1 shadow-xl" style={{ top: menu.top }}>
             {[
               { label: t('chat.rename'), icon: Pencil, run: () => void chatActions.rename(menu.row.chat!) },
+              { label: t('rooms.menu.copyLink'), icon: Link2, run: () => void copyChatLink(menu.row.chat!) },
               { label: t('common.delete'), icon: Trash2, run: () => void chatActions.remove(menu.row.chat!), danger: true },
             ].map((m, i) => (
               <button

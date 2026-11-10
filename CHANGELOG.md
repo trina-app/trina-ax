@@ -5,7 +5,9 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- 트리나 기록의 채팅에 **링크 복사**가 생겼어요. Copy link: a chat's "⋯" menu in the chat header, the sidebar's history rows, the search dialog's row menu and (new) a "⋯" on each chat row of a project page copies the chat's address on this team's address (`/c/<id>`, the address only), so you can tell teammates "I'm working here". The toast says who can open it: "링크를 복사했어요 · 프로젝트 사람 N명이 열 수 있어요" for a shared project chat, "링크를 복사했어요 · 나만 열 수 있어요" for your own chat. Copy only: nobody gains access, and a person who cannot see the chat gets the usual "not found" page, which does not say whether it exists. A signed-out person signs in and lands on the chat. No API or data change.
 - Search by meaning: when the embedding process refuses its model files ("model files do not match"), the server now keeps that reason. It could read the process's end first and log only "the embedding process ended (exit 0)", at random; this also made a unit test fail now and then on CI.
+||||||| ffe32b2c
 - In a shared project chat, someone who can only read the project folder is no longer offered **내 컴퓨터에서 올리기** (or the camera) only to be refused after picking a file: the box offers **팀 파일에서 추가**, a pasted file is not taken and a file dragged from the computer shows the not-allowed cursor. API: `Project.chatUploads` and `Chat.shared.canUpload` (optional) say whether the caller may send computer files there.
 - Room header ✦ button: the label and tooltip read "Ask Trina" now, without "privately" (also in Korean, Spanish, Indonesian and Japanese). The side chat itself is unchanged.
 - Admin › Usage tells removed AI connections apart. With two or more removed, the AI connection filter and the chart showed "Removed connection" for each; they are now "Removed connection 1", "Removed connection 2" (five languages). One removed connection keeps the plain name.
