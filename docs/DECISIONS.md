@@ -18630,10 +18630,13 @@ logo's header (28 px).
   "링크 관리"). While the owner's welcome steps are unfinished it opens the owner's invite step instead, as the goal card
   does, never a second invite dialog (also when the steps are already on screen: `pages/Welcome.tsx` goes to the invite
   step on the new entry; the owner's progress is read first when the page has not read it yet). An admin who is not
-  the owner always gets the dialog: the steps are the owner's, and Welcome sends anyone else Home. One dialog for the window (`Layout.tsx`), so ⌘K opens the same; a page change closes it (its
-  "스킬 넣기" and "팀 파일 넣기" links, ⇧⌘O), as leaving Home closes the goal card's. Closing it gives the keyboard back
-  to the team button when it was opened from the menu, and to where it was before ⌘K when opened from there. The
-  single-use invite links with a role and groups stay on Admin › Members & invites.
+  the owner always gets the dialog: the steps are the owner's, and Welcome sends anyone else Home. Home's goal card had
+  the same gap (its [팀원 초대] took such an admin to /welcome and back Home once the team's progress had been read, by
+  the invite dialog's link panel or Files); it now sends the owner only too (`GoalCard.tsx`). One dialog for the window
+  (`Layout.tsx`), so ⌘K opens the same; a page change closes it (its "스킬 넣기" and "팀 파일 넣기" links, ⇧⌘O), as
+  leaving Home closes the goal card's. Closing it gives the keyboard back to the team button when it was opened from
+  the menu, and to where it was before ⌘K when opened from there. The single-use invite links with a role and groups
+  stay on Admin › Members & invites.
 - **Keyboard**, as in the profile menu: Enter or Space opens it on its first item, ↑ ↓ wrap, Home and End, Esc closes it
   and gives the keyboard back to the button, Tab and a click outside close it.
 - **⌘K** finds 관리자 and 팀원 초대 for owners and admins by their words and their other names (Invite teammates and
@@ -18644,13 +18647,13 @@ logo's header (28 px).
   would put team things in the AI's tab and give Admin a second place, so it stays as it was: Admin on the 나 tab, right
   under 알림함. The phone app is the web app in a web view, so the same holds there; a tablet at 768 px or more gets the
   computer's sidebar and its team menu.
-- **Not changed:** Admin › Team settings still previews the header with the 20 px logo; that page belongs to the admin
-  shell's own work (follow-up). The profile menu.
+- **Not changed:** Admin › Team settings still previews the header with the 20 px logo; another PR is changing the admin
+  pages, and the preview follows after it. The profile menu.
 - Tests: `web/test/unit/sidebar.test.tsx` (a member's header is no button; owners and admins: the menu, its items and
   address, the keyboard, Esc, Tab, Invite's dialog and the focus after it, the dialog closed by a page change, the
   owner's unfinished steps and an admin who is not the owner, Admin's link; no Admin row; the logo at 28 px; the phone
   drawer), e2e `sidebar.spec.ts` (sizes measured, the menu with axe, Admin, the keyboard, Invite's dialog and its link,
   the owner's invite step from another page and on the steps themselves, ⌘K for an admin and a member, the phone drawer
-  and the 나 tab), and the specs that went to Admin through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured
-  the 20 px logo (`team-icon.spec.ts`).
+  and the 나 tab), `goal-card.test.tsx` (an admin who is not the owner gets the dialog), and the specs that went to Admin
+  through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured the 20 px logo (`team-icon.spec.ts`).
 - Version impact: **minor** (a visible change to the sidebar; no API or data change).
