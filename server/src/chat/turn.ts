@@ -215,7 +215,8 @@ const OWN_HASH_BUDGET = 128 * 1024 * 1024
 /** the folders right under users/<id>/ the server names itself (tools/save-url.ts, chat/room-tools.ts, video, exports,
  * personal projects): their names carry nobody's words (noteOwnNames) */
 const SERVER_OWN_FOLDERS: ReadonlySet<string> = new Set(['downloads', 'images', 'videos', 'exports', 'projects'])
-/** the files of one folder whose names a listing showed that are traced (noteOwnNames): more counts as outside */
+/** the names traced for one call (noteOwnNames: files and folders together, a listing's files included): more counts as
+ * outside */
 const OWN_NAMES_MAX = 500
 /** a file's last name, and whether two names are one: the same once a trailing " (2)" or a conflict copy's "(… - …)"
  * before the extension is taken off (a copy or move into a taken name keeps the words of the name; noteOwnNames) */
@@ -1602,12 +1603,16 @@ export class TurnExec {
     for (const d of folders) if (d === root || inside(d)) { items.push(['children', d]); if (inside(d)) { items.push(['folder', d]); above(d) } }
     for (const d of subfolders) if (inside(d)) { items.push(['folder', d]); above(d) }
     let level = 0
+    // one budget of names traced per call (a listing of thousands of sub-folders or files is not walked on the server's
+    // thread): past it the call counts as outside
+    const budget = { left: OWN_NAMES_MAX }
     try {
       for (const [kind, p] of items) {
         const k = `${kind}\u0000${p}`
         if (this.namesSeen.has(k)) continue
+        if (kind !== 'children' && --budget.left < 0) { level = 2; break }
         this.namesSeen.add(k)
-        level = Math.max(level, kind === 'file' ? this.fileNameLevel(p) : kind === 'children' ? this.childNamesLevel(p) : this.folderNameLevel(p))
+        level = Math.max(level, kind === 'file' ? this.fileNameLevel(p) : kind === 'children' ? this.childNamesLevel(p, budget) : this.folderNameLevel(p))
         if (level >= 2) break
       }
     } catch { level = 2 }
@@ -1619,36 +1624,47 @@ export class TurnExec {
 
   /**
    * The mark the name of the file `rel` carries: that of the event that gave the file this name. Its history is walked
-   * back while the name stays (files/timeline.ts: a move, a folder above moved or renamed, a restore; a copy goes on in its
-   * source as it was then), up to the create there, or the move or rename that changed the name. A copy or move that only
-   * added a " (2)" or a conflict copy's words keeps the name (sameName). A history cut short: 2. `before`: the file as it
-   * was before that event (a copy's source).
+   * back while the name stays (files/timeline.ts: a move, a folder above moved, renamed or restored to another place, a
+   * folder copied; a copy goes on in its source as it was then), up to the create there, or the move or rename that changed
+   * the name: a person's gives a name of their own, an AI turn's keeps the old name's mark too (the higher of the two). A
+   * copy or move that only added a " (2)" or a conflict copy's words keeps the name (sameName). A history cut short: 2.
+   * `before`: the file as it was before that event (a copy's source).
    */
   private fileNameLevel(rel: string, depth = 0, before?: number): number {
     if (depth > 4) return 2
     const { entries, cut } = fileTimelineWalk(this.rt.db, rel, { limit: FILE_TIMELINE_MAX, ...(before !== undefined ? { before } : {}) })
-    let name = baseName(rel)
+    let name = baseName(rel), level = 0
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]!
       const last = i === entries.length - 1
       if (e.kind === 'moved' || e.kind === 'renamed') {
         if (e.from && sameName(baseName(e.from), name)) { name = baseName(e.from); continue }
-        return this.markOf(e.turnId)
+        // the name changed here: the person's own name carries nothing more; an AI turn's (a clean chat adding ".md" or
+        // lowercasing a planted name) keeps the old name's mark too
+        if (!e.turnId || !e.from) return Math.max(level, this.markOf(e.turnId))
+        level = Math.max(level, this.markOf(e.turnId))
+        if (level >= 2) return 2
+        name = baseName(e.from)
+        continue
       }
-      // a copy over a file that was there keeps the older name; the copy that made the file names it after its source
+      // a copy over a file that was there keeps the older name; the copy that made the file names it after its source (an
+      // AI's copy under another name keeps the source's mark too)
       if (e.kind === 'copied') {
         if (!last) continue
-        return e.from && sameName(baseName(e.from), name) ? this.fileNameLevel(e.from, depth + 1, e.id) : this.markOf(e.turnId)
+        if (!e.from) return Math.max(level, this.markOf(e.turnId))
+        if (sameName(baseName(e.from), name)) return Math.max(level, this.fileNameLevel(e.from, depth + 1, e.id))
+        return Math.max(level, this.markOf(e.turnId), e.turnId ? this.fileNameLevel(e.from, depth + 1, e.id) : 0)
       }
-      if (e.kind === 'created' || (e.kind === 'uploaded' && last)) return this.markOf(e.turnId)
+      if (e.kind === 'created' || (e.kind === 'uploaded' && last)) return Math.max(level, this.markOf(e.turnId))
     }
-    return cut ? 2 : 0
+    return cut ? 2 : level
   }
 
   /**
    * The mark the name of the folder `d` carries, as fileNameLevel: walked back while the name stays (the folder moved, a
-   * folder above it moved or renamed, a restore from the trash; a folder copy goes on in its source as it was then), up
-   * to the event that made it by this name (the Files screen's new folder, a move or rename that changed the name). A
+   * folder above it moved, renamed or restored to another place, a restore from the trash; a folder copy, its own or one
+   * above, goes on in its source as it was then), up to the event that made it by this name (the Files screen's new
+   * folder, a move or rename that changed the name: an AI turn's keeps the old name's mark too). A
    * folder with no event of its own was made on the way to the first file saved in it: that event names it, but for the
    * folders the server names itself (SERVER_OWN_FOLDERS). A history cut short: 2.
    */
@@ -1656,14 +1672,15 @@ export class TurnExec {
     if (depth > 4) return 2
     const db = this.rt.db
     const root = `users/${this.spec.userId}`
-    let cur = d, name = baseName(d), before = start
+    let cur = d, name = baseName(d), before = start, level = 0
     const restored = new Set<string>()
     // no event of its own: the first event at or under the place after `after` names it
     const firstUnder = (p: string, after: number) => {
       if (SERVER_OWN_FOLDERS.has(p.slice(root.length + 1))) return 0
       const first = db.query('SELECT turn_id AS t FROM file_events WHERE id > ? AND path >= ? AND path < ? ORDER BY id ASC LIMIT 1').get(after, p + '/', p + '0') as { t: string | null } | null
-      return first ? this.markOf(first.t) : 0
+      return Math.max(level, first ? this.markOf(first.t) : 0)
     }
+    const end = (n: number) => Math.max(level, n)
     for (let reads = 0; reads < 40; reads++) {
       const keys = selfAndAbove(cur)
       const rows = db.query(`SELECT id, turn_id AS t, path, action, detail FROM file_events WHERE id < ? AND path IN (${keys.map(() => '?').join(',')})
@@ -1673,19 +1690,30 @@ export class TurnExec {
         before = r.id
         const det = parseJson(r.detail)
         if (det.folder !== true) continue
+        const src = Array.isArray(det.sourcePaths) && typeof det.sourcePaths[0] === 'string' ? det.sourcePaths[0] as string : null
         if (r.path !== cur) {
+          const rest = cur.slice(r.path.length)
           // a folder above moved or was renamed: the same name, at the place it had then
-          if (r.action === 'create' && typeof det.movedFrom === 'string') { cur = det.movedFrom + cur.slice(r.path.length); moved = true; break }
+          if (r.action === 'create' && typeof det.movedFrom === 'string') { cur = det.movedFrom + rest; moved = true; break }
+          // a folder above came back from the trash to another place ("… (restored)"): the same, at its old place
+          if (r.action === 'restore' && typeof det.originalPath === 'string' && det.originalPath !== r.path) { cur = det.originalPath + rest; moved = true; break }
+          // a folder above was copied (copyFolderTree): this one is its source's, as it was then
+          if (r.action === 'create' && src) return end(this.folderNameLevel(src + rest, depth + 1, r.id))
           continue
         }
         if (r.action === 'create') {
           if (typeof det.movedFrom === 'string') {
-            if (!sameName(baseName(det.movedFrom), name)) return this.markOf(r.t)
+            if (!sameName(baseName(det.movedFrom), name)) {
+              // renamed: by the person, a name of their own; by an AI turn, the old name's mark too
+              if (!r.t) return end(0)
+              level = Math.max(level, this.markOf(r.t))
+              if (level >= 2) return 2
+            }
             cur = det.movedFrom; name = baseName(cur); moved = true; break
           }
-          const src = Array.isArray(det.sourcePaths) && typeof det.sourcePaths[0] === 'string' ? det.sourcePaths[0] as string : null
-          if (src) return sameName(baseName(src), name) ? this.folderNameLevel(src, depth + 1, r.id) : this.markOf(r.t)
-          return this.markOf(r.t)
+          // a folder copy: by this name, its source's; under another name, the person's own, or an AI turn's and the source's
+          if (src) return end(sameName(baseName(src), name) ? this.folderNameLevel(src, depth + 1, r.id) : r.t ? Math.max(this.markOf(r.t), this.folderNameLevel(src, depth + 1, r.id)) : 0)
+          return end(this.markOf(r.t))
         }
         if (r.action === 'restore') {
           if (typeof det.trashId === 'string') restored.add(det.trashId)
@@ -1705,11 +1733,12 @@ export class TurnExec {
     return 2
   }
 
-  /** The names of the files right inside `d` that a listing, glob or grep showed (fileNameLevel each, as on disk now); a
-   * folder with more than OWN_NAMES_MAX files: 2. */
-  private childNamesLevel(d: string): number {
+  /** The names of the files right inside `d` that a listing, glob or grep showed (fileNameLevel each, as on disk now), out
+   * of the call's `budget` of names: more files than are left in it: 2. */
+  private childNamesLevel(d: string, budget: { left: number }): number {
     const ents = fs.readdirSync(path.join(this.rt.files.fx.root, ...d.split('/')), { withFileTypes: true }).filter((e) => e.isFile() && !e.name.startsWith('.'))
-    if (ents.length > OWN_NAMES_MAX) return 2
+    budget.left -= ents.length
+    if (budget.left < 0) return 2
     let level = 0
     for (const e of ents) { level = Math.max(level, this.fileNameLevel(`${d}/${e.name}`)); if (level >= 2) break }
     return level

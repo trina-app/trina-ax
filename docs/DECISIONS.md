@@ -18600,6 +18600,32 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   ⋯ 멤버, `?members=1`) and `shared-project-chats.spec.ts` (the legacy note moved to the line).
 - Version impact: **minor** (a visible change of where members are changed; two optional response fields).
 
+## 이름 추적, 두 번째 — an AI rename, a folder restored elsewhere, big listings (fix/outside-name-moves-2, 2026-11-10)
+
+Amends "이름도 옮겨 가면 표시가 따라간다". The re-review of #290 found two ways a planted name still lost its outside mark,
+and a listing that could stall the server.
+
+- **An AI rename keeps the old name's mark.** A clean chat's small rename (adding ".md", lowercasing with
+  `rename_file`) gave the renamer's mark (0), though the new name comes from the planted one. A rename or move that
+  changes a name, and a copy under another name, now carry the higher of the AI turn's own mark and the old name's (the
+  walk goes on with the old name), for files (`fileNameLevel`) and folders (`folderNameLevel`). A person's rename still
+  gives a name of their own. On a case-sensitive disk (Linux) a rename that only changes the case is refused by the
+  near-duplicate guard (`policy/authorize.ts`: the file's own name counts as the look-alike), so the planted name stays as
+  it was; lowercasing goes through another name in two renames, and both keep the mark (CI on Linux caught the first
+  version of this test, which expected the one-step rename everywhere).
+- **A folder restored to another place.** A folder restored as "… (restored)" (its place was taken) dropped the mark of
+  the names inside it: the walk followed a folder above when it moved, not when it came back from the trash to another
+  path. `files/timeline.ts fileTimelineWalk` and the folder-name walk now follow it to the old place (the file history
+  screen shows the file's past from before the trip, as it was).
+- **One budget of names per call** (`OWN_NAMES_MAX`, 500: a listing's files and sub-folders, the folders above, together).
+  Past it the call counts as outside. Before, sub-folders had no cap: ~3,000 took 97 ms on the server's thread.
+- **A folder copied as a whole** (`team-files copyFolderTree`, one row for the copy; nothing calls it today): the walk
+  follows a file inside to the same place in the source folder, and a folder inside to its source, so content and names
+  keep their marks; the method's comment says so.
+- Tests: `b-chat-rooms-fewer-cards.test.ts` "outside names, round 2" (a clean chat adds ".md" and lowercases; a folder
+  restored as "… (restored)"; 501 sub-folders; a file inside a copied folder), each failing on #290's code.
+- Version impact: **patch** (a fix; no API, data or setting change).
+
 ## 대화방을 읽은 채팅 — one rule: a side chat and a quoted message count (fix/side-chat-counts-as-room-read, 2026-11-10)
 
 Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기", "Skill folders: the AI's file actions" (S7) and "대화방을 읽은 뒤
