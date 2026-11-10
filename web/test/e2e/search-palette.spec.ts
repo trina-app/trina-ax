@@ -115,7 +115,7 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
   await expect(palette(page).getByTestId('search-hints')).toContainText(/Alt|⌥/)
   await page.keyboard.press('Alt+Enter')
   const menu = palette(page).getByTestId('search-row-menu')
-  await expect(menu.getByRole('menuitem')).toHaveCount(2)
+  await expect(menu.getByRole('menuitem')).toHaveText(['이름 바꾸기', '링크 복사', '삭제'])
   await expect(menu.getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
