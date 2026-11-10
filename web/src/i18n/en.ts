@@ -916,6 +916,7 @@ export const en: Record<MessageKey, string> = {
   "projects.membersTitle": "Members · {name}",
   "projects.membersCount": "{n, plural, one {# person sees it} other {# people see it}}",
   "projects.whoCount": "{n, plural, one {# person sees it} other {# people see it}} (owner and admins included)",
+  "projects.whoCountApart": "{n, plural, one {# person} other {# people}} and the owner and admins see it",
   "projects.whoCounting": "Counting who can see it…",
   "projects.manage": "Manage",
   "projects.membersByCreator": "{name} (who made it) or an admin changes its members.",

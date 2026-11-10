@@ -915,6 +915,7 @@ export const ko = {
   "projects.membersTitle": "멤버 · {name}",
   "projects.membersCount": "{n}명이 봐요",
   "projects.whoCount": "{n}명이 봐요 (팀장·관리자 포함)",
+  "projects.whoCountApart": "{n}명과 팀장·관리자가 봐요",
   "projects.whoCounting": "볼 수 있는 사람을 세고 있어요…",
   "projects.manage": "관리",
   "projects.membersByCreator": "멤버는 {name}님(만든 사람)이나 관리자가 바꿔요.",

@@ -53,10 +53,11 @@ const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string |
 describe('a new project', () => {
   test('a member makes a team project with the people chosen and reads how many will see it', async () => {
     signedIn('member')
-    let people = 3
+    // a member's new project: the server counts me and the people chosen, not the owner and admins (adminsApart)
+    let people = 1
     routes = {
       'GET /api/people': () => json(200, PEOPLE),
-      'POST /api/projects/access-preview': () => json(200, { people, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }),
+      'POST /api/projects/access-preview': () => json(200, { people, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, adminsApart: true }),
       'POST /api/projects': () => json(201, project('projects/Launch')),
     }
     const m = await mount(<MemoryRouter><ProjectForm onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
@@ -68,7 +69,7 @@ describe('a new project', () => {
     expect(m.get('participant-user-mia').getAttribute('data-state')).toBe('fixed')
     expect(m.get('participant-user-mia').textContent).toContain(en('projects.whoMe'))
     expect(m.find('participant-remove-user-mia')).toBeNull()
-    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCount', { n: 3 }), 'the line with the count', 2000)
+    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCountApart', { n: 1 }), 'the line with the count', 2000)
     // the search lists everyone who can be added (my group and the people, not me); typing narrows it, titles too
     await m.click('project-participants-search')
     await m.until(() => m.find('participant-add-user-bob'), 'the people to add', 2000)
@@ -80,7 +81,7 @@ describe('a new project', () => {
     await m.type('project-participants-search', 'bo')
     await m.until(() => m.find('participant-add-user-bob'), 'Bob found', 2000)
     expect(m.find('participant-add-user-sora')).toBeNull()
-    people = 7
+    people = 5
     await m.click('participant-add-user-bob')
     // added: the list again, with Bob in it and his title under his name
     await m.until(() => m.find('participant-user-bob'), 'Bob in the list', 2000)
@@ -89,7 +90,7 @@ describe('a new project', () => {
     await m.type('project-participants-search', 'sal')
     await m.click(`participant-add-group-${SALES}`)
     await m.until(() => m.find(`participant-group-${SALES}`), 'the group in the list', 2000)
-    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCount', { n: 7 }), 'the new count', 2000)
+    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCountApart', { n: 5 }), 'the new count', 2000)
     // × takes one out again (nothing saved yet: the row goes)
     await m.type('project-participants-search', 'so')
     await m.click('participant-add-user-sora')
@@ -99,6 +100,17 @@ describe('a new project', () => {
     await m.click('project-save')
     await m.until(() => calls('POST /api/projects').length, 'the save', 2000)
     expect(calls('POST /api/projects')[0]!.body).toEqual({ name: 'Launch', scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'group', subjectId: SALES }] })
+    await m.unmount()
+  })
+
+  test('an admin\'s new project: the count of everyone who sees it, the owner and admins included, as before', async () => {
+    signedIn('admin')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      'POST /api/projects/access-preview': () => json(200, { people: 3, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }),
+    }
+    const m = await mount(<MemoryRouter><ProjectForm onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.until(() => m.find('project-access-summary')?.textContent === en('projects.whoCount', { n: 3 }), 'the line with the count', 2000)
     await m.unmount()
   })
 

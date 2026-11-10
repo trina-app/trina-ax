@@ -895,6 +895,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.membersTitle": "メンバー · {name}",
   "projects.membersCount": "{n, plural, one {#人} other {#人}}が見られます",
   "projects.whoCount": "{n, plural, one {#人} other {#人}}が見られます（オーナー・管理者を含む）",
+  "projects.whoCountApart": "{n, plural, one {#人} other {#人}}とオーナー・管理者が見られます",
   "projects.whoCounting": "見られる人を数えています…",
   "projects.manage": "管理",
   "projects.membersByCreator": "メンバーは{name}さん（作成者）か管理者が変更します。",

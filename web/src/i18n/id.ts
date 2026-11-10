@@ -916,6 +916,7 @@ export const id: Record<MessageKey, string> = {
   "projects.membersTitle": "Anggota · {name}",
   "projects.membersCount": "{n} orang melihatnya",
   "projects.whoCount": "{n} orang melihatnya (termasuk pemilik dan admin)",
+  "projects.whoCountApart": "{n} orang serta pemilik dan admin melihatnya",
   "projects.whoCounting": "Menghitung siapa yang bisa melihatnya…",
   "projects.manage": "Kelola",
   "projects.membersByCreator": "Anggota diubah oleh {name} (pembuatnya) atau admin.",

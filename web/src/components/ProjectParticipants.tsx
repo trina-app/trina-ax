@@ -3,7 +3,8 @@
 // people directory (/api/people, every member may read it: a name and a title); groups ("부서" in Korean copy) are a
 // member's own groups (Me.groups) and, for admins, every group (Admin › Groups). The creator, the owner and admins
 // always see the project: the line says so. The count is the server's (POST /api/projects/access-preview), so it
-// matches who really sees it.
+// matches who really sees it. A member's new project is counted without the owner and admins (`adminsApart`: the count
+// must not tell who is an admin), so the line says "N명과 팀장·관리자가 봐요", the number being me and the people chosen.
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Search, User, Users, X } from 'lucide-react'
 import clsx from 'clsx'
@@ -231,30 +232,34 @@ const RowIcon = ({ group }: { group: boolean }) =>
   group ? <Users size={14} className="shrink-0 text-faint" aria-hidden /> : <User size={14} className="shrink-0 text-faint" aria-hidden />
 
 /** "9명이 봐요 (팀장·관리자 포함)": how many people see it (the server's count; the last one stays while it counts
- * again). The names are the list above it. */
-export function AccessSummary({ count, testId = 'project-access-summary' }: { count: number | null; testId?: string }) {
+ * again). The names are the list above it. `adminsApart` (a member's new project): "2명과 팀장·관리자가 봐요", the number
+ * being the caller and the people chosen. */
+export function AccessSummary({ count, testId = 'project-access-summary' }: { count: AccessCount | null; testId?: string }) {
   const t = useT()
-  const last = useRef<number | null>(null)
+  const last = useRef<AccessCount | null>(null)
   if (count !== null) last.current = count
-  const n = count ?? last.current
+  const c = count ?? last.current
   return (
-    <p className={clsx('text-xs leading-5 break-keep text-muted', count === null && n !== null && 'opacity-60')} aria-live="polite" data-testid={testId}>
-      {n === null ? t('projects.whoCounting') : t('projects.whoCount', { n })}
+    <p className={clsx('text-xs leading-5 break-keep text-muted', count === null && c !== null && 'opacity-60')} aria-live="polite" data-testid={testId}>
+      {c === null ? t('projects.whoCounting') : t(c.adminsApart ? 'projects.whoCountApart' : 'projects.whoCount', { n: c.n })}
     </p>
   )
 }
 
+/** The server's count for the line under the picker: `adminsApart` when the owner and admins are left out of it. */
+export interface AccessCount { n: number; adminsApart: boolean }
+
 /** How many people would see the project with these participants (the server's dry run), asked again 300 ms after the
  * last change; null while asking or when it failed. */
-export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean }): number | null {
-  const [n, setN] = useState<number | null>(null)
+export function useAccessCount(participants: readonly ProjectParticipant[], o: { projectId?: string; enabled: boolean }): AccessCount | null {
+  const [n, setN] = useState<AccessCount | null>(null)
   const key = participants.map(participantKey).sort().join(',')
   useEffect(() => {
     if (!o.enabled) return
     let live = true
     setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}) } }).then((r) => live && setN(r.people), () => {})
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}) } }).then((r) => live && setN({ n: r.people, adminsApart: !!r.adminsApart }), () => {})
     }, 300)
     return () => { live = false; clearTimeout(h) }
     // eslint-disable-next-line react-hooks/exhaustive-deps

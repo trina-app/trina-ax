@@ -895,6 +895,7 @@ export const es: Record<MessageKey, string> = {
   "projects.membersTitle": "Miembros · {name}",
   "projects.membersCount": "{n, plural, one {# persona lo ve} other {# personas lo ven}}",
   "projects.whoCount": "{n, plural, one {# persona lo ve} other {# personas lo ven}} (incluidos el propietario y los administradores)",
+  "projects.whoCountApart": "{n, plural, one {# persona} other {# personas}}, el propietario y los administradores lo ven",
   "projects.whoCounting": "Contando quién puede verlo…",
   "projects.manage": "Gestionar",
   "projects.membersByCreator": "Los miembros los cambia {name} (quien lo creó) o un administrador.",
