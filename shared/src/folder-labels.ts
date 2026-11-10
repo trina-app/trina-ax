@@ -29,6 +29,10 @@ export const TEMPLATES_FOLDER = { ko: '양식', en: 'Templates', id: 'Templat', 
  * (a convention the AI's instructions describe; nothing makes it). */
 export const ARCHIVE_FOLDER = { ko: '보관', en: 'Archive', id: 'Arsip', ja: 'アーカイブ', es: 'Archivo' } as const satisfies T
 
+/** Files from the computer attached in a shared project chat: <project folder>/<this>/, made when the first one comes, in
+ * the team's language (one under any of these names is used again; server/src/uploads/shared-chat.ts). */
+export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', id: 'Lampiran obrolan', ja: 'チャット添付', es: 'Adjuntos del chat' } as const satisfies T
+
 const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).includes(s)
 
 /** One folder's name in words: a top folder's label, the person's own folder (`me`: their id) as "내 폴더", else null

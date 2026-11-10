@@ -14027,14 +14027,15 @@ enters a shared transcript; that check is new here, and turns never run on the c
   the history (the card said "project people"), but for answers built on what the newcomer may not read (decided
   since: "People who see a shared chat later" below). Owner decisions: turning the setting off keeps the chats already
   shared (D1); no "나만 보기" per chat (D2); attachments are team files only, a computer upload is refused with "공유
-  채팅에는 팀 파일만 붙일 수 있어요…" (D3).
+  채팅에는 팀 파일만 붙일 수 있어요…" (D3; replaced on 2026-11-10: a file from the computer goes into the project folder in
+  one step, "A file from the computer in a shared chat" below).
 - **Every chat id goes through `chatFor`** (`ChatStore.ownChat` stays only for the server's own flows on a person's
   chat, and never returns a shared one): 'view' for whoever sees it, 'continue' (not in the trash, not while 1A is on:
   409 `safe_ops`), 'manage' (delete, restore: the creator or a project editor; someone else's delete is audited
   `chat.delete`). Rename and engine: the creator (403 `shared_chat_creator`); a shared chat never changes project (409
   `shared_chat_move`); stop and cards: the runner (403 `shared_chat_runner`, the others' list of cards is empty); edit
   and regenerate: own messages only (403 `shared_chat_own_messages`); share-to-room: an answer of one's own turn only;
-  "스킬로 제안" not from a shared chat. Artifacts, team-file attachments, upload refusals, voice input and attachment
+  "스킬로 제안" not from a shared chat. Artifacts, team-file attachments, computer uploads, voice input and attachment
   thumbnails use `visibleSharedChat`. A test (`tests/security/p4-route-coverage.test.ts`) checks that every
   `/api/chats/:id` route calls `chatOf`.
 - **A turn is its sender's.** Principal, AI connection, engine, budget, queue, usage and the 7-day goal follow
@@ -14098,7 +14099,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   point for the owner: an admin repoint (or a folder rule change) shows existing shared transcripts to the new readers;
   the repoint dialog says how many chats and people, nothing asks again (decided since: the rooms' rule, "People who
   see a shared chat later" below).
-- **Not in phase 1.** Live answers for viewers, unseen markers per viewer, a chat file store for uploads, connections
+- **Not in phase 1.** Live answers for viewers, unseen markers per viewer, a chat file store for uploads (decided since:
+  the project folder, "A file from the computer in a shared chat" below), connections
   and Drive behind the gate, share-to-room for every viewer, a gate that checks searches after they run. Not added: a
   toggle per chat, sharing existing chats (added since: "An existing chat shared" below), avatars (added since: "Who
   asked" below), deleting single messages, a people picker, push or Inbox notices, a "Shared" sidebar section, queued
@@ -14407,6 +14409,75 @@ A design audit of dev found three problems. Plan: `docs/AGENTS/plan/20261108-115
   nothing to the others), `tests/unit/b-shared-chats.test.ts`, `web/test/unit/project-list-menu.test.tsx`,
   `web/test/e2e/shared-project-chats.spec.ts` ("live lists", "the trash"), `web/test/e2e/project-list-menu.spec.ts`.
 - Version impact: **minor** (an add-only migration, a changed project delete, a wider trash list).
+
+### A file from the computer in a shared chat — 공유 채팅에 내 파일 바로 올리기 (feat/shared-chat-uploads, 2026-11-10, product owner)
+
+On a team project's page ("3 people in the project can see new chats") the owner attached a file from the computer to a
+new chat and got D3's refusal ("Only team files can be attached to a shared chat. Upload a file from your computer to
+the project folder first, then attach it."): "야 왜 내 파일을 못올려? 너무 불편한데?". D3's reason stands (an upload lands in
+the person's own attachments folder, which the chat's other people cannot read); the detour does not. Plan:
+`docs/AGENTS/plan/20261110-0201-shared-chat-uploads.md`.
+
+- **One step** (`uploads/shared-chat.ts`, `Attachments.createShared`). In a shared project chat the caller sees (the
+  new-chat box of a project that shares its chats too: its first file makes the shared chat), a file from the computer
+  (📎, a paste, a drop; small and chunked uploads alike) is placed in the project's chat attachments folder and attached
+  as a team file (a reference, `source: 'team'`), which every viewer reads under the project's rules. Nothing goes to
+  `users/<id>/.attachments/` and no `attachments` row is made. Personal projects never share, so nothing changes there,
+  nor for chats of one person.
+- **The folder.** `<project folder>/채팅 첨부/`, named in the team's language (`CHAT_FILES_FOLDER` beside
+  `TEMPLATES_FOLDER` in `shared/src/folder-labels.ts`: 채팅 첨부, Chat attachments, Lampiran obrolan, チャット添付,
+  Adjuntos del chat), a visible folder people find in Files. One already in the project folder under any of these names
+  (NFC, any letter case; the team's language first) is used again, as for the templates folder; else it is made with
+  the first file, as the person's own "new folder" (`TeamFiles.mkdir`: its event, the live list). It inherits the
+  project folder's rules (no rule of its own). A project folder that is not there (in the trash) is never made again
+  by an upload (404), a skill folder is never written (refused as below), and while safe operations are on nothing is
+  placed (409 `safe_ops`: shared chats are read-only then).
+- **Names.** The file's own name. A taken one (any letter case or Unicode form) gets the duplicates rule of the Files
+  screen (`freeName`, "견적 (2).pdf"), never an overwrite or a new version. An instruction file's name (CLAUDE.md,
+  AGENTS.md, GEMINI.md, SKILL.md: `instructionFile`, as `instructionLike` matches them) counts as taken, so it is saved
+  as "CLAUDE (2).md" and no AI follows it as instructions (renamed rather than refused: one step, the content stays
+  readable as an attachment). `TeamFiles.placeUpload` takes those names (`taken`).
+- **Permissions.** The person writes there themselves (`authorize` 'write' for them: the folder, or the project folder
+  when it is made). Project members have write access (team projects, #257); someone who only reads the project folder
+  is refused before anything is written, also when a chunked upload starts: 403 `shared_upload_read_only`, "이 프로젝트
+  폴더에 쓸 권한이 없어서 컴퓨터의 파일을 올리지 못했어요. 팀 폴더에 있는 파일은 '팀 파일에서 추가'로 붙일 수 있어요. 쓰기 권한이
+  필요하면 관리자에게 요청해 주세요." (the errors table, five languages; why, the other way, who to ask, naming nobody).
+- **The same upload.** The same endpoints and limits (50 MB per request, chunked above it, the session and storage
+  limits, at most 20 files per message, the team-file reference limits, checked before anything is placed), the same
+  checks (name rules, the storage check, sha256, the safety check's download-only list) and the same records: the
+  team-file `upload` event by the person (its detail names the attachment and the chat), text extraction, the live file
+  list, and the reference's `file.attach` audit. A chunked upload is refused at its start (the write check, the
+  reference limits, the download-only list), before its bytes are sent. The reference takes the upload's checked hash
+  for the file it placed (same inode and size), so a large file is not read again. A reference that still cannot be
+  made sends the placed file (that very inode) to the trash, so no file is left for an attachment that never was.
+- **Taking it out** (`DELETE /api/attachments/:id`, `TeamFileRefs.discard`). ✕ on the chip before sending removes the
+  reference; when it is that person's upload into that chat (its own upload event names the reference), sent in no
+  message and still the very file put there (the same place and inode, unchanged), the file goes to the team trash like
+  a delete on the Files screen, restorable from Files › 휴지통 until it is purged (the norm for team files; nothing is
+  deleted for good). The ✕ says so: "{name} 빼기 · 프로젝트 폴더에 저장된 파일은 휴지통으로 가요". A sent file, one moved,
+  renamed or edited since, one that another reference points to (someone attached it from the folder meanwhile), and a
+  team file picked from the folder stay where they are; someone else's reference is 404. A chip taken out while its
+  file was still being put in place (the box never got its id): a chunked upload's cancel waits for it and sends it to
+  the trash the same way (also a cancel just after it finished), and a small upload whose request was dropped is taken
+  out by the server. A file whose chip was neither sent nor taken out stays in the folder, a team file like any other.
+  Independent review (2026-11-10): no must-fix; should-fix items in (another reference keeps the file, ✕ while
+  finishing, no second read of the file), nits in (the line counts only files saved or on their way, the mock's owner
+  check). The chip shows the name the file got there ("견적 (2).pdf"). Left: someone who only reads the project folder still sees "내 컴퓨터에서
+  올리기" and gets the refusal (the box does not know folder access); a folder under one of the names that the person
+  cannot see makes every upload a 403.
+- **What the person sees.** The chip looks as usual (a picture as itself while it uploads). One short line under the
+  chips while a file from the computer is attached, only in shared chats (`SharedUploadLine`): "프로젝트 폴더(채팅 첨부)에
+  저장돼요 · 프로젝트 사람 3명이 볼 수 있어요", the folder it went to and the count the line under the box uses ("프로젝트 사람
+  {n}명", the app's wording, rather than "멤버"). The attach menu offers the computer (and the camera on a phone) again;
+  the note under it and the red refusal are gone (`chat.sharedTeamFiles` removed).
+- **The send guard stays.** A shared chat still takes no upload of the person's own folder: one attached before the
+  chat was shared ("An existing chat shared") is refused at send with what to do: "이 채팅이 공유되기 전에 올린 파일은 내
+  폴더에 있어서 프로젝트 사람들이 볼 수 없어요. 그래서 보내지 않았어요. 첨부를 빼고 다시 붙이면 프로젝트 폴더에 저장돼요." (409
+  `shared_chat_upload`).
+- No migration: the upload is known by its own file event. Tests: `tests/unit/b-shared-chat-uploads.test.ts`,
+  `tests/unit/b-shared-chats.test.ts`, `tests/security/permission-matrix.test.ts` (the new route),
+  `web/test/unit/shared-chat-uploads.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts` ("a file from the computer
+  in a project's new chat"). Version impact: **minor** (a refusal becomes a feature; one endpoint added).
 
 ## 대화방의 트리나가 공유 프로젝트 채팅을 읽는다 — a room's AI reads shared project chats (feat/room-reads-shared-chats, 2026-11-07, product owner)
 
