@@ -21,7 +21,7 @@ import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
 import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
-import { cardSources, cleanPins, MAX_PINS, MAX_SOURCES, resolveSaveFolder, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
+import { cardSources, cleanPins, MAX_PINS, MAX_SOURCES, resolveSaveFolder, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
 import type { Database } from 'bun:sqlite'
 
 export const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_delete'] as const
@@ -40,7 +40,7 @@ const CreateInput = z.object({
     to: z.array(z.string().max(500)).min(1).max(MAX_PINS).describe('exactly where runs may send: a page or database id, an e-mail address, a channel id or name, a webhook address'),
   })).max(10).optional().describe('For the user\'s own (personal) connections: the only recipients runs may send to; a run sends nowhere else. The card shows them.'),
   save_to: z.string().max(1000).optional().describe('Only when runs must save files in a team folder that more people can see than what they read (e.g. "shared/weekly-reports"): that existing folder. After the user\'s yes on the card, runs may make NEW files there and in its sub-folders without asking (never change, replace, move or delete existing files; never skills or instruction files), at most 20 per run. Leave it out for the user\'s own folder, where runs always may save.'),
-  reads: z.array(z.string().max(1000)).max(MAX_SOURCES).optional().describe('The places runs read whose content may go into save_to although fewer people can see them: "my folder", team folder paths, and rooms as #[name](room:<id>) or their ids. A run that read anything else that fewer people can see does not save there. Rooms listed here also let a run that read them send to the connections in `connections`.'),
+  reads: z.array(z.string().max(1000)).max(MAX_SOURCES).optional().describe('The places runs read whose content may go into save_to although fewer people can see them: "my folder", team folder paths, and rooms as #[name](room:<id>) or their ids. A run that read anything else that fewer people can see does not save there. Rooms listed here also let a run that read them send to the user\'s own connections at their pinned recipients (never to a team connection after a room read).'),
 })
 
 function turnInfo(ctx: AppContext, t: ToolCtx): { projectId: string | null; scheduled: boolean } {
@@ -383,7 +383,7 @@ export function taskScope(ctx: AppContext, s: Pick<ScheduleRowT, 'user_id' | 'sa
   const kept = o.keep ? current.filter((x) => o.keep!.includes(scopeKey(x))) : current
   const own = ownConnections(ctx, userId)
   const sends = rowSends(s).flatMap((x) => { const r = own.find((c) => c.id === x.connectionId); return r ? [{ ...x, name: r.name, version: r.version }] : [] })
-  return { save, sources: cardSources(ctx.db, ctx.files.rules(), kept, save?.folder ?? null, userId), sends, badKeep }
+  return { save, sources: cardSources(ctx.db, ctx.files.rules(), withRules(ctx.db, ctx.files.rules(), kept), save?.folder ?? null, userId), sends, badKeep }
 }
 
 /** What an edit or review card binds its answer to of the scope: the folder as it is on disk with its rules and readers,
@@ -391,7 +391,7 @@ export function taskScope(ctx: AppContext, s: Pick<ScheduleRowT, 'user_id' | 'sa
 export function scopeBinding(x: { save: SaveFolder | null; sources: readonly ScopeSource[]; sends: readonly CardSend[] }) {
   return {
     save: x.save ? [x.save.folder, x.save.folderId, x.save.rule, x.save.readers] : null,
-    sources: x.sources.map(scopeKey).sort(),
+    sources: x.sources.map((y) => `${scopeKey(y)}:${'rule' in y ? y.rule ?? '' : ''}`).sort(),
     sends: x.sends.map((y) => `${y.connectionId}:${y.version}:${y.pins.join('\u0001')}`).sort(),
   }
 }
@@ -460,6 +460,12 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
         let now: SaveFolder | null = null
         try { now = resolveSaveFolder(ctx, t.user.id, scope.save.folder) } catch { now = null }
         if (!now || now.folderId !== scope.save.folderId || now.rule !== scope.save.rule) throw new ToolError(`the save folder ${scope.save.folder} changed while the card was open (moved, renamed, or its permissions changed), so nothing was created. Tell the user; ask again to show the card for the folder as it is now.`)
+      }
+      // and the own connections it pinned are still the person's, as the card showed them
+      if (answer === 'create_write' && scope.sends.length) {
+        const now = ownConnections(ctx, t.user.id)
+        const gone = scope.sends.filter((x) => !now.some((r) => r.id === x.connectionId && r.version === x.version))
+        if (gone.length) throw new ToolError(`${gone.map((x) => x.name).join(', ')} changed while the card was open, so nothing was created. Tell the user; ask again to show the card as it is now.`)
       }
       const sends = answer === 'create_write' ? offered : []
       const own = answer === 'create_write' ? scope.sends : []

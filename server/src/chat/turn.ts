@@ -2131,7 +2131,9 @@ export class TurnExec {
     // anything else that saves)
     const cover = call && COVER_TOOLS.has(call.tool) ? this.scheduleCover : null
     if (cover && call) {
-      const c = cover.save({ key: callKey(call.tool, call.args), tool: call.tool, path: target, mayBeNew: true, from: extraSources, read: [], main: call.main !== false })
+      // make_file's first check names its output without the format's extension: the file it makes is the one covered
+      const path = call.tool === 'make_file' ? saveTargetOf(call.tool, call.args)?.path ?? target : target
+      const c = cover.save({ key: callKey(call.tool, call.args), tool: call.tool, path, mayBeNew: true, from: extraSources, read: [], main: call.main !== false })
       if (c !== undefined) return c
     }
     return (await this.askWidening(need, { binding }))?.text ?? null

@@ -109,7 +109,8 @@ describe('the card', () => {
     expect(asked[0]!.options.map((o) => o.value)).toEqual(['create_write', 'create', 'deny'])
     const s = latest()!
     expect(s).toMatchObject({ save_folder: SAVE, save_readers: 5, save_lapsed_at: null })
-    expect(JSON.parse(s.save_sources!)).toEqual([MINE, { type: 'folder', id: 'f_groups_marketing' }, { type: 'room', id: room }])
+    // a listed folder keeps the fingerprint of its own rules (a change lapses the permission)
+    expect(JSON.parse(s.save_sources!)).toEqual([MINE, { type: 'folder', id: 'f_groups_marketing', rule: ruleFingerprint(h.ctx.files.rules(), ['groups', 'marketing']) }, { type: 'room', id: room }])
     expect(JSON.parse(s.personal_sends!)).toEqual([{ connectionId: notes.id, pins: ['page-1'] }])
     expect(s.save_rule).toBe(ruleFingerprint(h.ctx.files.rules(), SAVE.split('/')))
     expect(r.text).toContain(`Its runs may save NEW files in ${SAVE}`)
@@ -336,6 +337,21 @@ describe('lapses (Q1 a)', () => {
     }
   })
 
+  test('a listed folder whose own rules change lapses it too: its content may have become more private', async () => {
+    clear()
+    const marketing: ScopeSource = { type: 'folder', id: 'f_groups_marketing', rule: ruleFingerprint(h.ctx.files.rules(), ['groups', 'marketing']) }
+    const s = task(fake(read('groups/marketing/campaign-brief.md'), write(`${SAVE}/c.md`), { say: 'done' }), { sources: [MINE, marketing] })
+    expect(lapseOf(h.ctx, row(s.id))).toBeNull()
+    const id = uuidv7()
+    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_groups_marketing', 'user', 'erin', 'none')").run(id)
+    try {
+      expect(lapseOf(h.ctx, row(s.id))).toBe('rules')
+      await run(s.id)
+      expect(fs.existsSync(abs(`${SAVE}/c.md`))).toBe(false)
+      expect(row(s.id).save_lapse_reason).toBe('rules')
+    } finally { db().query('DELETE FROM folder_rules WHERE id = ?').run(id) }
+  })
+
   test('a group member joining does not lapse it; the person losing write access does', async () => {
     clear()
     fs.mkdirSync(abs('groups/marketing/reports'), { recursive: true })
@@ -357,10 +373,24 @@ describe('sends (Q2 a) and rooms', () => {
   const tool = () => `my_${notes.slug}__create_task`
   const sent = () => svc.calls.filter((c) => c.name === 'create_task').length
 
-  test('the pinned recipient goes; any other recipient, an address in another argument, or no recipient at all does not', () => {
+  test('what must be pinned: every text value outside the content names, any unknown destination name too; padding and depth are refused', () => {
     expect(pinTargets({ title: 'x', project: 'P1' })).toEqual(['P1'])
-    expect(pinTargets({ title: 'x', note: 'x@evil.example', parent: { page_id: 'abc' } }).sort()).toEqual(['abc', 'x@evil.example'])
+    // a note is content (it goes to the pinned page); the page id is where it goes
+    expect(pinTargets({ title: 'x', note: 'x@evil.example', parent: { page_id: 'abc' } })).toEqual(['abc'])
     expect(pinTargets({ title: 'see https://a.example in the text', public: false })).toEqual([])
+    // a destination under a name the server does not know still has to be pinned: a decoy "to" does not help
+    expect(pinTargets({ phone_number: '+15550100', to: 'boss@corp.example' })).toEqual(['+15550100', 'boss@corp.example'])
+    expect(pinTargets({ receiver_uuids: ['u-1'], body: 'hi' })).toEqual(['u-1'])
+    expect(pinTargets({ type: 'anyone', role: 'reader', file_id: 'F1' })).toEqual(['anyone', 'reader', 'F1'])
+    expect(pinTargets({ public: true, chat_id: 42, estimate: 3 })).toEqual(['true', '42'])
+    // the same recipient written 200 ways is one value, so the one after it is still seen; more than 50 cannot be checked
+    const padded = pinTargets({ cc: Array.from({ length: 200 }, (_, i) => `${' '.repeat(i % 7)}${i % 2 ? 'BOSS' : 'boss'}@corp.example`), bcc: ['evil@attacker.example'] })!
+    expect(padded).toHaveLength(2)
+    expect(padded).toContain('evil@attacker.example')
+    expect(pinTargets({ cc: Array.from({ length: 51 }, (_, i) => `p${i}@corp.example`) })).toBeNull()
+    let deep: unknown = { to: 'evil@attacker.example' }
+    for (let i = 0; i < 10; i++) deep = { wrap: deep }
+    expect(pinTargets(deep)).toBeNull()
     expect(pinForm('#General')).toBe(pinForm('general'))
     expect(pinForm('1234abcd-1234-abcd-1234-1234abcd5678')).toBe(pinForm('1234abcd1234abcd12341234abcd5678'))
   })
@@ -388,6 +418,26 @@ describe('sends (Q2 a) and rooms', () => {
     const r2 = await run(none.id)
     expect(sent()).toBe(n1)
     expect(r2.events.find((e) => e.tool === tool())!.summary).toContain('refused (nobody to ask)')
+  })
+
+  test('a team connection has no pins: after a room read it keeps the room card, even when the card listed the room', async () => {
+    clear()
+    const team = await h.api('carol').call(API.createTeamIntegration, { body: { kind: 'mcp', name: 'Team board', url: `${svc.base}/mcp-open`, auth: 'none', writePolicy: 'allow', access: { everyone: true, groups: [], users: [] } } as never })
+    const slug = (db().query('SELECT slug FROM integrations WHERE id = ?').get(team.id) as { slug: string }).slug
+    try {
+      const listed = await groupChat(['erin', 'carol'])
+      put(listed, 'erin', `${fake({ tool: `team_${slug}__create_task`, args: { title: 'leak', project: 'external' }, sayResult: true })}`)
+      const n0 = sent()
+      // without a room read it sends, as before
+      const plain = await run(task(fake({ tool: `team_${slug}__create_task`, args: { title: 'weekly' }, sayResult: true }, { say: 'done' }), { save: null, sources: [], writeConnections: [team.id] }).id)
+      expect(plain.events.find((e) => e.tool === `team_${slug}__create_task`)!.ok).toBe(1)
+      expect(sent() - n0).toBe(1)
+      // after reading the listed room, the planted call waits for the room card nobody answers
+      const r = await run(task(fake({ tool: 'room_read', args: { room: listed }, followResult: true }, { say: 'read' }), { save: null, sources: [{ type: 'room', id: listed }], writeConnections: [team.id] }).id)
+      expect(sent() - n0).toBe(1)
+      expect(r.events.find((e) => e.tool === `team_${slug}__create_task`)!.ok).toBe(0)
+      expect(r.answer).toContain('nobody could be asked')
+    } finally { db().query('DELETE FROM integrations WHERE id = ?').run(team.id) }
   })
 
   test('a planted room message cannot widen the scope or redirect a send; a listed room does not stop them', async () => {

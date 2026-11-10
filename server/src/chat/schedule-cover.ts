@@ -7,9 +7,10 @@
 //     skills folder or an instruction file, a path an AI turn just put in the trash; at most MAX_COVERED_FILES new files
 //     per run; and only when every place the run read that fewer people can see than the file is on the card, and every
 //     room the run read. Moves, copies, renames, deletes, save_url and videos are never covered (the usual card: no).
-//   - sends after a room read: a write to a connection the card allowed (an "allow" team connection, or the person's
-//     own one, whose recipients connections/tools.ts gate checks against the pins) skips the room card only when every
-//     room the run read is on the card.
+//   - sends after a room read: a write to one of the person's own connections the card pinned (connections/tools.ts
+//     gate checks every recipient against the pins) skips the room card only when every room the run read is on the
+//     card. An "allow" team connection has no pins: after a room read it keeps the room card (nobody answers it), so a
+//     planted message cannot steer it to another channel.
 //   - a lapse (the folder moved, renamed, deleted, its rules changed, the person's write access gone) stops every save
 //     there: the run saves in the person's own folder and says why (chat/schedule-scope.ts checkLapse).
 // Every cover is checked again right before the call writes (recheck), an absent target is reserved for the one call
@@ -222,14 +223,14 @@ export class ScheduleCover {
 
   /**
    * A connection write after a room read (its tool says which connection: TurnTool.sendsTo): null = the room card is
-   * skipped (the connection's own checks follow: an "allow" team connection the card allowed, or the person's own one
-   * at its pinned recipients); a string = refused; undefined = the card never allowed this connection (the usual card).
+   * skipped (the connection's own check follows: the person's own connection at its pinned recipients); a string =
+   * refused; undefined = the card pinned no recipients for this connection (the usual card: a team connection has no
+   * pins, so a planted room message could steer it anywhere it reaches).
    */
   send(connectionId: string): string | null | undefined {
     const row = this.row()
     if (!row) return undefined
-    const may = scheduleList(row.write_connections).includes(connectionId) || rowSends(row).some((x) => x.connectionId === connectionId)
-    if (!may) return undefined
+    if (!rowSends(row).some((x) => x.connectionId === connectionId)) return undefined
     this.host.noteReads()
     const scope = readScope(this.host.rt.db, this.host.spec.chatId) ?? []
     const rooms = this.unlistedRooms(scope, new Set(rowSources(row).map(scopeKey)))
@@ -277,9 +278,9 @@ export function runAllowance(ctx: AppContext, s: ScheduleRow): string | null {
       const from = sources.length ? names(sources) : null
       lines.push(`- Save NEW files in ${fresh.save_folder}, or in its sub-folders that have no folder permissions of their own, without asking: at most ${MAX_COVERED_FILES} per run, and you may change the files this run made there. Never replace, move, rename or delete a file there, and never save skills or instruction files there. ${from ? `Content from ${from} may go there; if this run reads anything else that fewer people can see, or a room not named here, do not save there: save in the user's personal folder and say why.` : 'Only content everyone who can see that folder may see goes there: if this run reads anything that fewer people can see, or a room, do not save there: save in the user\'s personal folder and say why.'}`)
     }
-  } else if (sources.length) lines.push(`- Reading ${names(sources)} does not stop the sends below; reading any other room does.`)
+  } else if (sources.length) lines.push(`- Reading ${names(sources)} does not stop the sends to the pinned recipients below; reading any other room does.`)
   const team = scheduleList(fresh.write_connections).map((id) => getRow(db, id)?.name).filter((n): n is string => !!n)
-  if (team.length) lines.push(`- Send to ${team.join(', ')} without asking.`)
+  if (team.length) lines.push(`- Send to ${team.join(', ')} without asking, but not after reading a team chat room in this run (their recipients are not pinned).`)
   for (const x of rowSends(fresh)) {
     const name = getRow(db, x.connectionId)?.name
     if (name) lines.push(`- Send to ${name} only at ${x.pins.map((p) => `'${p}'`).join(', ')}: any other recipient is refused, and a call whose recipient cannot be told is refused too.`)

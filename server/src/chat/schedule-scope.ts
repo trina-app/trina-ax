@@ -27,7 +27,7 @@ import { notificationsOf } from '../notifications/service'
 import type { ScheduleRow } from './schedules'
 
 /** A place whose content a run may put in the save folder although fewer people see it. */
-export type ScopeSource = { type: 'user'; id: string } | { type: 'room'; id: string } | { type: 'folder'; id: string } | { type: 'root' }
+export type ScopeSource = { type: 'user'; id: string } | { type: 'room'; id: string } | { type: 'folder'; id: string; rule?: string } | { type: 'root'; rule?: string }
 export const scopeKey = (s: ScopeSource): string => (s.type === 'root' ? 'root' : `${s.type}:${s.id}`)
 /** A personal connection a run may send to, and only to these recipients. */
 export interface PersonalSend { connectionId: string; pins: string[] }
@@ -96,6 +96,18 @@ export function resolveSaveFolder(ctx: AppContext, userId: string, input: string
   return { folder: r.rel, folderId: id, rule: ruleFingerprint(rules, r.segs), readers: readersOf(ctx.db, rules, r.segs).length }
 }
 
+/** A listed folder (or the team root) with the fingerprint of its rules now (a folder whose row is gone: dropped). A
+ * change of them later lapses the save permission (lapseOf): content that became more private may not go on to the
+ * save folder under the old yes. */
+export function withRules(db: Database, rules: RuleSet, sources: readonly ScopeSource[]): ScopeSource[] {
+  return sources.flatMap((s): ScopeSource[] => {
+    if (s.type === 'root') return [{ type: 'root', rule: ruleFingerprint(rules, []) }]
+    if (s.type !== 'folder') return [s]
+    const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
+    return row ? [{ type: 'folder', id: s.id, rule: ruleFingerprint(rules, row.path ? row.path.split('/') : []) }] : []
+  })
+}
+
 /** The places `reads` names (before the card): "my folder" (or users/<me>), team folders the person may read (by the
  * ruled folder above them, read-scope.ts sourceOf), and rooms the person is in, as #[name](room:<id>), room:<id> or
  * the bare id. `unknown`: the ones that are none of them (refused before the card). */
@@ -124,7 +136,7 @@ export function resolveSources(ctx: AppContext, userId: string, reads: readonly 
       else unknown.push(oneLine(v, 120))
     } catch { unknown.push(oneLine(v, 120)) }
   }
-  return { sources: [...out.values()].slice(0, MAX_SOURCES), unknown }
+  return { sources: withRules(db, rules, [...out.values()].slice(0, MAX_SOURCES)), unknown }
 }
 
 /** The places of `sources` that matter for this task: rooms always (they also let a connection write after a room read
@@ -158,7 +170,8 @@ export function sourceForAi(db: Database, s: ScopeSource, userId: string): strin
 
 /** Recipients as the card shows them and as runs compare them: one line each, no duplicates, at most MAX_PINS. */
 export function cleanPins(pins: readonly string[]): string[] {
-  return [...new Set(pins.map((p) => oneLine(p, 500)).filter(Boolean))].slice(0, MAX_PINS)
+  // no invisible or direction-changing characters: a pin on the card reads as what is compared
+  return [...new Set(pins.map((p) => oneLine(p.replace(/[\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, ''), 500)).filter(Boolean))].slice(0, MAX_PINS)
 }
 
 /** One recipient value in the form pins are compared in: trimmed, without case, a channel's leading '#', an address's
@@ -178,7 +191,10 @@ const json = <T>(v: string | null | undefined, ok: (x: unknown) => x is T): T[] 
 }
 const isSource = (x: unknown): x is ScopeSource => {
   const s = x as ScopeSource | null
-  return !!s && typeof s === 'object' && (s.type === 'root' || ((s.type === 'user' || s.type === 'room' || s.type === 'folder') && typeof (s as { id?: unknown }).id === 'string'))
+  if (!s || typeof s !== 'object') return false
+  const rule = (s as { rule?: unknown }).rule
+  if (rule !== undefined && typeof rule !== 'string') return false
+  return s.type === 'root' || ((s.type === 'user' || s.type === 'room' || s.type === 'folder') && typeof (s as { id?: unknown }).id === 'string')
 }
 const isSend = (x: unknown): x is PersonalSend => {
   const s = x as PersonalSend | null
@@ -198,9 +214,9 @@ export function scopeColumns(save: SaveFolder | null, sources: readonly ScopeSou
 }
 
 /** Why the card's save permission no longer holds now, or null: the folder on disk is not the one the card showed (moved,
- * renamed, deleted, replaced), the folder rules on the way to it changed, or its owner may not write there. Any error
- * is 'folder' (fails closed). */
-export function lapseOf(ctx: AppContext, s: Pick<ScheduleRow, 'user_id' | 'save_folder' | 'save_folder_id' | 'save_rule' | 'save_readers'>): SaveLapse | null {
+ * renamed, deleted, replaced), the folder rules on the way to it (or those of a listed folder: its content may have
+ * become more private) changed, or its owner may not write there. Any error is 'folder' (fails closed). */
+export function lapseOf(ctx: AppContext, s: Pick<ScheduleRow, 'user_id' | 'save_folder' | 'save_folder_id' | 'save_rule' | 'save_readers'> & { save_sources?: string | null }): SaveLapse | null {
   const save = rowFolder(s)
   if (!save) return null
   try {
@@ -208,6 +224,11 @@ export function lapseOf(ctx: AppContext, s: Pick<ScheduleRow, 'user_id' | 'save_
     const segs = save.folder.split('/')
     if (folderId(fx, segs) !== save.folderId) return 'folder'
     if (ruleFingerprint(rules, segs) !== save.rule) return 'rules'
+    const listed = rowSources({ save_sources: s.save_sources ?? null }).filter((x) => (x.type === 'folder' || x.type === 'root') && x.rule)
+    if (listed.length) {
+      const now = new Map(withRules(ctx.db, rules, listed).map((x) => [scopeKey(x), (x as { rule?: string }).rule]))
+      if (listed.some((x) => now.get(scopeKey(x)) !== (x as { rule?: string }).rule)) return 'rules'
+    }
     const me = loadPrincipal(ctx.db, s.user_id)
     if (!me || !atLeast(rules.access(me, segs), 'write')) return 'access'
     const r = authorize(fx, rules, me, save.folder, 'write', { mustExist: true })

@@ -127,7 +127,7 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
 
 /** What a write sends: the whole text and the parts that say where it goes (shown first on the card); `dest`: every
  * value that says where it goes, for a scheduled run's pinned recipients (pinTargets). */
-interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] }
+interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null }
 
 /** more than this cannot be checked on a card: such a write is refused, never shown cut */
 export const MAX_CARD_PAYLOAD = 100_000
@@ -149,36 +149,38 @@ export function recipientFields(args: unknown): { name: string; value: string }[
   return out
 }
 
-/** A whole value that is an e-mail address or a web address: it says where something goes whatever its argument is
- * called. */
-const ADDRESS = /^(?:mailto:)?[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$|^[a-z][a-z0-9+.-]*:\/\/\S+$/i
+/** Argument names whose values are what a write says, not where it goes: a pinned send lets them through (everything
+ * else that is text has to be one of the pinned recipients). Never `type`, `role` or anything that says who may see
+ * it (a Drive share's `type: "anyone"`). */
+const CONTENT = /^(text|body|content|contents|message|subject|title|name|description|summary|note|notes|comment|comments|markdown|html|caption|label|labels|tags?|emoji|icon|color|colou?r|priority|status|due|due_?date|date|time|start|end|language|alt|alt_?text|heading|paragraph|rich_?text|plain_?text|annotations|bold|italic|code|checked|done)$/i
+/** a pinned send's arguments deeper than this, or with more values than PIN_VALUES_MAX that say where it goes: refused,
+ * never cut (a long list would push a real recipient past the end) */
+const PIN_DEPTH_MAX = 8
+const PIN_VALUES_MAX = 50
 
 /**
- * Every value of a call that says where it goes, for a scheduled run's pinned recipients (Q2 a): each value under a
- * recipient-like argument (RECIPIENT, at any depth: an object's or a list's every value; false, null and empty values say
- * nothing), and every value anywhere that is a whole e-mail or web address, whatever its argument is called. [] when
- * there is none: the server cannot tell where the call goes, and a pinned send refuses it.
+ * Every value of a call that may say where it goes, for a scheduled run's pinned recipients (Q2 a), or null when the
+ * call cannot be checked (nested deeper than PIN_DEPTH_MAX, or more than PIN_VALUES_MAX such values). A value may say
+ * where it goes unless its own argument is one of the content names (CONTENT): every text value, every number and every
+ * `true` under a recipient-like name (RECIPIENT: a `chat_id`, `public: true`). So a destination under a name the server
+ * does not know (`receiver_uuids`, `room_id`, `destination`) still has to be pinned, and a decoy `to` next to it does
+ * not help. Each once in the form pins are compared in (pinForm). [] when there is none: the server cannot tell where
+ * the call goes, and a pinned send refuses it.
  */
-export function pinTargets(args: unknown): string[] {
-  const out = new Set<string>()
-  const leaves = (v: unknown, depth: number) => {
-    if (depth > 8 || v === null || v === undefined || v === false || v === '') return
-    if (Array.isArray(v)) { for (const x of v) leaves(x, depth + 1); return }
-    if (typeof v === 'object') { for (const x of Object.values(v as Record<string, unknown>)) leaves(x, depth + 1); return }
-    out.add(String(v))
+export function pinTargets(args: unknown): string[] | null {
+  const out = new Map<string, string>()
+  let bad = false
+  const add = (v: string) => { const k = pinForm(v); if (k && !out.has(k)) out.set(k, v.trim()) }
+  const walk = (v: unknown, key: string, depth: number) => {
+    if (bad || v === null || v === undefined || v === false || v === '') return
+    if (depth > PIN_DEPTH_MAX) { bad = true; return }
+    if (Array.isArray(v)) { for (const x of v) walk(x, key, depth + 1); return }
+    if (typeof v === 'object') { for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1); return }
+    if (typeof v === 'string') { if (!CONTENT.test(key) && v.trim()) add(v); return }
+    if (RECIPIENT.test(key)) add(String(v))
   }
-  const walk = (v: unknown, depth: number) => {
-    if (depth > 8 || v === null || v === undefined) return
-    if (typeof v === 'string') { if (ADDRESS.test(v.trim())) out.add(v.trim()); return }
-    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
-    if (typeof v !== 'object') return
-    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-      if (RECIPIENT.test(k)) leaves(x, depth + 1)
-      else walk(x, depth + 1)
-    }
-  }
-  walk(args, 0)
-  return [...out].slice(0, 200)
+  walk(args, '', 0)
+  return bad || out.size > PIN_VALUES_MAX ? null : [...out.values()]
 }
 
 /** The recipients a scheduled run's task pinned for the person's own connection `row` on its card (Q2 a), or null: the
@@ -194,10 +196,11 @@ function pinsFor(ctx: AppContext, turnId: string, row: Row): string[] | null {
 }
 
 /** A scheduled run's write to the person's own connection that its card listed: refused (the reason) unless every value
- * of the call that says where it goes is one of the pinned recipients; a call whose recipients cannot be told is refused
- * (fails closed). null: send. */
-function pinnedRefusal(row: Row, pins: readonly string[], dest: readonly string[] | undefined): string | null {
+ * of the call that may say where it goes is one of the pinned recipients (pinTargets); a call whose recipients cannot be
+ * told, or cannot be checked, is refused (fails closed). null: send. */
+function pinnedRefusal(row: Row, pins: readonly string[], dest: readonly string[] | null | undefined): string | null {
   const why = (w: string, next: string) => refusal({ done: `Nothing was sent to ${row.name}.`, why: { kind: 'mode', mode: 'this scheduled run', why: w }, next, names: [row.name] })
+  if (dest === null) return why(`this call has more arguments than the server can check against the recipients the card pinned (more than ${PIN_VALUES_MAX} values that may say where it goes, or nested more than ${PIN_DEPTH_MAX} levels deep)`, 'send less at once, with only the pinned recipients, and say in the summary what was not sent')
   if (!dest?.length) return why('the server cannot tell where this call sends (none of its arguments names a recipient it knows), so it cannot check the recipients the card pinned', `say so in the summary; send only with an argument that names one of the pinned recipients (${pins.map((p) => `'${p}'`).join(', ')})`)
   const allowed = new Set(pins.map(pinForm))
   const other = dest.filter((v) => !allowed.has(pinForm(v)))
@@ -604,7 +607,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         const u = new URL(url)
         let current = row
         if (a.method !== 'GET' && a.method !== 'HEAD') {
-          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: [url, ...pinTargets(a.body)] }, b, tc)
+          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)) }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }
