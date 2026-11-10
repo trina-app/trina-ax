@@ -22,6 +22,7 @@ import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { KNOWLEDGE_GRAPH_SPECS } from './knowledge-graph-cases'
 import { knowledgeGraphOf, type LookupResult } from '../../../server/src/knowledge-graph/service'
 import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
+import { MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -37,6 +38,8 @@ type Scope =
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
+  | 'admins'          // an endpoint every signed-in person may call, but for this resource only the owner and admins
+  | 'own-owner'       // a resource of the owner's own (dana): only her, not an admin
   | 'members'         // members only: owners and admins have their own way (members contribute, docs/DECISIONS.md "MC")
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
@@ -148,7 +151,8 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'finance': case 'finance-write': return who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': case 'alice-project': return who === 'memberIn' || who === 'owner' || who === 'admin'
-    case 'skills-manager': return who === 'owner' || who === 'admin'
+    case 'skills-manager': case 'admins': return who === 'owner' || who === 'admin'
+    case 'own-owner': return who === 'owner'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
     case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
     case 'nobody': return false
@@ -184,6 +188,7 @@ export const SPECS: Record<string, Spec> = {
   ...SKILL_SHARE_SPECS,
   ...KNOWLEDGE_GRAPH_SPECS,
   ...ONBOARDING_FILES_SPECS,
+  ...MISC_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
@@ -380,6 +385,9 @@ export const SPECS: Record<string, Spec> = {
   tree: { build: (c) => c.get('/api/files/tree?path=users%2Falice'), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceFileName)) throw new Error(`${who} sees a file name in users/alice`) } },
   content: { build: (c) => c.get('/api/files/content?path=users%2Falice%2Ftodo.md'), scope: 'users-alice' },
+  // who can see a folder: another person's folder answers 404 to everyone else, the owner and admins too, and never a count
+  folderAudience: { build: (c) => c.get('/api/files/audience?path=users%2Falice'), scope: 'users-alice',
+    check: (r, w, who) => { if (who !== 'memberIn' && /"people"/.test(r.text)) throw new Error(`${who} got a count for users/alice`) } },
   saveContent: { build: (c) => c.put('/api/files/content', { path: 'users/alice/todo.md', content: 'overwritten', baseSha256: null }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} wrote into users/alice`) } },
   download: { build: (c) => c.get('/api/files/download?path=users%2Falice%2Ftodo.md'), scope: 'users-alice' },
@@ -680,6 +688,8 @@ export const SPECS: Record<string, Spec> = {
   syncConnected: { build: (c) => c.post('/api/admin/connected/00000000-0000-7000-8000-000000000000/sync'), scope: 'byLevel' },
   removeConnected: { build: (c) => c.del('/api/admin/connected/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
   updateConnection: { skipPositive: true, build: (c) => c.put('/api/admin/connection', { mode: 'direct', password: 'wrong' }), scope: 'byLevel' },
+  // last: the owner's team start changes the world, so it runs after every other case of its phase
+  ...MISC_LAST_SPECS,
 }
 
 // multipart helpers

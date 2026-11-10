@@ -267,8 +267,27 @@ export type FileList = z.infer<typeof FileList>
 export const HtmlPdfSaved = z.object({ entry: FileEntry, pages: z.number().int().min(1), blocked: z.number().int().min(0), scripts: z.boolean() })
 export type HtmlPdfSaved = z.infer<typeof HtmlPdfSaved>
 
+/**
+ * GET /api/files/audience?path=: who can see a folder, as far as the caller may know it (docs/DECISIONS.md "Who can see
+ * a folder, in place"). Answered for a folder the caller can open, with the same answers as GET /api/files/tree for the
+ * same path, except that a folder they can only pass through answers 404 like one they cannot see. `people` and
+ * `everyone` only where a write by the caller would pass (the copy dry run from their own folder already says that
+ * number): how many active people can open the folder, the caller, the owner and admins included, and whether that is
+ * every active person. Never names, ids, groups, roles, how many can write, or where a rule is.
+ */
+export const FolderAudience = z.object({
+  /** actual names on disk */
+  path: RelPath,
+  /** the caller's access to the folder */
+  access: Access,
+  people: z.number().int().positive().optional(),
+  everyone: z.boolean().optional(),
+})
+export type FolderAudience = z.infer<typeof FolderAudience>
+
 export const FILES = {
   tree: endpoint({ method: 'GET', path: '/api/files/tree', auth: 'user', owner: 'C', query: TreeQuery, response: TreeResponse, summary: 'List a folder (only what the caller may see; ancestors of visible folders shown for navigation).' }),
+  folderAudience: endpoint({ method: 'GET', path: '/api/files/audience', auth: 'user', owner: 'C', query: PathQuery, response: FolderAudience, summary: 'Who can see a folder the caller can open: their access, and where they can write, how many active people can open it (owner and admins included) and whether that is everyone. Counted, never named.' }),
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
   saveContent: endpoint({ method: 'PUT', path: '/api/files/content', auth: 'user', owner: 'C', body: SaveContentBody, response: SaveResult, summary: 'Save a text file from the file screen (hash-based conflict copy, version history).' }),
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),

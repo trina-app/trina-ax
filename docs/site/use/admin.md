@@ -3,8 +3,10 @@ title: Admin
 description: What owners and admins manage, and where each setting lives.
 ---
 
-**Admin** in the sidebar is for the owner and admins. Every page in it is for the whole team, and says so next to its
-title. It opens on **Home**, which lists what needs attention first.
+**Admin** in the sidebar is for the owner and admins. Every page in it is for the whole team: the menu's title is your
+team's name and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above its title. The pages keep
+the same names as in Settings (Connectors in Admin is the team's, Connectors in Settings is yours). It opens on
+**Home**, which lists what needs attention first.
 For the owner, Home also lists the first setup steps that are still to do: check the AI connection, set folder
 permissions, invite your team, prepare a team skill, make the first backup. A finished step leaves the list.
 

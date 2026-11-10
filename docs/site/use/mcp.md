@@ -24,6 +24,9 @@ Before 0.4.0, this screen is called **External services**.
 | Used by | That member, in their own chats | The people its rules name: everyone, groups or people |
 | Visible to | Only that member, not admins | Admins |
 
+In Settings, the team connections you may use are listed under **From** and your team's name, read only, each with
+**Ready** or what is wrong with it. Admins also see the ones not for them (**Off for you**) and a **Manage** link.
+
 Admins manage team connections but do not use them unless a rule names them. Who may use a connection is checked on every call.
 
 ## Add a connection
@@ -32,17 +35,17 @@ Admins manage team connections but do not use them unless a rule names them. Who
 #### Open the MCP screen
 **Settings › MCP** for yourself, or **Admin › MCP** for the team.
 
-![Settings › MCP with the Connected tab: no MCP connected yet, and an Add connection button](../images/mcp/connected.webp "Settings › MCP, Connected")
+![Settings › MCP: no MCP connected yet, with Discover under it on the same page, and an Add connection button](../images/mcp/connected.webp "Settings › MCP")
 
 #### Pick a service or add by address
-**Discover** lists services that support sign-in with Trina AX. **Add connection** takes any MCP server address.
+**Discover**, under your connections on the same page, lists services that support sign-in with Trina AX. **Add connection** takes any MCP server address.
 
-![The Discover tab: MCP servers ready to add, such as Notion, Linear, Atlassian, Canva and Figma, each with a + button](../images/mcp/discover.webp "Discover: services you can add by name")
+![Discover: MCP servers ready to add, such as Notion, Linear, Atlassian, Canva and Figma, each with a + button](../images/mcp/discover.webp "Discover: services you can add by name")
 
 #### Sign in or paste a key
 Keys and sign-ins are stored encrypted on the server and never shown again.
 
-![The Add Notion dialog: the address filled in, the choice between Ask every time and Block writing, and Save and sign in](../images/mcp/add.webp "Adding a service from Discover")
+![The Add Notion dialog: the address filled in, Advanced folded with MCP server, sign-in and Ask every time, and Save and sign in](../images/mcp/add.webp "Adding a service from Discover")
 
 #### Choose who may use it
 For a team connection, name everyone, groups or people.
@@ -71,7 +74,7 @@ Many services give a key its owner's rights and log every call under that person
 In **Admin › MCP**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
 
 #### Members connect
-The members it is for see it in **Settings › MCP** under **From your team**, and choose **Connect**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
+The members it is for see it in **Settings › MCP** under **From** and your team's name, and choose **Connect your account**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
 :::
 
 | | Team connection (one key) | Template |
