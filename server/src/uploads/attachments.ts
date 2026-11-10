@@ -1,6 +1,7 @@
 // Chat attachments (tab 4 "첨부"): stored in the person's own folder users/<id>/.attachments/<chatId>/ (normal
 // permission rules apply: nobody else, admins included, can read them), recorded in `attachments` so messages can
-// refer to them by id (B: attachmentsByIds when a message is sent).
+// refer to them by id (B: attachmentsByIds when a message is sent). In a shared project chat a file from the computer
+// goes into the project folder instead and is attached as a team file (uploads/shared-chat.ts).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Attachment } from '@mycel/shared/api'
@@ -19,6 +20,11 @@ import { mimeOf, type TeamFiles } from '../team-files/service'
 import { displaySize, firstBytes, makeThumbnail, mayHaveAlpha, type ThumbExt } from './image'
 import type { TeamFileRefs } from './team-refs'
 import { visibleSharedChat } from '../chat/shared'
+import type { ChatRow } from '../chat/store'
+import { instructionFile } from '../team-files/ai-trash'
+import { FileError } from '../team-files/errors'
+import { ToolError } from '../policy/errors'
+import { sharedUploadPlace } from './shared-chat'
 
 export const ATTACHMENTS_DIR = '.attachments'
 /** settings: set once every thumbnail from before transparent ones were PNG was looked at (refreshThumbs) */
@@ -48,10 +54,16 @@ export class Attachments {
 
   private thumbsDir() { return path.join(this.ctx.config.dataDir, 'thumbs') }
 
-  /** The chat must belong to the caller and not be deleted. A shared project chat takes no computer upload (team files
-   * only, docs/DECISIONS.md "Shared project chats" D3): 409 for anyone who sees it, its creator too. */
-  assertOwnChat(userId: string, chatId: string) {
-    if (visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)) fileError('conflict', 'sharedChatUpload', undefined, { reason: 'shared_chat_upload' })
+  /** A file from the computer may go into this chat: the caller's own chat (not deleted), or a shared project chat they
+   * see whose project folder they may write (the file goes there: uploads/shared-chat.ts sharedUploadPlace, which
+   * refuses otherwise). Checked again when the file is placed (a long upload: rules may change meanwhile). */
+  assertUploadChat(userId: string, chatId: string) {
+    const shared = visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
+    if (shared) { sharedUploadPlace(this.ctx, this.files, userId, shared); return }
+    this.assertOwnChat(userId, chatId)
+  }
+
+  private assertOwnChat(userId: string, chatId: string) {
     const c = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND shared_at IS NULL').get(chatId, userId)
     if (!c) fileError('not_found', 'notChat')
   }
@@ -64,12 +76,15 @@ export class Attachments {
     if (!c) fileError('not_found', 'notChat')
   }
 
-  /** Store an uploaded file (on disk at `src`) as an attachment of an own chat. */
+  /** Store an uploaded file (on disk at `src`) as an attachment of an own chat, or of a shared project chat the caller
+   * sees (createShared). */
   async create(userId: string, chatId: string, name: string, src: string, sha256: string): Promise<Attachment> {
-    this.assertOwnChat(userId, chatId)
+    const shared = visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
+    if (!shared) this.assertOwnChat(userId, chatId)
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = clean.includes('/') ? 'names cannot contain "/"' : badSegment(clean)
     if (bad) fileError('validation', 'badName', { name: bad })
+    if (shared) return this.createShared(userId, shared, clean, src, sha256)
     const user = this.files.principal(userId)
     const rules = this.files.rules()
     const dir = authorize(this.files.fx, rules, user, ['users', userId, ATTACHMENTS_DIR, chatId].join('/'), 'write', { mustExist: false, createDirs: true })
@@ -101,6 +116,31 @@ export class Attachments {
     this.files.extractText(r.rel)
     publishChanges(this.ctx, [{ path: r.rel, action: 'create', by: { id: userId, name: user.name }, turnId: null }])
     return toApi(this.row(id)!)
+  }
+
+  /**
+   * A file from the computer in a shared project chat (uploads/shared-chat.ts): placed by the person in the project's
+   * chat attachments folder (made first when missing, as their "new folder"), as a Files-screen upload of theirs (a taken
+   * name or an instruction file's name gets the next free one; the upload event carries the attachment and the chat),
+   * then attached as a team file. Its reference's limits are checked before anything is placed; a reference that still
+   * cannot be made sends the file to the trash, so nothing is left behind for an attachment that never was.
+   */
+  private async createShared(userId: string, chat: ChatRow, name: string, src: string, sha256: string): Promise<Attachment> {
+    if (!this.refs) throw new HttpError('unavailable')
+    const place = sharedUploadPlace(this.ctx, this.files, userId, chat)
+    // the safety check's download-only list: such bytes are never a team file the AI could be handed
+    if (this.ctx.files.quarantine.hasHash(sha256)) throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
+    this.refs.assertRoom(userId, chat.id)
+    if (!place.exists) {
+      // another upload of the same moment may have made it just now
+      try { this.files.mkdir(userId, place.folder) } catch (e) { if (!(e instanceof FileError && e.key === 'exists')) throw e }
+    }
+    const id = newId()
+    const entry = await this.files.placeUpload(userId, place.folder, name, src, 'rename', sha256, { action: 'upload', detail: { attachment: id, chatId: chat.id } }, { taken: instructionFile })
+    try { return await this.refs.create(userId, chat.id, entry.path, { id }) } catch (e) {
+      try { this.files.remove(userId, entry.path) } catch (err) { this.ctx.log.warn('an upload whose attachment failed could not go to the trash', { err }) }
+      throw e
+    }
   }
 
   private row(id: string): Row | null { return this.ctx.db.query(`SELECT ${COLS} FROM attachments WHERE id = ?`).get(id) as Row | null }

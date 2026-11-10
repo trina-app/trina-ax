@@ -2,7 +2,8 @@
 // first message creates the chat, in the project when there is one, and opens it. A draft and its attachments are kept
 // per place ("new", "project:<id>"), so a project's page and "/?project=<id>" share one.
 // In a project that shares its chats (docs/DECISIONS.md "Shared project chats") the new chat is a shared chat: the line
-// under the box says how many people will see it, and only team files can be attached.
+// under the box says how many people will see it, and a file from this computer is saved in the project folder (a line
+// under the chips says so).
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Attachment, Project } from '@mycel/shared/api'
@@ -97,7 +98,7 @@ export function NewChatComposer({ projectId, project, initialText, resetKey = 0,
       placeholder={placeholder}
       footer={sharedLine}
       phoneFooter={sharedLine}
-      teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
+      sharedUploads={shared ? { audience: project.audience ?? 0 } : undefined}
       projectId={projectId}
       waitsFor={waitsFor}
     />

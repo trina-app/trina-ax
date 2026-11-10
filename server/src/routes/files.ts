@@ -187,6 +187,8 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.searchFileContents, ({ c, query, auth }) => mapErrors(c.get('locale'), () => searchFileContents(svc, auth.user.id, query.q, query.path, query.limit, c.req.raw.signal)))
     kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
+    // a chip taken out before sending: a computer upload into a shared chat goes to the trash (uploads/team-refs.ts discard)
+    kit.handle(API.discardAttachment, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.discard(auth.user.id, params.id)))
 
     // ---------------- chunked uploads ----------------
     kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.create(auth.user.id, body.target, body.size, body.sha256), 'target'))

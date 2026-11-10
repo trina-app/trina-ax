@@ -84,7 +84,7 @@ export class UploadSessions {
       const r = authorize(this.files.fx, this.files.rules(), user, t.path, 'write', { mustExist: false })
       if (r.exists && (r.st!.isDirectory() || t.onExists === 'fail')) fileError('conflict', 'exists', { path: r.rel })
     } else if (t.kind === 'attachment') {
-      this.attachments.assertOwnChat(userId, t.chatId)
+      this.attachments.assertUploadChat(userId, t.chatId)
       const bad = t.name.includes('/') ? 'names cannot contain "/"' : badSegment(t.name.normalize('NFC'))
       if (bad) fileError('validation', 'badName', { name: bad })
     } else if (!this.transcribe) {

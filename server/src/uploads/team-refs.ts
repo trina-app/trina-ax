@@ -88,12 +88,25 @@ export class TeamFileRefs {
   private lastEvent(): number { return (this.ctx.db.query('SELECT COALESCE(MAX(id), 0) AS n FROM file_events').get() as { n: number }).n }
   isRef(id: string): boolean { return !!this.ctx.db.query('SELECT 1 FROM team_file_refs WHERE id = ?').get(id) }
 
+  /** The limits on new references (attaching re-reads and hashes the file, so a script must not be able to make the
+   * server do it without end): 429 when this person made too many lately or the chat holds too many. Checked by create,
+   * and before a computer upload into a shared chat puts anything in the project folder (uploads/shared-chat.ts). */
+  assertRoom(userId: string, chatId: string) {
+    const since = new Date(Date.now() - RATE_WINDOW_MS).toISOString()
+    const recent = (this.ctx.db.query('SELECT COUNT(*) AS n FROM team_file_refs WHERE user_id = ? AND created_at > ?').get(userId, since) as { n: number }).n
+    if (recent >= ATTACH_RATE_MAX) throw new HttpError('rate_limited', undefined, { retryAfter: 60 })
+    const inChat = (this.ctx.db.query('SELECT COUNT(*) AS n FROM team_file_refs WHERE chat_id = ?').get(chatId) as { n: number }).n
+    if (inChat >= CHAT_REFS_MAX) throw new HttpError('rate_limited')
+  }
+
   /**
    * Attach `input` (a team-relative path) to the caller's own chat. Every way of not being allowed — no read access,
    * missing, a folder, .system/, another person's users/<id>/, a link, a look-alike path — is the same 404. The same
    * unchanged file attached again to the same chat gives back the reference it already has (no new row, no hashing).
+   * `id`: the new reference's id, named beforehand (a computer upload in a shared chat records it in its upload event:
+   * always a new reference then).
    */
-  async create(userId: string, chatId: string, input: string): Promise<Attachment> {
+  async create(userId: string, chatId: string, input: string, o: { id?: string } = {}): Promise<Attachment> {
     // the caller's own chat, or a shared project chat they see (its people continue it with team files: chat/shared.ts)
     const own = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND shared_at IS NULL').get(chatId, userId)
       ?? visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
@@ -108,15 +121,10 @@ export class TeamFileRefs {
       rel = r.rel; abs = r.abs; st = seen
     } catch { throw new HttpError('not_found') }
     const mtime = Math.floor(st.mtimeMs)
-    const same = this.ctx.db.query(`SELECT ${COLS} FROM team_file_refs WHERE user_id = ? AND chat_id = ? AND path = ? AND path_at_attach = ? AND ino = ? AND dev = ? AND size = ? AND mtime_ms = ? AND trash_id IS NULL AND lost = 0 ORDER BY created_at DESC LIMIT 1`)
+    const same = o.id ? null : this.ctx.db.query(`SELECT ${COLS} FROM team_file_refs WHERE user_id = ? AND chat_id = ? AND path = ? AND path_at_attach = ? AND ino = ? AND dev = ? AND size = ? AND mtime_ms = ? AND trash_id IS NULL AND lost = 0 ORDER BY created_at DESC LIMIT 1`)
       .get(userId, chatId, rel, rel, st.ino, st.dev, st.size, mtime) as RefRow | null
     if (same) return this.toAttachment(same, rel, st, false, false)
-    // limits: attaching reads the whole file, so a script must not be able to make the server do it without end
-    const since = new Date(Date.now() - RATE_WINDOW_MS).toISOString()
-    const recent = (this.ctx.db.query('SELECT COUNT(*) AS n FROM team_file_refs WHERE user_id = ? AND created_at > ?').get(userId, since) as { n: number }).n
-    if (recent >= ATTACH_RATE_MAX) throw new HttpError('rate_limited', undefined, { retryAfter: 60 })
-    const inChat = (this.ctx.db.query('SELECT COUNT(*) AS n FROM team_file_refs WHERE chat_id = ?').get(chatId) as { n: number }).n
-    if (inChat >= CHAT_REFS_MAX) throw new HttpError('rate_limited')
+    this.assertRoom(userId, chatId)
     // the hash of this very version may be known already (attached before, or hashed for a turn)
     const known = this.ctx.db.query(`SELECT sha256 FROM team_file_refs WHERE user_id = ? AND path_at_attach = ? AND ino = ? AND dev = ? AND size = ? AND mtime_ms = ?
       UNION ALL SELECT cur_sha256 FROM team_file_refs WHERE user_id = ? AND path = ? AND cur_ino = ? AND dev = ? AND cur_size = ? AND cur_mtime_ms = ? AND cur_sha256 IS NOT NULL LIMIT 1`)
@@ -124,7 +132,7 @@ export class TeamFileRefs {
     let sha: string
     try { sha = known?.sha256 ?? await hashChecked(abs, st) } catch { throw new HttpError('not_found') }
     const name = rel.slice(rel.lastIndexOf('/') + 1)
-    const id = newId()
+    const id = o.id ?? newId()
     this.ctx.db.query(`INSERT INTO team_file_refs (id, user_id, chat_id, path, path_at_attach, name, size, mime, kind, sha256, mtime_ms, ino, dev, event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       id, userId, chatId, rel, rel, name, st.size, mimeOf(name) ?? 'application/octet-stream', attachmentKind(name), sha, mtime, st.ino, st.dev, this.lastEvent())
     // like a read by the AI, attaching a team file is in the audit list (users/<id>/… is shown only to its person)
@@ -315,6 +323,32 @@ export class TeamFileRefs {
       const name = s.rel.slice(s.rel.lastIndexOf('/') + 1)
       return { bytes: bytes.subarray(0, pos), name, mime: mimeOf(name) ?? 'application/octet-stream', etag: `${opened.st.ino.toString(36)}-${pos.toString(36)}-${Math.floor(opened.st.mtimeMs).toString(36)}` }
     } finally { fs.closeSync(opened.fd) }
+  }
+
+  /**
+   * A chip taken out of the box before its message went (DELETE /api/attachments/:id): the person's own reference of a
+   * chat goes. When it is the file they uploaded from their computer into that shared chat (its upload event names this
+   * reference: uploads/shared-chat.ts), not sent in any message, and still the very file put there (the same place, the
+   * same inode, unchanged), the file goes to the team trash like a delete on the Files screen (restorable from Files >
+   * Trash until it is purged): `trashed`. Anything else stays where it is: a team file picked from the folder, one moved,
+   * renamed or edited since, one in a message. Someone else's reference, or none: 404.
+   */
+  discard(userId: string, id: string): { trashed: boolean } {
+    const row = this.row(id)
+    if (!row || row.user_id !== userId) throw new HttpError('not_found')
+    if (this.ctx.db.query('SELECT 1 FROM messages WHERE chat_id = ? AND instr(attachments, ?) > 0 LIMIT 1').get(row.chat_id, id)) return { trashed: false }
+    const uploaded = this.ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND json_extract(detail, '$.attachment') = ? AND json_extract(detail, '$.chatId') = ? LIMIT 1")
+      .get(row.path_at_attach, userId, id, row.chat_id)
+    let trashed = false
+    if (uploaded) {
+      const s = this.locateSync(userId, id, true)
+      if (s.state === 'ok' && !s.moved && !s.changed && s.st.ino === row.ino && s.st.dev === row.dev) {
+        try { this.files.remove(userId, s.rel); trashed = true } catch (e) { this.ctx.log.warn('a removed chip\'s upload could not go to the trash', { err: e }) }
+      }
+    }
+    this.ctx.db.query('DELETE FROM team_file_refs WHERE id = ?').run(id)
+    this.cache.delete(id)
+    return { trashed }
   }
 
   /** References never sent in a message, older than a week (the composer was closed without sending). */
