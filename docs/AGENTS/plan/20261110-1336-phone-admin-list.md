@@ -89,7 +89,9 @@ In:
 **1. Breakpoint.** Phones are below 768 px (`max-md`, `useMediaQuery('(max-width: 767.98px)')`, the same as the tab bar
 and the phone top bar), in a browser and in the phone app. From 768 px Admin is the sidebar and a page: the owner
 decided that tablets (768 to 1023 px, which showed the title and the cut-off strip; the sidebar started at 1024 px)
-get the sidebar too, so the strip is gone everywhere. 1024 px and up does not change. Components this plan touches that switch at 640 px today (`SettingRow`, `OneLine`'s two lines,
+get the sidebar too, so the strip is gone everywhere. There it is a narrow rail with each name small under its icon
+(the app's own 280 px sidebar is beside it; a full-width column left the page 280 to 330 px). 1024 px and up does not
+change. Components this plan touches that switch at 640 px today (`SettingRow`, `OneLine`'s two lines,
 `SearchBox`, `Card`'s header, Activity log's Filters) switch at 768 px, so 640 to 767 px is not half phone, half not.
 
 **2. The Admin root on a phone (/admin).**

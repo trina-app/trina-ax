@@ -11,8 +11,11 @@
 // - ‹ names where Back goes, alone when that has no name here or is the same page.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
+import { useState } from 'react'
 import { Link, MemoryRouter, Route, Routes, useLocation, useNavigationType, type InitialEntry } from 'react-router-dom'
 import { BELOW, backLabel, createTrail, needsList, noteEntry, noteLocation, resetTrail, scrollOnShow, useBackLabel, useListUnderPage } from '../../src/lib/backStack'
+import { fixCount, sectionOf } from '../../src/pages/admin/overview'
+import { rowValue } from '../../src/pages/admin/PhoneRoot'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 
 const historyBefore = Object.getOwnPropertyDescriptor(globalThis, 'history')
@@ -94,6 +97,16 @@ describe('when the list goes under a page', () => {
     expect(at('POP', null, { idx: null })).toBe(false)
   })
 
+  test('Back to a first entry seen before without its list (a computer, then narrowed): not rebuilt', () => {
+    expect(at('POP', null, { idx: 0 }) && needsList({ nav: 'POP', below: null, idx: 0, listPath: '/admin', own: false, fresh: false })).toBe(false)
+    const t = createTrail()
+    noteEntry(t, 'a', '/admin/members', 'POP', null)
+    expect(t.newKey).toBe('a')
+    noteEntry(t, 'b', '/c/1', 'PUSH', null)
+    noteEntry(t, 'a', '/admin/members', 'POP', null)
+    expect(t.newKey).toBeNull()
+  })
+
   test('an entry already rebuilt is left alone', () => {
     expect(at('PUSH', '/c/abc', { own: true })).toBe(false)
     expect(at('POP', null, { idx: 0, own: true })).toBe(false)
@@ -126,12 +139,45 @@ describe('the ‹ label', () => {
 })
 
 describe('where a page\'s scroll goes', () => {
-  test('Back or Forward: where it was; a push: the top; a replace, a #hash or a ?query: left to the page', () => {
+  test('Back or Forward: where it was; a push: the top; a replace, a #hash or a ?query the page scrolls to: left to the page', () => {
     expect(scrollOnShow('POP', '', '')).toBe('restore')
     expect(scrollOnShow('PUSH', '', '')).toBe('top')
     expect(scrollOnShow('PUSH', '#ai-limits', '')).toBe('keep')
-    expect(scrollOnShow('PUSH', '', '?member=bob')).toBe('keep')
+    for (const q of ['?member=bob', '?focus=hwp', '?folder=shared']) expect(scrollOnShow('PUSH', '', q)).toBe('keep')
+    // a query the page does not scroll to (an engine opened, a view): the top, not the last page's place
+    for (const q of ['?engine=claude-code', '?view=people', '?drive=1']) expect(scrollOnShow('PUSH', '', q)).toBe('top')
     expect(scrollOnShow('REPLACE', '', '')).toBe('keep')
+  })
+})
+
+describe('the phone list\'s values and badges', () => {
+  const state = <T,>(data: T | null, error: string | null = null) => ({ data, error, reload: async () => {} })
+  const o = {
+    users: state({ items: [] }), engines: state({ engines: [] }), services: state([{ id: 's' }, { id: 't' }]), plugins: state([]),
+    usage: state({ totals: { costUsd: 0.47 } }), audit: state([{ at: new Date().toISOString() }]), active: [{}, {}, {}], defaultEngine: 'Claude Code',
+  } as never
+  test('what Home says first; nothing for none or for a page Home reads nothing for', () => {
+    expect(rowValue('members', o, 'en')).toBe('3')
+    expect(rowValue('providers', o, 'en')).toBe('Claude Code')
+    expect(rowValue('connectors', o, 'en')).toBe('2')
+    expect(rowValue('plugins', o, 'en')).toBeNull()
+    expect(rowValue('usage', o, 'en')).toContain('0.47')
+    expect(rowValue('audit', o, 'en')).toBeTruthy()
+    for (const id of ['groups', 'folders', 'ai-apps', 'slack', 'settings', 'system']) expect(rowValue(id, o, 'en')).toBeNull()
+  })
+  test('a source that failed: "failed" (shown as "—", read out as Unavailable); still loading: nothing', () => {
+    expect(rowValue('members', { ...(o as object), users: state(null, 'boom') } as never, 'en')).toBe('failed')
+    expect(rowValue('members', { ...(o as object), users: state(null) } as never, 'en')).toBeNull()
+  })
+  test('a badge counts the attention rows that open that page, by its path', () => {
+    expect(sectionOf('/admin/providers?engine=claude-code')).toBe('providers')
+    expect(sectionOf('/admin/settings#ai-limits')).toBe('settings')
+    expect(sectionOf('/admin')).toBe('')
+    expect(sectionOf('/skills')).toBeNull()
+    const rows = [{ to: '/admin/providers' }, { to: '/admin/providers?engine=claude-code' }, { to: '/admin/system' }, { to: '/skills' }]
+    expect(fixCount(rows, 'providers')).toBe(2)
+    expect(fixCount(rows, 'system')).toBe(1)
+    expect(fixCount(rows, 'connectors')).toBe(0)
   })
 })
 
@@ -196,6 +242,35 @@ describe('the hook in the app', () => {
       } finally {
         await m.unmount()
       }
+    }
+  })
+
+  test('a resize to a phone on the same entry never rebuilds (only how the entry first showed counts)', async () => {
+    seen = []
+    historyAt(2)
+    function Flip() {
+      const [phone, setPhone] = useState(false)
+      return (
+        <MemoryRouter initialEntries={['/c/1']}>
+          <Note />
+          <button type="button" data-testid="flip" onClick={() => setPhone(true)}>flip</button>
+          <Routes>
+            <Route path="/admin/:section" element={<Page phone={phone} final />} />
+            <Route path="*" element={<Link to="/admin/members" data-testid="go">go</Link>} />
+          </Routes>
+        </MemoryRouter>
+      )
+    }
+    const m = await mount(<Flip />)
+    try {
+      await press(m.get('go'))
+      await m.until(() => seen.length > 0, 'the page')
+      await m.click('flip')
+      await m.settle(30)
+      expect(seen.every((s) => !s.state)).toBe(true)
+      expect(seen.at(-1)!.type).toBe('PUSH')
+    } finally {
+      await m.unmount()
     }
   })
 

@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import type { Me, TreeResponse } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
@@ -104,6 +104,33 @@ describe('Settings on a phone', () => {
       expect(m.get('settings-me').textContent).toContain('팀원')
     } finally {
       await m.unmount()
+    }
+  })
+
+  // the phone's own Back must return to the list (docs/DECISIONS.md "Admin and Settings on phones"): a phone's row pushes;
+  // a computer's keeps replacing, so closing the dialog steps back once (App.tsx useSettingsOverlay counts pushes)
+  test('a phone\'s row pushes its section; a computer\'s replaces it', async () => {
+    let seen: { path: string; type: string } | null = null
+    function Where() {
+      const l = useLocation()
+      seen = { path: l.pathname, type: useNavigationType() }
+      return null
+    }
+    const click = async (el: FakeElement) => {
+      const ev = new FakeEvent('click', { bubbles: true, cancelable: true })
+      Object.assign(ev, { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })
+      await act(async () => void el.dispatchEvent(ev))
+    }
+    for (const [isPhone, type] of [[true, 'PUSH'], [false, 'REPLACE']] as const) {
+      phone = isPhone
+      const m = await mount(<MemoryRouter initialEntries={['/settings']}><Routes><Route path="/settings/:tab?" element={<><SettingsDialog onClose={() => {}} /><Where /></>} /></Routes></MemoryRouter>)
+      try {
+        const row = m.get('settings-menu').querySelectorAll('a[href="/settings/security"]')[0]!
+        await click(row)
+        expect(seen as unknown).toEqual({ path: '/settings/security', type })
+      } finally {
+        await m.unmount()
+      }
     }
   })
 

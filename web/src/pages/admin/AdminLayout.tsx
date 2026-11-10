@@ -3,8 +3,9 @@
 // office mode the automatic update card (docs/OFFICE.md "자동 업데이트").
 //
 // From 768 px (tablets and computers): the menu in its own column beside the page, staying where it is while the page
-// scrolls. From 1024 px it has the names; between 768 and 1023 px (a tablet, beside the app's own sidebar) it is a rail
-// of the pages' icons with their names as tips, so the page keeps room (a named column there left it 280 to 330 px). Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
+// scrolls. From 1024 px it has the names beside the icons; between 768 and 1023 px (a tablet, beside the app's own
+// sidebar) it is a narrow rail with each name small under its icon (no tips: a finger has no hover), so the page keeps
+// room (a column of the full width there left it 280 to 330 px). Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
 // connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
 // (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team:
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
@@ -25,7 +26,6 @@ import { useGoBack } from '../../lib/back'
 import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Spinner, useMediaQuery } from '../../components/ui'
-import { Tooltip } from '../../components/Tooltip'
 import { PhonePageBar } from '../../components/phone/PhonePageBar'
 import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
@@ -177,7 +177,7 @@ export default function AdminLayout() {
 
   return (
     <div className="flex h-full min-h-0 flex-row">
-      <div className={clsx('flex shrink-0 flex-col border-r border-line', wide ? 'w-60' : 'w-16')} data-testid="admin-sidebar" data-rail={wide ? undefined : ''}>
+      <div className={clsx('flex shrink-0 flex-col border-r border-line', wide ? 'w-60' : 'w-[5.5rem]')} data-testid="admin-sidebar" data-rail={wide ? undefined : ''}>
         {/* whose admin this is: the team's logo and "<team> admin", as the main sidebar shows the team (its logo, else the
             product's mark); the rail shows the logo and keeps the words for screen readers */}
         <h1 className={clsx('flex items-center gap-2 pt-6 pb-4 text-lg font-semibold tracking-tight', wide ? 'px-5' : 'justify-center px-2')} data-testid="admin-title">
@@ -186,21 +186,18 @@ export default function AdminLayout() {
         </h1>
         <nav aria-label={t('admin.title')} className={clsx('scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto pb-6', wide ? 'gap-5 px-3' : 'items-center gap-3 px-2')} data-testid="admin-menu">
           {menu.map((g) => {
-            const links = g.items.map((s) => {
-              const link = (
-                <NavLink
-                  key={s.id}
-                  to={s.id ? `/admin/${s.id}` : '/admin'}
-                  end
-                  className={({ isActive }) =>
-                    clsx('flex items-center rounded-lg text-sm hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', wide ? 'gap-2.5 px-3 py-1.5' : 'size-11 justify-center', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
-                  }
-                >
-                  <s.icon size={wide ? 15 : 18} className="shrink-0" aria-hidden /> <span className={wide ? undefined : 'sr-only'}>{t(s.label)}</span>
-                </NavLink>
-              )
-              return wide ? link : <Tooltip key={s.id} label={t(s.label)}>{link}</Tooltip>
-            })
+            const links = g.items.map((s) => (
+              <NavLink
+                key={s.id}
+                to={s.id ? `/admin/${s.id}` : '/admin'}
+                end
+                className={({ isActive }) =>
+                  clsx('flex rounded-lg hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', wide ? 'items-center gap-2.5 px-3 py-1.5 text-sm' : 'w-full flex-col items-center gap-1 px-1 py-2 text-center text-micro leading-tight', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
+                }
+              >
+                <s.icon size={wide ? 15 : 18} className="shrink-0" aria-hidden /> <span className={wide ? undefined : 'line-clamp-2 break-words'}>{t(s.label)}</span>
+              </NavLink>
+            ))
             if (!g.label) return <div key="home" className="flex flex-col">{links}</div>
             return (
               <div key={g.label} role="group" aria-labelledby={`admin-menu-${g.label}`} className={clsx('flex flex-col gap-0.5', !wide && 'items-center border-t border-line pt-3')}>

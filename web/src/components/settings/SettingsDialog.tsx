@@ -132,7 +132,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
           <div className="relative">
             {/* a phone starts on the title, not on its ‹ (focus put there showed a ring nobody asked for) */}
             <h2 id={titleId} tabIndex={-1} data-autofocus="" className="sr-only">{t('settings.title')}</h2>
-            <PhonePageBar onBack={back} backLabel={backLabel} title={section ? sectionName : t('settings.title')} titleHidden={!!section} backTestId="settings-back" titleTestId="settings-section-title" className="h-14" />
+            <PhonePageBar onBack={back} backLabel={backLabel} title={section ? sectionName : ''} titleHidden={!!section} backTestId="settings-back" titleTestId="settings-section-title" className="h-14" />
           </div>
         ) : (
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
@@ -236,7 +236,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
         </li>
       </PhoneListGroup>
       {/* what needs me, first: the Inbox with its count (the same count as on the 나 tab) and Admin */}
-      <PhoneListGroup testId="settings-phone-top" footer={<PhonePushLine />}>
+      <PhoneListGroup testId="settings-phone-top">
         <PhoneListRow
           icon={<Bell size={16} />}
           title={t('inbox.title')}
@@ -251,6 +251,8 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
         />
         {isAdmin(me) && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}
       </PhoneListGroup>
+      {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
+      <PhonePushLine />
       {groups.map((g) => (
         <PhoneListGroup key={g[0]!.group} title={t(`settings.group.${g[0]!.group}`)} labelId={`settings-group-${g[0]!.group}`} testId={`settings-group-${g[0]!.group}`}>
           {g.map((x) => <PhoneListRow key={x.id} icon={<x.icon size={16} />} title={t(x.label)} to={`/settings/${x.id}`} testId={`settings-row-${x.id}`} />)}

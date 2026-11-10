@@ -296,7 +296,7 @@ export const ja: Record<MessageKey, string> = {
   'owner.check.members': "チームを招待",
   'owner.check.folders': "フォルダーの権限を設定",
   'owner.check.backup': "最初のバックアップを作成",
-  'owner.check.left': "残り{count}件",
+  'owner.check.left': "{count, plural, one {残り#件} other {残り#件}}",
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.ja,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.ja,
   'chat.error.context': CHAT_ERROR_MESSAGES.context.ja,

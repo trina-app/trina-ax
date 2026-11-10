@@ -29,12 +29,14 @@ export const under = (path: string, base: string) => path === base || path.start
 export interface Trail {
   lastKey: string | null
   lastPath: string | null
+  /** the entry the last note saw for the first time (null: the last one shown had been seen before) */
+  newKey: string | null
   /** entry key → the pathname of the entry under it (null: nothing of ours, or not known) */
   below: Map<string, string | null>
 }
 
 export function createTrail(saved: [string, string | null][] = []): Trail {
-  return { lastKey: null, lastPath: null, below: new Map(saved) }
+  return { lastKey: null, lastPath: null, newKey: null, below: new Map(saved) }
 }
 
 const belowInState = (state: unknown): string | null | undefined => {
@@ -50,6 +52,7 @@ const belowInState = (state: unknown): string | null | undefined => {
  */
 export function noteEntry(trail: Trail, key: string, path: string, nav: NavigationType, state: unknown): void {
   if (key === trail.lastKey) return
+  trail.newKey = trail.below.has(key) ? null : key
   const own = belowInState(state)
   if (own !== undefined) trail.below.set(key, own)
   else if (!trail.below.has(key)) {
@@ -63,11 +66,12 @@ export function noteEntry(trail: Trail, key: string, path: string, nav: Navigati
 
 /** Should this page get its list put under it? `below`: the noted entry under it; `idx`: its place in the document's
  * history (React Router's history.state.idx; 0 is the first entry). */
-export function needsList(o: { nav: NavigationType; idx: number | null; below: string | null | undefined; listPath: string; own: boolean }): boolean {
+export function needsList(o: { nav: NavigationType; idx: number | null; below: string | null | undefined; listPath: string; own: boolean; fresh?: boolean }): boolean {
   if (o.own) return false
   // Back or Forward never rebuilds; the first entry of the document (a pasted address, the phone app opened on a
-  // push) is reported as a POP too, and is the one case that does
-  if (o.nav === 'POP') return o.idx === 0
+  // push) is reported as a POP too, and is the one case that does, when it shows for the first time (`fresh`: Back to
+  // a first entry that was seen without its list, on a computer, would drop the entries after it)
+  if (o.nav === 'POP') return o.idx === 0 && o.fresh !== false
   return !(o.below != null && under(o.below, o.listPath))
 }
 
@@ -79,12 +83,16 @@ export function backLabel(o: { below: string | null | undefined; path: string; i
   return o.name(to)
 }
 
-/** What a page's scroll does when its entry shows: back to where it was (Back/Forward), to the top (a push to a plain
- * address), or left alone (a replace: a filter or a view inside the page; a #hash or a ?query the page scrolls to). */
+/** The queries a page scrolls to itself (Members' ?member=, Plugins' ?focus=, Folder permissions' ?folder=). */
+const SELF_SCROLL = ['member', 'focus', 'folder']
+
+/** What a page's scroll does when its entry shows: back to where it was (Back/Forward), to the top (a push), or left
+ * alone (a replace: a filter or a view inside the page; a push with a #hash or a ?query the page scrolls to itself). */
 export function scrollOnShow(nav: NavigationType, hash: string, search: string): 'restore' | 'top' | 'keep' {
   if (nav === 'POP') return 'restore'
-  if (nav === 'PUSH' && !hash && !search) return 'top'
-  return 'keep'
+  if (nav === 'REPLACE' || hash) return 'keep'
+  const q = new URLSearchParams(search)
+  return SELF_SCROLL.some((k) => q.has(k)) ? 'keep' : 'top'
 }
 
 // --- the app's one trail, kept for the tab's life (sessionStorage), so a reload keeps the labels ---
@@ -121,6 +129,8 @@ export function noteLocation(loc: Location, nav: NavigationType) {
 }
 
 export const entryBelow = (key: string) => theTrail().below.get(key)
+/** Was this entry new when the app last showed it (not a return to one seen before)? */
+const entryFresh = (key: string) => theTrail().newKey === key
 
 /** Tests only: start again. */
 export function resetTrail(saved: [string, string | null][] = []) {
@@ -154,7 +164,10 @@ export function useListUnderPage(listPath: string, phone: boolean, final: boolea
     // under the Settings dialog this is the page behind it, not the address in the bar
     if (!firstPhone.current?.phone || realPath !== location.pathname) return
     const below = entryBelow(location.key)
-    if (!needsList({ nav, idx: historyIdx(), below, listPath, own: belowInState(location.state) !== undefined })) return
+    if (!needsList({ nav, idx: historyIdx(), below, listPath, own: belowInState(location.state) !== undefined, fresh: entryFresh(location.key) })) return
+    // the address as it was opened, ?query and #hash included, even when the page has used its query up meanwhile
+    // (Connectors' ?drive=1 opens Google Drive and leaves the address): the page is drawn again over the list and
+    // reads it again (its queries open or point at something; reading one twice does the same thing)
     navigate(listPath, { replace: true, state: { [BELOW]: below ?? null } })
     const state = location.state && typeof location.state === 'object' ? location.state : {}
     navigate(`${location.pathname}${location.search}${location.hash}`, { state: { ...state, [BELOW]: listPath } })
@@ -180,7 +193,10 @@ export function useKeptScroll(ref: RefObject<HTMLElement | null>, id: string, ac
   const nav = useRealNavigationType()
   const keyRef = useRef(location.key)
   keyRef.current = location.key
-  // remember the place as it changes (a box that is hidden keeps its last place)
+  // while a place is being put back the box scrolls by itself: that is not saved over the place
+  const restoring = useRef(false)
+  // remember the place as it changes (a box that is hidden keeps its last place); never for 'default', the first entry
+  // of every document (a new page load would get the old one's place)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el || !active) return
@@ -188,6 +204,7 @@ export function useKeptScroll(ref: RefObject<HTMLElement | null>, id: string, ac
     const onScroll = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
+        if (restoring.current || keyRef.current === 'default') return
         try { sessionStorage.setItem(scrollKey(id, keyRef.current), String(el.scrollTop)) } catch { /* ignore */ }
       })
     }
@@ -206,14 +223,26 @@ export function useKeptScroll(ref: RefObject<HTMLElement | null>, id: string, ac
     if (what === 'top') el.scrollTop = 0
     if (what !== 'restore') return
     let saved = 0
-    try { saved = Number(sessionStorage.getItem(scrollKey(id, location.key)) ?? 0) || 0 } catch { /* ignore */ }
-    // the content may still be growing (a page that loads): try for a few frames
-    let tries = 0
+    try { saved = location.key === 'default' ? 0 : Number(sessionStorage.getItem(scrollKey(id, location.key)) ?? 0) || 0 } catch { /* ignore */ }
+    if (!saved) return
+    // the content may still be growing (a page that reads its data again): try until it is tall enough, the person
+    // scrolls or touches it, or 2 s have passed
+    restoring.current = true
+    const until = Date.now() + 2000
+    let frame = 0
+    const stop = () => {
+      restoring.current = false
+      cancelAnimationFrame(frame)
+      for (const e of ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const) el.removeEventListener(e, stop)
+    }
+    for (const e of ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const) el.addEventListener(e, stop, { passive: true })
     const put = () => {
       el.scrollTop = saved
-      if (Math.abs(el.scrollTop - saved) > 1 && ++tries < 20) requestAnimationFrame(put)
+      if (Math.abs(el.scrollTop - saved) > 1 && Date.now() < until) frame = requestAnimationFrame(put)
+      else stop()
     }
     put()
+    return stop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key, active, ready])
 }

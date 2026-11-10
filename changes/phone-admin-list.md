@@ -3,5 +3,5 @@
   the list where it was, also for a page opened from a notice or a link. The sideways strip of tabs is gone.
 - Phones: in Settings (the Me tab), the phone's own Back from a section now returns to the list instead of leaving
   Settings. The Connections sections show in the list without "More".
-- Tablets: Admin's menu is a column beside the page (icons from 768 px, with names from 1024 px) instead of a sideways
-  strip.
+- Tablets: Admin's menu is a column beside the page instead of a sideways strip (a narrow rail with small names from
+  768 px, the full menu from 1024 px).

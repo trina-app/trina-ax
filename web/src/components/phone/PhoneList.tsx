@@ -63,8 +63,9 @@ export function PhoneListRow({ icon, title, value, badge, to, state, onClick, ch
         <div className="flex items-stretch gap-3 pl-4 text-sm">
           {icon && <span className="grid size-5 shrink-0 place-items-center pt-3 text-muted" aria-hidden>{icon}</span>}
           <div className="min-w-0 flex-1 border-t border-line py-2.5 pr-4 group-first/row:border-t-0">
-            {to ? <Link to={to} state={state} className="block rounded hover:underline">{title}</Link> : <span className="block">{title}</span>}
-            <div className="mt-2 flex flex-wrap items-center gap-2">{below}</div>
+            {to ? <Link to={to} state={state} className="-my-1 flex min-h-11 items-center rounded hover:underline">{title}</Link> : <span className="block">{title}</span>}
+            {/* its buttons are the page's small ones elsewhere: 44 px here, for a finger */}
+            <div className="mt-1 flex flex-wrap items-center gap-2 [&_button]:min-h-11">{below}</div>
           </div>
         </div>
       </li>

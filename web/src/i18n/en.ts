@@ -305,7 +305,7 @@ export const en: Record<MessageKey, string> = {
   'owner.check.members': 'Invite your team',
   'owner.check.folders': 'Set folder permissions',
   'owner.check.backup': 'Make the first backup',
-  'owner.check.left': '{count} left',
+  'owner.check.left': '{count, plural, one {# left} other {# left}}',
 
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.en,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.en,

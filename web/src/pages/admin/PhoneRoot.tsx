@@ -7,6 +7,7 @@
 import { AlertTriangle, Building2, Lock } from 'lucide-react'
 import { teamIconUrl } from '@mycel/shared'
 import { formatRelative, formatUsd } from '../../lib/format'
+import type { Locale } from '@mycel/shared/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { Badge } from '../../components/ui'
@@ -20,30 +21,39 @@ export interface PhoneMenuGroup {
   items: { id: string; label: MessageKey; icon: typeof Lock }[]
 }
 
+type Overview = ReturnType<typeof useAdminOverview>
+type Sources = Pick<Overview, 'users' | 'engines' | 'services' | 'plugins' | 'usage' | 'audit' | 'active' | 'defaultEngine'>
+
+/** The short value on the right of a page's row: what Home says first about it, when there is something to say; 'failed'
+ * when its source could not be read; null for nothing (still loading, none, or a page Home reads nothing for). */
+export function rowValue(id: string, o: Sources, locale: Locale): string | 'failed' | null {
+  switch (id) {
+    case 'members':
+      return o.users.error ? 'failed' : o.users.data ? String(o.active.length) : null
+    case 'providers':
+      return o.engines.error ? 'failed' : (o.defaultEngine ?? null)
+    case 'connectors':
+      return o.services.error ? 'failed' : o.services.data?.length ? String(o.services.data.length) : null
+    case 'plugins':
+      return o.plugins.error ? 'failed' : o.plugins.data?.length ? String(o.plugins.data.length) : null
+    case 'usage':
+      return o.usage.error ? 'failed' : o.usage.data ? formatUsd(o.usage.data.totals.costUsd, locale) : null
+    case 'audit':
+      return o.audit.error ? 'failed' : o.audit.data?.[0] ? formatRelative(o.audit.data[0].at, locale) : null
+    default:
+      return null
+  }
+}
+
 export default function PhoneRoot({ groups }: { groups: PhoneMenuGroup[] }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
   const o = useAdminOverview()
-  const unavailable = <span aria-label={t('adminHome.unavailable')}>—</span>
-  /** the short value on the right of a page's row: what Home says first about it, when there is something to say */
+  const unavailable = <><span aria-hidden>—</span><span className="sr-only">{t('adminHome.unavailable')}</span></>
   const value = (id: string) => {
-    switch (id) {
-      case 'members':
-        return o.users.error ? unavailable : o.users.data ? String(o.active.length) : null
-      case 'providers':
-        return o.engines.error ? unavailable : (o.defaultEngine ?? null)
-      case 'connectors':
-        return o.services.error ? unavailable : o.services.data?.length ? String(o.services.data.length) : null
-      case 'plugins':
-        return o.plugins.error ? unavailable : o.plugins.data?.length ? String(o.plugins.data.length) : null
-      case 'usage':
-        return o.usage.error ? unavailable : o.usage.data ? formatUsd(o.usage.data.totals.costUsd, locale) : null
-      case 'audit':
-        return o.audit.error ? unavailable : o.audit.data?.[0] ? formatRelative(o.audit.data[0].at, locale) : null
-      default:
-        return null
-    }
+    const v = rowValue(id, o, locale)
+    return v === 'failed' ? unavailable : v
   }
   return (
     <div className="pb-8" data-testid="admin-phone-root">

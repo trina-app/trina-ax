@@ -10,6 +10,7 @@ import type { CredentialState, EngineStatus, Locale, UpdateStatus } from '@mycel
 import { api, API, errorText } from '../../lib/api'
 import { formatShortDateTime, intlTag, localDay, localDayRange } from '../../lib/format'
 import { turnWhen } from '../../lib/updateTurn'
+import { useRealNavigationType } from '../../lib/realPath'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { Button } from '../../components/ui'
@@ -80,6 +81,11 @@ const memo = new Map<string, { at: number; data: unknown }>()
 /** Tests only. */
 export const clearOverviewMemo = () => memo.clear()
 
+/** Admin › System read the server checks itself: the kept ones are old now (the list's badge must not lag behind). */
+export const forgetKeptChecks = () => {
+  for (const k of [...memo.keys()]) if (k.includes(':diagnostics:')) memo.delete(k)
+}
+
 /** useLoad (common.tsx) that starts from the last answer this session and reads again, unless that answer is younger
  * than `fresh` ms. */
 function useKeptLoad<T>(key: string, fn: () => Promise<T>, fresh = 0) {
@@ -117,6 +123,9 @@ export function sectionOf(to: string): string | null {
   return path.startsWith('/admin/') ? path.slice('/admin/'.length).split('/')[0]! : null
 }
 
+/** How many of these rows open this admin page. */
+export const fixCount = (rows: Pick<AttentionItem, 'to'>[], section: string) => rows.filter((a) => sectionOf(a.to) === section).length
+
 export function useAdminOverview() {
   const t = useT()
   const locale = useLocale()
@@ -133,8 +142,10 @@ export function useAdminOverview() {
   const usage = useKeptLoad(k('usage'), () => api.call(API.usage, { query: { groupBy: 'user', ...localDayRange(localDay(new Date(Date.now() - 29 * 86400_000)), localDay(new Date())) } }))
   const audit = useKeptLoad(k('audit'), async () => (await api.call(API.audit, { query: { limit: 3 } })).items)
   const storage = useKeptLoad(k('storage'), () => api.call(API.storage))
-  // the owner's server checks run every check on the server: not again within a minute
-  const diagnostics = useKeptLoad(k(`diagnostics:${owner}`), async () => (owner ? (await api.call(API.diagnostics)).checks : []), 60_000)
+  // the owner's server checks run every check on the server: not again within a minute when the phone's Back returns to
+  // the list (a page opened anew, Home on a computer included, reads them again; Admin › System's own read forgets them)
+  const back = useRealNavigationType() === 'POP'
+  const diagnostics = useKeptLoad(k(`diagnostics:${owner}`), async () => (owner ? (await api.call(API.diagnostics)).checks : []), back ? 60_000 : 0)
   // A new version (the owner's; Admin > System installs it). Never blocks Home: no `settled`, and an error is no item.
   // Office mode has its own banner and update card, so it is skipped there (the office status is null outside it).
   const update = useKeptLoad(k(`update:${owner}`), async () => (owner ? { u: await api.call(API.updateStatus) } : { u: null }))
@@ -211,7 +222,7 @@ export function useAdminOverview() {
   const defaultEngine = engines.data?.engines.find((e) => e.id === engines.data?.defaultEngine)?.label
   const latest = audit.data?.[0]
   /** How many of the attention rows open this admin page (the phone list's "N to fix", never apart from the rows) */
-  const toFix = (section: string) => attention.filter((a) => sectionOf(a.to) === section).length
+  const toFix = (section: string) => fixCount(attention, section)
 
   return {
     owner, users, engines, credentials, services, plugins, usage, audit, storage, diagnostics,

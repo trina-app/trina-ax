@@ -19570,20 +19570,27 @@ the references, the review). This is the first part (navigation); the page patte
   is final (after the old-address redirects and the owner-only check; a member's `/admin/...` still goes home). It runs
   after the page shows (the router listens to the history only after its first render), which changes nothing on screen.
 - **Scroll:** a page pushed from the list starts at the top (Admin's layout stays mounted, so it carried the list's
-  place); Back to the list or a page puts its place back; a replace (filters), a `#hash` or a `?query` is left to the
-  page. Admin's overview is kept in memory for the session, so the list draws at once on Back and does not jump; the
-  owner's server checks are not asked again within a minute.
-- **Settings on phones:** the same list (the Inbox count as its row's value; the Connections group shows Providers,
+  place); Back to the list or a page puts its place back (trying for up to 2 s while the page reads its data again,
+  until the person scrolls); a replace (filters), a `#hash` or a query the page scrolls to itself (`?member=`,
+  `?focus=`, `?folder=`) is left to the page. Admin's overview is kept in memory for the session, so the list draws at
+  once on Back and does not jump; on Back the owner's server checks are not asked again within a minute (any other
+  opening, Home on a computer included, asks; Admin › System's own read forgets the kept ones).
+- **Settings on phones:** the same list (the Inbox count as a badge on its row; the Connections group shows Providers,
   Connectors and AI apps instead of a lone "More" row), rows that push (computers keep replacing, so closing the dialog
   still steps back once), the phone bar ("‹ Settings" and the section's name), the list under a section opened from a
   link, both kept in place for Back.
 - **Folder permissions:** on a phone, By folder ↔ By person replaces its entry (a view of one page adds no history).
 - **From 768 px** (the owner's decision): Admin is the menu column and a page, so tablets (768 to 1023 px) no longer
-  show the cut-off strip. Between 768 and 1023 px the column is a rail of the pages' icons with their names as tips:
-  beside the app's own 280 px sidebar, a named column left the page 280 to 330 px. From 1024 px it is the named sidebar
-  as before.
-- Tests: `web/test/unit/back-stack.test.tsx` (what is under an entry, when the list goes under a page, the label, the
-  scroll, the hook in a router), `web/test/unit/phone-nav.test.tsx`, `web/test/e2e/phone-admin.spec.ts` (the list, row →
-  page → Back with the place kept, a pasted address, an in-app link, a page opening another, Folder permissions' views,
-  Settings' Back, a member, an admin who is not the owner, 820 and 1440 px).
+  show the cut-off strip. Between 768 and 1023 px the column is a narrow rail, each page's name small under its icon
+  (not in a tip: a finger has no hover): beside the app's own 280 px sidebar, a column of the full width left the page
+  280 to 330 px. From 1024 px it is the named sidebar as before.
+- **Not checked yet:** the iPhone app's edge swipe over a page whose list was put under it (the list entry was never
+  drawn, so the swipe's preview may show the page itself). It needs a device; if it looks wrong, the list draws once
+  before the page is pushed again.
+- Tests: `web/test/unit/back-stack.test.tsx` (what is under an entry, when the list goes under a page, Back to a first
+  entry, the label, the scroll, the list's values and badges, the hook in a router, a resize), `phone-nav.test.tsx`,
+  `phone-me-files.test.tsx` (a phone's row pushes, a computer's replaces), `web/test/e2e/phone-admin.spec.ts` (the
+  list, row → page → Back with the place kept, a pasted address with its query used once, an in-app link, a page
+  opening another, Folder permissions' views, Settings' Back, a member, an admin who is not the owner, no page wider than
+  the screen in English and Spanish, 820 and 1440 px).
 - Version impact: **minor** (a visible change on phones and tablets; no API, data or permission change).

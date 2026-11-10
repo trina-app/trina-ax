@@ -82,11 +82,13 @@ test('row → page under "‹ Admin" → ‹ and the browser\'s back return to t
   await expect(page).toHaveURL(/\/settings$/)
 })
 
-test('a pasted address: the page with the list under it; Back → the list → out', async ({ page }) => {
+test('a pasted address: the page with the list under it, its query still doing its job; Back → the list → out', async ({ page }) => {
   await page.goto('/admin/connectors?drive=1')
   await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.integrations'])
   await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.title'])
-  await expect(page).toHaveURL(/\/admin\/connectors\?drive=1$/)
+  // ?drive=1 opened Google Drive's page (pushed again over the list with its query, the page reads it again)
+  await expect(page.getByTestId('drive-admin-detail')).toBeVisible()
+  await expect(page).toHaveURL(/\/admin\/connectors/)
   await page.goBack()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
@@ -184,9 +186,23 @@ test('an admin who is not the owner: Slack\'s address goes to the list, one entr
   await expect(page).not.toHaveURL(/\/admin/)
 })
 
+test('nothing is wider than the screen on any Admin page, in Spanish too', async ({ page }) => {
+  for (const locale of ['en', 'es'] as const) {
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    await signIn(page)
+    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+      await page.goto(id ? `/admin/${id}` : '/admin')
+      await expect(page.getByTestId('admin-content')).toBeVisible()
+      await page.waitForTimeout(300)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `${locale} /admin/${id}`).toBeLessThanOrEqual(390)
+      expect(await page.getByTestId('admin-content').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `${locale} /admin/${id}`).toBe(true)
+    }
+  }
+})
+
 test.describe('from 768 px', () => {
   test.use({ viewport: { width: 820, height: 1000 }, hasTouch: false, isMobile: false })
-  test('a tablet: the sidebar as a rail of icons beside the page, no strip, no list', async ({ page }) => {
+  test('a tablet: the sidebar as a rail of icons with their names beside the page, no strip, no list', async ({ page }) => {
     await page.goto('/admin/members')
     const side = page.getByTestId('admin-sidebar')
     await expect(side).toBeVisible()
@@ -197,6 +213,10 @@ test.describe('from 768 px', () => {
     const menu = page.getByTestId('admin-menu')
     expect(await menu.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await expect(menu.getByRole('link', { name: t['admin.members'] })).toHaveAttribute('aria-current', 'page')
+    // the names show under the icons (a finger has no hover for a tip)
+    await expect(menu.getByText(t['admin.folders'], { exact: true })).toBeVisible()
+    // the page keeps room beside the app's sidebar and the rail
+    expect((await page.getByTestId('admin-content').boundingBox())!.width).toBeGreaterThan(420)
     await menu.getByRole('link', { name: t['admin.groups'] }).click()
     await expect(page).toHaveURL(/\/admin\/groups$/)
   })

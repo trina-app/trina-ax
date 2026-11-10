@@ -63,9 +63,18 @@ const ITEMS: { step: keyof Steps; label: MessageKey; to: string }[] = [
   { step: 'backup', label: 'owner.check.backup', to: '/admin/system' },
 ]
 
+const OPEN_KEY = 'mycel.ownerChecklistOpen'
+
 export function OwnerChecklist({ compact }: { compact?: boolean } = {}) {
   const t = useT()
-  const [open, setOpen] = useState(false)
+  // the phone's folded row: open or not, kept for the tab, so Back from a step finds the list as it was left
+  const [open, setOpenState] = useState(() => {
+    try { return sessionStorage.getItem(OPEN_KEY) === '1' } catch { return false }
+  })
+  const setOpen = (v: boolean) => {
+    setOpenState(v)
+    try { sessionStorage.setItem(OPEN_KEY, v ? '1' : '0') } catch { /* this page only */ }
+  }
   const [hidden, setHidden] = useState(() => {
     try { return localStorage.getItem(CHECK_KEY) === '1' } catch { return false }
   })
