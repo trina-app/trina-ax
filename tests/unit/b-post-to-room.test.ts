@@ -251,8 +251,9 @@ describe('where it may not post', () => {
   test('after a room read: its own card only, no room card in front of it', async () => {
     const r = await turn('bob', [fake({ tool: 'room_read', args: { room: rooms.finance } }), post({ room: rooms.all, text: '재무방 요약' })].join('\n'), { answer: 'send' })
     expect(h.ctx.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(r.chatId)).toEqual({ rooms_seen: 1 })
-    // the first and only card is post_to_room's, with what the finance room's messages mean for the others
-    expect(r.card!.question).toMatch(/^#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화방\)를 볼 수 없어요\.$/)
+    // the first and only card is post_to_room's, with the room card's line on top (docs/DECISIONS.md "내 AI 채팅에서 대화방
+    // 읽기", fewer cards after a room read) and what the finance room's messages mean for the others
+    expect(r.card!.question).toMatch(/^여기에 대화방 메시지\(다른 사람이 쓴 글\)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요\.\n\n#전체\(5명\)에 보낼까요\?\n\n\d명은 이 내용의 일부 출처\(Finance 대화방\)를 볼 수 없어요\.$/)
     expect(JSON.parse(r.content.slice(r.content.indexOf('{"status"')))).toMatchObject({ status: 'sent' })
   })
 
