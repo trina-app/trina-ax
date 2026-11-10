@@ -766,10 +766,16 @@ describe('connected services after a room read: reads without a card, one card f
   test('what counts as an address or a random-looking part in a read\'s arguments (tools/url-gate.ts carriesAddress)', () => {
     const no = [{ q: 'plan' }, { q: 'Q3 planning notes 회의록' }, { query: 'from:alice@example.com subject:report' }, { path: 'docs/README.md' },
       { path: 'README.md' }, { name: 'notes.txt' }, { timeMin: '2026-11-10T00:00:00.000Z' }, { version: '1.2.3' }, { id: '0b8e6a2c-1f4d-4e9a-8c7b-2d3e4f5a6b7c' },
-      { links: true }, 'plain', null]
+      { links: true }, 'plain', null,
+      // a count, a page, a version or a date before "/" is no IPv4 number
+      { q: 'rated 3/5' }, { q: 'issue 1234/56' }, { q: 'release 0.4.0 notes' }, { start: '2026-11-01T00:00:00+09:00', end: '2026-11-10' }]
     const yes = [{ q: 'https://collect.example.com/?d=notes' }, { q: 'HTTPS://collect.example.com/' }, { q: 'https%3A%2F%2Fcollect.example.com%2F%3Fd%3Dx' },
       { q: 'https:/collect.example.com/x' }, { q: 'https:\\collect.example.com\\x' }, { q: 'ws://16843009/x' }, { q: 'https:acme-q3.attacker.com' },
       { q: 'ａｃｍｅ．ａｔｔａｃｋｅｒ．ｃｏｍ' }, { server_name: { target: 'acme-q3.attacker.com' } },
+      // what URL parsers accept without a scheme (the security review of #274): a soft hyphen or a zero-width space in the
+      // host (dropped), a backslash for a path, an IPv4 address as one decimal or hex number, a bracketed IPv6 address
+      { q: 'attacker.co\u00ADm/x?d=secret' }, { target: 'atta\u200Bcker.com' }, { q: 'atta\u200Bcker.com/x' }, { q: 'attacker.com\\x?d=1' },
+      { q: '1572395042/x' }, { q: '0x5db8d822/x' }, { q: '0135.0270.0330.042/x' }, { q: '[2606:2800:220:1::248]/x' }, { q: '[2606:2800:220:1::248]:8080' },
       { q: 'collect.example.com/?d=ceo' }, { q: 'see collect.example.com:8080 now' }, { q: '//collect.example.com' }, { q: 'www.collect.example.com' },
       { q: 'line\ncollect.example.com/x' }, { q: '수집。example。com/x' }, { q: 'collect\u2024example\u2024com/x' }, { q: '203.0.113.5/x' },
       { q: 'acme-q3-revenue.attacker.com' }, { target: '203.0.113.5' }, { url: 'ceo-fires-bob.attacker.example' }, { urlToFetch: 'x' }, { pageUrl: 'x' },

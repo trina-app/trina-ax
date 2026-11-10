@@ -209,16 +209,18 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const ctxText = built.context === undefined ? built.prompt : built.context
     if (ctxText) context.push(ctxText)
   }
+  /** a connection tool's call that only reads (its readOnly, asked of the call's arguments); false for anything else */
+  const readsOnly = (name: string, input: unknown): boolean => {
+    const ro = connections.get(name)?.readOnly
+    try { return typeof ro === 'function' ? ro(input) === true : ro === true } catch { return false }
+  }
   const set: ChatToolSet = {
     prompt,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     connection: (name) => connections.has(name),
-    readsOnly(name, input) {
-      const ro = connections.get(name)?.readOnly
-      try { return typeof ro === 'function' ? ro(input) === true : ro === true } catch { return false }
-    },
-    readsFree(name, input) { return connections.get(name)?.card === false && this.readsOnly(name, input) },
+    readsOnly: (name, input) => readsOnly(name, input),
+    readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args, caller) {

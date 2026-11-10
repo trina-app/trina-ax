@@ -10988,13 +10988,19 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
     Notion or Gmail, and a team connection's managers may see it in that service's logs. Accepted, like the engine's web
     search and Drive search after a room read: the place is the one the person or the team chose, never an address the
     AI picks. A service that marks a write read-only runs it with no card here, as in a chat that read no room; whoever
-    manages the connection can turn such a tool off.
+    manages the connection can turn such a tool off. Also accepted: a read-only tool that sends the words to an AI of its
+    own that goes to the web (a Perplexity- or Tavily-style "ask" or "research" tool). Words in the query can make that
+    remote AI build an address and open it, and no check of our arguments can see that; what bounds it is that the
+    person or the team chose that connection (and can turn the tool off).
   - **What could pick an address asks.** A read whose arguments carry an address or a random-looking part raises the
     room card as before (`tools/url-gate.ts carriesAddress`). It reads the arguments as the tool takes them, so
     `call_tool`'s arguments sent as JSON text count as what they hold, with full-width letters read as URL parsers read
-    them. It finds an http(s) address as written or %-decoded; any scheme followed by a slash or a backslash, and
-    `https:host` with none; an address without a scheme, after `//` or `www.` or a host name before a path, a query or a
-    port, with the ideographic and full-width dots; a whole value that is a host with a public suffix or an IPv4
+    them, and without the default-ignorable characters they drop (a soft hyphen or a zero-width space inside a host). It
+    finds an http(s) address as written or %-decoded; any scheme followed by a slash or a backslash, and `https:host`
+    with none; an address without a scheme, after `//` or `www.` or a host name before a path (also written with a
+    backslash), a query or a port, with the ideographic and full-width dots; an IPv4 address written as one decimal or
+    hex number or in decimal, hex or octal parts (`1572395042/x`, `0x5db8d822/x`), or a bracketed IPv6 address, before a
+    path, a query or a port; a whole value that is a host with a public suffix or an IPv4
     address, except under a file's name; a long random-looking part (`opaqueParts`); and any text under an argument with
     an address word in its name (url, link, host, domain, site, …). A whole value such as `notes.md` or `setup.py` asks
     too (real domain endings); a number-only IP with no scheme does not.
@@ -11022,7 +11028,9 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   - Independent review (2026-11-10) fixes, before the PR: `call_tool`'s arguments as JSON text hid an address behind
     `\/` escapes; `https:/…`, `https:host`, full-width hosts, a whole host in an argument like `q` or `target` and U+2024
     as a dot were not caught; the own-card skip came before the instruction-file rule, so a copy of a planted
-    `CLAUDE.md` into the person's folder asked instead of being refused.
+    `CLAUDE.md` into the person's folder asked instead of being refused. The security review of #274 (S1) found a soft
+    hyphen or a zero-width space inside a host, a backslash for a path, a decimal or hex IPv4 number and a bracketed
+    IPv6 address before a path; those count now.
   - Tests: `b-chat-rooms.test.ts` (what counts as an address; a read without a card, an API's GET with the room card, a
     read with an address or a random-looking part with the room card; a write one card with the line, a team "allow"
     connection and an API's POST one card; a planted "@fake" instruction; "deny"; a scheduled run; a move and a copy, a
