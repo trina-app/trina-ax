@@ -146,7 +146,7 @@ export class ChatStore {
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
-        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, tool, ...rest } = s
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, tool, ...rest } = s
         return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
@@ -156,8 +156,9 @@ export class ChatStore {
       const { detail: _d, ...rest } = out
       return rest
     })
-    // a shared chat: a step's detail (a card's answer, an error's words) is the runner's alone
-    if (view && !view.runner) for (let i = 0; i < steps.length; i++) if (steps[i]!.detail !== undefined) { const { detail: _d, ...rest } = steps[i]!; steps[i] = rest }
+    // a shared chat: a step's detail (a card's answer, an error's words) and where a post went (Step.posted: a room's
+    // id) are the runner's alone
+    if (view && !view.runner) for (let i = 0; i < steps.length; i++) if (steps[i]!.detail !== undefined || steps[i]!.posted !== undefined) { const { detail: _d, posted: _p, ...rest } = steps[i]!; steps[i] = rest }
     if (!steps.some((s) => s.tool === 'attachment')) return steps
     const owner = view?.viewer ?? (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
     const gone = (s: Step): boolean => {

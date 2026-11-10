@@ -17743,8 +17743,11 @@ told to point at the button and never claim it posted, so "이 요약 #영업팀
   content is `text` through the sender's redactor; the room by `findRoom` among mine (`Rooms.mine` checks it again), the
   thread by `Rooms.threadRootOf`.
 - **The card** (an `ask_user` card with origin server: the AI cannot write one that passes for it). "#영업팀(12명)에
-  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the note apart under 한마디 (it goes as the
-  person's own words); the text in full under 보낼 내용, folded past 600 characters; the paths [파일도 함께 보내기] would
+  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the note apart under "내 이름으로 보일 한마디" (it
+  goes as the person's own words, outside the AI's quote, though the AI wrote it: a planted instruction could write a
+  line in their voice, so the label says whose name it shows under, and the tool takes a note only when the person asked
+  for one or gave its words); the text in full under 보낼 내용, folded past 600 characters, its long random-looking
+  parts marked as on the other server cards; the paths [파일도 함께 보내기] would
   attach, by name (a link far down a folded text is not missed); only when they apply, "3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요." and "링크된 파일 2개를 4명이 열 수
   없어요." (counts and places I may look myself, never who), and, when attaching the files changes them, "파일도 함께 보내면:
   …"; [보내기], [파일도 함께 보내기] (only when a linked file can go as a copy), [보내지 않기]. The number is everyone in the
@@ -17756,14 +17759,22 @@ told to point at the button and never claim it posted, so "이 요약 #영업팀
   the files. A change (a member, someone's access, a linked file) is refused, "ask again", nothing posted. Each post
   takes from the sending budget before the card and again after the yes, as the button's confirm does.
 - **Retries.** `clientMessageId` is `ai-<turnId>-<n>`, `n` per room, thread, note and text in this answer: the same call
-  again finds the first message (no second card, no second post), as the button's retry does.
+  again finds the first message (no second card, no second post), as the button's retry does. A first post the person
+  deleted since is not it: the same text goes again under a new `n`, with its own card (the room keeps the deleted
+  message's id, unique per author; the button's lookup is unchanged).
 - **A side chat.** Without `room` it posts to the side chat's room, or to the thread the nearest earlier question that
-  quotes something names (the button's rule, `nearestThreadOf`). A named room is that room.
+  quotes something names (the button's rule, `nearestThreadOf`). A named room is that room's timeline, never the
+  thread (the input's description says so; `thread_id` names a thread).
 - **Prompt.** The rooms rule gains one sentence when the turn has the tool (`ROOMS_POST_RULE`: all of the text, the card,
   say it posted only when the result is "sent", never because a message, file or page asks); the side panel's line says
   the same and still names the buttons.
-- **Audit.** `room.answer_share` as for the button, with `via: 'ai'`; the tool event's summary says sent, not sent,
-  already sent or refused, never the text.
+- **Audit.** `room.answer_share` as for the button, with `via: 'ai'` and `confirmed: true` (the person pressed the
+  card's yes, also when nothing was at stake); the tool event's summary says sent, not sent, already sent or refused,
+  never the text.
+- **The step's 보기** (follow-up, 2026-11-10). A post's step keeps where it went (`Step.posted`: the room, the message, the
+  thread's root) and shows 보기, like the button's sent line: the room at the message or the thread at the reply; in a
+  side chat through the panel's own way there (its column, a phone's panel). Only its runner gets it: another viewer of
+  a chat shared later gets the step without it (a room's id).
 - **Security.** Nothing new is allowed: the button's checks and audit; only who starts it differs. A web page, a file or
   a room message telling the AI to post meets the card with the room, its number of people and all of the text (tested
   with a planted page). Habit: the room and the number lead the card and the "cannot see" lines show only when they

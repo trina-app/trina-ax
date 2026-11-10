@@ -58,7 +58,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
-type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; collapsedAt?: number }[]; buttons?: boolean }
+type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; collapsedAt?: number; marks?: string[] }[]; buttons?: boolean }
 /** One turn of `user` in `chatId` (a new chat when absent): the card it raised (answered with `answer`; null: left to time
  * out), what the AI said, and the answer's steps. */
 async function turn(user: string, content: string, o: { chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void> } = {}) {
@@ -72,7 +72,7 @@ async function turn(user: string, content: string, o: { chat?: string; side?: st
     if (o.answer !== null) await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: o.answer } })
   }
   const done = await socks[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
-  const steps = JSON.parse((h.ctx.db.query('SELECT steps FROM messages WHERE id = ?').get(r.assistantMessage.id) as { steps: string | null }).steps ?? '[]') as { tool?: string; label: string; detail?: string }[]
+  const steps = JSON.parse((h.ctx.db.query('SELECT steps FROM messages WHERE id = ?').get(r.assistantMessage.id) as { steps: string | null }).steps ?? '[]') as { tool?: string; label: string; detail?: string; posted?: unknown }[]
   return { chatId, turnId: r.turnId as string, answerId: r.assistantMessage.id as string, content: done.data.message.content as string, card, steps }
 }
 const messagesAs = async (user: string, roomId: string) => (await h.api(user).call(API.listRoomMessages, { params: { id: roomId }, query: {} })).items as RoomMessage[]
@@ -102,16 +102,30 @@ describe('the card, and the post', () => {
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', room: '#전체', room_id: rooms.all, message_id: m.id })
     const step = r.steps.find((s) => s.tool === 'post_to_room')!
     expect(step.label).toBe('대화방에 보내기 · #전체')
+    // where it went, for the step's 보기
+    expect(step.posted).toEqual({ roomId: rooms.all, messageId: m.id })
     const a = audits('bob')
     expect(a.length).toBe(before + 1)
-    expect(a.at(-1)).toMatchObject({ target: m.id, people: 0, confirmed: false, cut: false, files: 0, via: 'ai' })
+    // nothing was at stake, but bob pressed 보내기 on the card: confirmed
+    expect(a.at(-1)).toMatchObject({ target: m.id, people: 0, confirmed: true, cut: false, files: 0, via: 'ai' })
+  })
+
+  test('where a post went (Step.posted) is the runner\'s alone: another viewer of a shared chat gets the step without it', () => {
+    const posted = { roomId: rooms.all, messageId: uuidv7() }
+    const steps = [{ id: 'p1', kind: 'tool' as const, tool: 'post_to_room', label: '대화방에 보내기 · #전체', status: 'ok' as const, startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), posted }]
+    const store = h.rt().store
+    const chat = { chat_id: uuidv7(), turn_id: null }
+    expect(store.viewSteps(chat, steps)[0]!.posted).toEqual(posted)
+    expect(store.viewSteps(chat, steps, { runner: true, viewer: 'bob', locale: 'en', canList: () => true } as never)[0]!.posted).toEqual(posted)
+    expect(store.viewSteps(chat, steps, { runner: false, viewer: 'alice', locale: 'en', canList: () => true } as never)[0]!.posted).toBeUndefined()
   })
 
   test('[보내지 않기] posts nothing and says so; a card left unanswered posts nothing either', async () => {
     const before = authored(rooms.all, 'bob')
     const r = await turn('bob', post({ room: '전체', text: '보내지 말 것', note: '공유드려요' }), { answer: 'no' })
     // the note goes too, as bob's own words: on the card apart from the text
-    expect(r.card!.details).toEqual([{ label: '한마디', text: '공유드려요' }, { label: '보낼 내용', text: '보내지 말 것' }])
+    // ...labelled so bob sees it will show under his name (the AI wrote it)
+    expect(r.card!.details).toEqual([{ label: '내 이름으로 보일 한마디', text: '공유드려요' }, { label: '보낼 내용', text: '보내지 말 것' }])
     expect(r.content).toContain('The user chose not to send it, so nothing was posted to #전체')
     expect(r.content).toContain('Do not post it another way unless the user asks again')
     expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: '대화방에 보내기 · #전체', detail: '보내지 않았어요' })
@@ -127,6 +141,13 @@ describe('the card, and the post', () => {
     const big = await turn('bob', post({ room: rooms.all, text: 'x'.repeat(9_995), note: 'a note here' }))
     expect(big.content).toContain('one room message holds 10000')
     expect(big.card).toBeNull()
+  })
+
+  test('long random-looking parts of the text are marked on the card, as on the other server cards', async () => {
+    const r = await turn('bob', post({ room: rooms.all, text: 'See https://example.com/x?d=aB3dE5fG7hJ9kL1mN3pQ5sT7 today' }), { answer: 'no' })
+    expect(r.card!.details![0]).toMatchObject({ label: '보낼 내용', marks: ['aB3dE5fG7hJ9kL1mN3pQ5sT7'] })
+    const plain = await turn('bob', post({ room: rooms.all, text: '그냥 공지예요' }), { answer: 'no' })
+    expect(plain.card!.details![0]!.marks).toBeUndefined()
   })
 
   test('what some people cannot see is on the card; [파일도 함께 보내기] attaches the linked file', async () => {
@@ -184,6 +205,37 @@ describe('where it may not post', () => {
     expect(next.content).not.toContain('post_to_room')
     const off = postToRoomOff({ room: null, shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'web', chatId: r.chatId, locale: 'en' } as never })
     expect(off).toEqual({ text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' })
+  })
+
+  test('every run it is not offered in, with its reason; an ordinary chat of mine gets it', () => {
+    const chatId = h.ctx.db.query('SELECT id FROM chats LIMIT 1').get() as { id: string }
+    const off = (o: { clientKind?: string; room?: boolean; shared?: boolean; restricted?: boolean; templateRun?: boolean }) => postToRoomOff({
+      room: o.room ? { roomId: rooms.all } : null, shared: o.shared ? { project: {} } as never : null, restricted: !!o.restricted, templateRun: !!o.templateRun,
+      rt: h.rt() as never, spec: { clientKind: o.clientKind ?? 'web', chatId: chatId.id, locale: 'ko' } as never,
+    })?.summary ?? null
+    // (draft, judge, merge and file-rank chats are all `restricted`: chat/turn.ts TurnExec.restricted)
+    expect([
+      off({ clientKind: 'schedule' }), off({ clientKind: 'slack' }), off({ room: true }), off({ shared: true }), off({ restricted: true }), off({ templateRun: true }), off({}),
+    ]).toEqual([
+      'post_to_room -> refused: scheduled run', 'post_to_room -> refused: Slack', 'post_to_room -> refused: room session', 'post_to_room -> refused: shared chat',
+      'post_to_room -> refused: not here', 'post_to_room -> refused: not here', null,
+    ])
+    // each says why and what to do
+    const text = (o: Parameters<typeof off>[0]) => postToRoomOff({ room: o.room ? { roomId: rooms.all } : null, shared: o.shared ? { project: {} } as never : null, restricted: !!o.restricted, templateRun: !!o.templateRun, rt: h.rt() as never, spec: { clientKind: o.clientKind ?? 'web', chatId: chatId.id, locale: 'ko' } as never })!.text
+    expect(text({ clientKind: 'slack' })).toContain('"Post to channel"')
+    expect(text({ clientKind: 'slack' })).toContain('Tell the user to ask in the app')
+    expect(text({ shared: true })).toContain('"대화방에 보내기"')
+    expect(text({ restricted: true })).toContain('Tell the user to ask in one of their own chats')
+    expect(text({ templateRun: true })).toBe(text({ restricted: true }))
+    expect(text({ room: true })).toContain('Answer here instead')
+  })
+
+  test('a sub-agent\'s call that reaches it anyway is refused on the server, nothing posted', async () => {
+    const before = authored(rooms.all, 'bob')
+    const r = await turn('bob', fake({ agents: [{ id: 'toolu_PTR1', type: 'general-purpose', description: 'Share it', steps: [{ tool: 'post_to_room', args: { room: rooms.all, text: 'from a sub-agent' }, sayChildResult: true }] }] }))
+    expect(r.card).toBeNull()
+    expect(r.content).toContain('Nothing was posted: only the main assistant can post to a room')
+    expect(authored(rooms.all, 'bob')).toBe(before)
   })
 
   test('a room I am not in reads like one that does not exist; several rooms of one name are listed', async () => {
@@ -288,6 +340,36 @@ describe('injection, retries and changes', () => {
     expect(ids[0]).toBe(ids[1])
     // its id: ai-<turn>-1
     expect((h.ctx.db.query('SELECT client_id FROM room_messages WHERE id = ?').get(ids[0]!) as { client_id: string }).client_id).toBe(`ai-${r.turnId}-1`)
+  })
+
+  test('the same text again after the person deleted the first post: it goes again (a new id), with its own card', async () => {
+    const chatId = (await h.api('bob').call(API.createChat, { body: {} })).id
+    const call = post({ room: rooms.all, text: 'again after delete' })
+    const r = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content: [call, fake({ tool: 'ask_user', args: { question: 'deleted?' } }), call].join('\n'), clientMessageId: cm(), attachmentIds: [] } })
+    // (the socket keeps its frames: each card is the next one not seen yet)
+    const seen = new Set<string>()
+    const card = async () => {
+      const c = (await socks.bob!.next('turn.request', (f) => f.data.turnId === r.turnId && !seen.has(f.data.request.requestId))).data.request as unknown as Card & { requestId: string }
+      seen.add(c.requestId)
+      return c
+    }
+    const answer = (c: { requestId: string }, a: string) => h.api('bob').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: a } })
+    const one = await card()
+    expect(one.question).toBe('#전체(5명)에 보낼까요?')
+    await answer(one, 'send')
+    // the AI asks something; meanwhile bob deletes what it posted
+    const ask = await card()
+    const first = (h.ctx.db.query('SELECT id FROM room_messages WHERE client_id = ?').get(`ai-${r.turnId}-1`) as { id: string }).id
+    await h.api('bob').call(API.deleteRoomMessage, { params: { id: rooms.all, messageId: first } })
+    await answer(ask, 'yes')
+    const two = await card()
+    expect(two.question).toBe('#전체(5명)에 보낼까요?')
+    await answer(two, 'send')
+    const done = await socks.bob!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    expect(done.data.message.content).not.toContain('Already posted')
+    const second = h.ctx.db.query('SELECT id, deleted_at FROM room_messages WHERE client_id = ?').get(`ai-${r.turnId}-2`) as { id: string; deleted_at: string | null }
+    expect(second.deleted_at).toBeNull()
+    expect((await messagesAs('alice', rooms.all)).find((x) => x.id === second.id)!.body).toBe('again after delete')
   })
 
   test('who can see what changes while the card waits: refused, "ask again"', async () => {

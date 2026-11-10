@@ -16,9 +16,11 @@
 // A dev environment command or job that waits in the team queue (Step.devEnvRun) shows "Waiting for the dev
 // environment… #2 in line" under its row, with the live place (lib/devEnvQueue.ts) and a Cancel button, until it
 // starts; a command that waited too long says the dev environment is full.
+// A post the AI made to a room (post_to_room, Step.posted) has 보기, like the button's sent line: the room at the message
+// or the thread at the reply. A side chat gives its own way there (StepPostView: its column, a phone's panel).
 import clsx from 'clsx'
 import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { api, API, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
@@ -28,6 +30,7 @@ import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
 import { safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
+import { navigateTo } from '../../lib/nav'
 import { TeamImage } from '../Markdown'
 import { Tooltip } from '../Tooltip'
 
@@ -75,6 +78,10 @@ export function stepsGotPast(steps: Step[]): Set<string> {
 
 /** What decides a failed step's mark: the answer still runs (`live`), the answer itself failed (`answerFailed`: status
  * 'error', an interrupted answer too), and the failed steps the AI went on past (stepsGotPast). */
+/** Where a post's 보기 goes (a room's side chat passes its own; elsewhere the room's or the thread's page). */
+export const StepPostView = createContext<((p: NonNullable<Step['posted']>) => void) | null>(null)
+const postPath = (p: NonNullable<Step['posted']>) => (p.threadRootId ? `/rooms/${p.roomId}/t/${p.threadRootId}?m=${p.messageId}` : `/rooms/${p.roomId}?m=${p.messageId}`)
+
 export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: ReadonlySet<string> }
 
 /** What a step's mark shows (docs/DECISIONS.md "A failed step the AI got past is not red"). A step that ended in an
@@ -137,6 +144,7 @@ function QueueLine({ step }: { step: Step }) {
 function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; marks: Omit<MarkContext, 'live'>; kids?: Step[] }) {
   const t = useT()
   const locale = useLocale()
+  const viewPost = useContext(StepPostView)
   // the label was written in the language the answer ran in: redraw its words in the language on screen, and the
   // team's well-known folders in words ("브랜드 이미지 폴더 › a.jpg"; the path itself in the tooltip)
   const words = localizeStep(step, locale)
@@ -185,6 +193,12 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
       {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
       {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
+      {step.posted && !expandable ? (
+        <button type="button" onClick={() => (viewPost ? viewPost(step.posted!) : navigateTo(postPath(step.posted!)))} aria-label={t('steps.postViewLabel')}
+          className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline" data-testid="step-post-view">
+          {t('steps.postView')}
+        </button>
+      ) : null}
       {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
     </>
   )

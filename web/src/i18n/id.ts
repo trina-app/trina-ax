@@ -476,6 +476,8 @@ export const id: Record<MessageKey, string> = {
   'steps.earlier': '{n} langkah sebelumnya',
   'steps.running': 'Berjalan',
   'steps.done': 'Selesai',
+  'steps.postView': 'Lihat',
+  'steps.postViewLabel': 'Lihat di ruang',
   'devEnvQueue.waiting': 'Menunggu lingkungan pengembangan… antrean ke-{n}',
   'devEnvQueue.waitingNoPlace': 'Menunggu lingkungan pengembangan…',
   'devEnvQueue.cancel': 'Batal',
