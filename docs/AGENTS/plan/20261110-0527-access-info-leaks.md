@@ -63,4 +63,6 @@ not part of CI, so the coverage half of the matrix also runs as `tests/unit/secu
 matrix scopes (`admins`, `own-owner`). The independent review found that one project a member makes still lets them
 ask who is an admin through that project's own counts (its dry run, access, audience, the copy and delete cards); the
 task left a project's manager out, and closing it everywhere is a product decision (DECISIONS, open question). Its
-should-fix (three draft cases that could not fail) is fixed. PR: https://github.com/trina-app/trina-ax/pull/304
+should-fix (three draft cases that could not fail) is fixed. Rebased on #298 (project members panel): its count line
+(`AccessSummary`, also in the members dialog) got the member variant, "2명과 팀장·관리자가 봐요" (`projects.whoCountApart`,
+five languages). PR: https://github.com/trina-app/trina-ax/pull/304
