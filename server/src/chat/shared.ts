@@ -25,6 +25,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { confidentialChat } from '../safe-ops/confidential'
 import { redactorFor } from '../integrations/connections/redact'
 import { withheldFrom } from './shared-answers'
+import { mayUploadShared } from '../uploads/shared-chat'
 
 /** A chat row that is a shared project chat: made shared and still in a project. */
 export const isSharedRow = (r: Pick<ChatRow, 'shared_at' | 'project_id'>): boolean => !!r.shared_at && !!r.project_id
@@ -57,7 +58,21 @@ export class Audiences {
   private people: Principal[] | null = null
   private rules: RuleSet | null = null
   private byProject = new Map<string, string[]>()
+  private uploads = new Map<string, boolean>()
   constructor(private db: Database, private files: FileService) {}
+  /** May `userId` send a file from the computer into a shared chat of this project (uploads/shared-chat.ts
+   * mayUploadShared), once per project and person of this request, with the rules read once. */
+  mayUpload(userId: string, p: Pick<ProjectRow, 'id'>): boolean {
+    const k = `${p.id}\n${userId}`
+    let v = this.uploads.get(k)
+    if (v === undefined) {
+      const files = this.files
+      const rules = () => (this.rules ??= files.rules())
+      v = mayUploadShared(this.db, { fx: files.fx, rules, principal: (id) => files.principal(id) }, userId, p.id)
+      this.uploads.set(k, v)
+    }
+    return v
+  }
   of(p: ProjectRow): string[] {
     let ids = this.byProject.get(p.id)
     if (!ids) {
@@ -240,6 +255,7 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
     answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
     mine: r.user_id === viewer || wroteIn(rt.db, r.id, viewer),
     canDelete: r.user_id === viewer || (!!me && !!project && mayEditProject(rt.files, me, project)),
+    canUpload: !!project && aud.mayUpload(viewer, project),
   }
 }
 
@@ -305,9 +321,12 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 }
 
 /** Project.shareChats / audience / sharedChats as the caller sees them. */
-export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences): { shareChats: boolean; audience: number; sharedChats: number } {
+export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
   const n = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(p.id) as { n: number }).n
-  return { shareChats: projectCanShare(p) && p.share_chats === 1, audience: (aud ?? new Audiences(db, files)).of(p).length, sharedChats: n }
+  const a = aud ?? new Audiences(db, files)
+  const shareChats = projectCanShare(p) && p.share_chats === 1
+  // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
+  return { shareChats, audience: a.of(p).length, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
 }
 
 /**

@@ -197,7 +197,7 @@ test('a side chat\'s answer: one click in words (side-chat-send.test.tsx); as a 
   } finally {
     await m.unmount()
   }
-  expect(en('sideChat.open', { name: aiName((k) => en(k)) })).toContain('privately')
+  expect(en('sideChat.open', { name: aiName((k) => en(k)) })).not.toContain('privately')
 })
 
 test("two panels of a room (the page's and the file viewer's) are one chat: the same chat, draft and quote; an ask is quoted once", async () => {

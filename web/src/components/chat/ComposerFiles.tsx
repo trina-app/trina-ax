@@ -12,7 +12,9 @@
 // In a shared project chat a file from this computer is saved in the project folder by the server and attached as a team
 // file (docs/DECISIONS.md "Shared project chats": "A file from the computer in a shared chat"): its chip looks as usual,
 // one line under the row says where it went and who sees it (SharedUploadLine), and ✕ before sending moves that file to
-// the team trash (DELETE /api/attachments/:id).
+// the team trash (DELETE /api/attachments/:id). Someone who may not write that folder (Project.chatUploads,
+// Chat.shared.canUpload false: `computer` off) is offered team files only: pasted files are ignored and files dragged from
+// the computer get the not-allowed cursor, so nobody picks a file only to be refused.
 import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
@@ -62,13 +64,15 @@ const discardSaved = (a: Attachment) => void api.call(API.discardAttachment, { p
 
 /** The chips of a draft and what adds, removes and sends them. `ensureChat`: the chat the files go into (made by the
  * first file of a chat that does not exist yet). `onError`: a line for the box (null clears it): too many files.
- * `reload` false: the chips are not kept across a reload (the box's chat is not either). */
-export function useComposerFiles({ userId, draftId, ensureChat, onError, reload = true }: {
+ * `reload` false: the chips are not kept across a reload (the box's chat is not either). `computer` false: files from
+ * this computer are not taken (a shared chat whose project folder the person may not write; team files still are). */
+export function useComposerFiles({ userId, draftId, ensureChat, onError, reload = true, computer = true }: {
   userId: string
   draftId: string
   ensureChat: () => Promise<string>
   onError: (message: string | null) => void
   reload?: boolean
+  computer?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -107,7 +111,7 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
   const room = () => MESSAGE_ATTACHMENTS_MAX - live(filesRef.current).length
 
   const addFiles = async (all: File[]) => {
-    if (!all.length) return
+    if (!all.length || !computer) return
     onError(null)
     const list = all.slice(0, Math.max(0, room()))
     if (list.length < all.length) onError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
@@ -207,7 +211,8 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
     },
     /** files pasted into the box's text (a screenshot, a copied file) are attached, not pasted as text */
     onPaste: (e: ClipboardEvent<HTMLElement>) => {
-      const pasted = pastedFiles(e.clipboardData)
+      // files are not taken here: the paste goes on as text (a screenshot alone adds nothing)
+      const pasted = computer ? pastedFiles(e.clipboardData) : []
       if (pasted.length) {
         e.preventDefault()
         void addFiles(pasted)
@@ -222,16 +227,25 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
 }
 
 /** The box as a drop target: files from this computer, and (`onTeamPath`) a team file dragged from the file screen, a
- * preview or a message. `drag`: something that can be dropped is over it. */
-export function useFileDrop(onFiles: (files: File[]) => void, onTeamPath?: (path: string) => void) {
+ * preview or a message. `drag`: something that can be dropped is over it. `files` false: files from this computer are
+ * not taken: over the box they get the not-allowed cursor and no highlight, and the browser does not open them either
+ * (the drag is the box's, ending in nothing). */
+export function useFileDrop(onFiles: (files: File[]) => void, onTeamPath?: (path: string) => void, o: { files?: boolean } = {}) {
   const [drag, setDrag] = useState(false)
+  const files = o.files !== false
   return {
     drag,
     dropProps: {
       onDragOver: (e: DragEvent<HTMLElement>) => {
         const types = [...e.dataTransfer.types]
-        if (!types.includes('Files') && !(onTeamPath && types.includes(TEAM_FILE_DRAG_TYPE))) return
+        const team = !!onTeamPath && types.includes(TEAM_FILE_DRAG_TYPE)
+        if (!types.includes('Files') && !team) return
         e.preventDefault()
+        if (!files && !team) {
+          e.dataTransfer.dropEffect = 'none'
+          setDrag(false)
+          return
+        }
         // attached as a copy: a file-list row's drag also allows "move" (for the list's folder rows)
         e.dataTransfer.dropEffect = 'copy'
         setDrag(true)
@@ -248,7 +262,7 @@ export function useFileDrop(onFiles: (files: File[]) => void, onTeamPath?: (path
         if (!e.dataTransfer.files.length) return
         e.preventDefault()
         setDrag(false)
-        onFiles(Array.from(e.dataTransfer.files))
+        if (files) onFiles(Array.from(e.dataTransfer.files))
       },
     },
   }

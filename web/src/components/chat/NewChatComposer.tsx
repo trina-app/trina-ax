@@ -98,7 +98,7 @@ export function NewChatComposer({ projectId, project, initialText, resetKey = 0,
       placeholder={placeholder}
       footer={sharedLine}
       phoneFooter={sharedLine}
-      sharedUploads={shared ? { audience: project.audience ?? 0 } : undefined}
+      sharedUploads={shared ? { audience: project.audience ?? 0, allowed: project.chatUploads !== false } : undefined}
       projectId={projectId}
       waitsFor={waitsFor}
     />
