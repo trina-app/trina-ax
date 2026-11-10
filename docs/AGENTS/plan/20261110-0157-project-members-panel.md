@@ -88,3 +88,5 @@ labelled group instead of a `<label>`; a "no access" rule from Admin is not list
 box); the keyboard stays on the row after × and 되돌리기; leaving the picker clears the search; the dialogs close when the
 page moves to another project; an admin on a project whose folder is missing reads that, with the link to Admin; the
 list reads each creator once. The AI's `change_project_members` is the next PR, stacked on this one.
+
+PR: https://github.com/trina-app/trina-ax/pull/298
