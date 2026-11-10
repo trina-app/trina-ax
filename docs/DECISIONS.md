@@ -19037,7 +19037,7 @@ logo's header (28 px).
   The share dry run (`POST /api/projects/:id/share` with `dryRun`) uses the same count (`viewersAdded`, `adminsApart`).
   The line under the picker (`AccessSummary`, also in the members dialog) reads "2명과 팀장·관리자가 봐요" then
   (`projects.whoCountApart`); the owner and admins read "4명이 봐요 (팀장·관리자 포함)" as before.
-- **Left as it is, an open question for the owner:** every count of who reads a folder whose rules the member sets still
+- **Left as it is; decided by the owner on 2026-11-11 (below): who the admins are is not secret.** Every count of who reads a folder whose rules the member sets still
   counts the owner and admins, and a member sets them on any team project they make (every member, unless only admins
   may make projects). So making one project (audited, seen by admins) and then naming a person in its dry run
   (`projectId`: `added` 0 for an admin, 1 for a member) still tells who the admins are; so do `ProjectAccess.people`,
@@ -19046,6 +19046,13 @@ logo's header (28 px).
   means counting admins apart in every audience count a member sees (projects, shared chats, the copy and delete cards,
   the scheduled-task card), a product decision with copy changes in several features, not made here. The count still
   includes the members of the caller's own groups chosen, as the group's team room shows them.
+  **The owner's decision (2026-11-11, fix/apps-store-first): admin identity is not treated as secret.** The app tells
+  members to ask an admin ("멤버는 관리자가 바꿔요", an expired reset link, a usage limit, a skill name clash), so members
+  need to know who the admins are. The detours above (a member's own project dry run, `ProjectAccess.people`, the
+  participants answer, `Project.audience`, the copy dry run, the delete card's first number) are accepted, and the counts
+  are not changed to leave the admins out. This change's own fixes stay as they are: the new-project dry run's
+  `adminsApart` count, the share dry run, and the delete card's second number (which is about who can write a folder,
+  not about roles). No code change.
 - **The delete card's "cannot restore" number only for the owner and admins.** The card said how many of the people who
   lose the items cannot restore them (readers without write). How many lose them a member already learns (a copy dry
   run into a folder they can write answers `viewersAdded`); the second number added how many people can write the
@@ -19402,7 +19409,7 @@ script) and the Trina edition's links in `editions/trina/branding/apps.json`.
   of the download page (without a page, one per row); in a phone's browser only that phone's row; in the phone app one
   row, "This app".
 - **Desktop app**: Mac and Windows rows. Each offers the team server's installers, else the store listing, else the
-  download page. The desktop app marks its row "This app": a store build keeps the store's line ("This app is from the Mac
+  download page (the Mac row: the App Store first since 2026-11-11, below). The desktop app marks its row "This app": a store build keeps the store's line ("This app is from the Mac
   App Store. It updates there.") and offers no installer file anywhere, as before (App Review 2.4.5, Microsoft Store
   10.2.4), so its other computer's row is the listing or the page. The desktop app from the team server offers only the
   server's installer on its own row (a store listing is another build, with its own data): a Windows app "updates by
@@ -19422,6 +19429,20 @@ script) and the Trina edition's links in `editions/trina/branding/apps.json`.
   at 1440, a Windows PC, an iPhone at 390, the Mac App Store build, the iPhone app; with this build's edition links and
   a fixture installer list; a build without links is covered by the unit tests).
 - Version impact: **patch** (a settings page shows more; no API, data or setting change).
+- **Amended 2026-11-11 (fix/apps-store-first, product owner): the Mac row offers the App Store first.** With a Mac
+  installer on the team server the row offered that file only, and the file brings a macOS security warning the first
+  time ("열 수 없습니다", then System Settings › Privacy & Security) and does not update by itself. The App Store app has
+  neither problem, so wherever the edition has a Mac App Store listing the Mac row offers it, and the server's installers
+  go under the row as a second way (`AppRow.more`): one small line, "설치 파일 내려받기" (Download the installer) ⌄, that
+  opens to the file buttons and, on a Mac, the install steps with the warning. Only when the server has one; folded, not
+  a second button, so the row still reads as one app with one way to get it. Unchanged: the Mac App Store build (its own
+  row "This app" with the store's line, no installer anywhere), the desktop app from the team server on a Mac (its own
+  row offers only the server's installer: the store build is another app with its own data), an edition without a Mac
+  listing (the installer first; a download page is no store), and the Windows row (its installer first: there is no
+  Microsoft Store listing, and the Windows app updates from the team server). Plan
+  `docs/AGENTS/plan/20261110-1736-apps-store-first.md`. Tests: `web/test/unit/apps.test.ts` (the Mac row with and without
+  a server installer, per device and build; the fold's markup), `web/test/e2e/apps-install.spec.ts` (a Mac at 1440 and
+  390 with both installers on the server; the Mac App Store build with them). Version impact: **patch**.
 
 ## 창으로 돌아오면 키보드는 보던 곳으로 — the keyboard goes back where it was when the desktop window gets the focus (fix/desktop-page-focus, 2026-11-10)
 
@@ -19556,7 +19577,8 @@ folder, in place" (the chip).
   trace, which #304 kept from them. The task's member wording ("멤버 N명 · 팀장·관리자도 볼 수 있어요", no number for the
   role part) is used where a member's count already leaves the admins out: a new project's line (`adminsApart`). A
   member's other counts keep their words ("5명이 봐요", "5명이 봐요 (팀장·관리자 포함)"). Counting the admins apart in every
-  count a member sees stays #304's open question.
+  count a member sees was #304's open question; the owner closed it on 2026-11-11: who the admins are is not secret, so
+  those counts stay as they are (see #304's entry, "정보가 새는 곳 셋"). The split still goes to the owner and admins only.
 - **The words, for the owner and admins.** The 멤버 row: "멤버 3명" (en "Members 3"); "나만 봐요" and "나와 관리자만 봐요" stay,
   by the same rule as the line under the box, which keeps the total ("프로젝트 사람 5명이 …": who sees the chat). The
   members dialog's and the new-project line (`AccessSummary`): "멤버 3명 · 팀장·관리자 2명도 볼 수 있어요", the role part

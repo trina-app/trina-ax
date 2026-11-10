@@ -1,6 +1,7 @@
 // Settings > Apps (pages/Settings.tsx, components/settings/AppList.tsx, InstallGuide.tsx and InstallPictures.tsx): the
 // team address, then every phone and desktop app with one way to get it (the edition's store listings and download page,
-// APP_DOWNLOADS, and the team server's installers: a fixture here), then, in a web browser, how to install the page as an
+// APP_DOWNLOADS, and the team server's installers: a fixture here; the Mac row offers the App Store first and folds the
+// server's installer under it), then, in a web browser, how to install the page as an
 // app, whose steps come with pictures that follow the browser (Chrome and Edge, Safari on a Mac; Firefox cannot
 // install). The links are this build's edition links (APP_DOWNLOADS; a build without them is covered by
 // web/test/unit/apps.test.ts), the team server's installer list is a fixture, and no link is followed.
@@ -18,8 +19,10 @@ const UA = {
 }
 /** a Linux server that takes only the Windows app from the release feed */
 const WINDOWS_ONLY = { items: [{ platform: 'windows', file: 'Trina-AX-Setup-0.3.0-x64.exe', version: '0.3.0', size: 114304798, signed: false }] }
+/** an office Mac server with both installers (`teamax desktop add`) */
+const MAC_AND_WINDOWS = { items: [{ platform: 'mac', file: 'Trina-AX-0.3.0-mac-universal.dmg', version: '0.3.0', size: 201326592, signed: false }, ...WINDOWS_ONLY.items] }
 
-async function open(page: Page, o: { installed?: boolean; macAppStore?: boolean; phoneApp?: 'ios' | 'android' } = {}) {
+async function open(page: Page, o: { installed?: boolean; macAppStore?: boolean; phoneApp?: 'ios' | 'android'; downloads?: typeof MAC_AND_WINDOWS } = {}) {
   // the Mac App Store build's desktop bridge, as far as this page reads it (the store flag)
   if (o.macAppStore) await page.addInitScript(() => {
     const noop = () => {}
@@ -41,7 +44,7 @@ async function open(page: Page, o: { installed?: boolean; macAppStore?: boolean;
     const orig = window.matchMedia.bind(window)
     window.matchMedia = (q: string) => (q.includes('display-mode: standalone') ? { matches: true, media: q, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false } as unknown as MediaQueryList : orig(q))
   })
-  await page.route('**/downloads/index.json', (r) => r.fulfill({ json: WINDOWS_ONLY }))
+  await page.route('**/downloads/index.json', (r) => r.fulfill({ json: o.downloads ?? WINDOWS_ONLY }))
   await reset(page)
   await signIn(page)
   await page.goto('/settings/apps')
@@ -76,6 +79,28 @@ test.describe('a Mac in Chrome', () => {
     expect(await y(page, 'apps-computer')).toBeLessThan(await y(page, 'install-guide-desktop'))
     expect(await noOverflow(page)).toBe(true)
   })
+  test("the server's Mac installer too: the App Store first, the installer and its warning folded under it", async ({ page }) => {
+    test.skip(!APP_DOWNLOADS.mac, 'an edition without a Mac App Store listing')
+    const dialog = await open(page, { downloads: MAC_AND_WINDOWS })
+    const mac = dialog.getByTestId('app-row-mac')
+    await expect(mac.getByTestId('app-link-mac')).toHaveAttribute('href', APP_DOWNLOADS.mac)
+    await expect(mac.getByTestId('app-link-mac')).toContainText('App Store')
+    const fold = mac.getByTestId('app-more-mac')
+    await expect(fold.locator('summary')).toHaveText('Mac 설치 파일 내려받기')
+    expect(await y(page, 'app-link-mac')).toBeLessThan(await y(page, 'app-more-mac'))
+    const gatekeeper = mac.getByText('"열 수 없습니다" 경고가 나오면', { exact: false })
+    await expect(mac.getByTestId('app-file-mac')).toBeHidden()
+    await expect(gatekeeper).toBeHidden()
+    await fold.locator('summary').click()
+    await expect(mac.getByTestId('app-file-mac')).toBeVisible()
+    await expect(mac.getByTestId('app-file-mac')).toHaveAttribute('href', '/downloads/Trina-AX-0.3.0-mac-universal.dmg')
+    await expect(mac.getByTestId('app-file-mac')).toContainText('내려받기 · v0.3.0')
+    await expect(gatekeeper).toBeVisible()
+    // the Windows row is as it was: its installer, no steps on a Mac
+    await expect(windowsLink(page)).toBeVisible()
+    await expect(dialog).not.toContainText('Windows의 PC 보호')
+    expect(await noOverflow(page)).toBe(true)
+  })
   test("the install guide's three steps have pictures that follow the browser; the phones' steps are one line away", async ({ page }) => {
     const dialog = await open(page)
     const guide = dialog.getByTestId('install-guide-desktop')
@@ -100,8 +125,12 @@ test.describe('a Mac in Chrome', () => {
   })
   test('a phone-wide window: the rows, the QR code and the pictures fit, nothing runs off the screen', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    const dialog = await open(page)
+    const dialog = await open(page, { downloads: MAC_AND_WINDOWS })
     await expect(dialog.getByTestId('install-steps-chromium').getByRole('listitem')).toHaveCount(3)
+    if (APP_DOWNLOADS.mac) {
+      await dialog.getByTestId('app-more-mac').locator('summary').click()
+      await expect(dialog.getByTestId('app-file-mac')).toBeVisible()
+    }
     for (const id of ['app-row-iphone', 'app-row-mac', 'app-row-windows']) {
       const box = (await dialog.getByTestId(id).boundingBox())!
       expect(box.x + box.width, id).toBeLessThanOrEqual(390)
@@ -171,12 +200,13 @@ test.describe('an iPhone in Safari', () => {
 test.describe('the Mac App Store build', () => {
   test.use({ userAgent: UA.macDesktopApp, viewport: { width: 1440, height: 900 } })
   test('this Mac\'s row is "This app", updated by the App Store; no installer file; no other phone platform named', async ({ page }) => {
-    const dialog = await open(page, { macAppStore: true })
+    const dialog = await open(page, { macAppStore: true, downloads: MAC_AND_WINDOWS })
     const mac = dialog.getByTestId('app-row-mac')
     await expect(mac).toContainText('이 앱')
     await expect(mac).toContainText('이 앱은 Mac App Store에서 설치했어요. 업데이트도 App Store에서 받아요.')
     await expect(mac.getByRole('link')).toHaveCount(0)
     await expect(dialog.locator('a[href^="/downloads/"]')).toHaveCount(0)
+    await expect(dialog.getByTestId('app-more-mac')).toHaveCount(0)
     if (APP_DOWNLOADS.page) await expect(dialog.getByTestId('app-link-windows')).toHaveAttribute('href', APP_DOWNLOADS.page)
     // App Review 2.3.10: an Apple app names no other mobile platform; the QR code leads to the page that has it
     await expect(dialog).not.toContainText(/Android|Google Play|Microsoft Store/)
