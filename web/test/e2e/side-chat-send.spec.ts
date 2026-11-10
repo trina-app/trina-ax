@@ -312,7 +312,7 @@ test('closed and opened again (✕, then ✦): a new empty chat with its starter
   await expect(page.getByTestId('room-side-chat').getByTestId('user-message')).toHaveCount(0)
 })
 
-test('a phone: ‹ and ✦ again open a new chat over the room; asking about a message then quotes it in a new chat', async ({ page }) => {
+test('a phone: ‹ and ✦ again open a new chat over the room; the one asked is in 🕘', async ({ page }) => {
   const { side } = await open(page, { ask: false, phone: true })
   await side.getByTestId('side-chat-back').click()
   await expect(page.getByTestId('room-side-chat')).toHaveCount(0)
