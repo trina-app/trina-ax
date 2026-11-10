@@ -170,7 +170,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
             <Switch checked={shareChats} onChange={setShareChats} label={t('projects.shareChats')} disabled={safeOps} testId="project-share-chats-toggle" describedBy={shareHint} />
             {/* what flipping it does now; under safe operations why it cannot (the switch's own width + gap: under its words) */}
             <p id={shareHint} className="mt-1 pl-11 text-xs leading-5 break-keep text-faint" data-testid="project-share-chats-hint">
-              {safeOps ? t('projects.shareChatsSafeOps') : project?.shareChats ? t('projects.shareChatsOn') : t('projects.shareChatsOff', { n: project?.audience ?? 0 })}
+              {safeOps ? t('projects.shareChatsSafeOps') : project?.shareChats ? t('projects.shareChatsOn') : project?.audienceSplit?.byRole ? t('projects.shareChatsOffApart', { n: project.audienceSplit.direct, m: project.audienceSplit.byRole }) : t('projects.shareChatsOff', { n: project?.audience ?? 0 })}
             </p>
           </div>
         )}

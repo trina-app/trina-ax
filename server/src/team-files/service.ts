@@ -12,7 +12,7 @@ import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { CONTENT_KINDS, fileTimeline, placeNow } from '../files/timeline'
 import { HttpError } from '../http/errors'
-import { atLeast, RuleSet, type Principal } from '../policy/access'
+import { atLeast, RuleSet, splitOf, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
@@ -181,8 +181,12 @@ export class TeamFiles {
     try { authorize(this.fx, rules, user, r.rel, 'write'); writable = true } catch { writable = false }
     if (!writable) return { path: r.rel, access }
     const active = activePeople(this.ctx.db)
-    const people = active.filter((p) => atLeast(rules.access(p, r.segs), 'read')).length
-    return { path: r.rel, access, people, everyone: people === active.length }
+    const readers = active.filter((p) => atLeast(rules.access(p, r.segs), 'read'))
+    const people = readers.length
+    // the count apart (by its rules, by role only): the owner and admins only. Beside `people`, a member would learn how
+    // many see it only as the owner or an admin (docs/DECISIONS.md "Who sees it: the project's own people first")
+    const admin = user.role === 'owner' || user.role === 'admin'
+    return { path: r.rel, access, people, everyone: people === active.length, ...(admin ? { split: splitOf(rules, readers, r.segs) } : {}) }
   }
 
   // ---------------- content ----------------

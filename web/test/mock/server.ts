@@ -2173,7 +2173,10 @@ export class MockServer {
       // a member's new project: the owner and admins are not counted (as the server: the count never says who is an admin)
       if (!c.body.projectId) {
         const admin = c.user.role !== 'member'
-        return { people: people({ creator: c.user.id, participants: c.body.participants }, admin).length, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...(admin ? {} : { adminsApart: true }) }
+        const n = people({ creator: c.user.id, participants: c.body.participants }, admin).length
+        // the owner and admins: apart too (the caller and the people chosen, then the other admins)
+        const direct = people({ creator: c.user.id, participants: c.body.participants }, false).length
+        return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...(admin ? { split: { direct, byRole: n - direct } } : { adminsApart: true }) }
       }
       const p = this.projectToEdit({ ...c, params: { id: c.body.projectId } })
       const pm = this.projectMembers.get(p.folderPath) ?? fail('conflict', 409, '이 프로젝트를 볼 수 있는 사람은 관리자 › 폴더 권한에서 바꿔요.', undefined, { reason: 'project_not_editable' })
@@ -2181,13 +2184,16 @@ export class MockServer {
       const after = people({ creator: pm.creator, participants: c.body.participants })
       const added = after.filter((u) => !before.has(u.id)).length
       const removed = [...before].filter((id) => !after.some((u) => u.id === id)).length
-      if (!added) return { people: after.length, added, removed, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }
+      // the owner and admins: its people by its rules after the change, apart from the admins by role
+      const byRules = people({ creator: pm.creator, participants: c.body.participants }, false).length
+      const split = c.user.role !== 'member' ? { split: { direct: byRules, byRole: after.length - byRules } } : {}
+      if (!added) return { people: after.length, added, removed, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...split }
       const under = [...this.files.entries()].filter(([k, v]) => v.type === 'file' && k.startsWith(p.folderPath + '/'))
       const files = under.filter(([k]) => !k.startsWith(`${p.folderPath}/skills/`)).length
       const skillNames = under.filter(([k]) => k.startsWith(`${p.folderPath}/skills/`) && /^[^/]+\/SKILL\.md$/.test(k.slice(p.folderPath.length + 8))).map(([k]) => k.slice(p.folderPath.length + 8).split('/')[0]!).sort()
       const skills = skillNames.length
       const sharedChats = this.chats.filter((x) => x.projectId === p.id && !x.deletedAt && this.sharedChats.has(x.id)).length
-      return { people: after.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10) }
+      return { people: after.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split }
     },
     putProjectParticipants: (c) => {
       const p = this.projectToEdit(c)
@@ -2320,8 +2326,11 @@ export class MockServer {
       // with the admin's people list; otherwise this mock's simple policy
       const ruled = this.folders.some((f) => f.rules.length > 0 && (f.path === '' || path === f.path || path.startsWith(f.path + '/')))
       const rules = ruled ? this.explainRules() : null
-      const people = active.filter((u) => (rules ? rules.access(this.explainPrincipal(u), segsOf(path)) : this.access(path, u)) !== 'none').length
-      return { path, access, people, everyone: people === active.length }
+      const reads = (u: User) => (rules ? rules.access(this.explainPrincipal(u), segsOf(path)) : this.access(path, u)) !== 'none'
+      const readers = active.filter(reads)
+      const people = readers.length
+      // apart for the owner and admins only (server/src/team-files/service.ts audience)
+      return { path, access, people, everyone: people === active.length, ...(c.user.role !== 'member' ? { split: this.splitOf(readers, reads) } : {}) }
     },
     content: (c) => {
       const n = this.files.get(c.query.path!)
@@ -4618,7 +4627,15 @@ export class MockServer {
       sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length,
       ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer) } : {}), ...members,
       // only for someone who may read its rules anyway (server/src/chat/project-access.ts membersView)
-      ...(!personal && viewer && (members.membersEditable || viewer.role !== 'member') && this.sharedAlone(p, viewer) ? { alone: true as const } : {}) }
+      ...(!personal && viewer && (members.membersEditable || viewer.role !== 'member') && this.sharedAlone(p, viewer) ? { alone: true as const } : {}),
+      // the audience apart, for the owner and admins only (membersView)
+      ...(!personal && viewer && viewer.role !== 'member' ? { audienceSplit: this.splitOf(this.sharedAudience(p), (u) => this.access(p.folderPath, u) !== 'none') } : {}) }
+  }
+  /** like server/src/policy/access.ts splitOf: of `readers`, a member counts by the rules, the owner or an admin only when
+   * `reads` says they would read it as a member (role-blind) */
+  splitOf(readers: User[], reads: (u: User) => boolean): { direct: number; byRole: number } {
+    const direct = readers.filter((u) => u.role === 'member' || reads({ ...u, role: 'member' })).length
+    return { direct, byRole: readers.length - direct }
   }
   /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
   sharedView(chat: Chat, viewer: User): Chat | null {

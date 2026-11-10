@@ -36,7 +36,7 @@ describe('a new project\'s dry run tells a member nothing about roles', () => {
 
   test('an admin or the owner: the count of everyone who would see it, as before', async () => {
     // carol (admin): herself and dana (owner)
-    expect(await preview('carol', { participants: [] })).toEqual({ people: 2, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
+    expect(await preview('carol', { participants: [] })).toEqual({ people: 2, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], split: { direct: 1, byRole: 1 } })
     expect((await preview('carol', { participants: [user('erin')] })).people).toBe(3)
     expect((await preview('carol', { participants: [user('dana')] })).people).toBe(2)
     expect((await preview('dana', { participants: [group('marketing'), user('bob')] }))).toMatchObject({ people: 5 })

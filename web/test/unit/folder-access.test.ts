@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, Project } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { adminsOnly, chipOf, chipPlace, chipText, headlineText } from '../../src/lib/folder-access'
+import { adminsOnly, byRoleText, chipLabel, chipOf, chipPlace, chipText, headlineText } from '../../src/lib/folder-access'
 import { changeHere } from '../../src/components/FolderAccess'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
@@ -70,6 +70,38 @@ describe('what it says', () => {
     expect(chipText(en, { kind: 'people', n: 1 })).toBe('1 person sees it')
     expect(chipText(en, { kind: 'people', n: 6 })).toBe('6 people see it')
     expect(headlineText(en, { kind: 'people', n: 6 })).toBe('6 people see it (owner and admins included)')
+  })
+})
+
+describe('the owner and admins read the count apart (docs/DECISIONS.md "Who sees it: the project\'s own people first")', () => {
+  test('the folder\'s own rules first, then the owner and admins who see it only by role', () => {
+    const c = chipOf('ask', { audience: { path: 'groups/m', access: 'write', people: 5, everyone: false, split: { direct: 3, byRole: 2 } } })
+    expect(c).toEqual({ kind: 'people', n: 3, byRole: 2 })
+    expect(chipText(ko, c!)).toBe('3명')
+    expect(headlineText(ko, c!)).toBe('3명이 봐요')
+    expect(byRoleText(ko, c!)).toBe('팀장·관리자 2명도 볼 수 있어요')
+    expect(chipLabel(ko, c!)).toBe('3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요')
+    expect(chipText(en, c!)).toBe('3 people')
+    expect(byRoleText(en, c!)).toBe('2 more can see it as the owner and admins')
+    expect(byRoleText(en, { kind: 'people', n: 3, byRole: 1 })).toBe('1 more can see it as the owner or an admin')
+  })
+  test('nobody by role: no role line; nobody by a rule: owner and admins only; everyone: the whole team', () => {
+    const all = chipOf('ask', { audience: { path: 'groups/m', access: 'write', people: 4, everyone: false, split: { direct: 4, byRole: 0 } } })!
+    expect(all).toEqual({ kind: 'people', n: 4, byRole: 0 })
+    expect(byRoleText(ko, all)).toBeNull()
+    expect(chipLabel(ko, all)).toBe('4명이 봐요')
+    expect(chipOf('ask', { audience: { path: 'groups/m', access: 'write', people: 2, everyone: false, split: { direct: 0, byRole: 2 } } })).toEqual({ kind: 'adminsOnly' })
+    expect(chipOf('ask', { audience: { path: 'shared', access: 'write', people: 5, everyone: true, split: { direct: 5, byRole: 0 } } })).toEqual({ kind: 'team' })
+  })
+  test('a team project\'s folder: its own split', () => {
+    expect(chipOf('project', { project: project({ audience: 5, audienceSplit: { direct: 3, byRole: 2 } }) })).toEqual({ kind: 'people', n: 3, byRole: 2 })
+  })
+  test('a member (no split): the total, the owner and admins included, and no role line or number', () => {
+    const c = chipOf('ask', { audience: { path: 'groups/m', access: 'write', people: 5, everyone: false } })!
+    expect(chipText(ko, c)).toBe('5명이 봐요')
+    expect(headlineText(ko, c)).toBe('5명이 봐요 (팀장·관리자 포함)')
+    expect(byRoleText(ko, c)).toBeNull()
+    expect(chipLabel(ko, c)).toBe('5명이 봐요 (팀장·관리자 포함)')
   })
 })
 

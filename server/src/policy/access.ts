@@ -13,6 +13,17 @@ const RANK: Record<Access, number> = { none: 0, read: 1, write: 2 }
 const BY_RANK: readonly Access[] = ['none', 'read', 'write']
 export const atLeast = (a: Access, b: Access) => RANK[a] >= RANK[b]
 
+/**
+ * Readers of a folder apart (shared AudienceSplit; docs/DECISIONS.md "Who sees it: the project's own people first").
+ * `readers`: who can read it now. A member reads it by a rule; the owner or an admin is `direct` only when they would read
+ * it as a member would (role-blind, as chat/shared.ts Audiences.alone), else `byRole`: they see it only by their role.
+ * Only for the owner and admins to read: beside the total, a member would learn how many see it only by role.
+ */
+export function splitOf(rules: RuleSet, readers: readonly Principal[], segs: readonly string[]): { direct: number; byRole: number } {
+  const direct = readers.filter((x) => x.role === 'member' || atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')).length
+  return { direct, byRole: readers.length - direct }
+}
+
 /** Inside the deciding folder: personal > group (widest) > role > everyone. A lower number decides first. */
 const TIERS = ['user', 'group', 'role', 'everyone'] as const
 const TIER: Record<SubjectType, number> = { user: 0, group: 1, role: 2, everyone: 3 }

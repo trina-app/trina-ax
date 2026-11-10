@@ -19534,3 +19534,42 @@ Save. Amends "The keyboard keeps the newest message in sight (end-to-end run, 20
   the line under it, and the keyboard; the tab bar gone while typing). The "app" runs fail without
   the fix. Checked by hand in the iOS 26.5 simulator: Safari and a WKWebView host (before and after).
 - Version impact: **patch** (web app only; no API, data, setting or text change).
+
+## Who sees it: the project's own people first — 멤버 먼저, 팀장·관리자는 따로 (fix/members-count-apart, 2026-11-10, product owner)
+
+The owner, on a project whose members are its creator and the group "leads" (3 people, the creator in it): the 멤버 row
+said "5명이 봐요" and the members dialog "5명이 봐요 (팀장·관리자 포함)". "Why 5? leads has 3 people including me." The
+other 2 were the owner and an admin, who see every project by role. Right, but it read as wrong. Plan:
+`docs/AGENTS/plan/20261110-1618-members-count-apart.md`. Amends "Who sees it, always" (the 멤버 line) and "Who can see a
+folder, in place" (the chip and the panel).
+
+- **The count apart** (shared `AudienceSplit`, `server/src/policy/access.ts splitOf`): `direct` the people who see it by
+  its own rules, `byRole` the owner and admins who see it only by their role; they add up to the total beside them, which
+  stays as it was. Role-blind as `Project.alone`: each owner or admin is judged as a member would be, so one who is in a
+  rule (its creator, someone chosen, a member of a group chosen) counts once, in `direct`. While a project's folder is in
+  the trash nobody sees it by a rule. On `Project.audienceSplit` (`chat/project-access.ts membersView`), the project dry
+  run's `split` (`POST /api/projects/access-preview`, new and existing projects) and `GET /api/files/audience`'s `split`
+  (with `people` only, so where a write would pass, as before).
+- **Decision: the split goes to the owner and admins only, never to a member, editor or not.** Every count a member gets
+  (`Project.audience`, `ProjectAccess.people`, an existing project's dry run, the folder count, the copy dry run) already
+  includes the owner and admins. A `direct` beside it would tell them how many see it only by role, for free and with no
+  trace, which #304 kept from them. The task's member wording ("멤버 N명 · 팀장·관리자도 볼 수 있어요", no number for the
+  role part) is used where a member's count already leaves the admins out: a new project's line (`adminsApart`). A
+  member's other counts keep their words ("5명이 봐요", "5명이 봐요 (팀장·관리자 포함)"). Counting the admins apart in every
+  count a member sees stays #304's open question.
+- **The words, for the owner and admins.** The 멤버 row: "멤버 3명" (en "Members 3"); "나만 봐요" and "나와 관리자만 봐요" stay,
+  by the same rule as the line under the box, which keeps the total ("프로젝트 사람 5명이 …": who sees the chat). The
+  members dialog's and the new-project line (`AccessSummary`): "멤버 3명 · 팀장·관리자 2명도 볼 수 있어요", the role part
+  quieter and left out at 0. The folder chip: "3명"; its panel: "3명이 봐요" and under it "팀장·관리자 2명도 볼 수 있어요"; no
+  rule letting anyone in reads "팀장과 관리자만". The share switch: "멤버 3명과 팀장·관리자 2명이 보고 이어갈 수 있어요". English
+  first ("3 members · 2 more can see it as the owner and admins"), then ko, id, ja, es.
+- **No names** of the owner or admins, in the line, a tooltip or the chip's accessible name (#326): a number for the owner
+  and admins, the role words alone for a member.
+- **Left as they were:** the chat lines and the shared mark (who sees a chat: everyone, admins included), the copy and
+  delete cards, #298's dialog layout (only its count line changed, and its fallback after a save drops the old split).
+- Tests: `tests/unit/b-audience-split.test.ts` (the owner's case: creator and group overlap; an admin also in the group;
+  an admin who made it; the trash; the dry runs; folder rules against role-only access; a member, editor or not, gets no
+  split anywhere), `project-preview-roles.test.ts`, `tests/security/project-participants.test.ts`,
+  `folder-audience.test.ts`; web unit `project-members`, `project-form`, `who-sees`, `folder-access`; e2e
+  `project-participants.spec.ts`, `folder-access.spec.ts`.
+- Version impact: **patch** (new count words; three optional response fields; no data change).

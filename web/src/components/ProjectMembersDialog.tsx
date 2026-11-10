@@ -94,9 +94,9 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
       const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash } })
       shown(a)
       // the project as the server sees it now: how many see it, and whether anyone else does by a rule (Project.alone:
-      // the line under a chat's box, docs/DECISIONS.md "Who sees it, always"); unread, the count alone
+      // the line under a chat's box, docs/DECISIONS.md "Who sees it, always"); unread, the count alone (its split is old)
       const next = await api.call(API.getProject, { params: { id: project.id } }).catch(() => {
-        const { alone: _, ...rest } = project
+        const { alone: _, audienceSplit: _s, ...rest } = project
         return { ...rest, audience: a.people }
       })
       useProjects.getState().put(next)

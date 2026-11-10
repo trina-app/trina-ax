@@ -10,14 +10,14 @@
 // Never shared: a chat in a personal project, a chat made while safe operations (1A) are on, a confidential chat
 // (markConfidentialTurn refuses a shared one). While 1A is on, shared chats are read-only.
 import type { Database } from 'bun:sqlite'
-import { CHAT_PEOPLE_SHOWN, type Chat, type Locale, type UserRef } from '@mycel/shared/api'
+import { CHAT_PEOPLE_SHOWN, type AudienceSplit, type Chat, type Locale, type UserRef } from '@mycel/shared/api'
 import type { ChatRuntime } from './runtime'
 import { PROJECT_COLS, SHARED_LATER, type ChatRow, type ChatStore, type MessageRow, type MessageView, type ProjectRow } from './store'
 import { composeMessage } from './turn'
 import { HISTORY_MAX_CHARS, historyBlock, historyWindow } from './prompt'
 import { roomRefsByIdOnly } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
-import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../policy/access'
 import { isPersonalFolder, mayEditProject } from './projects'
 import { fail } from '../http/errors'
 import { tr } from './i18n'
@@ -109,7 +109,21 @@ export class Audiences {
       return !!x && x.role !== 'member' && !atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')
     })
   }
+  /**
+   * The audience apart (Project.audienceSplit): `direct` sees it by a rule of its folder, `byRole` only as the owner or an
+   * admin. Role-blind as `alone`: the owner or an admin who is in a rule (its creator, someone chosen, a group of theirs)
+   * counts once, in `direct`. While its folder is in the trash nobody sees it by a rule. Only for the owner and admins
+   * (chat/project-access.ts membersView): next to `audience`, a member would learn how many see it only by role.
+   */
+  split(p: ProjectRow): AudienceSplit {
+    const ids = this.of(p)
+    if (p.trashed_with !== null) return { direct: 0, byRole: ids.length }
+    const rules = (this.rules ??= this.files.rules())
+    const byId = (this.byId ??= new Map((this.people ?? []).map((x) => [x.id, x])))
+    return splitOf(rules, ids.map((id) => byId.get(id)).filter((x): x is Principal => !!x), p.folder_path === '' ? [] : p.folder_path.split('/'))
+  }
 }
+
 
 /** The audience of one project now. */
 export const audienceOf = (db: Database, files: FileService, p: ProjectRow): string[] => new Audiences(db, files).of(p)

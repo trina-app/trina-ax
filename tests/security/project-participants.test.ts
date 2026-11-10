@@ -199,8 +199,8 @@ describe('the dry run', () => {
     expect((await preview('alice', { participants: [] })).body).toEqual({ people: 1, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], adminsApart: true })
     expect((await preview('alice', { participants: [group('marketing'), user('bob')] })).body.people).toBe(3)
     expect((await preview('alice', { participants: [user('carol')] })).body.people).toBe((await preview('alice', { participants: [user('bob')] })).body.people)
-    // an admin: everyone who would see it
-    expect((await preview('carol', { participants: [group('marketing'), user('bob')] })).body).toEqual({ people: 5, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
+    // an admin: everyone who would see it, and apart: carol and the people chosen, then dana (the owner) by role
+    expect((await preview('carol', { participants: [group('marketing'), user('bob')] })).body).toEqual({ people: 5, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], split: { direct: 4, byRole: 1 } })
     expect((await preview('alice', { participants: [group('finance')] })).status).toBe(400)
   })
 

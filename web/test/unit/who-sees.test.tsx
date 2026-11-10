@@ -151,4 +151,16 @@ describe('the project page\'s 멤버 line: the same words by the same rule', () 
     expect(other.row).toContain('3명이 봐요')
     expect(other.row).not.toContain('관리자만')
   })
+
+  test('the owner and admins read its people by its rules ("멤버 3명"); the box keeps the total', async () => {
+    // the owner's case: its creator and a group of three she is in; the owner and another admin see it only by role
+    const p = project({ audience: 5, audienceSplit: { direct: 3, byRole: 2 } })
+    const admin = await row(p, 'admin')
+    expect(admin.row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 3 })}${ko('projects.manage')}`)
+    expect(admin.row).not.toContain('5')
+    expect(admin.box).toBe(ko('projects.sharedNewChat', { n: 5 }))
+    // only me / me and admins stay as they are
+    expect((await row(project({ audience: 1, alone: true, audienceSplit: { direct: 1, byRole: 0 } }), 'owner')).row).toContain('나만 봐요')
+    expect((await row(project({ audience: 3, alone: true, audienceSplit: { direct: 1, byRole: 2 } }), 'admin')).row).toContain('나와 관리자만 봐요')
+  })
 })
