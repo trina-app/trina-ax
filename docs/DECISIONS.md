@@ -18358,7 +18358,10 @@ and a listing that could stall the server.
   `rename_file`) gave the renamer's mark (0), though the new name comes from the planted one. A rename or move that
   changes a name, and a copy under another name, now carry the higher of the AI turn's own mark and the old name's (the
   walk goes on with the old name), for files (`fileNameLevel`) and folders (`folderNameLevel`). A person's rename still
-  gives a name of their own.
+  gives a name of their own. On a case-sensitive disk (Linux) a rename that only changes the case is refused by the
+  near-duplicate guard (`policy/authorize.ts`: the file's own name counts as the look-alike), so the planted name stays as
+  it was; lowercasing goes through another name in two renames, and both keep the mark (CI on Linux caught the first
+  version of this test, which expected the one-step rename everywhere).
 - **A folder restored to another place.** A folder restored as "… (restored)" (its place was taken) dropped the mark of
   the names inside it: the walk followed a folder above when it moved, not when it came back from the trash to another
   path. `files/timeline.ts fileTimelineWalk` and the folder-name walk now follow it to the old place (the file history

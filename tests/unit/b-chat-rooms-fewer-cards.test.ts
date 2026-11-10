@@ -544,15 +544,31 @@ describe('outside names, round 2 (review of #290)', () => {
 
   test('a clean chat\'s small rename (adding ".md", lowercasing) keeps the planted name\'s mark', async () => {
     const tag = uuidv7().slice(-6)
-    for (const [dir, to] of [[`users/alice/ext-${tag}`, `${name(tag)}.md`], [`users/alice/low-${tag}`, name(tag).toLowerCase()]] as const) {
-      // a folder of the person's own (made on the Files screen): only the file's name carries the mark
-      await h.api('alice').call(API.mkdir, { body: { path: dir } })
-      await planted(`${dir}/${name(tag)}`)
-      const r = await run('alice', await newChat('alice'), fake({ tool: 'rename_file', args: { path: `${dir}/${name(tag)}`, new_name: to } }, { say: 'ok' }))
-      expect(r.cards).toHaveLength(0)
-      expect(exists(`${dir}/${to}`)).toBe(true)
-      expect(await listed(dir, tag)).toBe(1)
-    }
+    /** a planted name in a folder of the person's own (made on the Files screen): only the file's name carries the mark */
+    const plant = async (dir: string) => { await h.api('alice').call(API.mkdir, { body: { path: dir } }); await planted(`${dir}/${name(tag)}`) }
+    const rename = async (from: string, to: string) => (await run('alice', await newChat('alice'), fake({ tool: 'rename_file', args: { path: from, new_name: to }, sayResult: true }, { say: 'ok' }))).done.content
+    // adding ".md"
+    const ext = `users/alice/ext-${tag}`
+    await plant(ext)
+    expect(await rename(`${ext}/${name(tag)}`, `${name(tag)}.md`)).toContain('Renamed')
+    expect(exists(`${ext}/${name(tag)}.md`)).toBe(true)
+    expect(await listed(ext, tag)).toBe(1)
+    // lowercasing in one step: a case-insensitive disk (macOS) renames it; a case-sensitive one (Linux) refuses a name
+    // that differs from a file there only by case, the file's own included (policy/authorize.ts), so the planted name
+    // stays as it was. Either way the listing still asks
+    const low = `users/alice/low-${tag}`
+    await plant(low)
+    const said = await rename(`${low}/${name(tag)}`, name(tag).toLowerCase())
+    if (said.includes('almost the same name')) expect(exists(`${low}/${name(tag)}`)).toBe(true)
+    else expect(fs.readdirSync(at(low))).toEqual([name(tag).toLowerCase()])
+    expect(await listed(low, tag)).toBe(1)
+    // lowercasing in two steps through another name (how it goes on a case-sensitive disk): both AI renames keep the mark
+    const two = `users/alice/two-${tag}`
+    await plant(two)
+    expect(await rename(`${two}/${name(tag)}`, `tmp-${tag}`)).toContain('Renamed')
+    expect(await rename(`${two}/tmp-${tag}`, name(tag).toLowerCase())).toContain('Renamed')
+    expect(fs.readdirSync(at(two))).toEqual([name(tag).toLowerCase()])
+    expect(await listed(two, tag)).toBe(1)
   })
 
   test('a folder restored as "… (restored)" keeps the mark of the names inside it', async () => {
