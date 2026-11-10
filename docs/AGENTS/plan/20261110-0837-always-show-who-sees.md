@@ -40,7 +40,7 @@ hint for people who may not change members (#298's hint stays on the 멤버 line
 ## Decisions
 
 - **How the count treats admins.** `Project.audience` and `Chat.shared.audience` count everyone who can read the folder,
-  the 팀장 and every admin included, for every caller (`chat/shared.ts Audiences.of`). #304 (open, not on dev) changes
+  the 팀장 and every admin included, for every caller (`chat/shared.ts Audiences.of`). #304 (open when this was planned, merged since) changes
   only the new-project dry run (`adminsApart`) and leaves these counts as they are. Nobody else ever sees a chat of one
   person, admins included (`chatFor`). So:
   - not shared → "나만 봐요". This is exact: admins cannot open it.
