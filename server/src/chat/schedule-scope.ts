@@ -120,7 +120,7 @@ export function resolveSources(ctx: AppContext, userId: string, reads: readonly 
   for (const raw of reads) {
     const v = raw.trim()
     if (!v) continue
-    if (/^(my folder|my own folder|my personal folder|mine|내 ?폴더|내 ?개인 ?폴더)$/i.test(v)) { add({ type: 'user', id: userId }); continue }
+    if (/^(my folder|my own folder|my personal folder|mine)$/i.test(v)) { add({ type: 'user', id: userId }); continue }
     const ref = [...v.matchAll(new RegExp(ROOM_REF_RE.source, 'g'))][0]?.[2] ?? /^(?:room:)?([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.exec(v)?.[1]?.toLowerCase()
     if (ref) {
       const room = roomRow(db, ref)
