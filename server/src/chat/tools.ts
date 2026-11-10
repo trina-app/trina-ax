@@ -51,6 +51,7 @@ import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
+import { readRooms } from './read-rooms'
 
 export interface Tool {
   name: string
@@ -788,9 +789,10 @@ function bTools(exec: TurnExec): Tool[] {
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
         const value = clean.text
         let source: 'ai' | 'user' = 'ai'
-        // this conversation has seen outside content, or once had a team chat room's messages in it (chats.rooms_seen,
-        // kept for the rest of the chat): the person confirms before anything is kept (tab 3)
-        if (exec.tainted || exec.roomsSeen) {
+        // this conversation has seen outside content, or has read rooms (chat/read-rooms.ts: a room read, kept for the
+        // rest of the chat; a side chat; another person's message quoted): the person confirms before anything is
+        // kept (tab 3)
+        if (exec.tainted || readRooms(exec)) {
           const answer = await exec.waitForPerson({
             kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
             options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,

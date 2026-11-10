@@ -101,15 +101,15 @@ export const PARALLEL_READ_TOOLS: ReadonlySet<string> = new Set(
 export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'save_as']
 
 /**
- * A person's own AI chat that has read their team chat rooms (chats.rooms_seen, chat/room-tools.ts; docs/DECISIONS.md
+ * A person's own AI chat that has read their team chat rooms (chat/read-rooms.ts: chats.rooms_seen after a room tool,
+ * chat/room-tools.ts; a ✦ side chat; another person's message quoted on the branch; docs/DECISIONS.md
  * "내 AI 채팅에서 대화방 읽기"): the tools that go on without the room card there. The room session's read-only tools, the
  * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
  * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts), post_to_room
  * its own card with the room and all of the text, which leads with the room line (chat/post-to-room.ts), and
  * change_project_members its own card that leads with the room line and names every person and group in full, marking
- * in red a name not in the person's own messages (chat/project-members.ts; it also counts a side chat and a quoting
- * message as a room read): no room card before any of them. A connection's read that the service marks read-only, whose
+ * in red a name not in the person's own messages (chat/project-members.ts): no room card before any of them. A connection's read that the service marks read-only, whose
  * arguments carry no address or random-looking part, goes on too (chat/turn.ts confirmRoomChange; not api_request's
  * GET), and the tools with a card of their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write).
  * delete_files, and skill_files into a skill folder, refuse there (chat/delete-files.ts, chat/skill-files.ts). Every

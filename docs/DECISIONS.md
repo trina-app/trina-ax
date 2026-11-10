@@ -18600,6 +18600,34 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   ⋯ 멤버, `?members=1`) and `shared-project-chats.spec.ts` (the legacy note moved to the line).
 - Version impact: **minor** (a visible change of where members are changed; two optional response fields).
 
+## 대화방을 읽은 채팅 — one rule: a side chat and a quoted message count (fix/side-chat-counts-as-room-read, 2026-11-10)
+
+Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기", "Skill folders: the AI's file actions" (S7) and "대화방을 읽은 뒤
+카드 줄이기".
+
+- **Why:** the person's own chat counted as having read rooms only once a room tool ran (`chats.rooms_seen`). In a ✦
+  side chat, "Ask Trina about this" puts another person's message, up to 4,000 characters, into the person's own
+  message as a `>` quote, and no room tool has to run. Planted words in it could reach `delete_files`, a skill folder
+  through `skill_files`, or a team file without the room card. PR #310 (`change_project_members`) already counted a
+  side chat and a quote.
+- **The rule** (`server/src/chat/read-rooms.ts` `readRooms`): `chats.rooms_seen`, or a side chat (`chats.side_room_id`),
+  or a line that starts with `>` (spaces before it allowed) in a user message on this answer's branch. Any quote
+  counts, a pasted one too: its words are not the person's. An edit that takes the quote out leaves it on the old
+  branch only. Read when needed (no new column); the side chat and quote part is kept per turn.
+- **Where it is used:** `delete_files`'s refusal, `skill_files` S7 (both checks), the room card in the person's own
+  chat (`confirmRoomChange`) and the tools whose own card stands in for it (`ownCard`, and so `TurnPerson.roomsSeen`
+  for moves, connections and the URL gate), `remember`'s confirm, and the turn's outside mark (a file the turn writes
+  carries level 2).
+- **Left on `rooms_seen`:** the audit's hidden sub-agent descriptions and URLs (what admins read, not a gate);
+  "대화방에 보내기"'s audience check (who can see what an answer holds, not whether planted words may act); the line on
+  `post_to_room`'s card (that card is asked every time; wording only).
+- **Cost:** an own chat with a `>` line gets the room card before team changes, as after a room read; a side chat gets
+  it before the AI read its room. A new file in the person's own folder still needs none.
+- Tests: `ai-delete-files.test.ts` (a side chat with a quote, a quote in a plain chat, a plain chat with "3 > 2"),
+  `skill-files.test.ts` (S7 in a side chat with a quote; the same copy in a plain chat gets its card),
+  `b-side-chat.test.ts` (the rule's three ways in, an edited branch).
+- Version impact: **patch** (a security consistency fix; no API, data or setting change).
+
 ## change_project_members: the AI changes a project's members — AI가 프로젝트 멤버를 바꿔요 (feat/project-members-tool, 2026-11-10, product owner)
 
 Asked to add or remove someone in a project, the AI answered that it had no tool. The owner (2026-11-10): "이것도
@@ -18619,10 +18647,10 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   allowlists), nor in an approved template run; never in `FILE_TOOLS` or the remote connector. At most two cards per
   answer, none after a no or no answer, none while another card is open (`exclusive`).
 - **Decision: a chat that read rooms gets the card, with the room line first** (owner Q2, review M1). "Read rooms" here
-  is `rooms_seen`, a side chat (`side_room_id`), or a `>` quote line in the person's own messages on the branch ("Ask
-  Trina about this" quotes another person's message that way, and sets no `rooms_seen`). The tool is in
-  `ROOMS_SEEN_READ_ONLY_TOOLS` with post_to_room (N6): its card is the call's only one. delete_files has the same side
-  chat gap (it refuses on `rooms_seen` only): left for its own change.
+  is the one rule of `chat/read-rooms.ts` (#313, "대화방을 읽은 채팅"): `rooms_seen`, a side chat (`side_room_id`), or a `>`
+  quote line in the person's own messages on the branch ("Ask Trina about this" quotes another person's message that
+  way, and sets no `rooms_seen`). The tool is in `ROOMS_SEEN_READ_ONLY_TOOLS` with post_to_room (N6): its card is the
+  call's only one. (delete_files's own side-chat gap was closed by #313 with the same rule.)
 - **Decision: names fold hard and must be unique** (M2, M3, N3). NFKC, case folding, invisible and direction-control
   characters removed, spaces, dots, hyphens and underscores folded, and a map of the letters Unicode TR39 lists as
   looking like Latin ones that matter for names (Greek, Cyrillic, Armenian, Cherokee and Lisu letters, Latin small

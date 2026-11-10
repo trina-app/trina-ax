@@ -8,9 +8,9 @@
 //   shared project chat, a confidential chat, a chat other people wrote in, a question from Slack or a Slack thread's
 //   chat (exec.fromSlack), a draft / judge / merge chat, and for a sub-agent. Never offered in rooms, shared or
 //   confidential chats (chat/tools.ts add()), an approved template run, FILE_TOOLS or the remote connector.
-// - Read rooms (M1): a chat that read rooms (chats.rooms_seen), a room's side chat (chats.side_room_id) or one whose
-//   person's messages quote something ("> " lines: "Ask Trina about this" quotes another person's message there) gets
-//   the card with the room line first (roomsSeenWhy). It is the call's only card (rooms/ai-tools.ts
+// - Read rooms (M1): a chat that read rooms by the one rule of chat/read-rooms.ts (chats.rooms_seen, a room's side chat,
+//   or a "> " quote in the person's messages on this branch: "Ask Trina about this" quotes another person's message
+//   there) gets the card with the room line first (roomsSeenWhy). It is the call's only card (rooms/ai-tools.ts
 //   ROOMS_SEEN_READ_ONLY_TOOLS).
 // - Names (M2, M3, N3): matched after NFKC, case folding, invisible and direction-control characters removed, spaces and
 //   dots folded and a small look-alike map (Latin, Cyrillic, Greek), over people AND groups at once: one match or the
@@ -46,6 +46,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { PROJECT_COLS, type ProjectRow } from './store'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
+import { readRooms } from './read-rooms'
 import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -208,24 +209,23 @@ export const sameNames = (s: Subject, everyone: readonly Subject[]): number => 1
 
 /** how much of the person's own words the red mark reads (the newest first) */
 export const OWN_WORDS_MAX = 200_000
-/** The person's own words on this branch (their messages up to this answer), "> " quote lines left out, and whether
- * any of them quotes something (the side chat quotes other people's messages that way). */
-export function ownWords(db: import('bun:sqlite').Database, answerId: string): { text: string; quoted: boolean } {
+/** The person's own words on this branch (their messages up to this answer), "> " quote lines left out (the side chat
+ * quotes other people's messages that way). */
+export function ownWords(db: import('bun:sqlite').Database, answerId: string): { text: string } {
   const rows = db.query(`WITH RECURSIVE up(id, parent_id, role, depth) AS (SELECT id, parent_id, role, 0 FROM messages WHERE id = ?
       UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < 2000)
     SELECT substr(m.content, 1, 20000) content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' ORDER BY up.depth LIMIT 500`).all(answerId) as { content: string | null }[]
-  let quoted = false
   const kept: string[] = []
   // the newest words first, at most OWN_WORDS_MAX characters (the red mark's regex runs over them once per name: a
   // member's long messages must not stall the server; leaving older words out only makes more names red)
   let size = 0
   for (const r of rows) for (const line of (r.content ?? '').split('\n')) {
-    if (/^\s*>/.test(line)) quoted = true
+    if (/^\s*>/.test(line)) continue
     // a room picked with "#" is in the message as #[its title](room:<id>): the title is other people's words (a group
     // chat's name is its members')
-    else if (size < OWN_WORDS_MAX) { const l = line.replace(ROOM_REF_RE, ' '); kept.push(l); size += l.length + 1 }
+    if (size < OWN_WORDS_MAX) { const l = line.replace(ROOM_REF_RE, ' '); kept.push(l); size += l.length + 1 }
   }
-  return { text: kept.join('\n').slice(0, OWN_WORDS_MAX), quoted }
+  return { text: kept.join('\n').slice(0, OWN_WORDS_MAX) }
 }
 /** Korean particles, endings and honorifics that follow a name in a sentence ("김소라님을", "영업팀이랑") */
 const PARTICLE = '님|씨|이랑|이나|이|가|을|를|은|는|과|와|도|의|에게|에|께서|께|한테|랑|하고|나|으로|로|만|까지|부터|요'
@@ -433,13 +433,14 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const p = planned.plan
 
     // ---- the card ----
-    const readRooms = exec.roomsSeen || sideChat() || words.quoted
+    // the one rule of "this chat has read rooms" (chat/read-rooms.ts: rooms_seen, a side chat, a quote on the branch)
+    const roomsRead = readRooms(exec)
     const folded = foldName(words.text)
     // the project: this chat's, or one the person named themselves (its own name, never the AI's alias of it)
     const projectSaid = found.own || said(folded, r.name)
-    const card = membersCard(p, { L, admin: isAdminRole(user), words: folded, projectSaid, readRooms })
+    const card = membersCard(p, { L, admin: isAdminRole(user), words: folded, projectSaid, readRooms: roomsRead })
     const requestId = uuidv7()
-    const base = { projectId: r.id, add: p.adds.map(keyOf), remove: p.removes.map(keyOf), gained: p.plan.gained.length, lost: p.plan.lost.length, notSaid: card.notSaid, readRooms, requestId }
+    const base = { projectId: r.id, add: p.adds.map(keyOf), remove: p.removes.map(keyOf), gained: p.plan.gained.length, lost: p.plan.lost.length, notSaid: card.notSaid, readRooms: roomsRead, requestId }
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
     s.shown++
     s.open = true
@@ -502,10 +503,6 @@ export function projectMembersTool(exec: MembersExec): Tool {
       partly ? 'The members were saved, but a step after the save (telling people, closing what the people removed had open) did not finish; an admin can check the server log.' : '',
     ].filter(Boolean).join('\n')
     return { content: [{ type: 'text' as const, text }], summary: `${PROJECT_MEMBERS_TOOL} -> +${p.adds.length} -${p.removes.length}, ${p.plan.gained.length} gain and ${p.plan.lost.length} lose it (confirmed by the user)` }
-  }
-
-  function sideChat(): boolean {
-    return !!(db.query('SELECT side_room_id FROM chats WHERE id = ?').get(spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
   }
 
   /** The project: `name` (its name or folder) among the projects the person sees, or this chat's project. `own`: it is
