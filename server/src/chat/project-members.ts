@@ -39,6 +39,7 @@ import { listPeople } from '../auth/profiles'
 import { HttpError } from '../http/errors'
 import { isPersonalFolder, mayEditProject, canSeeProject } from './projects'
 import { accessEditable, membersView, planAccess, projectAccess, saveParticipants, type AccessPlan } from './project-access'
+import { getFolderByPath, rulesOf } from '../admin/folders'
 import { cardReason, cardNext, refusal, SCREEN, type CardEnd, type RefusalReason } from '../policy/refusal'
 import type { Principal } from '../policy/access'
 import { confidentialChat } from '../safe-ops/confidential'
@@ -111,9 +112,10 @@ const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillP
 const say = (k: keyof typeof MEMBERS_TEXT, L: Locale, v: Record<string, string | number> = {}) => fill(MEMBERS_TEXT[k][L], v, L)
 
 // ---------------- names ----------------
-/** zero-width, joiners, direction marks and overrides, soft hyphens, fillers, variation selectors, tags: invisible on
- * screen, so never part of a name to match */
-const INVISIBLE = /[­͏؜ᅟᅠ឴឵᠋-᠏​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu
+/** zero-width, joiners, direction marks and overrides, soft hyphens, fillers, the blank braille cell, interlinear
+ * annotation marks, shorthand format and musical format controls, variation selectors, tags: invisible on screen, so
+ * never part of a name to match */
+const INVISIBLE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu
 /** letters of other scripts that look like Latin ones (after case folding) */
 const LOOKALIKE: Record<string, string> = {
   а: 'a', в: 'b', е: 'e', ё: 'e', з: '3', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', і: 'i', ї: 'i', ј: 'j', ѕ: 's', һ: 'h', ԁ: 'd', ԛ: 'q', ԝ: 'w', ӏ: 'l', ɡ: 'g', ı: 'i',
@@ -129,7 +131,9 @@ export const nameSkeleton = (s: string) => [...compactName(s)].map((c) => LOOKAL
 export const shownName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').replace(INVISIBLE, (c) => `[U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}]`).replace(/ {2,}/g, ' ').trim()
 
 /** A person or group that can be named. `people`: a group's active members. */
-export interface Subject { subjectType: 'user' | 'group'; subjectId: string; name: string; title?: string; people?: number }
+export interface Subject { subjectType: 'user' | 'group'; subjectId: string; name: string; title?: string; people?: number
+  /** an admin's card: the account's username beside a name another account shares (its owner cannot change it) */
+  handle?: string }
 const keyOf = (s: { subjectType: string; subjectId: string }) => `${s.subjectType}:${s.subjectId}`
 
 /** What one name given by the AI is: one subject, several (ask the user), none, or an id that is not the name's. */
@@ -175,8 +179,21 @@ export function ownWords(db: import('bun:sqlite').Database, answerId: string): {
   }
   return { text: kept.join('\n'), quoted }
 }
-/** Is this name in the person's own words (compact, no look-alike map: a Cyrillic "Кim" is not the "Kim" they typed)? */
-const said = (words: string, name: string) => { const n = compactName(name); return n.length > 0 && words.includes(n) }
+/** Korean particles and endings that follow a name in a sentence ("김소라님을", "영업팀이랑") */
+const PARTICLE = '님|씨|이랑|이나|이|가|을|를|은|는|과|와|도|의|에게|에|께서|께|한테|랑|하고|나|으로|로|만|까지|부터|요'
+const esc = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/**
+ * Is this name in the person's own words (`words`: foldName of them)? The whole name as a word: not inside a longer
+ * word ("민재" is not in "이민재님", "ad" not in "add"), followed by a space, a sign, the end or a Korean particle; the
+ * spaces and dots inside it as the person liked ("김 강현" is 김강현). No look-alike map: a Cyrillic "Кim" is not the
+ * "Kim" they typed.
+ */
+export function said(words: string, name: string): boolean {
+  const n = compactName(name)
+  if (!n) return false
+  const body = [...n].map(esc).join('[\\s.\\-_·・]*')
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?=$|[^\\p{L}\\p{N}]|${PARTICLE})`, 'u').test(words)
+}
 
 // ---------------- where it runs ----------------
 const NONE = 'Nothing was changed in the project\'s members'
@@ -333,8 +350,10 @@ export function projectMembersTool(exec: MembersExec): Tool {
 
     // ---- the card ----
     const readRooms = exec.roomsSeen || sideChat() || words.quoted
-    const projectSaid = found.own || said(compactName(words.text), r.name) || (input.project !== undefined && said(compactName(words.text), input.project))
-    const card = membersCard(p, { L, admin: isAdminRole(user), words: compactName(words.text), projectSaid, readRooms, entries: { add: input.add, remove: input.remove } })
+    const folded = foldName(words.text)
+    // the project: this chat's, or one the person named themselves (its own name, never the AI's alias of it)
+    const projectSaid = found.own || said(folded, r.name)
+    const card = membersCard(p, { L, admin: isAdminRole(user), words: folded, projectSaid, readRooms })
     const requestId = uuidv7()
     const base = { projectId: r.id, add: p.adds.map(keyOf), remove: p.removes.map(keyOf), gained: p.plan.gained.length, lost: p.plan.lost.length, notSaid: card.notSaid, readRooms, requestId }
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
@@ -370,15 +389,25 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const second = planFor(again, now, p.adds.map((x) => ({ name: x.name, id: x.subjectId })), p.removes.map((x) => ({ name: x.name, id: x.subjectId })), { ids: true })
     if ('text' in second) return changed('who the names are')
     if (second.plan.fingerprint !== p.fingerprint) return changed('who would see the project (its rules, its people, or its project skills)')
+    // saved when the folder's rules are the planned ones now: a step after the save's own transaction that failed
+    // (afterAccessChange, the notices) must not be reported as "nothing was changed"
+    const savedNow = () => { const row = getFolderByPath(db, now.folder_path); return sameSet((row ? rulesOf(db, row.id) : []).map(ruleKey), second.plan.plan.next.map(ruleKey)) }
+    let people: number
+    let partly = false
     try {
-      saveParticipants(ctx, now, again, { id: again.id, name: again.name }, { participants: second.plan.next, expectedHash: p.plan.rulesHash }, 'en', { via: 'ai', turnId: spec.turnId, chatId: spec.chatId })
+      people = saveParticipants(ctx, now, again, { id: again.id, name: again.name }, { participants: second.plan.next, expectedHash: p.plan.rulesHash }, 'en', { via: 'ai', turnId: spec.turnId, chatId: spec.chatId }).people
     } catch (e) {
       if (e instanceof HttpError && e.extra.params?.reason === 'rules_changed') return changed('the folder\'s rules')
-      if (e instanceof HttpError) { auditCall({ ...base, outcome: 'failed', reason: e.code }, r.id); return result(refusal({ done: NONE, why: { kind: 'failed', what: e.message }, next: `the user can change them on ${panel(L, r.name)}` }), 'failed') }
-      throw e
+      if (!savedNow()) {
+        rt.log.warn('change_project_members save failed', { err: e, turn: spec.turnId })
+        auditCall({ ...base, outcome: 'failed', reason: e instanceof HttpError ? e.code : 'error' }, r.id)
+        return result(refusal({ done: NONE, why: { kind: 'failed', what: e instanceof HttpError ? e.message : 'an internal error' }, next: `the user can change them on ${panel(L, r.name)}` }), 'failed')
+      }
+      rt.log.warn('change_project_members: saved, a step after the save failed', { err: e, turn: spec.turnId })
+      partly = true
+      people = second.plan.plan.after.length
     }
-    const people = projectAccess(ctx, now, again).people
-    auditCall({ ...base, outcome: 'done', people }, r.id)
+    auditCall({ ...base, outcome: 'done', people, ...(partly ? { after: 'failed' } : {}) }, r.id)
     const list = (xs: readonly Subject[]) => xs.map((x) => `${ai(x.name)} (${kindWord(x)})`).join(', ')
     const text = [
       `Changed the members of the project '${ai(r.name)}' (${r.folder_path}), confirmed by the user on the card:`,
@@ -386,6 +415,7 @@ export function projectMembersTool(exec: MembersExec): Tool {
       p.removes.length ? `removed ${list(p.removes)}` : '',
       p.already.length ? `already members, unchanged: ${list(p.already)}` : '',
       `${people} people see it now (owner and admins included). The user can see and change its members on ${panel(L, r.name)}: /projects/${r.id}?members=1`,
+      partly ? 'The members were saved, but a step after the save (telling people, closing what the people removed had open) did not finish; an admin can check the server log.' : '',
     ].filter(Boolean).join('\n')
     return { content: [{ type: 'text' as const, text }], summary: `${PROJECT_MEMBERS_TOOL} -> +${p.adds.length} -${p.removes.length}, ${p.plan.gained.length} gain and ${p.plan.lost.length} lose it (confirmed by the user)` }
   }
@@ -483,6 +513,18 @@ export function projectMembersTool(exec: MembersExec): Tool {
       if (adds.some((x) => keyOf(x) === keyOf(s))) { problems.push({ line: `'${ai(s.name)}' is named to be both added and removed.` }); continue }
       if (!removes.some((x) => keyOf(x) === keyOf(s))) removes.push(s)
     }
+    // a name another account (or a group the caller may name) shares: the card cannot tell them apart by the name, and
+    // anyone can set their own name. An admin's card shows the account's username beside it (its owner cannot change
+    // it); anyone else is sent to the members panel (review of this tool, MUST 2)
+    for (const s of [...adds, ...removes]) {
+      const n = sameNames(s, everyone)
+      if (n <= 1) continue
+      if (s.subjectType === 'user' && isAdminRole(user)) {
+        s.handle = (db.query('SELECT username FROM users WHERE id = ?').get(s.subjectId) as { username: string | null } | null)?.username ?? undefined
+        if (s.handle) continue
+      }
+      problems.push({ line: `'${ai(s.name)}': ${n} accounts or groups share this name, and the card cannot show which one is meant${isAdminRole(user) ? '' : ' to someone who is not an admin'}. The user can make this change on ${panel(spec.locale, r.name)} (/projects/${r.id}?members=1) after checking with the person, or ask an admin, whose card shows each account's username.` })
+    }
     if (problems.length) {
       // a call by the card's own ids that no longer resolves is not "unclear": the caller says the names changed
       return { reason: o.ids ? 'changed' : 'unclear', text: `${NONE}, and nobody was asked: a change runs only exactly as asked, and ${problems.length === 1 ? 'one name needs' : 'these names need'} the user first:\n${problems.map((x) => `- ${x.line}`).join('\n')}`, audit: { problems: problems.length } }
@@ -512,7 +554,7 @@ const isAdminRole = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role
  * count, "같은 이름 N명"), and the red mark on a name not in the person's own messages (and on a project other than the
  * chat's). `notSaid`: how many of those.
  */
-export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'plan' | 'everyone'>, o: { L: Locale; admin: boolean; words: string; projectSaid: boolean; readRooms: boolean; entries: { add: readonly Entry[]; remove: readonly Entry[] } }): { question: string; details: ConfirmDetail[]; notSaid: number } {
+export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'plan' | 'everyone'>, o: { L: Locale; admin: boolean; words: string; projectSaid: boolean; readRooms: boolean }): { question: string; details: ConfirmDetail[]; notSaid: number } {
   const { L } = o
   const { plan } = p
   const before = plan.before.length, after = plan.after.length, gained = plan.gained.length, lost = plan.lost.length
@@ -526,26 +568,26 @@ export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'pla
     }
   }
   const notice = gained && lost ? 'noticeBoth' : gained ? 'noticeGain' : lost ? 'noticeLose' : null
-  // the names the person did not write (the name the AI gave, or the subject's own name, must be in their words)
-  const entryOf = (s: Subject, list: readonly Entry[]) => list.find((e) => e.id === s.subjectId) ?? list.find((e) => nameSkeleton(e.name) === nameSkeleton(s.name)) ?? list.find((e) => s.name && nameSkeleton(s.name).includes(nameSkeleton(e.name)))
-  const saidOf = (s: Subject, list: readonly Entry[]) => said(o.words, s.name) || (() => { const e = entryOf(s, list); return !!e && said(o.words, e.name) })()
+  // the names the person did not write: the subject's own whole name must be in their words (never the name the AI
+  // gave: a part of a name, a look-alike picked by id would pass then; review of this tool, MUST 1)
   const alerts: { add: string[]; remove: string[] } = { add: [], remove: [] }
   const line = (s: Subject, removal: boolean) => {
     const same = sameNames(s, p.everyone)
     const parts = [shownName(s.name), s.subjectType === 'group' ? MEMBERS_TEXT.group[L] : MEMBERS_TEXT.person[L]]
     if (s.subjectType === 'group') parts.push(say('groupPeople', L, { n: s.people ?? 0 }))
+    if (s.handle) parts.push(`@${s.handle}`)
     if (same > 1) parts.push(say('sameName', L, { n: same }))
     // an admin removing a member who is an admin (or themself): they keep seeing it (only an admin is told whose role)
     if (removal && o.admin && s.subjectType === 'user' && !plan.lost.includes(s.subjectId) && plan.after.includes(s.subjectId)) parts.push(MEMBERS_TEXT.keepsAdmin[L])
     return parts.join(' · ')
   }
-  const lines = (xs: readonly Subject[], removal: boolean, list: readonly Entry[]) => xs.map((s) => {
+  const lines = (xs: readonly Subject[], removal: boolean) => xs.map((s) => {
     const l = line(s, removal)
-    if (!saidOf(s, list)) (removal ? alerts.remove : alerts.add).push(l)
+    if (!said(o.words, s.name)) (removal ? alerts.remove : alerts.add).push(l)
     return l
   })
-  const addLines = lines(p.adds, false, o.entries.add)
-  const removeLines = lines(p.removes, true, o.entries.remove)
+  const addLines = lines(p.adds, false)
+  const removeLines = lines(p.removes, true)
   const projectLine = `${shownName(p.r.name)} (${p.r.folder_path})`
   const notSaid = alerts.add.length + alerts.remove.length + (o.projectSaid ? 0 : 1)
   const question = [

@@ -18628,7 +18628,10 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   look like Latin ones. A name matches by that skeleton over people and groups at once (exact never wins over the rest);
   one match only, else the AI gets the candidates (name, kind, the directory's title marked as the person's own words, a
   group's head count, the id) and nothing is asked. A name another active account, or a group the caller may name, folds
-  to as well always needs an `id`, and an `id` counts only when it is one of that name's candidates. Removal: among the
+  to as well always needs an `id`, and an `id` counts only when it is one of that name's candidates. Even then a card
+  cannot tell two accounts of one name apart, and anyone can set their own name: an admin's card shows the account's
+  username beside it (its owner cannot change it), and anyone else is refused and sent to the members panel (the
+  security review of this tool, MUST 2). Removal: among the
   current members, a part of 2+ characters is enough when it is unique. Not a member: one message. A member names only
   their own groups; another group is "not found" (its name is not theirs to learn).
 - **Decision: the rule difference must be the names** (M4). The save's rules (`participantRules`) may differ from the
@@ -18643,25 +18646,30 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   돼요" with what they lose and that their AI chats start fresh (N4; nothing says reversible, M5); who is told: the people
   who gain it and those who saw it already (`access_changed`, `project_access_widened`), those removed (N1); and for an
   admin, that a removed admin (themself too) keeps seeing it (N2). No title on the card: anyone can set their own (M2).
-- **Decision: the red mark** (M5). A name the person's own messages on this branch do not hold outside `>` quote lines
-  (the name the AI gave or the person's full name, compact, without the look-alike map), and a project other than the
-  chat's that they did not name, get "내 메시지에 없는 이름이에요" in red (`ConfirmDetail.alerts`: whole lines of the
+- **Decision: the red mark** (M5). A name the person's own messages on this branch do not hold outside `>` quote lines,
+  and a project other than the chat's that they did not name, get "내 메시지에 없는 이름이에요" in red. "Hold" means the
+  subject's own whole name as a word (spaces inside as the person liked, a Korean particle after it, never inside a
+  longer word: "민재" is not in "이민재님"), without the look-alike map, and never the name or project alias the AI gave
+  (a part of a name, or a look-alike picked by its id, would pass otherwise: the security review of this tool, MUST 1) (`ConfirmDetail.alerts`: whole lines of the
   detail's text with a note; the text keeps them, so an older app still shows every line), and the question says what
   the red means.
 - **The yes.** Bound to a fingerprint of the project, its folder, the rules hash, the next rules, who sees it before and
   after, and every project skill name (N5; the dry run's list stops at 10). On yes: the account, the right to change it,
   the names by the card's ids and the plan again; any difference ("changed while the card waited": a rename, an admin's
-  rule, someone joining a group) refuses, nothing written. Then `saveParticipants` with the card's hash (409 inside the
-  transaction), audited `folder.rules` with `via: 'ai'`, the turn and the chat, and one `projects.ai_members` row per call
-  (refused with its reason, declined, no answer, changed, failed, done).
+  rule, someone joining a group, a new project skill) refuses, nothing written. Then `saveParticipants` with the card's
+  hash (409 inside the transaction), audited `folder.rules` with `via: 'ai'`, the turn and the chat, and one
+  `projects.ai_members` row per call (refused with its reason, declined, no answer, changed, failed, done). A step after
+  the save's transaction that fails (telling people, closing what the people removed had open) is reported as saved,
+  with that step failed: the folder's rules are the planned ones then.
 - **Who may.** The panel's own checks: `mayEditProject` and `accessEditable`. Anyone else is told who can: the creator by
   name only while their account is active and the folder is theirs to change, else "an admin"; an admin is never named.
 - Prompt: one rule when the tool is offered (only for what the person's own message asks, all names in one call, ask
   with the candidates). Step: "프로젝트 멤버 바꾸기 · 견적".
-- Tests: `tests/unit/b-project-members-tool.test.ts` (the names, every refusal, Slack and a sub-agent through an answer,
-  the card, a group and an admin removing themself, two cards and no after a no, the creator, a planted quote in a side
-  chat and `rooms_seen` with the red mark, look-alike and invisible names, an id not of its name, a rename and a stale
-  plan, the older folders, who may, the audit and the busy card), web `ask-card-details.test.tsx` (the red lines), and
+- Tests: `tests/unit/b-project-members-tool.test.ts` (the names and the red mark's whole-word test, every refusal, Slack
+  and a sub-agent through an answer, the card, a group and an admin removing themself, two cards and no after a no, the
+  creator, a side chat alone, a planted quote alone and `rooms_seen`, a removal by a part of a name in red, look-alike and
+  invisible names for a member and an admin, an id not of its name, a rename, a rule change, a group join and a new
+  project skill while the card waits, the older folders, who may, the audit and the busy card), web `ask-card-details.test.tsx` (the red lines), and
   the tool lists of `b-chat`, `b-browser` and `i-wiring`.
 - Version impact: **minor** (a new AI tool and card field; no API change, no migration).
 

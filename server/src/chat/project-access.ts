@@ -245,8 +245,8 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
  */
 export function previewAccess(ctx: AppContext, p: Principal, body: { participants: readonly ProjectParticipant[] }, r: ProjectRow | null, locale: Locale): ProjectAccessPreview {
   const db = ctx.db
-  const people = activePrincipals(db)
   if (!r) {
+    const people = activePrincipals(db)
     const list = checkParticipants(db, p, body.participants, locale)
     const users = new Set(list.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
     const groups = new Set(list.filter((x) => x.subjectType === 'group').map((x) => x.subjectId))
