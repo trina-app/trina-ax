@@ -18640,6 +18640,7 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   CI, so the coverage half (no server, `tests/security/lib/coverage.ts`) also runs as
   `tests/unit/security-route-coverage.test.ts`: a new route without a matrix case now fails CI.
 - Tests: `tests/unit/project-preview-roles.test.ts`, `tests/unit/ai-delete-files.test.ts` (the card for a member and an
-  admin), `tests/unit/security-route-coverage.test.ts`, `tests/security/project-participants.test.ts`, the permission
+  admin), `tests/unit/security-route-coverage.test.ts`, `tests/security/project-participants.test.ts`,
+  `tests/security/r1-copy-share.test.ts` (the share dry run), the permission
   matrix, `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`.
 - Version impact: **patch** (two answers say less to members; one optional response field; no data change).

@@ -87,7 +87,8 @@ describe('POST /api/projects/:id/share', () => {
     expect((await A.json(`/api/projects/${pid}`, { as: 'erin' })).status).toBe(404)
     const marketing = [{ subjectType: 'group', subjectId: 'marketing' }]
     const dry = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: marketing, dryRun: true }) })
-    expect(dry.body).toEqual({ viewersAdded: 3 }) // erin, carol, dana
+    // erin only: a member's dry run leaves the owner and admins out (it never tells who is an admin; adminsApart)
+    expect(dry.body).toEqual({ viewersAdded: 1, adminsApart: true })
     const r = await A.json(`/api/projects/${pid}/share`, { as: 'alice', ...jsonBody({ participants: marketing }) })
     expect(r.status).toBe(200)
     expect(r.body.folderPath).toBe('projects/launch-notes')
