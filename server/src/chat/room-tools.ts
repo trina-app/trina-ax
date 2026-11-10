@@ -228,7 +228,7 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   named(file.name)
   // in a room's own session the room is "this room": its own name is not given to the AI there (rooms/ai.ts roomLabel)
   const where = inRoom ? 'this room' : `the ${neutralizeTags(roomKindLine(room.kind, title.replace(/[\r\n"<>]+/g, ' ').slice(0, 120)))}`
-  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, timeZone)} in ${where}. ${FILE_NOTE}`
+  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, timeZone)} (the team's time zone) in ${where}. ${FILE_NOTE}`
   const kind = mediaKind(file.name)
   if (kind) return { ...text(`${head}\nThis is a${kind === 'audio' ? 'n audio' : ' video'} file: video and audio sent in a room cannot be read here, only its name is known. The user can open it in the room${r.canSave ? '; or, if the user wants, save a copy to a team folder with save_room_file and read it there with read' : ', or save it to the team folder and ask again'}.`), summary: `room_file -> ${kind} not read` }
   const pdf = ext(file.name) === 'pdf'
