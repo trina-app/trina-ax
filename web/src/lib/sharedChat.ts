@@ -30,7 +30,6 @@ export const sharesNewChats = (p: Pick<Project, 'shareChats' | 'inTrash'> | null
 /** The refusals about shared chats and the words the screens use for them (the server sends the same, localized; these
  * keep one wording where the screen already says it). */
 const REASONS: Record<string, MessageKey> = {
-  shared_chat_upload: 'chat.sharedTeamFiles',
   shared_chat_move: 'chat.sharedNoMove',
   project_personal: 'projects.shareChatsPersonal',
 }
