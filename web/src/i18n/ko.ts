@@ -4350,7 +4350,7 @@ export const ko = {
   "shareRoom.askedAgain": "그 사이 못 여는 사람이 늘었어요",
   "shareRoom.sendAttached": "첨부해서 보내기",
   "shareRoom.sentFiles": "{room}에 보냈어요 · 파일 {n}개 첨부",
-  "rooms.fileNoAccess": "권한이 없어 열 수 없어요",
+  "rooms.fileNoAccess": "열 수 없어요: 옮겨졌거나 지워졌거나 권한이 없어요",
   "rooms.fileAttachedCopy": "첨부된 파일을 열어요",
   "rooms.downloadFile": "{name} 내려받기",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
