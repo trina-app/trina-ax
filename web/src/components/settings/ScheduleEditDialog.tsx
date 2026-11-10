@@ -10,6 +10,7 @@ import { X } from 'lucide-react'
 import type { Project, Schedule, ScheduleReviewCard, ScheduleTaskEdit } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
+import { zoneDay } from '../../lib/format'
 import { sourceName } from '../../lib/scheduleText'
 import { useMeStrict } from '../../store/session'
 import AskCard from '../chat/AskCard'
@@ -37,7 +38,7 @@ const fieldErr = (e: unknown, name: string) => (isApiError(e) ? e.body.fields?.[
 
 function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null; onClose: () => void; onSaved: (s: Schedule) => void }) {
   const t = useT(), locale = useLocale()
-  const [f, setF] = useState({ title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday ?? 1, day: s.day ?? 1, date: s.date ?? new Date().toISOString().slice(0, 10), projectId: s.projectId ?? '' })
+  const [f, setF] = useState({ title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday ?? 1, day: s.day ?? 1, date: s.date ?? zoneDay(new Date(), tz), projectId: s.projectId ?? '' })
   const [projects, setProjects] = useState<Project[] | null>(null)
   // the save folder and its places: only taking places away here (the AI adds them when it makes the task)
   const [saveFolder, setSaveFolder] = useState<string | null>(s.saveFolder ?? null)
