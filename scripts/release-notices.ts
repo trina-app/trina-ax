@@ -8,11 +8,15 @@ import { createRequire, isBuiltin } from 'node:module'
  * Data a package carries inside its code under another licence than its own, whose notice the package does not ship:
  * the project keeps that notice (`dir`) and it is copied to `licenses/<id>/` whenever the package is in the collected
  * closure (a release that has the package and not the notice fails). tldts (MIT) compiles the Public Suffix List
- * (MPL-2.0) into its code; its package has only its own MIT LICENSE (docs/THIRD-PARTY-NOTICES.md).
+ * (MPL-2.0) into its code; its package has only its own MIT LICENSE (docs/THIRD-PARTY-NOTICES.md). emojibase-data
+ * (MIT) carries Unicode CLDR's emoji names and keywords (Unicode-3.0), which the web build puts into the app.
  */
 export const EMBEDDED_DATA = [
   { id: 'public-suffix-list', name: 'Public Suffix List', package: 'tldts', license: 'MPL-2.0', source: 'https://publicsuffix.org/list/',
     dir: 'resources/notices/public-suffix-list', files: ['NOTICE.txt', 'MPL-2.0.txt'] },
+  // the web app's emoji picker: emojibase-data (MIT) carries the emoji names and keywords of Unicode CLDR (Unicode-3.0)
+  { id: 'unicode-emoji', name: 'Unicode CLDR emoji names and keywords', package: 'emojibase-data', license: 'Unicode-3.0', source: 'https://github.com/unicode-org/cldr',
+    dir: 'resources/notices/unicode-emoji', files: ['NOTICE.txt', 'Unicode-3.0.txt'] },
 ] as const
 /**
  * Third-party data copied into the project's own source, not a package of the closure: the project keeps its notice

@@ -1,0 +1,14 @@
+Unicode emoji names and keywords (CLDR)
+
+The Trina AX web app's emoji picker (web/src/components/EmojiPicker.tsx) shows and searches emoji by their names and
+keywords in English and Korean. They come from the emojibase-data package (MIT, https://github.com/milesj/emojibase),
+which compiles them from the Unicode Common Locale Data Repository (CLDR annotations) and the Unicode emoji data
+files. The web build (web/scripts/emoji-data.ts) keeps the emoji up to Emoji 15.0, without skin-tone variants, with
+their names and keywords, and writes them into two script files of the app; nothing else of the data is changed.
+
+The CLDR and Unicode emoji data are copyright Unicode, Inc. and licensed under the Unicode License v3 (Unicode-3.0).
+The full licence text, with its copyright and permission notice, is in Unicode-3.0.txt next to this file.
+
+Source of the data: https://github.com/unicode-org/cldr (common/annotations, common/annotationsDerived) and
+https://www.unicode.org/Public/emoji/
+The copy shipped is the one in the emojibase-data version named under "embeddedData" in licenses/manifest.json.
