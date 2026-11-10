@@ -24,7 +24,7 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { AiFace } from '../components/rooms/AiFace'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
-import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
+import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
 import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/rooms/SidebarRooms'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
@@ -163,7 +163,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}>{title}</span>
+          <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}><RoomName room={room} /></span>
           {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>

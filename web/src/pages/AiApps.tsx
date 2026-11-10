@@ -57,7 +57,7 @@ export default function AiApps() {
       {!items && !error && <Skeleton lines={2} />}
       {items && !on && <ConnectorOff admin={isAdmin} />}
       {items && on && resource && <ConnectorAddress resource={resource} />}
-      {items && <ul className="-mx-2 divide-y divide-line" data-testid="ai-app-list"><AiAppRows on={on} onConnect={setOpenApp} /></ul>}
+      {items && <ul className="-mx-2 divide-y divide-line" data-testid="ai-app-list"><AiAppRows on={on} onConnect={setOpenApp} connected={items} /></ul>}
       {items && items.length > 0 && (
         <div data-testid="connected-apps">
           <p className="mb-1 text-xs font-medium text-muted">{t('aiApps.connectedApps')}</p>

@@ -3,7 +3,7 @@
 // closes the menu first and then the dialog. On a phone it fills the screen and has no key hints.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { CSRF_HEADER } from '@mycel/shared/api'
+import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -43,6 +43,10 @@ test('with no text: needs attention, recents and actions; tabs and arrow keys', 
   await expect(recents.getByRole('option', { name: /quarterly budget notes/ })).toBeVisible()
   await expect(recents.getByRole('option', { name: /Launch plan/ })).toBeVisible()
   await expect(palette(page).getByTestId('search-section-actions').getByRole('option')).toHaveCount(6) // new chat, project, schedule, MCP, files, the inbox
+  // the new chat (트리나에게 묻기) has the ✦ that asks the AI, as on the sidebar's row (rooms/AiFace.tsx AiMark)
+  const ask = palette(page).getByTestId('search-section-actions').getByRole('option').first().locator('svg')
+  expect(await ask.evaluate((e, named) => (named ? e.hasAttribute('data-trina-star') : e.classList.contains('lucide-sparkles')), PRODUCT_NAMED_AFTER_AI)).toBe(true)
+  expect((await ask.boundingBox())!.width).toBe(PRODUCT_NAMED_AFTER_AI ? 18 : 16)
   // the first row is active; ↓ moves
   await expect(palette(page).getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('ArrowDown')
@@ -115,7 +119,7 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
   await expect(palette(page).getByTestId('search-hints')).toContainText(/Alt|⌥/)
   await page.keyboard.press('Alt+Enter')
   const menu = palette(page).getByTestId('search-row-menu')
-  await expect(menu.getByRole('menuitem')).toHaveCount(2)
+  await expect(menu.getByRole('menuitem')).toHaveText(['이름 바꾸기', '링크 복사', '삭제'])
   await expect(menu.getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)

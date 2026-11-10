@@ -456,7 +456,8 @@ test('a long side chat after a reload: older pages are read until the question a
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input), 'http://team.localhost')
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } })
-    if ((init?.method ?? 'GET') === 'GET' && u.pathname === '/api/chats') return json({ items: [{ id: chatId, projectId: null, title: '', engine: 'claude-code', model: null, createdAt: at(1), updatedAt: at(1), deletedAt: null, runState: 'idle', sideRoomId: team.id }], nextCursor: null })
+    // its last answer not seen yet: the panel opens on it (else on a new chat)
+    if ((init?.method ?? 'GET') === 'GET' && u.pathname === '/api/chats') return json({ items: [{ id: chatId, projectId: null, title: '', engine: 'claude-code', model: null, createdAt: at(1), updatedAt: at(1), deletedAt: null, runState: 'idle', unseen: true, sideRoomId: team.id }], nextCursor: null })
     if (u.pathname === `/api/chats/${chatId}/messages`) {
       const cursor = u.searchParams.get('cursor') ?? ''
       read.push(cursor)

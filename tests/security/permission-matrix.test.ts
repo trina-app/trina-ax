@@ -13,30 +13,22 @@ import path from 'node:path'
 import { CSRF_HEADER, DEV_SESSION_COOKIE, WS_PROTOCOL } from '@mycel/shared/api'
 import { startInstance, type Instance } from './lib/instance'
 import { buildWorld, freshClient, PW, WHO, type World } from './lib/world'
-import { allCases, SPECS } from './lib/cases'
-import { P4_RAW_COVERED } from './lib/p4-cases'
-import { REMOTE_MCP_RAW_COVERED } from './lib/remote-mcp-cases'
-import { INTEGRATION_RAW_COVERED } from './lib/integrations-cases'
-import { SLACK_RAW_COVERED } from './lib/slack-cases'
-import { APP_LINKS_RAW_COVERED } from './lib/app-links-cases'
-import { enumerateRoutes, judge } from './lib/matrix'
+import { allCases } from './lib/cases'
+import { routeCoverage } from './lib/coverage'
+import { judge } from './lib/matrix'
 
 setDefaultTimeout(180_000)
 const REPO = path.resolve(import.meta.dir, '..', '..') // worktree root
 
-// ---------------------------------------------------------------- route coverage
+// ---------------------------------------------------------------- route coverage (also a unit test, run in CI:
+// tests/unit/security-route-coverage.test.ts)
 describe('coverage', () => {
   test('every route in server/src/routes/*.ts has a matrix case', () => {
-    const routes = enumerateRoutes(REPO)
-    const covered = new Set(Object.keys(SPECS))
-    // the two raw routes are exercised separately (ws subscriptions test, web app shell)
-    const rawCovered = new Set(['RAW GET WS_PATH', 'RAW GET \'*\'', ...P4_RAW_COVERED, ...REMOTE_MCP_RAW_COVERED, ...INTEGRATION_RAW_COVERED, ...SLACK_RAW_COVERED, ...APP_LINKS_RAW_COVERED])
-    const missing = routes.filter((r) => (r.startsWith('RAW') ? !rawCovered.has(r) : !covered.has(r)))
+    const { missing } = routeCoverage(REPO)
     expect(missing, `routes with no matrix case: ${missing.join(', ')}`).toEqual([])
   })
   test('no matrix case targets a route the code does not register', () => {
-    const routes = new Set(enumerateRoutes(REPO))
-    const extra = Object.keys(SPECS).filter((r) => !routes.has(r))
+    const { extra } = routeCoverage(REPO)
     expect(extra, `cases for unregistered routes: ${extra.join(', ')}`).toEqual([])
   })
 })

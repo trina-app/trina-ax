@@ -8,7 +8,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # dev too: the Linux jobs below (attack suite, release bundle, install test) run on every merge to dev, not on a
+    # pull request's every push. On the GitHub Free plan the org runs at most 20 jobs at once, and a pull request's run
+    # had 14; with these six left out a pull request needs 9 (2026-11-10, jobs waited up to 30 min in the queue).
+    # A push to dev cancels the run of the push before it (concurrency below), so a burst of merges tests the last one.
+    branches: [main, dev]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -298,6 +302,8 @@ jobs:
 
   linux-docker:
     name: Linux attack suite (T1, bwrap + nftables + cgroups in Docker)
+    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request'
     # amd64 and arm64: the seccomp table, the whisper CPU pick and bwrap's behaviour differ by architecture.
     strategy:
       fail-fast: false
@@ -357,6 +363,8 @@ jobs:
 
   linux-bundle:
     name: Linux release bundle (L19) + verify-bundle
+    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -375,6 +383,15 @@ jobs:
         with: { bun-version: "${{ env.BUN_VERSION }}" }
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with: { go-version: "${{ env.GO_VERSION }}", cache-dependency-path: native/go.sum }
+      # the pinned downloads of the bundle (bun, ripgrep, pandoc, typst, the Noto CJK fonts ...; scripts/linux/downloads.ts)
+      # kept between runs. A cached file is checked against its SHA-256 every time; a miss downloads as before. Without
+      # it every run fetched them from GitHub, and a GitHub outage (HTTP 504 three times on NotoSansCJK-Regular.ttc,
+      # 2026-11-10) failed the job.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: dist/cache
+          key: linux-downloads-${{ matrix.arch }}-${{ hashFiles('scripts/linux/downloads.ts', 'versions.json') }}
+          restore-keys: linux-downloads-${{ matrix.arch }}-
       - name: whisper-cli (static, this arch)
         run: bash scripts/linux/build-whisper.sh --arch ${{ matrix.arch }} --out dist/whisper
       - run: bun install --frozen-lockfile
@@ -402,6 +419,8 @@ jobs:
 
   linux-install:
     name: Linux install test (T2, systemd on a VM runner)
+    # not on a pull request: on the merge to dev, on main and in a release's test run (see `on:` above)
+    if: github.event_name != 'pull_request'
     # paths filter and the daily schedule are enforced in the real feed; here the job just has to be correct.
     strategy:
       fail-fast: false

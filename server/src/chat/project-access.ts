@@ -149,14 +149,20 @@ export const accessEditable = (r: Pick<ProjectRow, 'folder_path' | 'trashed_with
  * theirs to change, so it gets no 관리 that would end in "not editable"; review M6), and whether its creator does (their
  * account active, they can still write the folder, the folder theirs to change), so the hint names them only then: a
  * viewer learns those three things about the creator, nothing else. Nothing for a personal project.
+ * Project.alone ("나와 관리자만 봐요" under a chat's box, docs/DECISIONS.md "Who sees it, always") only for someone who
+ * may read its rules anyway (an owner or admin, or whoever changes its members: GET access answers them its
+ * participants). To anyone else it would say that the others who see it are admins, and with a name next to it (whose
+ * question is answered, a creator who lost their rule) who is one.
  */
-export function membersView(ctx: AppContext, r: ProjectRow, p: Principal, canEdit: boolean, creators?: Map<string, Principal | null>): { membersEditable?: boolean; creatorChangesMembers?: boolean } {
+export function membersView(ctx: AppContext, r: ProjectRow, p: Principal, canEdit: boolean, creators?: Map<string, Principal | null>, aud?: Audiences): { membersEditable?: boolean; creatorChangesMembers?: boolean; alone?: true } {
   if (r.folder_path === 'users' || r.folder_path.startsWith('users/')) return {}
   // (`creators`: the list's people, read once per request)
   const load = (id: string) => { if (!creators) return loadPrincipal(ctx.db, id); if (!creators.has(id)) creators.set(id, loadPrincipal(ctx.db, id)); return creators.get(id)! }
   const creator = r.created_by ? load(r.created_by) : null
   const byCreator = (who: Principal) => mayEditProject(ctx.files, who, r) && accessEditable(r, ctx.files, who)
-  return { membersEditable: canEdit && accessEditable(r, ctx.files, p), creatorChangesMembers: !!creator && byCreator(creator) }
+  const membersEditable = canEdit && accessEditable(r, ctx.files, p)
+  const alone = (membersEditable || isAdminRole(p)) && (aud ?? new Audiences(ctx.db, ctx.files)).alone(p.id, r)
+  return { membersEditable, creatorChangesMembers: !!creator && byCreator(creator), ...(alone ? { alone: true as const } : {}) }
 }
 
 /**
@@ -235,38 +241,72 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
     const segs = [...base, ...found.paths[i]!.split('/')]
     return segs.slice(base.length).every((x, j) => !hiddenEntry(x, base.length + j) && !badSegment(x)) && readable(segs)
   }).map((n) => n.normalize('NFC')).sort((a, b) => a.localeCompare(b))
-  return { files, othersFiles, skills: names.length, skillNames: names.slice(0, 10) }
+  return { files, othersFiles, skills: names.length, skillNames: names }
 }
 
 /**
  * POST /api/projects/access-preview: a dry run. A new project: who would see it (the caller, the owner, admins and the
- * participants). An existing one (its creator or an admin, a projects/<name> folder in place): who gains and who loses
- * it, and what the people who gain it would see. Nothing is saved.
+ * participants). For a caller who is not the owner or an admin, only the caller and the participants (`adminsApart`):
+ * with the admins counted in, naming an admin would not change the count and naming a member would, which tells any
+ * member who may make projects, for free, who the admins are (members are never told roles). An existing one (its
+ * creator or an admin, a projects/<name> folder in place): who gains and who loses it, and what the people who gain it
+ * would see. Nothing is saved.
  */
 export function previewAccess(ctx: AppContext, p: Principal, body: { participants: readonly ProjectParticipant[] }, r: ProjectRow | null, locale: Locale): ProjectAccessPreview {
   const db = ctx.db
-  const people = activePrincipals(db)
   if (!r) {
+    const people = activePrincipals(db)
     const list = checkParticipants(db, p, body.participants, locale)
     const users = new Set(list.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
     const groups = new Set(list.filter((x) => x.subjectType === 'group').map((x) => x.subjectId))
-    const n = people.filter((x) => isAdminRole(x) || x.id === p.id || users.has(x.id) || x.groups.some((g) => groups.has(g))).length
-    return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] }
+    const admin = isAdminRole(p)
+    const n = people.filter((x) => (admin && isAdminRole(x)) || x.id === p.id || users.has(x.id) || x.groups.some((g) => groups.has(g))).length
+    return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], ...(admin ? {} : { adminsApart: true }) }
   }
-  const { current, next, rules } = proposed(ctx, r, p, body.participants, locale)
-  const after = withRules(rules, r.folder_path, next)
-  const segs = segsOf(r.folder_path)
-  const added = people.filter((x) => !atLeast(rules.access(x, segs), 'read') && atLeast(after.access(x, segs), 'read'))
-  const removed = people.filter((x) => atLeast(rules.access(x, segs), 'read') && !atLeast(after.access(x, segs), 'read'))
-  const n = people.filter((x) => atLeast(after.access(x, segs), 'read')).length
+  const plan = planAccess(ctx, p, r, body.participants, locale)
   // what the save writes besides the people chosen (participantRules): the screen asks first, since the person did not
   // choose it (review M4)
-  const extra = { ...(addsFloor(current, next) ? { addsFloor: true } : {}), ...(restoresCreator(current, next, creatorOf(db, r)) ? { restoresCreator: true } : {}) }
-  if (!added.length) return { people: n, added: 0, removed: removed.length, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], ...extra }
+  const extra = { ...(plan.addsFloor ? { addsFloor: true } : {}), ...(plan.restoresCreator ? { restoresCreator: true } : {}) }
+  const { files, othersFiles, skills, skillNames } = plan.seen
+  return { people: plan.after.length, added: plan.gained.length, removed: plan.lost.length, files, othersFiles, sharedChats: plan.sharedChats, skills, skillNames: skillNames.slice(0, 10), ...extra }
+}
+
+/** What a change of a project's participants does (the dry run's answer, and the AI's members card: chat/project-members.ts). */
+export interface AccessPlan {
+  /** the folder's rules now and after the save (participantRules), and the hash of the ones now (ProjectAccess.rulesHash) */
+  current: FolderRuleInput[]
+  next: FolderRuleInput[]
+  rulesHash: string
+  /** active people who see it before and after, who gains and who loses it (ids, sorted) */
+  before: string[]
+  after: string[]
+  gained: string[]
+  lost: string[]
+  /** what the people who gain it would see, as the caller can read it (none when nobody gains it); every skill name */
+  seen: { files: number; othersFiles: number; skills: number; skillNames: string[] }
+  /** its shared chats (counted when someone gains it) */
+  sharedChats: number
+  /** the save also writes the floor rule, or puts the creator's rule back (nobody chose either) */
+  addsFloor: boolean
+  restoresCreator: boolean
+}
+
+/** The plan of a change of participants (checked: editable for `p`, the participants), nothing saved. */
+export function planAccess(ctx: AppContext, p: Principal, r: ProjectRow, participants: readonly ProjectParticipant[], locale: Locale): AccessPlan {
+  const db = ctx.db
+  const people = activePrincipals(db)
+  const { current, next, rules } = proposed(ctx, r, p, participants, locale)
+  const after = withRules(rules, r.folder_path, next)
+  const segs = segsOf(r.folder_path)
+  const sees = (set: RuleSet) => people.filter((x) => atLeast(set.access(x, segs), 'read')).map((x) => x.id).sort()
+  const before = sees(rules), now = sees(after)
+  const gained = now.filter((id) => !before.includes(id)), lost = before.filter((id) => !now.includes(id))
+  const none = { files: 0, othersFiles: 0, skills: 0, skillNames: [] as string[] }
+  const added = people.filter((x) => gained.includes(x.id))
   // what the caller can read themselves: a member is never told about a folder inside it they cannot see
-  const seen = whatTheySee(ctx, r.folder_path, p.id, (s) => atLeast(rules.access(p, s), 'read') && added.some((x) => atLeast(after.access(x, s), 'read')))
-  const sharedChats = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(r.id) as { n: number }).n
-  return { people: n, added: added.length, removed: removed.length, ...seen, sharedChats, ...extra }
+  const seen = added.length ? whatTheySee(ctx, r.folder_path, p.id, (s) => atLeast(rules.access(p, s), 'read') && added.some((x) => atLeast(after.access(x, s), 'read'))) : none
+  const sharedChats = added.length ? (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(r.id) as { n: number }).n : 0
+  return { current, next, rulesHash: rulesHash(current), before, after: now, gained, lost, seen, sharedChats, addsFloor: addsFloor(current, next), restoresCreator: restoresCreator(current, next, creatorOf(db, r)) }
 }
 
 /** The save writes the floor (everyone: none) on a folder that has no everyone rule now (one an older build made). */
@@ -299,7 +339,7 @@ function proposed(ctx: AppContext, r: ProjectRow, p: Principal, participants: re
  * afterAccessChange (fresh sessions, notices, shared chats dropped for whoever lost the project). People who saw the
  * project before hear it when someone gains it.
  */
-export function saveParticipants(ctx: AppContext, r: ProjectRow, p: Principal, actor: { id: string; name: string }, body: { participants: readonly ProjectParticipant[]; expectedHash: string }, locale: Locale): ProjectAccess {
+export function saveParticipants(ctx: AppContext, r: ProjectRow, p: Principal, actor: { id: string; name: string }, body: { participants: readonly ProjectParticipant[]; expectedHash: string }, locale: Locale, o: { via?: 'ai'; turnId?: string; chatId?: string } = {}): ProjectAccess {
   const db = ctx.db
   const { current, next } = proposed(ctx, r, p, body.participants, locale)
   const before = captureState(db)
@@ -309,9 +349,10 @@ export function saveParticipants(ctx: AppContext, r: ProjectRow, p: Principal, a
     const row = ensureFolderRow(db, r.folder_path)
     if (rulesHash(rulesOf(db, row.id)) !== body.expectedHash) fail('conflict', tr('projectAccessChanged', locale), { params: { reason: 'rules_changed' } })
     replaceRules(db, row.id, next, actor.id)
-    audit(db, { actor: actor.id, action: 'folder.rules', target: r.folder_path, detail: { before: current, after: next, via: 'project', projectId: r.id } })
+    // the AI's change (chat/project-members.ts, after the person's yes on its card) says so, with its turn and chat
+    audit(db, { actor: actor.id, action: 'folder.rules', target: r.folder_path, detail: { before: current, after: next, via: o.via ?? 'project', projectId: r.id, ...(o.via ? { turnId: o.turnId ?? null, chatId: o.chatId ?? null } : {}) } })
   })()
-  afterAccessChange(ctx, before, { actor: actor.id, target: r.folder_path })
+  afterAccessChange(ctx, before, { actor: actor.id, target: r.folder_path, ...(o.via ? { via: o.via } : {}) })
   const now = new Audiences(db, ctx.files).of(r)
   const gained = now.filter((id) => !sawBefore.includes(id)).length
   if (gained) {

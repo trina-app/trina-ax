@@ -5,6 +5,8 @@ import type { RouteModule } from './module'
 import { audit } from '../admin/audit'
 import { fail } from '../http/errors'
 import { listPeople, MY_PROFILE_CHANGED, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
+import { clearStatus, countWrite, setStatus, startStatusClock, tellAfterWrite } from '../auth/status-messages'
+import { teamTimeZone } from '../admin/settings'
 import { presenceFor } from '../realtime/presence'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
@@ -14,6 +16,8 @@ export const peopleRoutes: RouteModule = {
   name: 'people',
   owner: 'A',
   register(kit, ctx) {
+    // statuses start and clear by themselves: the clock tells open windows when one does (auth/status-messages.ts)
+    const clock = startStatusClock(ctx)
     // the signed-in person comes from the session, never from the request: nobody can change another person's profile
     kit.handle(API.listPeople, () => ({ people: listPeople(ctx.db) }))
 
@@ -62,6 +66,27 @@ export const peopleRoutes: RouteModule = {
         ctx.services.realtime.publish(auth.user.id, MY_PROFILE_CHANGED)
       }
       return { away: body.away }
+    })
+
+    // my status message (docs/DECISIONS.md "상태 메시지"): only my own; the team is told only when what it sees changed
+    // (a status that starts later is mine alone until its day: the clock tells them then), my other windows always.
+    // Not audited, as the away setting is not: it is no account change.
+    kit.handle(API.setMyStatus, ({ c, auth, body }) => {
+      const locale = c.get('locale'), now = new Date()
+      countWrite(ctx.db, auth.user.id, now.getTime(), locale)
+      const r = setStatus(ctx.db, auth.user.id, body, { now, tz: teamTimeZone(ctx.db), locale })
+      tellAfterWrite(ctx, auth.user.id, r)
+      clock.arm()
+      return r.status
+    })
+
+    kit.handle(API.clearMyStatus, ({ c, auth }) => {
+      countWrite(ctx.db, auth.user.id, Date.now(), c.get('locale'))
+      const r = clearStatus(ctx.db, auth.user.id, new Date())
+      if (r.removed || r.cleared.length) {
+        tellAfterWrite(ctx, auth.user.id, r)
+        clock.arm()
+      }
     })
 
     kit.handle(API.deleteMyAvatar, ({ auth }) => {

@@ -8,7 +8,9 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.getByRole('link', { name: '관리자' }).click()
+  // Admin is in the team menu on top of the sidebar (docs/DECISIONS.md "The team menu")
+  await page.getByTestId('team-menu').click()
+  await page.getByRole('menuitem', { name: '관리자' }).click()
   // Admin opens on Home; members are first in the menu after it
   await expect(page.getByTestId('admin-home')).toBeVisible()
   await page.getByRole('navigation', { name: '관리자' }).getByRole('link', { name: DICTS.ko['admin.members'], exact: true }).click()
@@ -225,6 +227,9 @@ test('members cannot open admin screens', async ({ page }) => {
   await reset(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await expect(page.getByRole('link', { name: '관리자' })).toHaveCount(0)
+  // no team menu either: a member's header is the team's name only
+  await expect(page.getByTestId('team-header')).toBeVisible()
+  await expect(page.getByTestId('team-menu')).toHaveCount(0)
   await page.goto('/admin/members')
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
   // and the API itself refuses (the hidden screens are only a convenience)

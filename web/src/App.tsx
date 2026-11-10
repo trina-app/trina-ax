@@ -19,6 +19,7 @@ import { useSession } from './store/session'
 import Layout from './components/Layout'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
+import { StatusDialogHost } from './components/StatusMessage'
 import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
@@ -248,6 +249,7 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <StatusDialogHost />
         <ImageViewerHost />
         <Toaster />
       </AnnounceProvider>

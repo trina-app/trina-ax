@@ -11,9 +11,11 @@
 // the first few, then a "메시지 더 보기" row that shows more in place (and asks for the next page). A row: the sender's
 // picture and name, the room ("#팀방", "1:1 대화", a group chat's name), "스레드" for a reply, the time, and one line of
 // the text around the match; it opens the room at that message (a reply: its thread), marked for a moment.
+// For owners and admins two more actions are found by their words, not listed before anything is typed: "Admin" and
+// "Invite people" (the team menu's two items, TeamMenu.tsx; docs/DECISIONS.md "The team menu").
 import clsx from 'clsx'
-import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Link2, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { skillTitle, type Chat, type FileEntry, type Integration, type Project, type RoomSearchHit, type RoomSearchRoom, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -23,15 +25,17 @@ import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { aiName } from '../lib/tabs'
+import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap } from './ui'
 import { contentQueryReady } from './FileContentSearch'
 import { skillFileLink } from './AvailableSkills'
 import { useChatActions } from './chat/chatActions'
 import { useCopyChatLink } from './chat/copyChatLink'
+import { openTeamInvite } from './TeamMenu'
 import { Tooltip } from './Tooltip'
 import { Avatar } from './Avatar'
-import { AiFace } from './rooms/AiFace'
+import { AiFace, AiMark } from './rooms/AiFace'
 import { useRoomTitle } from './rooms/RoomIcon'
 import { useAvatarOf } from '../store/people'
 
@@ -41,6 +45,9 @@ export default function SearchDialog() {
   if (!open) return null
   return <SearchBox onClose={() => setOpen(false)} />
 }
+
+/** "트리나에게 묻기": the mark that asks the AI (rooms/AiFace.tsx), as on the sidebar's row */
+const AskAi = () => <AiMark place="nav" />
 
 export const SEARCH_TABS = ['all', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'] as const
 export type SearchTab = (typeof SEARCH_TABS)[number]
@@ -63,13 +70,18 @@ interface Row {
   subMatch?: boolean
   /** more words the typed text may match (an action's other name) */
   terms?: string
-  icon: typeof MessageSquare
+  /** drawn at 16 px: a lucide icon, or Trina's mark (AskAi) */
+  icon: ComponentType<{ size?: number }>
   href: string
   chat?: Chat
   /** a room message found (MessageHit draws it) */
   hit?: { hit: RoomSearchHit; room: RoomSearchRoom | undefined }
   /** done in place of opening `href`: the dialog stays (메시지 더 보기) */
   run?: () => void
+  /** done in place of opening `href`, once the dialog has closed (Invite people: its own dialog) */
+  after?: () => void
+  /** an action found by its words only, not listed before anything is typed */
+  typed?: boolean
 }
 interface Section { id: string; label: string; rows: Row[] }
 interface Skill { path: string; name: string; description: string; title?: string }
@@ -155,6 +167,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   const schedules = useList(() => api.call(API.listSchedules).then((r) => r.items))
   const mcp = useList(() => api.call(API.listIntegrations))
   const unread = useList(() => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => r.unreadCount))
+  const admin = isAdmin(useMe())
 
   const query = norm(q.trim())
   // chats by title and content, on the server
@@ -288,7 +301,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
 
   const actions: Row[] = useMemo(() => {
     const list: Row[] = [
-      { key: 'act:chat', kind: 'action', icon: MessageSquarePlus, title: t('sidebar.askAi', { name: aiName(t) }), href: '/' },
+      { key: 'act:chat', kind: 'action', icon: AskAi, title: t('sidebar.askAi', { name: aiName(t) }), href: '/' },
       { key: 'act:project', kind: 'action', icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]
@@ -301,9 +314,15 @@ function SearchBox({ onClose }: { onClose: () => void }) {
       key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/settings/notifications', terms: `${t('inbox.title')} ${t('notifications.title')}`,
       sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,
     })
+    // the team menu's items (owners and admins), found by their words: "Invite teammates", "Members & invites" too
+    if (admin)
+      list.push(
+        { key: 'act:invite', kind: 'action', icon: UserPlus, title: t('teamMenu.invite'), href: '', terms: `${t('goal.invite')} ${t('admin.members')}`, typed: true, after: () => void openTeamInvite(navigate, null) },
+        { key: 'act:admin', kind: 'action', icon: Shield, title: t('sidebar.admin'), href: '/admin', terms: `${t('admin.title')} ${t('admin.members')} ${t('admin.settings')}`, typed: true },
+      )
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, unread, locale])
+  }, [mcp, unread, locale, admin])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -334,7 +353,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
           .slice(0, 6)
           .map((x) => x.row)
         push('recents', t('search.recents'), mixed)
-        push('actions', t('search.actions'), actions)
+        push('actions', t('search.actions'), actions.filter((a) => !a.typed))
       } else if (tab === 'chats') push('chats', typeLabel('chats'), chats.map((c) => chatRow(c)))
       else if (tab === 'projects') push('projects', typeLabel('projects'), allProjects.map(projectRow))
       else if (tab === 'skills') push('skills', typeLabel('skills'), allSkills.map(skillRow))
@@ -373,7 +392,8 @@ function SearchBox({ onClose }: { onClose: () => void }) {
       return
     }
     onClose()
-    navigate(r.href)
+    if (r.after) r.after()
+    else navigate(r.href)
   }
   const closeMenu = () => {
     setMenu(null)

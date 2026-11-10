@@ -246,6 +246,33 @@ describe('saving', () => {
     }
   })
 
+  test('after a save the project is read again: its count and whether anyone else sees it by a rule (the line under the box)', async () => {
+    signedIn('member')
+    let read: Project | null = project({ audience: 4 })
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 2, removed: 1 })),
+      [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ people: 2, participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }] })),
+      [`GET /api/projects/${P1}`]: () => (read ? json(200, read) : json(500, { error: { code: 'internal', message: 'down' } })),
+    }
+    for (const [answer, want] of [[project({ audience: 3, alone: true }), { audience: 3, alone: true }], [null, { audience: 2, alone: undefined }]] as const) {
+      read = answer
+      sent.length = 0
+      let saved: Project | null = null
+      // the dialog opened on a project that said nobody else sees it by a rule
+      const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ audience: 3, alone: true })} onClose={() => {}} onSaved={(p) => { saved = p }} /><DialogHost /></MemoryRouter>)
+      await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+      await m.click('participant-remove-user-sora')
+      await m.click('project-members-save')
+      await m.until(() => saved, 'the save', 2000)
+      expect(calls(`GET /api/projects/${P1}`)).toHaveLength(1)
+      // the server's answer; unread, the count from the save and no `alone` (it may no longer be true)
+      expect({ audience: saved!.audience, alone: saved!.alone }).toEqual(want)
+      await m.unmount()
+    }
+  })
+
   test('someone else changed it meanwhile: the message, and the list shows what is there now', async () => {
     signedIn('member')
     let conflict = false

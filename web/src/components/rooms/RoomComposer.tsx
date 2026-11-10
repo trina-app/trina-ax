@@ -17,7 +17,7 @@
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
 import clsx from 'clsx'
 import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { formatSize } from '../../lib/format'
@@ -61,7 +61,8 @@ export const MENTION_ALL_CONFIRM = 10
 /** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
 const boxesOf = new Map<string, Set<() => void>>()
 
-export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean }) {
+/** `above`: one quiet line over the box (a DM's status line, components/StatusMessage.tsx) */
+export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false, above }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean; above?: ReactNode }) {
   const t = useT()
   const locale = useLocale()
   // the room's box and each thread's box keep their own draft
@@ -231,6 +232,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   return (
     <div ref={root} className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
       <VoiceLive voice={voice} />
+      {above}
       <div
         className={clsx('mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
         {...dropProps}

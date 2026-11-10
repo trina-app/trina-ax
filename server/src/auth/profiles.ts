@@ -5,6 +5,7 @@ import { AVATAR_MAX_BYTES, AVATAR_MAX_PX, AVATAR_MIN_PX } from '@mycel/shared'
 import type { Locale, Person } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
 import { prepareAvatar, type AvatarProblem } from './avatar'
+import { LIVE_SQL, statusOut } from './status-plan'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -42,11 +43,21 @@ const person = (id: string, name: string, p: ProfileRow | null): Person => ({
   ...(p?.avatar_version ? { avatarVersion: p.avatar_version } : {}),
 })
 
-/** Everyone who can sign in (not deactivated, not deleted), by name. Nothing else about them. */
-export function listPeople(db: Database): Person[] {
-  const rows = db.query(`SELECT u.id, u.name, p.title, p.status_text, p.avatar_version FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id
-    WHERE u.deleted_at IS NULL AND u.status = 'active' ORDER BY lower(u.name), u.id`).all() as { id: string; name: string; title: string | null; status_text: string | null; avatar_version: number | null }[]
-  return rows.map((r) => person(r.id, r.name, { title: r.title ?? '', status_text: r.status_text ?? '', avatar_version: r.avatar_version }))
+/** Everyone who can sign in (not deactivated, not deleted), by name, with their status message now (started, not
+ * cleared: auth/status-messages.ts). Nothing else about them. */
+export function listPeople(db: Database, now = new Date()): Person[] {
+  const iso = now.toISOString()
+  const rows = db.query(`SELECT u.id, u.name, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
+    LEFT JOIN user_profiles p ON p.user_id = u.id
+    LEFT JOIN user_status_messages s ON s.user_id = u.id AND ${LIVE_SQL}
+    WHERE u.deleted_at IS NULL AND u.status = 'active' ORDER BY lower(u.name), u.id`).all(iso, iso) as {
+    id: string; name: string; title: string | null; status_text: string | null; avatar_version: number | null
+    emoji: string | null; text: string | null; clears_at: string | null; until_day: string | null
+  }[]
+  return rows.map((r) => ({
+    ...person(r.id, r.name, { title: r.title ?? '', status_text: r.status_text ?? '', avatar_version: r.avatar_version }),
+    ...(r.emoji ? { statusMessage: statusOut({ emoji: r.emoji, text: r.text ?? '', clears_at: r.clears_at, until_day: r.until_day }) } : {}),
+  }))
 }
 
 /** One person's profile fields (the signed-in person's own, for /api/me). */

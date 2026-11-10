@@ -170,6 +170,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },
   'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
   'server/src/auth/profiles.ts': { why: 'profile photo upload refusals (ko next to en/id/ja/es)' },
+  'server/src/auth/status-plan.ts': { why: 'status message refusals (ko next to en/id/ja/es)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
   'server/src/tools/save-url.ts': { why: 'the large-download card and the disk refusal (ko next to en/id/ja/es)' },
   'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en/id/ja/es)' },
@@ -209,6 +210,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },
   'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
   'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
+  'server/src/chat/project-members.ts': { why: 'the members card\'s words (ko next to en/id/ja/es), and the Korean particles that may follow a name in the person\'s own words (a word list the red mark\'s check matches, not screen text), the honorifics and group words a name given may end with (word lists the name match strips, not screen text)', also: /^const (PARTICLE|HONORIFICS|GROUP_WORDS) = / },
   'server/src/knowledge-graph/documents/text.ts': { why: 'Korean particles, endings, stopwords and generic document titles for the knowledge graph\'s search tokenizer, and its Hangul range (word lists, not screen text)', also: /^const (HANGUL|KO_SUFFIX) = |^\s+'[^']*'(, '[^']*')*(,|\]\)?)$/ },
 }
 

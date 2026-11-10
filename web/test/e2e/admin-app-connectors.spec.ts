@@ -25,7 +25,8 @@ test('Connectors is in the Admin menu; Drive not set up yet: Set up takes the cl
   await expect(menu.getByRole('link', { name: '앱 커넥터', exact: true })).toHaveCount(0)
   await menu.getByRole('link', { name: '커넥터', exact: true }).click()
   await expect(page).toHaveURL(/\/admin\/connectors$/)
-  await page.getByTestId('connectors-header').getByRole('tab', { name: '둘러보기' }).click()
+  // Discover is on the same page, under the team's connections (none yet)
+  await expect(page.getByTestId('connector-discover-title')).toHaveText('둘러보기')
   const drive = page.locator('[data-testid="connector-card"][data-id="google-drive"]')
   await expect(page.getByTestId('connector-card').first()).toHaveAttribute('data-id', 'google-drive')
   // + on a Drive that is not set up opens its page with the one-time setup

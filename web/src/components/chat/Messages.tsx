@@ -369,7 +369,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
           <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-reading leading-7 max-md:leading-reading sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
             <UserText content={m.content} clamp={!open} quotes={sideChat} />
             {long && (
-              <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted hover:text-ink">
+              <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted select-none hover:text-ink">
                 {open ? t('chat.showLess') : t('chat.showAll')}
               </button>
             )}
@@ -395,7 +395,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
       )}
       {!m.local && !editing && (
         // phones: the branch switch stays in sight; without one the row takes no room until the tap
-        <div className={clsx('flex items-center gap-1', ON_HOVER, !tapped && !branched && UNTIL_TAP)} data-testid="message-actions">
+        <div className={clsx('flex items-center gap-1 select-none', ON_HOVER, !tapped && !branched && UNTIL_TAP)} data-testid="message-actions">
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
           <span className={clsx('flex items-center gap-1 md:contents', !tapped && UNTIL_TAP)} data-testid="message-actions-tap">
             <CopyButton text={shown} />
@@ -704,7 +704,7 @@ export function AssistantMessage({
         {!streaming && (
           // phones: an older answer's actions and model name wait for a tap, its branch switch stays in sight; without
           // one the row takes no room until then
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && UNTIL_TAP)} data-testid="answer-actions">
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && UNTIL_TAP)} data-testid="answer-actions">
             <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
               {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom); a room's side chat sends it

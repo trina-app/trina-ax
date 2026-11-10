@@ -1,0 +1,1 @@
+- On a phone, Android's Back closes a room's ✦ side chat and the room stays, as Back already closes a thread and the image viewer. It went to the Chats list. Back from a picture opened in the side chat closes only the picture.

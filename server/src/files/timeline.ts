@@ -78,6 +78,19 @@ export function fileTimelineWalk(db: Database, rel: string, o: { limit?: number;
           cur = from
           continue outer
         }
+        // a folder above came back from the trash to another place (its own was taken: "… (restored)"): the file was at the
+        // same place inside the folder's old path (its trip to the trash there is the folder's row, passed over)
+        if (r.action === 'restore' && folder && typeof d.originalPath === 'string' && d.originalPath !== r.path) {
+          cur = d.originalPath + cur.slice(r.path.length)
+          continue outer
+        }
+        // a folder above was copied as a whole (team-files copyFolderTree writes one row for it): the copy made this file,
+        // from the same place inside the source folder
+        if (r.action === 'create' && folder && Array.isArray(d.sourcePaths) && typeof d.sourcePaths[0] === 'string') {
+          push(r, 'copied', d.sourcePaths[0] + cur.slice(r.path.length))
+          ended = true
+          break outer
+        }
         continue
       }
       if (folder) continue // a folder that once had this exact path

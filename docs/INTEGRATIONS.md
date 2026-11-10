@@ -99,9 +99,9 @@ member's key, so a key there would reach every member and the service would log 
 name reaches every member's AI, so it may not hold hidden or direction-changing characters, a double quote or control
 characters (and the note no hidden characters).
 
-- The members it is for see it in Settings › MCP under **From your team**. **Connect** opens the same dialog as an
-  admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and the write rule
-  (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
+- The members it is for see it in Settings › Connectors under `From <team>`. **Connect your account** opens the same
+  dialog as an admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and
+  the write rule (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
   refused (409, "This template changed") and shown again as it is now. It becomes their own (personal) connection, made through the same create path as one they add
   themselves (`template_id` set), used only in their chats with their key. They may change only their key or sign-in
   and the write rule; the address, sign-in method, header, name and note are the template's, so a key only ever goes
@@ -558,11 +558,14 @@ connections with their address and the first 1,000 characters of their notes.
 
 ## Discover
 
-Settings and Admin > External services have two tabs: **Connected**, one line per connection with its details a click
-away, and **Discover**, MCP servers to add by name (`web/src/lib/connectors.ts`). An entry is only a name and an address
-for the add dialog: nothing about it is special on the server, the person still chooses what the AI may change, an admin
-still chooses who may use it, and the sign-in, checks and asking are those of any other connection. "Add connection"
-and the link under the list take any MCP server or API by its address.
+Settings › Connectors and Admin › Connectors are one page each, with the same title (the Admin shell says `Applies to
+everyone in <team>`, Settings "Just for you"): first the connections, one line per connection with its details a click
+away (in Admin with who may use it in a chip after the name; in Settings what the team provides under `From <team>`,
+read-only, then the person's own under "Connected"), then **Discover**, MCP servers to add by name
+(`web/src/lib/connectors.ts`). The search filters every section. An entry is
+only a name and an address for the add dialog: nothing about it is special on the server, the person still chooses what
+the AI may change, an admin still chooses who may use it, and the sign-in, checks and asking are those of any other
+connection. "Add connection" and the link under the list take any MCP server or API by its address.
 
 The services come from the remote servers listed on [mcpservers.org](https://mcpservers.org/remote-mcp-servers), starting
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it

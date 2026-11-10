@@ -167,7 +167,10 @@ export const chatsRoutes: RouteModule = {
     const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
     /** a project as the API shows it to `p`, with its shared chats (chat/shared.ts projectShare, `viewer`'s upload right)
      * and who changes its members (chat/project-access.ts membersView) */
-    const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string) => ({ ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, undefined, viewer)), ...membersView(ctx, r, p, canEdit) })
+    const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string) => {
+      const aud = new Audiences(ctx.db, ctx.files)
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), ...membersView(ctx, r, p, canEdit, undefined, aud) }
+    }
     kit.handle(API.frequentQuestions, ({ auth }) => frequentQuestions(ctx.db, auth.user.id))
 
     // ---------------- chats ----------------
@@ -557,7 +560,7 @@ export const chatsRoutes: RouteModule = {
       const creators = new Map<string, Principal | null>()
       return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => {
         const canEdit = mayEdit(ctx, p, r)
-        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, auth.user.id)), ...membersView(ctx, r, p, canEdit, creators) }
+        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, auth.user.id)), ...membersView(ctx, r, p, canEdit, creators, aud) }
       }) }
     })
 
@@ -750,7 +753,8 @@ export const chatsRoutes: RouteModule = {
       if (body.toParent !== undefined && body.toParent !== 'projects') fail('validation', tr('projectLocation', locale), { fields: { 'body.toParent': 'project_location' }, params: { reason: 'project_location' } })
       assertMayCreateTeamProject(ctx.db, p, locale)
       const participants = checkParticipants(ctx.db, p, body.participants, locale)
-      if (body.dryRun) return { viewersAdded: Math.max(0, previewAccess(ctx, p, { participants }, null, locale).people - 1) }
+      // (a member: the people and groups chosen only, as the new-project dry run: never who the admins are)
+      if (body.dryRun) { const dry = previewAccess(ctx, p, { participants }, null, locale); return { viewersAdded: Math.max(0, dry.people - 1), ...(dry.adminsApart ? { adminsApart: true } : {}) } }
       // its skills/ is copied into projects/<name>/skills: those skills switch on in this project's chats (asked first:
       // skills/switch-on.ts)
       const skillsOn = skillsUnder(ctx.files.fx.root, r!.folder_path)

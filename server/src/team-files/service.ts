@@ -3,7 +3,7 @@
 // what the caller may not read looks exactly like what does not exist.
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
+import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
@@ -84,6 +84,10 @@ export interface AiTrashPlan {
   lost: number
   /** of those, the people who cannot write it: they cannot see it in the trash, so cannot restore it */
   noRestore: number
+  /** the person may see who can write it (the owner and admins: Admin › Folder permissions), so the card says how many
+   * of those who lose it cannot restore it; anyone else is told the rule without that number, which would say how many
+   * people can write the folder (delete-files.ts deleteCard). The audit keeps both numbers either way. */
+  writersShown: boolean
   /** other people who made or changed these files, as the file history shows them to this person */
   others: UserRef[]
 }
@@ -155,6 +159,30 @@ export class TeamFiles {
     // download-only is looked up for the returned page only (a big folder is listed whole, then paged)
     const items = out.slice(start, start + limit).map((e) => (e.type === 'file' && this.downloadOnly(path.join(this.root, e.path)) ? { ...e, downloadOnly: true as const } : e))
     return { path: r.rel, access: rules.access(user, r.segs), entries: items, nextCursor: start + limit < out.length ? encodeCursor(start + limit) : null }
+  }
+
+  // ---------------- audience: who can see a folder, as far as the caller may know ----------------
+  /**
+   * GET /api/files/audience (docs/DECISIONS.md "Who can see a folder, in place"). The tree's own check and answers for
+   * the path, then a folder the caller can only pass through answers like one they cannot see. The count only where a
+   * write by the caller would pass (authorize's write check, so not in a plugin's managed folder): there the copy dry
+   * run from their own folder already gives it (viewersAdded + 1). On a folder they can only read, a count would tell
+   * them about rules above folders they cannot open (a group's size), so it is left out. One RuleSet for the check and
+   * the count; active people only (as /api/people); never a name, an id, a group or how many can write.
+   */
+  audience(userId: string, rel: string): FolderAudience {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const r = authorize(this.fx, rules, user, rel, 'list')
+    if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file`, 'not_folder')
+    const access = rules.access(user, r.segs)
+    if (!atLeast(access, 'read')) throw new Denied(`not found or no access: '${typeof rel === 'string' ? rel : ''}'`)
+    let writable = false
+    try { authorize(this.fx, rules, user, r.rel, 'write'); writable = true } catch { writable = false }
+    if (!writable) return { path: r.rel, access }
+    const active = activePeople(this.ctx.db)
+    const people = active.filter((p) => atLeast(rules.access(p, r.segs), 'read')).length
+    return { path: r.rel, access, people, everyone: people === active.length }
   }
 
   // ---------------- content ----------------
@@ -958,6 +986,9 @@ export class TeamFiles {
    * Copy a whole folder the caller can read into `toParent` (a folder the caller can write), under the same name
    * (" (2)" when taken). Only what the caller can read is copied (links, hard links, odd names and hidden entries are
    * left out); at most `limits` files / bytes (413 beyond). Built under a hidden temp name, then renamed into place.
+   * One file_events row for the whole copy (create {folder, sourcePaths}); the files inside get none. The history walk
+   * (files/timeline.ts fileTimelineWalk) follows a file inside to its source through that row, so the outside mark of
+   * the source's content and names goes with the copy (chat/turn.ts noteOwnReads, noteOwnNames).
    */
   copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number } = {}): { path: string; files: number; bytes: number } | { viewersAdded: number } {
     const user = this.principal(userId)
@@ -1386,6 +1417,7 @@ export class TeamFiles {
     return {
       plan: {
         items, entries: total, retentionDays: getTeamSettings(this.ctx.db).trashRetentionDays, lost: lost.size, noRestore: noRestore.size,
+        writersShown: user.role === 'owner' || user.role === 'admin',
         others: [...others].map((id) => refs.get(id) ?? { id, name: id }).sort((a, b) => coll.compare(a.name, b.name)),
       },
     }

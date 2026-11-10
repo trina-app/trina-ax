@@ -129,7 +129,7 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
   }, [lang, code])
   return (
     <div className="not-prose group my-3 overflow-hidden rounded-lg bg-code-bg text-code-ink dark:ring-1 dark:ring-line">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1 text-xs text-[#b9b3a8]">
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1 text-xs text-[#b9b3a8] select-none">
         <span>{lang ?? t('md.code')}</span>
         <span className="flex items-center gap-1 max-md:gap-3">
           <button type="button" className="touch-hit flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
@@ -191,7 +191,7 @@ function CopyableTable({ children }: { children: ReactNode }) {
         type="button"
         onClick={copy}
         title={t('md.copyTableHint')}
-        className="mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        className="mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition select-none hover:bg-hover hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
         {copied ? t('common.copied') : t('md.copyTable')}
@@ -218,7 +218,7 @@ function CopyableQuote({ label, children }: { label: string; children: ReactNode
         type="button"
         onClick={() => void copy((ref.current?.innerText ?? ref.current?.textContent ?? '').trim())}
         aria-label={copied ? t('common.copied') : t('md.copyQuote', { what: label })}
-        className="not-prose mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/quote:opacity-100 [@media(hover:hover)]:group-hover/quote:opacity-100"
+        className="not-prose mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition select-none hover:bg-hover hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/quote:opacity-100 [@media(hover:hover)]:group-hover/quote:opacity-100"
         data-testid="copy-quote"
       >
         {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
