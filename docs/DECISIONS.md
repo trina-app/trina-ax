@@ -19661,7 +19661,8 @@ aside).
 - **Settings › Providers:** the bar says "Providers" (it said "Settings"), and the card has no frame and no second title.
 - **Settings › Usage:** the title is for screen readers; the period and Refresh (44 px) go under the line, which was
   squeezed to four lines; the three numbers share one row; the limits and the by-model list have no frames.
-- `Card flat` has no hairline after the page's last card.
+- `Card flat` has no hairline after the page's last card. `SplitAction`'s main button is 44 px on a phone like its ⌄ (a
+  height: its max-md min-height lost to the Button's own max-sm one, so Usage limits stood 40 px beside a 44 px ⌄).
 - New strings: `common.moreActions` ("More actions", Usage's ⌄) and `usage.breakdownTitle` ("Breakdown").
 - Tests: `web/test/e2e/phone-list-pages.spec.ts` (every page in English and Spanish: nothing wider than the screen, the
   main button on the first screen, the Filters open; then each page's own fix; a computer unchanged);
