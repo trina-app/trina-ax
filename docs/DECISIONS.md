@@ -16308,7 +16308,8 @@ boxes); no contract, setting or data change.
   never with a project), `ListChatsQuery.sideRoomId` (the person's own side chats of that room, newest first),
   `Chat.sideRoomId`. No new endpoint.
 - **Web:** the ✦ button in the room header (components/rooms/SideChatPanel.tsx) opens the panel where a thread opens,
-  one of the two at a time. It opens the room's newest side chat; "New chat" starts another with the next question;
+  one of the two at a time. It opens the room's newest side chat (since 2026-11-10 a new chat: "The side chat opens on a
+  new chat" below); "New chat" starts another with the next question;
   "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
   raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
   answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
@@ -17527,7 +17528,9 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   view's reads have their own generation, so a read that comes back after its view closed fills nothing.
 - **One side chat per room on this page** (`store/sideChats.ts`, like `roomDrafts`): the chat shown, the draft and the
   quote, so the page's and the viewer's are one chat. Kept for the page's life (gone at sign-out): closing and opening ✦
-  shows the chat and draft last shown, read again (one deleted meanwhile: the room's newest). An ask (`SideSeed.key`) is
+  shows the chat and draft last shown, read again (one deleted meanwhile: the room's newest). **Changed 2026-11-10** ("The
+  side chat opens on a new chat"): closing and opening ✦ starts a new chat, unless the last one is not done or something
+  typed or attached waits in its box; the draft and quote still stay. An ask (`SideSeed.key`) is
   quoted once (the room keeps its last 20 asks): a panel drawn again with the room page's last ask does not quote it
   again, also after the viewer asked about a file meanwhile. Leaving a room drops its side state. The newest
   side chat is looked for once however many panels open together. `SideChatPanel autoFocus` (default true): the viewer
@@ -18917,3 +18920,54 @@ Files page said only what *I* can do there (the "Read-only folder" badge, the lo
   count and `Project.audience`, people switched off, a managed folder), the r3 hidden-vs-missing reads and the matrix
   case; `web/test/unit/folder-access.test.ts`; e2e `folder-access.spec.ts`.
 - Version impact: **minor** (a new endpoint and a visible new element; no migration, no existing answer changed).
+## The side chat opens on a new chat (fix/side-chat-opens-new, 2026-11-10, product owner)
+
+넣을 곳: trina-ax `web/src/components/rooms/SideChatPanel.tsx`, `web/src/store/sideChats.ts`, `web/src/pages/Room.tsx`,
+`web/src/components/rooms/ViewerColumn.tsx`, 이유: the room side chat is core. Plan
+`docs/AGENTS/plan/20261110-0753-side-chat-opens-new.md`. Amends "The room's right column" ("One side chat per room on
+this page", #263) and "Trina side chat" ("It opens the room's newest side chat").
+
+- **Owner:** "every time I open it I see the previous conversation; the default should be a new chat. There's a history
+  button for finding old ones." Opened, ✦ Trina starts on a new, empty chat: the starters, or the message or file it was
+  opened with, quoted, with its quick questions. The chat itself is still made by the first question (or file), so
+  opening and closing leaves no empty chat behind. Old chats are in 🕘, which with "New chat" works as before. The same
+  on phones and in the phone app (one panel, one rule).
+- **What opens it afresh:** ✦ in the room header, "Ask Trina about this" on a message or a file, ✦ in the file viewer
+  and its phone sheet, after the side chat was closed. Closing is ✕ or ‹ on the room page's panel, ✦ pressed again,
+  leaving the room, the thread that took its place on the room page closing with nothing in its place, or the file
+  viewer closing after it showed the side chat (also when its column is back on the thread), unless the room page has
+  it open under the viewer. The room page's state per room has `open` (`store/sideChats.ts`); a panel that comes on
+  screen while it is false decides once, before its first paint (`sideChatOpening`), which chat it starts on.
+- **What keeps the same chat:** the column switching between a thread and Trina, on the room page (a thread opened in
+  its place, then ✦ or "Ask Trina about this" in the thread) as in the viewer ("스레드로 돌아가기", then ✦); ← → through
+  the files; the room page and the viewer's column showing it together; hiding and showing the viewer's column or
+  closing and opening its phone sheet within one opening of the viewer. 보기 under a sent answer is a hand-off, not a
+  close: the viewer it closes and the thread it opens (closed again, as a phone's back arrow does) leave the side chat
+  open, so ✦ brings it back still saying where the answer went; on a phone 보기 to the room closes the panel the same
+  way.
+- **The last chat comes back when it is not done:** its answer is on its way (sending, running or queued), the AI waits
+  on me (a card), or an answer finished, failed or paused that I have not seen. That is Trina history's own marker
+  (`lib/sessionMarkers.ts markerOf` on the chat row, plus the thread's running answer), not a new store. Shown, the
+  answer is seen (`/seen`), so the next opening is new. The first opening after a reload asks for the room's newest side
+  chat once, as before, and shows it only when the server's row says it is not done.
+- **A draft (decided here, the owner's preference):** what was typed or attached and not sent stays for this page's
+  session with the chat it was going into: opened again, that chat, the draft and its quote. Files were uploaded into
+  that chat and #265 drops them once another chat shows, so an opening never moves away from them; text follows the same
+  rule so the two never part. A failed file chip is not sent and keeps nothing. Emptied, the next opening is new, and a
+  quote left alone goes (the starters show, or what this opening asks about). A chat with nothing in it yet (made for a
+  file whose chip was taken off) is a new chat already and stays, so no empty chat piles up in 🕘. Gone at a reload, as
+  before.
+- **Left out:** remembering the open chat across a reload.
+- **Independent review** (must-fix, fixed): the viewer closed from its thread after showing the side chat left it open,
+  and a quote left from an earlier ask came back over a fresh opening's starters. Also taken: the room page's thread
+  closing closes the side chat it replaced (보기 excepted), a failed chip keeps no chat, an empty chat made for a file is
+  reused, a card counts for a chat opened from 🕘.
+- Tests: `web/test/unit/side-chat.test.tsx` (a new chat with the earlier one in 🕘; after a reload the newest only while
+  not done; the room page: ✦, ask, ✕, ✦ is new, ✦ toggled and leaving the room too; an answer running or unseen comes
+  back, seen it does not; a draft and files keep their chat, an emptied file chat is reused; "Ask Trina about this"
+  after a close: a new chat with the quote, and no quote left over after; a thread in its place: ✦ brings it back, the
+  thread closed closes it; the viewer: ✦ new with the file, the thread and back keep it, closing the viewer, also from
+  the thread, closes it unless the room page has it), `side-chat-send.test.tsx`; e2e `side-chat-send.spec.ts` (✕ then
+  ✦: a new chat, the old one in 🕘; a phone; 보기 and ✦ still bring the chat back), `side-chat-attachments.spec.ts`,
+  `room-file-viewer.spec.ts`, `room-hover-bar.spec.ts`, `room-drop.spec.ts`.
+- Version impact: **patch** (a behaviour change of one panel; no API, data or text change).

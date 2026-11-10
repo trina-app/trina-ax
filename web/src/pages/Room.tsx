@@ -12,7 +12,9 @@
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
 // ✦ opens my Trina side chat (components/rooms/SideChatPanel.tsx) in the same place: one of the two at a time, in the
 // room's right column (components/rooms/RoomSideColumn.tsx). Which one shows is in the rooms store (side), so the file
-// viewer can start the same way.
+// viewer can start the same way. Its ✕ (‹ on a phone), ✦ again, leaving the room and the thread that took its place
+// closing close the side chat: the next ✦ opens it afresh (store/sideChats.ts open). ✦ while that thread is open brings
+// the same chat back, and so does ✦ after 보기 under an answer opened the thread (SideChatPanel.tsx threadClosedOn).
 // Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 이름 바꾸기 for those who may, 링크 복사,
 // and 대화방 나가기 or 숨기기 by kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
 // (docs/DECISIONS.md "대화 숨기기").
@@ -30,6 +32,7 @@ import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
 import { useMe } from '../store/session'
+import { useSideChats } from '../store/sideChats'
 import { MembersDialog } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
@@ -40,7 +43,7 @@ import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
-import { SideChatPanel, type SideSeed } from '../components/rooms/SideChatPanel'
+import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
@@ -112,7 +115,19 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the two at a time (a thread that opens closes it). In the store (side), gone when the page leaves the room
   const sideOpen = useRooms((s) => s.side[roomId] === 'trina')
   const setSideOpen = useCallback((on: boolean) => useRooms.getState().setSide(roomId, on ? 'trina' : null), [roomId])
+  // a thread takes its place (the side chat stays open: ✦ brings it back); the thread closing with nothing in its place,
+  // or the side chat's ✕, ‹ or ✦, closes it
   useEffect(() => { if (threadId) setSideOpen(false) }, [threadId, setSideOpen])
+  const lastThread = useRef(threadId)
+  useEffect(() => {
+    const was = lastThread.current
+    lastThread.current = threadId
+    if (was && !threadId) threadClosedOn(roomId)
+  }, [threadId, roomId])
+  const closeSide = useCallback(() => {
+    useSideChats.getState().close(roomId)
+    setSideOpen(false)
+  }, [roomId, setSideOpen])
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
   const askTrina = useCallback((m: RoomMessage) => {
@@ -166,7 +181,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
 
   useEffect(() => {
     useRooms.getState().open(roomId)
-    return () => useRooms.getState().close(roomId)
+    return () => {
+      useRooms.getState().close(roomId)
+      // back in the room, ✦ opens the side chat afresh
+      roomLeft(roomId)
+    }
   }, [roomId])
   // not in my list (yet): ask for the room itself; "not found" when I am not in it
   useEffect(() => {
@@ -328,7 +347,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         )}
         {room && (
           <IconButton tip label={t('sideChat.open', { name: aiName(t) })} className={clsx('touch-hit shrink-0', sideOpen && 'bg-hover')} aria-pressed={sideOpen}
-            onClick={() => { if (sideOpen) setSideOpen(false); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">
+            onClick={() => { if (sideOpen) closeSide(); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">
             <AiMark />
           </IconButton>
         )}
@@ -394,7 +413,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       </RoomSideColumn>
     ) : sideOpen ? (
       <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider="side-chat">
-        <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={() => setSideOpen(false)} />
+        <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={closeSide} />
       </RoomSideColumn>
     ) : null}
     </div>
