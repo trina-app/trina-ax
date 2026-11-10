@@ -163,7 +163,7 @@ test('the sidebar header shows a non-square logo cropped, not stretched', async 
   const logo = page.getByTestId('sidebar-logo')
   await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(240)
   const box = (await logo.boundingBox())!
-  expect([box.width, box.height]).toEqual([20, 20])
+  expect([box.width, box.height]).toEqual([28, 28])
   expect(await logo.evaluate((el) => getComputedStyle(el).objectFit)).toBe('cover')
 })
 

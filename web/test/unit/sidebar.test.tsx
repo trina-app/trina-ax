@@ -1,11 +1,13 @@
 // The computer's sidebar (768 px and wider; docs/DECISIONS.md "Desktop sidebar: rooms first"), rendered and pressed:
-// - its order: the team's name, one labeled row each (트리나에게 묻기, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬; 관리자
-//   only for owners and admins), then one scroll: 대화 (the five latest rooms and the room on screen, "더 보기 (N)" with what is unread behind it) and
+// - its order: the team's name, one labeled row each (트리나에게 묻기, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬; no
+//   관리자 row), then one scroll: 대화 (the five latest rooms and the room on screen, "더 보기 (N)" with what is unread behind it) and
 //   트리나 기록 (the five latest and the chat on screen, "모두 보기" with what needs me behind it);
 // - the rows: their words and where they go, the shortcut hints, the Inbox's count on its row (in words for a screen reader);
 // - both groups fold, remembered in this browser;
 // - "답변 필요" and the new-answer dot come from the chat list itself (Chat.waiting / Chat.unseen), with no request per
 //   chat; the dot stays away from the chat on screen;
+// - the team menu on top (docs/DECISIONS.md "The team menu"): for owners and admins a button that opens the team, its
+//   address, "팀원 초대" and 관리자, by mouse and by keyboard; a member's header is not a button;
 // - the phone's drawer keeps its own layout (the AI's history only);
 // - a chat row's "…": "상단에 고정" / "고정 해제" for every row, rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a
 //   project) and delete for a chat of my own, the move dialog of the chat's title menu; a shared chat never offers the
@@ -19,6 +21,7 @@ import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Sidebar from '../../src/components/Sidebar'
+import { TeamInviteDialog } from '../../src/components/TeamMenu'
 import { useUi } from '../../src/store/ui'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
@@ -156,8 +159,8 @@ describe('a computer', () => {
     }
   })
 
-  test('one labeled row each, in the old order; Admin only for owners and admins; the shortcut hints', async () => {
-    for (const [role, admin] of [['member', false], ['admin', true], ['owner', true]] as const) {
+  test('one labeled row each, in the old order; no Admin row (it is in the team menu); the shortcut hints', async () => {
+    for (const role of ['member', 'admin', 'owner'] as const) {
       useSession.setState({ status: { kind: 'signed-in', me: me(role) } } as never)
       const m = await render()
       try {
@@ -168,8 +171,9 @@ describe('a computer', () => {
         expect(m.get('nav-search').textContent?.trim()).toStartWith(ko('sidebar.search'))
         expect(m.get('nav-search').querySelector('kbd')?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/)
         const links = rows.querySelectorAll('a')
-        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects', '/scheduled', '/settings/notifications', '/files', '/skills', ...(admin ? ['/admin'] : [])])
-        expect(links.map((a) => a.textContent?.trim())).toEqual([ko('sidebar.projects'), ko('sidebar.scheduled'), ko('inbox.title'), ko('sidebar.files'), ko('sidebar.skills'), ...(admin ? [ko('sidebar.admin')] : [])])
+        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects', '/scheduled', '/settings/notifications', '/files', '/skills'])
+        expect(links.map((a) => a.textContent?.trim())).toEqual([ko('sidebar.projects'), ko('sidebar.scheduled'), ko('inbox.title'), ko('sidebar.files'), ko('sidebar.skills')])
+        expect(m.find('nav-admin')).toBeNull()
         // no icon row and no tooltips any more: each row says its name
         expect(m.find('nav-icons')).toBeNull()
         expect(m.find('nav-tip')).toBeNull()
@@ -495,24 +499,24 @@ describe('the phone drawer keeps its own layout', () => {
 })
 
 describe('the team logo in the header (Admin › Team settings › 팀 로고)', () => {
-  const withIcon = (iconVersion: string | null) => {
-    const m0 = me('member')
+  const withIcon = (iconVersion: string | null, role: 'owner' | 'member' = 'member') => {
+    const m0 = me(role)
     useSession.setState({ status: { kind: 'signed-in', me: { ...m0, team: { ...m0.team, iconVersion } } } } as never)
   }
-  const shown = (m: Awaited<ReturnType<typeof render>>) => m.get('sidebar-logo').className
-  test('a logo: at its version next to the team name (md and up); the product mark below md, where the header names the AI', async () => {
-    withIcon('0123456789abcdef')
-    const m = await render()
-    try {
-      expect(m.get('sidebar-logo').getAttribute('src')).toBe('/team-icon?v=0123456789abcdef')
-      expect(shown(m)).toContain('max-md:hidden')
-      expect(m.get('sidebar-logo-phone').getAttribute('src')).toBe('/favicon.svg')
-      expect(m.get('sidebar-logo-phone').className).toContain('md:hidden')
-      expect(m.get('sidebar-logo-phone').className).not.toContain('max-md:hidden')
-    } finally {
-      await m.unmount()
-    }
-  })
+  for (const role of ['member', 'owner'] as const) {
+    test(`a computer (${role}): the logo at its version, 28 px, next to the team name; the phone's product mark is not there`, async () => {
+      withIcon('0123456789abcdef', role)
+      const m = await render()
+      try {
+        expect(m.get('sidebar-logo').getAttribute('src')).toBe('/team-icon?v=0123456789abcdef')
+        expect(m.get('sidebar-logo').className).toContain('size-7')
+        expect(m.get('sidebar-logo').className).toContain('object-cover')
+        expect(m.find('sidebar-logo-phone')).toBeNull()
+      } finally {
+        await m.unmount()
+      }
+    })
+  }
   test('a new version is a new address, so it shows without a reload', async () => {
     withIcon('fedcba9876543210')
     const m = await render()
@@ -522,20 +526,161 @@ describe('the team logo in the header (Admin › Team settings › 팀 로고)',
       await m.unmount()
     }
   })
-  for (const phone of [false, true]) {
-    test(`${phone ? 'the phone drawer' : 'a computer'}: no logo, the product mark at every width`, async () => {
-      wide = !phone
-      withIcon(null)
+  test('a computer without a logo: the product mark', async () => {
+    withIcon(null)
+    const m = await render()
+    try {
+      expect(m.get('sidebar-logo').getAttribute('src')).toBe('/favicon.svg')
+    } finally {
+      await m.unmount()
+    }
+  })
+  for (const icon of ['0123456789abcdef', null]) {
+    test(`the phone drawer (${icon ? 'a logo' : 'no logo'}): the product mark next to the AI's name, no team logo or name`, async () => {
+      wide = false
+      withIcon(icon, 'owner')
       const m = await render()
       try {
-        expect(m.get('sidebar-logo').getAttribute('src')).toBe('/favicon.svg')
-        expect(shown(m)).not.toContain('hidden')
-        expect(m.find('sidebar-logo-phone')).toBeNull()
+        expect(m.get('sidebar-logo-phone').getAttribute('src')).toBe('/favicon.svg')
+        expect(m.get('sidebar-logo-phone').parentElement?.textContent).toBe(aiName)
+        expect(m.find('sidebar-logo')).toBeNull()
+        expect(m.find('sidebar-team')).toBeNull()
+        expect(m.find('team-menu')).toBeNull()
       } finally {
         await m.unmount()
       }
     })
   }
+})
+
+describe('the team menu on top', () => {
+  const as = (role: 'owner' | 'admin' | 'member', address?: string) => {
+    const m0 = me(role)
+    useSession.setState({ status: { kind: 'signed-in', me: { ...m0, team: { ...m0.team, ...(address ? { address } : {}) } } } } as never)
+  }
+  const key = (el: FakeElement, k: string) => act(async () => { el.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: k })) })
+  let path = ''
+  const Where = () => { path = useLocation().pathname; return null }
+  const renderWithDialog = () => mount(<MemoryRouter initialEntries={['/files']}><Sidebar /><TeamInviteDialog /><Where /></MemoryRouter>)
+
+  test('a member: the team\'s logo and name, 16 px semibold, not a button (no menu, no ▾)', async () => {
+    as('member', 'https://acme.trina.app')
+    const m = await render()
+    try {
+      expect(m.get('team-header').tagName).toBe('DIV')
+      expect(m.get('sidebar-team').textContent).toBe('에이크미 마케팅본부')
+      expect(m.get('sidebar-team').className).toContain('text-base')
+      expect(m.get('sidebar-team').className).toContain('font-semibold')
+      expect(m.get('sidebar-team').className).toContain('truncate')
+      expect(m.find('team-menu')).toBeNull()
+      expect(m.get('team-header').querySelector('button, a, svg')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  for (const role of ['owner', 'admin'] as const) {
+    test(`${role}: a button with ▾ opens the menu: the team with its address, then 팀원 초대 and 관리자, nothing personal`, async () => {
+      as(role, 'https://acme.trina.app')
+      const m = await renderWithDialog()
+      try {
+        const button = m.get('team-menu')
+        expect(button.tagName).toBe('BUTTON')
+        expect(button.getAttribute('aria-haspopup')).toBe('menu')
+        expect(button.getAttribute('aria-expanded')).toBe('false')
+        expect(button.textContent).toBe('에이크미 마케팅본부')
+        expect(button.querySelector('svg')).not.toBeNull()
+        expect(m.find('team-dropdown')).toBeNull()
+        await m.click(button)
+        const menu = m.get('team-dropdown')
+        expect(button.getAttribute('aria-expanded')).toBe('true')
+        expect(menu.getAttribute('role')).toBe('menu')
+        expect(menu.getAttribute('aria-label')).toBe('에이크미 마케팅본부')
+        expect(m.get('team-menu-name').textContent).toBe('에이크미 마케팅본부')
+        expect(m.get('team-menu-address').textContent).toBe('acme.trina.app')
+        const items = menu.querySelectorAll('[role="menuitem"]')
+        expect(items.map((x) => [x.getAttribute('data-testid'), x.textContent?.trim()])).toEqual([['team-menu-invite', ko('teamMenu.invite')], ['team-menu-admin', ko('sidebar.admin')]])
+        expect(document.activeElement).toBe(items[0] as never)
+        // the person's own things stay in the profile menu at the bottom
+        for (const id of ['account-settings', 'logout', 'account-away', 'account-trash']) expect(menu.querySelector(`[data-testid="${id}"]`)).toBeNull()
+        // 관리자 opens Admin and closes the menu
+        await m.click('team-menu-admin')
+        expect(path).toBe('/admin')
+        expect(m.find('team-dropdown')).toBeNull()
+      } finally {
+        await m.unmount()
+      }
+    })
+  }
+
+  test('no team address known: the menu names the team only', async () => {
+    as('owner')
+    const m = await render()
+    try {
+      await m.click('team-menu')
+      expect(m.get('team-menu-name').textContent).toBe('에이크미 마케팅본부')
+      expect(m.find('team-menu-address')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('the keyboard: the first item has focus, arrows wrap, Home and End; Esc closes it only and gives the keyboard back', async () => {
+    as('owner')
+    const closed: boolean[] = []
+    const onKey = (e: { key?: string }) => { if (e.key === 'Escape') closed.push(true) }
+    window.addEventListener('keydown', onKey as never)
+    const m = await render()
+    try {
+      const button = m.get('team-menu')
+      await m.click(button)
+      const [invite, admin] = [m.get('team-menu-invite'), m.get('team-menu-admin')]
+      expect(document.activeElement).toBe(invite as never)
+      await key(invite, 'ArrowDown')
+      expect(document.activeElement).toBe(admin as never)
+      await key(admin, 'ArrowDown')
+      expect(document.activeElement).toBe(invite as never)
+      await key(invite, 'ArrowUp')
+      expect(document.activeElement).toBe(admin as never)
+      await key(admin, 'Home')
+      expect(document.activeElement).toBe(invite as never)
+      await key(invite, 'End')
+      expect(document.activeElement).toBe(admin as never)
+      await key(admin, 'Escape')
+      expect(m.find('team-dropdown')).toBeNull()
+      expect(document.activeElement).toBe(button as never)
+      expect(button.getAttribute('aria-expanded')).toBe('false')
+      expect(closed).toEqual([])
+      // Tab closes it too, and the keyboard moves on from the button as usual
+      await m.click(button)
+      await key(m.get('team-menu-invite'), 'Tab')
+      expect(m.find('team-dropdown')).toBeNull()
+    } finally {
+      window.removeEventListener('keydown', onKey as never)
+      await m.unmount()
+    }
+  })
+
+  test('팀원 초대 opens the invite dialog (the team link\'s message), titled 팀원 초대; closing it gives the keyboard back to the team button', async () => {
+    as('admin')
+    const m = await renderWithDialog()
+    try {
+      await m.click('team-menu')
+      await m.click('team-menu-invite')
+      expect(m.find('team-dropdown')).toBeNull()
+      await m.until(() => m.find('invite-step'), 'the invite step')
+      const dialog = document.body.querySelector('[role="dialog"]')!
+      expect(dialog.querySelector('h2')?.textContent).toBe(ko('teamMenu.invite'))
+      // one heading: the dialog's own (InviteStep's title is left out)
+      expect(dialog.querySelectorAll('h2').length).toBe(1)
+      expect(path).toBe('/files')
+      await m.click('invite-step-done')
+      expect(m.find('invite-step')).toBeNull()
+      expect(document.activeElement).toBe(m.get('team-menu') as never)
+    } finally {
+      await m.unmount()
+    }
+  })
 })
 
 describe('a chat row\'s "…"', () => {

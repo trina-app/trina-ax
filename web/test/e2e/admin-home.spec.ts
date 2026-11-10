@@ -31,7 +31,8 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   // a team service still waiting for its sign-in
   const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', access: { everyone: true, groups: [], users: [] } } })
   expect(made.status()).toBe(201)
-  await page.getByRole('link', { name: t['sidebar.admin'], exact: true }).click()
+  await page.getByTestId('team-menu').click()
+  await page.getByRole('menuitem', { name: t['sidebar.admin'], exact: true }).click()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByRole('heading', { level: 1, name: t['admin.title'] })).toBeVisible()
 

@@ -15,6 +15,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 ||||||| 6dcc7b83
 - Room header ✦ button: the label and tooltip read "Ask Trina" now, without "privately" (also in Korean, Spanish, Indonesian and Japanese). The side chat itself is unchanged.
 - Admin › Usage tells removed AI connections apart. With two or more removed, the AI connection filter and the chart showed "Removed connection" for each; they are now "Removed connection 1", "Removed connection 2" (five languages). One removed connection keeps the plain name.
+- The team's name and logo on top of the computer's sidebar are now the team menu: a bigger logo (28 px) and name with ▾ that open the team with its address, **Invite people** (the team invite link's message, as on Home) and **Admin**, for owners and admins. The **Admin** row is gone from the sidebar list, ⌘K finds Admin and Invite people, and the profile menu at the bottom stays yours alone. A member sees the team's name and logo without a menu. Phones keep the AI's drawer, with Admin on the 나 tab. No API or data change.
 ||||||| 2d3300ab
 - Admin › Activity log names the AI's chat naming in words: "AI used Name the chat" (five languages) instead of "AI used set_title". The step stays hidden under the answer.
 ||||||| 2d3300ab

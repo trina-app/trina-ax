@@ -4476,4 +4476,6 @@ export const en: Record<MessageKey, string> = {
   "viewer.inGroup": "in {room}",
   "viewer.inDm": "in your direct messages with {name}",
   "viewer.gone": "This file is no longer available: its message was deleted.",
+  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  "teamMenu.invite": "Invite people",
 }
