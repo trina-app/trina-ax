@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 02:01
 - Branch: `feat/shared-chat-uploads`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/uploads/`, `server/src/team-files/`, `shared/src/`, `web/src/components/chat/`).
   Why: chat, files and permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A refusal becomes a feature and one endpoint is added; no migration, no data change.
@@ -72,4 +72,11 @@ Docker (the line, the refusal gone); the project and shared-chat e2e specs.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Beyond the plan: the chip shows the name the file got in the folder ("견적 (2).pdf"); the reference
+takes the upload's checked hash for the placed inode (a large file is not read again); a chunked upload is refused at
+its start for the reference limits and the download-only list too. The independent review found no must-fix; its
+should-fix items are in: ✕ leaves a file another reference points to, a chip taken out while its file was still being
+placed is taken out by the session's cancel (or by the server for a dropped small upload), no second read of the file.
+Left: someone who only reads the project folder is still offered "내 컴퓨터에서 올리기" and gets the refusal. The
+send guard's refusal (an upload of the person's own folder from before the chat was shared) has new words. PR: see the
+next commit.
