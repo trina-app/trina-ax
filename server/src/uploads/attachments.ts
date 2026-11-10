@@ -66,7 +66,7 @@ export class Attachments {
 
   /** The place of a shared chat's upload and what refuses it before anything is written. */
   private sharedChecks(userId: string, chat: ChatRow, sha256?: string) {
-    const place = sharedUploadPlace(this.ctx, this.files, userId, chat)
+    const place = sharedUploadPlace(this.ctx.db, this.files, userId, chat)
     // the safety check's download-only list: such bytes are never a team file the AI could be handed
     if (sha256 && this.ctx.files.quarantine.hasHash(sha256)) throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
     if (!this.refs) throw new HttpError('unavailable')
