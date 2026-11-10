@@ -192,6 +192,16 @@ describe('a turn that cannot carry them all', () => {
     expect(back.every((x) => x.echo === 1)).toBe(true)
   })
 
+  test('find_tools only reads; call_tool reads when the one tool it names does (TurnTool.readOnly)', () => {
+    const a = turn('alice')
+    const reads = (name: string, args: unknown = {}) => { const r = a.tools.get(name)!.readOnly; return typeof r === 'function' ? r(args) : r }
+    expect(reads(FIND_TOOLS)).toBe(true)
+    expect(reads(CALL_TOOL, { name: `my_studio__${TOOL_150}`, arguments: { video_url: 'x' } })).toBe(true)
+    expect(reads(CALL_TOOL, { name: TOOL_150 })).toBe(true)
+    expect(reads(CALL_TOOL, { name: `my_studio__${TOOL_151}` })).toBe(false)
+    for (const args of [{ name: 'my_studio__no_such_tool' }, {}, null]) expect(reads(CALL_TOOL, args)).toBe(false)
+  })
+
   test('a write through call_tool asks on the card like the tool itself; no means nothing is sent; a scheduled run is refused', async () => {
     const no: Asked = { answer: false, questions: [] }
     const before = fake.calls.length
