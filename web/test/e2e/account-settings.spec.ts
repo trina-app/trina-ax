@@ -44,8 +44,11 @@ test('the account menu opens above the profile line, moves with the keyboard, an
   expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThanOrEqual((await button.boundingBox())!.y + 1)
   await expect(page.getByTestId('account-who')).toHaveText(/\S/)
   // first, as in Slack: set yourself away (docs/DECISIONS.md "접속 상태")
-  await expect(menu.getByRole('menuitem')).toHaveText([t['presence.setAway'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
+  // then my status message (docs/DECISIONS.md "상태 메시지"): "Set your status" while I have none
+  await expect(menu.getByRole('menuitem')).toHaveText([t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
   await expect(menu.getByRole('menuitem', { name: t['presence.setAway'] })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: t['status.set'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['sidebar.settings'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
