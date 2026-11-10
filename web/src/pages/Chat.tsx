@@ -422,7 +422,7 @@ function ChatView({ chatId }: { chatId: string }) {
             phoneFooter={shared ? t('chat.sharedSeen', { n: shared.audience }) : undefined}
             hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
-            teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
+            sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
             projectId={chat?.projectId ?? null}
             autoFocus
           />

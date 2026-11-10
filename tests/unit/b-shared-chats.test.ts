@@ -6,7 +6,8 @@
 // delete, the read card (yes / no / timeout) for files, the person's own folder, searches, skills, "/name",
 // attachments and sub-agents, the tool and prompt allowlists, resume only by the same person, the engine folder
 // cleared when the person changes (and failing closed), another person's stash reset, per-viewer steps and file
-// summaries, the rollback guard, safe operations, the URL gate, export and the account purge.
+// summaries, the rollback guard, safe operations, the URL gate, export and the account purge. A file from the computer
+// there: tests/unit/b-shared-chat-uploads.test.ts.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -232,7 +233,7 @@ describe("each turn is its sender's", () => {
     expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).title).toBe('Renamed')
   })
 
-  test('safe operations make shared chats read-only; a computer upload is refused; a confidential workflow is refused there', async () => {
+  test('safe operations make shared chats read-only; a computer upload goes into the project folder; a confidential workflow is refused there', async () => {
     const chat = await newShared()
     const first = await ask('alice', chat.id, 'q\n' + fake({ say: 'a' }))
     process.env.MYCEL_SAFE_OPS_1A = '1'
@@ -246,9 +247,10 @@ describe("each turn is its sender's", () => {
     const form = new FormData()
     form.set('chatId', chat.id)
     form.set('file', new File(['hello'], 'note.txt', { type: 'text/plain' }))
+    // (the whole of it: tests/unit/b-shared-chat-uploads.test.ts)
     const res = await h.req('alice', '/api/uploads', { method: 'POST', body: form })
-    expect(res.status).toBe(409)
-    expect(((await res.json()) as { error: { params?: { reason?: string } } }).error.params?.reason).toBe('shared_chat_upload')
+    expect(res.status).toBe(201)
+    expect((await res.json()) as { path: string; source?: string }).toMatchObject({ path: 'projects/falcon/Chat attachments/note.txt', source: 'team' })
     expect(() => markConfidentialTurn(db(), first.started.turnId)).toThrow(/shared project chat/)
   })
 })

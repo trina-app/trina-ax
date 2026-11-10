@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { act } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { ROOM_FILES_MAX, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
+import Composer from '../../src/components/chat/Composer'
 import { FileDropZone, useDropTarget } from '../../src/components/FileDropZone'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
 import { translate, useLocaleStore } from '../../src/i18n'
@@ -20,6 +21,7 @@ import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
+import { CHAT } from './fixtures'
 import { at, BEN, ME, message, room } from './rooms-fixtures'
 
 const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
@@ -237,6 +239,38 @@ describe('a column that takes files', () => {
       expect([inner.length, outer.length]).toEqual([1, 0])
       expect(overlays(m)).toHaveLength(0)
     } finally { await m.unmount() }
+  })
+})
+
+describe('the AI chat box in its page\'s column', () => {
+  test('a file dropped on the page goes into the box; someone who may not write a shared chat\'s project folder is told why and nothing goes', async () => {
+    for (const allowed of [true, false]) {
+      const m = await mount(
+        <FileDropZone data-testid="page">
+          <p data-testid="answer">an answer</p>
+          <Composer draftId={`project:drop-${allowed}-${crypto.randomUUID()}`} ensureChat={async () => CHAT} running={false} onSend={async () => {}} onStop={async () => {}}
+            engine={{ engine: undefined, model: undefined }} sharedUploads={{ audience: 3, allowed }} />
+        </FileDropZone>,
+      )
+      try {
+        const dt = filesDrag()
+        await fire(m.get('answer'), 'dragenter', dt)
+        expect(overlayText(m)).toBe(allowed ? ko('drop.here') : ko('drop.noComputer'))
+        // over the box too: the column's overlay, not the box's own highlight
+        await fire(m.get('composer-input'), 'dragenter', dt)
+        await fire(m.get('answer'), 'dragleave', dt, m.get('composer-input'))
+        await fire(m.get('composer-input'), 'dragover', dt)
+        expect(overlays(m)).toHaveLength(1)
+        expect(m.get('composer').getAttribute('class')).not.toContain('ring-accent')
+        expect(dt.dropEffect).toBe(allowed ? 'copy' : 'none')
+        if (!allowed) {
+          const drop = await fire(m.get('composer-input'), 'drop', dt)
+          expect(drop.defaultPrevented).toBe(true)
+          await m.settle(30)
+          expect(m.find('attachment-chip')).toBeNull()
+        }
+      } finally { await m.unmount() }
+    }
   })
 })
 

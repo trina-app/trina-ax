@@ -26,7 +26,7 @@ In:
   app's existing drop look (`bg-accent-soft/70`, dashed `accent/55`, as the skills sheets).
 - The room column, the thread panel and the ✦ side chat are each a zone; the nearest one wins.
 - Same rules as the box: count (`ROOM_FILES_MAX`, `MESSAGE_ATTACHMENTS_MAX`), size (checked on drop by the box, as
-  today), a shared chat's team-files-only rule, and no box at all (a thread that takes no reply, a chat in the trash, a
+  today), a shared chat whose project folder the person may not write (no files from the computer), and no box at all (a thread that takes no reply, a chat in the trash, a
   read-only shared chat). Where the box would refuse everything, the overlay says why and the drop does nothing.
 - The full AI chat page (`pages/Chat.tsx`) took drops on its box only: its column becomes a zone too. Team files
   dragged from the file screen still go on the box only.
@@ -72,6 +72,10 @@ Differs from the plan:
 - Review found that Chromium carries a picture dragged from the page as "Files". Drags that start on the page are noted
   (dragstart to dragend, or the next pointer event) and never taken as files from the computer. A pointer event also
   ends the overlay, for a drag that left the window after a leave was lost.
+
+Dev's #301 (a shared chat saves a computer file in the project folder; someone who may not write it gets team files
+only) was merged in: that box refuses computer files through the same refusal, so the chat page's overlay says why
+("drop.noComputer") and the box alone keeps the not-allowed cursor without a highlight.
 
 Checks: typecheck, check:i18n, check:docs; web unit tests in Docker; e2e `room-drop.spec.ts` plus the room, composer,
 side-chat and paste specs. The full web e2e has 7 failures that fail the same way on dev (HWP pages, an axe contrast

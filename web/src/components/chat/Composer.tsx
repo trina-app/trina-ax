@@ -20,8 +20,9 @@
 // Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
 // and stays in the chat; a service's key belongs in the connect card the AI shows.
 // A shared project chat (docs/DECISIONS.md "Shared project chats"): nothing waits to be sent while an answer runs
-// (`queueing` off), someone else's turn holds the send with a line above the text (`hold`, the text stays), files come
-// from the team folder only (`teamFilesOnly`: no upload from this computer, and the menu says why), and a phone keeps
+// (`queueing` off), someone else's turn holds the send with a line above the text (`hold`, the text stays), a file from
+// this computer is saved in the project folder and a line under the chips says so (`sharedUploads`; offered only to
+// someone who may write that folder, else team files only: no computer or camera, no pasted or dropped files), and a phone keeps
 // the line about who sees the chat under the box (`phoneFooter`).
 // Text put in the box for the person (a chosen suggestion, 자연스러운 글's request, a recovery draft) is focused with the
 // caret at its end, so what they type or paste next follows it (a caret left at the start put a pasted text before
@@ -43,7 +44,7 @@ import { registerComposer } from '../../lib/teamAttach'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { ComposerFileList, useComposerFiles, useFileDrop } from './ComposerFiles'
+import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton, useMediaQuery } from '../ui'
@@ -81,7 +82,7 @@ export default function Composer({
   skill,
   hold,
   queueing = true,
-  teamFilesOnly,
+  sharedUploads,
   projectId,
   waitsFor,
 }: {
@@ -121,8 +122,10 @@ export default function Composer({
   hold?: string
   /** false: a message typed while an answer runs does not wait to be sent (a shared chat) */
   queueing?: boolean
-  /** files of the team folder only (a shared chat): no upload from this computer, and this says why */
-  teamFilesOnly?: string
+  /** a shared project chat: a file from this computer is saved in its project folder (the server's doing), and a line
+   * under the chips says so and how many people see it there (`audience`). `allowed` false: the person may not write
+   * that folder (Project.chatUploads, Chat.shared.canUpload), so files come from the team folder only */
+  sharedUploads?: { audience: number; allowed?: boolean }
   /** the chat's project: its own skills are in the "/" menu (docs/DECISIONS.md "Project skills") */
   projectId?: string | null
   /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
@@ -153,10 +156,12 @@ export default function Composer({
   const tokens = roomMenu.ranges.length > 0
   const [scrollTop, setScrollTop] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // files from this computer: everywhere but a shared chat whose project folder the person may not write
+  const computer = sharedUploads?.allowed !== false
   // the chips live outside the component too (components/chat/ComposerFiles.tsx, lib/teamAttach stash): leaving the
   // page and coming back, or adding files one at a time from the file screen, keeps what was attached for this draft
   // until it is sent or removed
-  const { files, live, uploading, ready, attachments, addFiles, addTeamFiles, removeFile, clearSent, onPaste, onPicked } = useComposerFiles({ userId, draftId, ensureChat, onError: setError, teamFilesOnly })
+  const { files, live, uploading, ready, attachments, addFiles, addTeamFiles, removeFile, clearSent, onPaste, onPicked } = useComposerFiles({ userId, draftId, ensureChat, onError: setError, computer })
   // a shared chat: when someone else's turn starts or ends, the line above the text says so; a refusal shown before
   // ("○○님의 질문에 답하는 중이에요") would only repeat it or go stale
   useEffect(() => { setError(null) }, [hold])
@@ -165,10 +170,13 @@ export default function Composer({
   const secret = useSecretHold(text)
   const [stopping, setStopping] = useState(false)
   // files from this computer dropped anywhere on the chat's page (pages/Chat.tsx: FileDropZone) come here, with the box's
-  // own checks: a shared chat takes none, a full box no more. Outside such a page (Home) the box takes them on itself.
+  // own checks: none for someone who may not write a shared chat's project folder, no more in a full box. Outside such a
+  // page (Home) the box takes them on itself, and refuses them in the same case (the not-allowed cursor, no highlight).
   // A team file dragged from the file screen, a preview or a message goes on the box only.
-  const inZone = useDropTarget({ files: (all) => void addFiles(all), refusal: () => teamFilesOnly ?? (live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) })
-  const { drag, dropProps } = useFileDrop({ files: inZone ? undefined : (all) => void addFiles(all), teamPath: (path) => void addTeamFiles([{ path }]) })
+  const noComputer = computer ? null : t('drop.noComputer')
+  const inZone = useDropTarget({ files: (all) => void addFiles(all), refusal: () => noComputer ?? (live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) })
+  const { drag: dragOver, refusal: dropRefused, dropProps } = useFileDrop({ files: inZone ? undefined : (all) => void addFiles(all), teamPath: (path) => void addTeamFiles([{ path }]), refusal: (kind) => (kind === 'files' ? noComputer : null) })
+  const drag = dragOver && !dropRefused
   const [engineMenu, setEngineMenu] = useState(false)
   const [attachMenu, setAttachMenu] = useState(false)
   const [picker, setPicker] = useState(false)
@@ -379,8 +387,8 @@ export default function Composer({
               } else if (e.key === 'Tab') setAttachMenu(false)
             }}
           >
-            {/* a shared chat: the team folder only (the note under the menu says why) */}
-            {!teamFilesOnly && (
+            {/* a shared chat whose project folder the person may not write: the team folder only */}
+            {computer && (
             <>
             <button
               type="button"
@@ -421,17 +429,11 @@ export default function Composer({
                 setAttachMenu(false)
                 setPicker(true)
               }}
-              aria-describedby={teamFilesOnly ? `${answeringId}-team-only` : undefined}
               data-testid="attach-team"
             >
               <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
             </button>
           </div>
-          {teamFilesOnly && (
-            <p id={`${answeringId}-team-only`} className="px-2.5 pt-1 pb-2 text-xs leading-5 break-keep text-faint" data-testid="attach-team-only">
-              {teamFilesOnly}
-            </p>
-          )}
           </div>
         )}
       </div>
@@ -474,6 +476,7 @@ export default function Composer({
         data-testid="composer"
       >
         <ComposerFileList files={files} onRemove={removeFile} className="px-4 pt-3" />
+        {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} className="px-4 pt-2" />}
 
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were

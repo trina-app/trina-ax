@@ -79,7 +79,9 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, CHAT_FILES_FOLDER, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
+import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
+import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
@@ -331,6 +333,9 @@ export class MockServer {
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
+  /** a shared chat's computer uploads saved in the project folder (attachment id -> its path and who uploaded it):
+   * removing the chip before sending moves that file to the trash (DELETE /api/attachments/:id) */
+  savedUploads = new Map<string, { path: string; by: string }>()
   jobs = new Map<string, Job>()
   pendingAsk = new Map<string, (v: unknown) => void>()
   /** open cards by turn (GET /api/chats/:id/requests after a reload) */
@@ -2423,6 +2428,22 @@ export class MockServer {
       this.attachments.set(a.id, a)
       return { status: 201, body: (({ data: _d, ...rest }) => rest)(a) }
     },
+    // a chip taken out before sending (server/src/uploads/team-refs.ts discard): a shared chat's computer upload, never
+    // sent and still where it was saved, goes to the trash; anything else stays
+    discardAttachment: (c) => {
+      const a = this.attachments.get(c.params.id!) ?? fail('not_found', 404)
+      const saved = this.savedUploads.get(a.id)
+      if (saved && saved.by !== c.user.id) fail('not_found', 404)
+      if (this.messages.some((m) => m.attachments?.some((x) => x.id === a.id))) return { trashed: false }
+      this.attachments.delete(a.id)
+      this.savedUploads.delete(a.id)
+      const path = saved?.path
+      const n = path ? this.files.get(path) : undefined
+      if (!path || !n || n.type !== 'file') return { trashed: false }
+      this.files.delete(path)
+      this.trash.push({ id: uuidv7(), originalPath: path, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + this.settings.trashRetentionDays * 86400_000).toISOString(), node: n })
+      return { trashed: true }
+    },
     findFiles: (c) => {
       const q = String(c.query.q ?? '').toLowerCase()
       const base = String(c.query.path ?? '')
@@ -4447,8 +4468,10 @@ export class MockServer {
   // chat of the project I can see. A turn there is a short scripted one of its sender: its deltas, steps, cards and end go
   // to that person's windows only, chat.updated to everyone who sees the chat (each their own view). "readcard" in the
   // message: the read card (읽고 공유하기 / 읽지 않기) for finance/2026/q3.csv before the answer; "hold": the answer waits
-  // until POST /__test/shared-release {chatId?}. The refusals: 409 shared_chat_busy / safe_ops / shared_chat_upload /
-  // shared_chat_move, 403 shared_chat_creator / shared_chat_runner / shared_chat_own_messages / shared_chat_manage.
+  // until POST /__test/shared-release {chatId?}. The refusals: 409 shared_chat_busy / safe_ops / shared_chat_upload (an
+  // upload of the person's own folder) / shared_chat_move, 403 shared_chat_creator / shared_chat_runner /
+  // shared_chat_own_messages / shared_chat_manage / shared_upload_read_only. A file from the computer is saved in the
+  // project folder (saveShared).
   // The trash ("Shared project chats: the trash and live lists"): a shared chat is in its creator's and in the deleter's,
   // while they may restore it; deleting the project moves its shared chats to their creators' trash as chats of theirs
   // (unshared, without project; one whose creator cannot see the project goes for good), and the others hear they are
@@ -4488,10 +4511,17 @@ export class MockServer {
   sharedMayEdit(p: Project, u: User): boolean {
     return p.createdBy?.id === u.id || (u.role !== 'member' && this.access(p.folderPath, u) === 'write')
   }
-  sharedProjectOut(p: Project): Project {
+  /** like server/src/uploads/shared-chat.ts mayUploadShared: the person may write the project's chat attachments folder
+   * (and safe operations are off) */
+  sharedMayUpload(p: Project, u: User): boolean {
+    return !this.allConfidential && this.access(`${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`, u) === 'write'
+  }
+  sharedProjectOut(p: Project, viewer?: User): Project {
     const personal = p.folderPath.startsWith('users/')
-    return { ...p, shareChats: !personal && this.sharedProjects.has(p.id), audience: this.sharedAudience(p).length,
-      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length }
+    const shareChats = !personal && this.sharedProjects.has(p.id)
+    return { ...p, shareChats, audience: this.sharedAudience(p).length,
+      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length,
+      ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer) } : {}) }
   }
   /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
   sharedView(chat: Chat, viewer: User): Chat | null {
@@ -4511,6 +4541,7 @@ export class MockServer {
         answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
         mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
         canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
+        canUpload: this.sharedMayUpload(p, viewer),
       },
     }
   }
@@ -4594,8 +4625,8 @@ export class MockServer {
       return Response.json({ ok: true })
     }
 
-    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p)) }))
-    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project))
+    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p, c.user)) }))
+    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project, c.user))
     over('updateProject', (c, base) => {
       const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const { shareChats, ...rest } = c.body as { shareChats?: boolean }
@@ -4606,7 +4637,7 @@ export class MockServer {
         if (shareChats) this.sharedProjects.add(p.id)
         else this.sharedProjects.delete(p.id)
       }
-      return this.sharedProjectOut(base({ ...c, body: rest }) as Project)
+      return this.sharedProjectOut(base({ ...c, body: rest }) as Project, c.user)
     })
     // its shared chats go to their creators' trash, as chats of theirs without project (one whose creator cannot see
     // the project goes for good); everyone else who saw one hears it is gone
@@ -4711,15 +4742,53 @@ export class MockServer {
       if (s && s.runner !== c.user.id) fail('forbidden', 403, '질문한 사람만 이 카드에 답할 수 있어요.')
       return base(c)
     })
-    // a shared chat takes team files only
-    over('uploadAttachment', (c, base) => {
-      if (shared((c.body as { chatId?: string }).chatId)) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
-      return base(c)
+    // a shared chat: a file from the computer is saved in the project folder and attached as a team file, like
+    // server/src/uploads/shared-chat.ts: <project folder>/채팅 첨부/ (in the team's language), a taken name or an
+    // instruction file's name gets " (2)"; 403 shared_upload_read_only without write access there, 409 safe_ops while
+    // safe operations are on
+    const uploadFolder = (chatId: string, u: User) => {
+      const p = project(shared(chatId)!) ?? fail('not_found', 404)
+      view(chatOf(chatId), u)
+      if (this.allConfidential) fail('conflict', 409, CHAT_TEXT.sharedChatSafeOps.ko, undefined, { reason: 'safe_ops' })
+      const folder = `${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`
+      if (this.access(folder, u) !== 'write') fail('forbidden', 403, FILE_MSG.sharedUploadReadOnly.ko, undefined, { reason: 'shared_upload_read_only' })
+      return folder
+    }
+    const saveShared = (chatId: string, name: string, data: Uint8Array, u: User) => {
+      const folder = uploadFolder(chatId, u)
+      if (!this.files.has(folder)) this.files.set(folder, { type: 'folder', mtime: now() })
+      const want = `${folder}/${name}`
+      const path = this.files.has(want) || /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(name) ? this.freePath(want) : want
+      this.putFile(path, data)
+      const mime = mimeOf(path) ?? 'application/octet-stream'
+      const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name: path.slice(path.lastIndexOf('/') + 1), path, size: data.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'other', source: 'team',
+        sha256: new Bun.CryptoHasher('sha256').update(data).digest('hex'), data }
+      this.attachments.set(a.id, a)
+      this.savedUploads.set(a.id, { path, by: u.id })
+      const { data: _d, ...out } = a
+      return out
+    }
+    over('uploadAttachment', async (c, base) => {
+      const chatId = (c.body as { chatId?: string }).chatId
+      if (!shared(chatId)) return base(c)
+      const data = new Uint8Array(await c.file!.arrayBuffer())
+      await this.uploadAnswer()
+      return { status: 201, body: saveShared(chatId!, c.body.name ?? c.file!.name, data, c.user) }
     })
     over('createUploadSession', (c, base) => {
       const target = c.body.target as { kind: string; chatId?: string }
-      if (target.kind === 'attachment' && shared(target.chatId)) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      if (target.kind === 'attachment' && shared(target.chatId)) uploadFolder(target.chatId!, c.user)
       return base(c)
+    })
+    over('completeUploadSession', async (c, base) => {
+      const s = this.uploads.get(c.params.id!)
+      if (!s || s.target.kind !== 'attachment' || !shared(s.target.chatId)) return base(c)
+      const out = await base(c) as { kind: 'attachment'; attachment: Attachment }
+      // the base kept it as an upload of the person's own folder: it goes to the project folder instead
+      const a = this.attachments.get(out.attachment.id)!
+      this.attachments.delete(a.id)
+      this.files.delete(a.path)
+      return { kind: 'attachment', attachment: saveShared(s.target.chatId, s.target.name, a.data, c.user) }
     })
 
     /** one turn at a time: someone else's (409 shared_chat_busy, naming them) or my own */
@@ -4733,7 +4802,7 @@ export class MockServer {
     }
     const teamOnly = (ids: string[]) => {
       const atts = ids.map((id) => this.attachments.get(id)).filter((a): a is NonNullable<typeof a> => !!a)
-      if (atts.some((a) => a.source !== 'team')) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      if (atts.some((a) => a.source !== 'team')) fail('conflict', 409, CHAT_TEXT.sharedChatUpload.ko, undefined, { reason: 'shared_chat_upload' })
       return atts.map(({ data: _d, ...rest }) => rest)
     }
     const ownOnly = (m: Message | undefined, u: User) => {
