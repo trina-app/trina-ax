@@ -104,7 +104,8 @@ Built as planned in one PR: https://github.com/trina-app/trina-ax/pull/284 (migr
   is refused; a listed folder keeps its rule fingerprint and a change lapses the permission.
 - Third review (before merge): what a pinned send says is checked for addresses, host names and random-looking parts;
   the cap counts the file layer's creates (conflict copies); an own-folder file an AI wrote after the yes is not "my
-  folder"; new files in the own folder go on in a run after a room read (until #275 lands); the cover is checked again
-  right before a produced file is placed.
+  folder" (by #275's outside_content mark once #275 landed); new files in the own folder go on in a run after a room
+  read (#275's ownFolderTarget); the cover is checked again right before a produced file is placed; the save folder's
+  identity adds its birth time (Linux CI reused a deleted folder's inode).
 - Known low risks left: two identical calls at the same time share one claim; look-alike letters in pins are not
   marked; an "allow" team connection's content is not checked for addresses (a follow-up).

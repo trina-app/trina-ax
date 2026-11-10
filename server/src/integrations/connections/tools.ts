@@ -222,7 +222,10 @@ function hostNamesIn(v: unknown, depth = 0): boolean {
   if (depth > 32) return true
   if (typeof v === 'string') {
     for (const m of v.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').matchAll(/[\p{L}\p{N}_-]+(?:[.\u3002\uFF0E\uFF61][\p{L}\p{N}_-]+)+/gu)) {
-      const p = parseHost(m[0].replace(/[\u3002\uFF0E\uFF61]/g, '.'))
+      const host = m[0].replace(/[\u3002\uFF0E\uFF61]/g, '.')
+      // a dotted IPv4 address with nothing after it ("send to 203.0.113.9") is a host too
+      if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return true
+      const p = parseHost(host)
       if (p.domain && p.isIcann) return true
     }
     return false

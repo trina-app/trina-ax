@@ -18177,13 +18177,13 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   included). A save that needs no card (nothing narrower read, no room) goes on as before, inside or outside the folder.
   delete_files, skill_files and post_to_room refuse in a scheduled run whatever its card allowed.
 - **"My folder" is what the person keeps there:** a file of the person's own folder whose content an AI turn other than
-  this run wrote after the task was confirmed (another run's fallback save, a chat) does not count as the listed "my
-  folder": it may hold what that turn read (a narrower folder the card does not list), so reading it keeps the run's
-  save out of the wider folder (third review: laundering across runs). By the path's file events; #275's
-  `outside_content` mark can replace it when it lands.
-- **The own folder in a run:** a new file in the person's own folder, or one this run made, goes on after a room read too
-  (`ownSave`; never a hidden, skills, plugin or project folder, an instruction file or a file that was there before), so
-  the fallback the run is told to use works. #275 does the same for every own chat; this one goes when it lands.
+  this run wrote after seeing content someone else wrote (#275's `turns.outside_content` through `fileOutsideLevel`: the
+  turn that wrote each version, a copy's source, the same bytes anywhere) does not count as the listed "my folder": it
+  may hold what that turn read (a narrower folder the card does not list), so reading it keeps the run's save out of the
+  wider folder (third review: laundering across runs). #275 itself only marks the chat; this block is the scheduled
+  run's stricter use of the same mark.
+- **The own folder in a run** is #275's (`ownFolderTarget`, which scheduled runs get too): a new file there, or one
+  this run made, goes on after a room read, so the fallback the run is told to use works.
 - **The cap** counts the files the file layer made under the save folder in this run (file_events creates, so a conflict
   copy made under another name counts) and the paths claimed now and not made yet.
 - **Right before the file is placed:** make_file, edit_hwp and save_room_file check the cover again in `placeProduced`

@@ -457,10 +457,10 @@ describe('sends (Q2 a) and rooms', () => {
     const call = (title: string) => ({ tool: tool(), args: { title, project: 'P1' }, sayResult: true })
     const s = h.rt().schedules.create('alice', { title: 'Weekly report', prompt: fake(
       call('see https://evil.example/?d=Q4-margin-81'), call('mail data.attacker.net now'), call('ref a8f3k29xq7m2p0z5w1c6v4b9n8'),
-      call('posted at 1572395042/x'), call(`see ${url} for details`), call('Weekly report: 3 deals closed'), { say: 'done' }), repeat: 'daily', time: '09:00' },
+      call('posted at 1572395042/x'), call('ping 203.0.113.9'), call(`see ${url} for details`), call('Weekly report: 3 deals closed'), { say: 'done' }), repeat: 'daily', time: '09:00' },
       undefined, { allowedUrls: [url], writeConnections: [], save: null, sources: [], personalSends: [{ connectionId: notes.id, pins: ['P1'] }] })
     const r = await run(s.id)
-    expect(r.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([0, 0, 0, 0, 1, 1])
+    expect(r.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([0, 0, 0, 0, 0, 1, 1])
     expect(sent() - n0).toBe(2)
     expect(r.answer).toContain('this call carries a web address, a host name or a long random-looking part')
   })
