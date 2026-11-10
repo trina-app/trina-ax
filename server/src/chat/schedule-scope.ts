@@ -171,7 +171,7 @@ export function sourceForAi(db: Database, s: ScopeSource, userId: string): strin
 /** Recipients as the card shows them and as runs compare them: one line each, no duplicates, at most MAX_PINS. */
 export function cleanPins(pins: readonly string[]): string[] {
   // no invisible or direction-changing characters: a pin on the card reads as what is compared
-  return [...new Set(pins.map((p) => oneLine(p.replace(/[\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, ''), 500)).filter(Boolean))].slice(0, MAX_PINS)
+  return [...new Set(pins.map((p) => oneLine(p.replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, ''), 500)).filter(Boolean))].slice(0, MAX_PINS)
 }
 
 /** One recipient value in the form pins are compared in: trimmed, without case, a channel's leading '#', an address's
@@ -224,7 +224,9 @@ export function lapseOf(ctx: AppContext, s: Pick<ScheduleRow, 'user_id' | 'save_
     const segs = save.folder.split('/')
     if (folderId(fx, segs) !== save.folderId) return 'folder'
     if (ruleFingerprint(rules, segs) !== save.rule) return 'rules'
-    const listed = rowSources({ save_sources: s.save_sources ?? null }).filter((x) => (x.type === 'folder' || x.type === 'root') && x.rule)
+    const listed = rowSources({ save_sources: s.save_sources ?? null }).filter((x) => x.type === 'folder' || x.type === 'root')
+    // a listed folder kept without its rules (a row from before they were kept): asked again, never assumed unchanged
+    if (listed.some((x) => !(x as { rule?: string }).rule)) return 'rules'
     if (listed.length) {
       const now = new Map(withRules(ctx.db, rules, listed).map((x) => [scopeKey(x), (x as { rule?: string }).rule]))
       if (listed.some((x) => now.get(scopeKey(x)) !== (x as { rule?: string }).rule)) return 'rules'

@@ -24,7 +24,7 @@ import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import { TEXT } from '../../server/src/tools/schedules'
 import { tr } from '../../server/src/chat/i18n'
-import { lapseOf, pinForm, resolveSaveFolder, ruleFingerprint, type PersonalSend, type ScopeSource } from '../../server/src/chat/schedule-scope'
+import { lapseOf, pinForm, resolveSaveFolder, ruleFingerprint, withRules, type PersonalSend, type ScopeSource } from '../../server/src/chat/schedule-scope'
 import { ScheduleCover, type CoverHost } from '../../server/src/chat/schedule-cover'
 import type { ScheduleRow } from '../../server/src/chat/schedules'
 import type { ConfirmExtra, TurnPerson } from '../../server/src/tools/url-gate'
@@ -56,7 +56,7 @@ const audits = (action: string, target: string) => (db().query('SELECT detail FR
 function task(prompt: string, o: { save?: string | null; sources?: ScopeSource[]; sends?: PersonalSend[]; writeConnections?: string[] } = {}): ScheduleRow {
   const save = o.save === null ? null : resolveSaveFolder(h.ctx, 'alice', o.save ?? SAVE)
   return h.rt().schedules.create('alice', { title: 'Weekly report', prompt, repeat: 'daily', time: '09:00' }, undefined,
-    { allowedUrls: [], writeConnections: o.writeConnections ?? [], save, sources: o.sources ?? [MINE], personalSends: o.sends ?? [] })
+    { allowedUrls: [], writeConnections: o.writeConnections ?? [], save, sources: withRules(db(), h.ctx.files.rules(), o.sources ?? [MINE]), personalSends: o.sends ?? [] })
 }
 type Event = { tool: string; summary: string; ok: number }
 /** "지금 실행" of a task, to the end */
@@ -288,6 +288,8 @@ describe('lapses (Q1 a)', () => {
     clear()
     const s = task(fake(read('users/alice/todo.md'), write(`${SAVE}/l.md`), { echo: 'message' }))
     expect(lapseOf(h.ctx, row(s.id))).toBeNull()
+    const lapsedNotices = async () => ((await h.api('alice').call(API.listNotifications, { query: {} } as never)) as { items: { saveLapsed?: boolean; schedule?: { title: string } }[] }).items.filter((n) => n.saveLapsed)
+    const before = (await lapsedNotices()).length
     const f = db().query("INSERT INTO folders (id, path) VALUES (?, ?) RETURNING id").get(`f_${uuidv7()}`, SAVE) as { id: string }
     db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'write')").run(uuidv7(), f.id)
     try {
@@ -299,9 +301,9 @@ describe('lapses (Q1 a)', () => {
       expect(r.answer).toContain('saving in')
       expect(r.answer).toContain('is paused for this task')
       expect(audits('schedule.save_lapsed', s.id)).toHaveLength(1)
-      const inbox = (await h.api('alice').call(API.listNotifications, { query: {} } as never)) as { items: { saveLapsed?: boolean; schedule?: { title: string } }[] }
-      expect(inbox.items.filter((n) => n.saveLapsed)).toHaveLength(1)
-      expect(inbox.items.find((n) => n.saveLapsed)!.schedule?.title).toBe('Weekly report')
+      const notices = await lapsedNotices()
+      expect(notices).toHaveLength(before + 1)
+      expect(notices[0]!.schedule?.title).toBe('Weekly report')
       // the list says so; a second run neither notifies again nor saves there
       const listed = (await h.api('alice').call(API.listSchedules)).items.find((x) => x.id === s.id)!
       expect(listed).toMatchObject({ saveFolder: SAVE, saveLapsed: 'rules' })
@@ -350,6 +352,9 @@ describe('lapses (Q1 a)', () => {
       expect(fs.existsSync(abs(`${SAVE}/c.md`))).toBe(false)
       expect(row(s.id).save_lapse_reason).toBe('rules')
     } finally { db().query('DELETE FROM folder_rules WHERE id = ?').run(id) }
+    // a listed folder kept without its fingerprint is asked about again, never assumed unchanged
+    db().query('UPDATE schedules SET save_sources = ?, save_lapsed_at = NULL, save_lapse_reason = NULL WHERE id = ?').run(JSON.stringify([MINE, { type: 'folder', id: 'f_groups_marketing' }]), s.id)
+    expect(lapseOf(h.ctx, row(s.id))).toBe('rules')
   })
 
   test('a group member joining does not lapse it; the person losing write access does', async () => {
@@ -375,14 +380,22 @@ describe('sends (Q2 a) and rooms', () => {
 
   test('what must be pinned: every text value outside the content names, any unknown destination name too; padding and depth are refused', () => {
     expect(pinTargets({ title: 'x', project: 'P1' })).toEqual(['P1'])
-    // a note is content (it goes to the pinned page); the page id is where it goes
-    expect(pinTargets({ title: 'x', note: 'x@evil.example', parent: { page_id: 'abc' } })).toEqual(['abc'])
-    expect(pinTargets({ title: 'see https://a.example in the text', public: false })).toEqual([])
+    // a title or note is content (it goes to the pinned page), unless it is a whole address; the page id is where it goes
+    expect(pinTargets({ title: 'x', note: 'weekly', parent: { type: 'page_id', page_id: 'abc' } })).toEqual(['abc'])
+    expect(pinTargets({ title: 'x', note: 'x@evil.example', parent: { page_id: 'abc' } })).toEqual(['x@evil.example', 'abc'])
+    expect(pinTargets({ body: 'see https://a.example', text: 'x@y.example' })).toEqual([])
+    // Notion rich text and Slack blocks: a block's kind is no destination; "anyone" is
+    expect(pinTargets({ channel: 'C1', blocks: [{ type: 'section', text: { type: 'mrkdwn', text: 'hi' } }] })).toEqual(['C1'])
+    expect(pinTargets({ file_id: 'F1', permission: { type: 'anyone', role: 'reader' } })).toEqual(['F1', 'anyone', 'reader'])
+    // a calendar event's times are content; its attendees are not
+    expect(pinTargets({ calendar_id: 'cal-1', summary: 's', start: { dateTime: '2026-11-10T09:00', timeZone: 'Asia/Seoul' }, attendees: [{ email: 'a@b.example' }] })).toEqual(['cal-1', 'a@b.example'])
+    // numbers and yes/no outside a few settings: a numeric peer next to a pinned decoy, private: false
     // a destination under a name the server does not know still has to be pinned: a decoy "to" does not help
     expect(pinTargets({ phone_number: '+15550100', to: 'boss@corp.example' })).toEqual(['+15550100', 'boss@corp.example'])
     expect(pinTargets({ receiver_uuids: ['u-1'], body: 'hi' })).toEqual(['u-1'])
-    expect(pinTargets({ type: 'anyone', role: 'reader', file_id: 'F1' })).toEqual(['anyone', 'reader', 'F1'])
-    expect(pinTargets({ public: true, chat_id: 42, estimate: 3 })).toEqual(['true', '42'])
+    expect(pinTargets({ peer_id: 2000000001, to: 'boss@corp.example' })).toEqual(['2000000001', 'boss@corp.example'])
+    expect(pinTargets({ name: 'repo', description: 'secret', private: false, org: 'acme' })).toEqual(['false', 'acme'])
+    expect(pinTargets({ project: 'P1', limit: 10, bold: true })).toEqual(['P1'])
     // the same recipient written 200 ways is one value, so the one after it is still seen; more than 50 cannot be checked
     const padded = pinTargets({ cc: Array.from({ length: 200 }, (_, i) => `${' '.repeat(i % 7)}${i % 2 ? 'BOSS' : 'boss'}@corp.example`), bcc: ['evil@attacker.example'] })!
     expect(padded).toHaveLength(2)

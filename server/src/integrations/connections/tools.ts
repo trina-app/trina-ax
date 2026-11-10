@@ -149,35 +149,52 @@ export function recipientFields(args: unknown): { name: string; value: string }[
   return out
 }
 
-/** Argument names whose values are what a write says, not where it goes: a pinned send lets them through (everything
- * else that is text has to be one of the pinned recipients). Never `type`, `role` or anything that says who may see
- * it (a Drive share's `type: "anyone"`). */
-const CONTENT = /^(text|body|content|contents|message|subject|title|name|description|summary|note|notes|comment|comments|markdown|html|caption|label|labels|tags?|emoji|icon|color|colou?r|priority|status|due|due_?date|date|time|start|end|language|alt|alt_?text|heading|paragraph|rich_?text|plain_?text|annotations|bold|italic|code|checked|done)$/i
-/** a pinned send's arguments deeper than this, or with more values than PIN_VALUES_MAX that say where it goes: refused,
- * never cut (a long list would push a real recipient past the end) */
+/** Argument names whose text is what a write says, not where it goes (long content: any value passes). */
+const CONTENT_LONG = /^(text|body|content|contents|html|markdown|message|plain_?text|rich_?text|paragraph|caption|description|summary|comment|comments)$/i
+/** Short content names (a title, a label, a time): a value passes unless it is a whole e-mail or web address, which a
+ * contact-picker tool may take as the addressee. */
+const CONTENT_SHORT = /^(subject|title|name|note|notes|label|labels|tags?|emoji|icon|colou?r|priority|status|due|due_?date|date|time|date_?time|start|end|time_?zone|language|alt|alt_?text|heading|mime_?type|format|parse_?mode)$/i
+/** Discriminators (`type`, `object`, `kind`) whose value only says what a block is (Notion rich text, Slack Block Kit,
+ * a Notion parent's kind); never `anyone`, `domain` or anything else, which has to be pinned. */
+const KIND_KEY = /^(type|object|kind)$/i
+const SAFE_KIND = /^(text|mention|equation|section|mrkdwn|plain_text|rich_text|paragraph|heading_[1-6]|header|bulleted_list_item|numbered_list_item|to_do|quote|code|divider|callout|toggle|block|context|image|list|table|table_row|markdown|page_id|database_id|block_id|data_source_id)$/i
+/** Settings whose number or yes/no says nothing about where a write goes or who sees it. */
+const SETTING = /^(limit|page_?size|per_?page|count|offset|page|max|max_?results|timeout|index|position|order|sort|bold|italic|code|strikethrough|underline|checked|done|completed|level|width|height)$/i
+/** A whole e-mail or web address. */
+const ADDRESS = /^(?:mailto:)?[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$|^[a-z][a-z0-9+.-]*:\/\/\S+$/i
+/** a pinned send's arguments deeper than this, or with more values than PIN_VALUES_MAX that may say where it goes:
+ * refused, never cut (a long list would push a real recipient past the end) */
 const PIN_DEPTH_MAX = 8
 const PIN_VALUES_MAX = 50
 
 /**
  * Every value of a call that may say where it goes, for a scheduled run's pinned recipients (Q2 a), or null when the
  * call cannot be checked (nested deeper than PIN_DEPTH_MAX, or more than PIN_VALUES_MAX such values). A value may say
- * where it goes unless its own argument is one of the content names (CONTENT): every text value, every number and every
- * `true` under a recipient-like name (RECIPIENT: a `chat_id`, `public: true`). So a destination under a name the server
- * does not know (`receiver_uuids`, `room_id`, `destination`) still has to be pinned, and a decoy `to` next to it does
- * not help. Each once in the form pins are compared in (pinForm). [] when there is none: the server cannot tell where
- * the call goes, and a pinned send refuses it.
+ * where it goes unless its own argument says otherwise: text under a long content name (CONTENT_LONG), text under a
+ * short one (CONTENT_SHORT) that is not a whole e-mail or web address, a block's kind (KIND_KEY with a SAFE_KIND value),
+ * a number or a yes/no of a setting (SETTING). Everything else, `false` included (`private: false` makes a thing
+ * public), has to be pinned: a destination under a name the server does not know (`peer_id`, `receiver_uuids`) still
+ * needs a pin, and a decoy `to` next to it does not help. Each once in the form pins are compared in (pinForm). [] when
+ * there is none: the server cannot tell where the call goes, and a pinned send refuses it.
  */
 export function pinTargets(args: unknown): string[] | null {
   const out = new Map<string, string>()
   let bad = false
   const add = (v: string) => { const k = pinForm(v); if (k && !out.has(k)) out.set(k, v.trim()) }
   const walk = (v: unknown, key: string, depth: number) => {
-    if (bad || v === null || v === undefined || v === false || v === '') return
+    if (bad || v === null || v === undefined || v === '') return
     if (depth > PIN_DEPTH_MAX) { bad = true; return }
     if (Array.isArray(v)) { for (const x of v) walk(x, key, depth + 1); return }
     if (typeof v === 'object') { for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1); return }
-    if (typeof v === 'string') { if (!CONTENT.test(key) && v.trim()) add(v); return }
-    if (RECIPIENT.test(key)) add(String(v))
+    if (typeof v === 'string') {
+      const t = v.trim()
+      if (!t || CONTENT_LONG.test(key) || (KIND_KEY.test(key) && SAFE_KIND.test(t))) return
+      if (CONTENT_SHORT.test(key) && !ADDRESS.test(t)) return
+      add(t)
+      return
+    }
+    if (SETTING.test(key)) return
+    add(String(v))
   }
   walk(args, '', 0)
   return bad || out.size > PIN_VALUES_MAX ? null : [...out.values()]

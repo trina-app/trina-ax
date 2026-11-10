@@ -509,9 +509,10 @@ connections with their address and the first 1,000 characters of their notes.
   send to (docs/DECISIONS.md "The schedule card offers only the connections the task names").
 - The person's own connection in a scheduled run: only when the schedule's card listed it with the recipients it may
   send to (`schedule_create`'s `send_to`, "보낼 수 있는 곳: <connection> · '<recipient>'" on the card), and only when every
-  value of the call that may say where it goes is one of them (`pinTargets`: every text value except under a content
-  name such as text, body or title, and every number or `true` under a recipient-like name, at any depth; for
-  `api_request` the full address too). A call with no such value, with more than 50, or nested deeper than 8 is refused.
+  value of the call that may say where it goes is one of them (`pinTargets`, at any depth: every text value except
+  under a content name such as text, body or title (a whole e-mail or web address under a short one such as title or
+  name still counts) or a block's kind such as `type: "text"`, and every number and yes/no except a few settings such as
+  `limit`; for `api_request` the full address too). A call with no such value, with more than 50, or nested deeper than 8 is refused.
   After a room read, such a write skips the room card only when every room the run read is on the schedule's card
   (`TurnTool.sendsTo` names the connection a call writes to); an `allow` team connection keeps the room card then. docs/DECISIONS.md "Scheduled tasks: saving and sending allowed on the card".
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the

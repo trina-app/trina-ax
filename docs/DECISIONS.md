@@ -17908,15 +17908,19 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   only for the person's own connection the card pinned, and only when every room the run read is on the card. An "allow"
   team connection has no pins, so after a room read it keeps the room card (nobody answers it in a run): a message planted
   in a listed room cannot steer it to another channel or repo (independent review). In `gate`, the person's own
-  connection in a run sends only when every value of the call that may say where it goes is pinned (`pinTargets`):
-  every text value except under a content name (`CONTENT`: text, body, title, subject, …; never `type`, `role` or who may
-  see it), and every number or `true` under a recipient-like name (`RECIPIENT`), at any depth; for `api_request` the
-  full address too. So a destination under a name the server does not know (`receiver_uuids`, `room_id`) still needs a
-  pin, and a decoy `to` beside it does not help. Values are compared once each in the pins' form (without case, a
+  connection in a run sends only when every value of the call that may say where it goes is pinned (`pinTargets`), at
+  any depth: every text value except under a long content name (`CONTENT_LONG`: text, body, html, message, …), under a
+  short one (`CONTENT_SHORT`: title, name, note, a time, a format) unless it is a whole e-mail or web address, or a
+  block's kind (`type`/`object`/`kind` with a known value such as `text`, `section`, `mrkdwn`; never `anyone`); and
+  every number and yes/no, `false` included (`private: false` makes a thing public), except a few settings (`limit`,
+  `bold`, …). For `api_request` the full address too. So a destination under a name the server does not know
+  (`peer_id`, `receiver_uuids`) still needs a pin, and a decoy `to` beside it does not help (independent review, two
+  rounds). This refuses many real calls rather than guess; the AI is told which value was not pinned. Values are compared once each in the pins' form (without case, a
   channel's '#', an address's trailing '/', a 32-hex id's dashes), so padding a list with one pin written many ways does
   not push another recipient out; more than 50 such values, or nesting deeper than 8, is refused, never cut. A call with
   none is refused too (the server cannot tell where it goes). A task whose card did not pin the connection: "nobody
-  could be asked", as before. Pins on the card lose invisible and direction-changing characters.
+  could be asked", as before. Pins on the card lose invisible and direction-changing characters (`\p{Cf}`, default
+  ignorable code points, the Hangul fillers among them); look-alike letters are not marked.
 - **Lapses (Q1 a):** the folder on disk not the one the card showed (moved, renamed, deleted, another made with its name),
   the rule hash changed, or the person no longer writes there. Who is in a group does not count: the card showed a
   setting ("전사 공개"), not a list, and a file saved by hand reaches a new member too. Checked when a run starts and at
@@ -17932,7 +17936,8 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   delete_files, skill_files and post_to_room refuse in a scheduled run whatever its card allowed.
 - **Listed folders' own rules:** each listed folder (and the team root) is kept with the fingerprint of its rules; a
   change lapses the permission like one on the way to the save folder (content that became more private does not go on
-  under the old yes). **수정** and **다시 확인** bind the fingerprints as they are then.
+  under the old yes); one kept without a fingerprint lapses too. **수정** and **다시 확인** bind the fingerprints as they
+  are then.
 - **Residual risk:** a planted message in a listed room can still make a run put a useless new file in the approved folder
   (people see and delete it) or send content to a pinned recipient; it cannot replace a file, reach another folder or
   send anywhere unpinned. Two identical calls at the same time share one claim on a path (only the run's own file is
