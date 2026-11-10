@@ -22,6 +22,7 @@ import { roomFilesOf } from '../../server/src/rooms/files'
 import { readRoomFileFor, ROOM_SESSION_TOOL_DESCRIPTIONS, ROOM_TOOL_DESCRIPTIONS, type RoomFileArgs, type RoomFileReader } from '../../server/src/chat/room-tools'
 import { RoomFileHereInput, RoomFileInput } from '@mycel/shared'
 import type { McpContent, TurnToolSet } from '../../server/src/turns'
+import { roomTool } from '../../server/src/connectors/remote-mcp/rooms'
 
 setDefaultTimeout(60_000)
 const HOOK_MS = 120_000
@@ -227,6 +228,10 @@ describe.skipIf(!layers)('no pixels where a read sends none', () => {
           expect(texts(out)).toContain('does not send images to the AI')
           const text = await read(reader('alice'), { file: file['mixed.pdf']!, offset: 0 })
           expect(texts(text)).toContain('Pages without a text layer (scans or pictures): 2. This team does not send images to the AI')
+          // a Mac recognizes those pages when they are read by pages: the text says so (the text read itself runs no OCR)
+          A.ctx.files.cfg.ocr = ocr ?? '/nonexistent/mycel-ocr'
+          const mac = await read(reader('alice'), { file: file['mixed.pdf']!, offset: 0 })
+          expect(texts(mac)).toContain('Pages without a text layer (scans or pictures): 2. Read them with pages for their recognized text (for example pages: "2").')
         } finally { A.ctx.files.cfg.ocr = ocr }
         if (ocr) {
           // a Mac reads the scanned page with Apple Vision, as a team read does: text, never pixels
@@ -319,6 +324,64 @@ describe.skipIf(!layers)('the room checks, as before, and again before delivery'
       expect(texts(out)).toBe('Access changed during the call. Please retry.')
       expect(images(out)).toEqual([])
     })
+  })
+
+  test('image viewing turned off while the pages convert: no page image goes, at the call nor at the socket', async () => {
+    const f = await sendFile('bob', roomId, 'switch-during.pdf', makePagesPdf([{ image: CCITT_SCAN }, { image: CCITT_SCAN }]))
+    try {
+      await withPages(async () => { setVision(false); return fakeJpeg }, async (calls) => {
+        const out = await read(reader('carol'), { file: f.id })
+        // both pages were drawn (the switch is read when the read starts, as for a team read); neither goes
+        expect(calls()).toBe(2)
+        expect(texts(out)).toBe('Access changed during the call. Please retry.')
+        expect(images(out)).toEqual([])
+      })
+    } finally { setVision(true) }
+    // a result with page images that waits for the socket: the switch is read again there
+    const out = await withPages(fakeJpeg, () => read(reader('carol'), { file: f.id }))
+    expect(images(out)).toHaveLength(2)
+    setVision(false)
+    try { expect(() => out.beforeDelivery!()).toThrow() } finally { setVision(true) }
+    // a text-only result does not depend on the switch
+    const text = await read(reader('carol'), { file: file['text.pdf']! })
+    setVision(false)
+    try { expect(() => text.beforeDelivery!()).not.toThrow() } finally { setVision(true) }
+  })
+
+  test("a converter's error (it can quote the file) goes out only while the checks hold", async () => {
+    const broken = await sendFile('bob', roomId, 'broken.pdf', 'not a pdf at all, but named like one')
+    const said = await read(reader('carol'), { file: broken.id })
+    expect(said.isError).toBe(true)
+    expect(texts(said)).toContain('The file could not be read as text')
+    expect(said.beforeDelivery).toBeDefined()
+    // taken out of the room while it converted: the open check after the conversion fails, nothing of it goes
+    const rooms = roomFilesOf(A.ctx)
+    const original = rooms.open.bind(rooms)
+    let n = 0
+    const open = spyOn(rooms, 'open').mockImplementation((...args: Parameters<typeof rooms.open>) => {
+      if (args[2] === broken.id && ++n > 1) throw new Error('not_found')
+      return original(...args)
+    })
+    try {
+      const out = await read(reader('carol'), { file: broken.id })
+      expect(texts(out)).toBe('Access changed during the call. Please retry.')
+    } finally { open.mockRestore() }
+  })
+
+  test('the app connector for AI apps keeps its own room_file: no pages, a PDF as its text layer', async () => {
+    const files = new TurnFiles()
+    const scope = { sources: [] } as unknown as Parameters<typeof roomTool>[5]
+    const no = await roomTool(A.ctx, A.ctx.files.principal('alice'), 'room_file', { room: roomId, file: file['scan.pdf']!, pages: '1' }, files, scope)
+    expect(no.isError).toBe(true)
+    expect(no.content[0]!.type === 'text' && no.content[0]!.text).toContain('pages')
+    const page = spyOn(A.ctx.files, 'pdfPageImage').mockResolvedValue(fakeJpeg)
+    try {
+      const out = await roomTool(A.ctx, A.ctx.files.principal('alice'), 'room_file', { room: roomId, file: file['mixed.pdf']! }, files, scope)
+      expect(out.content.every((c) => c.type === 'text')).toBe(true)
+      expect(texts(out)).toContain('Page three is text again')
+      expect(texts(out)).toContain('Some pages have no text layer')
+      expect(page).not.toHaveBeenCalled()
+    } finally { page.mockRestore() }
   })
 
   test('a result waiting in the socket buffer is dropped when the person leaves the room meanwhile', async () => {

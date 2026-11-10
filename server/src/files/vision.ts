@@ -252,6 +252,13 @@ export function parsePages(spec: string, count: number): number[] {
   return out
 }
 
+/** The pages a PDF read gives: `pages` parsed (parsePages), or every page of a PDF of up to PDF_PAGES_WITHOUT_RANGE
+ * pages; null: a longer PDF without `pages` (the caller says how to read it in parts). */
+export function pagesToRead(spec: string | undefined, count: number): number[] | null {
+  if (spec !== undefined) return parsePages(spec, count)
+  return count > PDF_PAGES_WITHOUT_RANGE ? null : Array.from({ length: count }, (_, i) => i + 1)
+}
+
 /** `t` at the end of a tool result: in its last text block (after a blank line), or a new one after an image */
 export function appendText(content: McpContent[], t: string, sep = '\n\n') {
   const last = content[content.length - 1]

@@ -34,7 +34,7 @@ import { recoverPublications } from '../safe-ops/publication'
 import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
-import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
+import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, pagesToRead, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
   PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
@@ -386,11 +386,9 @@ export class FileService {
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const src = this.boundSource(ctx, r, readMaxBytes())
     const tools = this.visionTools()
-    const block = visionBlock(this.db, ctx.turnId)
     // macOS when no pixels may go (image viewing off, the API engine, a connection): Apple Vision text for scanned
     // pages, as before image reads
-    const ocrText = !!block && !!this.cfg.ocr
-    const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
+    const ocrText = !!visionBlock(this.db, ctx.turnId) && !!this.cfg.ocr
     const record = (locs: SourceLoc[] = []) => {
       ctx.files.readHashes.set(src.rel, src.hash)
       ctx.files.readPaths.add(src.rel)
@@ -408,18 +406,15 @@ export class FileService {
       const lines = cached ?? layerText(layers)
       record(partLocs(src.rel, lines, a))
       const out = numberedLines(src.rel, lines, a)
-      const scanned = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
-      if (scanned.length) out.text += `\n\n${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(scanned) })} ${block ? why(block) : visionText(this.db, ctx.user.id, 'scannedHint', { first: scanned[0]! })}`
+      const scanned = this.scannedNote(ctx, layers)
+      if (scanned) out.text += `\n\n${scanned.text}`
       return out
     }
 
     const layers = await pdfLayer(src.bytes, tools, ctx.signal)
     const n = layers.length
-    let pages: number[]
-    if (a.pages !== undefined) pages = parsePages(a.pages, n)
-    else if (n > PDF_PAGES_WITHOUT_RANGE) {
-      throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
-    } else pages = Array.from({ length: n }, (_, i) => i + 1)
+    const pages = pagesToRead(a.pages, n)
+    if (!pages) throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
 
     const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: src.bytes, layers }, pages, { asImages: a.as_images })
     for (const t of notes) appendText(content, t)
@@ -429,6 +424,20 @@ export class FileService {
     record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
     const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
     return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+  }
+
+  /**
+   * After a PDF's text (a read by lines, a room file's text): the pages without a text layer and how to see them, in
+   * the person's language: with `pages` as page images; on a Mac when no pixels may go, with `pages` as Apple Vision
+   * text (pdfPagesForModel recognizes them then); otherwise why they cannot be shown. null: every page has text.
+   */
+  scannedNote(ctx: Pick<ToolCtx, 'turnId'> & { user: { id: string } }, layers: string[]): { text: string; pages: number[] } | null {
+    const pages = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
+    if (!pages.length) return null
+    const block = visionBlock(this.db, ctx.turnId)
+    const first = pages[0]!
+    const how = !block ? visionText(this.db, ctx.user.id, 'scannedHint', { first }) : this.cfg.ocr ? visionText(this.db, ctx.user.id, 'scannedOcrHint', { first }) : visionText(this.db, ctx.user.id, block)
+    return { text: `${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(pages) })} ${how}`, pages }
   }
 
   /**

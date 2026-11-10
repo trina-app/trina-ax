@@ -6,7 +6,7 @@
 // kept for the rest of the chat and across a restart, a planted instruction that cannot change anything without the
 // person's yes, and audit lines that name no room. Each test makes its own rooms; rows written straight into the
 // database are the test's own rooms (the sending budget would slow a test of hundreds of messages).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -447,6 +447,31 @@ describe('room_file on a scanned PDF', () => {
     const bobChat = await newChat('bob')
     const no = await turn('bob', bobChat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, expectImage: true, sayResult: true }))
     expect(no.done.content).toContain('IMAGE_BLOCK_MISSING')
+  })
+
+  // the check before delivery travels from room_file through the chat tool set (chat/tools.ts) and mcp/protocol.ts to
+  // the socket: the room checks pass when the read ends and fail on the handler's own check right after
+  test('access lost between the read and its delivery: the handler sends the "changed" answer, not the file', async () => {
+    const roomId = await groupChat('alice', ['erin', 'carol'], 'delivery check')
+    const src = path.join(h.dataDir, `room-file-${uuidv7()}.md`)
+    fs.writeFileSync(src, '# 메모\nsecret-delivery-word\n')
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'memo.md', src, 'x'.repeat(64))
+    await send('erin', roomId, '메모', { fileIds: [f.id] })
+    const rooms = roomFilesOf(h.ctx)
+    const original = rooms.open.bind(rooms)
+    let n = 0
+    // 1: the read, 2: its own check when the text is ready, 3: the handler's check before the answer leaves
+    const open = spyOn(rooms, 'open').mockImplementation((...args: Parameters<typeof rooms.open>) => {
+      if (args[2] === f.id && ++n >= 3) throw new Error('not_found')
+      return original(...args)
+    })
+    try {
+      const chat = await newChat('alice')
+      const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
+      expect(n).toBeGreaterThanOrEqual(3)
+      expect(r.done.content).toContain('Access or the source file changed before delivery')
+      expect(r.done.content).not.toContain('secret-delivery-word')
+    } finally { open.mockRestore() }
   })
 })
 

@@ -25,8 +25,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { McpContent } from '../turns'
 import type { TurnFiles } from '../files/service'
 import { ext, extractText, looksScanned } from '../files/extract'
-import { appendText, isScannedPage, isVisionImage, layerText, pageList, parsePages, pdfLayer, PDF_PAGES_PER_READ, PDF_PAGES_WITHOUT_RANGE, textTokens, visionBlock } from '../files/vision'
-import { visionText } from '../files/vision-text'
+import { appendText, isVisionImage, layerText, pageList, pagesToRead, pdfLayer, PDF_PAGES_PER_READ, PDF_PAGES_WITHOUT_RANGE, textTokens, visionBlock } from '../files/vision'
 import { mediaKind } from '@mycel/shared'
 import { readRegular } from '../files/store'
 import { readMaxBytes } from '../system/limits'
@@ -243,16 +242,19 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   }
   /** The checks above once more (synchronous): a conversion awaits, and someone whose account was turned off, who was
    * taken out of the room (or it was archived), whose message went or is now hidden from them, or whose file went on
-   * the safety check's list meanwhile gets nothing of it */
-  const recheck = () => {
-    r.toolCtx()
+   * the safety check's list meanwhile gets nothing of it. A result with pixels also needs the team's switch and the
+   * engine as they are now (visionBlock), as when its pages were drawn. */
+  const recheck = (pixels: boolean) => {
+    const live = r.toolCtx()
     const now = roomFilesOf(ctx).open(userId, room.id, file.id, false)
     if (now.abs !== abs || now.sha256 !== file.sha256 || now.quarantined) throw new Denied('the room file changed')
+    if (pixels && visionBlock(ctx.db, live.turnId)) throw new Denied('images are not sent to the AI now')
   }
   /** a result goes out only while the checks hold: now, and again right before the socket writes it */
   const deliver = (out: RoomFileOut): RoomFileOut => {
-    try { recheck() } catch { return { ...text('Access changed during the call. Please retry.', true), summary: 'room_file -> access changed' } }
-    return { ...out, beforeDelivery: recheck }
+    const pixels = out.content.some((c) => c.type === 'image')
+    try { recheck(pixels) } catch { return { ...text('Access changed during the call. Please retry.', true), summary: 'room_file -> access changed' } }
+    return { ...out, beforeDelivery: () => recheck(pixels) }
   }
   const signal = r.signal
   try {
@@ -282,9 +284,10 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
     })
   } catch (e) {
     signal.throwIfAborted()
-    // a converter's message can quote the file: one line, our tags neutralised, inside the file's framing
+    // a converter's message can quote the file: one line, our tags neutralised, inside the file's framing; it goes out
+    // only while the checks hold, as the file's text would (an account turned off meanwhile ends here too)
     const why = e instanceof Error ? neutralizeTags(e.message.replace(/[\r\n"<>\u2028\u2029]+/g, ' ').slice(0, 200)) : 'it could not be converted'
-    return { ...text(`${head}\nThe file could not be read as text (the converter said: "${why}").`, true), summary: 'room_file -> not converted' }
+    return deliver({ ...text(`${head}\nThe file could not be read as text (the converter said: "${why}").`, true), summary: 'room_file -> not converted' })
   }
 }
 
@@ -297,8 +300,7 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
  * comes from the file stays inside <room_file>, our tags neutralised; the notes come after it.
  */
 async function roomPdf(r: RoomFileReader, file: FileRow, bytes: Buffer, a: RoomFileArgs, head: string): Promise<RoomFileOut> {
-  const { ctx, userId } = r
-  const db = ctx.db, files = ctx.files
+  const files = r.ctx.files
   const layers = await pdfLayer(bytes, files.visionTools(), r.signal)
   const n = layers.length
   const name = file.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)
@@ -308,8 +310,7 @@ async function roomPdf(r: RoomFileReader, file: FileRow, bytes: Buffer, a: RoomF
     const from = Math.min(a.offset ?? 0, all.length)
     const part = all.slice(from, from + ROOM_FILE_CHARS)
     const cut = from + part.length < all.length
-    const scanned = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
-    const block = visionBlock(db, tctx.turnId)
+    const scanned = files.scannedNote(tctx, layers)
     return {
       ...text([
         head,
@@ -317,20 +318,17 @@ async function roomPdf(r: RoomFileReader, file: FileRow, bytes: Buffer, a: RoomF
         neutralizeTags(part),
         '</room_file>',
         cut ? `(Cut at character ${from + part.length} of ${all.length}: read on with offset=${from + part.length}.)` : '',
-        scanned.length ? `${visionText(db, userId, 'scanned', { pages: pageList(scanned) })} ${block ? visionText(db, userId, block) : visionText(db, userId, 'scannedHint', { first: scanned[0]! })}` : '',
+        scanned?.text ?? '',
       ].filter(Boolean).join('\n')),
-      summary: `room_file -> PDF text ${part.length} characters${cut ? ' (cut)' : ''}${scanned.length ? `, ${scanned.length} page${scanned.length === 1 ? '' : 's'} without text` : ''}`,
+      summary: `room_file -> PDF text ${part.length} characters${cut ? ' (cut)' : ''}${scanned ? `, ${scanned.pages.length} page${scanned.pages.length === 1 ? '' : 's'} without text` : ''}`,
     }
   }
-  let pages: number[]
-  try {
-    if (a.pages !== undefined) pages = parsePages(a.pages, n)
-    else if (n > PDF_PAGES_WITHOUT_RANGE) return { ...text(`${head}\nThis PDF has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or its text with offset.`, true), summary: 'room_file -> refused: pages_required' }
-    else pages = Array.from({ length: n }, (_, i) => i + 1)
-  } catch (e) {
+  let pages: number[] | null
+  try { pages = pagesToRead(a.pages, n) } catch (e) {
     if (e instanceof ToolError) return { ...text(`${head}\n${e.message}`, true), summary: `room_file -> refused: ${e.code}` }
     throw e
   }
+  if (!pages) return { ...text(`${head}\nThis PDF has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or its text with offset.`, true), summary: 'room_file -> refused: pages_required' }
   const open = `${head}\n<room_file name="${name}" pages="${pageList(pages)}">`
   // what follows the pages (</room_file> and the notes) is counted with the head, as the engine counts the whole result
   const shown = await files.pdfPagesForModel(tctx, { label: name, bytes, layers }, pages, { asImages: a.as_images, reserve: textTokens(open) + 100, fileText: neutralizeTags })

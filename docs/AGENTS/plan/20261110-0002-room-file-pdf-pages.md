@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 00:02
 - Branch: `fix/room-file-pdf-pages`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/room-tools.ts`, `server/src/files/service.ts`, `shared/src/tools.ts`). Why:
   chat, files and the AI's tools are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new, backward-compatible capability of the AI (scanned room PDFs become readable); no API,
@@ -53,4 +53,8 @@ remote MCP and security unit files.
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR https://github.com/trina-app/trina-ax/pull/281. Beyond the plan: the page selection and the
+"pages without a text layer" note are shared too (`pagesToRead`, `FileService.scannedNote`); the check before delivery
+also reads the team switch again for a result with images, and covers a converter's error; on a Mac where no pixels may
+go, the text read points to `pages` for recognized text. The security review found no must-fix; its should-fix items are
+in (docs/DECISIONS.md "대화방 PDF도 쪽을 이미지로").
