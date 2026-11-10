@@ -19,11 +19,11 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 | | What it does for your team |
 |---|---|
 | **Shared files, per-person access** | Company folders in one place: `shared/`, `groups/`, `projects/` and personal ones. The server checks every file the AI opens as the person asking, so a folder you can't open doesn't exist for your AI either. |
-| **Team skills** | Write down once how your team does a task, in a `SKILL.md`, and everyone runs it with `/name`. Skills for the team, a group, a project or one person; bring your own from Claude Code or Codex. The AI asks before it changes one. |
-| **Team rooms** | Group rooms, an Everyone room, DMs and group chats, with threads, mentions, files and photos. Admins can't open rooms they aren't in. |
-| **A private AI side chat in every room** (0.5) | ✦ opens Trina beside the room. Only you see it, and it reads the room as you see it: *Catch up*, *Summarize*, or *Ask Trina about this* on any message. **Send to thread** or **Send to room** shares a good answer in one click; if some members can't open what it used, you confirm first. |
+| **Team skills** | Write down once how your team does a task, in a `SKILL.md`, and everyone runs it with `/name`. Skills for the team, a group, one person or (0.5) a project; bring your own from Claude Code or Codex. The AI asks before it changes one. |
+| **Team rooms** | Group rooms, an Everyone room and DMs, with mentions, files and photos; threads and group chats (0.5). Admins can't open rooms they aren't in. |
+| **A private AI side chat in every room** (0.5) | ✦ opens Trina beside the room. Only you see it, and it reads the room as you see it: start with *Catch up* or *Summarize*, or use *Ask Trina about this* on any message. **Send to thread** or **Send to room** shares a good answer in one click; if some members can't open what it used, you confirm first. |
 | **Continue a teammate's AI chat** (0.5) | Share a project's chats, and everyone on the project can read and continue them. Each message runs as the person who sent it, with their own access and AI connection. |
-| **Connections** | Any MCP server, your company's HTTP API (with a key or your own OAuth app), Google Drive, [Slack](docs/SLACK.md), and a catalog with Notion, Linear, Higgsfield and more. Say "connect Higgsfield" in a chat and finish on one card. |
+| **Connections** | Any MCP server, your company's HTTP API (with a key, or (0.5) your own OAuth app), Google Drive, [Slack](docs/SLACK.md), and a catalog with Notion, Linear, Higgsfield and more. Say "connect Higgsfield" in a chat and finish on one card. |
 | **Scheduled tasks** | "Every Monday at 9:00, summarize last week's notes in shared/sales." Each run works as the person who made the task, in the team's time zone. |
 | **Version history and trash** | Files keep earlier versions you can restore, and deleted files go to the team trash first. |
 | **PDF, Office and Hangul files** | Reads PDF, Office and HWP/HWPX files; makes Word, Excel, PowerPoint and PDF files. With the optional HWP plugin it also makes and fills in Hangul documents. |
@@ -43,12 +43,12 @@ bun run demo        # → http://127.0.0.1:19760 · sign in as alice / teamax-de
 
 A fictional team with six starter skills. AI is off, so no AI account is needed. Sign in as `bob` in a private window: each sees a different group folder. Needs Git, Bun 1.3.12 and Go 1.27+. This is **not a production install**. [Walkthrough](docs/QUICKSTART.md)
 
-To try rooms with the AI, run the [Docker install](docs/INSTALL-DOCKER.md) with a release (`TRINA_AX_VERSION=0.4.0`, or `0.5.0-beta.1` for the side chat and shared project chats) and connect your own AI account.
+To try rooms with the AI, run the [Docker install](docs/INSTALL-DOCKER.md) with a release (`TRINA_AX_VERSION=0.4.0`, or `0.5.0-beta.1` for a first version of the side chat and shared project chats) and connect your own AI account.
 
 ## How it works
 
 1. **Put it in once.** Company files go in `shared/`. The way you write a proposal goes in `skills/proposal/SKILL.md`.
-2. **Anyone asks, in their own chat or beside a room.** In the browser on computer or phone, or in the apps. No terminal, nothing to install on their laptop. An answer reaches a room only when its person sends it there.
+2. **Anyone asks, in their own chat or beside a room.** In the browser on computer or phone, or in the apps. No terminal, nothing to install on their laptop. From 0.5, an answer reaches a room only when its person sends it there.
 3. **Each person keeps their own access.** The server checks every file the AI opens, as the person asking. A folder you can't see doesn't exist for your AI either.
 
 <img src="docs/images/readme/permission-answer.png" width="100%" alt="A sales team member asks 'What was our revenue last quarter?' and the AI answers that it found no revenue figures in any team file she can access.">

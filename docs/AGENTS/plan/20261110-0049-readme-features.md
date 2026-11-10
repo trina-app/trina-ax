@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 00:49
 - Branch: `docs/readme-features`
-- Status: in progress
+- Status: done
 - Where: the five root READMEs (`README.md`, `README.ko.md`, `README.ja.md`, `README.es.md`, `README.zh-CN.md`). Why:
   the README is the GitHub front page, and visitors do not see what the product does.
 - Version impact: none, documentation only.
@@ -49,4 +49,8 @@ relative link and in-file anchor in the five READMEs resolves. No code changes, 
 
 ## Result
 
-Filled in at the end.
+A twelve-row feature table replaces "What you get" and the hero bullets in all five READMEs; "Same room, two
+screens" and "What's next" are gone; each file is 24 lines shorter. An independent review found that stable 0.4.0
+has no threads or group chats and that project skills, your own OAuth app and sending answers to a room are on
+`dev` only, so those are marked (0.5). Left out: a public Mac desktop app download (no DMG in the releases). PR into
+`dev` from `docs/readme-features`.

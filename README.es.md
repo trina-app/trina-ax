@@ -19,11 +19,11 @@ Claude Code y Codex en el servidor de tu empresa, trabajando con los archivos de
 | | Qué le aporta a tu equipo |
 |---|---|
 | **Archivos compartidos, permisos por persona** | Las carpetas de la empresa en un solo sitio: `shared/`, `groups/`, `projects/` y las personales. El servidor comprueba cada archivo que abre la IA con los permisos de quien pregunta, así que una carpeta que tú no puedes abrir tampoco existe para tu IA. |
-| **Skills del equipo** | Escribe una vez en un `SKILL.md` cómo hace tu equipo una tarea, y cualquiera la usa con `/nombre`. Hay skills del equipo, de un grupo, de un proyecto o de una persona, y puedes traer las tuyas de Claude Code o Codex. La IA pregunta antes de cambiar una. |
-| **Salas del equipo** | Salas de grupo, una sala con todos, mensajes directos y chats de grupo, con hilos, menciones, archivos y fotos. Los administradores no pueden abrir las salas en las que no están. |
-| **Un chat de IA privado en cada sala** (0.5) | ✦ abre a Trina junto a la sala. Solo lo ves tú, y lee la sala tal como tú la ves: *Ponerme al día*, *Resumir* o *Preguntar a Trina sobre esto* en cualquier mensaje. **Enviar al hilo** o **Enviar a la sala** comparte una buena respuesta con un clic; si algunos miembros no pueden abrir lo que usó, primero lo confirmas. |
+| **Skills del equipo** | Escribe una vez en un `SKILL.md` cómo hace tu equipo una tarea, y cualquiera la usa con `/nombre`. Hay skills del equipo, de un grupo, de una persona o (0.5) de un proyecto, y puedes traer las tuyas de Claude Code o Codex. La IA pregunta antes de cambiar una. |
+| **Salas del equipo** | Salas de grupo, una sala con todos y mensajes directos, con menciones, archivos y fotos; hilos y chats de grupo (0.5). Los administradores no pueden abrir las salas en las que no están. |
+| **Un chat de IA privado en cada sala** (0.5) | ✦ abre a Trina junto a la sala. Solo lo ves tú, y lee la sala tal como tú la ves: empieza con *Ponerme al día* o *Resumir*, o usa *Preguntar a Trina sobre esto* en cualquier mensaje. **Enviar al hilo** o **Enviar a la sala** comparte una buena respuesta con un clic; si algunos miembros no pueden abrir lo que usó, primero lo confirmas. |
 | **Continuar el chat de IA de un compañero** (0.5) | Comparte los chats de un proyecto y cualquiera del proyecto puede leerlos y continuarlos. Cada mensaje se ejecuta como quien lo envía, con sus propios accesos y su conexión de IA. |
-| **Conexiones** | Cualquier servidor MCP, la API HTTP de tu empresa (con una clave o tu propia app OAuth), Google Drive, [Slack](docs/SLACK.md) y un catálogo con Notion, Linear, Higgsfield y más. Di «conecta Higgsfield» en un chat y termina en una sola tarjeta. |
+| **Conexiones** | Cualquier servidor MCP, la API HTTP de tu empresa (con una clave o, desde la 0.5, tu propia app OAuth), Google Drive, [Slack](docs/SLACK.md) y un catálogo con Notion, Linear, Higgsfield y más. Di «conecta Higgsfield» en un chat y termina en una sola tarjeta. |
 | **Tareas programadas** | «Cada lunes a las 9:00, resume las notas de la semana pasada en shared/sales». Cada ejecución trabaja como quien creó la tarea, en la zona horaria del equipo. |
 | **Historial de versiones y papelera** | Los archivos guardan versiones anteriores que puedes restaurar, y los archivos borrados van primero a la papelera del equipo. |
 | **Archivos PDF, Office y Hangul** | Lee archivos PDF, Office y HWP/HWPX, y crea archivos de Word, Excel, PowerPoint y PDF. Con el plugin opcional de HWP también crea y rellena documentos Hangul. |
@@ -43,12 +43,12 @@ bun run demo        # → http://127.0.0.1:19760 · inicia sesión como alice / 
 
 Un equipo ficticio con seis skills iniciales. La IA está desactivada, así que no hace falta ninguna cuenta de IA. Inicia sesión como `bob` en una ventana privada: cada usuario ve una carpeta de grupo distinta. Requiere Git, Bun 1.3.12 y Go 1.27+. Esto **no es una instalación de producción**. [Guía paso a paso](docs/QUICKSTART.md)
 
-Para probar las salas con la IA, usa la [instalación con Docker](docs/INSTALL-DOCKER.md) con una versión publicada (`TRINA_AX_VERSION=0.4.0`, o `0.5.0-beta.1` para el chat lateral y los chats de proyecto compartidos) y conecta tu propia cuenta de IA.
+Para probar las salas con la IA, usa la [instalación con Docker](docs/INSTALL-DOCKER.md) con una versión publicada (`TRINA_AX_VERSION=0.4.0`, o `0.5.0-beta.1` para una primera versión del chat lateral y los chats de proyecto compartidos) y conecta tu propia cuenta de IA.
 
 ## Cómo funciona
 
 1. **Lo guardas una sola vez.** Los archivos de la empresa van en `shared/`. Tu forma de escribir propuestas, en `skills/proposal/SKILL.md`.
-2. **Cualquiera pregunta, en su propio chat o junto a una sala.** En el navegador del ordenador o del teléfono, o en las apps. Sin terminal y sin instalar nada en el portátil. Una respuesta solo llega a una sala cuando quien preguntó la envía.
+2. **Cualquiera pregunta, en su propio chat o junto a una sala.** En el navegador del ordenador o del teléfono, o en las apps. Sin terminal y sin instalar nada en el portátil. Desde la 0.5, una respuesta solo llega a una sala cuando quien preguntó la envía.
 3. **Cada persona mantiene sus propios accesos.** El servidor comprueba cada archivo que abre la IA con los permisos de quien pregunta. Una carpeta que tú no puedes ver tampoco existe para tu IA.
 
 <img src="docs/images/readme/permission-answer.png" width="100%" alt="Una integrante del equipo de ventas pregunta “What was our revenue last quarter?” y la IA responde que no encontró cifras de ingresos en ningún archivo del equipo al que ella tenga acceso.">
