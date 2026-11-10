@@ -74,3 +74,5 @@ Checks: `bun run typecheck`, `bun run check:i18n` (0 issues), `bun run check:doc
 `permission-matrix`: 2341 pass, 3 fail, the same 3 on base `dev` without this change (route coverage: 46 routes have no
 case; `driveShareFolders` answers 404 `drive_not_found`). The new side chat and quote tests fail on the old gate code
 and pass with it.
+
+PR: https://github.com/trina-app/trina-ax/pull/313
