@@ -2546,6 +2546,7 @@ export const es: Record<MessageKey, string> = {
   'settings.credentials.desc': "Sus preguntas usan primero estas conexiones. Si no tiene ninguna, responden las del equipo.",
   'usage.by.credential': "Conexión de IA",
   'usage.deletedCredential': "Conexión eliminada",
+  'usage.deletedCredentialN': "Conexión eliminada {n}",
   'usage.credentialNote': "Se cuenta por respuesta, en la conexión con la que terminó. Las tarjetas de conexión cuentan por solicitud, por lo que las cifras pueden variar ligeramente.",
   'engines.fallbackHint2': "Si hay otra conexión de la misma IA, se usa primero.",
   'audit.act.remote_mcp.connected': "Permitió una conexión de aplicación externa",
