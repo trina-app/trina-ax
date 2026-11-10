@@ -5,7 +5,7 @@ import { AVATAR_MAX_BYTES, AVATAR_MAX_PX, AVATAR_MIN_PX } from '@mycel/shared'
 import type { Locale, Person } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
 import { prepareAvatar, type AvatarProblem } from './avatar'
-import { LIVE_SQL, statusOut } from './status-messages'
+import { LIVE_SQL, statusOut } from './status-plan'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })

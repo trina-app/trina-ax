@@ -19,7 +19,7 @@
 // come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
 // most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Smile, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -41,6 +41,7 @@ import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { toast, useUi } from '../store/ui'
 import { PresenceDot, PresenceFace, PresenceText } from './Presence'
+import { MyStatusRow, openStatusDialog, StatusEmoji, useMyStatusWords } from './StatusMessage'
 import { useChatActions } from './chat/chatActions'
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
@@ -348,8 +349,10 @@ export default function Sidebar() {
       {wide ? (
         <AccountMenu />
       ) : (
-        // phones: the account menu's Deleted chats, at the end of the history
+        // phones: my status (the computer's account menu has it) and the account menu's Deleted chats, at the end of the
+        // history
         <div className="border-t border-line p-2">
+          <MyStatusRow className="h-11" onOpen={close} />
           <NavLink to="/trash" className={active} onClick={close} data-testid="nav-trash">
             <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
           </NavLink>
@@ -545,6 +548,7 @@ function AccountMenu() {
   const logout = useLogout()
   const locale = useLocale()
   const away = !!me.user.prefs.away
+  const status = useMyStatusWords()
   const toggleAway = () => {
     hide(true)
     void useSession.getState().setAway(!away).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
@@ -562,6 +566,23 @@ function AccountMenu() {
               <PresenceDot state={away ? 'online' : 'away'} size={10} />
             </span>
             {away ? t('presence.setActive') : t('presence.setAway')}
+          </button>
+          {/* my status message (docs/DECISIONS.md "상태 메시지"): what it says now, or "Set your status" */}
+          <button
+            role="menuitem"
+            type="button"
+            className={item}
+            onClick={() => {
+              const from = button.current
+              hide(false)
+              openStatusDialog(from)
+            }}
+            data-testid="account-status"
+          >
+            <span className="flex size-4 shrink-0 items-center justify-center leading-none" aria-hidden>
+              {status ? status.emoji : <Smile size={16} className="text-muted" />}
+            </span>
+            <span className="truncate">{status ? status.words : t('status.set')}</span>
           </button>
           <button
             role="menuitem"
@@ -614,7 +635,12 @@ function AccountMenu() {
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
-        onClick={() => (open ? hide(false) : setOpen(true))}
+        onClick={(e) => {
+          // a click on my status emoji opens the status dialog (the menu has the same as its item, for the keyboard)
+          if ((e.target as HTMLElement).closest?.('[data-testid="status-emoji"]')) return openStatusDialog(button.current)
+          if (open) hide(false)
+          else setOpen(true)
+        }}
         className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left [--presence-bg:var(--c-subtle)] hover:bg-hover hover:[--presence-bg:var(--c-hover)]"
         data-testid="account-menu"
       >
@@ -622,6 +648,7 @@ function AccountMenu() {
         {/* the team's name is on top of the sidebar (a computer), not said twice here */}
         <span className="flex min-w-0 flex-1 items-baseline gap-1">
           <span className="truncate text-sm font-medium">{me.user.name}</span>
+          <StatusEmoji userId={me.user.id} className="ml-0.5 self-center text-sm" />
           <PresenceText userId={me.user.id} />
         </span>
         <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
