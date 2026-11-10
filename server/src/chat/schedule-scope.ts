@@ -21,6 +21,7 @@ import { audit } from '../admin/audit'
 import { atLeast, loadPrincipal, type RuleSet } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
+import { refusal } from '../policy/refusal'
 import { inSkills } from '../skills/guard'
 import { readersOf } from '../rooms/ai-grants'
 import { memberRow, roomRow } from '../rooms/store'
@@ -49,14 +50,20 @@ const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 // no control, direction-changing or invisible characters: a member-set room name cannot reorder or hide card text
 const oneLine = (s: string, n = 200) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, n)
 
+/** How the save folder's identity reads a folder (a test replaces it to play a disk without creation times). */
+export const folderStat: { lstat(p: string): { isDirectory(): boolean; dev: bigint; ino: bigint; birthtimeNs: bigint } } = {
+  lstat: (p) => fs.lstatSync(p, { bigint: true }),
+}
+
 /** Which folder on disk `segs` (actual names) is: its device, inode and birth time (nanoseconds). The inode alone is
  * not enough: Linux (ext4, overlay) gives a folder made right after another was deleted the same inode number, so a
- * folder deleted and made again with its name would look like the one the card showed. Where the file system keeps no
- * birth time (0), device and inode alone. null: not a folder there. */
+ * folder deleted and made again with its name would look like the one the card showed. A disk that keeps no birth time
+ * (0) cannot tell them apart: null, as for something that is not a folder (fails closed: refused on the card, an
+ * existing save folder lapses). */
 export function saveFolderId(fx: FsCtx, segs: readonly string[]): string | null {
   try {
-    const st = fs.lstatSync(path.join(fx.root, ...segs), { bigint: true })
-    return st.isDirectory() ? `${st.dev}:${st.ino}:${st.birthtimeNs}` : null
+    const st = folderStat.lstat(path.join(fx.root, ...segs))
+    return st.isDirectory() && st.birthtimeNs !== 0n ? `${st.dev}:${st.ino}:${st.birthtimeNs}` : null
   } catch { return null }
 }
 
@@ -106,7 +113,15 @@ export function resolveSaveFolder(ctx: AppContext, userId: string, input: string
   const why = saveFolderBlock(fx, r.segs)
   if (why) throw new ToolError(`save_to '${r.rel}' cannot be a scheduled task's save folder: ${BLOCK_TEXT[why]}. Nothing was created`)
   const id = saveFolderId(fx, r.segs)
-  if (!id) throw new ToolError(`save_to '${r.rel}' is not a folder; nothing was created`)
+  if (!id) {
+    // a folder on a disk that keeps no creation time: a folder deleted and made again under its name would pass as it
+    throw new ToolError(refusal({
+      done: 'Nothing was created.',
+      why: { kind: 'mode', mode: "a scheduled task's save folder", why: `the disk that holds '${r.rel}' keeps no creation time for folders, so the server could not tell this folder from one made later under its name, and runs could save into a folder the user never chose` },
+      next: "leave save_to out (runs save in the user's own folder) and tell the user why; an admin can move the team folder to a disk that keeps creation times",
+      names: [r.rel],
+    }))
+  }
   return { folder: r.rel, folderId: id, rule: ruleFingerprint(rules, r.segs), readers: readersOf(ctx.db, rules, r.segs).length }
 }
 

@@ -26,7 +26,11 @@ import type { Database } from 'bun:sqlite'
 import type { Locale, Step } from '@mycel/shared/api'
 import type { StoredStep } from './store'
 import type { AppContext } from '../context'
+import fs from 'node:fs'
+import path from 'node:path'
 import { audit } from '../admin/audit'
+import { devEnvFlag } from '../devenv/setting'
+import { sha256Regular } from '../files/store'
 import { refusal } from '../policy/refusal'
 import type { Principal, RuleSet } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
@@ -70,6 +74,9 @@ export function callKey(tool: string, input: unknown): string {
 function refuse(done: string, why: string, next: string, names: string[] = []): string {
   return refusal({ done, why: { kind: 'mode', mode: 'this scheduled run', why }, next, names })
 }
+
+/** an own file bigger than this is not hashed to compare it with the app's record (unrecorded: counts as changed) */
+const UNRECORDED_HASH_MAX = 64 * 1024 * 1024
 
 /** One save: the call (its key: tool and input), where it saves, whether it may make a new file there, the files it
  * copies bytes from (`from`) and other places its bytes come from (`read`: a room file's room), and whether it is the
@@ -183,7 +190,7 @@ export class ScheduleCover {
     for (const p of c.from) this.noteOwnRead(p)
     if (this.aiOwn.size && on.has(`user:${this.host.spec.userId}`)) {
       const files = [...this.aiOwn].slice(0, 3)
-      return refuse(done, `this run read ${files.join(', ')}${this.aiOwn.size > 3 ? ` and ${this.aiOwn.size - 3} more` : ''} in the user's own folder, which an AI run or chat wrote after seeing content other people wrote; what an AI saved there may come from places the card does not list, so it does not count as "my folder" here`, `${elsewhere}; the user can move it in a chat after checking it`, [row.save_folder])
+      return refuse(done, `this run read ${files.join(', ')}${this.aiOwn.size > 3 ? ` and ${this.aiOwn.size - 3} more` : ''} in the user's own folder, which an AI run or chat wrote after seeing content other people wrote (or which changed outside the app's records while the dev environment can write there); what an AI saved there may come from places the card does not list, so it does not count as "my folder" here`, `${elsewhere}; the user can move it in a chat after checking it`, [row.save_folder])
     }
     const rooms = this.unlistedRooms(scope, on)
     if (rooms.length) return refuse(done, `this run read ${rooms.join(', ')}, which the task's card does not list, so nothing it read may go to ${row.save_folder}`, `${elsewhere}; the user can add the room to the task by making it again in a chat`, [row.save_folder])
@@ -246,7 +253,20 @@ export class ScheduleCover {
   noteOwnRead(rel: string): void {
     const mine = `users/${this.host.spec.userId}/`
     if (!rel.startsWith(mine) || this.aiOwn.has(rel)) return
-    try { if (this.host.ownFileOutside(rel) >= 1) this.aiOwn.add(rel) } catch { this.aiOwn.add(rel) }
+    try { if (this.host.ownFileOutside(rel) >= 1 || (devEnvFlag() && this.unrecorded(rel))) this.aiOwn.add(rel) } catch { this.aiOwn.add(rel) }
+  }
+
+  /** Are the bytes of `rel` not the ones the app last recorded for it (no content event, one without a hash, or other
+   * bytes now)? The dev environment writes the person's own folder outside any change record (devenv/srt/access.ts),
+   * so with it on such a file may hold what an AI command read. Too big to hash, or unreadable: yes. */
+  private unrecorded(rel: string): boolean {
+    const last = this.host.rt.db.query("SELECT sha256 FROM file_events WHERE path = ? AND action IN ('create', 'update', 'upload', 'restore') ORDER BY id DESC LIMIT 1").get(rel) as { sha256: string | null } | null
+    if (!last?.sha256) return true
+    try {
+      const abs = path.join(this.host.rt.files.fx.root, ...rel.split('/'))
+      if (fs.lstatSync(abs).size > UNRECORDED_HASH_MAX) return true
+      return sha256Regular(abs) !== last.sha256
+    } catch { return true }
   }
 
   /** Right before a covered call writes: still covered (the same checks again), else why not. Calls nothing covered: null. */

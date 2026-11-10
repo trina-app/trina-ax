@@ -18120,7 +18120,8 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
 - **Stored** (migration 282, additive; 281 is #275's): `save_folder`, `save_folder_id` (device, inode and birth time,
   `saveFolderId`: on Linux a folder made right after another was deleted gets the same inode number, which CI showed;
   only one deleted for good and made again within one tick of the disk's clock, a few milliseconds, from the server's
-  own disk could still pass, never through the app, whose delete is a move to the trash),
+  own disk could still pass, never through the app, whose delete is a move to the trash; a disk that keeps no birth time
+  fails closed: such a folder is refused on the card and one kept before lapses),
   `save_rule` (a hash of the rules of every ruled folder from the team root to the folder: subjects and access, never who
   is in a group), `save_readers` (the number the card showed), `save_sources`, `personal_sends`, `save_lapsed_at`,
   `save_lapse_reason`. The edit and review answers are bound to the folder, its id and rule hash, the readers, the places
@@ -18181,7 +18182,9 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   turn that wrote each version, a copy's source, the same bytes anywhere) does not count as the listed "my folder": it
   may hold what that turn read (a narrower folder the card does not list), so reading it keeps the run's save out of the
   wider folder (third review: laundering across runs). #275 itself only marks the chat; this block is the scheduled
-  run's stricter use of the same mark.
+  run's stricter use of the same mark. While the dev environment is on (`MYCEL_DEV_ENV`), an own file whose bytes the
+  app did not record (no content event, or other bytes now) does not count either: its commands write the person's own
+  folder outside any change record (devenv/srt/access.ts), so such a file carries no mark (delta review).
 - **The own folder in a run** is #275's (`ownFolderTarget`, which scheduled runs get too): a new file there, or one
   this run made, goes on after a room read, so the fallback the run is told to use works.
 - **The cap** counts the files the file layer made under the save folder in this run (file_events creates, so a conflict

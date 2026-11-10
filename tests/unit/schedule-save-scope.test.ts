@@ -24,7 +24,7 @@ import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import { TEXT } from '../../server/src/tools/schedules'
 import { tr } from '../../server/src/chat/i18n'
-import { lapseOf, pinForm, resolveSaveFolder, ruleFingerprint, withRules, type PersonalSend, type ScopeSource } from '../../server/src/chat/schedule-scope'
+import { folderStat, lapseOf, pinForm, resolveSaveFolder, ruleFingerprint, saveFolderId, withRules, type PersonalSend, type ScopeSource } from '../../server/src/chat/schedule-scope'
 import { ScheduleCover, type CoverHost } from '../../server/src/chat/schedule-cover'
 import type { ScheduleRow } from '../../server/src/chat/schedules'
 import type { ConfirmExtra, TurnPerson } from '../../server/src/tools/url-gate'
@@ -394,6 +394,41 @@ describe('lapses (Q1 a)', () => {
     // a listed folder kept without its fingerprint is asked about again, never assumed unchanged
     db().query('UPDATE schedules SET save_sources = ?, save_lapsed_at = NULL, save_lapse_reason = NULL WHERE id = ?').run(JSON.stringify([MINE, { type: 'folder', id: 'f_groups_marketing' }]), s.id)
     expect(lapseOf(h.ctx, row(s.id))).toBe('rules')
+  })
+
+  test('a disk that keeps no folder creation time: a save folder there is refused on the card, and one kept before lapses', async () => {
+    clear()
+    const s = task(fake({ say: 'nothing' }))
+    const real = folderStat.lstat
+    // a file system without birth times (0): the inode alone could be a folder deleted and made again under the name
+    folderStat.lstat = (p) => { const st = real(p); return { isDirectory: () => st.isDirectory(), dev: st.dev, ino: st.ino, birthtimeNs: 0n } }
+    try {
+      expect(saveFolderId(h.ctx.files.fx, SAVE.split('/'))).toBeNull()
+      expect(() => resolveSaveFolder(h.ctx, 'alice', SAVE)).toThrow('keeps no creation time for folders')
+      const r = await toolRegistry(h.ctx.files).call('schedule_create', { title: 't', prompt: 'p p p', repeat: 'daily', time: '09:00', save_to: SAVE },
+        { user: h.ctx.files.principal('alice'), turnId: null, files: new TurnFiles(), person: { locale: 'ko', confirm: async () => true, turnUrls: () => [] } })
+      expect(r.isError).toBe(true)
+      expect(r.text).toContain("Why: not available in a scheduled task's save folder: the disk that holds")
+      expect(lapseOf(h.ctx, row(s.id))).toBe('folder')
+    } finally { folderStat.lstat = real }
+    expect(lapseOf(h.ctx, row(s.id))).toBeNull()
+  })
+
+  test('with the dev environment on, an own file whose bytes the app did not record is not "my folder" (it can write there untracked)', async () => {
+    clear()
+    // written straight to the disk (as a dev environment command could): no file event
+    fs.writeFileSync(abs('users/alice/untracked.md'), 'from a command\n')
+    const prev = process.env.MYCEL_DEV_ENV
+    try {
+      process.env.MYCEL_DEV_ENV = '1'
+      const r = await run(task(fake(read('users/alice/untracked.md'), write(`${SAVE}/u.md`), { say: 'done' })).id)
+      expect(fs.existsSync(abs(`${SAVE}/u.md`))).toBe(false)
+      expect(r.answer).toContain("changed outside the app's records while the dev environment can write there")
+    } finally { if (prev === undefined) delete process.env.MYCEL_DEV_ENV; else process.env.MYCEL_DEV_ENV = prev }
+    // off: the person's own file, as before
+    const ok = await run(task(fake(read('users/alice/untracked.md'), write(`${SAVE}/u.md`), { say: 'done' })).id)
+    expect(ok.events.find((e) => e.tool === 'write')!.ok).toBe(1)
+    fs.rmSync(abs('users/alice/untracked.md'), { force: true })
   })
 
   test('a group member joining does not lapse it; the person losing write access does', async () => {
