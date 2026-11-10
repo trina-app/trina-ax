@@ -3,7 +3,8 @@
 // operations; none for a personal project); a new chat in that project is seen and continued by the project's people.
 // The chat's header has the people icon, the line under the box says how many see it, every question carries its
 // sender's picture and name (mine too; a private chat neither), the project page's row has the faces of who wrote in it
-// (the names on hover and keyboard focus), and only what the person may do is offered. While
+// (the names on hover and keyboard focus), and only what the person may do is offered. A file from the computer is saved
+// in the project folder ("채팅 첨부") with one line under the chips saying so; ✕ before sending puts it in the trash. While
 // someone else's question is answered the box keeps the text with a line saying whose; the read card goes to the person
 // who asked, the others see that it waits for them.
 // At 1440 and 390 px wide, with axe on each screen. The mock (test/mock/server.ts, "shared project chats"): "hold" keeps
@@ -98,11 +99,12 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await dialog.getByTestId('project-save').click()
       expect((await saved).postDataJSON()).toMatchObject({ shareChats: true })
       await expect(dialog).toHaveCount(0)
-      // the box says who will see a new chat, and offers team files only
+      // the box says who will see a new chat, and offers a file from the computer too (it goes into the project folder)
       await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 4명이 볼 수 있어요.')
       await page.getByTestId('attach-button').click()
-      await expect(page.getByTestId('attach-computer')).toHaveCount(0)
-      await expect(page.getByTestId('attach-team-only')).toHaveText('공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.')
+      await expect(page.getByTestId(vp.phone ? 'attach-camera' : 'attach-computer')).toBeVisible()
+      await expect(page.getByTestId('attach-team')).toBeVisible()
+      await expect(page.getByTestId('attach-team-only')).toHaveCount(0)
       await page.keyboard.press('Escape')
       // a save that does not touch the setting does not send it
       await page.getByTestId('project-menu').click()
@@ -517,7 +519,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const chatId = await sharedChat(page, id, '출시 일정 정리해 줘')
       const b = await bob(browser)
 
-      // not his: rename, delete, another answer to Olga's question; nobody's: a move, a file from the computer
+      // not his: rename, delete, another answer to Olga's question; nobody's: a move
       const rename = await patch(b, `/api/chats/${chatId}`, { title: 'mine now' })
       expect([rename.status(), await reason(rename)]).toEqual([403, 'shared_chat_creator'])
       const remove = await del(b, `/api/chats/${chatId}`)
@@ -528,14 +530,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const other = ((await (await post(page, '/api/projects', { name: 'Other', scope: 'team', folderPath: 'docs', instructions: '' })).json()) as { id: string }).id
       const move = await patch(page, `/api/chats/${chatId}`, { projectId: other })
       expect([move.status(), await reason(move)]).toEqual([409, 'shared_chat_move'])
-      const upload = await post(page, '/api/upload-sessions', { target: { kind: 'attachment', chatId, name: 'a.txt' }, size: 3, sha256: 'a'.repeat(64) })
-      expect([upload.status(), await reason(upload)]).toEqual([409, 'shared_chat_upload'])
-
-      // a computer file given to the box anyway (dropped, pasted) is refused there with the reason
       await page.goto(`/c/${chatId}`)
-      await page.getByTestId('file-input').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('acme notes') })
-      await expect(page.getByRole('alert').filter({ hasText: '공유 채팅에는 팀 파일만 붙일 수 있어요.' })).toBeVisible()
-      await expect(page.getByTestId('attachment-chip')).toHaveCount(0)
 
       // a send refused in the moment (someone else's question began just before): the text stays, with the reason
       await page.route(`**/api/chats/${chatId}/messages`, (r) => r.request().method() === 'POST'
@@ -575,6 +570,53 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const blocked = await post(b, `/api/chats/${chatId}/messages`, { content: 'x', clientMessageId: uuidv7() })
       expect([blocked.status(), await reason(blocked)]).toEqual([409, 'safe_ops'])
       await audit(b, 'safe operations')
+      await b.context().close()
+    })
+
+    test('a file from the computer in a project\'s new chat: saved in the project folder, one line says so; ✕ before sending puts it in the trash; sent, Bob sees it', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      await page.goto(`/projects/${id}`)
+      const memo = { name: '견적 메모.txt', mimeType: 'text/plain', buffer: Buffer.from('acme quote notes') }
+      const chip = page.getByTestId('attachment-chip')
+      const line = page.getByTestId('shared-upload-line')
+      // Olga and Bob read marketing/: the count is the one the line under the box gives
+      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
+      // 📎 > from the computer (the file input behind it): the chip as usual, one line under it, no refusal
+      await page.getByTestId('file-input').setInputFiles(memo)
+      await expect(chip).toHaveAttribute('data-status', 'done')
+      await expect(chip).toContainText('견적 메모.txt')
+      await expect(line).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 프로젝트 사람 2명이 볼 수 있어요')
+      await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0)
+      const folder = async () => ((await (await page.request.get(`/api/files/tree?path=${encodeURIComponent('marketing/채팅 첨부')}`)).json()) as { entries: { name: string }[] }).entries.map((e) => e.name)
+      expect(await folder()).toEqual(['견적 메모.txt'])
+      await audit(page, 'project box with a file from the computer')
+
+      // ✕ before sending: the chip and the line go, the file goes to the trash (the button says so)
+      await page.getByRole('button', { name: '견적 메모.txt 빼기 · 프로젝트 폴더에 저장된 파일은 휴지통으로 가요' }).click()
+      await expect(chip).toHaveCount(0)
+      await expect(line).toHaveCount(0)
+      await expect.poll(folder).toEqual([])
+      const trash = ((await (await page.request.get('/api/files/trash')).json()) as { items: { originalPath: string }[] }).items.map((x) => x.originalPath)
+      expect(trash).toContain('marketing/채팅 첨부/견적 메모.txt')
+
+      // again, and sent: the question carries it as a team file of the project folder, and Bob opens the chat with it
+      await page.getByTestId('file-input').setInputFiles(memo)
+      await expect(chip).toHaveAttribute('data-status', 'done')
+      await page.getByTestId('composer-input').fill('이 메모로 견적서 초안 써 줘')
+      await page.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\//)
+      const chatId = new URL(page.url()).pathname.split('/').at(-1)!
+      await expect(page.getByTestId('user-message').locator('[data-source="team"]')).toContainText('견적 메모.txt')
+      const b = await bob(browser)
+      await b.goto(`/c/${chatId}`)
+      await expect(b.getByTestId('user-message').locator('[data-source="team"]')).toContainText('견적 메모.txt')
+      // in the chat itself the same: a second file goes there too, with the line; a taken name gets " (2)"
+      await b.getByTestId('file-input').setInputFiles(memo)
+      await expect(b.getByTestId('attachment-chip')).toContainText('견적 메모 (2).txt')
+      await expect(b.getByTestId('shared-upload-line')).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 프로젝트 사람 2명이 볼 수 있어요')
+      await audit(b, 'shared chat box with a file from the computer')
       await b.context().close()
     })
 
