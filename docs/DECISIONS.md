@@ -18677,5 +18677,7 @@ In a focused window that shows the conversation, a new message should only appea
   thread a panel shows; a background tab and a focused tab's thread), `session-markers.test.tsx` (the window's word,
   not the page's), e2e `room-sound-on-screen.spec.ts` (a browser: the room open is quiet, another room open rings; the
   desktop app: quiet and read while focused, rings in the back, rings for another room; Web Audio, Notification,
-  `showNotification` and the bridge stubbed).
+  `showNotification` and the bridge stubbed), desktop e2e `page-focus.spec.ts` (run by hand on a Mac: started with a
+  team, the window focused, the page's own focus false and the bridge's word true; skipped when another app is in
+  front).
 - Version impact: **patch** (a fix; no API, data, setting or text change).
