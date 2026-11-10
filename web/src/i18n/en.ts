@@ -924,6 +924,8 @@ export const en: Record<MessageKey, string> = {
   'chat.shared': "Shared chat · {n, plural, one {# person} other {# people}} in the project can see it",
   'chat.footerShared': "AI can make mistakes. Check important information. {n, plural, one {# person} other {# people}} in the project can see this chat.",
   'chat.sharedSeen': "{n, plural, one {# person} other {# people}} in the project can see this chat.",
+  'chat.linkCopiedShared': "Link copied · {n, plural, one {# person} other {# people}} in the project can open it",
+  'chat.linkCopiedPrivate': "Link copied · only you can open it",
   'chat.sharedBusy': "{name}'s question is being answered. You can send yours when it is done.",
   'chat.sharedWaiting': "Waiting for {name} to confirm.",
   'chat.sharedSafeOps': "Safe operations mode is on, so shared chats cannot be continued. Ask in a chat of your own.",

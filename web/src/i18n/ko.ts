@@ -923,6 +923,8 @@ export const ko = {
   'chat.shared': "공유 채팅 · 프로젝트 사람 {n}명이 볼 수 있어요",
   'chat.footerShared': "AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 프로젝트 사람 {n}명이 이 채팅을 볼 수 있어요.",
   'chat.sharedSeen': "프로젝트 사람 {n}명이 이 채팅을 볼 수 있어요.",
+  'chat.linkCopiedShared': "링크를 복사했어요 · 프로젝트 사람 {n}명이 열 수 있어요",
+  'chat.linkCopiedPrivate': "링크를 복사했어요 · 나만 열 수 있어요",
   'chat.sharedBusy': "{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.",
   'chat.sharedWaiting': "{name}님의 확인을 기다리는 중이에요.",
   'chat.sharedSafeOps': "안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.",

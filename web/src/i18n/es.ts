@@ -903,6 +903,8 @@ export const es: Record<MessageKey, string> = {
   'chat.shared': "Chat compartido · lo pueden ver {n, plural, one {# persona} other {# personas}} del proyecto",
   'chat.footerShared': "La IA puede cometer errores. Verifique la información importante. {n, plural, one {# persona del proyecto puede} other {# personas del proyecto pueden}} ver este chat.",
   'chat.sharedSeen': "{n, plural, one {# persona del proyecto puede} other {# personas del proyecto pueden}} ver este chat.",
+  'chat.linkCopiedShared': "Enlace copiado · {n, plural, one {# persona del proyecto puede} other {# personas del proyecto pueden}} abrirlo",
+  'chat.linkCopiedPrivate': "Enlace copiado · solo tú puedes abrirlo",
   'chat.sharedBusy': "Se está respondiendo la pregunta de {name}. Podrá enviar la suya cuando termine.",
   'chat.sharedWaiting': "Esperando la confirmación de {name}.",
   'chat.sharedSafeOps': "El modo de operaciones seguras está activado, así que los chats compartidos no se pueden continuar. Pregunte en un chat propio.",

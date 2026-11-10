@@ -903,6 +903,8 @@ export const ja: Record<MessageKey, string> = {
   'chat.shared': "共有チャット · プロジェクトの{n, plural, one {#人} other {#人}}が閲覧できます",
   'chat.footerShared': "AIは誤ることがあります。重要な情報は確認してください。プロジェクトの{n, plural, one {#人} other {#人}}がこのチャットを閲覧できます。",
   'chat.sharedSeen': "プロジェクトの{n, plural, one {#人} other {#人}}がこのチャットを閲覧できます。",
+  'chat.linkCopiedShared': "リンクをコピーしました · プロジェクトの{n, plural, one {#人} other {#人}}が開けます",
+  'chat.linkCopiedPrivate': "リンクをコピーしました · 自分だけが開けます",
   'chat.sharedBusy': "{name}さんの質問に回答中です。終わったら送信できます。",
   'chat.sharedWaiting': "{name}さんの確認を待っています。",
   'chat.sharedSafeOps': "安全作業モードのため、共有チャットは続けられません。自分のチャットで質問してください。",
