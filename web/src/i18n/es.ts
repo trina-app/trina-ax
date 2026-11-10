@@ -3469,7 +3469,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.alsoSent": "También enviado a la sala",
   "rooms.threadReplyMark": "Respuesta en un hilo",
   "rooms.closeThread": "Cerrar el hilo",
-  "sideChat.open": "Preguntar a {name} en privado",
+  "sideChat.open": "Preguntar a {name}",
   "sideChat.title": "{name}",
   "sideChat.close": "Cerrar",
   "sideChat.new": "Nuevo chat",
@@ -4327,7 +4327,7 @@ export const es: Record<MessageKey, string> = {
   "shareRoom.askedAgain": "Ahora hay más personas que no pueden abrirlo",
   "shareRoom.sendAttached": "Adjuntar y enviar",
   "shareRoom.sentFiles": "Enviado a {room} · {n, plural, one {# archivo adjunto} other {# archivos adjuntos}}",
-  "rooms.fileNoAccess": "No tiene acceso",
+  "rooms.fileNoAccess": "No se puede abrir: movido, eliminado o sin acceso",
   "rooms.fileAttachedCopy": "Abre la copia adjunta",
   "rooms.downloadFile": "Descargar {name}",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows

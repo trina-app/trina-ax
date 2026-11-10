@@ -3469,7 +3469,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.alsoSent": "トークルームにも送信済み",
   "rooms.threadReplyMark": "スレッドへの返信",
   "rooms.closeThread": "スレッドを閉じる",
-  "sideChat.open": "{name}に個別に質問",
+  "sideChat.open": "{name}に質問",
   "sideChat.title": "{name}",
   "sideChat.close": "閉じる",
   "sideChat.new": "新しいチャット",
@@ -4327,7 +4327,7 @@ export const ja: Record<MessageKey, string> = {
   "shareRoom.askedAgain": "その間に開けない人が増えました",
   "shareRoom.sendAttached": "添付して送信",
   "shareRoom.sentFiles": "{room}に送りました · ファイル{n, plural, one {#件} other {#件}}を添付",
-  "rooms.fileNoAccess": "権限がないため開けません",
+  "rooms.fileNoAccess": "開けません: 移動・削除されたか、権限がありません",
   "rooms.fileAttachedCopy": "添付されたコピーを開きます",
   "rooms.downloadFile": "{name}をダウンロード",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
