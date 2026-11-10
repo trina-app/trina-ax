@@ -34,6 +34,7 @@ test('started with a team, the in-app browser toolbar with the keyboard: the tea
     await expect.poll(() => pageFocus(page)).toBe(true)
     await page.evaluate(() => (window as unknown as { mycelDesktop: { pane: { open(): void } } }).mycelDesktop.pane.open())
     await chrome(app)
+    await expect.poll(() => page.evaluate(() => (window as unknown as { mycelDesktop: { pane: { getState(): Promise<{ open: boolean } | null> } } }).mycelDesktop.pane.getState().then((s) => s?.open ?? false))).toBe(true)
     await app.evaluate(({ webContents }) => webContents.getAllWebContents().find((w) => w.getURL().endsWith('/pane.html'))!.focus())
     await expect.poll(() => pageFocus(page)).toBe(false)
     expect(await windowFocused(app)).toBe(true)

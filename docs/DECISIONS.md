@@ -19081,7 +19081,8 @@ In a focused window that shows the conversation, a new message should only appea
 - **What a tab tells the others** (`mycel.roomSound.view`) now also lists the threads on screen (`threads`, at most 20
   read back; an older tab's word without it still counts for its room).
 - Not done: the desktop app does not give the team page its focus back when its window comes to the front, so typing
-  still needs a click into the page after a start. Not needed for the sound or reading.
+  still needs a click into the page after a start. Not needed for the sound or reading. (Done since by "창으로 돌아오면
+  키보드는 보던 곳으로", merged with this in batch 2.)
 - Tests: web unit `attention.test.ts` (the desktop window's word, an older app, each row of the rule, a DM, a thread),
   `room-sound.test.ts` (each row in `shouldRing`; in the app: the desktop window focused with the page unfocused, a
   thread a panel shows; a background tab and a focused tab's thread), `session-markers.test.tsx` (the window's word,
@@ -19089,7 +19090,9 @@ In a focused window that shows the conversation, a new message should only appea
   desktop app: quiet and read while focused, rings in the back, rings for another room; Web Audio, Notification,
   `showNotification` and the bridge stubbed), desktop e2e `page-focus.spec.ts` (run by hand on a Mac: started with a
   team, the window focused, the page's own focus false and the bridge's word true; false under the team list, where
-  the page still says visible, and true again on 돌아가기; skipped when another app is in front).
+  the page still says visible, and true again on 돌아가기; skipped when another app is in front). Since "창으로
+  돌아오면 키보드는 보던 곳으로" the page has the keyboard after a start, so the test's first step gives it to the
+  in-app browser's toolbar instead: the page's own focus false, the bridge's word true.
 - Version impact: **patch** (a fix; no API, data, setting or text change).
 
 ## Any emoji as a reaction — 반응은 어떤 이모지든 (feat/any-emoji-reactions, 2026-11-10, product owner)
