@@ -54,3 +54,7 @@ screens" and "What's next" are gone; each file is 24 lines shorter. An independe
 has no threads or group chats and that project skills, your own OAuth app and sending answers to a room are on
 `dev` only, so those are marked (0.5). Left out: a public Mac desktop app download (no DMG in the releases). PR into
 `dev` from `docs/readme-features`.
+
+Follow-up (owner): the README reads like a landing page for team leads (outcomes first, "A day at Dawnroute", setup
+material under "For whoever sets it up"), and the Mac App Store app is listed; docs/FAQ.md, docs/FAQ.ko.md and
+llms.txt no longer say there is no Mac app.

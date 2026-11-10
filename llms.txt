@@ -22,4 +22,4 @@ Files/chats are stored on the server, but selected context goes to model provide
 - [Documentation index](docs/README.md)
 - [Developer and agent docs](docs/site/index.md): guides, HTTP API, CLI and rules for AI agents; built with `llms.txt` and a Markdown copy of every page
 
-Browser/mobile web and Windows installer are available. No released Mac desktop DMG or app-store claim. Current source includes EN/KO/ID/JA/ES. HWP visual preview is experimental, off by default, excluded from default runtime bundles and unavailable on Debian 12; text extraction and original downloads remain. Check release notes for published-build availability. The local demo disables AI and is not a production installation.
+Browser/mobile web, a Windows installer, the Mac and iPhone apps on the App Store and an Android APK are available. Current source includes EN/KO/ID/JA/ES. HWP visual preview is experimental, off by default, excluded from default runtime bundles and unavailable on Debian 12; text extraction and original downloads remain. Check release notes for published-build availability. The local demo disables AI and is not a production installation.
