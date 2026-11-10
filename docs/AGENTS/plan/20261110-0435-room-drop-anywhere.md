@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 04:35
 - Branch: `feat/room-drop-anywhere`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, web only (`web/src/components/chat/ComposerFiles.tsx` useFileDrop, a new
   `web/src/components/FileDropZone.tsx`, the room page, thread panel, side chat, the AI chat page, `web/src/main.tsx`).
   Why: the room's message box and the AI chat box are core chat features (docs/REPOSITORY-RULES.md).
@@ -60,4 +60,19 @@ light and dark.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `useFileDrop` takes an options object; `FileDropZone` + `useDropTarget` route a drop to the box inside
+the column; the room column, thread panel, side chat and AI chat page are zones; `lib/fileDrop.ts` holds `dragKind` and
+the page guard.
+
+Differs from the plan:
+- Rooms have no read-only or archived state today, so the room's refusals are a full box (`ROOM_FILES_MAX`) and, in a
+  thread, no box (a deleted root, an AI answer only its asker sees). Size is not known while dragging; a file over 50 MB
+  is refused on drop by the box, with its toast, as before.
+- The side chat's box lost its drop ring: the panel shows the same overlay as the room and the thread.
+- Review found that Chromium carries a picture dragged from the page as "Files". Drags that start on the page are noted
+  (dragstart to dragend, or the next pointer event) and never taken as files from the computer. A pointer event also
+  ends the overlay, for a drag that left the window after a leave was lost.
+
+Checks: typecheck, check:i18n, check:docs; web unit tests in Docker; e2e `room-drop.spec.ts` plus the room, composer,
+side-chat and paste specs. The full web e2e has 7 failures that fail the same way on dev (HWP pages, an axe contrast
+check on the Integrations page and WebKit WebRTC when their whole files run).

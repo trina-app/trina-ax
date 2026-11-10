@@ -1,8 +1,9 @@
 // A file dropped anywhere on a room goes into its box (components/FileDropZone.tsx, components/chat/ComposerFiles.tsx
 // useFileDrop): the room's column (its header, the messages, the box), the thread beside it into the thread's box, the
 // ✦ side chat into the side chat's. While files are over a column one light overlay says "여기에 놓으면 첨부돼요";
-// moving over the column's own parts keeps it, Esc and leaving put it away. Text dragged over the room is left alone,
-// and a file dropped where nothing takes it (the sidebar) is not opened in place of the app (lib/fileDrop.ts). Dragged as
+// moving over the column's own parts keeps it, Esc and leaving put it away. Text or a picture dragged from the page is
+// left alone, and a file dropped where nothing takes it (the sidebar) is not opened in place of the app
+// (lib/fileDrop.ts). Dragged as
 // the browser fires it: drag events with a DataTransfer that holds the file (dispatchEvent). The room is answered
 // through page.route (rooms-mock.ts), its uploads and the send here; the side chat's uploads by the mock team server.
 // SHOTS_DIR=<folder>: the overlay over the room at 1440, light and dark.
@@ -79,6 +80,8 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`files over the room: one light overlay over its column, "여기에 놓으면 첨부돼요"; its own parts keep it, leaving and Esc put it away (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await openRoom(page)
+    // the pointer out of the way (no hover marks in the picture); a pointer event during the drag would end it
+    await page.mouse.move(0, 899)
     const overlay = page.getByTestId('drop-overlay')
     const dt = await transfer(page)
     await dragOver(page.getByTestId('room-scroller'), dt)
@@ -92,7 +95,6 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(box.x).toBeGreaterThanOrEqual(col.x)
     expect(box.width).toBeGreaterThan(col.width - 24)
     expect(box.height).toBeGreaterThan(col.height - 24)
-    await page.mouse.move(0, 899)
     await shot(page, `room-drop-overlay-1440-${scheme}.png`)
 
     // into the box and the header: the next element is entered, then the last one left (relatedTarget)
@@ -110,6 +112,11 @@ for (const scheme of ['light', 'dark'] as const) {
     await dragOver(page.getByTestId('room-scroller'), dt)
     await expect(overlay).toHaveCount(1)
     await page.keyboard.press('Escape')
+    await expect(overlay).toHaveCount(0)
+    // a pointer event: the drag is over (it left the window and ended there)
+    await dragOver(page.getByTestId('room-scroller'), dt)
+    await expect(overlay).toHaveCount(1)
+    await page.mouse.move(10, 899)
     await expect(overlay).toHaveCount(0)
   })
 }
@@ -173,6 +180,18 @@ test('text dragged over the room is left alone; a file dropped where nothing tak
   await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
   await page.getByTestId('room-scroller').dispatchEvent('drop', { dataTransfer: text })
   await expect(page.getByTestId('room-file-chip')).toHaveCount(0)
+  // a picture dragged from the page itself (Chromium carries it as a file): no overlay, nothing attached; once its drag
+  // ended, a file from the computer is taken again
+  const message = page.getByTestId('room-message').first()
+  await message.dispatchEvent('dragstart')
+  const picture = await transfer(page)
+  await dropOn(page.getByTestId('room-scroller'), picture)
+  await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
+  await expect(page.getByTestId('room-file-chip')).toHaveCount(0)
+  await message.dispatchEvent('dragend')
+  await dragOver(page.getByTestId('room-scroller'), await transfer(page))
+  await expect(page.getByTestId('drop-overlay')).toHaveCount(1)
+  await page.keyboard.press('Escape')
   // the sidebar takes no file: the page-wide guard says "none" and takes the drop, so the browser does not open it;
   // text keeps the browser's way
   const outside = await page.evaluate((b64) => {

@@ -4,7 +4,8 @@
 // end and on Esc; a drop goes to the box inside, the nearest column winning; the box's own refusals show instead of
 // "여기에 놓으면 첨부돼요" and the drop does nothing; text, links and the app's own drags are not taken. On the room page:
 // the room's column, the thread beside it and the ✦ side chat each take what is dropped on them. The page-wide guard
-// (lib/fileDrop.ts) keeps a file dropped where nothing took it from replacing the app.
+// (lib/fileDrop.ts) keeps a file dropped where nothing took it from replacing the app, and a picture dragged from the
+// page itself (which Chromium carries as a file) is not taken as one.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -140,6 +141,15 @@ describe('a column that takes files', () => {
       // a drop outside it does too
       await fire(m.get('msg'), 'dragenter', dt)
       await fire(m.get('outside'), 'drop', dt)
+      expect(overlays(m)).toHaveLength(0)
+      // the drag left the window over one of its parts that went away meanwhile (no leave reached the column): the next
+      // pointer move, which never comes while a drag lasts
+      await fire(m.get('msg'), 'dragenter', dt)
+      await fire(m.get('title'), 'dragenter', dt)
+      expect(overlays(m)).toHaveLength(1)
+      await fire(m.get('title'), 'dragleave', dt, null)
+      expect(overlays(m)).toHaveLength(1)
+      await act(async () => { window.dispatchEvent(new FakeEvent('pointermove') as never) })
       expect(overlays(m)).toHaveLength(0)
       expect(got).toEqual([])
     } finally { await m.unmount() }
@@ -432,5 +442,27 @@ test('the page-wide guard: a file dropped where nothing took it is not opened in
     expect(into.dropEffect).toBe('copy')
     await fire(m.get('msg'), 'drop', into)
     expect(got).toHaveLength(1)
+    // a picture dragged from the page itself (Chromium puts it in as a file): not a file from this computer, no overlay,
+    // nothing taken, the guard leaves it to the browser
+    await act(async () => { m.get('msg').dispatchEvent(new FakeEvent('dragstart', { bubbles: true })) })
+    const picture = filesDrag()
+    await fire(m.get('msg'), 'dragenter', picture)
+    expect((await fire(m.get('msg'), 'dragover', picture)).defaultPrevented).toBe(false)
+    expect(overlays(m)).toHaveLength(0)
+    expect((await fire(m.get('outside'), 'dragover', picture)).defaultPrevented).toBe(false)
+    expect((await fire(m.get('msg'), 'drop', picture)).defaultPrevented).toBe(false)
+    expect(got).toHaveLength(1)
+    // its drag ended: files from the computer again
+    await act(async () => { m.get('msg').dispatchEvent(new FakeEvent('dragend', { bubbles: true })) })
+    await fire(m.get('msg'), 'dragenter', filesDrag())
+    expect(overlays(m)).toHaveLength(1)
+    await act(async () => { window.dispatchEvent(new FakeEvent('keydown', { key: 'Escape' }) as never) })
+    // a page drag whose dragend never reached the window (its element went away): the next pointer move ends it
+    await act(async () => { m.get('msg').dispatchEvent(new FakeEvent('dragstart', { bubbles: true })) })
+    await fire(m.get('msg'), 'dragenter', filesDrag())
+    expect(overlays(m)).toHaveLength(0)
+    await act(async () => { window.dispatchEvent(new FakeEvent('pointermove') as never) })
+    await fire(m.get('msg'), 'dragenter', filesDrag())
+    expect(overlays(m)).toHaveLength(1)
   } finally { await m.unmount() }
 })

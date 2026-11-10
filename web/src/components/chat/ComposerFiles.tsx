@@ -217,7 +217,8 @@ const taken = new WeakSet<object>()
  * why a drop of this kind would do nothing here (shown instead, and the drop does nothing), or null.
  * `drag`: something it takes is over it (not over a nearer target inside it); `refusal`: the reason for that drag.
  * Moving over its own parts is not leaving it: a count of the enters and leaves that reached it, and the element the
- * pointer goes to (`relatedTarget`) when the browser says. Off on a drop, on leaving it, at the drag's end and on Esc. */
+ * pointer goes to (`relatedTarget`) when the browser says. Off on a drop, on leaving it, at the drag's end and on Esc.
+ * A picture or link dragged from the page itself is not a file from this computer (lib/fileDrop.ts dragKind). */
 export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File[]) => void; teamPath?: (path: string) => void; refusal?: (kind: DropKind) => string | null }) {
   const [over, setOver] = useState<{ kind: DropKind; refusal: string | null; covered: boolean } | null>(null)
   const depth = useRef(0)
@@ -238,14 +239,15 @@ export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File
     // the pointer went somewhere else on the page without a leave reaching this target (the element it was over was
     // taken out of the page meanwhile, say)
     const elsewhere = (e: Event) => { if (zone.current && !zone.current.contains(e.target as Node | null)) stop() }
+    // no pointer event comes while a drag lasts: one means the drag is over (it left the window and was dropped or
+    // cancelled there, with a leave that never reached this target)
+    const ends = ['dragend', 'drop', 'pointermove', 'pointerdown'] as const
     window.addEventListener('keydown', key)
-    window.addEventListener('dragend', stop)
-    window.addEventListener('drop', stop)
+    for (const type of ends) window.addEventListener(type, stop)
     window.addEventListener('dragover', elsewhere)
     return () => {
       window.removeEventListener('keydown', key)
-      window.removeEventListener('dragend', stop)
-      window.removeEventListener('drop', stop)
+      for (const type of ends) window.removeEventListener(type, stop)
       window.removeEventListener('dragover', elsewhere)
     }
   }, [showing])
