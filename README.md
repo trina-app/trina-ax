@@ -6,40 +6,32 @@
 
 **The AI your whole team shares.**
 
-Claude Code and Codex on your company's server, with your company files and your team's skills. Your team uses it in the browser, in their own chat or, from version 0.4, by calling @Trina in a team conversation.
+Claude Code and Codex on your company's server, working from your company files and your team's skills. Everyone asks in their own chat or in a private side chat beside a team room, and the AI sees only what that person may open.
 
 [Website](https://ax.trina.app) · [Try it in 10 minutes](#try-it-in-10-minutes) · [Self-host](docs/for-admins.md) · [Docs](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/room-quote.png" width="100%" alt="In the Sales conversation (shown with a # icon), Mina writes '@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20'. Trina posts a quote summary in the room with a link to the file 'Northwind Foods quote.xlsx', and Alex replies 'Matches our price sheet. Send it.'">
-
-<sub>The real app, version 0.4: the Sales conversation. Fictional company.</sub>
-
 </div>
 
-- **Set it up once, everyone works that way.** Company files go in `shared/`. The way your lead writes a quote goes in `skills/quote/SKILL.md`. Everyone on the team works from them, from their first day.
-- **Call @Trina in the room, the result lands there.** Ask in a team conversation: the team's skill runs on the files you can open, and the answer, with its file, is posted in the room.
-- **Pick up where a teammate left off** (in the next 0.4 beta). Anyone on a project can continue a shared project chat, and each message runs as the person who sent it.
+## What you get
 
-Put real company files in. Everyone sees only what they're allowed to. [How](#under-the-hood)
+| | What it does for your team |
+|---|---|
+| **Shared files, per-person access** | Company folders in one place: `shared/`, `groups/`, `projects/` and personal ones. The server checks every file the AI opens as the person asking, so a folder you can't open doesn't exist for your AI either. |
+| **Team skills** | Write down once how your team does a task, in a `SKILL.md`, and everyone runs it with `/name`. Skills for the team, a group, a project or one person; bring your own from Claude Code or Codex. The AI asks before it changes one. |
+| **Team rooms** | Group rooms, an Everyone room, DMs and group chats, with threads, mentions, files and photos. Admins can't open rooms they aren't in. |
+| **A private AI side chat in every room** (0.5) | ✦ opens Trina beside the room. Only you see it, and it reads the room as you see it: *Catch up*, *Summarize*, or *Ask Trina about this* on any message. **Send to thread** or **Send to room** shares a good answer in one click; if some members can't open what it used, you confirm first. |
+| **Continue a teammate's AI chat** (0.5) | Share a project's chats, and everyone on the project can read and continue them. Each message runs as the person who sent it, with their own access and AI connection. |
+| **Connections** | Any MCP server, your company's HTTP API (with a key or your own OAuth app), Google Drive, [Slack](docs/SLACK.md), and a catalog with Notion, Linear, Higgsfield and more. Say "connect Higgsfield" in a chat and finish on one card. |
+| **Scheduled tasks** | "Every Monday at 9:00, summarize last week's notes in shared/sales." Each run works as the person who made the task, in the team's time zone. |
+| **Version history and trash** | Files keep earlier versions you can restore, and deleted files go to the team trash first. |
+| **PDF, Office and Hangul files** | Reads PDF, Office and HWP/HWPX files; makes Word, Excel, PowerPoint and PDF files. With the optional HWP plugin it also makes and fills in Hangul documents. |
+| **Apps** | The browser on computer and phone, a Windows app, the [iPhone app](https://apps.apple.com/app/id6829192435) and an [Android app](https://github.com/trina-app/trina-ax/releases/tag/android-v1.0.2) (APK; in review on Google Play). |
+| **Bring your own AI login** | Claude Code and Codex run on the Claude or ChatGPT subscription, or the API key, that you connect: one for the team or each person's own, with usage and limits per person. Trina doesn't provide the AI. |
+| **Self-host or hosted** | A Linux server ([Docker](docs/INSTALL-DOCKER.md) too), an office Mac, or Trina hosting in AWS Seoul. Free software under AGPL-3.0. |
 
-```sh
-git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
-bun install --frozen-lockfile && bun run demo   # http://127.0.0.1:19760 · alice / teamax-demo-1
-```
-
-<sub>Local demo: fictional team, AI off, not for production. Needs Bun 1.3.12 and Go 1.27+. To try team conversations and @Trina, run the [Docker install](docs/INSTALL-DOCKER.md) with `TRINA_AX_VERSION=0.4.0-beta.10` and connect an AI account.</sub>
-
-## How it works
-
-1. **Put it in once.** Company files go in `shared/`. The way you write a proposal goes in `skills/proposal/SKILL.md`.
-2. **Anyone asks, in their own chat or in a team conversation.** In the browser on desktop or phone, or in the iPhone app. No terminal, nothing to install on their laptop. In a conversation, @Trina works as the person who called it.
-3. **Each person keeps their own access.** The server checks every file the AI opens, as the person asking. A folder you can't see doesn't exist for your AI either.
-
-<img src="docs/images/readme/permission-answer.png" width="100%" alt="A sales team member asks 'What was our revenue last quarter?' and the AI answers that it found no revenue figures in any team file she can access.">
-
-<sub><b>Same question, different people.</b> Mina is in Sales. The revenue file sits in <code>shared/Finance</code>, which she can't open, so her AI can't open it either.</sub>
+<sub><b>(0.5)</b>: in the 0.5 beta releases, or on <code>dev</code> for the next one. The stable release, 0.4.0, still has people call @Trina in the room itself.</sub>
 
 ## Try it in 10 minutes
 
@@ -51,7 +43,17 @@ bun run demo        # → http://127.0.0.1:19760 · sign in as alice / teamax-de
 
 A fictional team with six starter skills. AI is off, so no AI account is needed. Sign in as `bob` in a private window: each sees a different group folder. Needs Git, Bun 1.3.12 and Go 1.27+. This is **not a production install**. [Walkthrough](docs/QUICKSTART.md)
 
-To try team conversations and @Trina, use the [Docker install](docs/INSTALL-DOCKER.md) with `TRINA_AX_VERSION=0.4.0-beta.10` (or a later 0.4 release) and connect an AI account. The local demo has AI off, so @Trina does not answer there.
+To try rooms with the AI, run the [Docker install](docs/INSTALL-DOCKER.md) with a release (`TRINA_AX_VERSION=0.4.0`, or `0.5.0-beta.1` for the side chat and shared project chats) and connect your own AI account.
+
+## How it works
+
+1. **Put it in once.** Company files go in `shared/`. The way you write a proposal goes in `skills/proposal/SKILL.md`.
+2. **Anyone asks, in their own chat or beside a room.** In the browser on computer or phone, or in the apps. No terminal, nothing to install on their laptop. An answer reaches a room only when its person sends it there.
+3. **Each person keeps their own access.** The server checks every file the AI opens, as the person asking. A folder you can't see doesn't exist for your AI either.
+
+<img src="docs/images/readme/permission-answer.png" width="100%" alt="A sales team member asks 'What was our revenue last quarter?' and the AI answers that it found no revenue figures in any team file she can access.">
+
+<sub><b>Same question, different people.</b> Mina is in Sales. The revenue file sits in <code>shared/Finance</code>, which she can't open, so her AI can't open it either.</sub>
 
 ## Same request, two answers
 
@@ -68,43 +70,23 @@ To try team conversations and @Trina, use the [Docker install](docs/INSTALL-DOCK
 
 <sub>Real outputs from 2026-10-31 and 11-01 with a fictional company, Dawnroute; the deck photos were made with Higgsfield. Claude Code is right to ask: nothing in an empty folder tells it who you are. Trina gives it the folder.</sub>
 
-**Same room, two screens.** Only answers built from what everyone in the room can see go straight to the room. Otherwise, the person who asked sees it first.
-
-<img src="docs/images/readme/share-check.png" width="100%" alt="The Everyone conversation at the same moment on two screens. Alex sees Trina's answer marked 'Only you can see this · Post', with the reason line 'It read folders that some people in this room cannot open (Team folder, Finance).' Mina sees only 'Answered to Alex only'.">
-
-<sub>Alex's answer used the Finance folder, which Mina can't open. Alex can still choose to post it; until then, Mina sees only that he got an answer. The real app, version 0.4. Fictional company.</sub>
-
-## What you get
-
-| | In practice |
-|---|---|
-| **Real Claude Code and Codex agents** | They run on your server: up to 150 tool rounds per answer by default, up to 4 sub-agents at a time, web search and schedules. |
-| **Company folders are the knowledge** | `shared/`, `groups/`, `projects/` and personal folders, with version history. Text from PDF, Office and HWP/HWPX files. |
-| **Team skills, governed like files** | A skill is a `SKILL.md` file. Folder rules decide who can use it, and the AI asks a person before it changes one. |
-| **Team conversations (0.4)** | Group rooms, an Everyone room and direct messages, with quoted replies, mentions, files and photos. Call @Trina and it answers as you, with the files and skills you can use. A room is visible to its members; admins can't open rooms they aren't in. |
-| **Permissions on every file call** | Files you can't access stay invisible in Files, AI answers, search, previews, version history and trash. |
-| **Your AI connection** | Connect the company's Claude or OpenAI account once, or let people connect their own. Usage per person, with limits. Self-hosted, Claude Code can also run on other models such as DeepSeek, Kimi or GLM through an [Anthropic-compatible gateway](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
-| **Slack connector (0.4, off by default)** | Once the owner sets up the team's own Slack app, people link their own Slack account and ask the app in a channel or a direct message. Each question runs as the person who asked; in a channel the answer shows to them first, with *Post to channel*. [Slack guide](docs/SLACK.md) |
-| **iPhone app** | [Trina AX on the App Store](https://apps.apple.com/app/id6829192435). It opens your team's server, so it has what your server's version has: team conversations need 0.4. |
-| **Self-host or hosted** | A Linux server (also with [Docker](docs/INSTALL-DOCKER.md)), an office Mac, or Trina hosting in AWS Seoul. Browser on desktop and phone, the iPhone app and a Windows installer. |
-
 ## Under the hood
 
 Our first commit, on 2026-10-21, already had the permission function (`server/src/policy/authorize.ts`). Every file call still goes through it.
 
 ```mermaid
 flowchart LR
-  P["Your team<br/>browser · iPhone app · Windows app"] --> S["Trina server"]
+  P["Your team<br/>browser · Windows · iPhone · Android"] --> S["Trina server"]
   E["Claude Code / Codex<br/>own shell and file tools turned off"] -->|"only path: Trina file tools"| C{"Permission check<br/>as the person asking"}
   S --> C
   C --> D[("Company folders<br/>shared · groups · projects · users")]
   E -. "direct disk access denied by the OS" .-x D
 ```
 
-- **The agent is real.** Sub-agents work as the same person, through the same checks, and leave the same activity records.
+- **The agent is real.** Up to 150 tool rounds per answer by default, up to 4 sub-agents at a time (Claude), web search. Sub-agents work as the same person, through the same checks, and leave the same activity records.
 - **The way in is narrow.** The engine's own shell and file tools are turned off and covered by regression tests for each engine. Its path to your folders is Trina's file tools, checked on every call.
 - **Keys stay out of reach.** Tokens are sealed in the browser before they're sent. The engine gets a per-turn stand-in token, and a model proxy adds the real one.
-- **Your chats with Trina are visible only to you.** A room is visible to its members; admins can't open rooms they aren't in. Admins see which files the AI read, not the conversation. Server operators can still read stored data, and we say so [below](#data-and-limits).
+- **Your chats with Trina are yours.** Your own chats and side chats are visible only to you, and a project's shared chats only to the people on that project. A room is visible to its members; admins can't open rooms they aren't in. Admins see which files the AI read, not the conversation. Server operators can still read stored data, and we say so [below](#data-and-limits).
 
 <sub>OS isolation (a dedicated engine account) applies to Linux and role-account Mac installs. Office Mac runs as the signed-in user, and the local demo has no OS isolation. → <a href="docs/security-and-permissions.md">Security and permissions</a> · <a href="docs/PERMISSIONS.md">Permission model (Korean)</a></sub>
 
@@ -133,7 +115,7 @@ A skill is a reusable set of instructions, not model training or extra access. P
 | Cost | Free 14-day trial, then a monthly plan + AI usage | Free software + your server | Free software | Free |
 | Start | [See the plans](https://ax.trina.app/#pricing) | [Linux guide](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) | [Office guide](docs/OFFICE.en.md) | [Quickstart](docs/QUICKSTART.md) |
 
-Trina provides the workspace, not the AI: use only Claude and OpenAI accounts and plans authorized for your use. Free 14-day trial on Trina hosting, then a monthly plan; AI usage is billed separately by the account you connect. [Current prices](https://ax.trina.app/#pricing)
+Trina provides the workspace, not the AI: use only Claude and OpenAI accounts and plans authorized for your use. AI usage is billed separately by the account you connect. Self-hosted, Claude Code can also run on other models such as DeepSeek, Kimi or GLM through an [Anthropic-compatible gateway](docs/CONFIGURATION.md#anthropic-compatible-gateway). [Current prices](https://ax.trina.app/#pricing)
 
 Linux self-hosting needs Debian 12/13 or Ubuntu 24.04, systemd with cgroup v2, amd64 or arm64, 4 GB RAM recommended and 20 GB disk minimum. Your IT team installs, updates and restores backups.
 
@@ -169,14 +151,14 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 <details>
 <summary><b>Do we need an AI account to try it?</b></summary>
 
-<br>No. The [local demo](docs/QUICKSTART.md) runs with AI turned off and fictional data, so you can look at files, skills and permissions first. To see @Trina answer in a team conversation, you need a server with an AI connection ([Try it](#try-it-in-10-minutes)).
+<br>No. The [local demo](docs/QUICKSTART.md) runs with AI turned off and fictional data, so you can look at files, skills and permissions first. To see Trina answer, you need a server with your own AI connection ([Try it](#try-it-in-10-minutes)).
 
 </details>
 
 <details>
 <summary><b>Can admins read our chats and rooms?</b></summary>
 
-<br>No. Your chats with Trina are visible only to you. A room is visible to its members; admins can't open rooms they aren't in. Activity records show which files the AI read, not the conversation. People who operate the server or its storage can read stored data.
+<br>No. Your own chats and side chats with Trina are visible only to you, and a project's shared chats only to the people on that project. A room is visible to its members; admins can't open rooms they aren't in. Activity records show which files the AI read, not the conversation. People who operate the server or its storage can read stored data.
 
 </details>
 
@@ -192,12 +174,6 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
 <sub><b>Sound on.</b> A team lead sets up Claude once, and on her first day a new hire’s proposal comes out like his.<br>Animated story with the real app at 1:15. Fictional company.</sub>
-
-## What's next
-
-- **Pick up a teammate's AI chat.** Shared project chats arrive in the next 0.4 beta: anyone on the project can continue a shared project chat, and each message runs as the person who sent it. @Trina in a room can read the ones the person asking can see.
-- **Android app.** In review on Google Play.
-- **0.4 on Trina hosting.** Hosting follows the stable channel and gets team conversations when 0.4 becomes stable. Self-hosted servers can run a 0.4 release today.
 
 ## Community and contributing
 
