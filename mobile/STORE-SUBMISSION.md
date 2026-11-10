@@ -6,8 +6,8 @@ What the owner provides or decides before each store step. Engineering steps and
 ## Decided / already there
 
 - Bundle id / Android package: `app.trina.ax` (editions/trina/branding/mobile.json). The iOS platform is added to the
-  existing App Store Connect record of the Mac App Store app, team `YWW96288YY`, version 1.0.0, then 1.0.1; the next
-  store version is 1.0.2 (`app.config.ts`).
+  existing App Store Connect record of the Mac App Store app, team `YWW96288YY`, version 1.0.0, then 1.0.1 and 1.0.2;
+  the next store version is 1.0.3 (`app.config.ts`).
 - From 1.0.1 the iPhone app has a notification service extension, `app.trina.ax.NotificationService` (who and where in a
   room push, docs/DECISIONS.md "아이폰 알림의 이름"). Its App ID and profiles are made by automatic signing at the first
   archive (`-allowProvisioningUpdates` with the Admin API key); nothing to register by hand. It needs no App Group and no
@@ -21,9 +21,9 @@ What the owner provides or decides before each store step. Engineering steps and
 
 ## Links that open the app (first run, phase 2)
 
-- **iPhone**: the app declares `applinks:*.trina.app` (Associated Domains). Before the next signed build, turn on the
-  **Associated Domains** capability for the App ID `app.trina.ax` (Certificates, Identifiers & Profiles) and refresh
-  the provisioning profile; without it the archive fails to sign. Each team server serves `apple-app-site-association`
+- **iPhone**: from 1.0.3 the app declares `applinks:*.trina.app` (Associated Domains). The App ID `app.trina.ax` has
+  the **Associated Domains** capability (on since 2026-11-10; without it the archive fails to sign), and automatic
+  signing at the archive puts it in the profiles. Each team server serves `apple-app-site-association`
   (`server/src/routes/app-links.ts`); for the wildcard entry serve the same file on `trina.app` itself too (developers
   report Apple's CDN asks the domain after `*.`; Apple's page does not say which), from the website.
 - **Android**: the intent filter for `https://*.trina.app` `/invite/…` and `/join` has `autoVerify`; Android checks a

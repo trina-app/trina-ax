@@ -162,15 +162,15 @@ test('signedOut on a session reset: done before the reset is answered; a reset w
 
 afterEach(() => { delete process.env.MYCEL_MOBILE_EDITION; delete process.env.MYCEL_MOBILE_BUILD_NUMBER })
 
-test('the Trina edition (1.0.2) gets the extension and the shared keychain group; the neutral app neither', () => {
+test('the Trina edition (1.0.3) gets the extension and the shared keychain group; the neutral app neither', () => {
   expect(labelSetup({ bundleId: 'app.trina.ax', appleTeamId: 'YWW96288YY' })).toEqual({ accessGroup: 'YWW96288YY.app.trina.ax.notifications', extensionId: 'app.trina.ax.NotificationService' })
   expect(labelSetup({ bundleId: 'app.teamax.mobile.dev' })).toBeNull()
   process.env.MYCEL_MOBILE_EDITION = 'trina'; process.env.MYCEL_MOBILE_BUILD_NUMBER = '12'
   const c = appConfig({ config: {}, projectRoot: mobileRoot } as never)
-  expect(c.version).toBe('1.0.2')
+  expect(c.version).toBe('1.0.3')
   expect(c.extra?.pushLabels).toEqual({ accessGroup: 'YWW96288YY.app.trina.ax.notifications', extensionId: 'app.trina.ax.NotificationService' })
   const plugin = (c.plugins as unknown[]).find(x => Array.isArray(x) && x[0] === './plugins/notification-service.js') as [string, Record<string, string>]
-  expect(plugin[1]).toEqual({ accessGroup: 'YWW96288YY.app.trina.ax.notifications', extensionId: 'app.trina.ax.NotificationService', teamId: 'YWW96288YY', version: '1.0.2', build: '12' })
+  expect(plugin[1]).toEqual({ accessGroup: 'YWW96288YY.app.trina.ax.notifications', extensionId: 'app.trina.ax.NotificationService', teamId: 'YWW96288YY', version: '1.0.3', build: '12' })
   delete process.env.MYCEL_MOBILE_EDITION
   const neutral = appConfig({ config: {}, projectRoot: mobileRoot } as never)
   expect(neutral.extra?.pushLabels).toBeNull()
