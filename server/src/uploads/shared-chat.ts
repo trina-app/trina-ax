@@ -13,16 +13,19 @@
 //   - A project folder that is not there (in the trash) is never made again by an upload; while safe operations are on,
 //     shared chats are read-only, so nothing is put there.
 import fs from 'node:fs'
+import type { Database } from 'bun:sqlite'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import type { ChatRow } from '../chat/store'
-import { authorize } from '../policy/authorize'
+import type { Principal, RuleSet } from '../policy/access'
+import { authorize, type FsCtx } from '../policy/authorize'
 import { Denied } from '../policy/errors'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { inSkills } from '../skills/guard'
 import { fileError } from '../team-files/errors'
-import type { TeamFiles } from '../team-files/service'
+
+/** What the check reads of the files layer (the team files service or the file service: the same rules and paths). */
+export interface UploadFiles { fx: FsCtx; rules(): RuleSet; principal(userId: string): Principal }
 
 /** Where a computer upload into a shared chat goes. */
 export interface SharedUploadPlace {
@@ -40,9 +43,9 @@ const KNOWN = new Set(Object.values(CHAT_FILES_FOLDER).map(fold))
  * 409 safe_ops while safe operations are on, 404 when its project or project folder is not there, 403
  * shared_upload_read_only when they may not write there. Read-only: nothing is made.
  */
-export function sharedUploadPlace(ctx: AppContext, files: TeamFiles, userId: string, chat: Pick<ChatRow, 'project_id'>): SharedUploadPlace {
+export function sharedUploadPlace(db: Database, files: UploadFiles, userId: string, chat: Pick<ChatRow, 'project_id'>): SharedUploadPlace {
   if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
-  const p = chat.project_id ? ctx.db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(chat.project_id) as { folder_path: string; trashed_with: string | null } | null : null
+  const p = chat.project_id ? db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(chat.project_id) as { folder_path: string; trashed_with: string | null } | null : null
   if (!p || p.trashed_with !== null || !p.folder_path) fileError('not_found', 'notChat')
   const user = files.principal(userId)
   const rules = files.rules()
@@ -55,7 +58,7 @@ export function sharedUploadPlace(ctx: AppContext, files: TeamFiles, userId: str
     base = r
   } catch { return fileError('not_found', 'notChat') }
   // the one already there (several under different languages' names: the team's language first), else a new one
-  const own = CHAT_FILES_FOLDER[teamDefaultLocale(ctx.db)] ?? CHAT_FILES_FOLDER.en
+  const own = CHAT_FILES_FOLDER[teamDefaultLocale(db)] ?? CHAT_FILES_FOLDER.en
   let found: string[] = []
   try { found = fs.readdirSync(base.abs, { withFileTypes: true }).filter((e) => e.isDirectory() && KNOWN.has(fold(e.name))).map((e) => e.name).sort() } catch { /* the write check decides */ }
   const folder = `${base.rel}/${found.find((n) => fold(n) === fold(own)) ?? found[0] ?? own}`
@@ -71,4 +74,10 @@ export function sharedUploadPlace(ctx: AppContext, files: TeamFiles, userId: str
     throw e
   }
   return { folder, exists }
+}
+
+/** May `userId` send a file from the computer into a shared chat of this project now: sharedUploadPlace as a yes or no
+ * (Project.chatUploads, Chat.shared.canUpload: the box offers the computer only then). The upload checks again. */
+export function mayUploadShared(db: Database, files: UploadFiles, userId: string, projectId: string): boolean {
+  try { sharedUploadPlace(db, files, userId, { project_id: projectId }); return true } catch { return false }
 }

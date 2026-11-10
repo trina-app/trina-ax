@@ -222,6 +222,30 @@ describe('✕ while the file is being put in place, or attached elsewhere', () =
   })
 })
 
+describe('the box knows beforehand (Project.chatUploads, Chat.shared.canUpload)', () => {
+  test('who may write the project folder may send computer files; a reader may not; none while safe operations are on', async () => {
+    const chat = await newShared()
+    const project = (u: string) => h.api(u).call(API.getProject, { params: { id: projectId } })
+    const shared = async (u: string) => (await h.api(u).call(API.getChat, { params: { id: chat.id } })).shared
+    expect([(await project('alice')).chatUploads, (await shared('alice'))?.canUpload]).toEqual([true, true])
+    // bob only reads it: the box offers team files only (and the upload would be the 403)
+    expect([(await project('bob')).chatUploads, (await shared('bob'))?.canUpload]).toEqual([false, false])
+    expect((await upload('bob', chat.id, 'no.txt', 'x')).status).toBe(403)
+    // the lists say the same, once per project
+    const list = (await h.api('bob').call(API.listChats, { query: { projectId } })).items.find((c) => c.id === chat.id)
+    expect(list?.shared?.canUpload).toBe(false)
+    expect((await h.api('bob').call(API.listProjects, {})).items.find((p) => p.id === projectId)?.chatUploads).toBe(false)
+    expect((await h.api('alice').call(API.listProjects, {})).items.find((p) => p.id === projectId)?.chatUploads).toBe(true)
+    process.env.MYCEL_SAFE_OPS_1A = '1'
+    try { expect((await shared('alice'))?.canUpload).toBe(false) } finally { delete process.env.MYCEL_SAFE_OPS_1A }
+  })
+
+  test('a project that does not share its chats says nothing (the box is not a shared chat\'s)', async () => {
+    const mine = await h.api('alice').call(API.createProject, { body: { name: 'Mine only', scope: 'personal', participants: [], instructions: '' } })
+    expect('chatUploads' in mine).toBe(false)
+  })
+})
+
 describe('around it', () => {
   test('a chat of one person keeps its uploads in the person\'s own folder', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
