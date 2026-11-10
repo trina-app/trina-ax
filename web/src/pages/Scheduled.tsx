@@ -8,12 +8,12 @@
 import clsx from 'clsx'
 import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Search, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
-import { cardLine, outcomeLabel, outcomeReason, outcomeTone, repeatText, scheduleName, schedulePreview, scheduleState, stateLabel, type Tone } from '../lib/scheduleText'
+import { cardLine, outcomeLabel, outcomeReason, outcomeTone, repeatText, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
@@ -143,13 +143,21 @@ function ScheduleCard({ s }: { s: Schedule }) {
   const waiting = scheduleState(s) === 'review'
   return (
     // one column (phones): a plain row of the list (hairlines between rows, no filled card); two columns keep the cards
-    <Link to={`/scheduled/${s.id}`} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover max-sm:-mx-2 max-sm:rounded-lg max-sm:bg-transparent max-sm:px-2 max-sm:py-3" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
+    // a lapsed save folder: the task opens with its card to check it again ("다시 확인")
+    <Link to={`/scheduled/${s.id}`} state={s.saveLapsed ? { recheck: true } : undefined} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover max-sm:-mx-2 max-sm:rounded-lg max-sm:bg-transparent max-sm:px-2 max-sm:py-3" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
       <span className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
       </span>
       <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{schedulePreview(s)}</span>
       <span className={clsx('mt-1.5 block truncate text-xs', waiting ? 'text-warn' : 'text-faint')}>{cardLine(s, t, locale)}</span>
+      {/* where its runs may save without asking, like a template's folders; a lapsed one asks to be checked again */}
+      {s.saveFolder && (
+        <span className={clsx('mt-1 block truncate text-xs', s.saveLapsed ? 'text-warn' : 'text-faint')} data-testid="schedule-card-save" data-lapsed={s.saveLapsed ? 'yes' : undefined}>
+          {saveLine(s, t)}
+          {s.saveLapsed && <><span aria-hidden> · </span><span className="font-medium text-accent-text">{t('schedules.review')}</span></>}
+        </span>
+      )}
       {/* the last result in words beside its dot: phones have no hover title, and every failure is the same red */}
       {s.lastOutcome && (
         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs" data-testid="schedule-card-outcome" data-outcome={s.lastOutcome}>
@@ -274,6 +282,8 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
   const state = scheduleState(s)
   const blocked = state === 'completed' || state === 'expired'
   const waiting = state === 'review'
+  // its save folder lapsed (moved, renamed, its permissions changed): runs save in the own folder until checked again
+  const lapsed = !waiting && !!s.saveFolder && !!s.saveLapsed
   const name = scheduleName(s, t)
   const when = (iso: string | null | undefined) => formatDateTime(iso, locale, tz || undefined)
   const hintId = `${base}-hint`
@@ -321,12 +331,23 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
               {hint}
             </p>
           )}
+          {lapsed && (
+            <p className="mt-1 flex items-start gap-1 text-xs text-warn" data-testid="schedule-save-lapsed">
+              <ShieldAlert size={13} className="mt-px shrink-0" aria-hidden />
+              {t('scheduled.saveLapsedHint')}
+            </p>
+          )}
           {s.pendingDueAt && <p className="mt-1 text-xs text-faint" data-testid="schedule-deferred">{t('scheduleTemplates.deferred', { time: when(s.retryAt ?? s.pendingDueAt) })}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-4">
           {onRunNow && !waiting && (
             <Button size="sm" busy={running} title={t('schedules.runNowHint')} onClick={onRunNow} data-testid="schedule-run-now">
               {!running && <Play size={13} aria-hidden />} {t('schedules.runNow')}
+            </Button>
+          )}
+          {lapsed && onReview && (
+            <Button size="sm" variant="primary" aria-expanded={!!review} onClick={onReview} data-testid="schedule-save-recheck">
+              {t('schedules.review')}
             </Button>
           )}
           {waiting ? (
@@ -399,6 +420,16 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
             ) : (
               <p>{t('schedules.noProject')}</p>
             )}
+            {/* what its card lets runs save and send without asking */}
+            {!s.templateId && s.saveFolder && (
+              <p className={clsx('mt-1', s.saveLapsed && 'text-warn')} data-testid="schedule-save-folder">{saveLine(s, t)}</p>
+            )}
+            {!s.templateId && s.saveFolder && !!s.saveSources?.length && (
+              <p className="mt-0.5 text-xs text-faint" data-testid="schedule-save-sources">{t('scheduled.saveSources', { list: s.saveSources.map((x) => sourceName(x, t)).join(', ') })}</p>
+            )}
+            {!s.templateId && !!s.personalSends?.length && (
+              <p className="mt-1" data-testid="schedule-sends">{t('scheduled.sends', { list: s.personalSends.map((x) => `${x.name} · ${x.pins.map((p) => `'${p}'`).join(', ')}`).join('; ') })}</p>
+            )}
           </Side>
           <Side label={t('scheduled.details')} testId="schedule-details">
             {s.enabled && s.nextRunAt && <p>{t('schedules.next', { time: when(s.nextRunAt) })}</p>}
@@ -414,6 +445,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
 export function ScheduledTask() {
   const t = useT(), locale = useLocale(), navigate = useNavigate()
   const { id = '' } = useParams()
+  const location = useLocation()
   const { items, tz, error, load, replace, drop, life } = useScheduleList()
   const s = items?.find((x) => x.id === id) ?? null
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -454,7 +486,8 @@ export function ScheduledTask() {
       replace(u)
       setReview(null)
       schedulesChanged.emit()
-      if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
+      if (value === 'resave') toast({ level: 'success', text: t('schedules.resaveDone') })
+      else if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
     } catch (e) {
       // the task or its connections changed since the card was shown: show the card as it is now
       if (isApiError(e, 'conflict') && e.body.params?.reason === 'schedule_card_changed') {
@@ -468,6 +501,14 @@ export function ScheduledTask() {
       throw e
     }
   }
+  // from the list's "다시 확인" of a lapsed save folder: its card opens at once (once per visit)
+  const rechecked = useRef(false)
+  useEffect(() => {
+    if (rechecked.current || !s?.saveLapsed || !(location.state as { recheck?: boolean } | null)?.recheck) return
+    rechecked.current = true
+    void openReview(s)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s?.id, s?.saveLapsed])
   // "지금 실행": a run now, in a new chat (the toast opens it)
   const [running, setRunning] = useState(false)
   const runNow = async (x: Schedule) => {
