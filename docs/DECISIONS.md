@@ -18615,7 +18615,8 @@ logo's header (28 px).
   rows' hover background, the same while the menu is open, a focus ring, `aria-haspopup="menu"` and `aria-expanded`.
 - **The menu** (under the button, the sidebar's width): the team again with its whole name (the button may cut it) and
   its address (`GET /api/me` `team.address`, the one Settings › 앱 shows, never the address the page was opened at;
-  none known: no line), then **팀원 초대** / Invite people and **관리자** / Admin. Admin keeps its word: it is the page's
+  none known: no line; the menu's description for a screen reader), then **팀원 초대** / Invite people and **관리자** /
+  Admin. Admin keeps its word: it is the page's
   own name and the 나 tab's row, and the menu around it already says "team". Nothing personal: Settings, Usage, the
   away switch and Sign out stay in the profile menu at the bottom. No plan banner, no settings submenu.
 - **Who sees it.** The invite endpoints are admins' only (`/api/admin/invites`, `/api/admin/team-link`), so both items
@@ -18626,9 +18627,13 @@ logo's header (28 px).
   two meanings in one spot). Home is the first row, 트리나에게 묻기 (it opens `/`), and ⇧⌘O.
 - **팀원 초대** opens the invite dialog Home's goal card opens (`onboarding/InviteStep.tsx` in a dialog titled 팀원 초대:
   the team invite link's message with its copy button, or the link made in one press; the link's settings under
-  "링크 관리"). While the owner's welcome steps are unfinished it opens their invite step instead, as the goal card does,
-  never a second invite dialog. One dialog for the window (`Layout.tsx`), so ⌘K opens the same; closing it gives the
-  keyboard back to the team button. The single-use invite links with a role and groups stay on Admin › Members & invites.
+  "링크 관리"). While the owner's welcome steps are unfinished it opens the owner's invite step instead, as the goal card
+  does, never a second invite dialog (also when the steps are already on screen: `pages/Welcome.tsx` goes to the invite
+  step on the new entry). An admin who is not the owner always gets the dialog: the steps are the owner's, and Welcome
+  sends anyone else Home. One dialog for the window (`Layout.tsx`), so ⌘K opens the same; a page change closes it (its
+  "스킬 넣기" and "팀 파일 넣기" links, ⇧⌘O), as leaving Home closes the goal card's. Closing it gives the keyboard back
+  to the team button when it was opened from the menu, and to where it was before ⌘K when opened from there. The
+  single-use invite links with a role and groups stay on Admin › Members & invites.
 - **Keyboard**, as in the profile menu: Enter or Space opens it on its first item, ↑ ↓ wrap, Home and End, Esc closes it
   and gives the keyboard back to the button, Tab and a click outside close it.
 - **⌘K** finds 관리자 and 팀원 초대 for owners and admins by their words and their other names (Invite teammates and

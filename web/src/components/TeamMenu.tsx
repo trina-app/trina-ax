@@ -9,18 +9,20 @@
 // Esc closes it and gives the keyboard back, Tab and a click outside close it. Phones (below 768 px) keep the AI's
 // drawer and have Admin on the 나 tab (Sidebar.tsx).
 // "Invite people" (here and in ⌘K) opens the invite dialog Home's goal card opens (onboarding/InviteStep.tsx: the team
-// invite link's message and its copy button), one for the whole window (Layout.tsx mounts it); while the owner's
-// welcome steps are unfinished it opens their own invite step instead, never a second invite dialog (GoalCard.tsx).
+// invite link's message and its copy button), one for the whole window (Layout.tsx mounts it; a page change closes it,
+// as leaving Home closes the goal card's); while the owner's welcome steps are unfinished it opens the owner's own
+// invite step instead, never a second invite dialog (GoalCard.tsx). An admin who is not the owner always gets the
+// dialog: the welcome steps are the owner's (pages/Welcome.tsx sends anyone else Home).
 import clsx from 'clsx'
 import { ChevronDown, Shield, UserPlus } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { useNavigate, type NavigateFunction } from 'react-router-dom'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { create } from 'zustand'
 import { teamIconUrl } from '@mycel/shared'
 import { useT } from '../i18n'
 import { teamAddressHost } from '../lib/team-address'
 import { showResume } from '../lib/welcome'
-import { isAdmin, useMeStrict } from '../store/session'
+import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { INVITE_STEP_STATE } from './onboarding/GoalCard'
 import { InviteStep } from './onboarding/InviteStep'
@@ -43,6 +45,7 @@ export function TeamMenu() {
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
   const host = teamAddressHost(me.team.address)
+  const addressId = useId()
   const hide = (focusBack: boolean) => {
     setOpen(false)
     if (focusBack) button.current?.focus()
@@ -103,14 +106,14 @@ export function TeamMenu() {
         <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
       {open && (
-        <div ref={menu} role="menu" aria-label={me.team.name} className="absolute top-full right-2 left-2 z-30 mt-1 rounded-xl border border-line bg-surface p-1.5 shadow-lg" data-testid="team-dropdown">
+        <div ref={menu} role="menu" aria-label={me.team.name} aria-describedby={host ? addressId : undefined} className="absolute top-full right-2 left-2 z-30 mt-1 rounded-xl border border-line bg-surface p-1.5 shadow-lg" data-testid="team-dropdown">
           {/* the team, as a new device would look for it: its logo, its whole name (the button above may cut it) and its
               address (Settings › 앱 has the copy button) */}
           <div className="flex items-center gap-2.5 px-2.5 pt-1 pb-2" data-testid="team-menu-head">
             <TeamLogo className="size-8 rounded-lg" />
             <span className="min-w-0">
               <span className="line-clamp-3 text-sm font-semibold break-words text-ink" data-testid="team-menu-name">{me.team.name}</span>
-              {host && <span className="block truncate text-xs text-muted" data-testid="team-menu-address">{host}</span>}
+              {host && <span id={addressId} className="block truncate text-xs text-muted" data-testid="team-menu-address">{host}</span>}
             </span>
           </div>
           <div role="separator" className="mx-1 mb-1.5 border-t border-line" />
@@ -150,16 +153,25 @@ const useTeamInvite = create<{ open: boolean; returnTo: HTMLElement | null }>(()
 /** "Invite people" (the team menu, ⌘K): the owner's own invite step while the welcome steps are unfinished, else the
  * invite dialog. `returnTo`: where the keyboard goes when the dialog closes (null: where it was when it opened). */
 export function openTeamInvite(navigate: NavigateFunction, returnTo: HTMLElement | null) {
+  const session = useSession.getState().status
+  const owner = session.kind === 'signed-in' && isOwner(session.me)
   const computer = typeof matchMedia === 'function' && matchMedia('(min-width: 768px)').matches
-  if (showResume(useWelcome.getState().progress, computer)) return void navigate('/welcome', { state: INVITE_STEP_STATE })
+  // a new history entry each time, so the steps already on screen open their invite step too (pages/Welcome.tsx)
+  if (owner && showResume(useWelcome.getState().progress, computer)) return void navigate('/welcome', { state: INVITE_STEP_STATE })
   useTeamInvite.setState({ open: true, returnTo })
 }
+
+const closeInvite = () => useTeamInvite.setState({ open: false, returnTo: null })
 
 export function TeamInviteDialog() {
   const t = useT()
   const { open, returnTo } = useTeamInvite()
+  const { pathname } = useLocation()
+  // another page (a link in the dialog: 스킬 넣기, 팀 파일 넣기; ⇧⌘O) closes it, and so does a new mount (signed out and
+  // in again): it never stays over a page it was not opened on
+  useEffect(closeInvite, [pathname])
   if (!open) return null
-  const close = () => useTeamInvite.setState({ open: false, returnTo: null })
+  const close = closeInvite
   return (
     <Modal open onClose={close} title={t('teamMenu.invite')} width={560} returnTo={returnTo}>
       <InviteStep title={null} onDone={close} />

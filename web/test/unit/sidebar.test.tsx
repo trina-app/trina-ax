@@ -16,12 +16,13 @@
 //   most ten above the five latest on a computer, all of them first in "모두 보기" and in the phone's drawer.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me, type WelcomeProgress } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Sidebar from '../../src/components/Sidebar'
 import { TeamInviteDialog } from '../../src/components/TeamMenu'
+import { INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
 import { useUi } from '../../src/store/ui'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
@@ -680,6 +681,60 @@ describe('the team menu on top', () => {
     } finally {
       await m.unmount()
     }
+  })
+
+  test('the invite dialog closes on a page change (a link in it, ⇧⌘O): it never stays over another page', async () => {
+    as('owner')
+    let go: ((to: string) => void) | null = null
+    const Nav = () => { const n = useNavigate(); go = n; return null }
+    const m = await mount(<MemoryRouter initialEntries={['/files']}><Sidebar /><TeamInviteDialog /><Where /><Nav /></MemoryRouter>)
+    try {
+      await m.click('team-menu')
+      await m.click('team-menu-invite')
+      await m.until(() => m.find('invite-step'), 'the invite step')
+      await act(async () => go!('/skills'))
+      expect(path).toBe('/skills')
+      expect(m.find('invite-step')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  describe('while the owner\'s welcome steps are unfinished', () => {
+    const unfinished = {
+      startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
+      steps: { profile: 'done', result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+    } as unknown as WelcomeProgress
+    let state: unknown = null
+    const Here = () => { const l = useLocation(); path = l.pathname; state = l.state; return null }
+    test('the owner: 팀원 초대 opens the steps\' own invite step, not a second invite dialog', async () => {
+      as('owner')
+      const m = await mount(<MemoryRouter initialEntries={['/files']}><Sidebar /><TeamInviteDialog /><Here /></MemoryRouter>)
+      try {
+        useWelcome.setState({ loaded: true, progress: unfinished })
+        await m.click('team-menu')
+        await m.click('team-menu-invite')
+        expect(path).toBe('/welcome')
+        expect(state).toEqual(INVITE_STEP_STATE)
+        await m.settle(50)
+        expect(m.find('invite-step')).toBeNull()
+      } finally {
+        await m.unmount()
+      }
+    })
+    test('an admin who is not the owner: the invite dialog (the steps are the owner\'s; /welcome would send them Home)', async () => {
+      as('admin')
+      const m = await mount(<MemoryRouter initialEntries={['/files']}><Sidebar /><TeamInviteDialog /><Here /></MemoryRouter>)
+      try {
+        useWelcome.setState({ loaded: true, progress: unfinished })
+        await m.click('team-menu')
+        await m.click('team-menu-invite')
+        await m.until(() => m.find('invite-step'), 'the invite dialog')
+        expect(path).toBe('/files')
+      } finally {
+        await m.unmount()
+      }
+    })
   })
 })
 

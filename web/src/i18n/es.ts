@@ -4437,5 +4437,5 @@ export const es: Record<MessageKey, string> = {
   "viewer.inDm": "en tus mensajes directos con {name}",
   "viewer.gone": "Este archivo ya no está disponible: su mensaje se eliminó.",
   // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
-  "teamMenu.invite": "Invitar personas",
+  "teamMenu.invite": "Invitar a personas",
 }

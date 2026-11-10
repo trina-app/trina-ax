@@ -91,10 +91,12 @@ test('a member: no Admin row, and the team on top is its name and logo, not a me
   await expect(s.getByTestId('team-menu')).toHaveCount(0)
   await expect(s.getByRole('button', { name: 'Acme' })).toHaveCount(0)
   await expect(s.getByText(t['sidebar.admin'], { exact: true })).toHaveCount(0)
-  // a click on it does nothing: no menu, still on Home
+  // a click on it does nothing: no menu, and it does not go Home (the old header was a link there)
+  await page.goto('/files')
+  await expect(s.getByTestId('nav-files')).toHaveAttribute('aria-current', 'page')
   await s.getByTestId('team-header').click()
   await expect(page.getByRole('menu')).toHaveCount(0)
-  await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
+  await expect(page).toHaveURL(/\/files$/)
   // the same type sizes as an admin's
   expect(await fontOf(page, 'sidebar-team')).toEqual(['16px', '600'])
 })
@@ -212,8 +214,10 @@ test('⌘K finds 관리자 and 팀원 초대 for an admin (not listed before typ
   const box = palette.getByRole('combobox')
   await page.keyboard.press('ControlOrMeta+k')
   await expect(box).toBeFocused()
-  await expect(palette.getByTestId('search-section-actions').getByRole('option')).not.toHaveText([new RegExp(t['sidebar.admin'])])
-  await expect(palette.getByRole('option', { name: t['teamMenu.invite'] })).toHaveCount(0)
+  const actions = palette.getByTestId('search-section-actions')
+  await expect(actions.getByRole('option')).toHaveCount(6)
+  await expect(actions.getByRole('option', { name: t['sidebar.admin'], exact: true })).toHaveCount(0)
+  await expect(actions.getByRole('option', { name: t['teamMenu.invite'] })).toHaveCount(0)
   await box.fill(t['sidebar.admin'])
   await expect(palette.getByTestId('search-section-actions').getByRole('option', { name: t['sidebar.admin'] })).toBeVisible()
   await palette.getByTestId('search-section-actions').getByRole('option', { name: t['sidebar.admin'] }).click()
@@ -237,8 +241,10 @@ test('⌘K finds 관리자 and 팀원 초대 for an admin (not listed before typ
   await signIn(page, BOB)
   await page.keyboard.press('ControlOrMeta+k')
   await expect(box).toBeFocused()
+  // what an admin finds by these words, a member does not: the search is done once its result shows (nothing found)
   for (const words of [t['sidebar.admin'], '초대']) {
     await box.fill(words)
+    await expect(palette.getByTestId('search-none')).toBeVisible()
     await expect(palette.getByRole('option', { name: t['sidebar.admin'], exact: true })).toHaveCount(0)
     await expect(palette.getByRole('option', { name: t['teamMenu.invite'] })).toHaveCount(0)
   }
