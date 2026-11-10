@@ -2600,6 +2600,7 @@ export const en: Record<MessageKey, string> = {
   'settings.credentials.desc': 'Your questions use these connections first. Without one, the team\'s connections answer.',
   'usage.by.credential': 'AI connection',
   'usage.deletedCredential': 'Removed connection',
+  'usage.deletedCredentialN': 'Removed connection {n}',
   'usage.credentialNote': 'Counted per answer, under the connection it ended on. The connection cards count per request, so the numbers can differ a little.',
   'engines.fallbackHint2': 'Another connection of the same AI, when there is one, is used first.',
   'audit.act.remote_mcp.connected': 'Allowed an external app connection',

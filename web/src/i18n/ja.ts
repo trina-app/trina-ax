@@ -2563,6 +2563,7 @@ export const ja: Record<MessageKey, string> = {
   'settings.credentials.desc': "自分の質問にはこれらの接続を優先します。ない場合はチームの接続で回答します。",
   'usage.by.credential': "AI接続",
   'usage.deletedCredential': "削除済みの接続",
+  'usage.deletedCredentialN': "削除済みの接続 {n}",
   'usage.credentialNote': "回答単位で、完了時の接続に計上します。接続カードはリクエスト単位で集計するため、数値が多少異なる場合があります。",
   'engines.fallbackHint2': "同じAIの別の接続がある場合は、それを先に使用します。",
   'audit.act.remote_mcp.connected': "外部アプリの接続を許可",

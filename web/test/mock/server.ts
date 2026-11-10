@@ -4511,15 +4511,22 @@ export class MockServer {
   sharedMayEdit(p: Project, u: User): boolean {
     return p.createdBy?.id === u.id || (u.role !== 'member' && this.access(p.folderPath, u) === 'write')
   }
+  /** like server/src/uploads/shared-chat.ts mayUploadShared: the person may write the project's chat attachments folder
+   * (and safe operations are off) */
+  sharedMayUpload(p: Project, u: User): boolean {
+    return !this.allConfidential && this.access(`${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`, u) === 'write'
+  }
   sharedProjectOut(p: Project, viewer?: User): Project {
     const personal = p.folderPath.startsWith('users/')
+    const shareChats = !personal && this.sharedProjects.has(p.id)
     // who changes its members (server/src/chat/project-access.ts membersView): a team project made here (projectMembers),
     // in place, by its creator (while active) or an admin
     const pm = this.projectMembers.get(p.folderPath)
     const creator = this.users.find((u) => u.id === p.createdBy?.id && u.status === 'active')
     const members = personal ? {} : { membersEditable: !!pm && !p.inTrash && !!viewer && this.sharedMayEdit(p, viewer), creatorChangesMembers: !!pm && !p.inTrash && !!creator }
-    return { ...p, shareChats: !personal && this.sharedProjects.has(p.id), audience: this.sharedAudience(p).length,
-      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length, ...members }
+    return { ...p, shareChats, audience: this.sharedAudience(p).length,
+      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length,
+      ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer) } : {}), ...members }
   }
   /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
   sharedView(chat: Chat, viewer: User): Chat | null {
@@ -4539,6 +4546,7 @@ export class MockServer {
         answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
         mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
         canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
+        canUpload: this.sharedMayUpload(p, viewer),
       },
     }
   }

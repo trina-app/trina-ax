@@ -2599,6 +2599,7 @@ export const ko = {
   'settings.credentials.desc': '내 질문에는 여기 연결이 먼저 쓰여요. 없으면 팀 연결을 써요.',
   'usage.by.credential': 'AI 연결',
   'usage.deletedCredential': '지운 연결',
+  'usage.deletedCredentialN': '지운 연결 {n}',
   'usage.credentialNote': '답변 단위로 마지막에 쓴 연결에 모아요. 연결 카드의 이번 달 숫자는 요청 단위라 조금 다를 수 있어요.',
   'engines.fallbackHint2': '같은 AI의 다른 연결이 있으면 그것을 먼저 써요.',
   'audit.act.remote_mcp.connected': '외부 앱 연결 허용',

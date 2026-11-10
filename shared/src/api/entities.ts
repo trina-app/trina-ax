@@ -158,6 +158,10 @@ export const Project = z.object({
   /** a team project: its creator changes its members too (their account is active and the folder is theirs to change),
    * so its page names them in "멤버는 …님(만든 사람)이나 관리자가 바꿔요"; false: only admins. Absent: personal, older server */
   creatorChangesMembers: z.boolean().optional(),
+  /** while it shares its chats: the caller may send files from the computer into them (they go into the project's chat
+   * attachments folder, which the caller may write: server/src/uploads/shared-chat.ts). false: the message box offers
+   * team files only. Absent (older server, or not sharing): allowed. */
+  chatUploads: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -214,6 +218,9 @@ export const Chat = z.object({
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */
     canDelete: z.boolean(),
+    /** I may send files from the computer here (they go into the project's chat attachments folder, which I may write:
+     * server/src/uploads/shared-chat.ts). false: the message box offers team files only. Absent (older server): allowed. */
+    canUpload: z.boolean().optional(),
     /** who wrote in it (sent a question there, its creator included), the most recent first, at most
      * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
      * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
