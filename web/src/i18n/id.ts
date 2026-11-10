@@ -1817,6 +1817,7 @@ export const id: Record<MessageKey, string> = {
   'accessEdit.title': "Ubah aturan",
   'accessEdit.back': "Kembali ke folder",
   'accessEdit.backToPeople': "Kembali ke Per orang",
+  'accessEdit.backToFiles': "Kembali ke File",
   'accessEdit.basic': "Akses dasar",
   'accessEdit.basicHint': "Owner dan admin selalu bisa membuka dan mengubah setiap folder.",
   'accessEdit.basic.follow': "Sama dengan folder di atasnya",

@@ -1788,6 +1788,7 @@ export const es: Record<MessageKey, string> = {
   'accessEdit.title': "Cambiar reglas",
   'accessEdit.back': "Volver a la carpeta",
   'accessEdit.backToPeople': "Volver a Por persona",
+  'accessEdit.backToFiles': "Volver a Archivos",
   'accessEdit.basic': "Acceso básico",
   'accessEdit.basicHint': "El propietario y los administradores siempre pueden abrir y cambiar todas las carpetas.",
   'accessEdit.basic.follow': "Igual que la carpeta de arriba",

@@ -13,11 +13,13 @@
 // a name, Enter or Space chooses (choosing asks the server, so moving alone does not). "N more" and "Try again" are
 // rows of the tree too. The chosen folder is in the address (`?folder=`); a folder there is looked up, page by page,
 // and said when it is not there. By person opens a folder's panel here (`?edit=<path>&back=<its address>`): the folder
-// is chosen and its panel opened, and closing or saving that panel goes back to the person.
+// is chosen and its panel opened, and closing or saving that panel goes back to the person. The Files page's "Who can
+// see it" panel opens it the same way (`?edit=<path>&from=files`, the fixed word only): closing or saving goes back to
+// that folder in Files with its panel open again (`/files?path=<path>&access=1`).
 import clsx from 'clsx'
 import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Info, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { AccessTreeNode, AccessTreeResponse, Folder, Group } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
 import { ancestorsOf, isPersonalPath, isRestricted, kindText, nodeName, parentOf, riskTexts, skillEditorsText, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, whoSeesText, type Names } from '../../lib/access-view'
@@ -44,6 +46,8 @@ const PAGE = 200
 const MAX_PAGE = 500
 /** the busy / failed key of the "rule folders only" list (no folder path can be it) */
 const RULED = '\u0000ruled'
+/** `back` of a panel opened from the Files page (`?from=files`): never an address (no query can be it) */
+const FROM_FILES = '\u0000files'
 const within = (p: string, top: string) => top === '' || p === top || p.startsWith(top + '/')
 
 /** The tree's data: levels by the folder they are in, nodes by path. Every answer also brings the folder asked for
@@ -349,6 +353,7 @@ const KIND_ICON = (n: AccessTreeNode): LucideIcon =>
 export default function AccessTree() {
   const t = useT()
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
   const tree = useTreeData()
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
@@ -423,8 +428,12 @@ export default function AccessTree() {
     editReturn.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setEditing({ path, back })
   }
-  /** back to By person after its panel (pushed: Back returns to the folder here); the focus goes to that folder's row */
-  const toPerson = (back: string, path: string) => setParams(new URLSearchParams(back), { state: { refocus: path } })
+  /** back to By person after its panel (pushed: Back returns to the folder here); the focus goes to that folder's row;
+   * or, opened from the Files page (FROM_FILES), back to that folder there with its "Who can see it" panel */
+  const toPerson = (back: string, path: string) =>
+    back === FROM_FILES ? navigate(`/files?path=${encodeURIComponent(path)}&access=1`) : setParams(new URLSearchParams(back), { state: { refocus: path } })
+  /** the words of the way back: to By person, or to Files */
+  const backLabel = (back: string) => t(back === FROM_FILES ? 'accessEdit.backToFiles' : 'accessEdit.backToPeople')
   /** Leave the edit panel, asking first when something was changed there: false when the admin stays. */
   const leaveEdit = async () => {
     if (!editing) return true
@@ -559,7 +568,7 @@ export default function AccessTree() {
   const strandedHere = stranded && lookup && lookup.state !== 'busy' && lookup.path === stranded.path ? stranded : null
   const toPeopleButton = strandedHere && (
     <Button size="sm" variant="ghost" className="-ml-2.5 mt-2 flex" onClick={() => toPerson(strandedHere.back, strandedHere.path)} data-testid="folder-detail-to-people">
-      <ArrowLeft size={14} aria-hidden /> {t('accessEdit.backToPeople')}
+      <ArrowLeft size={14} aria-hidden /> {backLabel(strandedHere.back)}
     </Button>
   )
 
@@ -651,7 +660,7 @@ export default function AccessTree() {
         users={users.data ?? []}
         groups={groups.data ?? []}
         guard={editGuard}
-        returnLabel={back !== undefined ? t('accessEdit.backToPeople') : undefined}
+        returnLabel={back !== undefined ? backLabel(back) : undefined}
         onClose={() => {
           if (editingPath.current !== path) return
           if (back !== undefined) return toPerson(back, path)
@@ -717,10 +726,11 @@ export default function AccessTree() {
   const lists = !!folders.data && !!users.data && !!groups.data
   useEffect(() => {
     if (!ready || editWanted === null || !lists) return
-    const back = new URLSearchParams(params.get('back') ?? '').get('view') === 'people' ? params.get('back')! : undefined
+    const back = params.get('from') === 'files' ? FROM_FILES : new URLSearchParams(params.get('back') ?? '').get('view') === 'people' ? params.get('back')! : undefined
     const q = new URLSearchParams(window.location.search)
     q.delete('edit')
     q.delete('back')
+    q.delete('from')
     const row = rowOf(editWanted)
     if (row && (!row.exists || row.hidden)) {
       setParams(q, { replace: true })

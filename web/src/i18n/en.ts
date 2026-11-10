@@ -1817,6 +1817,7 @@ export const en: Record<MessageKey, string> = {
   'accessEdit.title': "Change rules",
   'accessEdit.back': "Back to the folder",
   'accessEdit.backToPeople': "Back to By person",
+  'accessEdit.backToFiles': "Back to Files",
   'accessEdit.basic': "Basic access",
   'accessEdit.basicHint': "The owner and admins can always open and change every folder.",
   'accessEdit.basic.follow': "Same as the folder above",

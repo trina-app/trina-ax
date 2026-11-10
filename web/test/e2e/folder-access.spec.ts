@@ -143,6 +143,66 @@ test('a member with write and an admin on the same folder see the same number', 
   await bob.close()
 })
 
+/** Carol, a second member: an invite accepted in a context of her own (the page stays signed in as the admin) */
+async function addCarol(page: Page, playwright: import('@playwright/test').PlaywrightWorkerArgs['playwright']) {
+  const inv = await page.request.post('/api/admin/invites', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'member' } })
+  expect(inv.ok()).toBe(true)
+  const c = await playwright.request.newContext({ baseURL: new URL(page.url()).origin })
+  expect((await c.post(`/api/invites/${(await inv.json()).token}/accept`, { headers: { [CSRF_HEADER]: '1' }, data: { username: 'carol', name: 'Carol', password: 'carol password 1' } })).ok()).toBe(true)
+  await c.dispose()
+}
+
+test('an admin changes the rules from the panel in Admin\'s editor, and comes back to the folder', async ({ page, playwright }) => {
+  await signIn(page)
+  await addCarol(page, playwright)
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await page.goto('/files?path=marketing')
+  await chip(page).click()
+  await expect(page.getByTestId('folder-access-change')).toHaveText(t['accessTree.editRules'])
+  await page.getByTestId('folder-access-change').click()
+  // Admin's own edit panel for this folder, with the way back named
+  await expect(page).toHaveURL(/\/admin\/folders\?folder=marketing$/)
+  const edit = page.getByTestId('edit-panel')
+  await expect(edit).toHaveAttribute('data-path', 'marketing')
+  await expect(edit.getByTestId('edit-return')).toHaveText(t['accessEdit.backToFiles'])
+  // closing without a change: back to the folder in Files, its panel open again
+  await edit.getByTestId('edit-return').click()
+  await expect(page).toHaveURL(/\/files\?path=marketing$/)
+  await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
+  // and saving: everyone reads now, so the whole team sees it
+  await page.getByTestId('folder-access-change').click()
+  await page.getByTestId('edit-panel').getByTestId('edit-basic-read').click()
+  const save = page.getByTestId('edit-panel').getByTestId('edit-save')
+  await expect(save).toBeEnabled()
+  await save.click()
+  const confirm = page.getByTestId('dialog-confirm')
+  if (await confirm.isVisible().catch(() => false)) await confirm.click()
+  await expect(page).toHaveURL(/\/files\?path=marketing$/)
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.team'])
+  await page.keyboard.press('Escape')
+  await expect(chip(page)).toHaveText(t['folderAccess.team'])
+})
+
+test('no rules editor on a team project\'s own folder or on one\'s own folder; a `from` other than files is no way back', async ({ page }) => {
+  await signIn(page)
+  const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Kite', participants: [] } })
+  const p = (await made.json()) as { folderPath: string }
+  await page.goto(`/files?path=${encodeURIComponent(p.folderPath)}`)
+  await chip(page).click()
+  await expect(page.getByTestId('folder-access-admin')).toBeVisible()
+  await expect(page.getByTestId('folder-access-change')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.goto('/files?path=users%2Folga')
+  await chip(page).click()
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.onlyYou'])
+  await expect(page.getByTestId('folder-access-change')).toHaveCount(0)
+  // a `from` that is not "files" is no way back anywhere: the editor opens as Admin opens it
+  await page.goto('/admin/folders?edit=marketing&from=https%3A%2F%2Fexample.com')
+  await expect(page.getByTestId('edit-panel')).toHaveAttribute('data-path', 'marketing')
+  await expect(page.getByTestId('edit-return')).toHaveCount(0)
+})
+
 test('an admin on a folder no member can open: owner and admins only', async ({ page }) => {
   await post(page, '/__test/restrict', { path: 'docs', users: ['olga', 'dana', 'eve'] })
   await signIn(page)
@@ -163,5 +223,17 @@ test.describe('phone', () => {
     await chip(page).tap()
     await expect(panel(page)).toBeVisible()
     await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 3 }))
+  })
+  test('an admin: the editor is the whole screen, and its back arrow comes back to the folder', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await chip(page).tap()
+    await page.getByTestId('folder-access-change').tap()
+    const edit = page.getByTestId('edit-panel')
+    await expect(edit).toHaveAttribute('data-path', 'marketing')
+    await expect(edit.getByTestId('edit-back')).toHaveAccessibleName(t['accessEdit.backToFiles'])
+    await edit.getByTestId('edit-back').tap()
+    await expect(page).toHaveURL(/\/files\?path=marketing$/)
+    await expect(panel(page)).toBeVisible()
   })
 })

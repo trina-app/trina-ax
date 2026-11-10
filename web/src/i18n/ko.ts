@@ -1816,6 +1816,7 @@ export const ko = {
   'accessEdit.title': "규칙 바꾸기",
   'accessEdit.back': "폴더로 돌아가기",
   'accessEdit.backToPeople': "사람별로 돌아가기",
+  'accessEdit.backToFiles': "파일로 돌아가기",
   'accessEdit.basic': "기본 접근",
   'accessEdit.basicHint': "팀장과 관리자는 규칙과 상관없이 모든 폴더를 열고 고칠 수 있어요.",
   'accessEdit.basic.follow': "위 폴더와 같게",

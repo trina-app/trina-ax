@@ -88,6 +88,11 @@ export function FolderAccessChip({ path, access, project, onOpen }: { path: stri
   )
 }
 
+/** An admin changes the rules here from the panel, in Admin's edit panel: not on a team project's own folder in
+ * projects/ (its members are changed on its page, #298) and not on a personal folder (rules never apply there). A
+ * project made before outside projects/ keeps it (its page sends admins to Admin too). */
+export const changeHere = (path: string, place: ChipPlace | null) => place !== null && place !== 'own' && !(place === 'project' && /^projects\/[^/]+$/.test(path))
+
 /** Whether a folder row's ⋯ menu offers "Who can see it" (where the chip would show for that folder). */
 export function offersFolderAccess(path: string, access: Access, me: string, project: Project | null): boolean {
   return chipPlace(path, { me, access, project }) !== null
@@ -135,7 +140,7 @@ export function FolderAccessPanel({ target, project, onClose }: { target: { path
           {place === 'ask' && !admin && <p className="text-sm text-muted">{t('folderAccess.adminsChange')}</p>}
           {admin && place !== 'own' && (
             <Suspense fallback={<Skeleton lines={4} />}>
-              <FolderAccessAdmin path={target.path} self={a.self} ready={a.ready} onLeave={onClose} />
+              <FolderAccessAdmin path={target.path} self={a.self} ready={a.ready} change={changeHere(target.path, place)} onLeave={onClose} />
             </Suspense>
           )}
         </div>
