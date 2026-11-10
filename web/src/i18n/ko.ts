@@ -500,7 +500,7 @@ export const ko = {
   'settings.allowances': "트리나에게 허용한 것",
   'settings.allowancesAi': "AI에게 허용한 것",
   'settings.find.allowances': "항상 허용 미리 허용 대화방 폴더 새 파일",
-  'allowances.desc': "대화방에서 \"이 방에서는 항상 허용\"을 고른 폴더예요. 지우면 그 방에서 다시 물어봐요.",
+  'allowances.desc': "대화방이나 그 방의 사이드 채팅에서 \"이 방에서는 항상 허용\"을 고른 폴더예요. 지우면 그 방과 사이드 채팅에서 다시 물어봐요.",
   'allowances.empty': "아직 허용한 것이 없어요.",
   'allowances.newFiles': "새 파일 저장",
   'allowances.delete': "지우기",

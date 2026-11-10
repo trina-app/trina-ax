@@ -486,7 +486,7 @@ export const es: Record<MessageKey, string> = {
   'settings.allowances': "Permisos para Trina",
   'settings.allowancesAi': "Permisos para la IA",
   'settings.find.allowances': "permitir siempre sala carpeta archivos nuevos permiso",
-  'allowances.desc': "Carpetas para las que eligió «Permitir siempre en esta sala». Si elimina una, se le volverá a preguntar en esa sala.",
+  'allowances.desc': "Carpetas para las que eligió «Permitir siempre en esta sala», en una sala o en su chat lateral. Si elimina una, se le volverá a preguntar en esa sala y en sus chats laterales.",
   'allowances.empty': "Todavía no ha permitido nada.",
   'allowances.newFiles': "Guardar archivos nuevos",
   'allowances.delete': "Eliminar",

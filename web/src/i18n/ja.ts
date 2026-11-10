@@ -486,7 +486,7 @@ export const ja: Record<MessageKey, string> = {
   'settings.allowances': "トリナに許可したこと",
   'settings.allowancesAi': "AIに許可したこと",
   'settings.find.allowances': "常に許可 ルーム フォルダー 新しいファイル",
-  'allowances.desc': "トークルームで「このルームでは常に許可」を選んだフォルダーです。削除すると、そのルームでまた確認します。",
+  'allowances.desc': "トークルームまたはそのサイドチャットで「このルームでは常に許可」を選んだフォルダーです。削除すると、そのルームとサイドチャットでまた確認します。",
   'allowances.empty': "まだ許可したものはありません。",
   'allowances.newFiles': "新しいファイルの保存",
   'allowances.delete': "削除",

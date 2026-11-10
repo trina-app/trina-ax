@@ -501,7 +501,7 @@ export const id: Record<MessageKey, string> = {
   'settings.allowances': "Diizinkan untuk Trina",
   'settings.allowancesAi': "Diizinkan untuk AI",
   'settings.find.allowances': "selalu izinkan ruang folder berkas baru izin",
-  'allowances.desc': "Folder yang Anda pilih \"Selalu izinkan di ruang ini\". Hapus satu, dan Anda ditanya lagi di ruang itu.",
+  'allowances.desc': "Folder yang Anda pilih \"Selalu izinkan di ruang ini\", di ruang atau side chat-nya. Hapus satu, dan Anda ditanya lagi di ruang itu dan side chat-nya.",
   'allowances.empty': "Belum ada yang diizinkan.",
   'allowances.newFiles': "Simpan berkas baru",
   'allowances.delete': "Hapus",

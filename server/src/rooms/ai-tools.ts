@@ -112,7 +112,8 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write). delete_files, and skill_files into a
  * skill folder, refuse there (chat/delete-files.ts, chat/skill-files.ts). Every other tool (writes, the browser's clicks
  * and pages, box_shell, forget, tools added later) waits for the person's yes on the room card for the rest of that chat
- * (fails closed).
+ * (fails closed), but a new file in the person's own folder, and a new team file the person allowed for the answer or
+ * the room (chat/turn.ts confirmRoomChange; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
@@ -126,3 +127,15 @@ export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read
  * A tool listed here must never act without asking when TurnPerson.roomsSeen is set.
  */
 export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule_create', 'generate_video', 'move_files', 'copy_files', 'move_skill', 'connect_service'])
+
+/**
+ * A person's own AI chat (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"): the tools whose use keeps what the chat holds
+ * to the team's own words, like a room session's ROOM_FILE_TOOLS, with reading one of the person's rooms (room_read: its
+ * words are what a room card weighs, its room joins the read scope) and naming the chat or keeping a memory (nothing
+ * comes in). Any other tool (the web and its search, a connection's tools and call_tool, Google Drive, the browser,
+ * box_shell, video, tools added later: fails closed) marks the chat as having used something from outside
+ * (chats.room_outside, until a new session: an own chat's session carries earlier answers), and then no room card is
+ * skipped there. So does `rooms`: its list names other rooms (a group chat's name is its members' words) without
+ * putting them in the read scope, so their members would not be weighed.
+ */
+export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'set_title', 'remember'])
