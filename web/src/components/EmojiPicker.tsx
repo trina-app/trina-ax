@@ -3,8 +3,8 @@
 // lib/emoji.ts), then every emoji under its group's heading. A search looks in the English names and keywords, and the
 // Korean ones for a Korean speaker or a search in Hangul; an emoji pasted into it is offered as it is. The names load
 // on first use (two lazy chunks, scripts/emoji-data.ts); until then the first sets show. Keyboard: Enter in the search
-// picks the first match, ↓ goes into the grid, the arrows move there, Esc closes (EmojiPanel). Emoji and names are
-// text only.
+// picks the first match, ↓ goes into the grid, the arrows move there, Esc closes and Tab leaves (EmojiPanel). Emoji and
+// names are text only.
 //
 // EmojiPanel: the picker by a button on a computer (fixed to the window, placed like a menu, menuSpot), a bottom sheet
 // on a phone or with no button to stand by (the app's Modal; the phone app's WebView alike).
@@ -191,8 +191,8 @@ function Popover({ anchor, title, onClose, children }: { anchor: HTMLElement; ti
     const b = box.current
     if (!b) return
     const a = anchor.getBoundingClientRect()
-    // the button scrolled out of its list's sight: the picker goes with it
-    if (!a.width && !a.height) return close.current()
+    // the button is gone from the page: so is the picker
+    if (!anchor.isConnected || (!a.width && !a.height)) return close.current()
     setSpot(menuSpot(a, b.getBoundingClientRect(), { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight }))
   }
   useLayoutEffect(place, [anchor])
@@ -201,7 +201,15 @@ function Popover({ anchor, title, onClose, children }: { anchor: HTMLElement; ti
       const n = e.target as Node
       if (!box.current?.contains(n) && !anchor.contains(n)) close.current()
     }
-    const moved = (e: Event) => !box.current?.contains(e.target as Node) && place()
+    // something scrolled: the picker follows its button, and goes once the button is out of that list's sight (as a
+    // menu does, MenuButton)
+    const moved = (e: Event) => {
+      const list = e.target as Node & Partial<Pick<Element, 'getBoundingClientRect'>>
+      if (box.current?.contains(list)) return
+      const a = anchor.getBoundingClientRect(), s = list.getBoundingClientRect?.()
+      if (s && (a.bottom < s.top || a.top > s.bottom)) return close.current()
+      place()
+    }
     document.addEventListener('pointerdown', outside)
     document.addEventListener('scroll', moved, { capture: true, passive: true })
     window.addEventListener('resize', place)
@@ -226,6 +234,10 @@ function Popover({ anchor, title, onClose, children }: { anchor: HTMLElement; ti
         e.stopPropagation()
         if (e.key === 'Escape') {
           e.preventDefault()
+          close.current()
+        } else if (e.key === 'Tab') {
+          // Tab leaves it, as it leaves a menu: from the button on, in the page's order
+          anchor.focus({ preventScroll: true })
           close.current()
         }
       }}

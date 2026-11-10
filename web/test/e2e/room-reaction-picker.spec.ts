@@ -102,7 +102,7 @@ test('More emoji: search "cry", pick 😭; the next picker has it first under Re
   expect(room.reacted.at(-1)).toEqual({ messageId: id(3), emoji: '👍🏽', on: true })
 })
 
-test('the keyboard: ↓ into the grid, arrows move, Enter picks; Esc closes and gives the keyboard back', async ({ page }) => {
+test('the keyboard: ↓ into the grid, arrows move; Esc closes and gives the keyboard back, Tab leaves', async ({ page }) => {
   const room = await openRoom(page)
   const msg = page.getByTestId('room-message').nth(0)
   await (await strip(msg)).getByTestId('reaction-more').click()
@@ -123,6 +123,13 @@ test('the keyboard: ↓ into the grid, arrows move, Enter picks; Esc closes and 
   await expect(pop).toHaveCount(0)
   await expect(msg.getByTestId('message-react')).toBeFocused()
   expect(room.reacted).toEqual([])
+  // Tab leaves it as it leaves a menu: on from the smile button, in the page's order
+  await msg.getByTestId('message-react').click()
+  await msg.getByTestId('reaction-more').click()
+  await expect(pop.getByTestId('emoji-search')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(pop).toHaveCount(0)
+  await expect(msg.getByTestId('message-thread')).toBeFocused()
   // a click outside closes it too
   await msg.getByTestId('message-react').click()
   await msg.getByTestId('reaction-more').click()
