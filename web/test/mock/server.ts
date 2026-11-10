@@ -2259,7 +2259,11 @@ export class MockServer {
       if (access === 'none') fail('not_found', 404)
       if (access !== 'write') return { path, access }
       const active = this.users.filter((u) => u.status === 'active')
-      const people = active.filter((u) => this.access(path, u) !== 'none').length
+      // with folder rules on the way up (Admin › 폴더 권한 here), the server's own RuleSet counts, so the count agrees
+      // with the admin's people list; otherwise this mock's simple policy
+      const ruled = this.folders.some((f) => f.rules.length > 0 && (f.path === '' || path === f.path || path.startsWith(f.path + '/')))
+      const rules = ruled ? this.explainRules() : null
+      const people = active.filter((u) => (rules ? rules.access(this.explainPrincipal(u), segsOf(path)) : this.access(path, u)) !== 'none').length
       return { path, access, people, everyone: people === active.length }
     },
     content: (c) => {
