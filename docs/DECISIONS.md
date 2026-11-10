@@ -18621,6 +18621,11 @@ Files page said only what *I* can do there (the "Read-only folder" badge, the lo
   address, so it redirects nowhere else; `edit=` only chooses the folder (saving still takes a click and the rules hash
   check). Not on a team project's own folder in `projects/` (its members are changed on its page) and not on a personal
   folder; a project made before outside `projects/` keeps it.
+- **A team project's folder after #298**: the panel uses #298's fields and words only. With `Project.membersEditable`,
+  [멤버] goes to `/projects/:id?members=1`, where #298 opens its dialog. Without it, the panel says #298's own sentence
+  itself, because `?members=1` opens nothing for that person: "멤버는 {creator}님(만든 사람)이나 관리자가 바꿔요."
+  names the creator only with `creatorChangesMembers`, else "멤버는 관리자가 바꿔요."; an admin on a project made
+  before outside `projects/` reads `projects.legacyNote` (the panel's link goes to Admin).
 - Tests: `tests/security/folder-audience.test.ts` (the tree's answers on one list of paths and pass-through → 404,
   a case-insensitive volume, the review's attack with the group growing, the count against the copy dry run, Admin's
   count and `Project.audience`, people switched off, a managed folder), the r3 hidden-vs-missing reads and the matrix

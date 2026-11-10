@@ -95,6 +95,40 @@ test('the whole team, and a team project\'s folder with its own count and a way 
   await expect(page).toHaveURL(new RegExp(`/projects/${p.id}`))
 })
 
+test('a team project\'s folder: whoever may change its members gets [Members] (#298\'s dialog); anyone else reads who does', async ({ page, browser }) => {
+  await signIn(page)
+  const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Kite', participants: [{ subjectType: 'user', subjectId: 'bob' }] } })
+  const p = (await made.json()) as { id: string; folderPath: string }
+  // Bob is in it but did not make it: the creator by name, as on the project page; no button
+  const bob = await browser.newPage({ baseURL: new URL(page.url()).origin, locale: 'en-US' })
+  await signIn(bob, BOB)
+  await bob.goto(`/files?path=${encodeURIComponent(p.folderPath)}`)
+  await chip(bob).click()
+  await expect(bob.getByTestId('folder-access-members-hint')).toHaveText(en('projects.membersByCreator', { name: 'Olga' }))
+  await expect(bob.getByTestId('folder-access-members')).toHaveCount(0)
+  await bob.close()
+  // Olga made it: [Members] opens the members dialog on the project page
+  await page.goto(`/files?path=${encodeURIComponent(p.folderPath)}`)
+  await chip(page).click()
+  await expect(page.getByTestId('folder-access-members-hint')).toHaveCount(0)
+  await page.getByTestId('folder-access-members').click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${p.id}`))
+  await expect(page.getByRole('dialog')).toContainText('Kite')
+  await expect(page.getByTestId('folder-access-panel')).toHaveCount(0)
+})
+
+test('a project made before outside projects/: an admin reads where its members are changed, and keeps 규칙 바꾸기', async ({ page }) => {
+  await signIn(page)
+  const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Old docs', folderPath: 'docs', participants: [] } })
+  expect(made.ok()).toBe(true)
+  await page.goto('/files?path=docs')
+  await chip(page).click()
+  await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Old docs' }))
+  await expect(page.getByTestId('folder-access-members-hint')).toHaveText(en('projects.legacyNote', { folder: 'docs' }))
+  await expect(page.getByTestId('folder-access-members')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-change')).toBeVisible()
+})
+
 test('an admin: the people by name, where it comes from, the way to Admin', async ({ page, playwright }) => {
   await signIn(page)
   // a second member, Carol (an invite accepted in a context of her own)

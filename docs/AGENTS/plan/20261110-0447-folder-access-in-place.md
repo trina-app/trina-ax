@@ -379,8 +379,11 @@ Built in two PRs, as planned:
 What differs from the plan:
 - The chip and headline use own keys (`folderAccess.people`, `folderAccess.peopleAll`) with #298's exact words, because
   #298 was not on dev and its files are not to be touched.
-- The project folder part has only the project line and "프로젝트 열기" until #298 lands. [Members] and #298's
-  sentences follow then.
+- The project folder part came in two steps. #306 has the project line and "프로젝트 열기"; #307, rebased on dev
+  after #298, adds [Members] (`membersEditable` → `?members=1`) and #298's sentences for everyone else.
+- The screenshots once disagreed (4 for the owner, 3 for a member, on the same folder). They came from two different
+  fixtures in the screenshot script, not from the code. A test now asserts that every caller who gets a count gets the
+  same number.
 - The independent security review of the built code found no must-fix. Its two should-fix items are fixed:
   - no endless loading in a plugin's managed folder;
   - [규칙 바꾸기] judged by the `projects/` path, so a project list that failed to load does not offer it.
