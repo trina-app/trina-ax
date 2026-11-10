@@ -263,10 +263,11 @@ test('⌘K finds 관리자 and 팀원 초대 for an admin (not listed before typ
   await signIn(page, BOB)
   await page.keyboard.press('ControlOrMeta+k')
   await expect(box).toBeFocused()
-  // what an admin finds by these words, a member does not: the search is done once its result shows (nothing found)
+  // what an admin finds by these words, a member does not: the search for them is done once its own last row shows
+  // (the file content search with these words)
   for (const words of [t['sidebar.admin'], '초대']) {
     await box.fill(words)
-    await expect(palette.getByTestId('search-none')).toBeVisible()
+    await expect(palette.getByRole('option', { name: t['search.inFiles'].replace('{q}', words) })).toBeVisible()
     await expect(palette.getByRole('option', { name: t['sidebar.admin'], exact: true })).toHaveCount(0)
     await expect(palette.getByRole('option', { name: t['teamMenu.invite'] })).toHaveCount(0)
   }
