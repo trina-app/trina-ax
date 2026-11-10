@@ -125,12 +125,12 @@ export const ShareFileOutput = z.object({ url: z.string() })
 const pathBatch = z.array(relPath).min(1).max(50)
 export const MoveFilesInput = z.strictObject({
   paths: pathBatch.describe('Files or folders to move (1-50), e.g. ["users/<you>/.attachments/<chat>/logo.png"]'),
-  to_folder: relPath.describe('An existing folder to move them into, e.g. "shared/company". Names are kept; " (2)" is added when a name is taken.'),
+  to_folder: relPath.describe('The folder to move them into, e.g. "shared/company"; a folder that does not exist yet is made. Names are kept; " (2)" is added when a name is taken.'),
 })
 export const MoveFilesOutput = z.object({ moved: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
 export const CopyFilesInput = z.strictObject({
   paths: pathBatch.describe('Files to copy (1-50; not folders). The originals stay where they are.'),
-  to_folder: relPath.describe('An existing folder to copy them into. Names are kept; " (2)" is added when a name is taken.'),
+  to_folder: relPath.describe('The folder to copy them into; a folder that does not exist yet is made. Names are kept; " (2)" is added when a name is taken.'),
 })
 export const CopyFilesOutput = z.object({ copied: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
 export const RenameFileInput = z.strictObject({

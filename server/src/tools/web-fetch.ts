@@ -200,7 +200,8 @@ function checkAddresses(host: string, addrs: { address: string; family: number }
   for (const a of addrs) {
     if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this server's own public address; the server cannot fetch it (it would loop back through the router or NAT in front of the server to its admin page or devices)`)
     if (testOk(a.address)) continue
-    if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
+    // G1: where an office address can be opened instead (docs/DECISIONS.md "Refusals say why, who and what next")
+    if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched from the server. Next step: in the desktop app, the browser next to the chat can open office-network addresses after the user allows it on a card; or the user can save the page or file and attach it to the chat`)
   }
   if ((port !== 80 && port !== 443) && !addrs.every((a) => testOk(a.address))) throw new ToolError('only ports 80 and 443 can be fetched')
 }

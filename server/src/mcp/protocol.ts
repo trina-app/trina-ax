@@ -9,6 +9,7 @@ import { authorize } from '../policy/authorize'
 import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
 import { safeText } from '../safe-ops/strings'
+import { cardEndShort, endOfText } from '../policy/refusal'
 
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as any
@@ -58,14 +59,15 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // fail closed: a check that throws stops the save
     const refusal = extra?.beforeFileTool ? await extra.beforeFileTool(name, params?.arguments ?? {}, caller).catch(() => ({ refusal: 'The save could not be checked, so nothing was written. Try again.', summary: `${name} -> not written (the check failed)` })) : null
     if (refusal) {
-      const r = typeof refusal === 'string' ? { refusal, summary: `${name} -> not allowed by the user (wider audience)` } : refusal
+      // a wider-audience refusal: the audit line says how its card ended (a scheduled run asked nobody)
+      const r = typeof refusal === 'string' ? { refusal, summary: `${name} -> ${((e) => (e === 'failed' ? 'the check failed' : cardEndShort(e)))(endOfText(refusal))} (wider audience)` } : refusal
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), r.summary.slice(0, 1000), 0)
       return failed(r.refusal)
     }
     const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
     let note: string | void = ''
-    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments) } catch {}
+    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text) } catch {}
     try { out.beforeDelivery?.() } catch {
       return failed(safeText(db,ctx.user.id,'changed'))
     }

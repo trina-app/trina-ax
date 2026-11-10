@@ -21,9 +21,10 @@ import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
 import { authorize } from '../policy/authorize'
-import type { Principal } from '../policy/access'
+import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
-import type { TurnExec, WidenOf } from './turn'
+import type { CardAnswer, TurnExec, WidenOf } from './turn'
+import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -227,7 +228,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         args = exec.sharedArgs(name, args)
         // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
         const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
-        if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: not shared by the user (shared chat)` }
+        if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
       }
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
@@ -235,7 +236,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
       // saves, what it copies, where its bytes come from)
       const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args), main: files === exec.files })
-      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> ${roomShort(roomNo)} (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -250,7 +251,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // (ToolCtx.confirmWidening) before the file is placed.
         const a = args as { output?: unknown; source?: unknown }
         const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
-        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'make_file -> not allowed by the user (wider audience)' }
+        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `make_file -> ${roomShort(refusal)} (wider audience)` }
       }
       if (name === 'edit_hwp' && args && typeof args === 'object') {
         // like write and edit: what the chat read may go where more people see it (asked before the worker runs); a new
@@ -258,12 +259,16 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const a = args as { output?: unknown; file_path?: unknown }
         const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
         const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
-        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
+        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `edit_hwp -> ${roomShort(refusal)} (wider audience)` }
       }
       // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
       const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
-      if (again) return { ...text(again, true), summary: `${name} -> not allowed by the user (room)` }
+      if (again) return { ...text(again, true), summary: `${name} -> ${roomShort(again)} (room)` }
       const out = await t.call(args, files)
+      // a read-only refusal of a registered tool (make_file, edit_hwp, save_url…): who can give write access (B2)
+      const roText = out.isError ? out.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n') : ''
+      const ro = readOnlyFor(exec, roText)
+      if (ro) out.content = [...out.content, { type: 'text', text: ro }]
       // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
       // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
       if (exec.room && name === 'share_file' && !out.isError) {
@@ -278,19 +283,22 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
       return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
     },
-    afterFileTool: (name, isError, args) => {
+    afterFileTool: (name, isError, args, text) => {
       // a skill save's approval is for that call only, saved or not (skills/guard.ts)
       exec.dropSkillApproval(name, args)
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
+      // a read-only refusal: who can give write access, and the person's own folder (B2, policy/refusal.ts); the
+      // tool's own text stays as it is (the same for every caller)
+      if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
       return exec.placementNote(tools.has('move_files'))
     },
     // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
       const no = await exec.confirmRoomChange(name, args)
-      return no ? { refusal: no, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` } : null
+      return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (${exec.room ? 'room' : 'after a room read'})` } : null
     },
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
@@ -308,13 +316,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.shared) {
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') Object.assign(args, exec.sharedArgs(name, args))
         const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
-        if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: not shared by the user (shared chat)` }
+        if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
       }
       recordSent(exec.rt.db, exec.spec.chatId, args)
       // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts); one that
       // also needs the wider-audience card below gets that one card
       const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: !caller || caller.files === exec.files })
-      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> ${roomShort(roomNo)} (${exec.room ? 'room' : 'after a room read'})` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
@@ -326,7 +334,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
       const again = await exec.recheckRoomCover(name, args, { main: !caller || caller.files === exec.files })
       if (again) exec.dropSkillApproval(name, args)
-      return again ? { refusal: again, summary: `${name} -> not allowed by the user (room)` } : null
+      return again ? { refusal: again, summary: `${name} -> ${roomShort(again)} (room)` } : null
     },
   }
   // a skill save's approval (make_file, edit_hwp) is for its call only: dropped when the call ends, saved or not
@@ -363,24 +371,49 @@ function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
   return targets.has(rel.normalize('NFC'))
 }
 
+/** B2's note after a policy refusal "Access denied: read-only…" (only that: never another tool's or a connection's
+ * text that happens to say so). A project's creator is mentioned only when the person may read that project folder, and
+ * named only where everyone who sees the answer may: in a room or a shared chat the answer reaches all of them, so only
+ * when every one of them may read that folder (roomReadable; none known: never), else "the project's creator". */
+export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'room' | 'shared' | 'roomReadable'>, text: string): string | null {
+  if (!text.startsWith('Access denied: read-only')) return null
+  const rules = exec.rt.files.rules(), me = exec.livePrincipal()
+  const group = !!exec.room || !!exec.shared
+  return readOnlyNote(exec.rt.db, text, exec.spec.locale, {
+    userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !group,
+    nameable: (segs) => !group || !!exec.roomReadable?.(segs.join('/')),
+  })
+}
+
+/** The audit line's words for a room card's refusal and a shared chat's read refusal: what happened (a scheduled run
+ * asks nobody, a card can time out), not always "not allowed by the user" (policy/refusal.ts endOfText). */
+const roomShort = (refusalText: string) => { const e = endOfText(refusalText); return e === 'failed' ? 'the check failed' : cardEndShort(e) }
+const sharedShort = (refusalText: string) => { const e = endOfText(refusalText); return e === 'declined' ? 'not shared by the user' : e === 'failed' ? 'the check failed' : cardEndShort(e) }
+
 /** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */
 export function turnPerson(exec: TurnExec): TurnPerson {
-  const choose = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null> => {
-    const answer = await exec.waitForPerson({
+  // the value picked (one of the card's own answers, never free text), or null with why there was none
+  const pick = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<{ value: string | null; missing: CardAnswer['missing'] }> => {
+    const { value: answer, missing } = await exec.askPerson({
       kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
       multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
       ...(extra?.details?.length ? { details: extra.details } : {}),
     } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-    // only one of the card's own answers counts (never free text)
-    return typeof v === 'string' && options.some((o) => o.value === v) ? v : null
+    return { value: typeof v === 'string' && options.some((o) => o.value === v) ? v : null, missing }
+  }
+  const choose = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null> => (await pick(question, options, extra)).value
+  const confirmWhy = async (question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome> => {
+    const r = await pick(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)
+    return r.value === 'allow' ? 'yes' : r.missing ?? 'declined'
   }
   return {
     locale: exec.spec.locale,
     choose,
     async confirm(question, allow, deny, extra) {
-      return (await choose(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)) === 'allow'
+      return (await confirmWhy(question, allow, deny, extra)) === 'yes'
     },
+    confirmWhy,
     *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
     // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
     // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open

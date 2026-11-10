@@ -723,12 +723,15 @@ export class TeamFiles {
    * of them now and could not in `toFolder` (lost). Counted once per person, never named. Every path is checked like
    * the move / copy itself (a path the caller may not use throws: the tool checks them one by one first).
    */
-  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number; fingerprint: string } {
+  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number; fingerprint: string; isNew: boolean; folder: string } {
     const user = this.principal(userId)
     const rules = this.rules()
     const srcs = from.map((f) => authorize(this.fx, rules, user, f, mode === 'move' ? 'write' : 'read', { mustExist: true }).segs)
-    const to = authorize(this.fx, rules, user, toFolder, 'write', { mustExist: true })
-    if (!to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    // a folder that is not there yet is made by the tool (ensureFolder) after the card: its readers are those its
+    // nearest existing folder's rules give it (a new folder has no rules of its own), under the same write check as a
+    // new file's folders (docs/DECISIONS.md "move_files and copy_files make the target folder")
+    const to = authorize(this.fx, rules, user, toFolder, 'write', { mustExist: false, createDirs: true })
+    if (to.exists && !to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let added = 0, lost = 0
     const audience: string[] = []
     for (const p of activePeople(this.ctx.db)) {
@@ -740,7 +743,44 @@ export class TeamFiles {
     }
     // Compare identities as well as counts without exposing reader names to the tool.
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(audience.sort())).digest('hex')
-    return { added, lost, fingerprint }
+    return { added, lost, fingerprint, isNew: !to.exists, folder: to.rel }
+  }
+
+  /**
+   * The AI's move_files / copy_files into a folder that is not there yet (docs/DECISIONS.md "move_files and copy_files
+   * make the target folder"): the missing folders are made one by one under the same checks as a new file's folders
+   * (write access, names, look-alike names: authorize createDirs). Before, the AI was told to write a README.md into a
+   * new folder first, a file nobody asked for. Returns the folder as on disk and the folders made (none when it was
+   * there); the caller records them once something went in (recordFolders), or takes them away again (dropFolders).
+   */
+  ensureFolder(userId: string, rel: string): { path: string; created: string[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: false, createDirs: true })
+    if (r.exists) {
+      if (!r.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+      return { path: r.rel, created: [] }
+    }
+    const created: string[] = []
+    try {
+      for (let i = r.existing; i < r.segs.length; i++) {
+        const segs = r.segs.slice(0, i + 1)
+        verifyChain(this.root, segs, true)
+        try { fs.mkdirSync(path.join(this.root, ...segs), { mode: 0o700 }) } catch (e: any) { if (e.code !== 'EEXIST') throw e; continue }
+        verifyChain(this.root, segs)
+        created.push(segs.join('/'))
+      }
+    } catch (e) { this.dropFolders(created); throw e }
+    return { path: r.rel, created }
+  }
+  /** The folders ensureFolder made, each a new folder of this turn in the file history and on the Files screen. */
+  recordFolders(userId: string, created: string[], o: By = {}) {
+    for (const at of created) fileEvent(this.ctx.db, { turnId: o.turnId ?? null, userId, path: at, action: 'create', detail: { folder: true, tool: o.tool ?? 'file-screen' } })
+    if (created.length) this.publish(created.map((p) => ({ path: p, action: 'mkdir' as const, by: this.by(userId), turnId: o.turnId ?? null })))
+  }
+  /** The folders ensureFolder made, taken away again while still empty (nothing went in), the deepest first. */
+  dropFolders(created: string[]) {
+    for (const at of [...created].reverse()) { try { fs.rmdirSync(path.join(this.root, ...at.split('/'))) } catch { /* not empty, or gone: left */ } }
   }
 
   // ---------------- copy: sharing a personal file / project (design tab 2 rule 3, tab 4 POST /api/files/copy) ----------------
