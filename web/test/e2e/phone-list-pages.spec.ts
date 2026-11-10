@@ -209,7 +209,9 @@ test.describe('each page', () => {
     await expect(page.getByTestId('usage-filters').getByTestId('usage-groupby')).toHaveCount(0)
     // the numbers stand without frames
     expect(await page.getByTestId('usage-stat-in').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
-    // one main button; Download CSV under its ⌄
+    // one main button, 44 px like its ⌄; Download CSV under the ⌄
+    await tall(page.getByTestId('usage-limits-link'))
+    await tall(page.getByTestId('usage-limits-link-more'))
     await expect(page.getByTestId('usage-csv')).toHaveCount(0)
     await page.getByTestId('usage-limits-link-more').click()
     await expect(page.getByRole('menu', { name: t['common.moreActions'] }).getByRole('menuitem')).toHaveText([t['usage.exportCsv']])
