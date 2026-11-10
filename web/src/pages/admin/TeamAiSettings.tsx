@@ -22,6 +22,7 @@ import { useLocale, useT } from '../../i18n'
 import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
 import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
+import { useKeptDraft } from '../../lib/keptDraft'
 
 type EnginesData = EnginesResponse
 
@@ -87,6 +88,8 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   useEffect(() => {
     setF({ defaultEngine: data.defaultEngine, defaultModel: data.defaultModel, concurrency: data.concurrency })
   }, [data.defaultEngine, data.defaultModel, data.concurrency])
+  // a phone's group page: the draft stays when the page is left (lib/keptDraft.ts)
+  useKeptDraft('ai-defaults', saved, f, setF)
   const dirty = f.defaultEngine !== saved.defaultEngine || f.defaultModel !== saved.defaultModel || f.concurrency !== saved.concurrency
   const max = data.concurrencyMax ?? 16
   const save = async () => {
@@ -145,6 +148,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
     setChoice(data.memberChoice)
     setFallback(data.limitFallback)
   }, [data.memberChoice, data.limitFallback])
+  useKeptDraft('ai-choice', { choice: data.memberChoice, fallback: data.limitFallback }, { choice, fallback }, (d) => { setChoice(d.choice); setFallback(d.fallback) })
   const toggleIn = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id))
   // owner and admins always pick: only members are listed
   const members = (users.data ?? []).filter((u) => u.role === 'member' && u.status === 'active')
@@ -169,7 +173,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
                   role="radio"
                   aria-checked={choice.mode === mode}
                   onClick={() => setChoice({ ...choice, mode })}
-                  className={clsx('rounded-md px-3 py-1.5 text-sm', choice.mode === mode ? 'bg-surface font-medium text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink')}
+                  className={clsx('rounded-md px-3 py-1.5 text-sm max-md:min-h-11', choice.mode === mode ? 'bg-surface font-medium text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink')}
                   data-testid={`engine-choice-${mode}`}
                 >
                   {t(`engines.choice.${mode}`)}

@@ -46,6 +46,8 @@ test('Team settings: a list of its groups; a row opens its page under "‹ Team 
   await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.settings'])
   await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.title'])
   for (const id of GROUPS) await expect(page.getByTestId(`team-settings-row-${id}`)).toBeVisible()
+  // the dev environment is a group only where the server has it
+  await expect(page.getByTestId('team-settings-row-dev-env')).toHaveCount(0)
   // the list only: no setting of any group is on it
   await expect(page.getByTestId('team-settings')).toHaveCount(0)
   // the whole list fits on the first screen (it was 6,700 px of settings)
@@ -108,6 +110,27 @@ test('unsaved changes: the save bar stays at the bottom, on the list too; leavin
   await expect(page.locator('#ts-name')).toHaveValue('Acme Labs')
 })
 
+test('a group that saves on its own keeps its draft too: AI defaults, Back to the list and in again', async ({ page }) => {
+  await openTeamSettings(page)
+  await page.getByTestId('team-settings-row-ai').click()
+  await page.getByTestId('engines-concurrency').fill('3')
+  await expect(page.getByTestId('engine-defaults-save-bar')).toBeVisible()
+  await page.getByTestId('admin-back').click()
+  await page.getByTestId('team-settings-row-ai').click()
+  await expect(page.getByTestId('engines-concurrency')).toHaveValue('3')
+  await expect(page.getByTestId('engine-defaults-save-bar')).toBeVisible()
+})
+
+test('the dev environment, where the server has it: its own group', async ({ page }) => {
+  expect((await page.request.post('/__test/dev-env', { data: { srt: true } })).ok()).toBe(true)
+  await page.goto('/admin/settings')
+  await page.getByTestId('team-settings-row-dev-env').click()
+  await expect(page).toHaveURL(/\/admin\/settings\/dev-env$/)
+  await expect(page.getByTestId('admin-bar-title')).toHaveText(t['devEnv.title'])
+  await expect(page.getByTestId('dev-env-team')).toBeVisible()
+  await expect(page.getByTestId('team-settings-general')).toHaveCount(0)
+})
+
 test('a field to fix: "Go to the field" from the list opens General at that field', async ({ page }) => {
   await openTeamSettings(page)
   await page.getByTestId('team-settings-row-general').click()
@@ -141,7 +164,13 @@ test('a link to a setting opens the group that holds it, with the lists under it
   await expect(page).toHaveURL(/\/admin\/settings\/ai#ai$/)
   await expect(page.getByTestId('engine-defaults')).toBeVisible()
   await expect(page.getByTestId('engine-budgets')).toHaveCount(0)
-  // an unknown group: the list
+  // System's "update window" link: General, at Time and updates
+  await page.goto('/admin/settings#ts-time')
+  await expect(page).toHaveURL(/\/admin\/settings\/general#ts-time$/)
+  await expect(page.locator('#ts-time-title')).toBeInViewport()
+  // an unknown group, or a hash that is no escape: the list
+  await page.goto('/admin/settings#%')
+  await expect(page.getByTestId('team-settings-list')).toBeVisible()
   await page.goto('/admin/settings/nope')
   await expect(page).toHaveURL(/\/admin\/settings$/)
   await expect(page.getByTestId('team-settings-list')).toBeVisible()
@@ -206,6 +235,8 @@ test('nothing on these pages is wider than the screen, in Spanish too', async ({
       await page.goto(path)
       await expect(page).toHaveURL(new RegExp(`${path}$`))
       await expect(page.getByTestId(box)).toBeVisible()
+      // drawn with its data, not its loading lines
+      await expect(page.getByTestId(box).locator('.animate-pulse')).toHaveCount(0)
       await page.waitForTimeout(300)
       expect(await page.evaluate(() => document.documentElement.scrollWidth), `${locale} ${path}`).toBeLessThanOrEqual(390)
       expect(await page.getByTestId(box).evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `${locale} ${path}`).toBe(true)

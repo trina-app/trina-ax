@@ -38,9 +38,18 @@ export const teamSettingsGroups = (devEnv: boolean | undefined) => TEAM_SETTINGS
 
 export const teamSettingsGroup = (id: string | undefined, devEnv: boolean | undefined) => (id ? teamSettingsGroups(devEnv).find((g) => g.id === id) : undefined)
 
+/** The id a #hash names ('' for none, or one that is not a valid escape such as "#%"). */
+export const safeHash = (hash: string) => {
+  try {
+    return decodeURIComponent(hash.replace(/^#/, ''))
+  } catch {
+    return ''
+  }
+}
+
 /** The group that holds a part of the page ("#ai-limits" → Usage limits), or undefined. */
 export const groupOfHash = (hash: string, devEnv: boolean | undefined) => {
-  const id = decodeURIComponent(hash.replace(/^#/, ''))
+  const id = safeHash(hash)
   return id ? teamSettingsGroups(devEnv).find((g) => g.anchors.includes(id)) : undefined
 }
 

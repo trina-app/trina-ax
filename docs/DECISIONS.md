@@ -19644,13 +19644,18 @@ decided that Team settings splits into pages on phones and stays one page on com
   Team settings → Admin → where you were (`useListUnderPage` takes the lists outermost first); from inside Admin (Usage's
   "Usage limits") nothing goes under it and "‹ Usage" goes back to Usage, as for Admin's own pages. A computer opening
   `/admin/settings/<group>` gets the one page at that group (`#anchor`), and the page now scrolls to any of its parts'
-  `#hash` (only `#ai` and `#ai-limits` did).
+  `#hash` (only `#ai` and `#ai-limits` did), again while the parts above it load, for up to 2 s, until the person
+  scrolls. A window resized across 768 px moves between the two (the redirect says what is under the entry, so a resize
+  never builds a back stack).
 - **One form, kept.** The groups are drawn by the one Team settings page, which stays while the list and its groups
   change, so a change in General is still there on the list and in Keeping data; the save bar shows on the list and on
   the groups whose fields it saves (not on the ones that save on their own), sticky at the bottom. Leaving Team settings
-  with unsaved changes on a phone keeps the changed fields for the session (put back over what is saved when it opens
-  again, so nobody else's later change is undone); ‹ does not ask first, since nothing is lost. "Go to the field" from
-  the list opens General at that field. Computers: as before.
+  with unsaved changes on a phone keeps the changed fields in memory (`lib/keptDraft.ts`, for the same person and
+  session, until the app reloads): put back over what is saved when it opens again, so nobody else's later change is
+  undone. The parts that save with their own button (AI defaults, who picks the engine, the dev environment) keep
+  their drafts the same way when their group is left, put back only while what is saved is still what they were
+  edited from. ‹ does not ask first, since nothing is lost. "Go to the field" from the list opens General at that field.
+  Computers: as before (nothing kept).
 - **Rows** (`admin/common.tsx`): `SettingRow` `inline` keeps a switch or a short number on the right of its name below
   768 px, the line under the name (as Settings › Notifications' `PrefRow`); a select or a text field still goes under
   the line, full width. A section or card whose name the phone bar shows keeps it for screen readers only
@@ -19662,14 +19667,18 @@ decided that Team settings splits into pages on phones and stays one page on com
   (Profile, Security & devices, Browser, Memory, Allowed for the AI, Notifications, About) use it; other pages keep their
   sizes. Language and theme choices and System's "Show details" are 44 px; small icon buttons inside a line keep their
   look with a 44 px box (`touch-hit`).
-- Removed on phones: Team settings' 6,700 px page (its groups' pages instead), the duplicate group names under the bar,
-  the frames around the lists in Memory, Allowed for the AI and Browser (plain rows, as Security's devices).
+- Removed on phones: Team settings' 6,700 px page (its groups' pages instead), a group's name repeated under the bar
+  (Dev environment keeps its title, which carries the Experiment badge), the frames around the lists in Memory, Allowed
+  for the AI and Browser (plain rows, as Security's devices).
 - Not changed: the keyboard's sheets (#336), the list pages (Groups, Folder permissions, Providers, Connectors, AI apps,
-  Plugins, Slack, Usage, Activity log: their own PR), Settings › Apps (its QR code shows only on a computer's browser
-  already: a phone's browser and the phone app know they are one).
+  Plugins, Slack, Usage, Activity log: their own PR; the account menu of "Members' own accounts" is Providers' and keeps
+  its rows), Settings › Apps (its QR code shows only on a computer's browser already: a phone's browser and the phone
+  app know they are one).
 - Tests: `web/test/e2e/phone-form-pages.spec.ts` (list → group → ‹ and Back; the save bar on the list, kept after
-  leaving, saved; "Go to the field" from the list; `#ai-limits`, `#speech` and the old Providers address open their
-  group, Back walks the lists; switches on the right with the line under the name; System's values on the right and 44
-  px buttons; Profile's 44 px choices; no page wider than the screen in English and Spanish; a computer's one page and a
-  group's address there), `phone-admin.spec.ts` (Usage → Usage limits under "‹ Usage").
+  leaving, saved; AI defaults' draft kept; "Go to the field" from the list; `#ai-limits`, `#speech`, `#ts-time` and the
+  old Providers address open their group, Back walks the lists; the dev environment's group only where the server has
+  it; switches on the right with the line under the name; System's values on the right and 44 px buttons; Profile's
+  44 px choices; no page wider than the screen in English and Spanish; a computer's one page and a group's address
+  there), `phone-admin.spec.ts` (Usage → Usage limits under "‹ Usage"), web unit `kept-draft.test.ts` (kept once, for
+  the same person and session, never over a newer saved value) and `back-stack.test.tsx` (two lists under a group).
 - Version impact: **minor** (a visible change on phones; no API, data or permission change).

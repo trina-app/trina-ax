@@ -82,7 +82,7 @@ function Row({ label, children, action, testId, long }: { label: ReactNode; chil
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-1 py-2.5 md:flex-nowrap md:gap-x-6" data-testid={testId}>
       <dt className={clsx('text-muted md:w-40 md:shrink-0', long ? 'max-md:basis-full' : 'max-md:max-w-[50%] max-md:shrink-0')}>{label}</dt>
-      <dd className={clsx('min-w-0 flex-1 break-words', !long && 'max-md:text-right')}>{children}</dd>
+      <dd className={clsx('min-w-0 flex-1', !long && 'max-md:text-right max-md:break-words')}>{children}</dd>
       {action && <dd className="shrink-0">{action}</dd>}
     </div>
   )

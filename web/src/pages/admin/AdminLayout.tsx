@@ -24,7 +24,7 @@ import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
 import { useGoBack } from '../../lib/back'
-import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
+import { BELOW, entryBelow, useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Spinner, useMediaQuery } from '../../components/ui'
 import { PhonePageBar } from '../../components/phone/PhonePageBar'
@@ -120,12 +120,18 @@ export default function AdminLayout() {
   const t = useT()
   const me = useMeStrict()
   const { section = '', sub } = useParams()
-  const { search, hash } = useLocation()
+  const location = useLocation()
+  const { search, hash } = location
   // phones: the list and its pages (below 768 px, the width of the phone top bar and tabs)
   const phone = useMediaQuery('(max-width: 767.98px)')
   // tablets: the menu as a rail of icons (names in tips); computers: with the names
   const wide = useMediaQuery('(min-width: 1024px)')
   const content = useRef<HTMLDivElement>(null)
+  // the width this entry first showed at: a redirect after a resize (Team settings' one page ↔ its groups) says what is
+  // under it, so the new entry gets no list put under it (a resize never builds a back stack, lib/backStack.ts)
+  const firstWidth = useRef<{ key: string; phone: boolean } | null>(null)
+  if (firstWidth.current?.key !== location.key) firstWidth.current = { key: location.key, phone }
+  const resized = firstWidth.current.phone !== phone
   const admin = isAdmin(me)
   const devEnv = me.server.devEnv
   // Team settings: a group's page on a phone, the one page on a computer (teamSettingsGroups.ts); no other page has
@@ -144,7 +150,7 @@ export default function AdminLayout() {
   const label = useBackLabel(up, (p) => pageName(p, t, devEnv))
   const back = useGoBack(up)
   if (!admin) return <Navigate to="/" replace />
-  if (redirect) return <Navigate to={redirect} replace />
+  if (redirect) return <Navigate to={redirect} replace state={resized ? { [BELOW]: entryBelow(location.key) ?? null } : undefined} />
   if (!known) return <Navigate to="/admin" replace />
   const current = menu.flatMap((g) => g.items).find((s) => s.id === section)!
 

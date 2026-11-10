@@ -32,7 +32,8 @@ import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, PhoneTargets, Switch, useMediaQuery } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
-import { teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
+import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
+import { changesOf, keepChanges, takeChanges, useDraftOwner } from '../../lib/keptDraft'
 import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
@@ -40,12 +41,6 @@ import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
 import KnowledgeGraphSettings from './KnowledgeGraph'
-
-/** A phone's unsaved changes when Team settings was left (Back, a tab): put back over what is saved when it opens again,
- * so the save bar comes back with them. Only the fields that were changed, for the same person and session. */
-let kept: { who: string; changes: Partial<TeamSettings> } | null = null
-const changesOf = (f: TeamSettings, saved: TeamSettings): Partial<TeamSettings> =>
-  Object.fromEntries(Object.entries(f).filter(([k, v]) => saved[k as keyof TeamSettings] !== v)) as Partial<TeamSettings>
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -65,22 +60,20 @@ export default function TeamSettingsPage() {
   const office = useLoad(async () => (me.server.features?.officeUpdate ? api.call(API.officeUpdateStatus) : null))
   const [f, setF] = useState<TeamSettings | null>(null)
   const [busy, setBusy] = useState(false)
-  const who = `${me.user.id}:${me.session.id}`
-  // the form starts from the loaded settings once (with a phone's kept changes over them); saves keep it (a key save
-  // must not throw away other drafts)
+  const who = useDraftOwner()
+  // the form starts from the loaded settings once, with a phone's unsaved changes from the last visit laid over them
+  // (lib/keptDraft.ts: the save bar comes back with them); saves keep it (a key save must not throw away other drafts)
   useEffect(() => {
     if (!state.data) return
-    const changes = kept?.who === who ? kept.changes : null
-    kept = null
-    setF((x) => x ?? (changes ? { ...state.data!, ...changes } : state.data))
+    setF((x) => x ?? takeChanges('team-settings', who, state.data!) ?? state.data)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.data])
   const latest = useRef({ f, saved: state.data, phone, who })
   latest.current = { f, saved: state.data, phone, who }
   useEffect(() => () => {
     const { f, saved, phone, who } = latest.current
-    const changes = phone && f && saved ? changesOf(f, saved) : {}
-    kept = Object.keys(changes).length ? { who, changes } : null
+    // left before the settings loaded: what was kept stays kept
+    if (phone && f && saved) keepChanges('team-settings', who, saved, f)
   }, [])
   const num = (k: keyof TeamSettings, min: number, max: number) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => (x ? { ...x, [k]: Math.max(min, Math.min(max, Math.floor(Number(e.target.value) || min))) } : x))
   const windowOk = TeamSettings.shape.updateWindow.safeParse(f?.updateWindow).success
@@ -101,6 +94,7 @@ export default function TeamSettingsPage() {
   const unsaved = !!f && !!state.data && Object.entries(f).some(([k, v]) => state.data![k as keyof TeamSettings] !== v)
   const nameOk = !!f?.teamName.trim()
   const fix = !windowOk ? 'window' : !nameOk ? 'name' : null
+  // "Go to the field" from another group: General opens, then the field gets the focus
   const fixing = useRef(false)
   const showFix = () => {
     const el = document.querySelector<HTMLElement>(fix === 'window' ? '[data-team-field="update-window"]' : '[data-team-field="name"]')
@@ -114,19 +108,42 @@ export default function TeamSettingsPage() {
     navigate('/admin/settings/general')
   }
   useEffect(() => {
-    if (!fixing.current || group?.id !== 'general') return
+    if (!fixing.current) return
     fixing.current = false
-    showFix()
+    if (group?.id === 'general') showFix()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group?.id])
-  // a link to a part of the page (#speech, #ts-time; #ai and #ai-limits bring their own group in): that part into view
-  // once it is there, on a computer's one page and on a phone's group
+  // a link to a part of the page (#speech, #ts-time, #knowledge-graph; #ai and #ai-limits bring their own group in):
+  // that part into view, on a computer's one page and on a phone's group. The parts above it load their own data and
+  // grow, and a part may come late (the dev environment): it is put in view again while it moves, for up to 2 s, until
+  // the person scrolls
   const page = useRef<HTMLDivElement>(null)
   const loaded = !!f
   useEffect(() => {
-    if (!hash || hash === '#ai' || hash === '#ai-limits' || !loaded) return
-    const el = document.getElementById(decodeURIComponent(hash.slice(1)))
-    if (el && page.current?.contains(el)) el.scrollIntoView({ block: 'start' })
+    const id = safeHash(hash)
+    if (!id || id === 'ai' || id === 'ai-limits' || !loaded) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let last: number | null = null
+    const start = Date.now()
+    const stop = () => clearTimeout(timer)
+    const tick = () => {
+      const el = document.getElementById(id)
+      if (el && page.current?.contains(el)) {
+        const top = el.getBoundingClientRect().top
+        if (top !== last) {
+          el.scrollIntoView({ block: 'start' })
+          last = el.getBoundingClientRect().top
+        }
+      }
+      if (Date.now() - start < 2000) timer = setTimeout(tick, 100)
+    }
+    tick()
+    const opts = { passive: true } as const
+    for (const e of ['wheel', 'touchstart', 'keydown'] as const) window.addEventListener(e, stop, opts)
+    return () => {
+      stop()
+      for (const e of ['wheel', 'touchstart', 'keydown'] as const) window.removeEventListener(e, stop)
+    }
   }, [hash, loaded, group?.id])
   const owner = isOwner(me)
   // one Save for the whole form, switches too, in a bar that shows only while something is not saved (or a field needs
@@ -372,7 +389,7 @@ export function TeamIconRow() {
                 {error}
               </p>
             )}
-            <button type="button" aria-expanded={previews} className="mt-2 text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setPreviews(!previews)} data-testid="team-icon-previews">
+            <button type="button" aria-expanded={previews} className="mt-2 text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline max-md:min-h-11" onClick={() => setPreviews(!previews)} data-testid="team-icon-previews">
               {previews ? t('teamIcon.hidePreviews') : t('teamIcon.showPreviews')}
             </button>
             <div hidden={!previews} className="mt-3 grid max-w-md grid-cols-2 gap-3">
