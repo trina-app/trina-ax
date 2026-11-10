@@ -62,6 +62,9 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
   // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
   post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala'),
+  // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
+  // "프로젝트 멤버 바꾸기 · 견적"
+  change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto'),
   // a room's own AI session opens one of the room's threads (an id means nothing to the person: the verb alone)
   room_thread: t('스레드 읽기', 'Read thread', 'Baca utas', "スレッドを読む", "Leer hilo"),
   // a room's own AI session finds and reads the shared project chats the asker may view (server/src/chat/room-project-chats.ts):
@@ -244,6 +247,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
+    case 'change_project_members': return a.project ? `${verb} · ${clip(a.project, 60)}` : verb!
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })

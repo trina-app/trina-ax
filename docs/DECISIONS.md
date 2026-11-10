@@ -18599,3 +18599,69 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   `project-participants.spec.ts` (create, the 멤버 line, the dialog, the confirm, taking out, the hint for a member,
   ⋯ 멤버, `?members=1`) and `shared-project-chats.spec.ts` (the legacy note moved to the line).
 - Version impact: **minor** (a visible change of where members are changed; two optional response fields).
+
+## change_project_members: the AI changes a project's members — AI가 프로젝트 멤버를 바꿔요 (feat/project-members-tool, 2026-11-10, product owner)
+
+Asked to add or remove someone in a project, the AI answered that it had no tool. The owner (2026-11-10): "이것도
+가능하면 좋지 않을까?" `change_project_members` (server/src/chat/project-members.ts) changes a team project's members
+(people and groups, as the members panel of "Project members in one panel" does) after the person's yes on ONE server
+card, through the panel's own save (`saveParticipants`: the rules hash checked inside the transaction,
+`afterAccessChange`, the audit). An independent review of the plan set what follows (M1–M5, S1–S2, N1–N7). Owner
+decisions: no 보기/편집 split; the tool also works in chats that read rooms, the ✦ side chat included, with M1 and M5.
+
+- **Input.** `{ project?, add: [{ name, id? }], remove: [{ name, id? }] }`, at least one name, at most 20 each. The names
+  as the user wrote them; `id` only from the candidates the tool gave back for that name. Cut by the review: a list mode,
+  a `kind`, matching a username or an email.
+- **Decision: the person's own chat only.** Refused up front, with `refusal()` (what did not happen, why, next step), in a
+  scheduled run, a room, a shared project chat, a confidential chat, a chat other people wrote in, a question from Slack
+  or a Slack thread's chat (`exec.fromSlack`, S1), a draft / judge / merge chat (refused when called, N7), and for a
+  sub-agent (`PARENT_ONLY_TOOLS`, `files !== exec.files`). Not offered in rooms, shared or confidential chats (the
+  allowlists), nor in an approved template run; never in `FILE_TOOLS` or the remote connector. At most two cards per
+  answer, none after a no or no answer, none while another card is open (`exclusive`).
+- **Decision: a chat that read rooms gets the card, with the room line first** (owner Q2, review M1). "Read rooms" here
+  is `rooms_seen`, a side chat (`side_room_id`), or a `>` quote line in the person's own messages on the branch ("Ask
+  Trina about this" quotes another person's message that way, and sets no `rooms_seen`). The tool is in
+  `ROOMS_SEEN_READ_ONLY_TOOLS` with post_to_room (N6): its card is the call's only one. delete_files has the same side
+  chat gap (it refuses on `rooms_seen` only): left for its own change.
+- **Decision: names fold hard and must be unique** (M2, M3, N3). NFKC, case folding, invisible and direction-control
+  characters removed, spaces, dots, hyphens and underscores folded, and a small map of Cyrillic and Greek letters that
+  look like Latin ones. A name matches by that skeleton over people and groups at once (exact never wins over the rest);
+  one match only, else the AI gets the candidates (name, kind, the directory's title marked as the person's own words, a
+  group's head count, the id) and nothing is asked. A name another active account, or a group the caller may name, folds
+  to as well always needs an `id`, and an `id` counts only when it is one of that name's candidates. Removal: among the
+  current members, a part of 2+ characters is enough when it is unique. Not a member: one message. A member names only
+  their own groups; another group is "not found" (its name is not theirs to learn).
+- **Decision: the rule difference must be the names** (M4). The save's rules (`participantRules`) may differ from the
+  folder's now only by the named people and groups. An older folder without the floor rule, or one whose creator's rule
+  an admin took out, is refused with what else would change and a link to the members panel (`/projects/:id?members=1`),
+  whose confirm says it. The creator is never removed; a person or group with a rule from Admin › Folder permissions is
+  refused.
+- **The card.** The project (name and folder); each line the full name (never cut; an invisible character shown as
+  `[U+200B]`), person or group, a group's head count (S2), "같은 이름 N명" when another account folds to it; how many gain
+  and lose it with before → after; what opens (files with those others put there, the shared chats' whole history, the
+  project skills by name); "이 부서에 나중에 들어오는 사람도 보게 돼요" for a group; for removal "이 프로젝트를 못 보게
+  돼요" with what they lose and that their AI chats start fresh (N4; nothing says reversible, M5); who is told: the people
+  who gain it and those who saw it already (`access_changed`, `project_access_widened`), those removed (N1); and for an
+  admin, that a removed admin (themself too) keeps seeing it (N2). No title on the card: anyone can set their own (M2).
+- **Decision: the red mark** (M5). A name the person's own messages on this branch do not hold outside `>` quote lines
+  (the name the AI gave or the person's full name, compact, without the look-alike map), and a project other than the
+  chat's that they did not name, get "내 메시지에 없는 이름이에요" in red (`ConfirmDetail.alerts`: whole lines of the
+  detail's text with a note; the text keeps them, so an older app still shows every line), and the question says what
+  the red means.
+- **The yes.** Bound to a fingerprint of the project, its folder, the rules hash, the next rules, who sees it before and
+  after, and every project skill name (N5; the dry run's list stops at 10). On yes: the account, the right to change it,
+  the names by the card's ids and the plan again; any difference ("changed while the card waited": a rename, an admin's
+  rule, someone joining a group) refuses, nothing written. Then `saveParticipants` with the card's hash (409 inside the
+  transaction), audited `folder.rules` with `via: 'ai'`, the turn and the chat, and one `projects.ai_members` row per call
+  (refused with its reason, declined, no answer, changed, failed, done).
+- **Who may.** The panel's own checks: `mayEditProject` and `accessEditable`. Anyone else is told who can: the creator by
+  name only while their account is active and the folder is theirs to change, else "an admin"; an admin is never named.
+- Prompt: one rule when the tool is offered (only for what the person's own message asks, all names in one call, ask
+  with the candidates). Step: "프로젝트 멤버 바꾸기 · 견적".
+- Tests: `tests/unit/b-project-members-tool.test.ts` (the names, every refusal, Slack and a sub-agent through an answer,
+  the card, a group and an admin removing themself, two cards and no after a no, the creator, a planted quote in a side
+  chat and `rooms_seen` with the red mark, look-alike and invisible names, an id not of its name, a rename and a stale
+  plan, the older folders, who may, the audit and the busy card), web `ask-card-details.test.tsx` (the red lines), and
+  the tool lists of `b-chat`, `b-browser` and `i-wiring`.
+- Version impact: **minor** (a new AI tool and card field; no API change, no migration).
+
