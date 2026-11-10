@@ -3,6 +3,9 @@
 // A message sent while an answer runs waits under the conversation and goes when the answer is done
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
+// Under the box every chat says who sees it (components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always"): "나만
+// 봐요", "나와 관리자만 봐요" or how many people; in a shared chat, for whoever may change its project's members, the line
+// opens the members dialog, and the chat is read again after a save.
 // A shared project chat (Chat.shared, docs/DECISIONS.md "Shared project chats"): the people of its project see it and may
 // continue it. The header has its mark, the line under the box says how many see it, other people's messages carry
 // their names, and only what the person may do is offered (rename and the engine: its creator; delete: its creator or a
@@ -46,6 +49,9 @@ import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatPr
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
+import { WhoSeesLine } from '../components/chat/WhoSees'
+import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
+import { useProjects } from '../store/projects'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -115,6 +121,12 @@ function ChatView({ chatId }: { chatId: string }) {
   // from the projects store there
   const projectId = chat?.projectId ?? null
   const [movingProject, setMovingProject] = useState(false)
+  // the line under the box, once the chat is here: whether nobody else sees it by a rule (Project.alone) and its
+  // members dialog, for a shared chat whose members I may change, from its project as the header's crumb asked for it
+  // (store/projects.ts)
+  const project = useProjects((s) => (projectId ? s.byId[projectId] : undefined))
+  const [members, setMembers] = useState(false)
+  const who = chat ? <WhoSeesLine shared={shared ? { audience: shared.audience, alone: project?.alone } : null} place="chat" onOpen={shared && project?.membersEditable ? () => setMembers(true) : undefined} /> : undefined
 
   useEffect(() => {
     if (choose) void loadEngines()
@@ -419,8 +431,8 @@ function ChatView({ chatId }: { chatId: string }) {
             engines={engines}
             models={models}
             placeholder={t('chat.reply')}
-            footer={shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}
-            phoneFooter={shared ? t('chat.sharedSeen', { n: shared.audience }) : undefined}
+            footer={t('chat.footerAi')}
+            who={who}
             hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
@@ -431,6 +443,14 @@ function ChatView({ chatId }: { chatId: string }) {
         )}
         {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}</p>}
       </div>
+      {members && project && (
+        <ProjectMembersDialog
+          project={project}
+          onClose={() => setMembers(false)}
+          // who sees the chat now (its count, and whether anyone else does by a rule)
+          onSaved={() => void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})}
+        />
+      )}
       {movingProject && chat && (
         <MoveToProjectDialog
           chat={chat}
