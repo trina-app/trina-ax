@@ -108,9 +108,30 @@ test.describe('each page', () => {
     const claude = page.locator('[data-testid="engine-card"][data-engine="claude-code"]')
     await expect(claude).toBeVisible()
     await expect(page.getByTestId('provider-accounts-claude')).toHaveCount(0)
+    // the dim line (how it signs in, models, when checked) is in the opened part; the name is a 44 px target
+    await expect(claude.getByText(t['engines.mode.local-login'].replace('{provider}', ''), { exact: false })).toHaveCount(0)
+    await tall(claude.getByTestId('engine-open'))
     await claude.getByTestId('engine-open').click()
     await expect(page.getByTestId('provider-accounts-claude')).toBeVisible()
     await expect(page.getByTestId('provider-add-claude')).toBeVisible()
+  })
+
+  test('Providers: an account that needs a look stays in sight under a closed row', async ({ page }) => {
+    // the team's one Claude account needs signing in again (the mock has none, so the list is answered here)
+    await page.route('**/api/admin/credentials', async (route) => {
+      const res = await route.fetch()
+      const body = await res.json()
+      const at = new Date().toISOString()
+      body.items = [{
+        id: '01900000-0000-7000-8000-00000000c1a1', kind: 'anthropic-oauth', label: 'Acme Claude', scope: 'team', owner: null, assignments: [], priority: 10,
+        disabled: false, state: 'needs_reconnect', detail: null, hint: null, planType: null, expiresAt: null, limitedUntil: null, checkedAt: at,
+        lastUsedAt: null, spendLimit: { usd: null, tokens: null, action: 'block' }, month: { usd: 0, tokens: 0, requests: 0 }, createdAt: at,
+      }]
+      await route.fulfill({ response: res, json: body })
+    })
+    await page.goto('/admin/providers')
+    await expect(page.getByTestId('provider-accounts-claude').getByTestId('credential-row')).toBeVisible()
+    await expect(page.getByTestId('provider-accounts-codex')).toHaveCount(0)
   })
 
   test('Connectors: Discover is rows without frames, with a 44 px +', async ({ page }) => {
@@ -147,6 +168,22 @@ test.describe('each page', () => {
     const section = page.getByTestId('plugins-catalog').locator('xpath=ancestor::section[1]')
     expect(await section.evaluate((el) => getComputedStyle(el).borderLeftWidth)).toBe('0px')
     await expect(page.getByTestId('plugins-installed-empty')).toHaveText(t['plugins.installedEmpty'])
+  })
+
+  test('Plugins: an installed plugin is one line with its state and Turn off; Remove opens with the rest', async ({ page }) => {
+    await page.goto('/admin/plugins')
+    const starter = page.locator('[data-testid="plugin-catalog"][data-plugin="app.trina.office-starter"]')
+    await starter.getByTestId('plugin-catalog-install').click()
+    await page.getByRole('dialog').getByTestId('plugin-install-enable').click()
+    const row = page.locator('[data-testid="plugin-installed"][data-plugin="app.trina.office-starter"]')
+    await expect(row.getByTestId('plugin-disable')).toBeVisible()
+    await sameRow(row.getByTestId('plugin-open'), row.getByTestId('plugin-disable'))
+    await tall(row.getByTestId('plugin-disable'))
+    await expect(row).toContainText(t['plugins.status.enabled'])
+    await expect(row.getByTestId('plugin-remove')).toHaveCount(0)
+    await row.getByTestId('plugin-open').click()
+    await expect(row.getByTestId('plugin-permissions')).toBeVisible()
+    await expect(row.getByTestId('plugin-remove')).toBeVisible()
   })
 
   test('Slack: Turn off and Replace tokens are 44 px tall, without a frame', async ({ page }) => {
@@ -210,6 +247,10 @@ test.describe('each page', () => {
     const totals = page.getByTestId('my-usage-totals').locator('dd')
     await expect(totals).toHaveCount(3)
     await sameRow(totals.nth(0), totals.nth(2))
+    // a nine-digit total still fits its third of the row on one line
+    const one = (await box(totals.nth(0))).height
+    await totals.nth(1).evaluate((el) => { el.textContent = '123,456,789' })
+    expect((await box(totals.nth(1))).height).toBeLessThanOrEqual(one + 1)
   })
 })
 
@@ -235,5 +276,17 @@ test.describe('a computer', () => {
     await page.goto('/admin/groups')
     await expect(page.getByTestId('group-row')).toHaveCount(0)
     await expect(page.getByTestId('group-list')).toContainText('Olga')
+    await page.goto('/admin/slack')
+    expect(await page.getByTestId('slack-status').locator('xpath=ancestor::section[1]').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
+    for (const path of ['/admin/connectors', '/settings/connectors']) {
+      await page.goto(path)
+      const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
+      await expect(card.getByText(t['connectors.by'].replace('{maker}', 'Notion'))).toBeVisible()
+      expect(await card.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+    }
+    await page.goto('/settings/usage')
+    await expect(page.getByRole('heading', { name: t['myUsage.title'] })).toBeVisible()
+    await page.goto('/settings/providers')
+    await expect(page.getByRole('heading', { name: t['settings.providers'], exact: true })).toBeVisible()
   })
 })

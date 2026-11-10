@@ -107,7 +107,7 @@ export default function AdminSlack() {
                     <p className="mt-2 text-sm text-muted" data-testid="slack-invite"><CodeText text={t('slack.admin.invite', { bot: s.botName })} /></p>
                   ) : null}
                   {!s.redirectUrl && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
-                  <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                  <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted max-md:items-center">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
                     <button type="button" className="underline underline-offset-2 max-md:min-h-11" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>

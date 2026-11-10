@@ -118,13 +118,13 @@ export function useTeamCredentials() {
 }
 export type TeamCredentials = ReturnType<typeof useTeamCredentials>
 
-/** One provider's accounts inside its row in Admin › AI providers, in the order they are used, with Add account
- * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them. */
 /** Whether an account of this provider needs a look (a phone keeps the accounts shown under a closed row then). */
 export function accountsNeedLook(tc: TeamCredentials, fam: Family): boolean {
   return !!tc.state.data?.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind) && !x.disabled && CREDENTIAL_PROBLEMS.includes(x.state))
 }
 
+/** One provider's accounts inside its row in Admin › AI providers, in the order they are used, with Add account
+ * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them. */
 export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family }) {
   const t = useT()
   const d = tc.state.data

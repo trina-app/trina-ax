@@ -19633,14 +19633,17 @@ Below 768 px only; computers and tablets are unchanged (the 1440 px screenshots 
 aside).
 
 - **Groups:** one `CompactRow` per group: the name, "N members" on the right and ⋯, the description under it only when
-  there is one. Removed on phones: the faces and the members' names (they are in the group's dialog).
+  there is one. Removed on phones: the faces and the members' names (they are in the group's dialog). The row's ⋯
+  (`RowMenu`, Members' too) is 44 px on a phone: it is the only way to Edit and Delete.
 - **Folder permissions:** By folder / By person stays a segmented control; "Only folders with rules" goes under a
   `PhoneFilters` button on the same row.
-- **Providers (Admin):** one row per engine; its accounts and Add account open with the rest when its name is tapped. An
-  account that needs a look (`CREDENTIAL_PROBLEMS`, Home's own list) keeps them in sight.
+- **Providers (Admin):** one row per engine: its name (a 44 px target), its state, check again (44 px) and the switch,
+  and under it only what is missing (a problem's fix, "Not set up"). Its accounts with Add account, and the dim line (how
+  it signs in, its models, when it was checked; the details say the same) open with the rest when the name is tapped. An
+  account that needs a look (`CREDENTIAL_PROBLEMS`, Home's own list) keeps the accounts in sight.
 - **Connectors (Admin and Settings):** Discover's tiles are rows with hairlines, the line cut to one, no "by <maker>"
   (the service's page says it), and a 44 px +.
-- **AI apps (Admin and Settings):** Copy, Connect and Disconnect are 44 px tall.
+- **AI apps (Admin and Settings):** Copy, Connect, Disconnect, Setup guide and Manage are 44 px tall.
 - **Plugins:** the sections without frames (`Card flat`); one line per plugin: its name (it opens what it does, who made
   it and its permissions), its state and its main button (Install, Turn on / off). A trust warning and why it cannot be
   installed stay in sight; the install prompt shows the permissions again before anything is installed. "No plugins
@@ -19650,7 +19653,8 @@ aside).
   CSV until the report is in); the range stays beside one Filters button with Group, Person, Engine, Model, AI connection
   and Clear; Group by is a view choice and sits beside the breakdown's heading ("Breakdown", so it is not said twice).
   The numbers, the chart and the breakdown stand without frames: `StatCards` is the plan's stat grid (no frames on a
-  phone, three to a row when there are three), not a second component.
+  phone, three to a row when there are three, one size down so a nine-digit total keeps one line), not a second
+  component. With Group by on Skill, its note sits under the breakdown's heading too.
 - **Activity log:** the title is for screen readers (the bar says it); the search and one Filters button are the only
   part that stays at the top (60 px, was 145); the kind, the person, the time and Clear open under it. The kinds wrap
   there, so Spanish no longer needs 550 px. Activity log's own phone filters are gone.

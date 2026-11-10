@@ -2041,7 +2041,7 @@ export const ko = {
   'usage.chart.other': "기타",
   'usage.chart.keys': "{title}: 화살표 키로 날짜를 옮겨요",
   'usage.breakdown': "{by}별 상세",
-  'usage.breakdownTitle': "상세",
+  'usage.breakdownTitle': "상세 내역",
   'myUsage.console.desc': "내 답변과 토큰이에요. 날짜는 {tz} 기준이고, {at} 기준 데이터예요.",
   'settings.usage': "사용량",
   'myUsage.title': "내 사용량",

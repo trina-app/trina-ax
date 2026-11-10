@@ -151,6 +151,7 @@ export default function Usage() {
     <FilterPill neutral label={t('usage.groupBy')} value={groupBy} onChange={setGroupBy} testId="usage-groupby"
       options={GROUPS.map((g) => ({ value: g, label: t(`usage.by.${g}`) }))} />
   )
+  const skillNote = <p className="mt-3 text-xs text-muted" data-testid="usage-skill-note">{t('usage.skillNote')}</p>
   const filtered = Object.values(filters).some((v) => v !== ALL)
   const clearFilters = filtered && (
     <button type="button" className="h-9 rounded-lg px-2 text-sm text-accent-text underline-offset-2 hover:underline max-md:min-h-10" onClick={() => setFilters({ user: ALL, engine: ALL, model: ALL, credential: ALL, group: ALL })} data-testid="usage-filters-clear">
@@ -219,7 +220,8 @@ export default function Usage() {
           </div>
         </div>
       )}
-      {groupBy === 'skill' && <p className="mt-3 text-xs text-muted" data-testid="usage-skill-note">{t('usage.skillNote')}</p>}
+      {/* a phone: under the breakdown's heading, where Group by is chosen there */}
+      {groupBy === 'skill' && !phone && skillNote}
 
       <div className="mt-5">
         <Loadable state={state}>
@@ -246,6 +248,7 @@ export default function Usage() {
                   <h3 id="usage-breakdown-title" className="min-w-0 flex-1 text-base font-medium">{phone ? t('usage.breakdownTitle') : t('usage.breakdown', { by: t(`usage.by.${groupBy}`) })}</h3>
                   {phone && groupByPill}
                 </div>
+                {groupBy === 'skill' && phone && skillNote}
                 {!d.rows.length ? (
                   <p className="px-5 py-5 text-sm text-muted max-md:px-0" data-testid="usage-none">{t('usage.none')}</p>
                 ) : (
