@@ -80,6 +80,26 @@ describe('what a member learns', () => {
     }
   })
 
+  test('the same folder gives every caller who gets a count the same number: members with write, an admin, the owner', async () => {
+    // the count is everyone who can open the folder, whoever asks; only whether it is given depends on the caller
+    for (const folder of ['shared', 'shared/meetings', 'groups/marketing', 'groups/marketing/campaigns', 'projects/falcon']) {
+      const answers: Record<string, unknown> = {}
+      for (const who of ['alice', 'erin', 'bob', 'carol', 'dana'] as const) {
+        const r = await audience(who, folder)
+        if (r.status === 200 && r.body.people !== undefined) answers[who] = { people: r.body.people, everyone: r.body.everyone }
+      }
+      // carol and dana always write there; at least one member does too
+      expect(Object.keys(answers)).toContain('carol')
+      expect(Object.keys(answers)).toContain('dana')
+      expect(Object.keys(answers).some((w) => w === 'alice' || w === 'erin' || w === 'bob')).toBe(true)
+      const first = Object.values(answers)[0]
+      for (const [who, a] of Object.entries(answers)) expect({ folder, who, a }).toEqual({ folder, who, a: first })
+      // and the admin's own list counts the same people
+      const admin = await A.json('/api/admin/access/folder' + q(folder), { as: 'carol' })
+      expect((first as { people: number }).people).toBe(admin.body.summary.access.read + admin.body.summary.access.write)
+    }
+  })
+
   test('a team project: the same number as Project.audience', async () => {
     const made = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: 'Kite audience', participants: [{ subjectType: 'user', subjectId: 'erin' }] }) })
     expect(made.status).toBe(201)

@@ -120,6 +120,29 @@ test('an admin: the people by name, where it comes from, the way to Admin', asyn
   await expect(page.getByTestId('folder-detail')).toHaveAttribute('data-path', 'marketing')
 })
 
+test('a member with write and an admin on the same folder see the same number', async ({ page, browser, playwright }) => {
+  await signIn(page)
+  const inv = await page.request.post('/api/admin/invites', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'member' } })
+  const c = await playwright.request.newContext({ baseURL: new URL(page.url()).origin })
+  expect((await c.post(`/api/invites/${(await inv.json()).token}/accept`, { headers: { [CSRF_HEADER]: '1' }, data: { username: 'carol', name: 'Carol', password: 'carol password 1' } })).ok()).toBe(true)
+  await c.dispose()
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  // Olga (owner): Bob, Dana, Eve and herself; not Carol
+  await page.goto('/files?path=marketing')
+  await expect(chip(page)).toHaveText(en('folderAccess.people', { n: 4 }))
+  await chip(page).click()
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
+  // Bob (a member who writes there), in a window of his own: the same chip and the same headline
+  const bob = await browser.newPage({ baseURL: new URL(page.url()).origin, locale: 'en-US' })
+  await signIn(bob, BOB)
+  await bob.goto('/files?path=marketing')
+  await expect(chip(bob)).toHaveText(en('folderAccess.people', { n: 4 }))
+  await chip(bob).click()
+  await expect(bob.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
+  await expect(bob.getByTestId('folder-access-admin')).toHaveCount(0)
+  await bob.close()
+})
+
 test('an admin on a folder no member can open: owner and admins only', async ({ page }) => {
   await post(page, '/__test/restrict', { path: 'docs', users: ['olga', 'dana', 'eve'] })
   await signIn(page)
