@@ -187,12 +187,13 @@ describe('the instructions say what each kind of chat cannot do, and where to do
   })
 
   test('deleting: the AI cannot, and says where the person can (bug 4)', () => {
-    expect(deleteRule('ko')).toContain('You cannot delete files or folders here (delete_files is not offered in this chat).')
+    expect(deleteRule('ko')).toContain('You cannot delete files or folders in this chat.')
+    expect(deleteRule('ko')).not.toContain('delete_files')
     expect(deleteRule('ko')).toContain('the Files screen\'s trash ("파일 › 휴지통")')
     // only where delete_files is not offered (a room, a shared chat, a sub-agent…); with it, its own rule (DELETE_RULE)
     expect(buildTurnPrompt(h.ctx.files, input())).toContain(deleteRule('ko'))
     expect(buildTurnContext(h.ctx.files, input({ locale: 'en' }))).toContain(deleteRule('en'))
-    expect(buildTurnPrompt(h.ctx.files, input({ tools: ['move_files', 'copy_files', 'delete_files'] }))).not.toContain('delete_files is not offered')
+    expect(buildTurnPrompt(h.ctx.files, input({ tools: ['move_files', 'copy_files', 'delete_files'] }))).not.toContain('You cannot delete files or folders in this chat')
   })
 
   test('a scheduled run: what cannot happen there is skipped, not refused by the user', () => {

@@ -63,9 +63,9 @@ describe('the rule in the instructions', () => {
     expect(RULE).toContain('Never leave a file loose at the top of shared/, of a group\'s folder, of projects/ or of the team root unless the user asked for exactly that spot')
     // finished work goes to 보관 in its own area when the person asks to tidy up (docs/DECISIONS.md "Team folder basics")
     expect(RULE).toContain('When the user asks to tidy up, finished work (a closed project\'s files, past events, old versions) moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/)')
-    // the AI has no delete tool: no promise of one (bug 4; deleteRule says where the person deletes)
-    expect(RULE).toContain('nothing is deleted (you cannot delete files)')
-    expect(RULE).not.toContain('unless the user asks')
+    // without delete_files: no promise of a delete, and where the person deletes (bug 4); with it, only through it
+    expect(RULE).toContain('you cannot delete files here: the user deletes them on the Files screen')
+    expect(filePlacementRule(true, ARCHIVE_FOLDER.ko, true)).toContain('only with delete_files (to the team trash, after their yes on its card)')
     // no duplicate; the server's note is the server's; one line on where it went, and the wider audience said
     expect(RULE).toContain('Move rather than copy')
     expect(RULE).toContain('the server adds a note about it at the end of that save\'s result (only ever about a file you just saved)')

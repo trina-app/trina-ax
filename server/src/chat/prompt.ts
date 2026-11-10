@@ -416,9 +416,10 @@ export const DELETE_RULE = 'Use delete_files only when the user\'s own message a
 
 /** Bug 4 (docs/DECISIONS.md "Refusals say why, who and what next"): a turn without delete_files (a room, a shared chat,
  * a sub-agent, a scheduled run…) cannot delete; it says so and where the person deletes, by the screen's name in their
- * language. In personLines (only where delete_files is not offered), so a resumed session and a sub-agent get it too. */
+ * language, never naming a tool it does not have. In personLines (only where delete_files is not offered), so a resumed
+ * session and a sub-agent get it too. */
 export function deleteRule(locale: Locale): string {
-  return `You cannot delete files or folders here (delete_files is not offered in this chat). When the user asks you to delete something, say so plainly and tell them they can delete it themselves on ${SCREEN.files(locale)}; deleted items go to ${SCREEN.trash(locale)} and can be restored there for 30 days. Never empty or overwrite a file as a stand-in for deleting it.`
+  return `You cannot delete files or folders in this chat. When the user asks you to delete something, say so plainly and tell them they can delete it themselves on ${SCREEN.files(locale)}; deleted items go to ${SCREEN.trash(locale)} and can be restored there for 30 days. Never empty or overwrite a file as a stand-in for deleting it.`
 }
 
 /** A confidential chat (safe-ops/confidential.ts): every tool but the team file tools is dropped from the turn, and the
