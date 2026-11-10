@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 00:07
 - Branch: `feat/schedule-save-scope`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat`, `server/src/tools/schedules.ts`, `server/src/integrations/connections`,
   `web/src/pages/Scheduled.tsx`, `web/src/components/settings/ScheduleEditDialog.tsx`). Why: permissions, chat and
   connections are core (docs/REPOSITORY-RULES.md).
@@ -90,4 +90,17 @@ with dev; the web unit tests in Docker; the scheduled-tasks e2e specs.
 
 ## Result
 
-Filled in at the end.
+Built as planned in one PR: https://github.com/trina-app/trina-ax/pull/284 (migration 282).
+
+- Server: `chat/schedule-scope.ts` (the card's facts, lapses), `chat/schedule-cover.ts` (the run's covers), hooks in
+  `chat/turn.ts`, `chat/tools.ts`, `chat/room-tools.ts`, `tools/schedules.ts`, `chat/schedule-edit.ts`,
+  `chat/schedule-review.ts` (mode `recheck` for a lapse), `integrations/connections/tools.ts` (`sendsTo`, `pinTargets`,
+  the pinned gate), `notifications/service.ts` (one notice per lapse). #273's `refusal()` for the new texts.
+- Web: the list line, the task page's lines, **수정**'s save folder and places, the recheck from the list, the inbox
+  notice and the audit words, five languages; the mock server and an e2e spec.
+- Differs from the plan after an independent review (two rounds): after a room read only pinned own connections skip
+  the room card (an "allow" team connection keeps it, it has no pins); every value of a pinned send that may say where
+  it goes must be pinned, not only recipient-named ones (numbers, `false`, unknown names), more than 50 or deeper than 8
+  is refused; a listed folder keeps its rule fingerprint and a change lapses the permission.
+- Known low risks left: two identical calls at the same time share one claim; edit_hwp in place is rechecked before the
+  worker, not right before the write; look-alike letters in pins are not marked.
