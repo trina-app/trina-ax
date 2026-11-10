@@ -293,6 +293,8 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     pruned = pruneAssignments(ctx.db, auth.user.id, now)
     // their photo, title and status: the users row stays as a tombstone, so the profile's cascade never runs
     ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run(id)
+    // their status message (auth/status-messages.ts), for the same reason
+    ctx.db.query('DELETE FROM user_status_messages WHERE user_id = ?').run(id)
     // their pinned chats (chat/pins.ts) and conversations (rooms/service.ts pin; a DM keeps their member row), for the
     // same reason
     ctx.db.query('DELETE FROM chat_pins WHERE user_id = ?').run(id)
