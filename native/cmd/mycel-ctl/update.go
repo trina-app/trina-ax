@@ -1175,8 +1175,8 @@ func (u *updater) updateApp(dir, v string) error {
 	dest := filepath.Join(versions, v)
 	if st, err := os.Lstat(dest); err == nil {
 		// used again without a fresh copy when it verifies: touched first (its ctime moves to now, the link itself if it
-		// is one), so the server's old-version prune (server/src/system/prune.ts leaves a folder changed in the last 24
-		// hours) does not remove it between this check and the switch
+		// is one), so the server's old-version prune (server/src/system/prune.ts leaves a folder changed in the last hour
+		// when it is older than current, 24 hours when newer) does not remove it between this check and the switch
 		if st.IsDir() {
 			now := unix.NsecToTimespec(time.Now().UnixNano())
 			_ = unix.UtimesNanoAt(unix.AT_FDCWD, dest, []unix.Timespec{now, now}, unix.AT_SYMLINK_NOFOLLOW)

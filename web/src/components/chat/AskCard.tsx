@@ -409,7 +409,7 @@ function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
         aria-label={d.label}
         data-testid="ask-detail-text"
       >
-        <Marked text={text} marks={d.marks} />
+        <Marked text={text} marks={d.marks} alerts={d.alerts} />
       </pre>
       {long && (
         <button
@@ -426,8 +426,32 @@ function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
   )
 }
 
-/** The text with the server's marks (long random-looking parts) highlighted. */
-function Marked({ text, marks }: { text: string; marks?: string[] }) {
+/** The text with the server's marks (long random-looking parts) highlighted, and its alert lines in red with their
+ * note (a name not in the person's own messages, on the AI's members card). */
+function Marked({ text, marks, alerts }: { text: string; marks?: string[]; alerts?: ConfirmDetail['alerts'] }) {
+  if (alerts?.length) {
+    const note = new Map(alerts.map((a) => [a.text, a.note]))
+    const lines = text.split('\n')
+    return (
+      <>
+        {lines.map((l, i) => {
+          const n = note.get(l)
+          return (
+            <span key={i}>
+              {n === undefined ? <Marked text={l} marks={marks} /> : (
+                <>
+                  <span className="font-medium text-danger" data-testid="ask-detail-alert">{l}</span>
+                  {/* the note in the card's own type, one step smaller (the line around it is monospace) */}
+                  <span className="ml-2 inline-block rounded bg-danger-soft px-1.5 font-sans text-xs font-medium text-danger" data-testid="ask-detail-alert-note">{n}</span>
+                </>
+              )}
+              {i < lines.length - 1 ? '\n' : ''}
+            </span>
+          )
+        })}
+      </>
+    )
+  }
   const list = [...new Set((marks ?? []).filter((m) => m.length >= 8))].slice(0, 50)
   if (!list.length) return <>{text}</>
   const re = new RegExp(list.map((m) => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')

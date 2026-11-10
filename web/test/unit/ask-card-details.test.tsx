@@ -73,3 +73,20 @@ test('a list of names (noSize: files to delete or move) shows no character count
     removeDom()
   }
 })
+
+test('alert lines (the AI\'s members card: a name not in the person\'s own messages) are red with their note; the others stay plain', async () => {
+  installDom()
+  const text = 'Bob Lee · person\nMarketing · group · 2 people'
+  const m = await mount(<AskCard req={{ request: card([{ label: 'Add (2)', text, alerts: [{ text: 'Bob Lee · person', note: 'Not in your messages' }] }]) }} onAnswer={async () => {}} />)
+  try {
+    const alerts = [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="ask-detail-alert"]')].map((e) => e.textContent)
+    expect(alerts).toEqual(['Bob Lee · person'])
+    expect(m.get('ask-detail-alert').getAttribute('class')).toContain('text-danger')
+    expect(m.get('ask-detail-alert-note').textContent).toBe('Not in your messages')
+    // every line still there, in order (the note after its line)
+    expect(m.get('ask-detail-text').textContent).toBe('Bob Lee · personNot in your messages\nMarketing · group · 2 people')
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})

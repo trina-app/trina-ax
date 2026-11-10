@@ -3,6 +3,9 @@
 // A message sent while an answer runs waits under the conversation and goes when the answer is done
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
+// Under the box every chat says who sees it (components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always"): "나만
+// 봐요", "나와 관리자만 봐요" or how many people; in a shared chat, for whoever may change its project's members, the line
+// opens the members dialog, and the chat is read again after a save.
 // A shared project chat (Chat.shared, docs/DECISIONS.md "Shared project chats"): the people of its project see it and may
 // continue it. The header has its mark, the line under the box says how many see it, other people's messages carry
 // their names, and only what the person may do is offered (rename and the engine: its creator; delete: its creator or a
@@ -14,7 +17,7 @@
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
-import { ChevronLeft, Globe, Loader2, MessageSquarePlus, RotateCcw, Trash2 } from 'lucide-react'
+import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
@@ -46,9 +49,13 @@ import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatPr
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
+import { WhoSeesLine } from '../components/chat/WhoSees'
+import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
+import { useProjects } from '../store/projects'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
+import { AiMark } from '../components/rooms/AiFace'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -114,6 +121,12 @@ function ChatView({ chatId }: { chatId: string }) {
   // from the projects store there
   const projectId = chat?.projectId ?? null
   const [movingProject, setMovingProject] = useState(false)
+  // the line under the box, once the chat is here: whether nobody else sees it by a rule (Project.alone) and its
+  // members dialog, for a shared chat whose members I may change, from its project as the header's crumb asked for it
+  // (store/projects.ts)
+  const project = useProjects((s) => (projectId ? s.byId[projectId] : undefined))
+  const [members, setMembers] = useState(false)
+  const who = chat ? <WhoSeesLine shared={shared ? { audience: shared.audience, alone: project?.alone } : null} place="chat" onOpen={shared && project?.membersEditable ? () => setMembers(true) : undefined} /> : undefined
 
   useEffect(() => {
     if (choose) void loadEngines()
@@ -337,7 +350,7 @@ function ChatView({ chatId }: { chatId: string }) {
     <FileDropZone className="flex h-full flex-col" empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
           it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
-          the name, and a new chat. */}
+          the name, and a new chat (✦, as a room's header asks Trina). */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
         <Tooltip label={t('tabs.back')}>
           <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
@@ -362,8 +375,8 @@ function ChatView({ chatId }: { chatId: string }) {
           {shared && <SharedChatMark audience={shared.audience} />}
         </div>
         {isDesktop() && <BrowserToggle />}
-        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
-          <MessageSquarePlus size={20} />
+        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => navigate('/')} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
+          <AiMark />
         </IconButton>
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
@@ -418,8 +431,8 @@ function ChatView({ chatId }: { chatId: string }) {
             engines={engines}
             models={models}
             placeholder={t('chat.reply')}
-            footer={shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}
-            phoneFooter={shared ? t('chat.sharedSeen', { n: shared.audience }) : undefined}
+            footer={t('chat.footerAi')}
+            who={who}
             hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
@@ -430,6 +443,14 @@ function ChatView({ chatId }: { chatId: string }) {
         )}
         {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}</p>}
       </div>
+      {members && project && (
+        <ProjectMembersDialog
+          project={project}
+          onClose={() => setMembers(false)}
+          // who sees the chat now (its count, and whether anyone else does by a rule)
+          onSaved={() => void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})}
+        />
+      )}
       {movingProject && chat && (
         <MoveToProjectDialog
           chat={chat}

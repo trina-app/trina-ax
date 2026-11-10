@@ -50,6 +50,7 @@ import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
+import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
 
 export interface Tool {
@@ -152,6 +153,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // chats (add() above) nor in an approved template run (its scope is fixed), refused up front everywhere else but the
   // person's own chat with the person there
   if (!exec.templateRun) add(deleteFilesTool(exec))
+  // a team project's members behind the server's card (chat/project-members.ts): like delete_files, not offered in
+  // rooms, shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
+  // everywhere else but the person's own chat with the person there
+  if (!exec.templateRun) add(projectMembersTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
   // in a confidential or draft chat (add() above keeps those to their own tools)
   // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session

@@ -59,6 +59,7 @@ export class Audiences {
   private rules: RuleSet | null = null
   private byProject = new Map<string, string[]>()
   private uploads = new Map<string, boolean>()
+  private byId: Map<string, Principal> | null = null
   constructor(private db: Database, private files: FileService) {}
   /** May `userId` send a file from the computer into a shared chat of this project (uploads/shared-chat.ts
    * mayUploadShared), once per project and person of this request, with the rules read once. */
@@ -86,6 +87,28 @@ export class Audiences {
     return ids
   }
   sees(userId: string, p: ProjectRow): boolean { return this.of(p).includes(userId) }
+  /**
+   * Nobody but `viewer` sees the project by a rule of its folder (a person, group, role or everyone rule): anyone else of
+   * its audience sees it only as the owner or an admin, who see every project (Project.alone: the line under the box says
+   * "나와 관리자만 봐요", docs/DECISIONS.md "Who sees it, always"). Role-blind: each of them is judged as a member would
+   * be, so an admin who sees it by a rule (its creator, someone chosen) counts like anyone else. While its folder is in
+   * the trash nobody sees it by a rule. Only for someone who may read its rules anyway (chat/project-access.ts
+   * membersView): to anyone else it would say that the others are admins.
+   */
+  alone(viewer: string, p: ProjectRow): boolean {
+    const ids = this.of(p)
+    if (ids.every((id) => id === viewer)) return true
+    if (p.trashed_with !== null) return true
+    const rules = (this.rules ??= this.files.rules())
+    const segs = p.folder_path === '' ? [] : p.folder_path.split('/')
+    const byId = (this.byId ??= new Map((this.people ?? []).map((x) => [x.id, x])))
+    return ids.every((id) => {
+      if (id === viewer) return true
+      const x = byId.get(id)
+      // a member of the audience is there by a rule; the owner or an admin only when a member would be too
+      return !!x && x.role !== 'member' && !atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')
+    })
+  }
 }
 
 /** The audience of one project now. */
