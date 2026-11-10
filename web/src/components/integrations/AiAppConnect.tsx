@@ -31,21 +31,42 @@ export function AiAppLogo({ app, className }: { app: AiApp; className?: string }
   return <span className={`flex shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted ${className ?? ''}`}><Plug size={16} aria-hidden /></span>
 }
 
-/** One row per AI app: logo, name, where it runs, and Connect (or, with the connector off, nothing: the section says why). */
-export function AiAppRows({ on, onConnect }: { on: boolean; onConnect: (app: AiApp) => void }) {
+/** The names of my connected apps that belong to one row: a named app by its client name (any case), the generic row
+ * every other one (Codex, Cursor, ...). Several connections of one app count once. */
+export function connectedTo(app: AiApp, items: readonly Pick<RemoteConnectionInfo, 'clientName'>[]): string[] {
+  const named = new Set(AI_APPS.flatMap((a) => (a.name ? [a.name.toLowerCase()] : [])))
+  const names = items.map((i) => i.clientName.trim()).filter(Boolean)
+  const mine = app.name ? names.filter((n) => n.toLowerCase() === app.name!.toLowerCase()) : names.filter((n) => !named.has(n.toLowerCase()))
+  const seen = new Set<string>()
+  return mine.filter((n) => (seen.has(n.toLowerCase()) ? false : (seen.add(n.toLowerCase()), true)))
+}
+
+/** One row per AI app: logo, name, where it runs, "✓ Connected" when I have a connection of it (QA TC-094: Admin › AI apps
+ * showed only Connect, also for apps already connected), and Connect (or, with the connector off, nothing: the section
+ * says why). Connect stays: another device or account can connect the same app. */
+export function AiAppRows({ on, onConnect, connected = [] }: { on: boolean; onConnect: (app: AiApp) => void; connected?: readonly Pick<RemoteConnectionInfo, 'clientName'>[] }) {
   const t = useT()
   return (
     <>
-      {AI_APPS.map((app) => (
+      {AI_APPS.map((app) => {
+        const mine = connectedTo(app, connected)
+        return (
         <li key={app.id} className="flex items-center gap-3 p-2" data-testid={`ai-app-${app.id}`}>
           <AiAppLogo app={app} className="size-9" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{appName(app, t)}</span>
             <span className="mt-0.5 block truncate text-xs text-muted">{t(`aiApps.${app.id}.desc`)}</span>
           </span>
-          {on && <Button size="sm" className="shrink-0" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
+          {mine.length > 0 && (
+            <span className="inline-flex max-w-[45%] shrink-0 items-center gap-1 truncate text-xs text-ok" data-testid={`ai-app-connected-${app.id}`}>
+              <Check size={14} className="shrink-0" aria-hidden />
+              <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
+            </span>
+          )}
+          {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
         </li>
-      ))}
+        )
+      })}
     </>
   )
 }
