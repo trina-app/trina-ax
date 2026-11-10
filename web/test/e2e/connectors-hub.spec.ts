@@ -52,7 +52,7 @@ test('Discover: Top connectors with Google Drive first, the rest behind Show all
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Add custom connector: Name and Server URL, the rest under Advanced; an API key connection lands in Yours', async ({ page }) => {
+test('Add custom connector: Name and Server URL, the rest under Advanced; an API key connection lands in the connections', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -108,6 +108,26 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await detail.getByTestId('connector-connect').click()
   await page.getByRole('dialog').getByTestId('integration-advanced').click()
   await expect(page.getByRole('dialog').getByTestId('integration-who-team')).toBeChecked()
+})
+
+test('Admin links to My connectors, which opens over it: its own Discover gets the keyboard back, not the page under it', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/connectors')
+  await expect(header(page).getByRole('heading', { name: '팀 커넥터' })).toBeVisible()
+  await page.getByTestId('team-integrations-mine-link').click()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  const settings = page.getByTestId('settings-dialog')
+  await expect(settings.getByTestId('connectors-header').getByRole('heading', { name: '내 커넥터' })).toBeVisible()
+  // Admin › Connectors stays mounted under Settings (out of reach); the headings of the two pages are not the same
+  const ids = await page.getByTestId('connector-discover-title').evaluateAll((els) => els.map((el) => el.id))
+  expect(new Set(ids).size).toBe(ids.length)
+  await settings.locator('[data-testid="connector-card"][data-id="notion"]').getByTestId('connector-open').click()
+  await settings.getByTestId('connector-detail').getByTestId('connector-back').click()
+  await expect(settings.getByTestId('connector-discover-title')).toBeFocused()
+  await expect(settings.getByTestId('connector-discover-title')).toBeInViewport()
+  expect(realErrors(errors)).toEqual([])
 })
 
 test('the old Admin addresses lead to Connectors', async ({ page }) => {

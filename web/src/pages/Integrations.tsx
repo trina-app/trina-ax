@@ -20,7 +20,7 @@ import { useT } from '../i18n'
 import { reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { EmptyState } from '../components/ui'
-import { CONNECTED_TITLE, ConnectorDetail, ConnectorDiscover, ConnectorsHeader, discoverHits, DISCOVER_TITLE, goToSection, matchesQuery, sectionTitleCls } from '../components/integrations/ConnectorsView'
+import { ConnectorDetail, ConnectorDiscover, ConnectorsHeader, discoverHits, goToSection, matchesQuery, sectionTitleCls, useSectionIds } from '../components/integrations/ConnectorsView'
 import { DriveCard, DriveDetail, driveLinked, drivePersonalAllowed } from '../components/integrations/DriveConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
 import { SlackAccount } from '../components/settings/SlackAccount'
@@ -35,16 +35,17 @@ export default function Integrations() {
   const t = useT()
   const me = useMe()
   const state = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
-  // fromDiscover: opened from a Discover card or a connector's page; once added, the page shows it in the list
-  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector; fromDiscover?: boolean } | null>(null)
+  // toList: opened from Discover or while a connector's page is open; once added, the page shows the list with it
+  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector; toList?: boolean } | null>(null)
   const [query, setQuery] = useState('')
   // a connector's page, opened from Discover (or ?drive=1): it takes the place of the list until its way back
   const [open, setOpen] = useState<{ kind: 'drive' } | { kind: 'mcp'; c: Connector } | null>(null)
   const drive = useDriveConnection()
+  const ids = useSectionIds()
   // the admin's requests load again with the list: a sign-in that finished may have connected one
   const [requests, setRequests] = useState(0)
-  // whether "From your team" shows anything (for the search's "nothing matches" and the empty line)
-  const [templatesShown, setTemplatesShown] = useState(false)
+  // whether "From your team" shows anything (for the search's "nothing matches" and the empty line); null until it knows
+  const [templatesShown, setTemplatesShown] = useState<boolean | null>(null)
   const reloadList = state.reload
   const reload = useCallback(() => { void reloadList(); setRequests((n) => n + 1) }, [reloadList])
   useEffect(() => reloadAsked.on(reload), [reload])
@@ -76,35 +77,34 @@ export default function Integrations() {
   // "just sign in": Drive's + goes straight to Google, on its page so the person sees it finish
   const connectDrive = () => { setOpen({ kind: 'drive' }); if (!driveLinked(drive.connection) && driveOn) drive.start() }
   // back from a connector's page: where it was opened from
-  const back = () => { setOpen(null); goToSection(DISCOVER_TITLE) }
+  const back = () => { setOpen(null); goToSection(ids.discover) }
   // Drive shows in the connections once it is linked or on its way (the steps of a sign-in in progress), and right
   // after a disconnect whose revocation at Google could not be done (the row says so)
-  const driveInYours = driveLinked(drive.connection) || drive.d.inProgress || drive.revokeWarning || teamShares.length > 0
+  const driveListed = driveLinked(drive.connection) || drive.d.inProgress || drive.revokeWarning || teamShares.length > 0
   // a connector's page stands alone: what is asked of the person and the team's templates come back with the list
   const detail = !!open && !!personalAllowed
   return (
     <section data-testid="integrations">
-      <ConnectorsHeader title={t('integrations.myTitle')} query={query} onQuery={(q) => { setQuery(q); setOpen(null) }} onAdd={personalAllowed ? () => setDialog({}) : undefined} />
-      {!detail && (
-        <>
-          <div className="[&:not(:empty)]:mb-5">
-            <MyRequests
-              version={requests}
-              onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
-            />
-          </div>
-          <div className="[&:not(:empty)]:mb-5">
-            <MyTemplates
-              version={requests}
-              query={query}
-              actions={actions}
-              onEdit={(i) => setDialog({ existing: i })}
-              onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
-              onShown={setTemplatesShown}
-            />
-          </div>
-        </>
-      )}
+      <ConnectorsHeader title={t('integrations.myTitle')} query={query} onQuery={(q) => { setQuery(q); setOpen(null) }} onAdd={personalAllowed ? () => setDialog({ toList: !!open }) : undefined} />
+      {/* hidden, not unmounted, while a connector's page is open: back on the list they are there at once */}
+      <div hidden={detail}>
+        <div className="[&:not(:empty)]:mb-5">
+          <MyRequests
+            version={requests}
+            onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
+          />
+        </div>
+        <div className="[&:not(:empty)]:mb-5">
+          <MyTemplates
+            version={requests}
+            query={query}
+            actions={actions}
+            onEdit={(i) => setDialog({ existing: i })}
+            onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
+            onShown={setTemplatesShown}
+          />
+        </div>
+      </div>
       <Loadable state={state}>
         {(d) => {
           const { mine, team } = splitByScope(d.items)
@@ -115,17 +115,18 @@ export default function Integrations() {
             return (
               <ConnectorDetail testId="connector-detail" logo={`/icons/connectors/${open.c.logo}`} name={open.c.name} line={t(`integrations.catalog.${open.c.id}`)} official onBack={back}
                 action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
-                  : <Button variant="primary" onClick={() => setDialog({ connector: open.c, fromDiscover: true })} data-testid="connector-connect">{t('aiApps.connect')}</Button>}
+                  : <Button variant="primary" onClick={() => setDialog({ connector: open.c, toList: true })} data-testid="connector-connect">{t('aiApps.connect')}</Button>}
                 description={t('connectors.mcp.about', { name: open.c.name })} tools={have?.tools.map((x) => x.name)} />
             )
           }
           const q = query.trim()
           const shownMine = mine.filter((i) => matchesQuery(i, query))
           const shownTeam = team.filter((i) => matchesQuery(i, query))
-          const driveShown = driveInYours && DRIVE.name.toLowerCase().includes(q.toLowerCase())
-          const connections = shownMine.length > 0 || shownTeam.length > 0 || driveShown || templatesShown
+          const driveShown = driveListed && DRIVE.name.toLowerCase().includes(q.toLowerCase())
+          const connections = shownMine.length > 0 || shownTeam.length > 0 || driveShown || !!templatesShown
           if (q && !connections && !(d.personalAllowed && discoverHits(t, query, [driveCard]).count)) return <EmptyState title={t('integrations.noMatch', { q })} />
-          const nothingYet = !mine.length && !team.length && !driveInYours && !templatesShown
+          // (not before the templates have answered: the line would flash and go)
+          const nothingYet = !mine.length && !team.length && !driveListed && templatesShown === false
           return (
             <div className="space-y-5">
               {!d.personalAllowed && mine.length > 0 && (
@@ -138,11 +139,11 @@ export default function Integrations() {
               {!q && <SlackAccount />}
               {/* with adding allowed only when there are some (Discover below adds them); without it, as before, with why
                   there are none */}
-              {(d.personalAllowed ? shownMine.length > 0 : !q || shownMine.length > 0) && <section aria-labelledby={CONNECTED_TITLE}>
-                <h3 id={CONNECTED_TITLE} tabIndex={-1} className={`mb-2 ${sectionTitleCls}`}>
+              {(d.personalAllowed ? shownMine.length > 0 : !q || shownMine.length > 0) && <section aria-labelledby={ids.connected}>
+                <h3 id={ids.connected} tabIndex={-1} className={`mb-2 ${sectionTitleCls}`}>
                   {t('integrations.mine')}
                 </h3>
-                {!mine.length && driveInYours ? null : !mine.length ? (
+                {!mine.length && driveListed ? null : !mine.length ? (
                   // phones: no frame around the empty state (it is the only thing under its heading)
                   <div className="md:rounded-xl md:border md:border-dashed md:border-line" data-testid="integrations-empty">
                     <EmptyState icon={<Cable size={26} />} title={t('integrations.personalOffTitle')}>
@@ -174,8 +175,8 @@ export default function Integrations() {
                 <>
                   {/* nothing connected yet: no empty box, Discover leads */}
                   {nothingYet && !q && <p className="text-sm text-muted" data-testid="integrations-empty">{t('integrations.empty')}</p>}
-                  <ConnectorDiscover className={connections ? 'border-t border-line pt-6' : undefined} connected={mine} query={query}
-                    onAdd={(c) => setDialog({ connector: c, fromDiscover: true })} onCustom={() => setDialog({ fromDiscover: true })}
+                  <ConnectorDiscover titleId={ids.discover} className={connections ? 'border-t border-line pt-6' : undefined} connected={mine} query={query}
+                    onAdd={(c) => setDialog({ connector: c, toList: true })} onCustom={() => setDialog({ toList: true })}
                     builtIns={[driveCard]} onAddBuiltIn={connectDrive} onOpenBuiltIn={() => setOpen({ kind: 'drive' })} onOpen={(c) => setOpen({ kind: 'mcp', c })} />
                 </>
               )}
@@ -193,9 +194,9 @@ export default function Integrations() {
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
-            // added from Discover: the search is cleared (the new row may not match it) and the keyboard goes to the
-            // list the new row is in, since the button that opened the dialog is gone
-            if (dialog.fromDiscover) { setOpen(null); setQuery(''); goToSection(CONNECTED_TITLE) }
+            // added from Discover (or from Add over a connector's page): the search is cleared (the new row may not
+            // match it) and the keyboard goes to the list the new row is in, since the button that opened it is gone
+            if (dialog.toList) { setOpen(null); setQuery(''); goToSection(ids.connected) }
           }}
         />
       )}

@@ -33,7 +33,8 @@ function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) 
 }
 
 /** Settings › Connectors: the templates shared with this member. `version` changes: load again. `query` filters by
- * name. `onShown` tells the page whether any shows (it says "nothing matches" only when nothing on it does). */
+ * name. `onShown` tells the page whether any shows, once the first load is done (it says "nothing matches", and that
+ * nothing is connected, only when nothing on it shows). */
 export function MyTemplates({ version, query, actions, onEdit, onConnected, onShown }: {
   version: number
   query: string
@@ -44,6 +45,7 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected, onSh
 }) {
   const t = useT()
   const [items, setItems] = useState<MyIntegrationTemplate[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [open, setOpen] = useState<MyIntegrationTemplate | null>(null)
   const gen = useRef(0)
   const load = async (): Promise<MyIntegrationTemplate[] | null> => {
@@ -55,6 +57,8 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected, onSh
     } catch {
       // an older server has no templates; the rest of the page works without them
       return null
+    } finally {
+      if (g === gen.current) setLoaded(true)
     }
   }
   /** Connect as the member saw the template (its version): changed since, the server says so (409) and the dialog
@@ -86,7 +90,7 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected, onSh
   const q = query.trim().toLocaleLowerCase()
   const shown = q ? items.filter((x) => x.name.toLocaleLowerCase().includes(q)) : items
   const any = shown.length > 0
-  useEffect(() => { onShown?.(any) }, [any, onShown])
+  useEffect(() => { if (loaded) onShown?.(any) }, [loaded, any, onShown])
   if (!any) return null
   return (
     <section aria-labelledby="integrations-from-team" data-testid="integrations-from-team">

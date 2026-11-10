@@ -42,7 +42,7 @@ Admins manage team connections but do not use them unless a rule names them. Who
 #### Sign in or paste a key
 Keys and sign-ins are stored encrypted on the server and never shown again.
 
-![The Add Notion dialog: the address filled in, the choice between Ask every time and Block writing, and Save and sign in](../images/mcp/add.webp "Adding a service from Discover")
+![The Add Notion dialog: the address filled in, Advanced folded with MCP server, sign-in and Ask every time, and Save and sign in](../images/mcp/add.webp "Adding a service from Discover")
 
 #### Choose who may use it
 For a team connection, name everyone, groups or people.

@@ -22,8 +22,9 @@ In:
   grid and Show all.
 - Nothing connected yet: no empty box and no heading; one quiet line (the existing empty text), then Discover.
 - The search filters both sections; a section without matches hides; nothing anywhere gives one "no results" line.
-- `?drive=1` and the other ways into Discover (a card, Drive's +, back from a connector's page) scroll to Discover and
-  focus its heading; adding from Discover shows the new row in the connections and focuses their heading.
+- A connector's page (a card, Drive's +, `?drive=1` from a notice or an old address) still takes the place of the list;
+  its way back scrolls to Discover and focuses its heading. Adding from Discover shows the new row in the connections
+  and focuses their heading.
 - Titles: Admin "Team connectors" (the grey "For the whole team" goes), Settings "My connectors". The menus keep
   "Connectors".
 - Admin: one line under the title instead of the description: shared with the team, and a link to My connectors. Each

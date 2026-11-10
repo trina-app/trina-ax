@@ -53,9 +53,12 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
   )
 }
 
-/** The headings of the page's two sections. The two Connectors pages never show at once, so fixed ids. */
-export const CONNECTED_TITLE = 'connectors-connected-title'
-export const DISCOVER_TITLE = 'connectors-discover-title'
+/** The ids of the headings of a page's two sections (the connections, Discover), for goToSection and aria-labelledby.
+ * Each page makes its own: Settings opens over the page it came from, which stays mounted under it (App.tsx), so
+ * Settings › Connectors can be on screen over Admin › Connectors. */
+export function useSectionIds() {
+  return { connected: useId(), discover: useId() }
+}
 
 /** A section heading of the page, which takes the keyboard when something leads there (tabIndex -1, no ring: it is not
  * a control). */
@@ -180,7 +183,9 @@ export function discoverHits(t: ReturnType<typeof useT>, query: string, builtIns
 /** Discover, the section under the connections, like Claude's Connectors: "Top connectors" (Trina's own first, then the
  * best-known MCP services) and the rest under "More connectors" behind Show all. A card opens its page (onOpen); its +
  * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. */
-export function ConnectorDiscover({ connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
+export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
+  /** its heading's id (useSectionIds) */
+  titleId: string
   connected: Pick<Integration, 'url'>[]
   query: string
   onAdd: (c: Connector) => void
@@ -214,8 +219,8 @@ export function ConnectorDiscover({ connected, query, onAdd, onCustom, builtIns 
   const top = q ? cards : cards.slice(0, TOP_CONNECTORS)
   const more = q ? [] : cards.slice(TOP_CONNECTORS)
   return (
-    <section aria-labelledby={DISCOVER_TITLE} className={className} data-testid="connector-discover">
-      <h3 id={DISCOVER_TITLE} tabIndex={-1} className={`mb-3 ${sectionTitleCls}`} data-testid="connector-discover-title">{t('connectors.discover')}</h3>
+    <section aria-labelledby={titleId} className={className} data-testid="connector-discover">
+      <h3 id={titleId} tabIndex={-1} className={`mb-3 ${sectionTitleCls}`} data-testid="connector-discover-title">{t('connectors.discover')}</h3>
       <div className="mb-3 flex items-center gap-2">
         <h4 className="flex items-center gap-2 text-sm font-medium text-muted">
           {q ? t('connectors.results') : t('connectors.top')}

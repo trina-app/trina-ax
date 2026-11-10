@@ -124,7 +124,8 @@ export function useOneAtATime<K>() {
  * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
  * pages look the same.
  */
-/** "For the whole team": every Admin page says so next to its title (Settings pages say "Just for you", SettingsDialog.tsx) */
+/** "For the whole team": Admin pages say so next to their title (Settings pages say "Just for you", SettingsDialog.tsx);
+ * Connectors says it in its title instead ("Team connectors") */
 export function PageScope() {
   const t = useT()
   return <span className="text-xs text-faint" data-testid="page-scope">{t('scope.team')}</span>
