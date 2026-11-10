@@ -3,7 +3,7 @@
 // what the caller may not read looks exactly like what does not exist.
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
+import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
@@ -155,6 +155,30 @@ export class TeamFiles {
     // download-only is looked up for the returned page only (a big folder is listed whole, then paged)
     const items = out.slice(start, start + limit).map((e) => (e.type === 'file' && this.downloadOnly(path.join(this.root, e.path)) ? { ...e, downloadOnly: true as const } : e))
     return { path: r.rel, access: rules.access(user, r.segs), entries: items, nextCursor: start + limit < out.length ? encodeCursor(start + limit) : null }
+  }
+
+  // ---------------- audience: who can see a folder, as far as the caller may know ----------------
+  /**
+   * GET /api/files/audience (docs/DECISIONS.md "Who can see a folder, in place"). The tree's own check and answers for
+   * the path, then a folder the caller can only pass through answers like one they cannot see. The count only where a
+   * write by the caller would pass (authorize's write check, so not in a plugin's managed folder): there the copy dry
+   * run from their own folder already gives it (viewersAdded + 1). On a folder they can only read, a count would tell
+   * them about rules above folders they cannot open (a group's size), so it is left out. One RuleSet for the check and
+   * the count; active people only (as /api/people); never a name, an id, a group or how many can write.
+   */
+  audience(userId: string, rel: string): FolderAudience {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const r = authorize(this.fx, rules, user, rel, 'list')
+    if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file`, 'not_folder')
+    const access = rules.access(user, r.segs)
+    if (!atLeast(access, 'read')) throw new Denied(`not found or no access: '${typeof rel === 'string' ? rel : ''}'`)
+    let writable = false
+    try { authorize(this.fx, rules, user, r.rel, 'write'); writable = true } catch { writable = false }
+    if (!writable) return { path: r.rel, access }
+    const active = activePeople(this.ctx.db)
+    const people = active.filter((p) => atLeast(rules.access(p, r.segs), 'read')).length
+    return { path: r.rel, access, people, everyone: people === active.length }
   }
 
   // ---------------- content ----------------

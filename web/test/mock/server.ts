@@ -2248,6 +2248,20 @@ export class MockServer {
         .sort((a, b) => (a.type !== b.type ? (a.type === 'folder' ? -1 : 1) : a.name.localeCompare(b.name)))
       return { path, access: this.access(path, c.user), entries, nextCursor: null }
     },
+    // who can see a folder (server/src/team-files/service.ts audience): the tree's answers, a pass-through folder hidden,
+    // and the count only where the caller can write, over this mock's own policy
+    folderAudience: (c) => {
+      const path = c.query.path ?? ''
+      const n = path ? this.files.get(path) : undefined
+      if (path && !n) fail('not_found', 404)
+      if (n && n.type !== 'folder') fail('validation', 400, '폴더가 아니에요.', { path: 'not a folder' })
+      const access = this.access(path, c.user)
+      if (access === 'none') fail('not_found', 404)
+      if (access !== 'write') return { path, access }
+      const active = this.users.filter((u) => u.status === 'active')
+      const people = active.filter((u) => this.access(path, u) !== 'none').length
+      return { path, access, people, everyone: people === active.length }
+    },
     content: (c) => {
       const n = this.files.get(c.query.path!)
       if (!n || n.type !== 'file' || this.access(c.query.path!, c.user) === 'none') fail('not_found', 404)

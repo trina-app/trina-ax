@@ -794,7 +794,6 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **사진**(png·jpg·heic·tiff·webp 등): read에서만 인식한다. grep 글자 캐시에는 넣지 않는다(사진 폴더 하나에 몇 분). 투명 배경 이미지는 흰 바탕에 그려서 인식(아니면 빈 결과).
 - **격리**: 다른 변환기와 같은 sandbox-exec 프로필. 단 변환기 자기 폴더의 **목록**(literal, 안의 파일 내용 아님)은 읽게 했다: Vision은 실행 파일 옆을 보며, 도우미가 거부된 폴더(홈 아래 저장소 등)에 있으면 오류 없이 빈 결과를 낸다(직접 확인).
 
-
 ## 쉬운 비밀번호: 8자 규칙, 외우기 쉬운 임시 비밀번호, 첫 로그인 한 번 입력 (feat/easy-passwords, 2026-10-21)
 
 소유자 요청(첫 시범 고객의 윈도우 데스크 준비 중): "비밀번호 8자리 이상, 임시 비밀번호는 외울 수 있는 단어로 8자리 정도, 첫 로그인 뒤 바꿀 때 비밀번호를 또 입력하는 게 불편, 직접 추가할 때 임시 비밀번호를 정할 수 있게 기본값 하나 넣어 두고."
@@ -966,7 +965,6 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **색인**: `<data>/semantic.db`(app.db와 따로). 일반 글 파일과 grep 글자 캐시의 문서(office·PDF·한글, OCR 포함)를 약 800자 조각으로, 파일 mtime·크기로 새 것만 다시. 점 폴더(.system: 휴지통·기록·백업)는 넣지 않는다. 질의 직전 3초, 그 밖에는 5분마다 뒤에서(최대 1분) 따라잡는다. 질의는 메모리에 올린 벡터를 전부 비교(작은 팀 기준).
 - **끄기·없는 곳**: `MYCEL_SEMANTIC=off`(2026-11-01부터 기본 꺼짐, 켜려면 `on`: 맨 아래 "Search by meaning off by default"). onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
 - **번들**: 서버 빌드에서 `@huggingface/transformers`는 external(Bun.build가 네이티브 모듈 경로를 이 저장소 절대 경로로 박았다), `scripts/vendor-semantic.ts`가 서버 옆 `node_modules`에 darwin-arm64만 남겨 복사(약 76 MB, onnxruntime-web 제외). 사무실 모드 zip +25 MB. 사무실 모드 갱신 설치에서 Claude로 끝까지 확인.
-
 
 ## 사무실 모드 자동 업데이트 (feat/auto-update, 2026-10-21)
 
@@ -1653,7 +1651,6 @@ file tools only had `write` (text) for putting bytes anywhere.
   `tests/unit/i-wiring.test.ts` (an attached image moved from a real turn after the server's card).
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
 
-
 ## External-service connections: MCP servers and HTTP APIs (feat/integrations-server, 2026-10-28)
 
 The founder gave the AI an API key for AI PM (a REST API with a Bearer token) and asked it to keep using it; it could
@@ -1679,7 +1676,6 @@ not: there was nowhere to keep a person's key and no tool that sends an authenti
 - Tests: `tests/unit/c-integrations-{api,tools,oauth}.test.ts`, `tests/lib/fake-services.ts`, the real turn in
   `tests/unit/i-wiring.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
-
 
 ## Chat titles: a safe placeholder, then the answering AI names the chat (feat/chat-titles, 2026-10-28)
 
@@ -1831,7 +1827,6 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   not copy; `tests/unit/d-web.test.ts` covers how the server sends them.
 - A server picks this up with an ordinary app update (the files are part of `web/`); no reinstall or root step.
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
-
 
 ## 2026-10-29 — Scheduled task dates and one-time task resumption (QA B-W12-1, B-W12-2)
 
@@ -1994,7 +1989,6 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   H.264/AAC MP4 and AAC M4A) and removed after the tests.
 - Needed in the core too (potenlab/team-ax): the same classification change; nothing here is Trina-specific.
 
-
 ## Refresh members after account deletion (QA R2 integration, 2026-10-29)
 
 - A successful DELETE returns 204/undefined, which the old result guard confused with an action failure.
@@ -2033,17 +2027,14 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - A connection version change while a write approval is pending invalidates that approval for both MCP and HTTP. This includes a new deny policy, changed credentials and access rules, even when the URL stays the same. The user must start a new call against the current configuration.
 - Regression tests reproduce both failures before the fixes and assert that refused calls send no request.
 
-
 ## PowerPoint distribution notices (2026-10-29)
 
 The package notice collector now includes subject-prefixed copyright/notice files under `licenses/`, so `@aiden0z/pptx-renderer`'s `licenses/ECMA-text-copyright-notice.txt` is included unchanged in built distribution inventories. Path, symlink and content checks still apply. A fixture verifies byte preservation and inventory validation; the built web artifact verifies the actual dependency notice.
-
 
 ## Immediate identity and audience rechecks (2026-10-29)
 
 - Desktop browser calls require a fresh successful identity check. A five-second cached check let a newly signed-in person use the previous person's cookies and allowed sites; the regression now switches immediately, without its former six-second wait. Offline/invalid identity checks or failed storage clearing refuse the AI browser call, and the owner marker advances only after clearing succeeds. Normal desktop data remains per team; changing people clears that team's embedded browser sessions.
 - AI file moves/copies retain a fingerprint of each item's source and destination reader sets and recheck before each mutation. A change during a confirmation (including account activation with permissions unchanged) refuses that item and requires a new call. Actual source/destination permissions and filesystem chains are still checked per item. New regressions verify both operations and refuse symlink sources/destinations for move/copy/rename.
-
 
 ## File-tool skills aliases (2026-10-29)
 
@@ -3037,14 +3028,12 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
   implementation fails the unchanged team-name assertion; the corrected path reads the current session.
   No longer timeout, retry, altered assertion, or language-dependent workaround. Port to `potenlab/team-ax`.
 
-
 ### Team-first documentation integration (2026-10-30)
 
 - Integrate the reviewed documentation after desktop worker/identity fixes, default-off HWP preview and the five app locales. Preserve those feature decisions and release gates.
 - Add Japanese and Spanish equivalents for the owner checklist, local-login help and provider-authorization notices; retain all existing locale entries and require `check:i18n`. New-team sharing remains ON, and explicit saved choices persist.
 - The local demo is loopback-only and model-free. Role examples use fictional sources; screenshots label prepared results and empty usage. Hosted server location is distinct from external provider processing.
 - Keep HWP preview off, omit its runtime from default releases and disclose Debian 12's preview limitation without changing product-wide Linux support. Current-source features do not imply that existing release artifacts include them.
-
 
 ### Third safe-operations review: empty-ledger search and derived cache provenance (2026-10-30)
 
@@ -3062,7 +3051,6 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
 - Crash leases have no TTL/PID reap. Stop all tenant services and children, clean owned
   snapshots, then delete only search lease rows offline. Never erase artifact identities.
   The default remains off; real CLI/host qualification and customer notice still gate enablement.
-
 
 ## Skills: folder permissions and personal skills (issue #10, 2026-10-30)
 
@@ -3903,7 +3891,6 @@ asks once per domain ("Yes, and don't ask again for this domain").
   confidential chat; DNS stub: no lookup before the decision, office answer refused after it, private literal before
   any card; a sub-agent opening the site without a card), `p0-exfil-server.test.ts` (adjusted to the choice card),
   `web/test/e2e/exfil-followups.spec.ts`.
-
 
 ## Exit address on every install (fix/pre-0212, 2026-10-30)
 
@@ -4755,7 +4742,6 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row (not when the chat
   was locked confidential during the read: nothing more goes to OpenRouter from it). No transcript words. Voice input
   has no audit row and none was added.
-
 
 ## Anthropic-compatible gateway (feat/anthropic-gateway, 2026-11-01)
 
@@ -8194,7 +8180,6 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
 
-
 ## 대화방 v1 — team chat rooms, people to people (feat/team-rooms, 2026-11-05)
 
 - **Apart from the AI chats.** Rooms are new tables (migration 240: `rooms`, `room_members`, `room_messages`,
@@ -9448,7 +9433,6 @@ same way"; the brand images folder line follows Q's per-language team folder ("t
 Images"). US spelling as in Q: "Brand colors" on the review, in 회사 소개.md's English words and in the facts line the AI
 reads (both skills name that label), color and center in the English skill. Q's rewrites of the old files step and of
 the ad copy result left with those lines. Korean, Japanese, Indonesian and Spanish are unchanged.
-
 
 ### N, Higgsfield taken out; type-only cards (integration, 2026-11-05)
 
@@ -11935,7 +11919,6 @@ An independent review found one hole and several gaps. What changed, and why:
   saving its token (409) is neither recorded nor told.
 - **No notice for a save that changes nothing** (the same address, model, name, and no new key).
 
-
 ## Push: say why, the desktop app's own row, and the web ask (fix/push-errors, 2026-11-07)
 
 The owner clicked "이 기기에서 알림 받기" and got "푸시 설정을 저장하지 못했어요. 연결 상태를 확인하고 다시 시도해
@@ -12775,7 +12758,6 @@ asked for the mic on the right, as in ChatGPT ("마이크 버튼은 오른쪽에
   the box; on a phone "+" stays inside the box on the left.
 - Only the place changed: the same VoiceMic (size, a 44 px tap area on phones, the admin's hint while voice input is
   off), the same recording bar (VoiceBar) and keys (Space held to talk, Esc to cancel).
-
 
 ## AI 앱에서 대화 읽고 쓰기 — AI apps read and write my conversations (feat/mcp-rooms, 2026-11-07, product owner)
 
@@ -18094,7 +18076,6 @@ told to point at the button and never claim it posted, so "이 요약 #영업팀
   with a planted page). Habit: the room and the number lead the card and the "cannot see" lines show only when they
   apply.
 
-
 ## Refusals say why, who and what next (fix/ai-refusals-clear, 2026-11-10, product owner)
 
 넣을 곳: trina-ax `server/src/policy/refusal.ts` (new) and the refusal texts in `chat/turn.ts`, `chat/prompt.ts`,
@@ -18599,3 +18580,42 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   `project-participants.spec.ts` (create, the 멤버 line, the dialog, the confirm, taking out, the hint for a member,
   ⋯ 멤버, `?members=1`) and `shared-project-chats.spec.ts` (the legacy note moved to the line).
 - Version impact: **minor** (a visible change of where members are changed; two optional response fields).
+
+## 폴더를 볼 수 있는 사람, 그 자리에서 — who can see a folder, in place (feat/folder-access-in-place, 2026-11-10, product owner)
+
+The owner: "I can't tell who has permission to what. To find out I have to go into Admin › Folder permissions." The
+Files page said only what *I* can do there (the "Read-only folder" badge, the lock on read-only rows). Plan:
+`docs/AGENTS/plan/20261110-0447-folder-access-in-place.md` (references, a product and a security review).
+
+- **The chip** at the end of the breadcrumbs, for the folder on screen: "나만 봐요" (my own folder and anything in it, by
+  its path), "팀 전체가 봐요", "팀장과 관리자만" (admins only: no rule lets a member in), or "N명이 봐요". The number is
+  every active person who can open the folder, the caller, the owner and admins included: the same number as
+  `Project.audience` and Admin's "Can open". No chip at the team root and on `users/`, `groups/`, `projects/`,
+  `connected/` themselves (each folder inside has rules of its own), in the trash, while rows are selected, while
+  loading or after a failed request.
+- **What a member learns: a count, only where they can write**, plus their own folder and the folders of the team
+  projects they see (`Project.audience`, which they already get). Where they can write, the copy dry run from their
+  own folder already answers that number less one (`viewersAdded`). On a folder they can only read, a count would be
+  new: below a folder they can only pass through it told a group's size (`user:M read` on `groups/finance/public`
+  counted the finance group; security review), so they get no chip there and the "Read-only folder" badge stays.
+  Never names, groups (their own included), roles, how many can write, where a rule is. Comparing counts (a folder
+  against the one above, or over time when someone is switched off) can tell that a rule narrows a folder; the copy
+  dry run and `Project.audience` already allow that, and this adds no folder to it.
+- **`GET /api/files/audience?path=`**: the tree's own check and answers for the path, then a folder the caller can only
+  pass through answers 404 like one they cannot see. `people` and `everyone` only where `authorize(..., 'write')`
+  passes (so not inside a plugin's managed folder, where the copy dry run fails too). One RuleSet for the check and the
+  count; `activePeople`, as `/api/people`. Not an AI tool or a connector tool.
+- **The panel** ("볼 수 있는 사람"; the chip, or a folder row's ⋯ on the rows where the chip would show): the headline
+  ("6명이 봐요 (팀장·관리자 포함)"); a member's team folder adds "볼 수 있는 사람은 관리자가 바꿔요."; their own folder
+  "관리자도 열 수 없어요."; a team project's folder says its people follow the project's members and links to the
+  project. An admin's panel adds the tree row's "where it comes from" (`sourceText`), how many folders inside carry
+  rules of their own, the people by name as Admin lists them (`People`, moved into `pages/admin/FolderPeople.tsx`;
+  each name opens By person) and "폴더 권한에서 보기". Admin's parts come from the admin endpoints only and load only
+  for admins.
+- **No new lock**: on the Files page the lock means "read only for you"; a restricted folder would give one icon two
+  meanings. Admin's tree keeps its own.
+- Tests: `tests/security/folder-audience.test.ts` (the tree's answers on one list of paths and pass-through → 404,
+  a case-insensitive volume, the review's attack with the group growing, the count against the copy dry run, Admin's
+  count and `Project.audience`, people switched off, a managed folder), the r3 hidden-vs-missing reads and the matrix
+  case; `web/test/unit/folder-access.test.ts`; e2e `folder-access.spec.ts`.
+- Version impact: **minor** (a new endpoint and a visible new element; no migration, no existing answer changed).

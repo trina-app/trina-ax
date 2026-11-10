@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 04:47
 - Branch: `feat/folder-access-in-place`
-- Status: draft (phase 1: plan and review only; nothing is built until the manager checks it)
+- Status: in progress (approved by the manager 2026-11-10)
 - Where: Team AX core (`server/src/team-files/`, `server/src/routes/files.ts`, `shared/src/api/files.ts`,
   `web/src/pages/Files.tsx`, a new `web/src/components/FolderAccess*.tsx`, one change in
   `web/src/pages/admin/AccessTree.tsx`). Why: files and permissions are core (docs/REPOSITORY-RULES.md).
