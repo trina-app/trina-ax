@@ -18694,6 +18694,10 @@ an open chat on a phone, so "is this shared?" had no answer. Plan: `docs/AGENTS/
   opens nothing there. `/?project=` shows the line as text (the project page has the dialog). After a save the dialog reads
   the project again (`GET /api/projects/:id`), so `audience` and `alone` both come from the server. If that read fails,
   it keeps the saved count and drops `alone`. The chat page reads its chat again.
+- **The 멤버 line says the same** (coordinator, same PR): the project page's 멤버 line (#298's `MembersRow`) uses the same
+  words by the same rule and the same `Project.alone` (`whoSeesText`): "나만 봐요" for a count of 1 (it said "1명이
+  봐요"), "나와 관리자만 봐요" where the box says so, else "N명이 봐요". The members dialog's count line (`AccessSummary`)
+  stays: it counts the people being chosen before a save, which `alone` does not describe, and #304 changes it.
 - **Left as they were:** the Home box without a project (its page footer on a computer says "내 채팅은 나만 볼 수 있어요");
   the line under a chat in the trash or read-only under safe operations; the header's shared mark; the edit dialog's
   sharing switch. Another person's change of the members shows on the next load, as the count did.

@@ -112,6 +112,9 @@ Differences from the first draft of this plan:
   was dropped; the chat page reads it from the chat's project.
 - An open chat shows the line once the chat is loaded, not "나만 봐요" before. The button's tooltip says "멤버 관리".
 - The line under `/?project=` on Home is plain text. The dialog lives on the project page, and Home does not load it.
-- `chat-look.spec.ts`'s "the chat's name opens rename and delete" fails on dev too (focus), unrelated.
+- `chat-look.spec.ts`'s "the chat's name opens rename and delete" failed on dev too (focus); it passes after the rebase.
+- The coordinator asked for the project page's 멤버 line (#298's `MembersRow`) to use the same words by the same rule
+  and the same `alone` ("나만 봐요" instead of "1명이 봐요"). It does, through one helper, `whoSeesText`. The members
+  dialog's count of the people being chosen (`AccessSummary`) is unchanged.
 
 The PR link is in the pull request.

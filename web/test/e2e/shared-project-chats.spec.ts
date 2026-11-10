@@ -674,6 +674,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await patch(page, `/api/projects/${id}`, { shareChats: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
       await expect(seenLine(page)).toHaveText('나만 봐요')
+      // the 멤버 line says the same words
+      await expect(page.getByTestId('project-members')).toContainText('나만 봐요')
       // one quiet line, on a phone too: the button is no taller than the text (its 44 px tap box is drawn outside it)
       expect((await seenLine(page).getByTestId('who-sees').boundingBox())!.height).toBeLessThanOrEqual(20)
       expect((await seenLine(page).boundingBox())!.height).toBeLessThanOrEqual(26)
@@ -720,6 +722,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await b.request.patch(`/api/projects/${own}`, { headers: H, data: { shareChats: true } })).ok()).toBeTruthy()
       await b.goto(`/projects/${own}`)
       await expect(seenLine(b)).toHaveText('나와 관리자만 봐요')
+      await expect(b.getByTestId('project-members')).toContainText('나와 관리자만 봐요')
       await expect(seenLine(b).getByRole('button')).toHaveCount(1)
       await shots(b, 'project-member-alone')
       // Bob in Olga's project (Olga changes its members): the count, nothing to open
@@ -727,6 +730,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await patch(page, `/api/projects/${theirs}`, { shareChats: true })).ok()).toBeTruthy()
       await b.goto(`/projects/${theirs}`)
       await expect(seenLine(b)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
+      await expect(b.getByTestId('project-members')).toContainText('2명이 봐요')
       await expect(seenLine(b).getByRole('button')).toHaveCount(0)
       await audit(b, 'project box, a member who cannot change the members')
       await b.context().close()

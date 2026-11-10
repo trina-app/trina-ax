@@ -16,7 +16,7 @@
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 멤버 for people who may change
 // its members (the members dialog, without leaving the list), 링크 복사 for everyone.
 // Members (docs/DECISIONS.md "Project members in one panel"): a team project's page has a 멤버 line after 파일 with
-// how many people see it; 관리 opens the members dialog (components/ProjectMembersDialog.tsx) for whoever may change
+// who sees it, in the words of the line under the box ("나만 봐요", "나와 관리자만 봐요" or "N명이 봐요"); 관리 opens the members dialog (components/ProjectMembersDialog.tsx) for whoever may change
 // them, and for anyone else the line opens to say who does. /projects/:id?members=1 opens the dialog.
 import { FileText, FolderKanban, Folder, Link2, Pencil, Pin, Plus, ScrollText, Share2, Trash2, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -40,6 +40,7 @@ import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
+import { whoSeesText } from '../components/chat/WhoSees'
 import { useChatLinkItem } from '../components/chat/copyChatLink'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
@@ -497,15 +498,18 @@ export function ProjectHome() {
   )
 }
 
-/** The 멤버 line of a team project's page: how many people see it ("9명이 봐요"). Whoever may change its members gets
+/** The 멤버 line of a team project's page: who sees it, in the words and by the rule of the line under the box
+ * (components/chat/WhoSees.tsx whoSeesText, docs/DECISIONS.md "Who sees it, always"): "나만 봐요" when the count (the owner
+ * and admins included) is 1, "나와 관리자만 봐요" when nobody else sees it by a rule (Project.alone, which only someone
+ * who may read its rules gets), else how many ("9명이 봐요"). Whoever may change its members gets
  * 관리 (the members dialog) and nothing to open; anyone else opens the line to read who changes them: the creator by
  * name only while they can (Project.creatorChangesMembers: their account active, the folder theirs), else 관리자 (never
  * an admin's name). An admin on a project made before on another folder reads where to change it instead. */
-function MembersRow({ project: p, sideAction, onManage }: { project: Project; sideAction: string; onManage: () => void }) {
+export function MembersRow({ project: p, sideAction, onManage }: { project: Project; sideAction: string; onManage: () => void }) {
   const t = useT()
   const me = useMe()
   const words = useFolderWords()
-  const meta = p.audience !== undefined ? t('projects.membersCount', { n: p.audience }) : undefined
+  const meta = p.audience !== undefined ? whoSeesText(t, { audience: p.audience, alone: p.alone }, 'project') : undefined
   if (p.membersEditable)
     return (
       <DisclosureRow

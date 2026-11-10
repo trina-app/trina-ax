@@ -4,6 +4,7 @@
 // role-blind check, sent only to someone who may read the project's rules), and otherwise how many people see it, the
 // owner and admins counted. It opens the members dialog only for a shared chat (or a box whose new chat will be shared)
 // whose members the person may change, and its tooltip says so; never for a personal project or a chat of one person.
+// The project page's 멤버 line says the same words by the same rule.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Me, Project } from '@mycel/shared/api'
@@ -11,6 +12,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { whoSees } from '../../src/lib/sharedChat'
 import { WhoSeesLine } from '../../src/components/chat/WhoSees'
 import { NewChatComposer } from '../../src/components/chat/NewChatComposer'
+import { MembersRow } from '../../src/pages/Projects'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -113,5 +115,40 @@ describe('the project box', () => {
       expect(m.find('who-sees')).toBeNull()
       expect(m.find('composer-footer')).toBeNull()
     } finally { await m.unmount() }
+  })
+})
+
+describe('the project page\'s 멤버 line: the same words by the same rule', () => {
+  const row = async (p: Project, role: 'owner' | 'admin' | 'member') => {
+    useSession.setState({ status: { kind: 'signed-in', me: meAs(role) } } as never)
+    const m = await mount(<MemoryRouter><MembersRow project={p} sideAction="" onManage={() => {}} /></MemoryRouter>)
+    try {
+      const line = m.get('project-members')
+      // the box's line for a project whose new chat is shared, to compare
+      const box = await mount(<WhoSeesLine shared={p} place="new" />)
+      const boxText = box.get('who-sees').textContent
+      await box.unmount()
+      return { row: line.textContent ?? '', box: boxText }
+    } finally { await m.unmount() }
+  }
+
+  test('only me, me and admins, or the count; alone only counts when the server sent it', async () => {
+    // the owner alone: 1, as the box says
+    const owner = await row(project({ audience: 1, alone: true }), 'owner')
+    expect(owner.row).toContain('나만 봐요')
+    expect(owner.row).not.toContain('1명이 봐요')
+    expect(owner.box).toBe('나만 봐요')
+    // a member alone in a project they may change: the owner and admins counted, nobody else by a rule
+    const alone = await row(project({ audience: 3, alone: true }), 'member')
+    expect(alone.row).toContain('나와 관리자만 봐요')
+    expect(alone.box).toBe('나와 관리자만 봐요')
+    // more people
+    const more = await row(project({ audience: 4 }), 'member')
+    expect(more.row).toContain(ko('projects.membersCount', { n: 4 }))
+    expect(more.row).toContain('4명이 봐요')
+    // a member who may not change the members gets no alone from the server (it would say who is an admin): the count
+    const other = await row(project({ audience: 3, membersEditable: false, createdBy: { id: 'jun', name: 'Jun' } }), 'member')
+    expect(other.row).toContain('3명이 봐요')
+    expect(other.row).not.toContain('관리자만')
   })
 })

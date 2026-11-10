@@ -4,10 +4,19 @@
 // otherwise. For a shared chat (or a box whose new chat will be shared) whose members the person may change
 // (Project.membersEditable) it is a button that opens the members dialog (components/ProjectMembersDialog.tsx); anything
 // else has nothing to open; its tooltip says what it opens. On a phone the button takes taps from a 44 px box without
-// making the line taller.
+// making the line taller. The project page's 멤버 line says the same words by the same rule (whoSeesText 'project').
 import { Lock, Users } from 'lucide-react'
 import { useT } from '../../i18n'
 import { whoSees } from '../../lib/sharedChat'
+
+/** The words of whoSees: "나만 봐요", "나와 관리자만 봐요", or how many in the place's own words: a new chat's box ("새 채팅은
+ * 프로젝트 사람 N명이 …"), an open chat ("프로젝트 사람 N명이 이 채팅을 …") or the project page's 멤버 line ("N명이 봐요"). */
+export function whoSeesText(t: ReturnType<typeof useT>, shared: { audience?: number; alone?: boolean } | null, place: 'new' | 'chat' | 'project'): string {
+  const who = whoSees(shared)
+  if (who.kind === 'me') return t('chat.whoMe')
+  if (who.kind === 'admins') return t('chat.whoMeAdmins')
+  return t(place === 'new' ? 'projects.sharedNewChat' : place === 'chat' ? 'chat.sharedSeen' : 'projects.membersCount', { n: who.n })
+}
 
 export function WhoSeesLine({ shared, place, onOpen }: {
   /** a shared chat's count with its project's `alone`, or the project whose new chat will be shared; null: a chat of
@@ -20,7 +29,7 @@ export function WhoSeesLine({ shared, place, onOpen }: {
 }) {
   const t = useT()
   const who = whoSees(shared)
-  const text = who.kind === 'me' ? t('chat.whoMe') : who.kind === 'admins' ? t('chat.whoMeAdmins') : t(place === 'new' ? 'projects.sharedNewChat' : 'chat.sharedSeen', { n: who.n })
+  const text = whoSeesText(t, shared, place)
   const Icon = who.kind === 'me' ? Lock : Users
   const body = (
     <>
