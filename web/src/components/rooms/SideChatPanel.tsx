@@ -37,6 +37,7 @@ import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
 import { useMeStrict } from '../../store/session'
+import { sideChatOnScreen } from '../../store/sessionMarkers'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
@@ -152,6 +153,12 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   /** 🕘: the room's side chats, newest first (null: the list is not open) */
   const [history, setHistory] = useState<Chat[] | null>(null)
   const [historyBusy, setHistoryBusy] = useState(false)
+  // session markers: the chat this panel shows is on screen in this window, as a full chat is (store/sessionMarkers.ts
+  // marks its answer seen: no "New answer" dot in Trina history, no notification); not while the 🕘 list covers it
+  const listOpen = !!history
+  useEffect(() => {
+    if (chatId && !listOpen) return sideChatOnScreen(chatId)
+  }, [chatId, listOpen])
   // the AI's open question in this chat: the box answers it
   const question = useChats((s) => (chatId ? composerQuestion(s.requests, chatId) : null))
   const thread = useChats((s) => (chatId ? s.threads[chatId] : undefined)) ?? emptyThread()

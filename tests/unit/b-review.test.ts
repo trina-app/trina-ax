@@ -90,6 +90,8 @@ describe('prompt blocks', () => {
     expect(timeLine(new Date('2026-03-08T07:30:00Z'), 'America/New_York')).toContain('Sunday, March 8, 2026 at 3:30 AM (America/New_York)') // after the DST jump
     expect(timeLine(new Date('2026-12-31T23:59:00Z'), 'UTC')).toContain('Thursday, December 31, 2026 at 11:59 PM (UTC)')
     expect(l).toContain('Times in tool results are UTC')
+    // a result that gives its times in the team's time zone (the room tools) is not converted again
+    expect(l).toContain("unless the result says they are in the team's time zone (those are in Asia/Seoul already)")
     expect(l).toContain('give it in Asia/Seoul')
   })
 

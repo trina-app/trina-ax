@@ -1,5 +1,6 @@
 // Session markers in this window (docs/DECISIONS.md "Session markers"; the markers themselves: lib/sessionMarkers.ts).
-//  - which chat is on screen (pages/Chat.tsx) and whether this window is visible: the tab is visible, and in the
+//  - which chat is on screen (pages/Chat.tsx; a room's Trina side chat that its panel shows is on screen too:
+//    components/rooms/SideChatPanel.tsx) and whether this window is visible: the tab is visible, and in the
 //    desktop app its window is focused (the main process's word: the in-app browser may hold the keyboard)
 //  - POST /api/chats/:id/seen for the chat on screen while the window is visible and the list says it has an unseen
 //    answer (Chat.unseen: phone-nav's mark): once per state of the chat, so seeing never loops, whatever the server
@@ -59,10 +60,32 @@ export const useSessionMarkers = create<SessionMarkersState>((set, get) => ({
   },
 }))
 
-/** the chat is on screen in this window and the window is visible */
+/** the side chats a room's panel shows in this window: chat -> how many panels show it (the room page's and the file
+ * viewer's are the same chat) */
+const sidePanels = new Map<string, number>()
+/** A room's side chat panel shows this chat (components/rooms/SideChatPanel.tsx): it is on screen as the full chat is,
+ * so its answer is seen (/seen) and nothing is told for it. Returns the call that ends it (the panel closed, another
+ * chat or the 🕘 list in it). */
+export function sideChatOnScreen(chatId: string): () => void {
+  const shown = sidePanels.get(chatId) ?? 0
+  sidePanels.set(chatId, shown + 1)
+  // it came on screen: asked for again (a failed /seen gets another go); a second panel of it changes nothing
+  if (!shown) asked.delete(chatId)
+  recheck()
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    const n = (sidePanels.get(chatId) ?? 1) - 1
+    if (n > 0) sidePanels.set(chatId, n)
+    else sidePanels.delete(chatId)
+  }
+}
+
+/** the chat is on screen in this window (the full chat, or a room's side chat panel) and the window is visible */
 export const seenHere = (chatId: string) => {
   const s = useSessionMarkers.getState()
-  return s.visible && s.onScreen === chatId
+  return s.visible && (s.onScreen === chatId || sidePanels.has(chatId))
 }
 /** the chats with a card open in this window (a card one desktop window shows alone is in no list) */
 export const cardChats = (requests: Record<string, OpenRequest>): Set<string> => new Set(Object.values(requests).flatMap((r) => (r.chatId ? [r.chatId] : [])))
@@ -83,14 +106,17 @@ function seen(chatId: string, state: string) {
     recheck()
   })
 }
-/** The chat on screen in a visible window, when the list says it has an answer not seen yet: /seen, once per state.
- * A chat that is not in the list (an old one opened by its address) is asked for once when it comes on screen. */
+/** The chats on screen in a visible window (the full chat, the side chats in a room's panel), when the list says one
+ * has an answer not seen yet: /seen, once per state. A chat that is not in the list (an old one opened by its address)
+ * is asked for once when it comes on screen. */
 function recheck() {
   const { onScreen, visible } = useSessionMarkers.getState()
-  if (!onScreen || !visible) return
-  const c = useChats.getState().chats.find((x) => x.id === onScreen)
-  if (!c) return seen(onScreen, 'unlisted')
-  if (c.unseen) seen(onScreen, stateOf(c))
+  if (!visible) return
+  for (const id of new Set([...(onScreen ? [onScreen] : []), ...sidePanels.keys()])) {
+    const c = useChats.getState().chats.find((x) => x.id === id)
+    if (!c) seen(id, 'unlisted')
+    else if (c.unseen) seen(id, stateOf(c))
+  }
 }
 
 function setVisible(v: boolean) {
