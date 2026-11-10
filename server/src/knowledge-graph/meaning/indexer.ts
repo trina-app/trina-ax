@@ -274,7 +274,9 @@ export function startEmbedChild(cfg: EmbedWorkerConfig, script: string | null = 
     if (vecs.some((v) => v.byteLength !== MEANING_DIMS)) return w.fail(new Error('the embedding process gave vectors of another size'))
     w.ok(vecs)
   }
-  void (async () => {
+  // the process's last lines (its refusal: "model files do not match") can still be unread when it exits, so its end is
+  // decided only after stdout is read to its end (QA TC-074: the reason was lost as "ended (exit 0)", at random)
+  const stdoutDone = (async () => {
     const dec = new TextDecoder()
     let buf = ''
     try {
@@ -293,7 +295,8 @@ export function startEmbedChild(cfg: EmbedWorkerConfig, script: string | null = 
     const dec = new TextDecoder()
     try { for await (const chunk of p.stderr) stderrTail = (stderrTail + dec.decode(chunk, { stream: true })).slice(-2000) } catch { /* ended */ }
   })()
-  void p.exited.then((code) => end(`the embedding process ended (${code === null ? 'killed' : 'exit ' + code}${stderrTail.trim() ? ': ' + stderrTail.trim().split('\n').pop()!.slice(0, 200) : ''})`))
+  // at most a second more: a pipe still held open elsewhere never keeps the end from being told
+  void Promise.all([p.exited, Promise.race([stdoutDone, p.exited.then(() => Bun.sleep(1000))])]).then(([code]) => end(`the embedding process ended (${code === null ? 'killed' : 'exit ' + code}${stderrTail.trim() ? ': ' + stderrTail.trim().split('\n').pop()!.slice(0, 200) : ''})`))
   return {
     ready,
     exited: p.exited,
