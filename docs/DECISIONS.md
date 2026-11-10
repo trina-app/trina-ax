@@ -18599,3 +18599,40 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
   `project-participants.spec.ts` (create, the 멤버 line, the dialog, the confirm, taking out, the hint for a member,
   ⋯ 멤버, `?members=1`) and `shared-project-chats.spec.ts` (the legacy note moved to the line).
 - Version impact: **minor** (a visible change of where members are changed; two optional response fields).
+
+## 정보가 새는 곳 셋 — a member's dry run, the delete card, the matrix coverage (fix/access-info-leaks, 2026-11-10)
+
+- **Why:** a plan review found three places where a member learns what their permissions do not show them. Each was
+  confirmed by a test that failed before the fix.
+- **A new project's dry run never tells a member who is an admin.** `POST /api/projects/access-preview` without
+  `projectId` counted the owner and admins in: naming an admin left the count as it was and naming a member added one,
+  so anyone who may make team projects could ask, for free and with no trace, whether a person is an admin (members are
+  never told roles: the people directory, rooms). An exact count of everyone who sees it cannot hide that (the overlap
+  of the admins with the names chosen is the leak), so for a caller who is not the owner or an admin the count is of the
+  caller and the people and groups chosen, as if nobody were an admin, and the answer says so (`adminsApart: true`).
+  The share dry run (`POST /api/projects/:id/share` with `dryRun`) uses the same count (`viewersAdded`, `adminsApart`).
+  The line under the picker (`AccessSummary`, also in the members dialog) reads "2명과 팀장·관리자가 봐요" then
+  (`projects.whoCountApart`); the owner and admins read "4명이 봐요 (팀장·관리자 포함)" as before.
+- **Left as it is:** an existing project's dry run, its access answer and `Project.audience` still count the owner and
+  admins for its creator, who may change who sees it (the widening confirm needs who really gains it). So the creator of
+  a team project can still tell a person's role by naming them on its edit screen; closing that needs those screens to
+  count without admins too, a product decision. The count still includes the members of the caller's own groups chosen,
+  as the group's team room shows them.
+- **The delete card's "cannot restore" number only for the owner and admins.** The card said how many of the people who
+  lose the items cannot restore them (readers without write). How many lose them a member already learns (a copy dry
+  run into a folder they can write answers `viewersAdded`); the second number added how many people can write the
+  folder, which only Admin › Folder permissions shows. `AiTrashPlan.writersShown` (the owner and admins) keeps the
+  number; anyone else reads "쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요." whenever someone else loses
+  the items, the same whether one, none or all of them can write. The audit row keeps both numbers. Left: with several
+  items, how many lose them is counted across the items, which says a little about how their audiences overlap.
+- **Every route has a matrix case again, and CI checks it.** 46 routes had none (the dev environment, the team link,
+  the welcome steps and company profile, skill packs and drafts, the AI access request, room search and the room AI's
+  cards, away, demo, after-update). Each case (`tests/security/lib/misc-cases.ts`) is written from what the route is
+  meant to allow and aimed at something the wrong person must not reach; writes are refused after the permission check,
+  and the owner's team start runs last. Two scopes are added, `admins` and `own-owner`. `tests/security` is not part of
+  CI, so the coverage half (no server, `tests/security/lib/coverage.ts`) also runs as
+  `tests/unit/security-route-coverage.test.ts`: a new route without a matrix case now fails CI.
+- Tests: `tests/unit/project-preview-roles.test.ts`, `tests/unit/ai-delete-files.test.ts` (the card for a member and an
+  admin), `tests/unit/security-route-coverage.test.ts`, `tests/security/project-participants.test.ts`, the permission
+  matrix, `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`.
+- Version impact: **patch** (two answers say less to members; one optional response field; no data change).
