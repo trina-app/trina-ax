@@ -599,7 +599,7 @@ describe('the card, the answer, the audit and the restore', () => {
       expect(c.question).toContain('4 other people who can see them now will no longer be able to.')
       expect(c.question).not.toContain('no write access')
       expect(dates.some((d) => c.question.includes(`It can be restored from the trash until ${d}. An admin can empty the trash before then.`))).toBe(true)
-      expect(c.details).toEqual([{ label: 'Items to move to the trash', text: 'shared/del-card/ (2 files)\nusers/alice/del-card.md', noSize: true }, { label: 'Made or changed by others', text: 'Bob Lee\nErin Yoo' }])
+      expect(c.details).toEqual([{ label: 'Items to move to the trash', text: 'shared/del-card/ (2 files)\nusers/alice/del-card.md', noSize: true }, { label: 'Made or changed by others', text: 'Bob Lee\nErin Yoo', noSize: true }])
       // exactly those went, with this turn, purged after the setting's 7 days
       expect(has('shared/del-card') || has('users/alice/del-card.md')).toBe(false)
       const rows = trashRows('turn_id = ?', r.turnId)
