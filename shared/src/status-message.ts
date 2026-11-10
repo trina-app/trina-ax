@@ -35,7 +35,7 @@ export function isStatusEmoji(s: string): boolean {
 // letters), and the other characters that draw nothing yet carry something: variation selectors but the emoji's two
 // (VS15, VS16), the combining grapheme joiner, Hangul and Braille blanks; a long run of combining marks (text that
 // spills over the lines around it). The emoji joiner only between two pictographs (statusTextOk checks).
-const BAD_TEXT = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}︀-︍\u{E0100}-\u{E01EF}͏ᅟᅠㅤﾠ⠀]|(?!‍)\p{Cf}|\p{M}{5,}/u
+const BAD_TEXT = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}\uFE00-\uFE0D\u{E0100}-\u{E01EF}\u034F\u115F\u1160\u3164\uFFA0\u2800]|(?!\u200D)\p{Cf}|\p{M}{5,}/u
 const PICTO = /[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u
 const JOINS_AFTER = /[\p{Extended_Pictographic}\p{Emoji_Presentation}️]/u
 
@@ -45,7 +45,7 @@ export function statusTextOk(s: string): boolean {
   // each joiner sits inside an emoji: after a pictograph (or its selector or skin tone), before a pictograph
   const cps = [...s]
   for (let i = 0; i < cps.length; i++) {
-    if (cps[i] !== '‍') continue
+    if (cps[i] !== '\u200D') continue
     const before = cps[i - 1] ?? '', after = cps[i + 1] ?? ''
     if (!JOINS_AFTER.test(before) || !PICTO.test(after)) return false
   }
