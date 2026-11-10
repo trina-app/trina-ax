@@ -32,7 +32,7 @@ function arm() {
   }
   for (const p of Object.values(usePeople.getState().byId)) see(p.statusMessage)
   const st = useSession.getState().status
-  if (st.kind === 'signed-in') see(st.me.user.statusMessage)
+  if (st.kind === 'signed-in') see(st.me?.user?.statusMessage)
   if (next === Infinity) return
   // a timer cannot wait longer than about 24 days: it then looks again
   timer = setTimeout(() => {
@@ -49,7 +49,8 @@ if (typeof window !== 'undefined') {
 /** Someone's status now (mine from my account: it follows a save at once), or null. */
 export function useStatusOf(userId: string | null | undefined): StatusMessage | null {
   const now = useStatusClock((s) => s.now)
-  const mine = useSession((s) => (s.status.kind === 'signed-in' && userId && s.status.me.user.id === userId ? (s.status.me.user.statusMessage ?? null) : undefined))
+  // (a partial account, as some screens' tests give: no status of mine)
+  const mine = useSession((s) => (s.status.kind === 'signed-in' && userId && s.status.me?.user?.id === userId ? (s.status.me.user.statusMessage ?? null) : undefined))
   const theirs = usePeople((s) => (userId ? s.byId[userId]?.statusMessage : undefined))
   // the clock's time, or the real time if it has moved on since (a render for another reason)
   return liveStatus(mine === undefined ? theirs : mine, Math.max(now, Date.now()))
@@ -59,7 +60,7 @@ export function useStatusOf(userId: string | null | undefined): StatusMessage | 
 export function useStatusesOf(): (userId: string) => StatusMessage | null {
   const now = useStatusClock((s) => s.now)
   const byId = usePeople((s) => s.byId)
-  const me = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.user : null))
+  const me = useSession((s) => (s.status.kind === 'signed-in' ? (s.status.me?.user ?? null) : null))
   return useCallback((id: string) => liveStatus(me && me.id === id ? me.statusMessage : byId[id]?.statusMessage, Math.max(now, Date.now())), [now, byId, me])
 }
 

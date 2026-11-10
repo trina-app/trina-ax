@@ -24,7 +24,7 @@ import { Button, Field, IconButton, inputCls, Modal } from './ui'
 export function useStatusWords(): (s: StatusMessage) => string {
   const t = useT()
   const locale = useLocale()
-  const tz = useMe()?.server.timeZone
+  const tz = useMe()?.server?.timeZone
   return (s) => {
     const when = untilWords(s, locale, t, tz)
     if (!s.text) return when ? t('status.untilCap', { when }) : s.emoji
@@ -119,7 +119,7 @@ function TapTip({ label, emoji, className }: { label: string; emoji: string; cla
 export function StatusDmLine({ userId, name }: { userId: string | null; name: string }) {
   const t = useT()
   const locale = useLocale()
-  const tz = useMe()?.server.timeZone
+  const tz = useMe()?.server?.timeZone
   const s = useStatusOf(userId)
   if (!s || !userId) return null
   const when = untilWords(s, locale, t, tz)
@@ -153,7 +153,7 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
-  const tz = me.server.timeZone
+  const tz = me.server?.timeZone
   const now = Date.now()
   const today = dayIn(now, tz)
   const last = addDays(today, STATUS_DAYS_AHEAD)
