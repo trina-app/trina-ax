@@ -23,6 +23,7 @@ import { roomRefsBlock } from '../../server/src/chat/turn'
 import { subtaskSummary } from '../../server/src/chat/subagents'
 import { historyBlock } from '../../server/src/chat/prompt'
 import { buildToolSet } from '../../server/src/chat/tools'
+import { resolveSaveFolder } from '../../server/src/chat/schedule-scope'
 import type { TurnExec } from '../../server/src/chat/turn'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { auditUrl } from '../../server/src/tools/audit-url'
@@ -669,6 +670,20 @@ describe('second review round', () => {
     expect(own).toContain("This chat holds messages from the user's team chat rooms")
     expect(own).not.toContain('did not allow')
     expect(events(again.turnId).find((e) => e.tool === 'write')!.summary).toBe('write -> nobody to ask (scheduled run) (after a room read)')
+    // a task whose card allowed a save folder but not this room (docs/DECISIONS.md "Scheduled tasks: saving and sending
+    // allowed on the card"): a new file there is refused with that reason; a file outside it keeps the reason above
+    fs.mkdirSync(path.join(h.team, 'shared/rooms-scope'), { recursive: true })
+    const s = h.rt().schedules.create('alice', { title: 'Room digest', prompt: fake({ tool: 'room_read', args: { room: roomId } }, { tool: 'write', args: { file_path: 'shared/rooms-scope/digest.md', content: 'digest' }, sayResult: true }, { tool: 'write', args: { file_path: target, content: 'x' }, sayResult: true }, { say: 'done' }), repeat: 'daily', time: '09:00' },
+      undefined, { allowedUrls: [], writeConnections: [], save: resolveSaveFolder(h.ctx, 'alice', 'shared/rooms-scope'), sources: [{ type: 'user', id: 'alice' }] })
+    const ran = h.rt().schedules.runNow('alice', s.id)
+    const scoped = (await ws.alice!.next('message.done', (f) => f.data.message.chatId === ran.chatId, 30_000)).data.message.content as string
+    expect(fs.existsSync(path.join(h.team, 'shared/rooms-scope/digest.md'))).toBe(false)
+    expect(scoped).toContain("Not saved: 'shared/rooms-scope/digest.md'. Why: not available in this scheduled run: this run read the room")
+    expect(scoped).toContain("which the task's card does not list")
+    expect(scoped).toContain('Not done (write): nothing was changed. Why: nobody could be asked: this is a scheduled run')
+    expect(scoped).not.toContain('did not allow')
+    h.ctx.db.query('DELETE FROM schedules WHERE id = ?').run(s.id)
+    fs.rmSync(path.join(h.team, 'shared/rooms-scope'), { recursive: true, force: true })
   })
 
   // bug 1 at the other cards a run reaches: the wider-audience card and the skill-write card

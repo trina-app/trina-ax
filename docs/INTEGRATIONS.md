@@ -507,6 +507,13 @@ connections with their address and the first 1,000 characters of their notes.
   "Outbound web channels"). That card offers only the `allow` team connections the task names: in its title or
   instruction, or in `schedule_create`'s `connections`; an edit's card also offers again the ones the task may already
   send to (docs/DECISIONS.md "The schedule card offers only the connections the task names").
+- The person's own connection in a scheduled run: only when the schedule's card listed it with the recipients it may
+  send to (`schedule_create`'s `send_to`, "보낼 수 있는 곳: <connection> · '<recipient>'" on the card), and only when every
+  value of the call that says where it goes is one of them (`pinTargets`: each value under a recipient-like argument at
+  any depth, and every whole e-mail or web address in any argument; for `api_request` the full address too). A call
+  with no such value is refused: the server cannot tell where it goes. After a room read, a connection write skips the
+  room card only when every room the run read is on the schedule's card (`TurnTool.sendsTo` names the connection a call
+  writes to). docs/DECISIONS.md "Scheduled tasks: saving and sending allowed on the card".
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team

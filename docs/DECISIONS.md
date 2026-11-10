@@ -17863,3 +17863,68 @@ some of them into cards.
   a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
   anything).
 - The README instruction is gone; the tools' descriptions say a missing folder is made.
+
+## Scheduled tasks: saving and sending allowed on the card (feat/schedule-save-scope, 2026-11-10, product owner)
+
+넣을 곳: trina-ax `server/src/chat/schedule-scope.ts` and `server/src/chat/schedule-cover.ts` (new), with hooks in
+`chat/turn.ts`, `chat/tools.ts`, `chat/room-tools.ts`, `tools/schedules.ts`, `chat/schedule-edit.ts`,
+`chat/schedule-review.ts`, `integrations/connections/tools.ts`, `notifications/service.ts`; 이유: chat, permissions and
+connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.md`. Item 1 (1a and 1b) of plan C.
+
+- **Before:** a scheduled run has nobody to answer a card, so every card was "no answer" at once (`waitForPerson`). A run
+  could not save a summary of the person's notes into `shared/주간보고` (the wider-audience card), changed nothing after it
+  read a room (the room card), and never sent to a personal connection (`gate`). The AI was told "anything that needs the
+  user's confirmation will be declined".
+- **Now:** the person says yes once, on the schedule card they already answer (create, **수정**, **다시 확인**). The card
+  gets lines, not buttons: "새 파일 저장: <folder> (지금 N명이 볼 수 있어요). 넣어도 되는 내용: <places>" and "보낼 수 있는
+  곳: <my connection> · '<recipient>'". Both "create" answers keep the save folder; only "create with sends" keeps the sends,
+  as for team connections.
+- **What `schedule_create` takes:** `save_to` (an existing team folder the person may write; never the team root, a top
+  folder, a group's own folder itself, the person's own folder (always allowed), a hidden, skills or plugin folder),
+  `reads` ("my folder", team folders the person may read, rooms they are in by `#[name](room:<id>)` or id) and `send_to`
+  (`{connection, to[]}` for the person's own connections, which need it: Q2 a). Everything is checked before the card;
+  only places fewer people can see than the folder go on it (they need the yes), and rooms always (they also gate sends
+  after a room read). After the yes the folder must still be the one the card showed.
+- **Stored** (migration 282, additive; 281 is #275's): `save_folder`, `save_folder_id` (device:inode, `folderId`),
+  `save_rule` (a hash of the rules of every ruled folder from the team root to the folder: subjects and access, never who
+  is in a group), `save_readers` (the number the card showed), `save_sources`, `personal_sends`, `save_lapsed_at`,
+  `save_lapse_reason`. The edit and review answers are bound to the folder, its id and rule hash, the readers, the places
+  and the pins (`scopeBinding` in the requestId).
+- **What a run may do under the yes** (`ScheduleCover`, only in a confirmed free-text task's run): a NEW file in the folder
+  or a sub-folder without folder rules of its own, and changes of files this same run made there (a create of this turn
+  nobody changed since) — write, edit, make_file, edit_hwp, save_room_file only. Never an existing file of anyone else, a
+  hidden or plugin folder, a skills folder or an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md), a path an AI
+  turn just put in the trash; never save_url, a video, a move, copy, rename or delete. At most 20 covered new files a run.
+  Only when every place the run read that fewer people can see than the file is on the card (the person's own folder
+  counts only as itself: what the in-app browser showed or a personal connection answered is not "my folder"), and every
+  room the run read. Else the AI gets a `refusal()` that names the place and says to save in the person's own folder.
+- **Hooks:** the room card after a room read (`confirmRoomChange`, the person's own chat in a scheduled run), the
+  wider-audience card (`confirmWidening`, now told which call saves), and right before the write (`recheckRoomCover`:
+  the same checks again). An absent target is claimed by the one call that was covered for it until that call ends (the
+  tool's finish and `afterFileTool` release it), so two calls at the same time cannot both make one path. The first cover
+  of a run is audited `schedule.save_cover`; the step says "예약 작업에서 허용".
+- **Sends (1b):** a connection's tool says which connection a call writes to (`TurnTool.sendsTo`: a tool not marked
+  read-only, `call_tool` of one, `api_request` other than GET and HEAD). After a room read such a call skips the room card
+  only when the card allowed that connection (an "allow" team connection it listed, or the person's own one) and every
+  room the run read is on the card. In `gate`, the person's own connection in such a run sends only when every value of
+  the call that says where it goes is pinned: each value under a recipient-like argument at any depth (`RECIPIENT`; false,
+  null and empty say nothing) and every whole e-mail or web address anywhere, whatever its argument is called; for
+  `api_request` the full address too. A call with no such value is refused (the server cannot tell where it goes: fails
+  closed). Pins compare without case, a channel's '#', an address's trailing '/', a 32-hex id's dashes. A task whose card
+  did not list the connection: "nobody could be asked", as before.
+- **Lapses (Q1 a):** the folder on disk not the one the card showed (moved, renamed, deleted, another made with its name),
+  the rule hash changed, or the person no longer writes there. Who is in a group does not count: the card showed a
+  setting ("전사 공개"), not a list, and a file saved by hand reaches a new member too. Checked when a run starts and at
+  each use; kept once (`save_lapsed_at`, audited `schedule.save_lapsed`, one inbox notice "저장 폴더를 다시 확인해
+  주세요"). Then runs save in the own folder and say why (the AI is told in its run block), the Scheduled list shows the
+  line with **다시 확인**, and that card (the review endpoint, mode `recheck`) shows the folder as it is now with the new
+  count: **다시 허용** binds it again, **그대로 두기** leaves it. **수정** may pick another folder, none, or take places away.
+- **The AI's run block** (`scheduledRunBlock`) keeps #273's list of what a run skips and adds what this task's card
+  allowed (`runAllowance`): the folder, the places, the paused folder and why, the "allow" team connections, the own
+  connections with their pins.
+- **Left as it was:** new files in the person's own folder after a room read are #275's (every own chat, scheduled runs
+  included). A save that needs no card (nothing narrower read, no room) goes on as before, inside or outside the folder.
+  delete_files, skill_files and post_to_room refuse in a scheduled run whatever its card allowed.
+- **Residual risk:** a planted message in a listed room can still make a run put a useless new file in the approved folder
+  (people see and delete it); it cannot replace a file, reach another folder or send anywhere unpinned.
+
