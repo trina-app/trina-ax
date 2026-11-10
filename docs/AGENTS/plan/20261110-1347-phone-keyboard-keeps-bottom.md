@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 13:47
 - Branch: `fix/phone-keyboard-keeps-bottom`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, the web app (`web/src/lib/stickToBottom.ts`, `web/src/lib/viewport.ts`, the four message lists,
   `components/ui.tsx` Modal, `components/rooms/MenuButton.tsx`, `components/StatusMessage.tsx`), its unit and e2e tests,
   docs/DECISIONS.md, `changes/`. Why: chat, rooms and the phone layout are core (see docs/REPOSITORY-RULES.md).
@@ -70,4 +70,15 @@ and the room, chat, side-chat, thread, reaction picker and phone-nav specs.
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR #336. Differences from the plan:
+- The scroll rule is bounded: during the list's own height change, a move no bigger than that change is the
+  browser's; a bigger one is a real scroll. The first version ignored every scroll in such a frame, and the full web
+  e2e found a thread opened at a reply jumping back to the bottom (inbox-rooms).
+- Putting a scrolled-up list back where the reader left it happens only within a second of a visualViewport change
+  (the keyboard), not for the message box growing (review).
+- The emoji sheet's blur moved to "More emoji", before the sheet mounts (review: the dialog's focus trap ran first).
+- A phone's menu sheet no longer closes when the list under it scrolls: the keyboard going down closed it (found in
+  the iOS simulator).
+- The status dialog also leaves the keyboard down after a suggestion, an emoji or ✕ on a touch screen.
+- Checked in the iOS 26.5 simulator, Safari and a bare WKWebView host like the phone app's, before and after. The
+  list bug showed only in the WKWebView. No phone app build needed.
