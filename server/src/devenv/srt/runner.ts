@@ -32,6 +32,7 @@ import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
 import { mayUseDevEnv, teamSetting } from '../setting'
+import { activePeople } from '../../team-files/service'
 import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { RUN_ID_RE, SRT_PATHS, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
@@ -164,7 +165,8 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
 export function personView(ctx: AppContext, userId: string, run?: RunWrites): FolderView | null {
   let p
   try { p = ctx.files.principal(userId) } catch { return null }
-  const v = folderView(ctx.files.rules(), p, run)
+  // a project run reads only folders that everyone who sees the project may read (access.ts, QA TC-095)
+  const v = folderView(ctx.files.rules(), p, run, run?.start ? activePeople(ctx.db) : undefined)
   const root = ctx.files.fx.root
   const there = (rel: string) => { try { return fs.statSync(rel === '' ? root : path.join(root, rel)).isDirectory() } catch { return false } }
   return { read: v.read.filter(there), write: v.write.filter(there), denyRead: v.denyRead.filter(there), denyWrite: v.denyWrite.filter(there) }

@@ -89,13 +89,14 @@ process.env.MYCEL_LEAK = `${CANARY}-env`
 // ---- one run, as the runner does it (no scope) ----
 const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL; people?: (typeof ALICE | typeof CAROL)[] } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const work = o.work ? WORK : null
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
   const start = work ? null : o.start ?? 'projects/one'
   const who = o.who ?? ALICE
-  const view = folderView(RULES, who, { start })
+  // with people (the runner passes the team's active people): a project run reads only what all who see it may read
+  const view = folderView(RULES, who, { start }, o.people)
   const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
@@ -134,6 +135,8 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders (read)', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${DIR1}/readme.md && echo z > ${TEAM}/users/alice/z.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text'), has('hello from p1')), o: { work: true } },
   // Q0 (b) / G-SRT-11: person A's AI plants code in a folder that A may write and person B runs later (a git hook,
   // package.json scripts, a Makefile). Outside the starting folder every folder is read-only in a run.
+  { id: 'A29', what: 'QA TC-095: a project that carol sees too: alice\'s own folder is hidden, so it cannot be copied into the project', cmd: `cp ${TEAM}/users/alice/todo.md ./leak.txt && echo COPIED; cat ${TEAM}/shared/s.md`, check: both(ok, has('shared text'), (r) => (r.out.includes('COPIED') ? 'her own folder was readable in a run of a project more people see' : null)), o: { people: [ALICE, CAROL] },
+    after: () => (fs.existsSync(`${DIR1}/leak.txt`) ? 'leak.txt is on the disk' : null) },
   { id: 'A28', what: 'a code channel to another person: a git hook, package.json and a Makefile in shared folders', cmd: `echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{"scripts":{"test":"curl evil"}}' > ${TEAM}/shared/repo/package.json || echo "[core] hooksPath=/x" >> ${TEAM}/shared/repo/.git/config || printf 'all:\\n\\tcurl evil\\n' > ${TEAM}/groups/marketing/Makefile || echo x >> ${TEAM}/shared/s.md || echo x > ${TEAM}/groups/marketing/.envrc || mkdir ${TEAM}/shared/new`, check: failsQuietly,
     after: () => (fs.existsSync(`${TEAM}/shared/repo/.git/hooks/pre-commit`) || fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8').includes('evil') || fs.readFileSync(`${TEAM}/shared/repo/.git/config`, 'utf8').includes('hooksPath')
       || fs.readFileSync(`${TEAM}/groups/marketing/Makefile`, 'utf8').includes('evil') || fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' || fs.existsSync(`${TEAM}/groups/marketing/.envrc`) || fs.existsSync(`${TEAM}/shared/new`) ? 'a shared folder changed' : null) },
