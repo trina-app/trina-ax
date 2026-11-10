@@ -57,7 +57,9 @@ export const UpdateDriveShareBody = z.object({
 /** `membersOn`: an owner or admin who connects their own Drive while members may not connect theirs also turns that on,
  * in the same step as the confirm (docs/DECISIONS.md "W6"); refused for anyone else, and needed then. */
 export const CompleteDriveFlowBody = z.object({ membersOn: z.literal(true).optional() })
-const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() })
+/** `connectUrl`: on a hosted team that signs in through the hosting service, its own start page for this sign-in
+ * (it explains Google's screen, then links to `authorizationUrl`). The web opens it first; the phone app opens Google. */
+const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), connectUrl: z.string().url().optional(), expiresAt: z.string() })
 /** The Google OAuth web client: the JSON file Google Cloud downloads (`file`), or its client ID and secret. */
 export const SetDriveClientBody = z.object({
   file: z.string().min(1).max(16_384).optional(), clientId: z.string().min(1).max(512).optional(), clientSecret: z.string().min(1).max(4096).optional(),
