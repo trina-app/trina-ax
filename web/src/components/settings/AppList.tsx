@@ -101,24 +101,26 @@ const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } cat
  * the store's line (App Store on a Mac, Microsoft Store on Windows) and no installer is offered anywhere; the desktop
  * app's own row otherwise says how it updates. A browser on a Mac or a Windows PC marks this computer's row, with the
  * install steps under its installer, or says the server has no such app (and, in a browser that can install the page,
- * points at "Install as an app" below). With nothing to offer at all: the server's empty state, with the owner's hint.
+ * points at "Install as an app" below). With nothing to offer at all: the server's empty state, with the owner's hint;
+ * with store links but no installer on the server, the owner still gets the hint under the rows.
  */
 export function ComputerApps({ links, client, downloads, owner, server = 'office', installHere = false }: { links: AppDownloads; client: AppClient; downloads: DownloadItem[] | null | 'none'; owner: boolean; server?: DownloadsSource; /** a browser tab that can install the page as an app (the guide below is shown) */ installHere?: boolean }) {
   const t = useT()
   const locale = useLocale()
   if (downloads === null && !client.store) return <Skeleton lines={2} />
   const rows = computerApps(links, client, Array.isArray(downloads) ? downloads : [])
-  if (noComputerApps(rows))
+  const ownerHint = owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted" data-testid="apps-owner-hint">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>
+  if (noComputerApps(rows, client))
     return (
       <>
         <p className="text-sm text-muted">{t(!owner ? 'apps.noDownloads' : server === 'feed' || server === 'hosted-feed' ? 'apps.noDownloadsFeed' : 'apps.noDownloadsYet')}</p>
-        {owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>}
+        {ownerHint}
       </>
     )
   const note = (row: AppRow) => {
     const files = row.action?.kind === 'files'
     if (row.thisApp && client.store) return t(row.os === 'windows' ? 'apps.windowsStore' : 'apps.macStore')
-    if (row.thisApp) return files ? t(row.os === 'windows' ? 'apps.updatesItself' : 'apps.macUpdates') : undefined
+    if (row.thisApp && files) return t(row.os === 'windows' ? 'apps.updatesItself' : 'apps.macUpdates')
     if (row.thisDevice && !row.action)
       return (
         <span data-testid="desktop-none-here">
@@ -138,24 +140,29 @@ export function ComputerApps({ links, client, downloads, owner, server = 'office
     </a>
   )
   return (
-    <ul data-testid="apps-computer">
-      {rows.map((row) => {
-        const a = row.action
-        const steps = a?.kind === 'files' && row.thisDevice ? a.items.filter((d) => showSteps(a.items, d)) : []
-        return (
-          <AppRowView key={row.os} row={row} note={note(row)}
-            badge={row.thisApp ? t('apps.thisApp') : row.thisDevice ? t('apps.thisComputer') : undefined}
-            action={a && (a.kind === 'files' ? a.items.map((d) => file(d, row.os)) : <LinkOut os={row.os} href={a.href} store={a.kind === 'store'} />)}
-            after={steps.map((d) => (
-              <ol key={d.file} className="mt-2 list-decimal space-y-1 break-keep pl-[50px] text-xs text-muted max-sm:pl-[46px]">
-                {installSteps(d).map((k) => (
-                  <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
-                ))}
-              </ol>
-            ))} />
-        )
-      })}
-    </ul>
+    <>
+      <ul data-testid="apps-computer">
+        {rows.map((row) => {
+          const a = row.action
+          const steps = a?.kind === 'files' && row.thisDevice ? a.items.filter((d) => showSteps(a.items, d)) : []
+          return (
+            <AppRowView key={row.os} row={row} note={note(row)}
+              badge={row.thisApp ? t('apps.thisApp') : row.thisDevice ? t('apps.thisComputer') : undefined}
+              action={a && (a.kind === 'files' ? a.items.map((d) => file(d, row.os)) : <LinkOut os={row.os} href={a.href} store={a.kind === 'store'} />)}
+              after={steps.map((d) => (
+                <ol key={d.file} className="mt-2 list-decimal space-y-1 break-keep pl-[50px] text-xs text-muted max-sm:pl-[46px]">
+                  {installSteps(d).map((k) => (
+                    <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
+                  ))}
+                </ol>
+              ))} />
+          )
+        })}
+      </ul>
+      {/* the owner of a server with no installer yet: where they come from, even when the rows have store links (the
+          Windows app updates only from the team server) */}
+      {downloads === 'none' && !client.store && ownerHint}
+    </>
   )
 }
 

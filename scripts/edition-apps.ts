@@ -1,5 +1,6 @@
 // Edition build input: where people get this product's apps (shared/src/app-downloads.ts, shown in Settings › Apps).
-// editions/<name>/branding/apps.json sets exactly the five values below, each an https address or '' (none), and this
+// editions/<name>/branding/apps.json sets exactly the five values below, each an https web page (a store listing or a
+// download page, never an installer file) or '' (none), and this
 // tool writes them into APP_DOWNLOADS (anchored fields, once each; nothing else changes).
 //
 //   bun scripts/edition-apps.ts editions/<name>/branding/apps.json            check; say whether it would change
@@ -22,6 +23,8 @@ export function appAddress(value: unknown): value is string {
   if (!m || !HOST.test(m[1]!)) return false
   try {
     const u = new URL(value)
+    // a web page, never an installer file: a store build may not offer one (web/src/lib/apps.ts)
+    if (/\.(apk|aab|exe|msi|msix|appx|dmg|pkg|zip)$/i.test(decodeURIComponent(u.pathname))) return false
     return u.protocol === 'https:' && u.hostname === m[1] && !u.username && !u.password && !u.port && !u.hash
   } catch {
     return false

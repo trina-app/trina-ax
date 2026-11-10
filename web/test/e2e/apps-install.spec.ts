@@ -2,7 +2,8 @@
 // team address, then every phone and desktop app with one way to get it (the edition's store listings and download page,
 // APP_DOWNLOADS, and the team server's installers: a fixture here), then, in a web browser, how to install the page as an
 // app, whose steps come with pictures that follow the browser (Chrome and Edge, Safari on a Mac; Firefox cannot
-// install). No link is followed: the store pages are never fetched.
+// install). The links are this build's edition links (APP_DOWNLOADS; a build without them is covered by
+// web/test/unit/apps.test.ts), the team server's installer list is a fixture, and no link is followed.
 import { expect, test, type Page } from '@playwright/test'
 import { APP_DOWNLOADS } from '@mycel/shared'
 import { reset, signIn } from './helpers'
@@ -53,7 +54,7 @@ const phoneHref = (os: 'iphone' | 'android') => APP_DOWNLOADS[os] || APP_DOWNLOA
 const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
 
 test.describe('a Mac in Chrome', () => {
-  test.use({ userAgent: UA.macChrome })
+  test.use({ userAgent: UA.macChrome, viewport: { width: 1440, height: 900 } })
   test('every app with one way to get it: the phones with one QR code, this Mac marked, the Windows installer', async ({ page }) => {
     test.skip(!APP_DOWNLOADS.page || !APP_DOWNLOADS.iphone || !APP_DOWNLOADS.mac, 'an edition without store links')
     const dialog = await open(page)
@@ -168,7 +169,7 @@ test.describe('an iPhone in Safari', () => {
 })
 
 test.describe('the Mac App Store build', () => {
-  test.use({ userAgent: UA.macDesktopApp })
+  test.use({ userAgent: UA.macDesktopApp, viewport: { width: 1440, height: 900 } })
   test('this Mac\'s row is "This app", updated by the App Store; no installer file; no other phone platform named', async ({ page }) => {
     const dialog = await open(page, { macAppStore: true })
     const mac = dialog.getByTestId('app-row-mac')
@@ -176,9 +177,9 @@ test.describe('the Mac App Store build', () => {
     await expect(mac).toContainText('이 앱은 Mac App Store에서 설치했어요. 업데이트도 App Store에서 받아요.')
     await expect(mac.getByRole('link')).toHaveCount(0)
     await expect(dialog.locator('a[href^="/downloads/"]')).toHaveCount(0)
-    if (APP_DOWNLOADS.page || APP_DOWNLOADS.windows) await expect(dialog.getByTestId('app-link-windows')).toHaveAttribute('href', APP_DOWNLOADS.windows || APP_DOWNLOADS.page)
+    if (APP_DOWNLOADS.page) await expect(dialog.getByTestId('app-link-windows')).toHaveAttribute('href', APP_DOWNLOADS.page)
     // App Review 2.3.10: an Apple app names no other mobile platform; the QR code leads to the page that has it
-    await expect(dialog).not.toContainText('Android')
+    await expect(dialog).not.toContainText(/Android|Google Play|Microsoft Store/)
     if (APP_DOWNLOADS.iphone) await expect(dialog.getByTestId('app-link-iphone')).toHaveAttribute('href', APP_DOWNLOADS.iphone)
     if (APP_DOWNLOADS.page) await expect(dialog.getByTestId('apps-phone-qr')).toBeVisible()
     // the desktop app is already an app: no install guide
@@ -196,5 +197,7 @@ test.describe('the iPhone app', () => {
     await expect(phones.getByRole('link')).toHaveCount(0)
     await expect(windowsLink(page)).toBeVisible()
     await expect(dialog.getByTestId('install-guide')).toHaveCount(0)
+    // App Review 2.3.10: an Apple app names no other mobile platform or app store
+    await expect(dialog).not.toContainText(/Android|Google Play|Microsoft Store/)
   })
 })

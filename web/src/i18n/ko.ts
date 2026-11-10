@@ -203,7 +203,7 @@ export const ko = {
   'settings.find.connectors': "다른 앱 연결",
   'settings.find.devEnvSites': "네트워크 인터넷 허용 사이트 전체 인터넷 개발 환경 명령",
   'settings.find.notifications': "푸시 알림함 소리 대화 방해 금지 스레드 멘션 언급",
-  'settings.find.apps': "다운로드 설치 휴대폰 데스크톱",
+  'settings.find.apps': "다운로드 설치 휴대폰 데스크톱 아이폰 안드로이드 iPhone Android App Store 앱스토어 QR",
   'settings.find.about': "버전 라이선스 소스 코드",
   'settings.allSections': "설정 목록",
   'sidebar.usage': "사용량",

@@ -22,7 +22,7 @@
 
 ## 앱 받는 곳
 
-[apps.json](apps.json)은 설정 › 앱에 보이는 앱 링크입니다. 다운로드 페이지(`page`, 컴퓨터에서는 이 주소의 QR 코드가 나옵니다), App Store의 아이폰·맥 앱(`iphone`, `mac`), Google Play(`android`)와 Microsoft Store(`windows`)이고, 아직 없는 것은 `""`입니다. 버전마다 바뀌는 주소(피드의 APK, 윈도우 설치 파일)는 넣지 않습니다. 안드로이드는 Play가 열릴 때까지 다운로드 페이지로, 윈도우는 팀 서버의 설치 파일로 갑니다. `bun scripts/edition-apps.ts editions/trina/branding/apps.json`으로 검토하고 `--apply`로 `shared/src/app-downloads.ts`에 적용합니다. 웹사이트 다운로드 페이지도 같은 링크를 따로 갖고 있으니 스토어 주소가 바뀌면 둘 다 고칩니다.
+[apps.json](apps.json)은 설정 › 앱에 보이는 앱 링크입니다. 다운로드 페이지(`page`, 컴퓨터에서는 이 주소의 QR 코드가 나옵니다), App Store의 아이폰·맥 앱(`iphone`, `mac`), Google Play(`android`)와 Microsoft Store(`windows`)이고, 아직 없는 것은 `""`입니다. 웹 페이지만 넣고, 버전마다 바뀌는 설치 파일 주소(피드의 APK, 윈도우 설치 파일)는 넣지 않습니다(스크립트가 거부합니다). 안드로이드는 Play가 열릴 때까지 다운로드 페이지로, 윈도우는 팀 서버의 설치 파일로 갑니다. `bun scripts/edition-apps.ts editions/trina/branding/apps.json`으로 검토하고 `--apply`로 `shared/src/app-downloads.ts`에 적용합니다. 웹사이트 다운로드 페이지도 같은 링크를 따로 갖고 있으니 스토어 주소가 바뀌면 둘 다 고칩니다.
 
 ## 서비스 주소
 

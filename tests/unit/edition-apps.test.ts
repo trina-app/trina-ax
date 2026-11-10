@@ -40,6 +40,9 @@ describe('edition apps', () => {
       'http://acme.example/download', 'https://acme.example/download#top', 'https://user@acme.example/', "https://acme.example/d'own",
       'https://acme.example:8443/download', 'https://acme.example/a b', 'https://acme.example\\download', 'javascript:alert(1)',
       'https://ACME.example/', 'https://localhost/download', 'https://acme.example/\nx', 1, null,
+      // an installer file, not a page (a store build may not offer one)
+      'https://updates.acme.example/office/1.0.0/Acme-Setup-1.0.0-win-x64.exe', 'https://updates.acme.example/apps/android/1.0.0/Acme.APK',
+      'https://acme.example/Acme.dmg?v=1', 'https://acme.example/Acme%2Emsix',
     ]) expect(appAddress(bad), String(bad)).toBe(false)
     for (const good of ['', 'https://acme.example', 'https://acme.example/download', 'https://apps.apple.com/app/x/id1?platform=mac']) expect(appAddress(good), good).toBe(true)
   })

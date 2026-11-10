@@ -23,10 +23,16 @@ export interface AppClient { kind: 'web' | 'desktop' | 'mobile'; here: Platform;
 
 const PHONE: Partial<Record<Platform, AppOs>> = { ios: 'iphone', android: 'android' }
 
-/** the edition's store listing, else its download page, else nothing */
-export function linkFor(links: AppDownloads, os: AppOs): AppAction | null {
-  return links[os] ? { kind: 'store', href: links[os] } : links.page ? { kind: 'page', href: links.page } : null
+/** The edition's store listing, else its download page, else nothing. An Apple build (the Mac App Store build, the
+ * iPhone app) links another platform's store only through the page: an Apple app may not name another mobile platform
+ * or app marketplace (App Review Guideline 2.3.10). */
+export function linkFor(links: AppDownloads, os: AppOs, apple = false): AppAction | null {
+  const store = apple && (os === 'android' || os === 'windows') ? '' : links[os]
+  return store ? { kind: 'store', href: store } : links.page ? { kind: 'page', href: links.page } : null
 }
+
+/** the Mac App Store build or the iPhone app */
+export const appleBuild = (c: AppClient) => (c.store && c.kind === 'desktop' && c.here === 'mac') || (c.kind === 'mobile' && c.here === 'ios')
 
 /**
  * The phone apps. In the phone app: one row, "This app". In a phone's browser: only that phone's row. On a computer: the
@@ -37,7 +43,7 @@ export function linkFor(links: AppDownloads, os: AppOs): AppAction | null {
 export function phoneApps(links: AppDownloads, c: AppClient): { rows: AppRow[]; qr: string | null } {
   const mine = PHONE[c.here]
   if (c.kind === 'mobile') return { rows: mine ? [{ os: mine, action: null, thisApp: true, thisDevice: true }] : [], qr: null }
-  const oses: AppOs[] = mine ? [mine] : c.store && c.here === 'mac' ? ['iphone'] : ['iphone', 'android']
+  const oses: AppOs[] = mine ? [mine] : appleBuild(c) ? ['iphone'] : ['iphone', 'android']
   const rows = oses.flatMap((os): AppRow[] => {
     const action = linkFor(links, os)
     return action ? [{ os, action, thisApp: false, thisDevice: !!mine }] : []
@@ -49,19 +55,21 @@ export function phoneApps(links: AppDownloads, c: AppClient): { rows: AppRow[]; 
  * The desktop apps, Mac then Windows. A row offers the team server's installers, else the edition's store listing, else
  * its download page. A store build offers no installer file at all (lib/downloads.ts offeredDownloads; the other
  * computer's row is the listing or the page) and its own row is "This app" with the store's line instead of an action.
- * The desktop app marks its own row "This app"; a browser on a Mac or a Windows PC keeps this computer's row even with
- * nothing to get (it says the server has no such app). Other rows with nothing to offer are left out; with none left
- * the page shows the empty state.
+ * The desktop app from the team server marks its own row "This app" and offers only the server's installers there (a
+ * store listing is another build, with its own data). A browser on a Mac or a Windows PC, and the desktop app, keep
+ * this computer's row even with nothing to get (it says the server has no such app). Other rows with nothing to offer
+ * are left out; with nothing to get at all the page shows the empty state.
  */
 export function computerApps(links: AppDownloads, c: AppClient, files: DownloadItem[]): AppRow[] {
   return (['mac', 'windows'] as const).flatMap((os): AppRow[] => {
     const thisDevice = c.kind !== 'mobile' && c.here === os
     const thisApp = thisDevice && c.kind === 'desktop'
     const items = c.store ? [] : files.filter((d) => d.platform === os)
-    const action: AppAction | null = thisApp && c.store ? null : items.length ? { kind: 'files', items } : linkFor(links, os)
+    const action: AppAction | null = items.length ? { kind: 'files', items } : thisApp ? null : linkFor(links, os, appleBuild(c))
     return action || thisDevice ? [{ os, action, thisApp, thisDevice }] : []
   })
 }
 
-/** nothing to get for a computer: the page shows the server's empty state (and the owner's hint) instead */
-export const noComputerApps = (rows: AppRow[]) => rows.every((r) => !r.action && !r.thisApp)
+/** nothing to get for a computer (only a row saying so): the page shows the server's empty state (and the owner's hint)
+ * instead. A store build's own row is something: the store's line. */
+export const noComputerApps = (rows: AppRow[], c: Pick<AppClient, 'store'>) => rows.every((r) => !r.action && !(r.thisApp && c.store))

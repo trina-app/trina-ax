@@ -204,7 +204,7 @@ export const id: Record<MessageKey, string> = {
   'settings.find.connectors': "aplikasi lain hubungkan",
   'settings.find.devEnvSites': "jaringan internet situs diizinkan internet penuh lingkungan pengembangan perintah",
   'settings.find.notifications': "push kotak masuk suara percakapan jangan ganggu utas sebutan",
-  'settings.find.apps': "unduh pasang ponsel desktop",
+  'settings.find.apps': "unduh pasang ponsel desktop iPhone Android App Store QR",
   'settings.find.about': "versi lisensi kode sumber",
   'settings.allSections': "Semua pengaturan",
   'sidebar.usage': "Pemakaian",
@@ -1486,7 +1486,7 @@ export const id: Record<MessageKey, string> = {
   'apps.download': "Unduh",
   'apps.scanQr': "Pindai dengan kamera ponsel Anda untuk mendapatkan aplikasinya.",
   'apps.qrLabel': "Kode QR untuk mendapatkan aplikasi",
-  'apps.updatesItself': "Aplikasi ini diperbarui sendiri.",
+  'apps.updatesItself': "Pembaruannya otomatis.",
   'apps.macUpdates': "Saat ada versi baru, aplikasi memberi tahu Anda. Unduh di sini.",
 
   'admin.title': 'Admin',

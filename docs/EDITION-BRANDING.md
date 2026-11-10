@@ -62,6 +62,6 @@ Settings › Apps lists the phone and desktop apps with one way to get each. An 
 `page` is one web page with every app (a computer shows its QR code for phones); the others are the store listings
 (App Store for iPhone and Mac, Google Play, Microsoft Store). Each is an https address or `""` for none; a row without
 its listing falls back to `page`, and an edition with neither shows only its team server's own installers. Use only
-addresses that stay the same across versions. `bun scripts/edition-apps.ts editions/<name>/branding/apps.json --apply`
+web pages that stay the same across versions; an installer file (`.exe`, `.dmg`, `.apk`, …) is refused. `bun scripts/edition-apps.ts editions/<name>/branding/apps.json --apply`
 writes them into `shared/src/app-downloads.ts`; `tests/unit/edition-apps.test.ts` checks the applied values.
 

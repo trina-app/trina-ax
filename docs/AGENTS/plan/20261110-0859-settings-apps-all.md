@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 08:59
 - Branch: `feat/settings-apps-all`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (web Settings › Apps, shared module, edition script) and `editions/trina/branding/apps.json`.
   Why: the page is core UI; the store and download addresses are the Trina edition's (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a settings page shows more links; no server, API or data change
@@ -47,4 +47,9 @@ to the download page, a web page.
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR #325. Differences from the plan, from the independent review: the desktop app from the team server
+offers only the server's installer on its own row (not the App Store build, which has its own data), and with nothing
+on the server keeps the old empty state and owner's hint; an owner whose server has no installer gets the hint under
+the rows too; Apple builds link a Microsoft Store listing through the download page; the edition script refuses
+installer-file addresses; the device in the desktop app comes from its bridge. The e2e uses this build's edition links
+(a build without links is covered by unit tests), the Mac at 1440 and the iPhone at 390.

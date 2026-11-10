@@ -97,11 +97,27 @@ describe('desktop apps', () => {
     expect(short(computerApps(ACME, desktop('mac', true), [win, mac]))).toEqual(['mac:-:this-app:this-device', 'windows:page'])
     expect(short(computerApps(FULL, desktop('windows', true), [win, mac]))).toEqual(['mac:store', 'windows:-:this-app:this-device'])
     expect(short(computerApps(NONE, desktop('mac', true), [win]))).toEqual(['mac:-:this-app:this-device'])
-    expect(noComputerApps(computerApps(NONE, desktop('mac', true), []))).toBe(false)
+    expect(noComputerApps(computerApps(NONE, desktop('mac', true), []), { store: true })).toBe(false)
+  })
+  test("an Apple build (Mac App Store, iPhone app) reaches another platform's store only through the download page (App Review 2.3.10)", () => {
+    expect(computerApps(FULL, desktop('mac', true), []).find((r) => r.os === 'windows')?.action).toEqual({ kind: 'page', href: FULL.page })
+    expect(computerApps(FULL, phoneApp('ios'), []).find((r) => r.os === 'windows')?.action).toEqual({ kind: 'page', href: FULL.page })
+    expect(computerApps(FULL, phoneApp('ios'), []).find((r) => r.os === 'mac')?.action).toEqual({ kind: 'store', href: FULL.mac })
+    // elsewhere the listing itself
+    expect(computerApps(FULL, desktop('windows', true), []).find((r) => r.os === 'mac')?.action).toEqual({ kind: 'store', href: FULL.mac })
+    expect(computerApps(FULL, phoneApp('android'), []).find((r) => r.os === 'windows')?.action).toEqual({ kind: 'store', href: FULL.windows })
+    expect(computerApps(FULL, web('mac'), []).find((r) => r.os === 'windows')?.action).toEqual({ kind: 'store', href: FULL.windows })
+    // and an Apple build without a page has no such row
+    expect(short(computerApps({ ...FULL, page: '' }, desktop('mac', true), []))).toEqual(['mac:-:this-app:this-device'])
+    const html = renderToStaticMarkup(createElement('div', null,
+      createElement(PhoneApps, { links: FULL, client: phoneApp('ios') }),
+      createElement(ComputerApps, { links: FULL, client: phoneApp('ios'), downloads: [win, mac], owner: true })))
+    expect(html).not.toMatch(/Android|Google Play|Microsoft Store/)
   })
   test('the desktop app from the team server: "This app" with its installer, and how it updates', () => {
     expect(short(computerApps(NONE, desktop('windows'), [win]))).toEqual(['windows:files:this-app:this-device'])
-    expect(short(computerApps(ACME, desktop('mac'), []))).toEqual(['mac:store:this-app:this-device', 'windows:page'])
+    // its own row offers only the server's installer: a store listing is another build, with its own data
+    expect(short(computerApps(ACME, desktop('mac'), []))).toEqual(['mac:-:this-app:this-device', 'windows:page'])
     const pc = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: desktop('windows'), downloads: [win], owner: false }))
     expect(pc).toContain(translate(l, 'apps.thisApp'))
     expect(pc).toContain(translate(l, 'apps.updatesItself'))
@@ -109,7 +125,15 @@ describe('desktop apps', () => {
     expect(dmg).toContain(translate(l, 'apps.macUpdates'))
   })
   test('no links and no installers: nothing to list, the empty state instead', () => {
-    for (const c of [web('mac'), web('windows'), web('other'), web('ios'), phoneApp('android')]) expect(noComputerApps(computerApps(NONE, c, []))).toBe(true)
+    for (const c of [web('mac'), web('windows'), web('other'), web('ios'), phoneApp('android'), desktop('mac'), desktop('windows')]) expect(noComputerApps(computerApps(NONE, c, []), c)).toBe(true)
+    // the desktop app from the team server, nothing on the server: the empty state and the owner's hint, as before
+    const app = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: desktop('mac'), downloads: 'none', owner: true }))
+    expect(app).toContain('teamax desktop add')
+    expect(app).not.toContain('app-row-mac')
+    // only the other computer's installer: this app's row says the server has none
+    const other = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: desktop('mac'), downloads: [win], owner: false }))
+    expect(other).toContain(translate(l, 'apps.noMacApp'))
+    expect(other).toContain(translate(l, 'apps.thisApp'))
     // a Mac in a browser keeps its row only when there is something else to show
     expect(short(computerApps(NONE, web('mac'), [win]))).toEqual(['mac:-:this-device', 'windows:files'])
     const html = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: web('mac'), downloads: 'none', owner: false }))
@@ -120,6 +144,14 @@ describe('desktop apps', () => {
     expect(html).toContain(`href="${ACME.mac}"`)
     expect(html).toContain('href="/downloads/Acme-Setup-0.1.0-x64.exe" download=""')
     expect(html).toContain(translate(l, 'apps.thisComputer'))
+    // the owner of a server without installers still learns where they come from, under the rows; members do not
+    const owner = renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: 'none', owner: true, server: 'hosted-feed' }))
+    expect(owner).toContain(`href="${ACME.page}"`)
+    expect(owner).toContain('data-testid="apps-owner-hint"')
+    expect(owner).toContain('Diagnostics')
+    expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: 'none', owner: false, server: 'hosted-feed' }))).not.toContain('apps-owner-hint')
+    expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: [win], owner: true, server: 'hosted-feed' }))).not.toContain('apps-owner-hint')
+    expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: desktop('mac', true), downloads: 'none', owner: true, server: 'hosted-feed' }))).not.toContain('apps-owner-hint')
     // a loading list (no store build) is a skeleton, not an empty state
     expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: null, owner: false }))).toContain('animate-pulse')
   })
@@ -128,6 +160,6 @@ describe('desktop apps', () => {
 test("the build's own links are https addresses or empty, and none is a file the page would download", () => {
   for (const [k, v] of Object.entries(APP_DOWNLOADS)) {
     if (v) expect(v, k).toMatch(/^https:\/\/[^/'"\s]+/)
-    expect(v, k).not.toMatch(/\.(apk|exe|dmg|msix|pkg)$/i)
+    if (v) expect(new URL(v).pathname, k).not.toMatch(/\.(apk|aab|exe|msi|msix|appx|dmg|pkg|zip)$/i)
   }
 })

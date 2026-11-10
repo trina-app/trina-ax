@@ -204,7 +204,7 @@ export const en: Record<MessageKey, string> = {
   'settings.find.connectors': "other apps connect",
   'settings.find.devEnvSites': "network internet allowed sites full internet dev environment commands",
   'settings.find.notifications': "push inbox alerts sound conversations do not disturb quiet hours threads mentions",
-  'settings.find.apps': "download install phone desktop",
+  'settings.find.apps': "download install phone desktop iPhone Android App Store QR",
   'settings.find.about': "version license source code",
   'settings.allSections': "All settings",
   'sidebar.usage': "Usage",

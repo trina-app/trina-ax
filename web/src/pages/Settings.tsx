@@ -27,7 +27,7 @@ import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
-import { browserSettingsBridge, clientKind, storeApp } from '../lib/desktop'
+import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { teamAddressHost } from '../lib/team-address'
@@ -657,7 +657,10 @@ function Apps() {
   // offeredDownloads); the phone app knows which phone it is
   const store = storeApp()
   const kind = clientKind()
-  const client: AppClient = { kind, here: kind === 'mobile' ? mobileApp()?.platform ?? platform() : platform(), store }
+  // the device: the phone app and the desktop app say which they are; a browser, its user agent
+  const os = desktop()?.platform
+  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : 'other') : platform()
+  const client: AppClient = { kind, here, store }
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
     let live = true

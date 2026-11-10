@@ -197,7 +197,7 @@ export const ja: Record<MessageKey, string> = {
   'settings.find.connectors': "他のアプリ 接続",
   'settings.find.devEnvSites': "ネットワーク インターネット 許可 サイト フルインターネット 開発環境 コマンド",
   'settings.find.notifications': "プッシュ 受信箱 通知音 サウンド トーク おやすみ スレッド メンション",
-  'settings.find.apps': "ダウンロード インストール スマホ デスクトップ",
+  'settings.find.apps': "ダウンロード インストール スマホ デスクトップ iPhone Android App Store QR",
   'settings.find.about': "バージョン ライセンス ソースコード",
   'settings.allSections': "設定の一覧",
   'sidebar.usage': "使用量",
