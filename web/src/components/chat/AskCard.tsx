@@ -347,7 +347,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
               <div>
                 <p className="flex items-baseline gap-2 text-xs text-faint">
                   <span className="min-w-0 flex-1">{d.label}</span>
-                  <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>
+                  {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
                 </p>
                 <div className="mt-1 border-l-2 border-line">
                   <DetailText d={d} plain />
@@ -364,7 +364,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
         <div key={i} className="overflow-hidden rounded-lg border border-line" data-testid="ask-detail">
           <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
             <span className="min-w-0 flex-1 font-medium">{d.label}</span>
-            {d.text && (
+            {d.text && !d.noSize && (
               <span className="text-faint" data-testid="ask-detail-size">
                 {t('ask.detailSize', { n: d.text.length })}
               </span>

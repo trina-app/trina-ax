@@ -716,7 +716,7 @@ function moveSkillTool(exec: TurnExec): Tool {
         ...(fields.length ? [{ label: skillText('moveWho', L), text: '', fields }] : []),
         { label: `${skillText('moveText', L, { file: plan.entry.split('/').pop()! })}${cut ? ' ' + skillText('moveTextCut', L) : ''}`, text: plan.text.slice(0, MOVE_TEXT_MAX), ...(full ? {} : { collapsedAt: 600 }) },
         // where each file lands (a renamed copy: under its new name)
-        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n') },
+        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true },
       ]
       const base = plan.source.split('/').pop()!
       const answer = await exec.waitForPerson({

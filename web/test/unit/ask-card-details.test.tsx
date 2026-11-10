@@ -53,3 +53,23 @@ test('without collapsedAt (an instruction file) all of it shows at once; a short
     removeDom()
   }
 })
+
+test('a list of names (noSize: files to delete or move) shows no character count; text that goes out keeps it (QA TC-091)', async () => {
+  installDom()
+  const list = await mount(<AskCard req={{ request: card([{ label: 'Items to move to the trash', text: 'users/pras/tes-kartu.md', noSize: true }]) }} onAnswer={async () => {}} />)
+  try {
+    expect(list.find('ask-detail-size')).toBeNull()
+    expect(list.get('ask-detail-text').textContent).toBe('users/pras/tes-kartu.md')
+  } finally {
+    await list.unmount()
+    removeDom()
+  }
+  installDom()
+  const out = await mount(<AskCard req={{ request: card([{ label: 'What will be sent', text: 'hello room' }]) }} onAnswer={async () => {}} />)
+  try {
+    expect(out.get('ask-detail-size').textContent).toBe(translate('en', 'ask.detailSize', { n: 10 }))
+  } finally {
+    await out.unmount()
+    removeDom()
+  }
+})

@@ -231,7 +231,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
             // (long random-looking parts marked, as on the other server cards: an address can carry data in them)
             { label: tr('postRoomText', L), text: shown, ...(shown.length > POST_TEXT_FOLD ? { collapsedAt: POST_TEXT_FOLD } : {}), ...(marks.length ? { marks } : {}) },
             // what [파일도 함께 보내기] attaches, by name (a link far down a folded text is not missed)
-            ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...first.offered].join('\n') }] : []),
+            ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...first.offered].join('\n'), noSize: true }] : []),
           ],
           ...(options.length === 3 ? { buttons: true as const } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),

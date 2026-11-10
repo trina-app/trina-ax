@@ -119,6 +119,9 @@ export const ConfirmDetail = z.object({
   collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
+  /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
+   * (QA TC-091: "23 characters" counted the letters of a path) */
+  noSize: z.boolean().optional(),
 })
 export type ConfirmDetail = z.infer<typeof ConfirmDetail>
 
