@@ -24,7 +24,7 @@ import { useT } from '../../i18n'
 import { badgeText, pinnedRooms, roomBadge, roomUnread, shownInLists } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { PeoplePicker } from './PeoplePicker'
-import { RoomIcon, useRoomTitle } from './RoomIcon'
+import { RoomIcon, RoomName, useRoomTitle } from './RoomIcon'
 import { RoomMenu, useRowMenu } from './RoomMenu'
 import { Tooltip } from '../Tooltip'
 import { SidebarSectionTitle } from '../ui'
@@ -222,7 +222,7 @@ function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
         <RoomIcon room={room} size={20} presence />
         {/* a long name is cut; the whole of it on hover */}
         <span className="truncate" title={title}>
-          {title}
+          <RoomName room={room} />
         </span>
         {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
         {room.muted && (

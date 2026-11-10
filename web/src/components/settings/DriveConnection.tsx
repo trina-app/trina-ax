@@ -113,8 +113,8 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
 }
 
 /**
- * The person's own Google Drive connection, for Settings > MCP (components/integrations/DriveConnector.tsx: the
- * "Built in" card in Discover, its dialog and the row under Connected): the status, a connect that ends in
+ * The person's own Google Drive connection, for Settings › Connectors (components/integrations/DriveConnector.tsx: the
+ * "Built in" card in Discover, its page and its row among the connections): the status, a connect that ends in
  * `onConnected`, and disconnect (with Google's revocation reported when it could not be done).
  */
 export function useDriveConnection(onConnected?: (c: Connection) => void) {

@@ -9,7 +9,10 @@
 //   question and the AI reads it with room_file). A step keeps it and quotes nothing new; "스레드로 돌아가기" at its top
 //   brings the file's thread back.
 // It starts on the side chat when the room page had it open (the rooms store's side), else on the thread. The bar's
-// toggle hides and shows it; a panel's ✕ hides it too. 400 px wide; the stage beside it narrows from the right
+// toggle hides and shows it; a panel's ✕ hides it too. For the side chat that is not a close (the same chat shows again,
+// in the column or a phone's sheet); closing the viewer after it showed the side chat is, also from the thread, unless
+// the room page has it open (the next ✦ opens it afresh: SideChatPanel.tsx viewerClosedOn). 400 px wide; the stage
+// beside it narrows from the right
 // (--viewer-col). A link in it that opens the side panel closes the viewer, which would cover the panel.
 // Phones (< 768 px, the phone app): the same column in a sheet over the viewer (ViewerSheet below), opened by the bar's
 // 💬 (the thread) or ✦ (Trina with the file quoted), about 70 % of the screen high; its handle drags it to the whole
@@ -28,7 +31,7 @@ import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { useRoomTitle } from './RoomIcon'
 import { RoomSideColumn } from './RoomSideColumn'
-import { SideChatPanel, type SideSeed } from './SideChatPanel'
+import { SideChatPanel, viewerClosedOn, type SideSeed } from './SideChatPanel'
 import { ThreadPanel } from './ThreadPanel'
 
 /** the column's width on computers */
@@ -47,6 +50,11 @@ export interface ViewerColumnState {
 /** The column's state for one opening of the viewer, starting as the room page's right side is. */
 export function useViewerColumn(roomId: string | null) {
   const [state, setState] = useState<ViewerColumnState>(() => ({ open: true, show: roomId && useRooms.getState().side[roomId] === 'trina' ? 'trina' : 'thread', seed: null, focus: false }))
+  // this opening of the viewer showed the side chat: the viewer closing (or leaving the room's files) closes it, also
+  // when the column is back on the thread
+  const showed = useRef(false)
+  if (state.show === 'trina') showed.current = true
+  useEffect(() => () => { if (roomId && showed.current) viewerClosedOn(roomId) }, [roomId])
   return {
     state,
     /** the side chat, this asked about */

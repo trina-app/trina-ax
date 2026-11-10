@@ -5,8 +5,9 @@
 // read rooms (chat/read-rooms.ts: a room read, a side chat, a quoted message) or a Slack thread, a confidential chat, a
 // draft or judge chat, and for a sub-agent. The card shows
 // exactly what goes: every path in full, the files in each folder, the other people whose files these are (as the file
-// history names them), how many people lose them and how many of those cannot restore them, and the purge date of the
-// team's trash setting. The yes is bound to the plan (TeamFiles.planAiTrash: every entry on disk, who reads and writes
+// history names them), how many people lose them and how many of those cannot restore them (that number only for the
+// owner and admins: it says how many people can write them; others read the rule), and the purge date of the team's
+// trash setting. The yes is bound to the plan (TeamFiles.planAiTrash: every entry on disk, who reads and writes
 // it, the trash setting), checked again around the move itself. No earlier answer, room grant or "always allow" covers
 // it; at most two such cards per answer, none after a "no", one card open at a time. One audit row per call.
 import { DeleteFilesInput, uuidv7 } from '@mycel/shared'
@@ -40,6 +41,8 @@ export const DELETE_TEXT = {
   others: t('다른 사람이 만들거나 고친 파일도 들어 있어요: {names}.', 'It includes files made or changed by {names}.', 'Termasuk berkas yang dibuat atau diubah oleh {names}.', 'ほかの人が作成・変更したファイルも含まれます: {names}。', 'Incluye archivos creados o cambiados por {names}.'),
   lost: t('지금 볼 수 있는 다른 {n}명이 더 이상 볼 수 없어요.', '{n, plural, one {# other person} other {# other people}} who can see {count, plural, one {it} other {them}} now will no longer be able to.', '{n} orang lain yang kini bisa melihatnya tidak akan bisa lagi.', '{count, plural, one {この項目} other {これらの項目}}を現在閲覧できるほかの{n}人が閲覧できなくなります。', '{n, plural, one {# otra persona que ahora puede} other {# otras personas que ahora pueden}} {count, plural, one {verlo} other {verlos}} {n, plural, one {dejará} other {dejarán}} de tener acceso.'),
   noRestore: t('그중 {n}명은 쓰기 권한이 없어 휴지통에서도 볼 수 없고 되살릴 수 없어요.', '{n, plural, one {# of them has} other {# of them have}} no write access, so cannot see {count, plural, one {it} other {them}} in the trash or restore {count, plural, one {it} other {them}}.', '{n} di antaranya tidak punya akses tulis, jadi tidak bisa melihatnya di tempat sampah atau memulihkannya.', 'そのうち{n}人は書き込み権限がないため、ゴミ箱でも{count, plural, one {この項目} other {これらの項目}}を閲覧・復元できません。', '{n, plural, one {# de ellas no tiene} other {# de ellas no tienen}} permiso de escritura, así que no {n, plural, one {puede} other {pueden}} {count, plural, one {verlo} other {verlos}} en la papelera ni {count, plural, one {restaurarlo} other {restaurarlos}}.'),
+  /** what the person reads instead of noRestore unless they may see who can write it (AiTrashPlan.writersShown) */
+  noRestoreRule: t('쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요.', 'People without write access cannot see {count, plural, one {it} other {them}} in the trash or restore {count, plural, one {it} other {them}}.', 'Orang tanpa akses tulis tidak bisa melihatnya di tempat sampah atau memulihkannya.', '書き込み権限がない人は、ゴミ箱でも{count, plural, one {この項目} other {これらの項目}}を閲覧・復元できません。', 'Quien no tiene permiso de escritura no puede {count, plural, one {verlo} other {verlos}} en la papelera ni {count, plural, one {restaurarlo} other {restaurarlos}}.'),
   until: t('{date}까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요.', 'It can be restored from the trash until {date}. An admin can empty the trash before then.', 'Bisa dipulihkan dari tempat sampah sampai {date}. Admin bisa mengosongkan tempat sampah sebelum itu.', '{date}までゴミ箱から復元できます。管理者はそれより前にゴミ箱を空にできます。', 'Se puede restaurar desde la papelera hasta el {date}. Un administrador puede vaciar la papelera antes.'),
   confirm: t('휴지통으로 옮길까요?', '{count, plural, one {Move it to the trash?} other {Move them to the trash?}}', 'Pindahkan ke tempat sampah?', '{count, plural, one {ゴミ箱に移動しますか？} other {ゴミ箱に移動しますか？}}', '{count, plural, one {¿Moverlo a la papelera?} other {¿Moverlos a la papelera?}}'),
   items: t('휴지통으로 옮길 항목', 'Items to move to the trash', 'Item yang dipindahkan ke tempat sampah', 'ゴミ箱に移動する項目', 'Elementos que irán a la papelera'),
@@ -110,7 +113,9 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
     folders ? fill(DELETE_TEXT.inside[L], { files }, L) : '',
     plan.others.length ? fill(DELETE_TEXT.others[L], { names: plan.others.map((o) => o.name).join(', ') }, L) : '',
     plan.lost ? fill(DELETE_TEXT.lost[L], { n: plan.lost, count }, L) : '',
-    plan.noRestore ? fill(DELETE_TEXT.noRestore[L], { n: plan.noRestore, count }, L) : '',
+    // how many cannot restore it says how many can write it: only for the owner and admins. Anyone else reads the rule,
+    // the same whether one, none or all of them can write it (shown whenever someone else loses it, which they know)
+    plan.writersShown ? (plan.noRestore ? fill(DELETE_TEXT.noRestore[L], { n: plan.noRestore, count }, L) : '') : plan.lost ? fill(DELETE_TEXT.noRestoreRule[L], { count }, L) : '',
     fill(DELETE_TEXT.until[L], { date }, L),
     fill(DELETE_TEXT.confirm[L], { count }, L),
   ].filter(Boolean).join(' ')

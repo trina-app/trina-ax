@@ -631,12 +631,15 @@ describe('the card, the answer, the audit and the restore', () => {
     put('projects/falcon/old-draft.md', 'draft\n')
     // projects/falcon: alice writes, finance (bob) reads, admins write; erin cannot see it
     const plan = planOf('alice', ['projects/falcon/old-draft.md'])
-    expect([plan.lost, plan.noRestore]).toEqual([3, 1])
+    expect([plan.lost, plan.noRestore, plan.writersShown]).toEqual([3, 1, false])
     const ko = deleteCard(plan, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z'))
-    expect(ko.question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 그중 1명은 쓰기 권한이 없어 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
+    // a member: the rule, not how many of them (that would say how many people can write the folder)
+    expect(ko.question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
+    // the owner and admins see who can write it in Admin › Folder permissions: their card keeps the number
+    expect(deleteCard({ ...plan, writersShown: true }, 'ko', 'Asia/Seoul', Date.parse('2026-11-10T03:00:00Z')).question).toBe('AI가 1개 항목을 휴지통으로 옮기려고 해요. 지금 볼 수 있는 다른 3명이 더 이상 볼 수 없어요. 그중 1명은 쓰기 권한이 없어 휴지통에서도 볼 수 없고 되살릴 수 없어요. 2026년 12월 10일까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요. 휴지통으로 옮길까요?')
     expect(ko.details).toEqual([{ label: '휴지통으로 옮길 항목', text: 'projects/falcon/old-draft.md' }])
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      const c = deleteCard(plan, L, 'Asia/Seoul')
+    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const writersShown of [false, true]) {
+      const c = deleteCard({ ...plan, writersShown }, L, 'Asia/Seoul')
       expect({ L, leftover: /[{}#]/.test(c.question + c.details.map((d) => d.label + d.text).join('')) }).toEqual({ L, leftover: false })
       for (const k of Object.keys(DELETE_TEXT) as (keyof typeof DELETE_TEXT)[]) expect({ L, k, empty: !DELETE_TEXT[k][L].trim() }).toEqual({ L, k, empty: false })
     }
@@ -645,7 +648,8 @@ describe('the card, the answer, the audit and the restore', () => {
     const listed = deleteCard(long, 'en', 'UTC').details[0]!
     expect(listed.collapsedAt).toBeUndefined()
     expect(listed.text.split('\n')).toHaveLength(200)
-    expect(deleteCard(plan, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
+    expect(deleteCard(plan, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. People without write access cannot see it in the trash or restore it.')
+    expect(deleteCard({ ...plan, writersShown: true }, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
     const r = await turn('alice', fake(del('projects/falcon/old-draft.md')), () => 'trash')
     expect(r.cards).toHaveLength(1)
     expect(has('projects/falcon/old-draft.md')).toBe(false)
@@ -677,6 +681,39 @@ describe('the card, the answer, the audit and the restore', () => {
     expect(bad.content).toContain('nobody was asked')
     expect(bad.content).toContain('- groups/marketing: a skill folder')
     expect(has('users/alice/keep1.md')).toBe(true)
+  })
+
+  test('a member is not told how many of the people who lose it can write it; the owner and admins are (and the audit keeps it)', async () => {
+    // how many lose it a member already learns (a copy dry run into a folder they can write: viewersAdded); how many
+    // of them cannot restore it would add how many people can write the folder, which only admins see
+    put('projects/falcon/count-draft.md', 'draft\n')
+    put('shared/count-draft.md', 'draft\n')
+    // projects/falcon: bob reads, carol and dana write; shared/: bob, carol, dana and erin all write
+    const falcon = planOf('alice', ['projects/falcon/count-draft.md'])
+    const shared = planOf('alice', ['shared/count-draft.md'])
+    expect([falcon.lost, falcon.noRestore, falcon.writersShown, shared.noRestore, shared.writersShown]).toEqual([3, 1, false, 0, false])
+    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      // the same card whether one, none or all of them can write it: only how many lose it differs
+      const card = (p: AiTrashPlan) => deleteCard(p, L, 'UTC', Date.parse('2026-11-10T03:00:00Z')).question
+      expect({ L, same: card(falcon) === card({ ...falcon, noRestore: 0 }) && card(falcon) === card({ ...falcon, noRestore: 3 }) }).toEqual({ L, same: true })
+      expect({ L, same: card({ ...shared, lost: 3 }) === card(falcon) }).toEqual({ L, same: true })
+      // an admin's card for the same plan does change with it
+      expect({ L, admin: card({ ...falcon, writersShown: true }) !== card({ ...falcon, writersShown: true, noRestore: 2 }) && card({ ...falcon, writersShown: true }) !== card(falcon) }).toEqual({ L, admin: true })
+    }
+    // nobody else loses it: no line about restoring at all, as before
+    put('users/alice/count-draft.md', 'draft\n')
+    expect(deleteCard(planOf('alice', ['users/alice/count-draft.md']), 'en', 'UTC').question).not.toContain('write access')
+    // an admin's card for the same file: the number, as before (alice and dana write, bob only reads)
+    const admin = planOf('carol', ['projects/falcon/count-draft.md'])
+    expect([admin.lost, admin.noRestore, admin.writersShown]).toEqual([3, 1, true])
+    expect(deleteCard(admin, 'en', 'UTC').question).toContain('3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
+    expect(planOf('dana', ['projects/falcon/count-draft.md']).writersShown).toBe(true)
+    // the member's card in a real turn says no number; the audit row keeps both for admins
+    const r = await turn('alice', fake(del('projects/falcon/count-draft.md')), () => 'skip')
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.question).toContain('People without write access cannot see it in the trash or restore it.')
+    expect(r.cards[0]!.question).not.toContain('of them')
+    expect(audits(r.turnId)[0]!.detail).toMatchObject({ outcome: 'declined', lost: 3, noRestore: 1 })
   })
 
   test(`at most ${MAX_DELETE_CARDS} delete cards in one answer; the third call is refused without a card`, async () => {

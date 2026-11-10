@@ -307,7 +307,9 @@ export const CreateProjectBody = z.object({
 })
 /** Share a personal project with the team: a new team project folder projects/<name> with these participants (as
  * createProject makes one), the personal folder's files copied into it (at most 1,000 files / 500 MB), and the project
- * points at it; the personal folder stays. dryRun: {viewersAdded} only (the people who would see it, me left out). */
+ * points at it; the personal folder stays. dryRun: {viewersAdded} only (the people who would see it, me left out; for
+ * someone who is not the owner or an admin only the people and groups chosen, `adminsApart`, as in the new-project dry
+ * run, so it never tells a member who the admins are). */
 export const ShareProjectBody = z.object({
   participants: z.array(ProjectParticipant).max(200).default([]),
   dryRun: z.boolean().default(false),
@@ -317,7 +319,7 @@ export const ShareProjectBody = z.object({
    * chats: 409 project_skills_on unless true (docs/DECISIONS.md "Project skills") */
   skillsOk: z.boolean().optional(),
 })
-export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative() })])
+export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative(), adminsApart: z.boolean().optional() })])
 /** Creator or admin+ only. folderPath (repoint): admins only, only for a project whose folder is in the trash or missing,
  * only to an existing projects/<name> no other project uses (else 409 / 400 project_location). */
 export const UpdateProjectBody = z.object({
@@ -360,8 +362,12 @@ export type ProjectAccess = z.infer<typeof ProjectAccess>
 /** A dry run: who would see a new project with these participants, or an existing one (projectId) after this change. */
 export const ProjectAccessPreviewBody = z.object({ projectId: Uuid7.optional(), participants: z.array(ProjectParticipant).max(200) })
 export const ProjectAccessPreview = z.object({
-  /** active people who would see it (the creator, the owner and admins included) */
+  /** active people who would see it (the creator, the owner and admins included; see adminsApart) */
   people: z.number().int().nonnegative(),
+  /** a new project, asked by someone who is not the owner or an admin: `people` counts only the caller and the people
+   * and groups chosen, as if nobody were an admin (the owner and admins see it too, uncounted unless chosen), so the
+   * count never tells a member whether a person is an admin. Absent: false */
+  adminsApart: z.boolean().optional(),
   /** an existing project: people who would start or stop seeing it */
   added: z.number().int().nonnegative(),
   removed: z.number().int().nonnegative(),

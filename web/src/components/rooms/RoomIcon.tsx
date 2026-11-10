@@ -3,14 +3,15 @@
 // written beside it. `presence`: a DM's picture carries the other person's online dot (components/Presence.tsx; the
 // caller says the state in words after the name, PresenceText). A group chat has none, as in Slack.
 import { Hash, MessagesSquare, Users } from 'lucide-react'
-import { useCallback } from 'react'
+import { Fragment, useCallback } from 'react'
 import type { Room } from '@mycel/shared/api'
 import { translate, useLocale, useT } from '../../i18n'
-import { roomTitle } from '../../lib/rooms'
+import { roomTitle, TITLE_NAMES } from '../../lib/rooms'
 import { useAvatarOf, usePeople, usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
 import { PresenceFace } from '../Presence'
+import { StatusEmoji } from '../StatusMessage'
 
 /** The room's name as the app shows it (its own name; DMs: the other person; the everyone room: "전체"; an unnamed group
  * chat: "가, 나, 다 외 2명"). */
@@ -27,6 +28,31 @@ export function useRoomTitle() {
     const peers = room.kind === 'dm' || room.kind === 'group' ? room.peers.map((p) => (byId[p.id] ? { ...p, name: byId[p.id]!.name } : p)) : room.peers
     return roomTitle({ ...room, peers }, { all, gone, alone, sep, names: (names, n) => (n > 0 ? translate(locale, 'rooms.groupNamesMore', { names, n }) : names) })
   }, [all, gone, alone, sep, locale, byId])
+}
+
+/** The room's name as useRoomTitle writes it, for a list row: a DM's person and an unnamed group chat's people each with
+ * their status emoji after their name (docs/DECISIONS.md "상태 메시지"; the words on hover). Plain text inside: the row
+ * cuts it like the name alone. */
+export function RoomName({ room }: { room: Room }) {
+  const title = useRoomTitle()(room)
+  const t = useT()
+  const locale = useLocale()
+  const byId = usePeople((s) => s.byId)
+  if (room.kind === 'dm') return <>{title}{room.peers[0] && <StatusEmoji userId={room.peers[0].id} className="ml-1" />}</>
+  if (room.kind !== 'group' || room.name || !room.peers.length) return <>{title}</>
+  const shown = room.peers.slice(0, TITLE_NAMES)
+  const more = Math.max(shown.length, (room.memberCount ?? room.peers.length + 1) - 1) - shown.length
+  const sep = t('rooms.nameSep')
+  const list = shown.map((p, i) => (
+    <Fragment key={p.id}>
+      {i > 0 && sep}
+      {byId[p.id]?.name ?? p.name}
+      <StatusEmoji userId={p.id} className="ml-1" />
+    </Fragment>
+  ))
+  if (!more) return <>{list}</>
+  const [before = '', after = ''] = translate(locale, 'rooms.groupNamesMore', { names: '\u0000', n: more }).split('\u0000')
+  return <>{before}{list}{after}</>
 }
 
 /** What a room is called with no name of its own (an empty name goes back to it): a team room's group, the everyone

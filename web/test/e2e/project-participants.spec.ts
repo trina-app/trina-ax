@@ -38,7 +38,8 @@ test('a member makes a team project with a person, then adds one more: the confi
   // a team project by default, no folder to choose; how many see it is always said
   await expect(b.getByTestId('project-kind-team')).toBeChecked()
   await expect(dialog.getByTestId('project-folder')).toHaveCount(0)
-  await expect(b.getByTestId('project-access-summary')).toHaveText('2명이 봐요 (팀장·관리자 포함)')
+  // a member's new project: the count is me and the people I choose, never who the admins are (they are named apart)
+  await expect(b.getByTestId('project-access-summary')).toHaveText('1명과 팀장·관리자가 봐요')
   // I am always in it (no × to take me out)
   await expect(b.getByTestId('participant-user-bob')).toContainText('나')
   await expect(b.getByTestId('participant-remove-user-bob')).toHaveCount(0)
@@ -50,7 +51,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByTestId('participant-add-user-jiwoo')).toHaveCount(0)
   await b.getByTestId('participant-add-user-sora').click()
   await expect(b.getByTestId('participant-user-sora')).toBeVisible()
-  await expect(b.getByTestId('project-access-summary')).toHaveText('3명이 봐요 (팀장·관리자 포함)')
+  await expect(b.getByTestId('project-access-summary')).toHaveText('2명과 팀장·관리자가 봐요')
   await b.getByTestId('project-save').click()
   await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
   const id = b.url().split('/').pop()!

@@ -276,13 +276,12 @@ async function auditIntegrations(page: Page, where: string) {
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-toggle').click()
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-tools-toggle').click()
   await audit(page, `settings/integrations${where}`)
-  await page.getByRole('tab', { name: '둘러보기' }).click()
+  // Discover is on the same page, under the connections
   await expect(page.getByTestId('connector-list')).toBeVisible()
   await audit(page, `settings/integrations discover${where}`)
   await page.getByRole('button', { name: 'Notion 추가' }).click()
   await audit(page, `add from discover${where}`)
   await page.keyboard.press('Escape')
-  await page.getByRole('tab', { name: '내 커넥터' }).click()
   await page.getByTestId('integration-add').click()
   await (await adv(page, 'integration-write-deny')).check()
   await page.getByTestId('integration-save').click() // shows the field errors
@@ -298,6 +297,9 @@ async function auditIntegrations(page: Page, where: string) {
   await page.keyboard.press('Escape')
   await page.goto('/admin/connectors')
   await expect(page.getByTestId('team-integrations')).toBeVisible()
+  // with the audience chips and Discover under the list
+  await expect(page.getByTestId('integration-audience').first()).toBeVisible()
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
   await audit(page, `admin/integrations${where}`)
   await page.getByTestId('integration-add').click()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: /Olga/ }).uncheck()

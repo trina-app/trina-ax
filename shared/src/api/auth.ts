@@ -5,6 +5,7 @@ import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role, TextSi
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { Session, UserPrefs, UserRef } from './entities'
+import { MyStatus } from './status-message'
 
 export const Username = z.string().min(2).max(64).regex(/^[A-Za-z0-9._@-]+$/, 'letters, digits, ".", "_", "@", "-"')
 /** Password rule: 8-128 characters; the server also refuses the username itself and very common passwords. */
@@ -32,6 +33,8 @@ export const Me = z.object({
     title: z.string().optional(),
     status: z.string().optional(),
     avatarVersion: z.number().int().positive().optional(),
+    /** my status message (docs/DECISIONS.md "상태 메시지"), also one whose first day is still to come; absent: none */
+    statusMessage: MyStatus.optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({

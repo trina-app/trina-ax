@@ -1,8 +1,10 @@
 // The computer's sidebar in a real browser (docs/DECISIONS.md "Desktop sidebar: rooms first"): its order, one labeled
-// row each by keyboard (focus ring, the Inbox count on its row and in words), Admin for owners only, both groups folded
+// row each by keyboard (focus ring, the Inbox count on its row and in words), the team menu on top with Admin and
+// Invite for owners and admins (docs/DECISIONS.md "The team menu"; no Admin row any more), both groups folded
 // across a reload, 60 rooms in one scroll (대화 strictly capped at the five latest and the room on screen, "더 보기 (N)"
 // with what is unread behind it, remembered; 트리나 기록's heading and first chats in sight below at 1440 and 1280), and "답변 필요" / the
 // new-answer dot that come from the chat list (they survive a reload, and no request is made per chat).
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
@@ -30,7 +32,9 @@ async function someChats(page: Page, n: number) {
   for (let i = 1; i <= n; i++) expect((await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: `채팅 ${i}` } })).ok()).toBeTruthy()
 }
 
-const ROWS = [['new-chat', 'nav-search', 'nav-projects', 'nav-scheduled', 'nav-inbox', 'nav-files', 'nav-skills'], ['nav-admin']] as const
+const ROWS = ['new-chat', 'nav-search', 'nav-projects', 'nav-scheduled', 'nav-inbox', 'nav-files', 'nav-skills'] as const
+const BOB = { username: 'bob', password: 'bob password 1' }
+const fontOf = (page: Page, id: string) => side(page).getByTestId(id).evaluate((e) => [getComputedStyle(e).fontSize, getComputedStyle(e).fontWeight])
 
 test('in order: the team, one labeled row each, the rooms, then the AI chats', async ({ page }) => {
   await reset(page)
@@ -39,17 +43,19 @@ test('in order: the team, one labeled row each, the rooms, then the AI chats', a
   const s = side(page)
   await expect(s.getByTestId('sidebar-team')).toBeVisible()
   await expect(s.getByTestId('sidebar-team')).not.toHaveText(PRODUCT.displayName)
-  const ids = ['sidebar-team', ...ROWS[0], ...ROWS[1], 'sidebar-rooms', 'recents-toggle']
+  const ids = ['sidebar-team', ...ROWS, 'sidebar-rooms', 'recents-toggle']
   const ys: number[] = []
   for (const id of ids) ys.push(await top(page, id))
   expect([...ys].sort((a, b) => a - b)).toEqual(ys)
   await expect(s.getByTestId('recents-toggle')).toHaveText(t['sidebar.aiChats'].replace('{name}', ai))
-  // each row says its name, 36 px high, the old order: 트리나에게 묻기, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬, 관리자
+  // each row says its name, 36 px high, the old order: 트리나에게 묻기, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬 (관리자
+  // is in the team menu now)
   const said = (words: string, hint = false) => new RegExp(`^\\s*${words}${hint ? '' : '$'}`)
   await expect(s.getByTestId('nav-rows').locator(':scope > *')).toHaveText([
-    said(t['sidebar.askAi'].replace('{name}', ai), true), said(t['sidebar.search'], true), said(t['sidebar.projects']), said(t['sidebar.scheduled']), said(t['inbox.title']), said(t['sidebar.files']), said(t['sidebar.skills']), said(t['sidebar.admin']),
+    said(t['sidebar.askAi'].replace('{name}', ai), true), said(t['sidebar.search'], true), said(t['sidebar.projects']), said(t['sidebar.scheduled']), said(t['inbox.title']), said(t['sidebar.files']), said(t['sidebar.skills']),
   ])
-  for (const id of [...ROWS[0], ...ROWS[1]]) expect(Math.round((await s.getByTestId(id).boundingBox())!.height)).toBe(36)
+  await expect(s.getByTestId('nav-admin')).toHaveCount(0)
+  for (const id of ROWS) expect(Math.round((await s.getByTestId(id).boundingBox())!.height)).toBe(36)
   await expect(s.getByRole('link', { name: t['sidebar.projects'], exact: true })).toHaveAttribute('href', '/projects')
   await expect(s.getByTestId('nav-icons')).toHaveCount(0)
 })
@@ -62,7 +68,7 @@ test('the rows by keyboard: a focus ring on each; the Inbox has its count on the
   await expect(s.getByTestId('inbox-unread').locator('[aria-hidden="true"]')).toHaveText('3')
   await expect(s.getByTestId('nav-inbox')).toHaveAccessibleName(new RegExp(`^${t['inbox.title']}\\s*${t['notifications.unread'].replace('{count}', '3')}$`))
   await s.getByTestId('new-chat').focus()
-  for (const id of [...ROWS[0].slice(1), ...ROWS[1]]) {
+  for (const id of ROWS.slice(1)) {
     await page.keyboard.press('Tab')
     const el = s.getByTestId(id)
     await expect(el).toBeFocused()
@@ -75,12 +81,214 @@ test('the rows by keyboard: a focus ring on each; the Inbox has its count on the
   await expect(s.getByTestId('nav-files')).toHaveAttribute('aria-current', 'page')
 })
 
-test('a member has no Admin row', async ({ page }) => {
+test('a member: no Admin row, and the team on top is its name and logo, not a menu', async ({ page }) => {
   await reset(page)
-  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await signIn(page, BOB)
   const s = side(page)
   await expect(s.getByTestId('nav-rows').locator(':scope > *')).toHaveCount(7)
   await expect(s.getByTestId('nav-admin')).toHaveCount(0)
+  await expect(s.getByTestId('team-header')).toBeVisible()
+  await expect(s.getByTestId('team-menu')).toHaveCount(0)
+  await expect(s.getByRole('button', { name: 'Acme' })).toHaveCount(0)
+  await expect(s.getByText(t['sidebar.admin'], { exact: true })).toHaveCount(0)
+  // a click on it does nothing: no menu, and it does not go Home (the old header was a link there)
+  await page.goto('/files')
+  await expect(s.getByTestId('nav-files')).toHaveAttribute('aria-current', 'page')
+  await s.getByTestId('team-header').click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/files$/)
+  // the same type sizes as an admin's
+  expect(await fontOf(page, 'sidebar-team')).toEqual(['16px', '600'])
+})
+
+test('the team menu: the team on top opens it; an admin goes to Admin from it', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.request.post('/__test/team-address', { data: { address: 'https://acme.trina.app' } })
+  await page.reload()
+  const s = side(page)
+  const button = s.getByTestId('team-menu')
+  await expect(button).toHaveAccessibleName('Acme')
+  await expect(button).toHaveAttribute('aria-haspopup', 'menu')
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+  // the top of the hierarchy, not louder than a page title: 16 px semibold over the 14 px rows (page titles are 20 px);
+  // the logo 28 px, its middle in line with the rows' icons
+  expect(await fontOf(page, 'sidebar-team')).toEqual(['16px', '600'])
+  expect(await fontOf(page, 'nav-projects')).toEqual(['14px', '400'])
+  const logo = (await s.getByTestId('sidebar-logo').boundingBox())!
+  expect([logo.width, logo.height]).toEqual([28, 28])
+  const icon = (await s.getByTestId('nav-projects').locator('svg').boundingBox())!
+  expect(logo.x + logo.width / 2).toBe(icon.x + icon.width / 2)
+  expect(Math.round((await button.boundingBox())!.height)).toBe(44)
+  await expect(s.getByTestId('nav-admin')).toHaveCount(0)
+
+  await button.click()
+  const menu = page.getByRole('menu', { name: 'Acme' })
+  await expect(menu).toBeVisible()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+  await expect(menu.getByTestId('team-menu-name')).toHaveText('Acme')
+  await expect(menu.getByTestId('team-menu-address')).toHaveText('acme.trina.app')
+  await expect(menu.getByRole('menuitem')).toHaveText([t['teamMenu.invite'], t['sidebar.admin']])
+  // nothing personal: those are in the profile menu at the bottom
+  await expect(menu.getByText(t['sidebar.settings'])).toHaveCount(0)
+  await expect(menu.getByText(t['auth.logout'])).toHaveCount(0)
+  // inside the window, under the button, the sidebar's width less its padding
+  const box = (await menu.boundingBox())!
+  expect(box.y).toBeGreaterThan((await button.boundingBox())!.y)
+  expect(box.x + box.width).toBeLessThanOrEqual((await s.boundingBox())!.width)
+  expect((await new AxeBuilder({ page }).include('[data-testid="team-menu"]').include('[data-testid="team-dropdown"]').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()).violations).toEqual([])
+  // a click outside closes it
+  await page.getByTestId('composer-input').click()
+  await expect(menu).toHaveCount(0)
+  await button.click()
+  await menu.getByRole('menuitem', { name: t['sidebar.admin'] }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  // the way home is the first row (and ⇧⌘O): the header is the team, not a second home link
+  await s.getByTestId('new-chat').click()
+  await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
+})
+
+test('the team menu by keyboard: Enter opens it on its first item, arrows wrap, Esc closes it and gives the keyboard back', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const s = side(page)
+  const button = s.getByTestId('team-menu')
+  // reached by the keyboard (Shift+Tab from the first row): a focus ring
+  await s.getByTestId('new-chat').focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(button).toBeFocused()
+  expect(await button.evaluate((e) => getComputedStyle(e).outlineStyle)).not.toBe('none')
+  await page.keyboard.press('Enter')
+  const invite = page.getByRole('menuitem', { name: t['teamMenu.invite'] })
+  const admin = page.getByRole('menuitem', { name: t['sidebar.admin'] })
+  await expect(invite).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(admin).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(invite).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(admin).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(invite).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(button).toBeFocused()
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+  // Space opens it too; Enter on an item does it
+  await page.keyboard.press('Space')
+  await expect(invite).toBeFocused()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/admin$/)
+})
+
+test('팀원 초대 in the team menu opens the invite flow; closing it gives the keyboard back to the team button', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const s = side(page)
+  await s.getByTestId('team-menu').click()
+  await page.getByRole('menuitem', { name: t['teamMenu.invite'] }).click()
+  const dialog = page.getByRole('dialog', { name: t['teamMenu.invite'] })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByTestId('invite-step')).toBeVisible()
+  // the team invite link: made in one press, its message ready to copy
+  await dialog.getByTestId('team-link-create').click()
+  await expect(dialog.getByTestId('team-link-message')).toBeVisible()
+  await dialog.getByTestId('invite-step-done').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(s.getByTestId('team-menu')).toBeFocused()
+  // Esc closes it as well
+  await s.getByTestId('team-menu').click()
+  await page.getByRole('menuitem', { name: t['teamMenu.invite'] }).click()
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(s.getByTestId('team-menu')).toBeFocused()
+})
+
+test('the owner with the welcome steps unfinished: 팀원 초대 opens their own invite step, also when the steps are on screen', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // the first visit starts the steps (회사 소개 first)
+  await page.goto('/welcome')
+  await expect(page.locator('[data-step="profile"]')).toBeVisible()
+  const invite = async () => {
+    await side(page).getByTestId('team-menu').click()
+    await page.getByRole('menuitem', { name: t['teamMenu.invite'] }).click()
+  }
+  // the steps on screen: their invite step, no dialog over them
+  await invite()
+  await expect(page.locator('[data-step="invite"]')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // from another page, right after it loads: the same step
+  await page.goto('/files')
+  await invite()
+  await expect(page).toHaveURL(/\/welcome$/)
+  await expect(page.locator('[data-step="invite"]')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('⌘K finds 관리자 and 팀원 초대 for an admin (not listed before typing); a member finds neither', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const palette = page.getByTestId('search-palette')
+  const box = palette.getByRole('combobox')
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(box).toBeFocused()
+  const actions = palette.getByTestId('search-section-actions')
+  await expect(actions.getByRole('option')).toHaveCount(6)
+  await expect(actions.getByRole('option', { name: t['sidebar.admin'], exact: true })).toHaveCount(0)
+  await expect(actions.getByRole('option', { name: t['teamMenu.invite'] })).toHaveCount(0)
+  await box.fill(t['sidebar.admin'])
+  await expect(palette.getByTestId('search-section-actions').getByRole('option', { name: t['sidebar.admin'] })).toBeVisible()
+  await palette.getByTestId('search-section-actions').getByRole('option', { name: t['sidebar.admin'] }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await expect(palette).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+k')
+  // its other words find it too ("Members & invites")
+  await box.fill(t['admin.members'].slice(0, 2))
+  await expect(palette.getByRole('option', { name: t['teamMenu.invite'] })).toBeVisible()
+  await box.fill('초대')
+  const invite = palette.getByRole('option', { name: t['teamMenu.invite'] })
+  await expect(invite).toBeVisible()
+  await invite.click()
+  await expect(palette).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: t['teamMenu.invite'] }).getByTestId('invite-step')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('logout').click()
+  await signIn(page, BOB)
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(box).toBeFocused()
+  // what an admin finds by these words, a member does not: the search for them is done once its own last row shows
+  // (the file content search with these words)
+  for (const words of [t['sidebar.admin'], '초대']) {
+    await box.fill(words)
+    await expect(palette.getByRole('option', { name: t['search.inFiles'].replace('{q}', words) })).toBeVisible()
+    await expect(palette.getByRole('option', { name: t['sidebar.admin'], exact: true })).toHaveCount(0)
+    await expect(palette.getByRole('option', { name: t['teamMenu.invite'] })).toHaveCount(0)
+  }
+})
+
+test('the phone drawer keeps the AI\'s name on top, with no team menu; Admin is on the 나 tab', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await signIn(page)
+  await page.getByRole('button', { name: '메뉴 열기' }).click()
+  const drawer = page.locator('[data-drawer]')
+  await expect(drawer.getByTestId('sidebar-logo-phone')).toBeVisible()
+  await expect(drawer.getByTestId('sidebar-logo-phone').locator('..')).toHaveText(ai)
+  await expect(drawer.getByTestId('team-menu')).toHaveCount(0)
+  await expect(drawer.getByTestId('team-header')).toHaveCount(0)
+  await expect(drawer.getByTestId('nav-admin')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.goto('/settings')
+  await expect(page.getByTestId('settings-admin')).toBeVisible()
+  await page.getByTestId('settings-admin').click()
+  await expect(page).toHaveURL(/\/admin$/)
 })
 
 test('short lists keep their entries: "모든 대화" opens the conversations page, "모두 보기" the whole history and "접기" back', async ({ page }) => {

@@ -5,16 +5,19 @@
 // The menu stays where it is while a page scrolls: its own column on wide screens, a strip under the title on narrow
 // ones. Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
 // connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
-// (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team
-// (AdminPageHeader says so). Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
+// (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team:
+// the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
+// everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 import clsx from 'clsx'
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
+import { teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Spinner, useEdgeFade } from '../../components/ui'
+import { AdminScope } from './common'
 
 const Home = lazy(() => import('./Home'))
 const Members = lazy(() => import('./Members'))
@@ -97,8 +100,12 @@ export default function AdminLayout() {
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <div className="shrink-0 border-b border-line lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-b-0">
-        {/* phones: the top bar says the name (components/PhoneTopBar.tsx) */}
-        <h1 className="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight max-md:sr-only sm:px-6 lg:px-5 lg:pt-6 lg:pb-4 lg:text-xl">{t('admin.title')}</h1>
+        {/* whose admin this is: the team's logo and "<team> admin", as the main sidebar shows the team (its logo, else the
+            product's mark). Phones: the top bar says the name (components/PhoneTopBar.tsx) */}
+        <h1 className="flex items-center gap-2 px-4 pt-4 pb-2 text-lg font-semibold tracking-tight max-md:sr-only sm:px-6 lg:px-5 lg:pt-6 lg:pb-4" data-testid="admin-title">
+          <img src={me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'} alt="" aria-hidden className="size-6 shrink-0 rounded-md object-cover" data-testid="admin-team-logo" />
+          <span className="min-w-0 truncate">{t('admin.teamTitle', { team: me.team.name })}</span>
+        </h1>
         {/* narrow screens: the strip runs to the screen edges, so a link cut off at the right reads as "scroll for more";
             relative: the group names hidden there (sr-only) stay inside the strip instead of widening the page */}
         <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin edge-fade relative flex items-center gap-1 overflow-x-auto px-4 pb-3 max-md:pt-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
@@ -129,6 +136,8 @@ export default function AdminLayout() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
         <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:px-8 lg:py-7">
+          {/* every page here applies to the whole team (Settings says "Just for you" the same way) */}
+          <AdminScope />
           <Suspense fallback={<Spinner />}>
             {section === '' && <Home />}
             {section === 'members' && <Members />}

@@ -1,11 +1,13 @@
 // The people directory and profiles (docs/DECISIONS.md "프로필과 사람 목록"). Owner: A (server/src/routes/people.ts).
-// Every signed-in member may read the directory: a name, a title, a one-line status and a photo version. Never an email,
-// a role or a group (those stay with admins, Admin › People).
+// Every signed-in member may read the directory: a name, a title, a one-line status (unused), a photo version and the
+// status message now. Never an email, a role or a group (those stay with admins, Admin › People).
 import { z } from 'zod'
 import { UserId } from '../ids'
 import { AVATAR_MAX_BYTES, PROFILE_STATUS_MAX, PROFILE_TITLE_MAX } from '../avatar'
 import { PersonName } from './auth'
 import { binary, empty, endpoint, stream } from './endpoint'
+import { MyStatus, SetStatusBody, StatusMessage } from './status-message'
+
 
 /** One person in the directory. `avatarVersion` is absent without a photo; with it the photo is at /api/people/:id/avatar?v=<it>. */
 export const Person = z.object({
@@ -14,6 +16,9 @@ export const Person = z.object({
   title: z.string().optional(),
   status: z.string().optional(),
   avatarVersion: z.number().int().positive().optional(),
+  /** their status message now (docs/DECISIONS.md "상태 메시지"): absent without one, before its first day and after it
+   * cleared */
+  statusMessage: StatusMessage.optional(),
 })
 export type Person = z.infer<typeof Person>
 export const PeopleResponse = z.object({ people: z.array(Person) })
@@ -54,5 +59,7 @@ export const PEOPLE = {
   updateMyProfile: endpoint({ method: 'PATCH', path: '/api/me/profile', auth: 'user', owner: 'A', body: UpdateProfileBody, response: MyProfile, summary: 'Change own name, title and one-line status (length-limited; audited). Nobody can change another person\'s profile.' }),
   putMyAvatar: endpoint({ method: 'PUT', path: '/api/me/avatar', auth: 'user', owner: 'A', query: AvatarQuery, body: binary(AVATAR_MAX_BYTES), response: AvatarInfo, summary: 'Set own profile photo: a square PNG, JPEG or WebP of 64–512 px, up to 256 KiB; metadata is cut out; audited.' }),
   deleteMyAvatar: endpoint({ method: 'DELETE', path: '/api/me/avatar', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Remove own profile photo; audited.' }),
+  setMyStatus: endpoint({ method: 'PUT', path: '/api/me/status', auth: 'user', owner: 'A', body: SetStatusBody, response: MyStatus, summary: 'Set your status message: one emoji, up to 100 characters of text, and when it clears (30 minutes to 2 hours, the end of today or this week in the team\'s time zone, chosen days, or never); only your own. The team sees it beside your name.' }),
+  clearMyStatus: endpoint({ method: 'DELETE', path: '/api/me/status', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Clear your status message (also one that starts later); only your own.' }),
   setMyAway: endpoint({ method: 'PUT', path: '/api/me/away', auth: 'user', owner: 'A', body: SetAwayBody, response: SetAwayBody, summary: 'Set yourself away (your dot shows away to the team until you change it) or back to automatic; only your own.' }),
 } as const

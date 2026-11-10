@@ -55,6 +55,7 @@ import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { LinkedText } from './MessageText'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
+import { StatusEmoji } from '../StatusMessage'
 import { useViewerItem, ViewerMeta } from '../ImageViewer'
 import { roomFileItem, roomItem } from '../../lib/imageViewer'
 import { useRoomTitle } from './RoomIcon'
@@ -190,6 +191,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2">
                   <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>
+                  {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="-ml-1 self-center text-sm" />}
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
                   </time>
