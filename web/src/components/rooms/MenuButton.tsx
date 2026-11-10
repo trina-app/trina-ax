@@ -16,6 +16,7 @@
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
+import { dismissKeyboard } from '../../lib/viewport'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 
 export interface MenuItem {
@@ -90,6 +91,9 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
   const pressedAt = useRef(0)
   useEffect(() => {
     if (!open) return
+    // a phone's sheet over the page: the on-screen keyboard goes down first (a long press while typing), so the sheet
+    // is in sight; the draft stays and the keyboard comes back only when the person taps the box again
+    if (!window.matchMedia?.('(min-width: 48rem)').matches) dismissKeyboard()
     // the keyboard goes into the menu; a finger that opened it does not need a focus ring on the first item
     if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? menu.current?.querySelector<HTMLElement>('[role^="menuitem"]'))?.focus({ preventScroll: true })
     const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(false)
@@ -119,6 +123,9 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
     const scrolled = (e: Event) => {
       const list = e.target as Node & Partial<Pick<Element, 'getBoundingClientRect'>>
       if (menu.current?.contains(list)) return
+      // a phone's sheet stands on its own, not by the button (hidden on a touch screen): the list moving under it (the
+      // keyboard going down as the sheet opens) does not close it
+      if (!window.matchMedia?.('(min-width: 48rem)').matches) return
       const a = box.current?.getBoundingClientRect(), s = list.getBoundingClientRect?.()
       if (a && s && (a.bottom < s.top || a.top > s.bottom)) return setOpen(false)
       fit()
@@ -211,7 +218,9 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
             // as wide as its longest item, never narrower than 176px (a longer word does not wrap: "Pindahkan ke proyek…");
             // a window narrower than that: as wide as the window less its edges, the words wrap
             'md:w-max md:max-w-[calc(100vw-1rem)] md:min-w-44 md:max-h-[calc(100dvh-1rem)] md:overflow-y-auto',
-            'max-md:inset-x-0 max-md:bottom-0 max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
+            // phones: on the keyboard while it is still up (iOS lets a sheet open under it; lib/viewport.ts
+            // --kb-inset), never higher than what is in sight, its rows scrolling
+            'max-md:inset-x-0 max-md:bottom-[var(--kb-inset,0px)] max-md:max-h-[calc(var(--app-h,100dvh)-var(--safe-top))] max-md:overflow-y-auto max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
           )}
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(false))}</div>}

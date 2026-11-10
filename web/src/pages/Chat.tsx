@@ -30,7 +30,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { followsAfterScroll, jumpToBottom, stickToBottom } from '../lib/stickToBottom'
+import { useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -87,11 +87,11 @@ function ChatView({ chatId }: { chatId: string }) {
   const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat, discardLocal } = useChats.getState()
   const [loadError, setLoadError] = useState<unknown>(null)
   const [loading, setLoading] = useState(!useChats.getState().threads[chatId])
-  const scroller = useRef<HTMLDivElement>(null)
+  // diagrams, images and code highlighting grow the page after the text arrived, and a phone's keyboard shrinks the
+  // list: stay at the bottom if we were there (lib/stickToBottom.ts)
+  const list = useStickToBottom()
+  const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
-  const stick = useRef(true)
-  /** where the list was last: its last scroll event or its own last jump to the bottom (followsAfterScroll) */
-  const lastTop = useRef(0)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -193,24 +193,14 @@ function ChatView({ chatId }: { chatId: string }) {
   // keep following the answer while the reader is at the bottom
   const last = messages.at(-1)
   useLayoutEffect(() => {
-    const el = scroller.current
-    if (el && stick.current) jumpToBottom(el, lastTop)
+    list.follow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, last?.content.length, last?.steps.length])
-
-  // diagrams, images and code highlighting grow the page after the text arrived, and a phone's keyboard shrinks the
-  // list: stay at the bottom if we were there
-  const content = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const s = scroller.current, c = content.current
-    if (!s || !c) return
-    return stickToBottom(s, c, () => stick.current, undefined, () => { lastTop.current = s.scrollTop })
-  }, [])
 
   const onScroll = async () => {
     const el = scroller.current
     if (!el) return
-    stick.current = followsAfterScroll(el, stick.current, lastTop.current)
-    lastTop.current = el.scrollTop
+    list.onScroll()
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       const before = el.scrollHeight

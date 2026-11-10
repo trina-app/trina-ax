@@ -19467,3 +19467,54 @@ script) and the Trina edition's links in `editions/trina/branding/apps.json`.
   typing into the message box while the AI, the site and the app load pages in the pane, the address bar's page taking
   it).
 - Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
+
+## 키보드가 올라와도 맨 아래 메시지는 보이게 — phones: the keyboard keeps the newest message in sight, and sheets stay above it (fix/phone-keyboard-keeps-bottom, 2026-11-10)
+
+Three phone bugs the owner found. (1) At the bottom of a conversation, tapping the message box opened the keyboard but
+the list kept its scroll position: the newest messages went behind the box. (2) With the keyboard up, a long press on a
+message opened its sheet (reactions on top) under the keyboard, and the keyboard stayed. (3) "Set your status" opened as
+a sheet and put the keyboard in its box at once; the keyboard covered the suggestions, the "Clears" chips and Cancel /
+Save. Amends "The keyboard keeps the newest message in sight (end-to-end run, 2026-11-06)".
+
+- **Cause of (1), measured** in the iOS 26.5 simulator with a bare WKWebView host set up like the phone app's (iOS
+  Safari in the same simulator did not show it; Chromium's emulation neither): the keyboard shrinks the list (629 →
+  248 px) and, in the same frame, the engine moves its `scrollTop` up 22 px (8580 → 8558). That scroll event comes before
+  the ResizeObserver, and `followsAfterScroll` read the move up as the reader leaving the bottom, so the observer that
+  ran next no longer followed. The phone app's WebView, unlike Safari, also shrinks `innerHeight` with the keyboard.
+- **One hook for every list** (`lib/stickToBottom.ts useStickToBottom`: the room's timeline, DMs and group chats, a
+  thread, the ✦ side chat, the AI chat; before, each list had its own copy of the refs and handlers):
+  - A scroll event while the list's own size differs from the size its ResizeObserver last saw is the browser's, not
+    the reader's (`scrolledByReader`): it changes nothing, and the observer, which runs after it in the same frame,
+    decides.
+  - The list changed size (`placeAfterResize`): following (at the bottom, or within 80 px of it) → to the bottom; not
+    following and the list itself got shorter or taller (a keyboard) → back to where the reader left it, so the first
+    message in sight stays in its place and an engine's nudge is undone; a change of width (a computer's window, which
+    rewraps the messages) or of the content alone → the browser's place, as before.
+  - It also listens to `visualViewport` resize and scroll (iOS), settling the list early; only the observer records
+    the size, so a nudge after that event is still told apart.
+- **Sheets on the keyboard** (`lib/viewport.ts`): `--kb-inset` is how much of the layout viewport the keyboard covers
+  (iOS Safari keeps the layout viewport under the keyboard; 0 where it shrinks: Android, the phone app's WebView, a
+  computer). Below their phone breakpoints the Modal sheet (`components/ui.tsx`: the status dialog, the emoji sheet,
+  rename, new folder, invite and every other dialog), a message's or row's menu sheet (`MenuButton`), the search and
+  the full-screen side panel end there, and the Modal and menu sheets are at most `--app-h` high: the body scrolls,
+  the header and the footer's buttons stay in sight right above the keyboard.
+- **A message's sheet takes the keyboard down.** On a phone, a menu sheet (`MenuButton`: a long press, ⋯) and the emoji
+  sheet first take the focus off a text field (`dismissKeyboard`), so the keyboard goes down. The draft stays; nothing
+  gives the focus back, so the keyboard comes back only when the person taps the box. A phone's menu sheet no longer
+  closes when the list under it scrolls (it stands on its own, not by its button, which a touch screen hides): the list
+  moving as the keyboard went down closed it.
+- **The status dialog on a touch screen** (`pointer: coarse`) does not focus its box on opening, nor after a suggestion,
+  an emoji or ✕: most people tap a suggestion. A computer: as before. Other sheets with a text field were checked and
+  keep their focus: rename, new folder, a room's name, the people picker's search, the search palette (the text is
+  what they are for); the emoji sheet already did not focus its search on a phone; the side chat's box takes the keyboard when
+  it opens from "Ask Trina" (the question is what it is for).
+- **The phone app**: no new build. Android already lifts its WebView by the keyboard; the iPhone app's WebView shrinks
+  its viewport. Both get this with the web app from the team server.
+- **Left as before**: toasts (not a sheet) still sit at the screen's bottom in iOS Safari while the keyboard is up; a
+  closing dialog still gives the focus back where it came from (a computer's keyboard needs that).
+- Tests: web unit `stick-to-bottom.test.ts` (at the bottom after a shrink; the measured WKWebView frame; scrolled up,
+  the message in sight keeps its offset as the keyboard opens and closes; the keyboard closing at the bottom; a
+  computer's window; no ResizeObserver), e2e `phone-keyboard.spec.ts` at 390 px (the keyboard as Android, the iPhone
+  app and iOS Safari bring it: the room at its bottom and scrolled up, the AI chat, the side chat; a long press while
+  typing, 😭 and the draft kept; the emoji sheet's search; the status sheet; a computer's status dialog).
+- Version impact: **patch** (web app only; no API, data, setting or text change).

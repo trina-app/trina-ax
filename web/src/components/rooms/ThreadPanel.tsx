@@ -17,7 +17,7 @@ import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { ApiError, errorText, isApiError } from '../../lib/api'
 import { lookingAt, onWindowFocus } from '../../lib/attention'
 import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
-import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
+import { useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { findMessage, placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { ErrorNote, IconButton, Skeleton } from '../ui'
@@ -48,11 +48,9 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const pending = useMemo(() => allPending.filter((p) => p.threadRootId === rootId), [allPending, rootId])
   const replies = view?.replies ?? NO_REPLIES
   const root = view?.root ?? null
-  const scroller = useRef<HTMLDivElement>(null)
-  const content = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
-  /** where the list was last: its last scroll event or its own last jump to the bottom (followsAfterScroll) */
-  const lastTop = useRef(0)
+  // new replies, pictures loading and a phone's keyboard: at the bottom it stays there (lib/stickToBottom.ts)
+  const list = useStickToBottom()
+  const { scroller, content, stick } = list
   const last = replies.at(-1)
   const aiKey = useRooms((s) => (s.ai[roomId]?.runs ?? []).filter((r) => r.threadRootId === rootId).map((r) => `${r.state}${r.steps.length}`).join(','))
 
@@ -63,14 +61,9 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
     return () => useRooms.getState().closeThread(roomId, rootId)
   }, [roomId, rootId, alone])
   useLayoutEffect(() => {
-    const el = scroller.current
-    if (el && stick.current) jumpToBottom(el, lastTop)
+    list.follow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [last?.id, replies.length, pending.length, aiKey, root?.id])
-  useEffect(() => {
-    const s = scroller.current, c = content.current
-    if (!s || !c) return
-    return stickToBottom(s, c, () => stick.current, undefined, () => { lastTop.current = s.scrollTop })
-  }, [])
 
   const tryRead = useCallback(() => {
     const el = scroller.current
@@ -101,8 +94,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const onScroll = () => {
     const el = scroller.current
     if (!el) return
-    stick.current = followsAfterScroll(el, stick.current, lastTop.current)
-    lastTop.current = el.scrollTop
+    list.onScroll()
     const tv = useRooms.getState().threadViews[key]
     if (el.scrollTop < 200 && tv?.nextCursor && !tv.loading) {
       const before = el.scrollHeight

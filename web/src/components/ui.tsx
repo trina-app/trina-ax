@@ -266,10 +266,12 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   return (
     // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
     inBody(
-    // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable. The image
+    // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable. With the
+    // keyboard up it ends on the keyboard and is at most as high as what is left (lib/viewport.ts --kb-inset, --app-h:
+    // iOS Safari keeps the fixed layer's bottom under the keyboard), its footer's buttons in sight. The image
     // viewer's level (ImageViewer.tsx): of the two, the one opened last is on top (each goes to the end of <body>), so a
     // confirm or Share to room from the viewer's column is over the viewer, and a picture opened from a dialog over it
-    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/40 max-sm:bottom-[var(--kb-inset,0px)] sm:items-center sm:p-4" onMouseDown={onClose}>
       <div
         ref={ref}
         role="dialog"
@@ -277,7 +279,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         aria-labelledby={titleId}
         tabIndex={-1}
         // phones: below the status bar; without a footer the body keeps clear of the home indicator itself
-        className={clsx('flex max-h-[min(92dvh,calc(100dvh-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !footer && 'max-sm:pb-[var(--safe-bottom)]')}
+        className={clsx('flex max-h-[min(calc(var(--app-h,100dvh)*0.92),calc(var(--app-h,100dvh)-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !footer && 'max-sm:pb-[var(--safe-bottom)]')}
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >

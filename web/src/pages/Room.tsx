@@ -28,7 +28,7 @@ import { lookingAt, onWindowFocus } from '../lib/attention'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useBackCloses } from '../lib/backCloses'
-import { followsAfterScroll, jumpToBottom, stickToBottom } from '../lib/stickToBottom'
+import { useStickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
@@ -217,29 +217,23 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // before the name on a phone (which shows no picture here)
   const peerId = room?.kind === 'dm' ? (room.peers[0]?.id ?? null) : null
   const peerState = usePresenceOf(peerId)
-  const scroller = useRef<HTMLDivElement>(null)
-  const content = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
-  /** where the list was last: its last scroll event or its own last jump to the bottom (followsAfterScroll) */
-  const lastTop = useRef(0)
   const last = messages.at(-1)
-  // a window around an older message: its bottom is not the room's, so nothing sticks to it
+  // a window around an older message: its bottom is not the room's, so nothing sticks to it (the store's timeline too:
+  // a scroll event can come before the page has drawn a new window)
   const detached = !!timeline?.newerCursor
   const detachedNow = useRef(detached)
   detachedNow.current = detached
+  // thumbnails load after the text, a card of the AI's appears or grows (its preview), and a phone's keyboard shrinks
+  // the list: stay at the bottom if we were there, so the whole card is in sight above the message box
+  // (lib/stickToBottom.ts)
+  const list = useStickToBottom(() => !detachedNow.current && !useRooms.getState().timeline?.newerCursor)
+  const { scroller, content, stick } = list
 
   // follow new messages while the reader is at the bottom (and always after my own send)
   useLayoutEffect(() => {
-    const el = scroller.current
-    if (el && stick.current && !detachedNow.current) jumpToBottom(el, lastTop)
+    list.follow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [last?.id, messages.length, pending.length, aiKey])
-  // thumbnails load after the text, a card of the AI's appears or grows (its preview), and a phone's keyboard shrinks
-  // the list: stay at the bottom if we were there, so the whole card is in sight above the message box
-  useEffect(() => {
-    const s = scroller.current, c = content.current
-    if (!s || !c) return
-    return stickToBottom(s, c, () => stick.current && !detachedNow.current, undefined, () => { lastTop.current = s.scrollTop })
-  }, [])
   const toNewest = () => {
     stick.current = true
     void useRooms.getState().loadNewest(roomId)
@@ -283,8 +277,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const th = useRooms.getState().timeline
     // near the bottom, or no move up since the list was there (followsAfterScroll); never in a window around an older
     // message, whose bottom is not the room's
-    stick.current = followsAfterScroll(el, stick.current, lastTop.current) && !th?.newerCursor
-    lastTop.current = el.scrollTop
+    list.onScroll()
     // a window around an older message: newer pages as its bottom comes into sight
     if (fromBottom < 200 && th?.roomId === roomId && th.newerCursor && !th.loading) void useRooms.getState().loadNewer(roomId)
     if (el.scrollTop < 200 && th?.roomId === roomId && th.nextCursor && !th.loading) {
