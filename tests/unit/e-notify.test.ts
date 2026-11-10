@@ -178,7 +178,7 @@ describe('checks', () => {
     expect(dockBadgeOf(100_000, true)).toBe(9999)
   })
 
-  test('the main process takes the address and the tag from the page, the badge on macOS only, focus from the window', () => {
+  test('the main process takes the address and the tag from the page, the badge on macOS only, focus from the window showing the team page', () => {
     const dir = path.join(import.meta.dir, '../../desktop/src')
     const main = fs.readFileSync(path.join(dir, 'main/main.ts'), 'utf8')
     const win = fs.readFileSync(path.join(dir, 'main/app-window.ts'), 'utf8')
@@ -187,7 +187,12 @@ describe('checks', () => {
     expect(main).toMatch(/bridge:badge', \(e, n: unknown, dot: unknown\) => \{\s*if \(!fromApp\(e\) \|\| process\.platform !== 'darwin'\) return\s*const badge = dockBadgeOf\(n, dot\)\s*if \(badge === DOCK_DOT\) app\.dock\?\.setBadge\(DOCK_DOT\)\s*else app\.setBadgeCount\(badge\)/)
     expect(preload).toContain("setBadgeCount: (n, dot) => ipcRenderer.send('bridge:badge', Number(n), dot === true)")
     expect(win).toContain("open: (path) => this.send(this.app, 'bridge:open', path)")
-    expect(win).toContain("this.send(this.app, 'bridge:focus', false)")
+    // the focus word: the window's focus while the team page is shown (not under the team list or the offline screen),
+    // told on focus, blur and every layout, and answered the same (docs/DECISIONS.md "화면에 연 대화는 울리지 않는다")
+    expect(win).toContain("this.win.on('blur', () => this.sendFocus(false))")
+    expect(win).toContain("this.send(app, 'bridge:focus', focused)")
+    expect(win).toMatch(/teamFocused\(windowFocused\?: boolean\): boolean \{\s*if \(this\.win\.isDestroyed\(\) \|\| !this\.app \|\| this\.mode !== 'team'\) return false/)
+    expect(main).toContain("ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))")
     expect(preload).toContain("onOpen: on('bridge:open')")
     expect(preload).toContain("onRead: on('bridge:read')")
     expect(win).toContain("read: (token) => this.send(this.app, 'bridge:read', token)")

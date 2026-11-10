@@ -8,13 +8,15 @@
 //   room or the everyone room (by name, or "@전체" from someone else), a reply in a thread I follow (RoomMessage.following) or that mentions me; plus an AI
 //   answer to my own question (my private preview, or the answer that went to the room). Reactions never ring (they
 //   are no room.message). Never: a room at 끄기 (or a default of 받지 않음), inside my quiet hours, my own messages, event
-//   lines, deleted messages, a message seen before (a replay after a reconnect, the copy of a preview I posted), or the
-//   room this device shows in a visible, focused window.
+//   lines, deleted messages, a message seen before (a replay after a reconnect, the copy of a preview I posted), or a
+//   message of the conversation this device shows in a window the person looks at (lib/attention.ts lookingAt: in the
+//   desktop app its window's focus, as the app says): the room open, or for a reply the thread a panel shows
+//   (conversationOnScreen; docs/DECISIONS.md "화면에 연 대화는 울리지 않는다").
 // - One sound per device: every tab gets the same events, so a tab rings only when (a) its audio may play, (b) it takes
 //   the device's slot: one sound every COALESCE_MS for all rooms and tabs. Where there is a Web Lock the tab that
 //   rings holds it for COALESCE_MS (the browser's one lock manager decides, at once); without one (plain http, older
-//   browsers) the time in localStorage alone, which two tabs can read at the same moment. Which room a focused tab
-//   shows is in localStorage too, so a tab in the background stays quiet about the room another tab is showing.
+//   browsers) the time in localStorage alone, which two tabs can read at the same moment. Which room (and threads) a
+//   focused tab shows is in localStorage too, so a tab in the background stays quiet about what another tab is showing.
 // - Browsers start audio only after a gesture: the first tap, click or key on the page unlocks it; between sounds the
 //   audio is suspended (no audio output held open); a sound that still cannot play is dropped without a word.
 // - Phones (the phone app, and a touch-only browser): only while the page is on screen, and not in the first moments
@@ -25,6 +27,7 @@
 //   silently when one of them takes care of the sound (web/pwa/sw.js).
 // - The switch (Settings › Notifications, "알림 소리") is this device's only, in localStorage; on by default.
 import { inQuietHours, roomAlert, roomLevel, uuidv7Time, type Room, type RoomAlertSettings, type RoomMessage } from '@mycel/shared/api'
+import { conversationOnScreen, type RoomsOnScreen } from './attention'
 import { mentionsMe } from './rooms'
 
 /** at most one sound this often, all rooms and tabs together */
@@ -32,7 +35,7 @@ export const COALESCE_MS = 3000
 /** an AI answer posted from a private preview carries the preview's id: its id is older than its time by at least the
  * time it took the person to press 대화방에 올리기 */
 export const REPOST_MS = 5000
-/** a focused tab says again which room it shows this often; a word older than VIEW_TTL_MS is ignored (a closed tab) */
+/** a focused tab says again what it shows this often; a word older than VIEW_TTL_MS is ignored (a closed tab) */
 export const VIEW_EVERY_MS = 10_000
 export const VIEW_TTL_MS = 30_000
 const SEEN_MAX = 500
@@ -59,8 +62,8 @@ export interface RingInput {
   replay: boolean
   /** this window had this message already (a replay, or the posted copy of a preview it showed) */
   seen: boolean
-  /** the room this device shows in a visible, focused window (null: none) */
-  viewing: string | null
+  /** what this device shows in a window the person looks at (null: none): the room open and the threads on screen */
+  viewing: RoomsOnScreen | null
 }
 
 /** Does this new message ring? */
@@ -72,7 +75,7 @@ export function shouldRing(i: RingInput): boolean {
   // an event line (someone joined, the room was renamed …): not a message anyone wrote
   if (m.event !== undefined && m.event !== null) return false
   const level = room.notify?.level ?? roomLevel(room.kind, room.muted ? 'off' : null, 'direct')
-  if (m.deletedAt || level === 'off' || i.viewing === i.roomId) return false
+  if (m.deletedAt || level === 'off' || conversationOnScreen(i.viewing, i.roomId, m.threadRootId)) return false
   if (i.alerts && inQuietHours(i.alerts.quietHours, i.alerts.timeZone, i.now ?? Date.now())) return false
   if (m.authorKind === 'user' && m.author?.id === meId) return false
   if (m.authorKind === 'ai' && m.askedBy?.id === meId) {
@@ -105,13 +108,14 @@ export function setRoomSoundOn(on: boolean, s: Store | null = local()) {
   } catch { /* storage blocked: the switch stays as it was */ }
 }
 
-/** What a focused tab wrote about the room it shows. */
-export interface ViewWord { tab: string; room: string | null; at: number }
+/** What a focused tab wrote about what it shows: the room open and the threads on screen (absent from an older tab). */
+export interface ViewWord { tab: string; room: string | null; threads?: string[]; at: number }
 export function readView(s: Store | null, now: number): ViewWord | null {
   try {
     const v = JSON.parse(s?.getItem(VIEW_KEY) ?? 'null') as ViewWord | null
     if (!v || typeof v.tab !== 'string' || typeof v.at !== 'number' || Math.abs(now - v.at) > VIEW_TTL_MS) return null
-    return { tab: v.tab, room: typeof v.room === 'string' ? v.room : null, at: v.at }
+    const threads = Array.isArray(v.threads) ? v.threads.filter((t): t is string => typeof t === 'string').slice(0, 20) : []
+    return { tab: v.tab, room: typeof v.room === 'string' ? v.room : null, threads, at: v.at }
   } catch { return null }
 }
 
@@ -131,14 +135,15 @@ export interface SoundDeps {
   now: () => number
   storage: Store | null
   locks: LocksLike | null
-  /** this window is on screen and focused (the phone app: on screen) */
+  /** the person looks at this window (lib/attention.ts lookingAt: on screen and focused; the desktop app: its window
+   * focused; the phone app: on screen) */
   focused: () => boolean
   /** quiet now: a phone's page in the background or just back from it (the phone's notification has the sound) */
   quiet: () => boolean
   /** hold the device's lock this long (tests: at once) */
   hold?: (ms: number) => Promise<void>
-  /** the room this window shows (store/rooms.ts openRoomId) */
-  openRoom: () => string | null
+  /** what this window shows (store/rooms.ts openRoomId and threadViews) */
+  onScreen: () => RoomsOnScreen
   audio: AudioLike
   /** wait this long before ringing, and then ring only if the message is still unread here: the same person may be
    * reading that room on another device or window, which marks it read within moments (room.read reaches this window
@@ -157,17 +162,18 @@ export class RoomSound {
   /** Signed out or stopped: a sound still waiting (settle) stays quiet. */
   stop() { this.stopped = true }
 
-  /** The room this device shows in a visible, focused window: this one's, or the one another tab said it shows. */
-  viewing(): string | null {
-    if (this.d.focused()) return this.d.openRoom()
+  /** What this device shows in a window the person looks at: this one's, or what another tab said it shows. */
+  viewing(): RoomsOnScreen | null {
+    if (this.d.focused()) return this.d.onScreen()
     const v = readView(this.d.storage, this.d.now())
-    return v && v.tab !== this.d.tabId ? v.room : null
+    return v && v.tab !== this.d.tabId ? { room: v.room, threads: v.threads ?? [] } : null
   }
 
-  /** Say (or stop saying) which room this window shows, for the other tabs. */
+  /** Say (or stop saying) what this window shows, for the other tabs. */
   publishView() {
     if (!this.d.focused()) return this.forgetView()
-    try { this.d.storage?.setItem(VIEW_KEY, JSON.stringify({ tab: this.d.tabId, room: this.d.openRoom(), at: this.d.now() } satisfies ViewWord)) }
+    const on = this.d.onScreen()
+    try { this.d.storage?.setItem(VIEW_KEY, JSON.stringify({ tab: this.d.tabId, room: on.room, threads: [...(on.threads ?? [])], at: this.d.now() } satisfies ViewWord)) }
     catch { /* storage blocked: each tab knows its own room only */ }
   }
 
@@ -189,7 +195,7 @@ export class RoomSound {
     const settle = this.d.settle
     if (settle) {
       await (settle.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(settle.ms)
-      if (this.stopped || settle.read(roomId, message) || this.viewing() === roomId || !roomSoundOn(this.d.storage) || this.d.quiet() || !this.d.audio.ready()) return false
+      if (this.stopped || settle.read(roomId, message) || conversationOnScreen(this.viewing(), roomId, message.threadRootId) || !roomSoundOn(this.d.storage) || this.d.quiet() || !this.d.audio.ready()) return false
     }
     if (!(await this.claim())) return false
     try { this.d.audio.play() } catch { /* no sound, no error */ }

@@ -1,18 +1,27 @@
 // Settings → Apps: which desktop installers are shown (none at all inside a Mac App Store or Microsoft Store build, only
-// the store's line), in which order, and the install steps under each.
+// the store's line) and the install steps under each. The rows themselves: apps.test.ts.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DESKTOP_BRIDGE_GLOBAL, RELEASE_CHANNEL, type DesktopBridge } from '@mycel/shared'
 import { currentLocale, DICTS, translate } from '../../src/i18n'
 import { answersFileInputs, storeApp } from '../../src/lib/desktop'
-import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, splitDownloads } from '../../src/lib/downloads'
-import { DesktopDownloads, downloadsSourceOf } from '../../src/pages/Settings'
+import { archNote, installSteps, offeredDownloads, parseDownloads, showSteps } from '../../src/lib/downloads'
+import type { AppClient } from '../../src/lib/apps'
+import { ComputerApps, downloadsSourceOf } from '../../src/components/settings/AppList'
 
 const win = { platform: 'windows' as const, file: 'Team-AX-Setup-0.1.0-x64.exe', version: '0.1.0', size: 114304798, signed: false }
 const mac = { platform: 'mac' as const, file: 'Team-AX-0.1.0-mac-universal.dmg', version: '0.1.0', signed: false }
 /** the desktop bridge as far as the store flag goes; without `store` = a desktop app from before the flag */
 const bridge = (o: { store?: boolean; platform?: string } = {}) => ({ bridgeVersion: 1, appVersion: '0.2.14', platform: 'darwin', ...o }) as unknown as DesktopBridge
+/** a build without store listings or a download page (self-hosted, another edition) */
+const NONE = { page: '', iphone: '', android: '', mac: '', windows: '' }
+type Props = Parameters<typeof ComputerApps>[0]
+/** the Desktop app part of Settings › Apps in a web browser on `here`, or in a (store) desktop app */
+const computer = (o: Partial<Omit<Props, 'client'>> & { here?: AppClient['here']; kind?: AppClient['kind']; store?: boolean } = {}) => {
+  const { here = 'mac', kind = o.store ? 'desktop' : 'web', store = false, ...rest } = o
+  return renderToStaticMarkup(createElement(ComputerApps, { links: NONE, downloads: 'none', owner: false, ...rest, client: { kind, here, store } }))
+}
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL]
@@ -24,51 +33,39 @@ describe('desktop downloads', () => {
     expect(parseDownloads(null)).toEqual([])
     expect(parseDownloads({ items: 'x' })).toEqual([])
   })
-  test("this computer's platform first, otherwise the server's order", () => {
-    expect(orderDownloads([win, mac], 'mac')).toEqual([mac, win])
-    expect(orderDownloads([win, mac], 'windows')).toEqual([win, mac])
-    expect(orderDownloads([win, mac], 'ios')).toEqual([win, mac])
-  })
-  test("a Mac or a Windows PC gets its own installer; the other computer's are apart; a phone or Linux gets them all", () => {
-    expect(splitDownloads([win, mac], 'mac')).toEqual({ computer: true, mine: [mac], others: [win] })
-    expect(splitDownloads([win, mac], 'windows')).toEqual({ computer: true, mine: [win], others: [mac] })
-    // the owner's case: a Linux server that only has the Windows app from the feed, seen on a Mac
-    expect(splitDownloads([win], 'mac')).toEqual({ computer: true, mine: [], others: [win] })
-    expect(splitDownloads([mac], 'windows')).toEqual({ computer: true, mine: [], others: [mac] })
-    for (const here of ['ios', 'android', 'other'] as const) expect(splitDownloads([win, mac], here)).toEqual({ computer: false, mine: [], others: [win, mac] })
-  })
-  test("Settings > Apps on a Mac with only the Windows app: no Windows button in sight, one line, the Windows app folded", () => {
-    type Props = Parameters<typeof DesktopDownloads>[0]
-    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: [win], store: false, owner: false, here: 'mac', ...o }))
+  test("Settings > Apps on a Mac with only the Windows app (no store listing): the Mac row says so, Windows is its own row", () => {
     const l = currentLocale()
-    const browserTab = view({ installHere: true })
+    const browserTab = computer({ downloads: [win], installHere: true })
     expect(browserTab).toContain(translate(l, 'apps.noMacApp'))
     expect(browserTab).toContain(translate(l, 'apps.installInstead'))
-    expect(browserTab).toContain(translate(l, 'apps.otherComputers'))
-    // folded and closed: the Windows installer is not rendered until it is opened
-    expect(browserTab).not.toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
-    expect(browserTab).toMatch(/<details[^>]*data-testid="desktop-others"/)
-    expect(browserTab).not.toMatch(/<details[^>]*open/)
-    // already installed (or the desktop app): no pointer to the guide above
-    const installed = view({ installHere: false })
+    expect(browserTab).toContain('data-testid="app-row-windows"')
+    expect(browserTab).toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
+    // the steps are for the computer they install on: not under the Windows row on a Mac
+    expect(browserTab).not.toContain('More info → Run anyway')
+    // already installed (or the desktop app): no pointer to the guide below
+    const installed = computer({ downloads: [win], installHere: false })
     expect(installed).toContain(translate(l, 'apps.noMacApp'))
     expect(installed).not.toContain(translate(l, 'apps.installInstead'))
-    // a Windows PC with the same server: its installer, with its steps, and nothing folded
-    const pc = view({ here: 'windows' })
+    // a Windows PC with the same server: its installer, with its steps, marked as this computer's; no Mac row
+    const pc = computer({ downloads: [win], here: 'windows' })
     expect(pc).toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
     expect(pc).toContain('More info → Run anyway')
-    expect(pc).not.toContain('desktop-others')
+    expect(pc).toContain(translate(l, 'apps.thisComputer'))
+    expect(pc).not.toContain('app-row-mac')
     expect(pc).not.toContain(translate(l, 'apps.noWindowsApp'))
-    // a Mac with both: the Mac image in sight, Windows folded
-    const both = view({ downloads: [mac, win] })
+    // a Mac with both: its image with its steps, Windows without
+    const both = computer({ downloads: [mac, win] })
     expect(both).toContain('/downloads/Team-AX-0.1.0-mac-universal.dmg')
-    expect(both).not.toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
+    expect(both).toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
+    expect(both).toContain('System Settings → Privacy &amp; Security')
+    expect(both).not.toContain('More info → Run anyway')
     expect(both).not.toContain(translate(l, 'apps.noMacApp'))
-    // a phone lists them all, as before
-    const phone = view({ downloads: [mac, win], here: 'ios' })
+    // a phone lists them all, with no steps (they are for the computer)
+    const phone = computer({ downloads: [mac, win], here: 'ios' })
     expect(phone).toContain('/downloads/Team-AX-0.1.0-mac-universal.dmg')
     expect(phone).toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
-    expect(phone).not.toContain('desktop-others')
+    expect(phone).not.toContain('<ol')
+    expect(phone).not.toContain(translate(l, 'apps.thisComputer'))
   })
   test('unsigned builds say what to click past the one warning (SmartScreen, Gatekeeper)', () => {
     expect(installSteps(win)).toEqual(['apps.winHow', 'apps.winSmartScreen'])
@@ -107,35 +104,42 @@ describe('desktop downloads', () => {
     expect(offeredDownloads([win], true)).toEqual([])
     expect(offeredDownloads([win, mac], false)).toEqual([win, mac])
   })
-  test('Settings > Apps in a store build: only the App Store line (no installer, steps, empty state or skeleton)', () => {
-    type Props = Parameters<typeof DesktopDownloads>[0]
-    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: 'none', store: false, owner: true, here: 'mac', ...o }))
-    const line = `<p class="text-sm text-muted">${translate(currentLocale(), 'apps.macStore')}</p>`
+  test('Settings > Apps in a store build: its row is "This app" with the App Store line (no installer, steps, empty state or skeleton)', () => {
+    const l = currentLocale()
     const states: Props['downloads'][] = [null, 'none', [win, mac]]
-    for (const downloads of states) for (const owner of [true, false]) expect(view({ downloads, store: true, owner })).toBe(line)
-    // outside the store build the same states still show the installers, the steps and the owner's empty state (on a
-    // Mac its own image in sight, the Windows one folded; on a Windows PC its installer and SmartScreen's step)
-    const list = view({ downloads: [mac, win] })
+    for (const downloads of states) for (const owner of [true, false]) {
+      const view = computer({ downloads, store: true, owner })
+      expect(view).toContain(translate(l, 'apps.macStore'))
+      expect(view).toContain(translate(l, 'apps.thisApp'))
+      expect(view).not.toContain('/downloads/')
+      expect(view).not.toMatch(/<ol|animate-pulse|office-install|teamax/)
+      expect(view).not.toContain(translate(l, owner ? 'apps.noDownloadsYet' : 'apps.noDownloads'))
+      // no store listing or page in this build: no Windows row either
+      expect(view).not.toContain('app-row-windows')
+    }
+    // outside the store build the same states still show the installers, the steps and the owner's empty state
+    const list = computer({ downloads: [mac, win] })
     expect(list).toContain('/downloads/Team-AX-0.1.0-mac-universal.dmg')
-    expect(list).toContain('data-testid="desktop-others"')
-    expect(view({ downloads: [mac, win], here: 'windows' })).toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
-    expect(view({ downloads: [mac, win], here: 'windows' })).toContain('More info → Run anyway') // apps.winSmartScreen
-    expect(list).not.toContain(translate(currentLocale(), 'apps.macStore'))
-    expect(view({ downloads: 'none' })).toContain('office-install.sh') // apps.noDownloadsOwner
+    expect(computer({ downloads: [mac, win], here: 'windows' })).toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
+    expect(computer({ downloads: [mac, win], here: 'windows' })).toContain('More info → Run anyway') // apps.winSmartScreen
+    expect(list).not.toContain(translate(l, 'apps.macStore'))
+    expect(computer({ owner: true })).toContain('office-install.sh') // apps.noDownloadsOwner
   })
   test('a Microsoft Store build on Windows shows the Microsoft Store line instead', () => {
-    type Props = Parameters<typeof DesktopDownloads>[0]
-    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: [win, mac], store: true, owner: true, here: 'windows', ...o }))
-    expect(view({})).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.windowsStore')}</p>`)
-    expect(view({ downloads: 'none', owner: false })).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.windowsStore')}</p>`)
+    const l = currentLocale()
+    for (const o of [{ downloads: [win, mac] as Props['downloads'], owner: true }, { downloads: 'none' as const, owner: false }]) {
+      const view = computer({ ...o, here: 'windows', store: true })
+      expect(view).toContain(translate(l, 'apps.windowsStore'))
+      expect(view).not.toContain('/downloads/')
+      expect(view).not.toContain('app-row-mac')
+    }
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       expect(DICTS[l]['apps.windowsStore']).toContain('Microsoft Store')
       expect(DICTS[l]['apps.windowsStore']).not.toMatch(/\.exe|SmartScreen/)
     }
   })
   test("the owner's empty state names what this server does: an office Mac's command, a Linux server's feed or folder, nothing to run on the hosted service (Diagnostics when its feed should have brought it)", () => {
-    type Props = Parameters<typeof DesktopDownloads>[0]
-    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: 'none', store: false, owner: true, here: 'windows', ...o }))
+    const view = (o: Partial<Props>) => computer({ owner: true, here: 'windows', ...o })
     const host = new URL(RELEASE_CHANNEL.feed).host
     expect(view({})).toContain('teamax desktop add')
     const feed = view({ server: 'feed' })

@@ -10550,7 +10550,8 @@ web app's rooms and settings); no server change.
   the chime once; searching Settings for 소리 / sound finds it. In all five languages.
 - **Not in this step.** The personal Inbox (scheduled results, skill suggestions, approvals) has no event that says "a
   new notice for me" (`notifications.changed` only says that something changed), so it does not ring; rooms only.
-  The desktop app's focus is its web view's: with the in-app browser pane focused, the open room still rings.
+  The desktop app's focus is its web view's: with the in-app browser pane focused, the open room still rings (fixed:
+  "화면에 연 대화는 울리지 않는다", 2026-11-10).
   A tab opened after my preview arrived, when I post it from another device, may ring once for it.
 ## App connectors: group management for owners and admins, scope mcp:admin (feat/mcp-groups, 2026-11-06)
 
@@ -10864,7 +10865,8 @@ chats and 1:1s now; team rooms and the everyone room show their history, see "�
   that audience can get it. A posted answer or preview stays in its thread, notifies the thread's followers (never the
   asker) and does not move the room in the list. `RoomAiRun.threadRootId` puts my
   question's progress under the thread.
-- **Reactions.** Eight fixed emoji (`ROOM_REACTIONS`: 👍 ✅ 👀 🙏 😂 🎉 ❤️ 🔥; anything else 400), one each per person and
+- **Reactions.** Eight fixed emoji (`ROOM_REACTIONS`: 👍 ✅ 👀 🙏 😂 🎉 ❤️ 🔥; anything else 400; since 2026-11-10 any one
+  emoji, at most 20 different on a message: "Any emoji as a reaction"), one each per person and
   message (`room_reactions`, migration 251), on messages for the whole room and their replies; never on an event line, a
   deleted message (its reactions go with it) or a private preview. `PUT …/reactions {emoji, on}`: the same again changes
   nothing; a change takes from the sending budget (one bucket with messages, invites and renames). They never notify,
@@ -19151,3 +19153,301 @@ this page", #263) and "Trina side chat" ("It opens the room's newest side chat")
   ✦: a new chat, the old one in 🕘; a phone; 보기 and ✦ still bring the chat back), `side-chat-attachments.spec.ts`,
   `room-file-viewer.spec.ts`, `room-hover-bar.spec.ts`, `room-drop.spec.ts`.
 - Version impact: **patch** (a behaviour change of one panel; no API, data or text change).
+
+## 메시지 복사는 메시지만 — copying room messages gives their words, not the buttons (fix/clean-message-copy, 2026-11-10)
+
+The owner copied a few messages from a room and pasted "✅ 👀 👍" under every one, the name and time on separate lines
+and many blank lines. The hover bar is in the page for every message (only its opacity hides it), and the reaction
+chips, "답글 N개", "(수정됨)", a file's size and "미리보기" and the avatar's initial were all selectable text.
+
+- **Decision: only a message's words can be selected.** A message row is `select-none`; its words (the text, an AI
+  answer's Markdown, a shared answer's note and answer, the deleted and hidden placeholders) are `select-text`, still
+  none on touch screens (a long press opens the menu there). The hover bar stays in the page: keyboard access and its
+  tests are unchanged.
+- **Decision: several messages copy as plain text, one block each** (`lib/messageCopy.ts`, a `copy` handler on the
+  message list). "Name  2:57 PM" on one line, once per run of one author as the list shows it; then the text; a file as
+  its name on a line of its own; one blank line between messages. A first or last message only partly selected gives the
+  part selected, under its author line. A selection crossing a day keeps the date line, and an event line is a line of
+  its own (both were in the copy before; the least change). It reads the page (the rows, their `select-text` words, the
+  run's name and `<time>`), so the timeline and a thread's panel (root and replies, two lists) copy the same way. No
+  `text/html`: a paste into Slack, Docs or the room's own box gets the same text. Firefox splits a dragged selection
+  around what cannot be selected into several ranges; they are read as one (first start to last end). The parts are
+  read with one off-screen layout per copy (innerText keeps the line breaks); pictures and diagrams are dropped from
+  the copy first.
+- **A selection inside one message is the browser's own copy**, as before, now without "(수정됨)". The same for a
+  selection that reaches the next message's very start (a triple click).
+- **The AI chat and the ✦ side chat** (they share `chat/Messages.tsx`, not the room list): the rows under a message
+  (copy, send here, regenerate, the model name, the branch switch), the steps toggle and Markdown's code, table and
+  quote copy bars are `select-none`, so a copy over a question and its answer is their words. The answer's own copy
+  button (Markdown and HTML) is unchanged.
+- Not done: a rich (HTML) copy of several messages; the AI chat's own multi-message format.
+- Tests: web unit `message-copy.test.ts`; e2e `room-copy.spec.ts` (three runs with a file, a reaction and an edited
+  message with a thread copied clean; a partial first message; Firefox's several ranges; one message as before; a
+  thread's panel; the side chat; a day line and an AI answer with a code block).
+- Version impact: **patch** (a fix; no API or data change).
+
+## 화면에 연 대화는 울리지 않는다 — no sound for the conversation on screen (fix/no-sound-open-conversation, 2026-11-10)
+
+The owner: "I have the Trina AX desktop app open with that conversation open, and the notification sound still plays."
+In a focused window that shows the conversation, a new message should only appear, as in other chat apps. Amends "대화방
+알림 소리" (its "Not in this step" line about the in-app browser pane).
+
+- **Cause.** The room sound (`store/roomSound.ts`) and the read marking (`pages/Room.tsx`, `components/rooms/ThreadPanel.tsx`)
+  asked `lib/attention.ts lookingAt()`, which went by the page's own `document.hasFocus()`. In the desktop app the team
+  page is one of several views in a `BaseWindow`. Checked in the desktop e2e harness with Playwright's focus emulation
+  off: after the app starts with a remembered team (a login start, a relaunch after an update) the window is focused
+  and no view has the focus, so the page's `document.hasFocus()` is false until the person clicks into the page; the
+  same while the address strip or the in-app browser has the keyboard. The page then counted as not looked at: the
+  chime rang for the room on screen (Electron lets it play without a gesture), the room was not marked read, so the
+  person's other open windows (on any device) rang too, and a followed thread's badge stayed. The session markers already went
+  by the desktop app's word on its window's focus (`DesktopBridge.focus`); the sound and reading did not. Reproduced
+  in `room-sound-on-screen.spec.ts` (a stand-in bridge: window focused, page without focus): 4 notes before the fix.
+- **The rule** (`lookingAt` and `conversationOnScreen` in `lib/attention.ts`, used by `lib/roomSound.ts shouldRing`):
+  - Looked at (on screen and focused; the desktop app: its window focused, as the app says; the phone app: on screen)
+    and that conversation on screen: no sound, no notification, no badge. The message appears and is read. "On
+    screen" is the room open (its timeline; a reply in one of its threads too, as before), or, for a reply in a
+    thread, a panel showing that thread (the thread beside a file in the viewer opened outside the room).
+  - Looked at, another conversation on screen: as before.
+  - **Not looked at (another app in front, the window hidden or minimised): as before, even with the conversation
+    open.** Kept on purpose: a person in another app should still hear about a message. The chime rings then; the
+    desktop app's own notification still does not show for the room open in its window (its messages count nothing
+    in this window while it is open, `store/rooms.ts withMessage`, so `tellRoom` finds nothing unread), as before.
+- **The desktop window's focus in one place.** `lib/attention.ts watchWindowFocus` follows `DesktopBridge.focus` (the
+  page's own focus until the app answers); `lookingAt` uses it when there is one, the page's own focus otherwise (a
+  browser, a desktop app older than the word). The session markers start and stop it and read it from there (no
+  second subscription). The room page and the thread panel read again when the window's focus comes back
+  (`onWindowFocus`: the page may get no focus event of its own), and the room sound tells the other tabs.
+- **The other paths, checked.** Desktop notifications: the main process shows one only while its window is not focused
+  (`desktop/src/common/notify.ts`), so none while looked at. The dock badge: the open room's messages count nothing in
+  that window, and a thread on screen is now read at once. The phone app: in the foreground no banner and no sound
+  (`mobile/src/push.ts quietForeground`), and the page does not ring for the room on screen; its silent entry in the
+  phone's list stays (no bug there; hiding it would need the open room in the native app). The push gateway serves
+  phones only; the desktop app has no Web Push. A browser with Web Push: the worker shows nothing for a notice read
+  meanwhile (the page reads the room on screen at once); one still unread (scrolled up) is shown silently, as before.
+  Not skipped: WebKit takes a push subscription away after a few pushes that show nothing, whatever tab is open.
+- **The team list over the page.** The desktop app takes the team page's view out of the window while the team list
+  or the offline screen shows, and the page still reports itself `visible` (checked on macOS). Going by the window's
+  focus alone, a message in the room open under the team list would be read without a sound. So the desktop app's
+  word is now "the window focused and the team page shown" (`AppWindow.teamFocused`, told on every layout, the
+  window's focus and blur, and answered by `bridge:focus`). Desktop apps before this keep the window's focus alone,
+  which the session markers already went by.
+- **What a tab tells the others** (`mycel.roomSound.view`) now also lists the threads on screen (`threads`, at most 20
+  read back; an older tab's word without it still counts for its room).
+- Not done: the desktop app does not give the team page its focus back when its window comes to the front, so typing
+  still needs a click into the page after a start. Not needed for the sound or reading. (Done since by "창으로 돌아오면
+  키보드는 보던 곳으로", merged with this in batch 2.)
+- Tests: web unit `attention.test.ts` (the desktop window's word, an older app, each row of the rule, a DM, a thread),
+  `room-sound.test.ts` (each row in `shouldRing`; in the app: the desktop window focused with the page unfocused, a
+  thread a panel shows; a background tab and a focused tab's thread), `session-markers.test.tsx` (the window's word,
+  not the page's), e2e `room-sound-on-screen.spec.ts` (a browser: the room open is quiet, another room open rings; the
+  desktop app: quiet and read while focused, rings in the back, rings for another room; Web Audio, Notification,
+  `showNotification` and the bridge stubbed), desktop e2e `page-focus.spec.ts` (run by hand on a Mac: started with a
+  team, the window focused, the page's own focus false and the bridge's word true; false under the team list, where
+  the page still says visible, and true again on 돌아가기; skipped when another app is in front). Since "창으로
+  돌아오면 키보드는 보던 곳으로" the page has the keyboard after a start, so the test's first step gives it to the
+  in-app browser's toolbar instead: the page's own focus false, the bridge's word true.
+- Version impact: **patch** (a fix; no API, data, setting or text change).
+
+## Any emoji as a reaction — 반응은 어떤 이모지든 (feat/any-emoji-reactions, 2026-11-10, product owner)
+
+넣을 곳: trina-ax core (`shared/src/api/rooms.ts`, `server/src/rooms/service.ts`, `server/src/rooms/reader.ts`,
+`web/src/components/EmojiPicker.tsx`, `web/src/lib/emoji.ts`, `web/scripts/emoji-data.ts`,
+`web/src/components/rooms/Reactions.tsx`, `web/src/components/StatusMessage.tsx`), 이유: team chat is core. Plan:
+`docs/AGENTS/plan/20261110-0806-any-emoji-reactions.md`. The owner wanted 😭 and it was not one of the eight; this
+replaces "Eight fixed emoji" of "스레드와 반응" (the rest of that entry stands). Modelled on the common pattern of team
+chat apps (a few quick reactions, then a picker with search and recently used), in the app's own strip, popover and
+sheet.
+
+- **Any one emoji.** `PUT /api/rooms/:id/messages/:messageId/reactions {emoji, on}` takes any string the status
+  message's rule takes (`isStatusEmoji`, shared/src/status-message.ts, the same function, not a copy): one emoji or one
+  sequence (a ZWJ sequence of at most four, a flag, a keycap, a skin tone, the three subdivision flags), at most 32
+  UTF-16 units; never text, markup, two emoji, a lone half of a flag, a lone skin tone or selector, a direction mark or
+  zero-width space, or tag letters outside those three flags (400). One emoji, one form: the server keeps the fully
+  qualified form (`emojiForm`, shared/src/emoji-form.ts: the emoji selector after a pictograph drawn as text by default,
+  none after one drawn as an emoji anyway, a keycap's), so ❤ and ❤️, 👍 and 👍 with a selector, are one reaction, not
+  two chips that look alike; the picker's paste and "Recently used" use the same function. It changes the form only,
+  never what is accepted. `ROOM_REACTIONS` is gone; the eight work as before (they were in that form already).
+- **What the rule still lets through** (it is the status message's, shared, and stays as it is here): two regional
+  indicators that are no country's flag (🇽🇽, drawn as two boxed letters), a ZWJ chain of up to four that is no real
+  sequence (drawn as up to four emoji), and an unassigned pictograph code point (drawn as a box). None of it is text the
+  AI could read as words beyond two letters, and none is invisible; a list of real flags and sequences would tighten
+  both features at once, later if needed. No migration: `room_reactions.emoji` was always a plain TEXT column (migration 251's comment
+  about "the fixed emoji" is history).
+- **The limits.** One of each emoji per person and message (the table's key), as before. A message carries at most
+  `ROOM_REACTION_EMOJI_MAX` = 20 different emoji: a 21st different one is refused with 409 (`params.reason`
+  `reactions_full`, words in the person's language, nothing stored or sent); adding mine to one that is there, or taking
+  mine off, always works. One person may fill all 20 (a per-person cap would add a rule people must learn; the sending
+  budget, one token per change shared with messages, and the cap keep a message small: at most 20 chips of at most 10
+  names each). Counted over the message's rows, which are of people in the room now (someone who leaves takes theirs);
+  checked and written in one go. The app checks the same before it asks and says so in a toast.
+- **Text only, everywhere.** React writes an emoji as text in chips, tooltips and the picker. The AI's `room_read`
+  writes reactions as before (`[reactions: 😭 2, 👍 1]`), and only strings that pass the rule, so a row written some
+  other way (an older build, a hand edit) brings the AI no words, tags or line breaks. Reactions still never notify,
+  ring, count as unread or move a room.
+- **The strip.** Computers: the hover row keeps ✅ 👀 👍; its ☺+ opens six more, ❤️ 😂 😭 🙏 🎉 🔥, and **More emoji** (+).
+  Phones and touch screens: the long-press sheet's strip is 👍 ✅ 👀 ❤️ 😂 😭 and **More emoji**: six, so it fits a 360px
+  screen with 44px targets (eight did not). 🙏 🎉 🔥 are one search or one "Recently used" away there.
+- **The picker** (`EmojiPicker`): a search field over a grid of 8. No search: "Recently used" (the last 16 I reacted
+  with, newest first, this browser only, per person: `mycel.emoji.recent:<user id>`, kept when signing out like the
+  sidebar's folds; only strings that pass the rule are read back), then every emoji under its group's heading
+  (Smileys & emotion … Flags; no tabs). A search looks in English names and keywords, and in Korean ones for a Korean
+  speaker or a search in Hangul; a name that starts with it comes first, then a word of a name, then keywords; an emoji
+  typed or pasted into it is offered as it is (a skin tone, one newer than the data). Enter picks the first match, ↓
+  goes into the grid, arrows move by the grid on screen, Esc clears the search, then closes and gives the keyboard back
+  to ☺+, Tab leaves it as it leaves a menu; Enter and Esc while a Hangul syllable is being typed are the input method's.
+  On a computer it is a popover by ☺+ fixed to the window (placed like a menu, following the button when the list
+  scrolls and going when the button is out of sight; a click outside closes it), inside the dialog its button is in
+  when there is one (the image viewer's thread column: over the viewer, inside its focus trap, its keys not the
+  viewer's); on a phone, or opened from the long-press sheet, the app's dialog, a bottom sheet (the phone app's
+  WebView alike), whose search does not raise the keyboard by itself. No skin-tone choice and no team emoji.
+- **The data.** `emojibase-data` 18.0.0 (MIT) with Unicode CLDR's names and keywords (Unicode-3.0), trimmed at build
+  time by a Vite plugin (`web/scripts/emoji-data.ts`) to the emoji up to Emoji 15.0 (newer ones are boxes on many
+  phones and on Windows), without skin-tone variants or the components group: 1,870 emoji in two lazy chunks, English
+  90.7 kB (33.1 kB gzip) and Korean 107.2 kB (37.0 kB gzip), loaded when a picker opens (the Korean one for Korean
+  speakers or a Hangul search). The entry chunk is the same size (247.6 kB); the shared room chunk grows by 5.9 kB
+  (1.8 kB gzip) for the picker's code. Indonesian has no data in emojibase; Japanese and Spanish have, and are left for
+  later (English names work in every language). Notices: the package's LICENSE comes with the web bundle; the CLDR
+  notice and the Unicode License v3 text are `resources/notices/unicode-emoji/` (`EMBEDDED_DATA` in
+  `scripts/release-notices.ts`), NOTICE and docs/THIRD-PARTY-NOTICES.md.
+- **The status dialog** ("상태 메시지") uses the same picker inline: its 32 status emoji are the first view, then the
+  search and every emoji. No "Recently used" there (that is the reactions'). Esc in its search clears the words, then
+  closes the picker, not the dialog.
+- **Size of a message's reactions:** at most 20 emoji with the first 10 names each, about 13 kB in the worst case (20
+  different emoji, each by 10 or more people). Kept as it is; fewer names in lists and events would be the lever.
+- **The review of this branch** (an independent deep review that tried to inject through a reaction and to flood a
+  message) found two must-fix items, both fixed: the picker opened behind the image viewer from its thread column and
+  lost the keyboard to the viewer's focus trap, and ❤ / ❤️ were two reactions (now one form). Also in from it: the
+  input-method guard, Esc in the status dialog's picker, `Object.hasOwn` in the data plugin. The server's checks, the
+  cap, `room_read` and the notices held up.
+- Tests: `tests/unit/b-rooms-threads.test.ts` (any emoji: ten kinds accepted, one form for ❤ / ❤️, 👍 with a selector, a
+  keycap and a ZWJ flag without selectors; text, markup, a shortcode, spaces, two
+  emoji, two flags, half a flag, a lone skin tone or selector, tag letters, a tag-letter flag spelling words, a
+  zero-width space, a direction override, the text selector, a trailing joiner, five people joined, a joiner chain, 5,000
+  characters and non-strings refused with nothing stored or sent; realtime with each person's own "mine"; the cap of 20
+  with 409 `reactions_full` in English, joining and taking off at the cap, room again after one goes and after a member
+  leaves; the AI's line with rows that are not one emoji; the old eight and the sending budget), `tests/security/lib/rooms-cases.ts`
+  (markup refused), `tests/unit/release-notices.test.ts` (the web bundle carries the Unicode notice and licence),
+  `web/test/unit/emoji.test.ts` (every emoji of the built data is one the server takes, in the form it keeps; the form;
+  search ranking, Korean, a pasted emoji, the limit; recently used: order, the 16, per person, junk and broken storage),
+  `web/test/unit/message-hover-bar.test.tsx` (the strip), `web/test/e2e/room-reaction-picker.spec.ts` (😭 from the strip;
+  More emoji, search "cry", pick, Recently used first next time, "울음", a pasted skin tone, Enter; the keyboard, Esc and
+  Tab; the toast at 20; the status dialog's picker and its Esc; the phone's sheet), `web/test/e2e/room-file-viewer.spec.ts`
+  (the picker from the viewer's thread column: over it, the keyboard in it, Esc closes only the picker).
+- Version impact: **minor** (a visible feature; the endpoint takes more than before and refuses only a 21st different
+  emoji; older apps draw any reaction as a chip).
+
+## 트리나에게 묻기는 ✦ — "Ask Trina" has Trina's mark (fix/ask-trina-icon, 2026-11-10, product owner)
+
+Amends "Desktop sidebar: rooms first" (the first row's icon) and "Trina side chat" (where the ✦ shows). The owner: the
+icon left of "트리나에게 묻기" at the top of the sidebar looked off. It was an orange-red outlined speech bubble with a
+plus (`MessageSquarePlus`, `text-accent-text`) among monochrome icons, so it read as an error or a notice, not as
+"start a chat with Trina".
+
+- **One mark for asking Trina.** "트리나에게 묻기" uses `AiMark` (rooms/AiFace.tsx), the ✦ of a room's header, a
+  message's "Ask Trina about this" and the image viewer: in the sidebar's first row, in ⌘K's action row and on the
+  new-chat button of a phone AI chat's header (the last two had a grey bubble, the sidebar's the orange one). Where the product is not named after its AI it is the plain sparkle, as
+  `AiMark` is everywhere.
+- **Sized to its row.** A new place, `nav`: the star drawn 18 in the 16 px slot of the icons below it (about as tall as
+  them: 14 × 15.5 px painted as measured, against their 12–15 × 13–15; its words start where theirs do), the sparkle 16 and in the row's
+  colour. Filled with the star's own light orange, it carries less contrast than the stroked icons beside it (measured
+  at 1440 against the lightest, 검색: 0.3× in light, 0.6× in dark), so it is not heavier; its colour is the one accent there,
+  as the old bubble's was. The phone header's is the room header's (`toolbar`, drawn 24), its button 44 px in both
+  looks.
+- **Not ambiguous with the side chat**: the two already had the same words ("트리나에게 묻기", since fix/ask-trina-label),
+  and the same mark says the same thing: ask Trina; the sidebar row starts a chat of its own, the ✦ in a room asks
+  beside that room. A pen-on-square "new chat" icon was the alternative; it would give the same words, "트리나에게
+  묻기", two marks (the room header's ✦ and the row's pen). The pen stays where it is: the side chat panel's own "새
+  대화" starts a fresh side chat.
+- **Left as they are:** the phone tab bar's 트리나 tab keeps its monochrome sparkle (a tab shows which one is on in ink
+  or grey; a fixed orange star could not), and the phone drawer has no "Ask Trina" row (the tab is the new chat).
+  "Use skill", "Chat with this folder" and Scheduled's "New in chat" keep their speech bubble: other actions, other
+  words.
+- Tests: web unit `ai-face.test.tsx` (the `nav` place in both looks), `sidebar.test.tsx` (the row's mark, no bubble, no
+  accent class); e2e `sidebar.spec.ts` (drawn size, centred on the slot and the row, words aligned), `search-palette.spec.ts`
+  (⌘K's row) and `phone-nav.spec.ts` (the phone header's ✦, 44 px).
+- Version impact: **patch** (one icon; no text, API or data change).
+
+## 설정 › 앱에 모든 앱 — Settings › Apps lists every app (feat/settings-apps-all, 2026-11-10, product owner)
+
+The Mac App Store build's Settings › Apps showed only the team address and one "Desktop app" line, while the website's
+download page has every app. Placement: Team AX core (web `lib/apps.ts`, `components/settings/AppList.tsx`, the edition
+script) and the Trina edition's links in `editions/trina/branding/apps.json`.
+
+- **The links are the edition's** (`editions/<name>/branding/apps.json` → `bun scripts/edition-apps.ts … --apply` →
+  `shared/src/app-downloads.ts` `APP_DOWNLOADS`, like `service.json`): the download page, the iPhone and Mac App Store
+  listings, Google Play and the Microsoft Store (`''` while not live). Only addresses that do not change with a version:
+  the APK and the Windows installer on the feed are by version (no "latest" alias, "The release feed also serves the
+  Android APK"), so the Android row leads to the download page until Play is live, and Windows comes from the team
+  server as before. The website keeps its own copy; there is no list on the feed both could read. A build with none
+  (`''` everywhere) shows only what its team server has. The script takes only https web pages: no port, credentials,
+  fragment or quote, and no installer file (`.exe`, `.dmg`, `.apk`, …), so a store build can never be handed one. A
+  test keeps the module equal to the branding file and finds no store address written in `web/src`.
+- **Phone app**: on a computer the iPhone and Android rows (store listing, else the download page) and one small QR code
+  of the download page (without a page, one per row); in a phone's browser only that phone's row; in the phone app one
+  row, "This app".
+- **Desktop app**: Mac and Windows rows. Each offers the team server's installers, else the store listing, else the
+  download page. The desktop app marks its row "This app": a store build keeps the store's line ("This app is from the Mac
+  App Store. It updates there.") and offers no installer file anywhere, as before (App Review 2.4.5, Microsoft Store
+  10.2.4), so its other computer's row is the listing or the page. The desktop app from the team server offers only the
+  server's installer on its own row (a store listing is another build, with its own data): a Windows app "updates by
+  itself", a Mac one "tells you; download it here", and with none the row says the server has no such app, as a
+  browser's does. The other computer's installer is no longer folded (one row each reads clearly), and install steps
+  show only on the computer they are for. Nothing to get at all: the old empty state and the owner's hint; an owner
+  whose server has no installer yet gets the hint under the rows too (the Windows app updates only from the server).
+- **The Mac App Store build shows no Android row** (App Review 2.3.10: no other mobile platform's or app store's name in
+  an Apple app). Its QR code still leads to the page that has the APK. The iPhone app shows only "This app" for phones.
+  In both, a Windows row with a Microsoft Store listing links the download page instead. The device comes from the
+  desktop bridge (`platform`) and the phone app's config, a browser's from its user agent.
+- Generic device icons (lucide), not the platforms' logos; store names are plain text, not badges (their artwork has
+  rules of its own). "Install as an app" (a web browser only) moves under the apps, so "the steps above" now reads
+  "below".
+- Tests: `tests/unit/edition-apps.test.ts`, `web/test/unit/apps.test.ts` (rows per device and build, no links, the
+  Mac App Store build without Android), `web/test/unit/downloads.test.ts`, `web/test/e2e/apps-install.spec.ts` (a Mac
+  at 1440, a Windows PC, an iPhone at 390, the Mac App Store build, the iPhone app; with this build's edition links and
+  a fixture installer list; a build without links is covered by the unit tests).
+- Version impact: **patch** (a settings page shows more; no API, data or setting change).
+
+## 창으로 돌아오면 키보드는 보던 곳으로 — the keyboard goes back where it was when the desktop window gets the focus (fix/desktop-page-focus, 2026-11-10)
+
+- **Why:** coming back to the desktop app (Cmd-Tab, a dock click, a notification's click, a start or the relaunch after
+  an update), typing did nothing until a click into the team page. The window is a `BaseWindow` holding several views
+  (the team page, the in-app browser's toolbar and tab, the host strip, the app's own welcome / team list / offline
+  screen); unlike a `BrowserWindow`, nothing gives one of them the keyboard. Checked in the desktop e2e (Electron 44,
+  macOS): after a start with a team, a minimize and a restore, or the team list and [돌아가기], the window was focused
+  and no view had the keyboard. After the window was ordered out and back in (Cmd-H and a dock click) the window's first
+  view, the team page, had it even when the person had been in the in-app browser, and Chromium had moved the page's
+  focus to its first focusable element: the message box lost it. PR #317 worked around it for the room sound only.
+- **The rule** (`desktop/src/common/keyboard-focus.ts`, `main/app-window.ts`): when the window gets the focus back on
+  macOS, the view that had the keyboard when it lost it gets it again, at once (a click that brought the window back is
+  handled after that and wins; Windows and Linux keep the window's focused view themselves). A notification's click
+  gives it to the team page, where the notification opens its conversation. Any other time the views change while the window has the focus (a team page loaded, back from
+  the team list or the offline screen, the in-app browser closed), and no view has the keyboard: the view that had it
+  last if it is still on screen, else the in-app browser's tab when the keyboard was last in the pane, else the team
+  page, else the app's own screen. Focusing the view keeps the page's own element (the message box, its draft and
+  caret). Never while the window is in the back (focusing a view brings it forward on macOS), while one of the app's
+  dialogs (Allow all websites, the file chooser) or right-click menus is open, or over a view that has the keyboard.
+- **The page's own element:** the team page's preload remembers the element that had the focus when the page lost it
+  (the view lost the keyboard; not a frame inside the page, such as an artifact, taking it) and, when the page gets it
+  back with another element focused, focuses that element again if it is still in the page. The page's own moves win
+  where they can be told apart: a notification's click that opens another conversation drops it, and a dialog the page
+  opened meanwhile keeps the focus. Events the page dispatches itself do nothing.
+- **A page load in the in-app browser does not take the keyboard** (`keyboardTaken`): Chromium focuses a page as it
+  loads, so the AI's `navigate`, a site's own redirect or a new tab took the keyboard from the person typing in the team
+  page's message box (checked on dev). A tab that gets the keyboard while its page loads keeps it only when the
+  person's last action was in the in-app browser (a key or a mouse press in its tab or toolbar, its address bar,
+  opening it from the team page's Browser entry or the menu) or the app gave it; else the keyboard goes straight back to
+  the view that had it, else the team page. Key and mouse presses are the views' own input events; the AI's clicks in a
+  tab reach it as mouse presses too and do not count while it drives. A click into a tab while its page loads gives the
+  tab the keyboard on the click's mouse press.
+- **Also:** the app's own screen (the team list, the offline screen) takes the keyboard only in a focused window: a
+  network drop while the person is in another app no longer brings the app in front.
+- **Left as before:** a reload of the team page takes the keyboard from the pane's toolbar (Chromium; the person's own
+  Cmd-R, or the app moving the page between the office and the team address). A site's own element in the in-app
+  browser after Cmd-H is not restored (the tab gets the keyboard; the site's first element may have it). Opening the
+  in-app browser does not move the keyboard there by itself. Phones and the web app: no change.
+- Tests: `tests/unit/e-keyboard-focus.test.ts` (the decisions, the page's element, the wiring),
+  `desktop/e2e/keyboard-focus.spec.ts` (a start, the message box across another window, an order-out and a minimize,
+  the team list and back, the in-app browser in front, a layout not taking it from the toolbar, a page load while away,
+  typing into the message box while the AI, the site and the app load pages in the pane, the address bar's page taking
+  it).
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.

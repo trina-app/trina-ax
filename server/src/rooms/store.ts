@@ -13,12 +13,12 @@
 // Threads (docs/DECISIONS.md "스레드와 반응"): a reply (thread_root_id) takes a seq like any message but is not in the
 // timeline (TIMELINE_SQL) unless it was sent to the room too (also_in_room). It is seen by whoever sees its root: canSee
 // and SEE_SQL go by the root's seq (thread_root_seq), so a later member sees no reply of a root from before they joined.
-// Who follows a thread and where they are in it: room_thread_follows. Reactions: room_reactions (8 fixed emoji),
-// counted for current members only, never anywhere else.
+// Who follows a thread and where they are in it: room_thread_follows. Reactions: room_reactions (any one emoji,
+// shared/src/api/rooms.ts RoomReactionEmoji), counted for current members only, never anywhere else.
 import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
 import { roomNotifyOut } from './alerts'
-import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
+import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
@@ -366,7 +366,7 @@ export function reactionsOf(db: Database, messageIds: readonly string[], viewer:
   const marks = messageIds.map(() => '?').join(',')
   const now = 'room_reactions r JOIN room_members rm ON rm.room_id = r.room_id AND rm.user_id = r.user_id'
   const groups = db.query(`SELECT r.message_id mid, r.emoji, COUNT(*) n, MAX(r.user_id = ?) mine, MIN(r.created_at) first FROM ${now} WHERE r.message_id IN (${marks})
-    GROUP BY r.message_id, r.emoji ORDER BY r.message_id, first, r.emoji`).all(viewer.user_id, ...messageIds) as { mid: string; emoji: RoomReactionEmoji; n: number; mine: number; first: string }[]
+    GROUP BY r.message_id, r.emoji ORDER BY r.message_id, first, r.emoji`).all(viewer.user_id, ...messageIds) as { mid: string; emoji: string; n: number; mine: number; first: string }[]
   if (!groups.length) return out
   const names = db.query(`SELECT mid, emoji, uid FROM (SELECT r.message_id mid, r.emoji, r.user_id uid, ROW_NUMBER() OVER (PARTITION BY r.message_id, r.emoji ORDER BY r.created_at, r.user_id) k
     FROM ${now} WHERE r.message_id IN (${marks})) WHERE k <= ${ROOM_REACTION_NAMES} ORDER BY mid, emoji, k`).all(...messageIds) as { mid: string; emoji: string; uid: string }[]
