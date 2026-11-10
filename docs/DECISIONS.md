@@ -18642,6 +18642,7 @@ Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기"
   `skill-files.test.ts` (S7 in a side chat with a quote; the same copy in a plain chat gets its card),
   `b-side-chat.test.ts` (the rule's three ways in, an edited branch).
 - Version impact: **patch** (a security consistency fix; no API, data or setting change).
+
 ## 상태 메시지 — an emoji, a short text and when it clears (feat/custom-status, 2026-11-10, product owner)
 
 넣을 곳: trina-ax core (`server/src/auth/status-messages.ts`, `server/src/auth/status-plan.ts`, `server/src/routes/people.ts`,
@@ -19209,3 +19210,43 @@ plus (`MessageSquarePlus`, `text-accent-text`) among monochrome icons, so it rea
   accent class); e2e `sidebar.spec.ts` (drawn size, centred on the slot and the row, words aligned), `search-palette.spec.ts`
   (⌘K's row) and `phone-nav.spec.ts` (the phone header's ✦, 44 px).
 - Version impact: **patch** (one icon; no text, API or data change).
+
+## 설정 › 앱에 모든 앱 — Settings › Apps lists every app (feat/settings-apps-all, 2026-11-10, product owner)
+
+The Mac App Store build's Settings › Apps showed only the team address and one "Desktop app" line, while the website's
+download page has every app. Placement: Team AX core (web `lib/apps.ts`, `components/settings/AppList.tsx`, the edition
+script) and the Trina edition's links in `editions/trina/branding/apps.json`.
+
+- **The links are the edition's** (`editions/<name>/branding/apps.json` → `bun scripts/edition-apps.ts … --apply` →
+  `shared/src/app-downloads.ts` `APP_DOWNLOADS`, like `service.json`): the download page, the iPhone and Mac App Store
+  listings, Google Play and the Microsoft Store (`''` while not live). Only addresses that do not change with a version:
+  the APK and the Windows installer on the feed are by version (no "latest" alias, "The release feed also serves the
+  Android APK"), so the Android row leads to the download page until Play is live, and Windows comes from the team
+  server as before. The website keeps its own copy; there is no list on the feed both could read. A build with none
+  (`''` everywhere) shows only what its team server has. The script takes only https web pages: no port, credentials,
+  fragment or quote, and no installer file (`.exe`, `.dmg`, `.apk`, …), so a store build can never be handed one. A
+  test keeps the module equal to the branding file and finds no store address written in `web/src`.
+- **Phone app**: on a computer the iPhone and Android rows (store listing, else the download page) and one small QR code
+  of the download page (without a page, one per row); in a phone's browser only that phone's row; in the phone app one
+  row, "This app".
+- **Desktop app**: Mac and Windows rows. Each offers the team server's installers, else the store listing, else the
+  download page. The desktop app marks its row "This app": a store build keeps the store's line ("This app is from the Mac
+  App Store. It updates there.") and offers no installer file anywhere, as before (App Review 2.4.5, Microsoft Store
+  10.2.4), so its other computer's row is the listing or the page. The desktop app from the team server offers only the
+  server's installer on its own row (a store listing is another build, with its own data): a Windows app "updates by
+  itself", a Mac one "tells you; download it here", and with none the row says the server has no such app, as a
+  browser's does. The other computer's installer is no longer folded (one row each reads clearly), and install steps
+  show only on the computer they are for. Nothing to get at all: the old empty state and the owner's hint; an owner
+  whose server has no installer yet gets the hint under the rows too (the Windows app updates only from the server).
+- **The Mac App Store build shows no Android row** (App Review 2.3.10: no other mobile platform's or app store's name in
+  an Apple app). Its QR code still leads to the page that has the APK. The iPhone app shows only "This app" for phones.
+  In both, a Windows row with a Microsoft Store listing links the download page instead. The device comes from the
+  desktop bridge (`platform`) and the phone app's config, a browser's from its user agent.
+- Generic device icons (lucide), not the platforms' logos; store names are plain text, not badges (their artwork has
+  rules of its own). "Install as an app" (a web browser only) moves under the apps, so "the steps above" now reads
+  "below".
+- Tests: `tests/unit/edition-apps.test.ts`, `web/test/unit/apps.test.ts` (rows per device and build, no links, the
+  Mac App Store build without Android), `web/test/unit/downloads.test.ts`, `web/test/e2e/apps-install.spec.ts` (a Mac
+  at 1440, a Windows PC, an iPhone at 390, the Mac App Store build, the iPhone app; with this build's edition links and
+  a fixture installer list; a build without links is covered by the unit tests).
+- Version impact: **patch** (a settings page shows more; no API, data or setting change).

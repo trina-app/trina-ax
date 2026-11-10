@@ -1,23 +1,24 @@
 // The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language, theme and text size, password, signed-in devices, the in-app browser's site setting (desktop
-// app only: BrowserSettings.tsx), what the AI remembers, what I allowed the AI in advance (AiAllowances.tsx), apps (the guide to add the app to the home
-// screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
-// Store build: only the App Store line),
+// app only: BrowserSettings.tsx), what the AI remembers, what I allowed the AI in advance (AiAllowances.tsx), apps (the
+// team address, every phone and desktop app with one way to get it, components/settings/AppList.tsx, and in a web browser
+// only the guide to install the page as an app, components/settings/InstallGuide.tsx),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
 // connections are made by the owner in Admin > AI connections), and the MCP connections the AI may use with the
 // member's own accounts (Integrations.tsx). Profile ends with "계정 삭제 요청", its own page under the profile
 // (/settings/account/delete, components/settings/AccountDeletion.tsx).
 import clsx from 'clsx'
-import { Brain, ChevronDown, Download, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
+import { Brain, ChevronDown, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { EngineId, Me, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
-import { PROFILE_TITLE_MAX, RELEASE_CHANNEL } from '@mycel/shared'
+import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
+import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText } from '../lib/api'
-import { formatDateTime, formatSize } from '../lib/format'
+import { formatDateTime } from '../lib/format'
 import { deviceLabel } from '../lib/userAgent'
-import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, splitDownloads, type DownloadItem } from '../lib/downloads'
-import { browser, canInstallIn, installGuideShown, isStandalone, platform, type Platform } from '../lib/pwa'
-import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
+import { offeredDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
+import { phoneApps, type AppClient } from '../lib/apps'
+import { browser, canInstallIn, installGuideShown, isStandalone, platform } from '../lib/pwa'
+import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
 import { useEngines } from '../store/engines'
@@ -26,7 +27,8 @@ import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
-import { browserSettingsBridge, storeApp } from '../lib/desktop'
+import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/desktop'
+import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { teamAddressHost } from '../lib/team-address'
 import { Badge, Button, CopyButton, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
@@ -38,6 +40,7 @@ import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AiAllowances } from '../components/settings/AiAllowances'
 import { AccountDeletion } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
+import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
 import AiApps from './AiApps'
 import MyUsage from '../components/settings/MyUsage'
@@ -649,18 +652,22 @@ function About() {
 
 function Apps() {
   const t = useT()
-  const p = platform()
   const me = useMeStrict()
   // a Mac App Store or Microsoft Store build: the store updates it, so no installer here at all (lib/downloads.ts
-  // offeredDownloads)
+  // offeredDownloads); the phone app knows which phone it is
   const store = storeApp()
+  const kind = clientKind()
+  // the device: the phone app and the desktop app say which they are; a browser, its user agent
+  const os = desktop()?.platform
+  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : 'other') : platform()
+  const client: AppClient = { kind, here, store }
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
     let live = true
     // signed-in people only (the session cookie goes along); a server with no installers answers 404
     fetch('/downloads/index.json', { credentials: 'same-origin', cache: 'no-cache' })
       .then(async (r) => (r.ok ? offeredDownloads(parseDownloads(await r.json()), store) : []))
-      .then((d) => live && setDownloads(d.length ? orderDownloads(d, p) : 'none'), () => live && setDownloads('none'))
+      .then((d) => live && setDownloads(d.length ? d : 'none'), () => live && setDownloads('none'))
     return () => {
       live = false
     }
@@ -668,16 +675,21 @@ function Apps() {
   return (
     <>
       <TeamAddressRow address={me.team.address} />
-      {/* the desktop app and the phone app are already apps: no install guide there */}
+      {phoneApps(APP_DOWNLOADS, client).rows.length > 0 && (
+        <Section title={t('apps.phoneTitle')}>
+          <PhoneApps links={APP_DOWNLOADS} client={client} />
+        </Section>
+      )}
+      <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
+        <ComputerApps links={APP_DOWNLOADS} client={client} downloads={downloads} owner={me.user.role === 'owner'}
+          server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone() && canInstallIn(browser())} />
+      </Section>
+      {/* a web browser only: the desktop app and the phone app are already apps */}
       {installGuideShown() && (
         <Section title={t('apps.installTitle')} desc={t('apps.installDesc')}>
           <InstallGuide />
         </Section>
       )}
-      <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
-        <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p}
-          server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone() && canInstallIn(browser())} />
-      </Section>
     </>
   )
 }
@@ -701,76 +713,5 @@ export function TeamAddressRow({ address }: { address: string | undefined }) {
         </div>
       </Row>
     </div>
-  )
-}
-
-/** Where the team server's installers come from, for the owner's empty state: an office Mac (`teamax desktop add`), a
- * Linux server that takes the Windows app from the release feed by itself (GET /api/me server.windowsApp 'feed') or
- * one without a feed ('folder': desktop-refresh --from), a hosted tenant that takes it from the feed ('hosted-feed':
- * nothing to run, Diagnostics says why when it is missing) or one that does not ('hosted'). */
-export type DownloadsSource = 'office' | 'feed' | 'folder' | 'hosted' | 'hosted-feed'
-export const downloadsSourceOf = (server: Pick<Me['server'], 'deployment' | 'windowsApp'>): DownloadsSource =>
-  server.deployment === 'hosted' ? (server.windowsApp === 'feed' ? 'hosted-feed' : 'hosted') : server.windowsApp ?? 'office'
-const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.noDownloadsOwner', feed: 'apps.noDownloadsOwnerFeed', folder: 'apps.noDownloadsOwnerLinux', hosted: null, 'hosted-feed': 'apps.noDownloadsOwnerHosted' }
-const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
-
-/** The installers under Settings > Apps > Desktop app (exported for tests). Inside a store build only the store's
- * line (App Store on a Mac, Microsoft Store on Windows): no installer, no install steps, and not the empty state either (it asks for an installer and tells the
- * owner how to add the .dmg). On a Mac or a Windows PC only this computer's installer is in sight: without one, a line
- * says so (and, in a browser that can install the page, points at "Install as an app" above), and the other computer's
- * installers are folded under one line. A phone or Linux lists them all, as before. */
-export function DesktopDownloads({ downloads, store, owner, here, server = 'office', installHere = false }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform; server?: DownloadsSource; /** a browser tab that can install the page as an app (the guide above is shown) */ installHere?: boolean }) {
-  const t = useT()
-  const locale = useLocale()
-  const [othersOpen, setOthersOpen] = useState(false)
-  if (store) return <p className="text-sm text-muted">{t(here === 'windows' ? 'apps.windowsStore' : 'apps.macStore')}</p>
-  const item = (d: DownloadItem, list: DownloadItem[]) => (
-    <li key={d.file}>
-      <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-field-border px-3 py-2 text-sm hover:bg-hover">
-        <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
-        {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
-      </a>
-      {d.platform === here && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
-      {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
-      {showSteps(list, d) && (
-        <ol className="mt-2 list-decimal space-y-1 break-keep pl-5 text-xs text-muted">
-          {installSteps(d).map((k) => (
-            <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
-          ))}
-        </ol>
-      )}
-    </li>
-  )
-  const split = Array.isArray(downloads) ? splitDownloads(downloads, here) : null
-  return (
-    <>
-      {downloads === null && <Skeleton lines={2} />}
-      {downloads === 'none' && (
-        <>
-          <p className="text-sm text-muted">{t(!owner ? 'apps.noDownloads' : server === 'feed' || server === 'hosted-feed' ? 'apps.noDownloadsFeed' : 'apps.noDownloadsYet')}</p>
-          {owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>}
-        </>
-      )}
-      {split && !split.computer && <ul className="space-y-4">{split.others.map((d) => item(d, split.others))}</ul>}
-      {split?.computer && (
-        <div className="space-y-3">
-          {split.mine.length ? <ul className="space-y-4">{split.mine.map((d) => item(d, split.mine))}</ul> : (
-            <p className="break-keep text-sm text-muted" data-testid="desktop-none-here">
-              {t(here === 'mac' ? 'apps.noMacApp' : 'apps.noWindowsApp')}
-              {installHere && <> {t('apps.installInstead')}</>}
-            </p>
-          )}
-          {split.others.length > 0 && (
-            // the other kind of computer's installers: reachable, not in the way
-            <details className="group" open={othersOpen} onToggle={(e) => setOthersOpen(e.currentTarget.open)} data-testid="desktop-others">
-              <summary className="-mx-2 flex h-9 w-fit cursor-pointer list-none items-center gap-1.5 rounded-lg px-2 text-sm text-muted hover:bg-hover [&::-webkit-details-marker]:hidden">
-                <ChevronDown size={15} className="shrink-0 transition group-open:rotate-180" aria-hidden /> {t('apps.otherComputers')}
-              </summary>
-              {othersOpen && <ul className="mt-2 space-y-4">{split.others.map((d) => item(d, split.others))}</ul>}
-            </details>
-          )}
-        </div>
-      )}
-    </>
   )
 }
