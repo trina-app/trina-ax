@@ -131,8 +131,8 @@ export class GoogleDrive {
     if (!this.viaBroker) return this.authorize(user, session, share)
     const p = this.prepare(user, session, share)
     try {
-      const authorizationUrl = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
-      return { flowId: p.id, authorizationUrl, expiresAt: p.expiresAt }
+      const urls = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
+      return { flowId: p.id, ...urls, expiresAt: p.expiresAt }
     } catch (e) {
       const reason = e instanceof DriveError ? e.reason : 'broker_unavailable'
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason=?,secret_enc=NULL WHERE id=? AND state='pending'").run(reason, p.id)
