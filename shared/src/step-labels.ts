@@ -51,6 +51,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad"),
   skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades"),
   find_tools: t('도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"),
+  // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
+  set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
   connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio"),
