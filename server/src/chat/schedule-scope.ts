@@ -12,6 +12,8 @@
 // moved, renamed or deleted, its rules changed (Q1 a: who is in a group does not count), or the person's write access
 // gone. A lapse is kept (save_lapsed_at) until the card is answered again; the runtime side is chat/schedule-cover.ts.
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -20,7 +22,7 @@ import { atLeast, loadPrincipal, type RuleSet } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { inSkills } from '../skills/guard'
-import { folderId, readersOf } from '../rooms/ai-grants'
+import { readersOf } from '../rooms/ai-grants'
 import { memberRow, roomRow } from '../rooms/store'
 import { missingReaders, roomName, sourceOf } from './read-scope'
 import { notificationsOf } from '../notifications/service'
@@ -46,6 +48,17 @@ export const MAX_SOURCES = 20
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 // no control, direction-changing or invisible characters: a member-set room name cannot reorder or hide card text
 const oneLine = (s: string, n = 200) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, n)
+
+/** Which folder on disk `segs` (actual names) is: its device, inode and birth time (nanoseconds). The inode alone is
+ * not enough: Linux (ext4, overlay) gives a folder made right after another was deleted the same inode number, so a
+ * folder deleted and made again with its name would look like the one the card showed. Where the file system keeps no
+ * birth time (0), device and inode alone. null: not a folder there. */
+export function saveFolderId(fx: FsCtx, segs: readonly string[]): string | null {
+  try {
+    const st = fs.lstatSync(path.join(fx.root, ...segs), { bigint: true })
+    return st.isDirectory() ? `${st.dev}:${st.ino}:${st.birthtimeNs}` : null
+  } catch { return null }
+}
 
 /** The folder rules that decide who reads and writes `segs` (actual names): those of every ruled folder from the team
  * root down to it, as one hash. Subjects are groups, people and roles, never who is in a group: a member joining or
@@ -92,7 +105,7 @@ export function resolveSaveFolder(ctx: AppContext, userId: string, input: string
   if (!r.st?.isDirectory()) throw new ToolError(`save_to '${r.rel}' is a file, not a folder; nothing was created`)
   const why = saveFolderBlock(fx, r.segs)
   if (why) throw new ToolError(`save_to '${r.rel}' cannot be a scheduled task's save folder: ${BLOCK_TEXT[why]}. Nothing was created`)
-  const id = folderId(fx, r.segs)
+  const id = saveFolderId(fx, r.segs)
   if (!id) throw new ToolError(`save_to '${r.rel}' is not a folder; nothing was created`)
   return { folder: r.rel, folderId: id, rule: ruleFingerprint(rules, r.segs), readers: readersOf(ctx.db, rules, r.segs).length }
 }
@@ -226,7 +239,7 @@ export function lapseOf(ctx: AppContext, s: Pick<ScheduleRow, 'user_id' | 'save_
   try {
     const fx = ctx.files.fx, rules = ctx.files.rules()
     const segs = save.folder.split('/')
-    if (folderId(fx, segs) !== save.folderId) return 'folder'
+    if (saveFolderId(fx, segs) !== save.folderId) return 'folder'
     if (ruleFingerprint(rules, segs) !== save.rule) return 'rules'
     const listed = rowSources({ save_sources: s.save_sources ?? null }).filter((x) => x.type === 'folder' || x.type === 'root')
     // a listed folder kept without its rules (a row from before they were kept): asked again, never assumed unchanged

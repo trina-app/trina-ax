@@ -125,6 +125,10 @@ export function templateToolRefusal(ctx: AppContext, userId: string, turnId: str
     validateTemplateFolders(ctx, userId, scope.sourcePath, scope.outputPath)
     const a = args as { file_path?: unknown; path?: unknown } | null
     const raw = name === 'read' || name === 'write' ? a?.file_path : a?.path
+    // knowledge_explore searches every folder the person may read unless it is given one: here only with a path inside
+    // the approved folders, which keeps every passage, related document and code match under it (knowledge-graph
+    // service.ts explore and lookup `base`)
+    if (name === 'knowledge_explore' && typeof raw !== 'string') return `${denied} Give knowledge_explore a path: sourcePath or a folder inside it.`
     if (typeof raw !== 'string') return denied
     const p = parseInput(raw).join('/')
     if (name === 'write') {
@@ -137,7 +141,7 @@ export function templateToolRefusal(ctx: AppContext, userId: string, turnId: str
       reservedWrites?.add(target.rel)
       return null
     }
-    if (['read', 'list', 'glob', 'grep'].includes(name)) return within(p, scope.sourcePath) || within(p, scope.outputPath) ? null : denied
+    if (['read', 'list', 'glob', 'grep', 'knowledge_explore'].includes(name)) return within(p, scope.sourcePath) || within(p, scope.outputPath) ? null : denied
     return denied
   } catch { return denied }
 }

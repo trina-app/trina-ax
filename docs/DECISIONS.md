@@ -13657,6 +13657,106 @@ PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `s
 - The print budget is not in the server unit's MemoryMax (above): `mycel-ctl apply-plan` could add `printBudgetMiB` to
   it (a hosting decision).
 
+## 지식 그래프로 더 빠른 답 — the AI and the Files search answer from the knowledge graph (feat/knowledge-graph-fast-answers, 2026-11-07, product owner)
+
+Plan: [20261107-0819-knowledge-graph-fast-answers](AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md). This entry
+covers wave 1 (no embeddings yet).
+
+- **Why.**
+  - The owner asked that "the AI on the Trina AX application" work from the knowledge graph and run much faster. Then,
+    looking at the Files screen: "what I mean by knowledge graph, people use it for this one."
+  - Measured on the dev server (10 days of test traffic, 74 question turns), document questions took 13.8 s and about
+    52,000 input tokens at the median, against 7.1 s and about 20,000 without files.
+  - The tools take about 0 s; the time is model round trips, about 3.5 per answer.
+  - `knowledge_explore` was called twice in that time.
+- **One search, three users.** `KnowledgeGraph.lookup()` is the only document search. It serves `knowledge_explore`, the
+  lookup before the model starts and the Files search, with the same access rule as before (each file passes
+  `authorize(read)` for the asker at the moment they ask). It searches documents only and never runs CodeGraph, so it is
+  fast enough for every message.
+- **Owner's rule: keep the knowledge graph simple.** One index, one search, no new screens or buttons, no new server
+  tables or settings, no new dependencies.
+- **Lookup before the model: strong, weak, none.**
+  - A strong match puts up to 10,000 characters of passages in front of the message, a weak match up to 5 file names,
+    and no match nothing.
+  - Limit 200 ms, so the model never waits on it.
+  - Rejected: always putting passages in, because it costs tokens on every message, and 40 of 74 question turns on the
+    dev server touched no file.
+  - The owner chose "always, but make it fast": the search always runs, and what goes in depends on the match.
+- **Not for the API engine.** The owner wants the change only on the engines that run on the team's own server
+  ("only on the local claude team own server"). The API engine still sees the new `knowledge_explore` answer and prompt
+  rule, because it shares one tool and one prompt; a second format would be a second code path.
+- **Not in rooms.** In a room, a search counts every folder it looked in as read, and an answer that used a folder some
+  members cannot see stays private. A lookup on every room question would keep answers private that used no file.
+- **No repeats only for resumed Claude sessions.** Codex and fresh Claude sessions start without the earlier blocks in
+  their history, so they get the block again. The list of passages already given is in memory: no table for a
+  convenience.
+- **Answer-ready tool results.** Today's short snippets made the AI read whole files (often 10,000–30,000 tokens).
+  `knowledge_explore` now returns:
+  - 3 passages of up to 1,500 characters to answer from;
+  - 12 short labelled hits;
+  - an optional `alt_query` (another wording, e.g. English for a Korean question).
+
+  Research for wave 2 showed that the AI ranking a dozen short labelled hits itself costs nothing extra, while a
+  reranking model costs about 45 s per question on two cores.
+- **Parallel read-only calls.**
+  - One answer's `list`, `glob`, `grep`, `read`, `search` and `knowledge_explore` calls run side by side on its MCP
+    connection, at most 4 at once. They are `PARALLEL_READ_TOOLS` in `rooms/ai-tools.ts`, a subset of the room's
+    read-only list, so the list can only shrink.
+  - Every other call (writes, cards, room tools, unknown tools, protocol messages) runs alone and in order, so a read
+    after a write sees it.
+  - Each call now gets its own context. Before, a call that reloaded the person wrote into the context the answer's
+    other calls shared.
+- **The Files search only adds.**
+  - Document rows come above the exact-line matches and are checked again with grep's own `visiblePath`, so they never
+    show what the line search could not.
+  - The API field is optional, so older apps keep working.
+  - One new label, "관련 문서", in five languages.
+- **Hard links.** The knowledge graph's file check now also requires one link to the file, as the read tool does and as
+  this document already promised. The index never stored a hard-linked file, so nothing visible changes.
+- **Benchmark.** `scripts/bench/` has 30 questions (15 Korean, 15 English) over 22 made-up Acme documents. Baseline on
+  a Mac with real AI:
+
+  | Engine | Median time | p90 | Median input tokens (`turns.input_tokens`, cache included) | Correct |
+  |---|---|---|---|---|
+  | Claude Code | 7.4 s | 10.0 s | 116,964 | 100% |
+  | Codex | 10.5 s | 16.2 s | 76,564 | 100% |
+
+  Compare only numbers from the same machine. The set is too easy to show a drop in correctness, so harder questions
+  come before wave 2's quality test.
+- **After wave 1** (same Mac, same 30 questions, the code after the review fixes):
+  - Claude Code: 6.9 s median (was 7.4), 80,469 input tokens (−31%), 1 tool call (was 2), 30/30 correct.
+  - Codex: 7.9 s (−25%), 57,949 tokens (−24%), 1 tool call, 29/30 correct.
+  - The miss was en-08, an English question ("the September outage") about a report written in Korean (장애 보고서).
+    Codex searched and grepped, but never gave the Korean wording or looked at file names. The rule and the empty
+    answer now say to try `alt_query` in the other language and glob file names first. Search by meaning (wave 2) is
+    the real fix for such questions. With that wording, three reruns of en-08 on Codex found it in two, with one
+    `knowledge_explore` call each (8–9 s, about 59,000 tokens). The third still missed after glob and grep.
+- **How it was built.** Each phase of the plan is a wave. Five agents built wave 1 in parallel on separate files, around
+  a contract commit that fixed `lookup()`'s signature first.
+- **Review fixes (same branch).** An independent review found two must-fix problems. Neither leaked a file to the wrong
+  person.
+  - **The deadline was not real.** The document search ran synchronously on the main thread, so the 200 ms race could
+    only fire after the search had finished. A 3,000-document index held the whole server for 260–720 ms per lookup,
+    on every message and every Files search.
+    - Searches now run in one worker with its own read-only connection (WAL mode).
+    - Each word adds a bounded number of pieces.
+    - One permission answer shares one folder listing. That listing, not the search, was most of the main thread's
+      cost.
+    - Rejected: only bounding the search. It still blocks, and a 2-core server is several times slower than the Mac it
+      was measured on.
+    - The worker is a separate bundle entry (`doc-search-worker.js`). `Bun.build` does not follow `new Worker()`.
+  - **The lookup widened the read scope.** Every file named in the block, even a weak, name-only one, joined the chat's
+    read scope, so a scheduled task's save to `shared/` could be refused (nobody answers its card).
+    - Scheduled runs now get no lookup.
+    - Weak blocks count as names shown, like `list`.
+    - Strong blocks still count as read, because their text reached the model.
+  - **Should-fix:**
+    - Budgets are in tokens (`knowledge-graph/tokens.ts`, an estimate that leans high: 4 ASCII characters or 0.8 of any
+      other character per token). A 10,000-character Korean block was 5,000–8,000 tokens against the planned 2,500.
+    - The tag guard catches spaces and zero-width characters.
+    - "감사" is a word again.
+    - The Files search keeps every typed word.
+
 ## 아이폰 알림의 이름 — who and where in a room push on the iPhone, never the text (feat/ios-notification-labels, 2026-11-07, product owner)
 넣을 곳: trina-ax `push-gateway/src/apns.ts`, `server/src/notifications/push-service.ts` (migration 263),
 `shared/src/api/push.ts`, `web/src/lib/mobile*.ts` and `mobile/` (`src/labels.ts`, `plugins/notification-service*`), 이유:
@@ -13844,6 +13944,69 @@ person's folder and only said that everyone could see the amounts; the person ha
   in each state, the detail), `steps-paused` and `steps-subtasks` updated, `web/test/e2e/chat.spec.ts` (mock
   "wrong-guess" and "save-fails").
 - Version impact: **minor** (a visible UI change; no API, setting or data change).
+
+## 뜻으로도 찾는 지식 그래프 — search by meaning in the knowledge graph, on by default (feat/knowledge-graph-meaning, 2026-11-07, product owner)
+
+Plan: [20261107-0819-knowledge-graph-fast-answers](AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md), waves 2
+and 3. This entry replaces the 2026-10-21 "뜻으로 찾기" tool and the 2026-11-01 "Search by meaning off by default"
+entries. Their tool is removed.
+
+- **The owner's choices:**
+  - Embeddings, on the team's own server only ("A the team own server yes").
+  - Always combined with keyword search.
+  - `multilingual-e5-small`, downloaded on first use.
+  - Admins see nothing ("admin doesnt need to see the embeding just automatically turn it on by default").
+  - On by default only if a quality test written before any run shows the combined search better overall and not worse
+    on any type of question.
+  - Keep it simple.
+- **The quality test passed, narrowly** (`scripts/bench/quality/`):
+  - The test: 150 questions (75 Korean, 75 English; 30 each of paraphrase, exact, table, cross-language and file name),
+    over 49 made-up Acme documents plus 3,000 Wikipedia articles (22,096 pieces).
+  - Recall@8 47.3% → 51.3% (+4.0 points, bootstrap 95% interval +0.7 to +8.0; McNemar 1 question lost, 7 gained,
+    p = 0.07). MRR 0.419 → 0.463.
+  - No type got worse by Recall@8, first place or MRR. Exact 83 → 87%, table 90 → 93%, file name 63 → 73% (first place
+    47 → 63%).
+  - Paraphrase (0 → 3%) and cross-language (0 → 0%) barely moved at that size. Meaning alone puts the right file in its
+    first 8 for 4 of 30 paraphrases and 1 of 30 cross-language questions: the model is the limit.
+  - In a small folder it does what was hoped. At 50 files: 59% → 76% overall, paraphrases 0 → 70%.
+  - So it is on by default, as the rule says, and the numbers are kept here rather than oversold.
+- **Why the lookup before the model does not use meaning:**
+  - With meaning on, almost every message with one distinctive word got a few loosely related files by meaning.
+  - e5 scores unrelated text 0.77–0.85 against 0.81–0.84 for related text, so no threshold separates them.
+  - `knowledge_explore` and the Files search use meaning; the lookup asks with `meaningOnly: false` and then does not
+    ask the worker for meaning at all (review must-fix).
+- **The query model has its own thread.** Opening it blocked the search worker for 0.7–0.8 s, so a 200 ms lookup got
+  nothing. A cold model is never waited for, and it unloads after 15 idle minutes. On macOS the process keeps about
+  350 MB after unloading, which the allocator holds for reuse; Linux was not measured.
+- **Indexing:**
+  - A separate process below people's work: one ONNX thread, batches of 4.
+  - It rests three times each batch's time (at most about a quarter of one core), because `nice` does not stop the
+    burstable CPU credits of 2-vCPU cloud servers from draining.
+  - It starts with 1.5 GB available (Linux: the tightest cgroup limit counts too), is stopped above 800 MB, pauses
+    while any answer runs or waits, and has a 15-minute ready limit and a 2-minute batch limit.
+  - Only a piece the model itself refused alone is marked; a kill or crash never marks one.
+  - Measured: about 3 pieces per second on an M-series Mac. In a 2-CPU, 4 GB container: 2.7 per second, at most
+    746 MB. About 9 hours for 22,000 pieces with the rest.
+- **Hosting plans:**
+  - Off by default where `mycel-ctl apply-plan` set limits. The whole server runs in about 1.3–1.8 GB there, and the
+    embedding process (600–800 MB) and the query model would share it with converters.
+  - `knowledgeGraph.meaning: true` turns it on.
+  - This differs from the earlier answer that hosted teams get it too (a review must-fix).
+- **Reviews:**
+  - The first review found two must-fix problems: the lookup before the model asked for meaning it threw away (waiting
+    on a cold model, losing keyword slots), and a passage with no length cap (one huge sheet name stopped indexing for
+    good).
+  - The should-fix round, all fixed: no wait on a cold model; the scan yields; the rest cycle; the model disposed in
+    its thread; failing pieces skipped.
+  - The second review found the hosting-plan must-fix, plus a killed process being reused, temporary failures marking
+    pieces for good, a stuck download, missed scans repeating, and the web e2e downloading the model. All fixed.
+- **Removed:** the `search` tool, `server/src/search/semantic.ts` and `MYCEL_SEMANTIC`. Their `<data>/semantic.db` is
+  deleted on start. The model files and the bundled runtime stay, because the new embedder uses them.
+- **AI benchmark with meaning on** (`scripts/bench/`, 30 questions, all pieces embedded first; the server indexed 94
+  pieces in 71 s at 609 MB):
+  - Claude Code 8.6 s median, 81,572 tokens, 30/30.
+  - Codex 8.5 s, 59,328 tokens, 30/30. The cross-language miss of wave 1 (en-08) is found in one call.
+  - Tokens and tool calls are unchanged from wave 1.
 
 ## Shared project chats — 공유 프로젝트 채팅, phase 1 (feat/shared-project-chats, 2026-11-07, product owner)
 
@@ -16126,7 +16289,8 @@ copy it (`write` saves text), so it asked for the PDF again. A room's own @트�
   it. The owner's request is exactly that card and one yes. Only one of them: that one. The own chat's call marks the
   chat (`markRoomsSeen`) before it looks anything up, a refused call too, so every save there asks one card, also first
   thing in a new chat (a file id planted in a team file or a page copies nothing unasked). The room session's save had
-  two cards until now.
+  two cards until now. *Reversed for the person's own folder on 2026-11-10* ("대화방을 읽은 뒤 카드 줄이기"): a new file
+  there goes without a card; a save anywhere else still asks as here.
 - **No silent overwrite:** as save_url and make_file, a file already at the target that was not read in this turn is
   kept and the copy goes next to it (a conflict copy, told to the AI); one read in this turn is updated with a version.
 - **Room sessions:** no "이 방에서는 항상 허용" for a copy. "대화방에서 새 파일은 미리 허용" left save_room_file out of grants
@@ -17953,7 +18117,10 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   (`{connection, to[]}` for the person's own connections, which need it: Q2 a). Everything is checked before the card;
   only places fewer people can see than the folder go on it (they need the yes), and rooms always (they also gate sends
   after a room read). After the yes the folder must still be the one the card showed.
-- **Stored** (migration 282, additive; 281 is #275's): `save_folder`, `save_folder_id` (device:inode, `folderId`),
+- **Stored** (migration 282, additive; 281 is #275's): `save_folder`, `save_folder_id` (device, inode and birth time,
+  `saveFolderId`: on Linux a folder made right after another was deleted gets the same inode number, which CI showed;
+  only one deleted for good and made again within one tick of the disk's clock, a few milliseconds, from the server's
+  own disk could still pass, never through the app, whose delete is a move to the trash),
   `save_rule` (a hash of the rules of every ruled folder from the team root to the folder: subjects and access, never who
   is in a group), `save_readers` (the number the card showed), `save_sources`, `personal_sends`, `save_lapsed_at`,
   `save_lapse_reason`. The edit and review answers are bound to the folder, its id and rule hash, the readers, the places
@@ -18087,3 +18254,169 @@ Plan: docs/AGENTS/plan/20261110-0002-room-file-pdf-pages.md.
   check, the Mac hint and the hand-off test were added. Left as for a team read: the audit line is written before the
   delivery check, and a result refused there has used its share of the turn's image budget.
 - Version impact: **minor** (a new, backward-compatible AI capability).
+## 대화방을 읽은 뒤 카드 줄이기 — fewer cards after a room read (feat/fewer-cards-after-room-read, 2026-11-10, product owner)
+
+Amends "내 AI 채팅에서 대화방 읽기", "대화방에서 새 파일은 미리 허용" and "Trina side chat", and **reverses** one line of
+"내 AI 채팅에서 대화방 파일 저장" (2026-11-09: "a room file saved into one's own folder always asks"). The owner
+(2026-11-10), on the room-read change card: "허용 계속 눌러주는게 지치겠다". After a chat reads a room (the ✦ side chat
+nearly always does), every change raised a card, one per file and for good, because the card remembered only the
+identical call. An audit of every card the AI can cause and six common flows ranked the changes; the owner approved the
+first two as recommended. One principle stays: **what nobody else sees, or what every member of the room could do
+themselves, may go on without a card; what cannot be undone, reaches more people or comes from outside the team still
+asks.**
+
+- **New files in my own folder go without a card** (`TurnExec.ownFolderTarget`). In the person's own chat with
+  `chats.rooms_seen` (the side chat too), a call goes on without the rooms-seen card when all of these hold:
+  - write, make_file or edit_hwp making a **new** file, or save_room_file making a new file (where its `widen` hook says
+    it goes); or edit, write or edit_hwp of a file **this same answer made** (`roomMadeHere`: a create of this turn, not a
+    move into place, that nobody else changed since);
+  - the path as the file layer resolves it (`authorize(…, 'write')`: letter case, NFC/NFD, ".." and links refused) is
+    inside `users/<me>/`, never in a hidden folder (`.attachments`), a plugin's folder or `users/<me>/skills/`, never an
+    instruction-named file (`instructionLike`: CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md and the existing list);
+  - not inside a project's folder (a personal project, `users/<me>/projects/…`): its dev environment may run a new file
+    by its name (conftest.py, a Makefile, a package's scripts) with the person's login, and the dev environment's own
+    card only counts other people's changes (`devenv/track.ts changesByOthers`);
+  - not a path an AI turn put in the trash (`aiTrashed`, as delete_files' follow-up does for a room's grant): writing it
+    again without a card would put something the person never saw where they agreed something should go;
+  - not a confidential chat.
+  delete_files, skill_files and post_to_room are never covered (they refuse after a room read or raise their own card),
+  and neither cover reaches a skill folder of any level (`inSkills`, `instructionLike`).
+  A file that existed before this answer always asks (an overwrite, an edit), and so do edit_files, moves, copies,
+  renames and every other tool. **save_url keeps its card:** the name it saves under comes from the download (its
+  extension follows the bytes), so "new" cannot be known before it runs. Considered and left for later: cover it when
+  nothing in its target folder was read or written in this turn but files the answer made (`placeProduced` overwrites
+  only a file read in this turn; any other goes beside it as a copy).
+  The step line ends **"내 폴더라 묻지 않고 저장"** (five languages; a save_room_file step says it after the file's name,
+  `TurnExec.takeStepSuffix`, as that tool labels its own step once per call); the file is in the answer's file list.
+  **Why:** nobody else reads `users/<me>/`, not the owner or admins either, so nothing reaches anyone new; the risk left
+  is junk files from planted room text, which the steps show and versions and the trash undo. The 2026-11-09 line
+  ("a file id planted in a team file or a page copies nothing unasked") is reversed for the own folder only: the copy
+  lands where only the person sees it, of a file they can already open, still behind the download-only list.
+- **Scheduled runs** that read a room now save new files in the person's own folder ("매일 저녁 방 대화 요약해서 내 폴더에
+  저장" used to save nothing: the card had nobody to answer it). Intended (plan C item 1). A scheduled run never gets a
+  team folder's cover (below).
+- **Outside content saved into my folder counts when it is read again** (the memory gap, closed with the change above).
+  Reading one's own folder is no outside content in itself (`noteTaint`), so web text, a room's words or a connection's
+  answer saved there came back in a later chat as the person's own, and `remember` went on without its card (true before
+  this change for web text too). Now:
+  - **The turn keeps what its chat had seen** (`turns.outside_content`, migration 281): 2 a room's messages (the own
+    chat after a room read, a room's session) or something from outside the team (`chats.room_outside`), 1 content
+    someone else wrote (`chats.session_tainted`: other people's files, attachments, project instructions), else 0. Only
+    ever raised: at the start, on every mark (`taint`, `markRoomsSeen`, `markOutside`) and after every tool call, so it is
+    on the turn before anything it writes next. Backfill: a turn of a chat that read rooms or of a room's session 2, of a
+    tainted chat 1, of a chat that is gone 2.
+  - **Read side, where read sources are recorded already** (`TurnFiles.readPaths`, drained by `noteReads`: read, grep's
+    lines, search passages, make_file's sources, sub-agents' reads). For each file under `users/<me>/` the newest content
+    (`files/timeline.ts`, which follows moves, renames and restores) decides: written by an AI turn, that turn's mark; a
+    copy also carries its source's (up to four copies back, then 2); a turn row that is gone 2; a person's own save or a
+    file with no known history 0. A turn of this same chat on the branch this answer continues adds nothing (its marks
+    are the chat's already; otherwise a side chat that read back its own summary would lose its cover). 1 taints the
+    chat (`remember` asks); 2 also marks it as having used outside content (`markOutside`: no room card is skipped). The
+    reading chat's own writes then carry the mark on (`syncOutsideMark`). Server tools' reads are now drained right
+    after the call (`chat/tools.ts`), as the file tools' were, so the next card or memory sees them.
+  - **The bytes too** (`bytesOutsideLevel`): every AI turn that produced exactly the bytes read (`file_events.sha256`, new
+    index `file_events_sha256`; the hash the AI read, or the file's now), so a copy on the Files screen or of a whole
+    folder, a restore from the trash or a version, and a copy whose source changed since keep the mark. An empty file
+    carries none.
+  - An attached file of the person's own folder counts like a read (`attachmentsForTurn`).
+  - Team files are unchanged: reading them taints as before, and for room cards they stay the team's own words (#198).
+- **One yes covers a team folder for the rest of the answer** (the room's #198 rule in the own chat). In the own chat
+  after a room read, a new file (or one this answer made) in a team folder gets the room card's words after the
+  rooms-seen line ("여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. 트리나가
+  영업/견적서에 새 파일을 저장하려고 해요: 견적서_A사.hwpx. 바뀐 파일은 기록에서 되돌릴 수 있어요."), and its [이번만 허용]
+  covers new files in that folder (and subfolders with the same readers and writers, `answerCovers`) for the rest of
+  the answer, when (`roomGrantTarget`, now given the rooms):
+  - **every member of every room the chat's read scope holds may write the target** (none in the scope: no cover);
+  - the folder is below the top folders and there, not skills, not instruction-like, not hidden, not a plugin's; the
+    team's switch (`roomAlwaysAllow`) is on; not a scheduled run or a confidential chat;
+  - the chat used nothing from outside the team (`chats.room_outside`).
+  Not covered: files that existed before the answer, other folders, skills and instruction files, and the
+  wider-audience card, which asks as before (once per answer and folder; its yes is that call's room yes, never a cover:
+  a folder wider than the rooms read takes that card for the first file and the room card for the next). Each call let
+  through says "이번만 허용으로 진행" and is audited `room.ai_grant_use` with `once` and `chat` (several rooms under
+  `rooms`, each named as `roomAuditRef` names it). Checked again right before the write (`recheckRoomCover`, now for own
+  chats too).
+- **The own chat's mark of outside content** (`chats.room_outside`, until then a room question's only). Every tool
+  outside the team's own words marks it (`OWN_CHAT_TEAM_TOOLS`: a room session's `ROOM_FILE_TOOLS`, reading the person's
+  rooms, `set_title`, `remember`; anything else fails closed: the web and its search, a connection's tools and
+  `call_tool`, Google Drive, the browser, box_shell, video, tools added later), and so does reading an own-folder file
+  marked 2. So does `rooms`: its list names other rooms (a group chat's name is its members' words) without putting
+  them in the read scope, so their members would not be weighed. Own chats from before this build are marked by
+  migration 281 from their answers' stored steps (any tool outside that list, as this build has it). **It lasts until a new session**, not one answer as the brief said: an own chat's session carries its
+  earlier answers (a room question's does not), so web text read three answers ago can still steer. A new chat (the side
+  chat's "새 대화") starts clean.
+- **"이 방에서는 항상 허용" in the side chat** (`TurnExec.sideGrantRoom`). A ✦ side chat whose read scope holds its own
+  room and no other offers the room card's third button with its line ("내가 부를 때, 이 폴더에 새 파일을 만들 때만
+  적용돼요."). It makes and uses **the same grant** (`room_ai_grants`, migration 266: asker × room × folder, new files, 30
+  days), so a grant made in the room covers its side chat and one made in the side chat covers the room. Every #198
+  check holds there: `grantFor` at use (30 days, still in the room, nobody joined since the card was raised
+  (`members_since`), the same readers and writers, the same folder on disk (`folder_id`), write access, the switch) and
+  every member writing the target (`roomGrantTarget`). A member who cannot write the folder means two buttons and no
+  folder cover. A chat that read two or more rooms or DMs gets [이번만] only (merging grants would let any of them
+  steer). Settings › 트리나에게 허용한 것 lists it as the room's row (no new row type; its line now says "대화방이나 그 방의
+  사이드 채팅에서"), and deleting it there revokes it for both.
+- **One name for the AI on a card.** The wider-audience card said "AI가" while the rooms-seen line before it, merged on
+  one card, said "트리나가". `widenConfirm` now names the AI as the room cards do (`aiCalled`: 트리나 where the product is
+  named after its AI, `PRODUCT_NAMED_AFTER_AI`, the plain word elsewhere), on every wider-audience card.
+- **edit_hwp's output** is judged where the tool puts it: its extension comes from the document as the file layer
+  resolves it (`writeTargetOf`, as `tools/edit-hwp.ts` does), so `file_path: "x.hwp/"` with `output: "x"` is the
+  existing x.hwp and asks. This also closes the same gap for a room session's grant, which dev had.
+- **Independent review** (security, tried to break it): fixed the edit_hwp output above (must-fix), the mark lost
+  through copies, folder copies and restores, older own chats without the outside mark, an attached own file not
+  counted, `rooms` names not weighed, and new files in a project's folder. Left as notes: file names the AI writes in
+  the own folder reach later chats through `list` and `glob` (names, not content; they carry no mark).
+- **Second security review** (of 1af88ea6), all fixed here:
+  - **M1, edit_hwp with `output: ""`.** An empty output is an output: the tool writes `.hwp`/`.hwpx` at the team root,
+    while the check took it for an in-place edit of the document (a file this answer made in the own folder: no card).
+    Every check now goes by where the tool writes (`TurnExec.hwpTarget`, `writeTargetOf`: `typeof output === 'string'`,
+    the document's extension as the file layer resolves it), also the wider-audience checks in `chat/tools.ts` (N2) and
+    the card's "save as". The room sessions' grant had the same gap since #198.
+  - **S1, people who left the room.** The covers weighed only today's members, but the messages of someone who left (or
+    was taken out) stay in what was read. Now everyone who wrote, or asked an AI answer, from the oldest message read on
+    (the read scope's room `fromSeq`) must still be a member who may write the target (`rooms/ai-grants.ts authorsWrite`),
+    in a room session too; otherwise no cover, no grant used and no "always".
+  - **S2, names.** A new file of the own folder is named by the AI, so a name can carry words. The names a later chat is
+    shown (a listing's files and sub-folders, glob's and grep's paths, a file read, the folders above them) count like
+    content (`noteOwnNames`): a file's name by every create at that path by an AI turn (a new file, a copy, a move or
+    rename into it), a folder's by its newest create and the first event at or under it (a folder made on the way to a
+    file has no event of its own); this chat's branch adds nothing, and the folders the server names itself
+    (`downloads`, `images`, `videos`, `exports`, `projects`) carry nothing. Chosen over limiting the names the AI may
+    give (only words from the person's message, or a fixed pattern): that would bring a card back for nearly every save,
+    as the AI names the files; tracing them adds no card where nothing was planted.
+  - **S3, the person's edit.** One save by the person cleared the mark (only the newest content counted). Now every AI
+    turn that wrote a version, back to the file's making, counts (an edit, the person's or a clean answer's, keeps what
+    it was made on); a history over 1,000 entries counts as outside.
+  - **N1.** Own files are hashed on the server's thread up to 64 MB each and 128 MB per call (`OWN_HASH_BUDGET`); past
+    that a file counts as outside unhashed.
+- **Words for the AI.** `ROOMS_RULE` and `room_read`'s description say that a new file in the user's own folder is the
+  one change after a room read that needs no card.
+- **What remains.** Planted room text can add new files in the person's own folder, and, after one [이번만] or a grant,
+  new files in a folder every member of the room may write; the steps and the file list show them. It cannot overwrite
+  anything that was there before the answer, write skills or instruction files, reach more people, or ride on web or
+  connection text. Laundering through the own folder is closed by the mark above.
+- **Cards in the audit's six flows** (dev ee1cd907 → this change; c is changed by `feat/room-read-connection-cards`):
+
+  | Flow | Before | After |
+  |---|---|---|
+  | a. Side chat: sum up the room into my folder (1 file, + a fix-up) | 1 (+1 each) | 0 |
+  | b. Side chat: save to a team folder wider than the room | 1 per file | 1 for one file; 2 for several (the wider-audience card, then [이번만]) |
+  | c. "노션에 회의록 정리해줘" after a room read | 4 | 4 |
+  | d. Edit 3 existing files in `shared/기획` after a room read | 3 | 3 |
+  | e. Web page to a document in the side chat, my folder + 2 pictures (save_url) | 3 | 2 |
+  | f. My own chat that read a room, 5 new files in one team folder | 5 | 1 (2 if the folder is wider than the rooms read; 0 on later answers with a side chat's grant) |
+
+- **Not here:** change 3 (connection reads, and one card where a tool has its own: `feat/room-read-connection-cards`)
+  and change 4 (a grouped "모두 허용").
+- Tests: `tests/unit/b-chat-rooms-fewer-cards.test.ts` (the side chat sums up the room into my folder and fixes the
+  file, no card; a planted room message cannot overwrite my file, write my skills, CLAUDE.md, `.attachments` or a team
+  folder without a card; a file saved after a room read, after the web or as a copy of one makes `remember` ask in a
+  later chat, also through grep's lines, while one I or a clean chat wrote does not and one this chat wrote adds
+  nothing; 5 new files in one folder one card, a second folder another, an existing file its own; the web or a
+  connection a card per file, in later answers too; listing rooms the same; two rooms [이번만] only; edit_hwp's output
+  on its own document; a project's folder still asks; a byte copy made without the AI keeps the mark; migration 281's
+  backfill; the side chat's [항상] makes the room's
+  grant, listed in Settings, used by the next answer, lapsed by a member joining; a room's grant in the side chat and
+  its 30 days; a member who cannot write: no "always" and no cover; a scheduled run saves in my folder, never in a team
+  folder), `b-chat-rooms-save.test.ts` (into my own folder no card, an existing file a card), `b-chat-rooms.test.ts`
+  (a scheduled run saves a new file of my own), `b-room-ai-grants.test.ts`.
+- Version impact: **minor** (fewer cards and a reversed decision; one add-only migration; no API change).

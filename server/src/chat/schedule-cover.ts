@@ -13,11 +13,12 @@
 //     planted message cannot steer it to another channel.
 //   - a lapse (the folder moved, renamed, deleted, its rules changed, the person's write access gone) stops every save
 //     there: the run saves in the person's own folder and says why (chat/schedule-scope.ts checkLapse).
-//   - the person's own folder: a new file there, or one this run made, also after a room read (ownSave: nobody else
-//     reads it; never a hidden, skills or project folder or an instruction file), so the fallback works in every run.
-//     #275 does the same for every own chat; when it lands this one goes.
-//   - "my folder" as a listed place is what the person keeps there: a file in it that an AI turn wrote after the task was
-//     confirmed (another run, a chat) may hold what that turn read, so reading it counts as an unlisted place.
+//   - the person's own folder is chat/turn.ts ownFolderTarget's (#275): a new file there goes on after a room read in
+//     every own chat, a run too, so the fallback the run is told to use works.
+//   - "my folder" as a listed place is what the person keeps there: a file in it whose content an AI turn wrote after
+//     seeing content someone else wrote (#275's turns.outside_content, chat/turn.ts fileOutsideLevel: another run's
+//     fallback save, a chat that read a narrower folder) may hold what that turn read, so reading it counts as an
+//     unlisted place for the save folder.
 // Every cover is checked again right before the call writes (recheck), an absent target is reserved for the one call
 // that claimed it (two calls of a run at the same time cannot both make one path), and the first cover of a run is
 // audited `schedule.save_cover`.
@@ -29,8 +30,6 @@ import { audit } from '../admin/audit'
 import { refusal } from '../policy/refusal'
 import type { Principal, RuleSet } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
-import { hwpOutputPath } from '../files/hwpx-check'
-import { ext } from '../files/extract'
 import { inSkills } from '../skills/guard'
 import { readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { componentC } from '../team-files/component'
@@ -49,6 +48,9 @@ export interface CoverHost {
   readonly spec: { userId: string; chatId: string; locale: Locale }
   livePrincipal(): Principal
   noteReads(): void
+  /** how much outside content a file of the person's own folder carries (chat/turn.ts fileOutsideLevel: 0 none, 1
+   * someone else's content, 2 a room or outside) */
+  ownFileOutside(rel: string): number
   patchToolStep(tool: string, patch: (s: Step) => Partial<StoredStep>): void
 }
 
@@ -63,31 +65,6 @@ export function callKey(tool: string, input: unknown): string {
   return `${tool}\u0000${args}`
 }
 
-/** Where write, make_file, edit_hwp and edit save, as the call names it, and whether the call may make a new file
- * there (edit and edit_hwp without an output change a file in place); null for any other tool. save_room_file: where
- * its widen hook says it saves. */
-export function saveTargetOf(tool: string, input: unknown, widenTarget?: string): { path: string; mayBeNew: boolean } | null {
-  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
-  const str = (v: unknown) => (typeof v === 'string' ? v : '')
-  let p: string, mayBeNew: boolean
-  switch (tool) {
-    case 'write': p = str(a.file_path); mayBeNew = true; break
-    case 'make_file':
-      if (!str(a.format) || /\/\s*$/.test(str(a.output))) return null
-      p = ext(str(a.output)) === str(a.format) ? str(a.output) : `${str(a.output)}.${str(a.format)}`
-      mayBeNew = true
-      break
-    case 'edit_hwp':
-      if (str(a.output)) { p = hwpOutputPath(str(a.output), str(a.file_path)); mayBeNew = true }
-      else { p = str(a.file_path); mayBeNew = false }
-      break
-    case 'edit': p = str(a.file_path); mayBeNew = false; break
-    case 'save_room_file': p = widenTarget ?? ''; mayBeNew = true; break
-    default: return null
-  }
-  return p.trim() ? { path: p, mayBeNew } : null
-}
-
 /** A refusal of this run (policy/refusal.ts): what did not happen, why the card's yes does not cover it, the next step,
  * the folders and connections involved. */
 function refuse(done: string, why: string, next: string, names: string[] = []): string {
@@ -97,7 +74,7 @@ function refuse(done: string, why: string, next: string, names: string[] = []): 
 /** One save: the call (its key: tool and input), where it saves, whether it may make a new file there, the files it
  * copies bytes from (`from`) and other places its bytes come from (`read`: a room file's room), and whether it is the
  * main AI's own call (its step says why it went on). */
-export interface SaveCall { key: string; tool: string; path: string; mayBeNew: boolean; from: readonly string[]; read: readonly ReadSource[]; main: boolean; own?: boolean }
+export interface SaveCall { key: string; tool: string; path: string; mayBeNew: boolean; from: readonly string[]; read: readonly ReadSource[]; main: boolean }
 
 /** One run's covers (TurnExec.scheduleCover): null outside a confirmed free-text task's run. */
 export class ScheduleCover {
@@ -109,7 +86,7 @@ export class ScheduleCover {
   private covered = new Map<string, SaveCall>()
   private audited = false
   private stepped = new Set<string>()
-  /** files of the person's own folder this run read whose content an AI turn wrote after the task was confirmed */
+  /** files of the person's own folder this run read whose content an AI turn wrote after seeing someone else's */
   private aiOwn = new Set<string>()
 
   private constructor(private host: CoverHost, readonly scheduleId: string) {}
@@ -206,7 +183,7 @@ export class ScheduleCover {
     for (const p of c.from) this.noteOwnRead(p)
     if (this.aiOwn.size && on.has(`user:${this.host.spec.userId}`)) {
       const files = [...this.aiOwn].slice(0, 3)
-      return refuse(done, `this run read ${files.join(', ')}${this.aiOwn.size > 3 ? ` and ${this.aiOwn.size - 3} more` : ''} in the user's own folder, which an AI run or chat wrote after this task was confirmed; what an AI saved there may come from places the card does not list, so it does not count as "my folder" here`, `${elsewhere}; the user can move it in a chat after checking it`, [row.save_folder])
+      return refuse(done, `this run read ${files.join(', ')}${this.aiOwn.size > 3 ? ` and ${this.aiOwn.size - 3} more` : ''} in the user's own folder, which an AI run or chat wrote after seeing content other people wrote; what an AI saved there may come from places the card does not list, so it does not count as "my folder" here`, `${elsewhere}; the user can move it in a chat after checking it`, [row.save_folder])
     }
     const rooms = this.unlistedRooms(scope, on)
     if (rooms.length) return refuse(done, `this run read ${rooms.join(', ')}, which the task's card does not list, so nothing it read may go to ${row.save_folder}`, `${elsewhere}; the user can add the room to the task by making it again in a chat`, [row.save_folder])
@@ -264,49 +241,18 @@ export class ScheduleCover {
   }
 
   /** A file the run read (chat/turn.ts noteReads): one of the person's own whose content an AI turn other than this one
-   * wrote after the task was confirmed is kept apart (save: not "my folder"). Fails closed: an error keeps it apart. */
+   * wrote after seeing someone else's content (#275's mark: fileOutsideLevel 1 or 2, a copy and the same bytes traced
+   * too) is kept apart (save: not "my folder"). Fails closed: an error keeps it apart. */
   noteOwnRead(rel: string): void {
     const mine = `users/${this.host.spec.userId}/`
     if (!rel.startsWith(mine) || this.aiOwn.has(rel)) return
-    try {
-      const row = this.row()
-      if (!row?.confirmed_at) return
-      const hit = this.host.rt.db.query("SELECT 1 FROM file_events WHERE path = ? AND turn_id IS NOT NULL AND turn_id <> ? AND at > ? AND action IN ('create', 'update', 'upload', 'restore') LIMIT 1").get(rel, this.host.id, row.confirmed_at)
-      if (hit) this.aiOwn.add(rel)
-    } catch { this.aiOwn.add(rel) }
-  }
-
-  /**
-   * A new file in the person's own folder after a room read in a run (the room card would ask nobody): null = goes on;
-   * undefined = not such a file (the usual card). Inside users/<them>/, never a hidden, skills or plugin folder, a
-   * project's folder (its dev environment may run a file by its name) or an instruction file; a file that was there
-   * before this run asks. The same claims as save.
-   */
-  ownSave(c: SaveCall): null | undefined {
-    try {
-      const fx = this.host.rt.files.fx
-      const r = authorize(fx, this.host.rt.files.rules(), this.host.livePrincipal(), c.path, 'write', { createDirs: true })
-      const segs = r.segs
-      if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.host.spec.userId) return undefined
-      if (r.exists ? !r.st?.isFile() || !this.madeHere(r.rel) : !c.mayBeNew) return undefined
-      if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel) || fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return undefined
-      const k = r.rel.normalize('NFC').toLowerCase()
-      const projects = this.host.rt.db.query('SELECT folder_path AS f FROM projects').all() as { f: string }[]
-      if (projects.some(({ f }) => { const d = f.normalize('NFC').toLowerCase().replace(/\/+$/, ''); return d === '' || k === d || k.startsWith(`${d}/`) })) return undefined
-      if (!r.exists && componentC(this.host.rt.ctx).files.aiTrashed(r.rel)) return undefined
-      const claimed = this.reserved.get(r.rel)
-      if (!r.exists && claimed && claimed !== c.key) return undefined
-      if (!r.exists) this.reserved.set(r.rel, c.key)
-      this.covered.set(c.key, { ...c, own: true })
-      return null
-    } catch { return undefined }
+    try { if (this.host.ownFileOutside(rel) >= 1) this.aiOwn.add(rel) } catch { this.aiOwn.add(rel) }
   }
 
   /** Right before a covered call writes: still covered (the same checks again), else why not. Calls nothing covered: null. */
   recheck(key: string): string | null {
     const c = this.covered.get(key)
     if (!c) return null
-    if (c.own) return this.ownSave(c) === null ? null : refuse(`Not saved: '${c.path}'.`, 'the file in the user\'s own folder changed while this run was saving it (someone else made or changed it)', 'save it under another name and say so')
     const again = this.save(c)
     return again === undefined ? refuse(`Not saved: '${c.path}'.`, 'the task\'s save folder changed while this run was saving', `save it in the user's personal folder (${this.mine}) instead and say so`) : again
   }

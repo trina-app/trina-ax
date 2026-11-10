@@ -235,7 +235,7 @@ describe('saves in a run', () => {
     clear()
     const s = task(fake({ say: 'nothing' }))
     const r = await run(s.id)
-    const host: CoverHost = { id: r.turnId, spec: { userId: 'alice', chatId: r.chatId, locale: 'en' }, rt: h.rt() as never, livePrincipal: () => h.ctx.files.principal('alice'), noteReads() {}, patchToolStep() {} }
+    const host: CoverHost = { id: r.turnId, spec: { userId: 'alice', chatId: r.chatId, locale: 'en' }, rt: h.rt() as never, livePrincipal: () => h.ctx.files.principal('alice'), noteReads() {}, patchToolStep() {}, ownFileOutside: () => 0 }
     const cover = ScheduleCover.of(host)!
     const call = (key: string) => cover.save({ key, tool: 'write', path: `${SAVE}/same.md`, mayBeNew: true, from: [], read: [], main: false })
     expect(call('a')).toBeNull()
@@ -269,19 +269,19 @@ describe('saves in a run', () => {
     fs.rmSync(abs('users/alice/run-note.md'), { force: true }); fs.rmSync(abs('users/alice/old-note.md'), { force: true })
   })
 
-  test('"my folder" is what the person keeps there: a file an AI turn wrote there after the yes does not count (no laundering across runs)', async () => {
+  test('"my folder" is what the person keeps there: a file an AI turn wrote there after reading a narrower folder does not count (no laundering across runs)', async () => {
     clear()
-    fs.writeFileSync(abs('users/alice/from-a-run.md'), 'what an earlier run read\n')
+    // run N: an unlisted narrower folder, saved in the own folder (the fallback: no card needed)
+    const first = await run(task(fake(read('groups/marketing/campaign-brief.md'), write('users/alice/from-a-run.md', 'what run N read'), { say: 'done' })).id)
+    expect(first.events.find((e) => e.tool === 'write')!.ok).toBe(1)
+    // run N+1 reads it as "my folder" (listed) and tries the wide folder
     const s = task(fake(read('users/alice/from-a-run.md'), write(`${SAVE}/w.md`), { say: 'done' }))
-    // an earlier AI turn wrote it after the task was confirmed
-    db().query("INSERT INTO file_events (turn_id, user_id, path, action, at) VALUES ('an-earlier-run', 'alice', 'users/alice/from-a-run.md', 'create', ?)").run(new Date(Date.parse(row(s.id).confirmed_at!) + 1000).toISOString())
     const r = await run(s.id)
     expect(fs.existsSync(abs(`${SAVE}/w.md`))).toBe(false)
-    expect(r.answer).toContain('which an AI run or chat wrote after this task was confirmed')
+    expect(r.answer).toContain('which an AI run or chat wrote after seeing content other people wrote')
     // the person's own notes still count
     const ok = await run(task(fake(read('users/alice/todo.md'), write(`${SAVE}/w.md`), { say: 'done' })).id)
     expect(ok.events.find((e) => e.tool === 'write')!.ok).toBe(1)
-    db().query("DELETE FROM file_events WHERE turn_id = 'an-earlier-run'").run()
     fs.rmSync(abs('users/alice/from-a-run.md'), { force: true })
   })
 
@@ -364,6 +364,9 @@ describe('lapses (Q1 a)', () => {
       const s = task(fake(read('users/alice/todo.md'), write(`${SAVE}/m.md`), { say: 'done' }))
       if (how === 'delete') fs.rmSync(abs(SAVE), { recursive: true })
       else fs.renameSync(abs(SAVE), abs(how === 'rename' ? 'shared/주간보고-old' : 'shared/policies/주간보고'))
+      // Linux gives the new folder the old one's inode number after a delete (CI): its birth time tells them apart, as
+      // long as it is made in a later tick of the disk's clock (a few milliseconds)
+      await Bun.sleep(20)
       // someone makes a folder with the old name: another folder on disk
       fs.mkdirSync(abs(SAVE), { recursive: true })
       expect(lapseOf(h.ctx, row(s.id)), how).toBe('folder')

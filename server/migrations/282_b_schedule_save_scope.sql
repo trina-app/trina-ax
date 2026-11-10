@@ -3,8 +3,9 @@
 -- "Scheduled tasks: saving and sending allowed on the card"; chat/schedule-scope.ts, chat/schedule-cover.ts).
 --   save_folder        the team folder (actual names) its runs may put new files in, and its sub-folders that have no
 --                      folder rules of their own; NULL: none
---   save_folder_id     that folder on disk when the card was answered (device:inode, rooms/ai-grants.ts folderId): a
---                      folder renamed away and another made with its name is not it
+--   save_folder_id     that folder on disk when the card was answered (device:inode:birth time, chat/schedule-scope.ts
+--                      saveFolderId): a folder renamed away, or deleted, and another made with its name is not it (Linux
+--                      gives the new one the old inode number; its birth time differs)
 --   save_rule          the folder rules on the way to it then (a hash of the rules of every ruled folder from the team
 --                      root to it, never who is in a group): a change lapses the permission, a member joining does not
 --   save_readers       how many people could read it then (the number the card showed)

@@ -77,6 +77,10 @@ const ENTRIES: [string, string][] = [
   ['server/src/files/office-worker.ts', 'office-worker.js'],
   ['server/src/safe-ops/deck-worker.ts', 'deck-worker.js'],
   ['server/src/files/hwp-preflight.ts', 'hwp-preflight.js'],
+  // the knowledge graph's document searches, off the main thread (knowledge-graph/documents/search-worker.ts)
+  ['server/src/knowledge-graph/documents/search-worker.ts', 'doc-search-worker.js'],
+  // search by meaning's background process, which embeds the document pieces (knowledge-graph/meaning/embed-worker.ts)
+  ['server/src/knowledge-graph/meaning/embed-worker.ts', 'kg-embed-worker.js'],
 ]
 /** native helpers per architecture (native/build.sh) */
 const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-safeops', 'mycel-ocr']
