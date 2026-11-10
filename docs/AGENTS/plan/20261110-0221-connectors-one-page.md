@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 02:21
 - Branch: `feat/connectors-one-page`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, `web/src/components/integrations/` and the two Connectors pages (`web/src/pages/Integrations.tsx`,
   `web/src/pages/admin/Integrations.tsx`). Why: the screen is shared by Settings and Admin and is core UI (see
   docs/REPOSITORY-RULES.md).
@@ -57,4 +57,13 @@ specs of Settings and Admin Connectors, Drive, templates, requests, sticky heade
 
 ## Result
 
-Filled in at the end.
+Built as planned in PR #289 (https://github.com/trina-app/trina-ax/pull/289). What differs from the plan:
+
+- Admin with nothing connected shows no empty line of its own: the line under the title is the one quiet line, so its
+  empty title and hint went too.
+- Each page makes its own section heading ids (`useSectionIds`): Settings opens over the page it came from, so Settings ›
+  Connectors can be on screen over Admin › Connectors (found in review).
+- Settings hides, not unmounts, requests and templates while a connector's page is open, and waits for the templates'
+  first answer before it says nothing is connected (review).
+- Add pressed over a connector's page returns to the list after saving.
+- The docs site's three MCP images were taken again from the mock server (`scripts/docs/screenshots.ts --only mcp`).
