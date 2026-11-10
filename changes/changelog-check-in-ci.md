@@ -1,0 +1,1 @@
+- Contributors: CI now runs `bun run changelog:check` (in `check:docs`), and on a pull request it fails when the PR adds a line under "## Unreleased" in CHANGELOG.md instead of a file `changes/<topic>.md`; the message says where the note goes. A fix to a note already there passes. No product change.

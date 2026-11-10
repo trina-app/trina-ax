@@ -29,6 +29,7 @@ Instructions for coding agents that work in this repository.
   and the unit tests for the area you changed.
 - Changelog: do not edit `CHANGELOG.md` in a PR. Put the PR's user-visible notes in a new file
   `changes/<topic>.md` (rules: [changes/README.md](changes/README.md)), so two PRs never conflict on "## Unreleased".
+  CI's `bun run check:docs` fails a PR that adds a line there.
 - Keep PRs small. Before you add a migration, check the highest number in `server/migrations/` on `dev`: two files
   with one number stop the server.
 - After a merge into `dev`, CI (`.github/workflows/dev-build.yml`) builds the server bundle (about 5 minutes) and the

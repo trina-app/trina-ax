@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 14:22
 - Branch: `chore/changelog-check-in-ci`
-- Status: in progress
+- Status: done
 - Where: trina-ax repository process: `scripts/changelog.ts`, `package.json`, contributor docs. Why: it finishes the
   changelog fragments of #322 (`changes/<topic>.md`); no product code changes (docs/REPOSITORY-RULES.md).
 - Version impact: none. Repository process, a script and docs; nothing a team installs changes.
@@ -59,4 +59,16 @@ Out:
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+- `scripts/changelog.ts`: `newUnreleasedLines`, `newLinesMessage`, `baseChangelog`, used by `--check`. On success it
+  prints one line (`Changelog OK: …`); a base that cannot be read prints a warning (`::warning::` in Actions) and the
+  rest of the check still runs.
+- `package.json`: `check:docs` ends with `bun run changelog:check`, so CI's docs step runs it. ci.yml is unchanged.
+- Docs: REPOSITORY-RULES, CLAUDE.md (one line on the CI check), docs/AGENTS/README.md, CONTRIBUTING.md,
+  docs/site/develop/contributing.md, docs/site/agents/coding-agents.md, the PR template, changes/README.md.
+- `changes/changelog-check-in-ci.md`.
+- Checked by hand on a shallow https clone of dev (as `actions/checkout` leaves it) with `GITHUB_BASE_REF=dev`: an
+  unchanged CHANGELOG.md passes, an added line fails with the message, and without a base it is skipped. Against dev
+  three commits back, the check flags the line #335 added under "## Unreleased" after #322.
+- Open PRs into dev at the time: only #336, which already uses `changes/`.
+- Tests: `tests/unit/changelog-fragments.test.ts` 17 pass (8 new).
