@@ -11,8 +11,12 @@
 // chats there come first, the most recently pinned first, with the sidebar's pin before the title (docs/DECISIONS.md
 // "Pinned chats"; pinning is the sidebar row's "···").
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
-// (the same rename prompt as a chat's, the same delete confirm as on the project page), 링크 복사 for everyone.
-import { FileText, FolderKanban, Folder, Link2, Pencil, Pin, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
+// (the same rename prompt as a chat's, the same delete confirm as on the project page), 멤버 for people who may change
+// its members (the members dialog, without leaving the list), 링크 복사 for everyone.
+// Members (docs/DECISIONS.md "Project members in one panel"): a team project's page has a 멤버 line after 파일 with
+// how many people see it; 관리 opens the members dialog (components/ProjectMembersDialog.tsx) for whoever may change
+// them, and for anyone else the line opens to say who does. /projects/:id?members=1 opens the dialog.
+import { FileText, FolderKanban, Folder, Link2, Pencil, Pin, Plus, ScrollText, Share2, Trash2, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
@@ -37,9 +41,10 @@ import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
 import { useChatLinkItem } from '../components/chat/copyChatLink'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
-import { AccessSummary, ParticipantPicker, participantKey, summaryNames, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
+import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
+import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
-import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
 import { useFocusAfterRemove } from './admin/common'
 import { useFolderWords } from '../lib/folderLabels'
 
@@ -119,7 +124,7 @@ function useDeleteProject() {
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
  * it shows on hover and keyboard focus, on a touch screen always. */
-function ProjectCardMenu({ project: p, onRenamed, onDeleted }: { project: Project; onRenamed: (p: Project) => void; onDeleted: () => void }) {
+function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { project: Project; onRenamed: (p: Project) => void; onDeleted: () => void; onMembers: () => void }) {
   const t = useT()
   const locale = useLocale()
   const { copy } = useCopy()
@@ -147,6 +152,7 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted }: { project: Projec
   }
   const items: MenuItem[] = [
     ...(p.canEdit ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: 'project-card-rename' }] : []),
+    ...(p.membersEditable ? [{ label: t('projects.participants'), icon: <Users size={14} aria-hidden />, onSelect: select(onMembers), testId: 'project-card-members' }] : []),
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
     ...(p.canEdit ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => remove(p).then((gone) => gone && onDeleted())), testId: 'project-card-delete' }] : []),
   ]
@@ -179,6 +185,8 @@ export function ProjectList() {
     if (!v && params.has('new')) setParams((p) => { p.delete('new'); return p }, { replace: true })
   }
   const navigate = useNavigate()
+  // the members dialog of a card's ⋯ 멤버
+  const [members, setMembers] = useState<Project | null>(null)
   // a card deleted from its menu: the keyboard goes on to the next card (or "New project" after the last one)
   const { box, removed } = useFocusAfterRemove(items, () => document.querySelector<HTMLElement>('[data-testid="project-new"]'))
   const load = async () => {
@@ -230,12 +238,14 @@ export function ProjectList() {
                   removed(i)
                   setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
                 }}
+                onMembers={() => setMembers(p)}
               />
             </li>
           ))}
         </ul>
       </div>
       {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
+      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, audience: r.audience } : x)))} />}
     </div>
   )
 }
@@ -296,6 +306,13 @@ export function ProjectHome() {
   const [files, setFiles] = useState<{ entries: FileEntry[]; more: boolean; failed?: boolean } | null>(null)
   const [editing, setEditing] = useState(false)
   const [sharing, setSharing] = useState(false)
+  // the members dialog: 관리 on the 멤버 line, or ?members=1 (the AI's link to it)
+  const [params, setParams] = useSearchParams()
+  const [members, setMembersState] = useState(false)
+  const setMembers = (v: boolean) => {
+    setMembersState(v)
+    if (!v && params.has('members')) setParams((x) => { x.delete('members'); return x }, { replace: true })
+  }
   const me = useMe()
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
@@ -304,6 +321,9 @@ export function ProjectHome() {
   useEffect(() => {
     let live = true
     setP(null)
+    // another project's page (back and forward): no dialog of the one before
+    setMembersState(false)
+    setEditing(false)
     api.call(API.getProject, { params: { id: projectId! } }).then(
       (x) => {
         if (!live) return
@@ -338,6 +358,14 @@ export function ProjectHome() {
     })
   }), [projectId])
 
+  // ?members=1 opens the members dialog once the project is here, for whoever may change them; otherwise it goes
+  useEffect(() => {
+    if (!p || params.get('members') !== '1') return
+    if (p.membersEditable) setMembersState(true)
+    else setParams((x) => { x.delete('members'); return x }, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p?.id, p?.membersEditable, params])
+
   // its shared chats go to their creators' trash: said in the dialog when it has any
   const remove = useDeleteProject()
   const del = async () => {
@@ -350,6 +378,8 @@ export function ProjectHome() {
   const summary = firstParagraph(p.instructions)
   const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
+  // a team project in place has members (a personal one is mine alone; one in the trash is the admins' until restored)
+  const hasMembers = !p.folderPath.startsWith('users/') && !p.inTrash
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* like Claude's project page: where you are, with the few things you rarely do behind the name; it stays at the
@@ -435,6 +465,7 @@ export function ProjectHome() {
                   </Link>
                 )}
               </DisclosureRow>
+              {hasMembers && <MembersRow project={p} sideAction={sideAction} onManage={() => setMembers(true)} />}
             </div>
             <p className="mt-3 truncate text-xs text-faint max-md:hidden" title={p.folderPath || t('files.root')}>
               {p.folderPath || t('files.root')}
@@ -458,8 +489,47 @@ export function ProjectHome() {
         </div>
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
+      {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={setP} />}
       {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) }) }} />}
     </div>
+  )
+}
+
+/** The 멤버 line of a team project's page: how many people see it ("9명이 봐요"). Whoever may change its members gets
+ * 관리 (the members dialog) and nothing to open; anyone else opens the line to read who changes them: the creator by
+ * name only while they can (Project.creatorChangesMembers: their account active, the folder theirs), else 관리자 (never
+ * an admin's name). An admin on a project made before on another folder reads where to change it instead. */
+function MembersRow({ project: p, sideAction, onManage }: { project: Project; sideAction: string; onManage: () => void }) {
+  const t = useT()
+  const me = useMe()
+  const words = useFolderWords()
+  const meta = p.audience !== undefined ? t('projects.membersCount', { n: p.audience }) : undefined
+  if (p.membersEditable)
+    return (
+      <DisclosureRow
+        testId="project-members"
+        icon={<Users size={16} />}
+        label={t('projects.participants')}
+        meta={meta}
+        action={<button type="button" className={sideAction} onClick={onManage} data-testid="project-members-manage">{t('projects.manage')}</button>}
+      />
+    )
+  // an admin: where its members are changed instead (a project made before outside projects/, or one whose folder is
+  // not there), with the link
+  const admin = isAdmin(me)
+  return (
+    <DisclosureRow testId="project-members" icon={<Users size={16} />} label={t('projects.participants')} meta={meta}>
+      {admin ? (
+        <p className="text-sm leading-6 break-keep text-muted" data-testid="project-members-hint">
+          {/^projects\/[^/]+$/.test(p.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote', { folder: words.path(p.folderPath) || t('files.root') })}{' '}
+          <Link to={`/admin/folders?folder=${encodeURIComponent(p.folderPath)}`} className="text-accent-text underline">{t('projects.otherRulesLink')}</Link>
+        </p>
+      ) : (
+        <p className="text-sm leading-6 break-keep text-muted" data-testid="project-members-hint">
+          {p.creatorChangesMembers && p.createdBy ? t('projects.membersByCreator', { name: p.createdBy.name }) : t('projects.membersByAdmins')}
+        </p>
+      )}
+    </DisclosureRow>
   )
 }
 
@@ -506,12 +576,12 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
     >
       <div className="space-y-4">
         <p className="text-sm break-keep text-muted">{t('projects.shareBody')}</p>
-        <Field label={t('projects.participants')}>
+        <MembersField label={t('projects.participants')}>
           <div className="space-y-2">
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />
-            <AccessSummary names={summaryNames(t, participants, options, [t('projects.whoMe')])} count={count} />
+            <AccessSummary count={count} />
           </div>
-        </Field>
+        </MembersField>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

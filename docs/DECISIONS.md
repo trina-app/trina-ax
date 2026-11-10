@@ -16563,7 +16563,8 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
 The owner decided on 2026-11-09: a team project lives only in `projects/<name>/`, a personal one only in
 `users/<me>/projects/<name>/`. Any member can make a team project, like a chat channel, and chooses who sees it; an admin
 switch can keep that to admins (default: members). The creator and admins see and change who sees it from the project's
-edit screen. A review before building asked for eight changes, all built:
+edit screen (since 2026-11-10 its own members dialog: "Project members in one panel"). A review before building asked
+for eight changes, all built:
 
 - **No other place.** `POST /api/projects` with a folder anywhere else (an existing team folder, `shared/`, `groups/`,
   the root, a deeper path, `users/<me>/` outside `projects/`) is 400 `project_location`; the "기존 폴더" kind is gone.
@@ -16581,7 +16582,7 @@ edit screen. A review before building asked for eight changes, all built:
   disk, folders rows and the paths projects name ("-2"). **This tells a member that a folder of that name exists in
   `projects/` even when they cannot see it.** Accepted: the name says nothing of its contents, and refusing instead would
   tell the same.
-- **One writer.** The edit screen's participants are the folder's rules (`write` for groups and people). It saves exactly
+- **One writer.** The participants on the screen (the edit screen's until 2026-11-10, now the members dialog's) are the folder's rules (`write` for groups and people). It saves exactly
   like Admin › Folder permissions: the rules hash it read (`ProjectAccess.rulesHash`, the same hash as `Folder.rulesHash`)
   is checked inside the transaction (409 `rules_changed` either way round), `replaceRules`, then `afterAccessChange`
   (fresh sessions, notices, the project's shared chats dropped from whoever lost it), audit `folder.rules` with
@@ -18535,6 +18536,69 @@ card.
   folder; a clean chat copies it and another moves it; a planted folder name moved by the person keeps its mark and one
   renamed by the person to a name of theirs does not; a walk cut short; each of the five fails on #275's code).
 - Version impact: **patch** (a fix; no API, data or setting change).
+
+## Project members in one panel — 프로젝트 멤버는 멤버 창 하나에서 (feat/project-members-panel, 2026-11-10, product owner)
+
+The owner asked (2026-11-10): "프로젝트 탭의 각각 프로젝트에서 좀 쉽게 멤버 권한을 바꿀 수 있으면 좋을것 같은데?" A
+project's members were three clicks away (card, the name's menu, 수정), inside the edit dialog with the name, the
+instructions and chat sharing, as a checkbox list of every person and group. They now have one small dialog,
+`ProjectMembersDialog`, reached in one click; the AI's tool for the same change comes in a separate PR. An independent
+review of the plan changed it before building (M4 part A, M6, S3–S7, and the cuts below).
+
+- **Decision: one place.** The participants part of the edit dialog moved into the members dialog (the same three calls:
+  `GET access`, `POST access-preview`, `PUT participants` with `expectedHash`; no new endpoint and no new write). The
+  edit dialog keeps the name, the instructions, chat sharing and the repoint and saves them with one PATCH. Creating a
+  project and sharing a personal one keep the picker.
+- **Where.** The project page's side column has a third line, 멤버, after 파일, with "N명이 봐요" (`Project.audience`, a
+  count). Whoever may change the members gets 관리 and nothing to open; anyone else opens the line to read who changes
+  them. A list card's ⋯ has 멤버 after 이름 바꾸기, opening the same dialog over the list. `/projects/:id?members=1`
+  opens it on the page (the AI's tool links there). No line for a personal project or a project whose folder is in the
+  trash.
+- **Decision: `Project.membersEditable`, from the server** (review M6). `canEdit` is write on the folder and being its
+  creator or an admin; a member who made an older project on an admin's `projects/<name>` (`folder_made = 0`), or one
+  outside `projects/`, has `canEdit` but `GET access` answers "not editable". So 관리 and ⋯ 멤버 show only with
+  `membersEditable` (`mayEditProject` and `accessEditable` for the caller, `chat/project-access.ts membersView`), and the
+  server still refuses the rest (403 / 409 `project_not_editable`).
+- **Decision: the hint names the creator only while they can change members** (review S7). `Project.creatorChangesMembers`
+  is true when the creator's account is active and the folder is theirs to change (the same two checks for them). The
+  line then reads "멤버는 {creator}님(만든 사람)이나 관리자가 바꿔요", else "멤버는 관리자가 바꿔요". An admin is never named.
+  An admin on a project outside `projects/` reads the existing legacy note with a link to Admin › Folder permissions
+  (one whose `projects/<name>` folder is not in place: that it is missing, with the same link). This tells anyone who
+  sees the project whether the creator's account is active, whether they can still write its folder and whether the
+  server made that folder, nothing more (no rule, no other name). Accepted: the people directory shows the first, and
+  the other two only decide whose name the hint says.
+- **The list** (`ParticipantPicker`, for create, share and members). The members first: the creator (or "나" for a new
+  project) fixed, a person or group with a rule set in Admin › Folder permissions tagged "읽기 · 폴더 권한", neither with
+  ×; then groups, then people. Each row is the name on one line and title · tag under it (the directory's title tells two
+  people of one name apart). With the members as saved, a row added is marked 새로 (its title kept) and a row taken out
+  stays struck through with 되돌리기 until the save. Focusing the empty search lists everyone who can be added (review
+  S5), typing narrows it (name or title, case and spaces folded), and the results take the list's place, also in the
+  phone's bottom sheet (S6), until one is added, Esc (from the search or a result: the dialog stays open), or focus
+  leaves the picker. × and 되돌리기 take taps from 44 px on phones, and the keyboard stays on the row after either. A "no
+  access" rule from Admin is no member: it is listed only in the box "폴더 권한에서 정한 규칙" (rules on folders inside,
+  roles, everyone rules), read-only below. In the create and share dialogs the picker is a labelled group, not inside a
+  `<label>` (a click on a row's text would otherwise focus the search).
+- **Decision: the count line only** (review S4). "9명이 봐요 (팀장·관리자 포함)"; the names line ("볼 수 있는 사람: 영업 부서 ·
+  김소라 · 팀장·관리자 (9명)") is gone from all three dialogs, since the list above it names them. While it counts again
+  the last count stays, dimmed.
+- **Decision: the confirm says what the save really does** (review M4 part A). `participantRules` always puts the
+  creator's rule back and adds `everyone: none` when the folder has no everyone rule. Before, the web asked only when
+  someone gained it, so a save on a folder an older build made (no floor, the root open to everyone) could take the
+  project away from people silently. The dry run now also returns `addsFloor` and `restoresCreator` (present only when
+  true), and the web asks when someone gains it or either is set; the confirm says how many lose it whenever `removed` is
+  above 0. Taking people out alone still saves at once: it is the person's own click, reversible here, and the people
+  removed are told (`access_changed`).
+- **Decision: "참여 대상" is "멤버"** in all five languages: the owner's word, and the line's name.
+- **Cut** (review): a names list in the side line for editors; the names line in the dialog. Not built: a 보기/편집 split
+  (owner, Q1: every member reads and writes, as before), names for members who cannot change the project (the count
+  only, as before), a live update of another window's count (right on its next load).
+- Tests: `tests/security/project-participants.test.ts` (`membersEditable` and `creatorChangesMembers` for the creator, a
+  participant and an admin on a new project, an older one on an admin's folder, one outside `projects/`, a disabled
+  creator, a folder in the trash; `addsFloor` and `restoresCreator`), web unit `project-members.test.tsx`,
+  `project-form.test.tsx` (the edit saves one PATCH), `project-list-menu.test.tsx` (⋯ 멤버), and the e2e specs
+  `project-participants.spec.ts` (create, the 멤버 line, the dialog, the confirm, taking out, the hint for a member,
+  ⋯ 멤버, `?members=1`) and `shared-project-chats.spec.ts` (the legacy note moved to the line).
+- Version impact: **minor** (a visible change of where members are changed; two optional response fields).
 ## 이름 추적, 두 번째 — an AI rename, a folder restored elsewhere, big listings (fix/outside-name-moves-2, 2026-11-10)
 
 Amends "이름도 옮겨 가면 표시가 따라간다". The re-review of #290 found two ways a planted name still lost its outside mark,

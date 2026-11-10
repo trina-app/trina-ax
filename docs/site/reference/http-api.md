@@ -77,7 +77,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/turns/:id/answer` | Signed in | Answer an ask_user card or a browser site confirmation of an own running turn. |
 | `GET` | `/api/projects` | Signed in | Projects whose folder the caller can read. |
 | `POST` | `/api/projects` | Signed in | New project: a new team project folder projects/<name> with participants (members too, unless the team lets only admins), or a personal one in users/<me>/projects/<name>. Nowhere else. |
-| `POST` | `/api/projects/access-preview` | Signed in | Dry run: how many people would see a new team project with these participants, or (projectId: its creator or an admin) who gains and loses an existing one and what the people who gain it would see. Nothing is saved. |
+| `POST` | `/api/projects/access-preview` | Signed in | Dry run: how many people would see a new team project with these participants, or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator's rule back (the screen asks first then). Nothing is saved. |
 | `GET` | `/api/projects/:id` | Signed in | One project. |
 | `GET` | `/api/projects/:id/access` | Signed in | Who sees a team project: its participants, the rules the project screen does not change, the rules hash (its creator or an admin). |
 | `PUT` | `/api/projects/:id/participants` | Signed in | Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats). |
