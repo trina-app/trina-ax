@@ -5,8 +5,9 @@
 // 들어왔어요. '광고 문구'는 아직 써 보기 전이에요." [다시 보내기] (copies a nudge with the skill form's link; never
 // "들어왔지만": the goal's skill may have changed after they joined, docs/DECISIONS.md "W5"); one more person: "한 명만 더
 // 쓰면 달성이에요."; nobody joined, from the third day: "아직 아무도 안 들어왔어요." — those two with [초대 문구 복사] (the
-// team link's message), or [팀원 초대] while no link works (while the owner's welcome steps are unfinished it goes to
-// their invite step, INVITE_STEP_STATE, never a second invite dialog). Reached: "달성했어요 · 민지·지훈·Olga" until dismissed.
+// team link's message), or [팀원 초대] while no link works (while the owner's welcome steps are unfinished it takes the
+// owner to their invite step, INVITE_STEP_STATE, never a second invite dialog; an admin who is not the owner gets the
+// dialog: the steps are the owner's, and /welcome sends anyone else Home). Reached: "달성했어요 · 민지·지훈·Olga" until dismissed.
 // A team with no team skill yet (GET /api/skills/examples as the owner, as the invite step's empty-team line reads it)
 // cannot reach it: the line says skills come first ("민지님이 들어왔어요. 팀 스킬을 넣으면 같이 써 볼 수 있어요.") and the
 // filled button is [스킬 넣기] (팀 스킬 with the ready-made skills unfolded); the button the card would have had
@@ -25,7 +26,7 @@ import { teamLinkMessage } from '../../lib/team-link'
 import { goalNext, goalNextText, goalProgressText, resendText, runnerNames, skillQuote, skillRunUrl } from '../../lib/teamGoal'
 import { showResume } from '../../lib/welcome'
 import { useLocale, useT } from '../../i18n'
-import { useMe, useMeStrict } from '../../store/session'
+import { isOwner, useMe, useMeStrict } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
 import { Button, IconButton, Modal, useCopy, useMediaQuery } from '../ui'
 import { InviteStep } from './InviteStep'
@@ -131,8 +132,9 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
       const message = teamLinkMessage(t, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, skill: linkName, ownAi: open.memberAi === 'connect_own' })
       action = <CopyAction text={message} label={t('goal.copyInvite')} testId="team-goal-copy-invite" quiet={noSkills} />
     } else {
-      // setup unfinished: the welcome steps' own invite step, not a second invite dialog
-      const invite = showResume(welcome, !phone) ? () => navigate('/welcome', { state: INVITE_STEP_STATE }) : () => setInviting(true)
+      // setup unfinished: the owner's own invite step in the welcome steps, not a second invite dialog; an admin who is
+      // not the owner may have the team's progress read too (TeamLinkPanel, Files), but /welcome would send them Home
+      const invite = isOwner(me) && showResume(welcome, !phone) ? () => navigate('/welcome', { state: INVITE_STEP_STATE }) : () => setInviting(true)
       action = (
         <Button variant={noSkills ? 'secondary' : 'primary'} size="sm" onClick={invite} data-testid="team-goal-invite">
           <UserPlus size={14} aria-hidden /> {t('goal.invite')}

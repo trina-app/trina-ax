@@ -4466,4 +4466,6 @@ export const ja: Record<MessageKey, string> = {
   "viewer.inGroup": "{room}で",
   "viewer.inDm": "{name}さんとの1:1トークで",
   "viewer.gone": "メッセージが削除されたため、このファイルはもう表示できません。",
+  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  "teamMenu.invite": "メンバーを招待",
 }

@@ -1,7 +1,9 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons; all but the icons grow with the text size), people first (docs/DECISIONS.md "Desktop
-// sidebar: rooms first"): the team's name on top, then one labeled row each (the owner, 2026-11-07: no icon row):
-// "트리나에게 묻기" (a new AI chat, ⇧⌘O), 검색 (⌘K), 프로젝트, 예약 작업, 알림함 (its count on the row), 파일, 팀 스킬, and
-// 관리자 for owners and admins; then one scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the
+// sidebar: rooms first"): the team on top and me at the bottom (docs/DECISIONS.md "The team menu"). On top the team's
+// logo and name (TeamMenu.tsx: for owners and admins a button with ▾ that opens the team menu: the team's address,
+// "Invite people" and Admin), then one labeled row each (the owner, 2026-11-07: no icon row): "트리나에게 묻기" (a new
+// AI chat, ⇧⌘O; it is also the way Home), 검색 (⌘K), 프로젝트, 예약 작업, 알림함 (its count on the row), 파일 and 팀 스킬;
+// then one scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the
 // five latest rooms and the room on screen, "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the
 // AI's history: the five latest and the chat on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K"
 // when hidden chats show a "?" or a dot; one session marker per row from the chat list itself, chat/ChatState.tsx: "?", a
@@ -9,9 +11,10 @@
 // own row between the two. People and the AI never share a word: no bare "채팅" here. Each folds, and each one's whole
 // list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
 // Usage (their own, in Settings), Deleted history, Sign out), which opens above the profile line. Below
-// 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top,
-// 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat is the 트리나 tab itself, the
-// Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
+// 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top
+// (not the team menu: the drawer belongs to the AI's tab), 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록
+// at the bottom. A new AI chat is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, 파일 is its own tab and
+// the rooms are the 대화 tab; rows are 44 px there.
 // A shared project chat I made or wrote in (docs/DECISIONS.md "Shared project chats") is a row like any other, with the
 // people icon before its title (no section of its own); its "···" offers only what I may do there. A chat of my own has
 // "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
@@ -19,11 +22,10 @@
 // come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
 // most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Smile, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Smile, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { teamIconUrl } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
@@ -38,7 +40,7 @@ import { sharedRights } from '../lib/sharedChat'
 import { useChatLinkItem } from './chat/copyChatLink'
 import { SharedIcon } from './chat/SharedChat'
 import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
-import { isAdmin, useMeStrict, useSession } from '../store/session'
+import { useMeStrict, useSession } from '../store/session'
 import { toast, useUi } from '../store/ui'
 import { PresenceDot, PresenceFace, PresenceText } from './Presence'
 import { MyStatusRow, openStatusDialog, StatusEmoji, useMyStatusWords } from './StatusMessage'
@@ -51,6 +53,7 @@ import { useRowMenu } from './rooms/RoomMenu'
 import { useRoomTitle } from './rooms/RoomIcon'
 import { useRooms } from '../store/rooms'
 import { SetupRow } from './onboarding/SetupRow'
+import { TeamMenu } from './TeamMenu'
 import { SidebarSectionTitle, useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { Tooltip } from './Tooltip'
@@ -126,7 +129,6 @@ export default function Sidebar() {
   // the whole history opened ("모두 보기"), remembered in this browser like the fold
   const [allChats, setAllChatsState] = useState(() => remembered(ALL_KEY, ['yes', 'no'] as const, 'no') === 'yes')
   const setAllChats = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAllChatsState(v))
-  const me = useMeStrict()
   const chats = useChats((s) => s.chats)
   // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
   // goes to another group (a date, a project) and is made again, as the share right after the move needs
@@ -208,23 +210,18 @@ export default function Sidebar() {
 
   return (
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
-      <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
-          {/* the team's logo (Admin › Team settings) sits next to the team name, from md up; object-cover crops a non-square logo as the settings previews do.
-              Below md the header names the AI, not the team, so it keeps the product's mark. */}
-          {me.team.iconVersion ? (
-            <>
-              <img src={teamIconUrl(me.team.iconVersion)} alt="" aria-hidden className="size-5 shrink-0 rounded-md object-cover max-md:hidden" data-testid="sidebar-logo" />
-              <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md md:hidden" data-testid="sidebar-logo-phone" />
-            </>
-          ) : (
-            <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md" data-testid="sidebar-logo" />
-          )}
-          {/* the phone's drawer is the AI's history: the AI's one name there, as on its tab */}
-          <span className="truncate max-md:hidden" data-testid="sidebar-team">{me.team.name}</span>
-          <span className="md:hidden">{aiName(t)}</span>
-        </Link>
-      </div>
+      {wide ? (
+        // the team on top (TeamMenu.tsx): its logo and name, and for owners and admins the team menu
+        <TeamMenu />
+      ) : (
+        // the phone's drawer is the AI's history: the AI's one name there, as on its tab, with the product's mark
+        <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
+          <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
+            <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md" data-testid="sidebar-logo-phone" />
+            <span>{aiName(t)}</span>
+          </Link>
+        </div>
+      )}
       {wide ? (
         <DesktopNav unread={unread} onNewChat={() => navigate('/')} onSearch={() => setSearchOpen(true)} />
       ) : (
@@ -362,13 +359,11 @@ export default function Sidebar() {
   )
 }
 
-/** A computer: the seven rows of before in two. A new AI chat (with its shortcut) and search share one row; files,
- * projects, scheduled tasks, team skills, the Inbox (its count on the bell) and Admin (owners and admins) are one row of
- * icons. Each icon is a link with its name as its label (the Inbox's with the count, so a screen reader says it) and a
- * tooltip on hover and on keyboard focus. Team skills has no count of its own: a suggestion is an Inbox notice already. */
+/** A computer: one labeled row each, a new AI chat and search with their shortcuts, then projects, scheduled tasks, the
+ * Inbox (its count on the row, in words for a screen reader), files and team skills. Admin is in the team menu on top
+ * (TeamMenu.tsx), not a row. Team skills has no count of its own: a suggestion is an Inbox notice already. */
 function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat: () => void; onSearch: () => void }) {
   const t = useT()
-  const me = useMeStrict()
   const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
   const kbd = 'ml-auto hidden font-sans text-micro text-faint lg:inline'
@@ -405,11 +400,6 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
       <NavLink to="/skills" className={active} data-testid="nav-skills">
         <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
       </NavLink>
-      {isAdmin(me) && (
-        <NavLink to="/admin" className={active} data-testid="nav-admin">
-          <Shield size={16} aria-hidden /> {t('sidebar.admin')}
-        </NavLink>
-      )}
     </div>
   )
 }

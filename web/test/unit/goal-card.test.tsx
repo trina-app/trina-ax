@@ -310,6 +310,27 @@ describe('the card: a title, one line, one button', () => {
       useWelcome.getState().reset()
     }
   })
+  test('setup unfinished, an admin who is not the owner: [팀원 초대] opens the invite dialog (the steps are the owner\'s; /welcome would send them Home)', async () => {
+    function Welcome() { const l = useLocation(); return <p data-testid="where">{`${l.pathname} ${JSON.stringify(l.state)}`}</p> }
+    const unfinished = {
+      startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
+      steps: { profile: 'done', result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+    } as unknown as WelcomeProgress
+    // the team's progress, read by an admin too (the invite dialog's link panel, Files)
+    useWelcome.setState({ loaded: true, progress: unfinished })
+    useSession.setState({ status: { kind: 'signed-in', me: me('admin') } } as never)
+    const expired = { ...LINK, link: { ...LINK.link!, state: 'expired' as const } }
+    const m = await mount(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<GoalCard goal={goal({ joined: 0 })} onDismiss={() => {}} link={expired} />} /><Route path="/welcome" element={<Welcome />} /></Routes></MemoryRouter>)
+    try {
+      await m.click('team-goal-invite')
+      await m.until(() => m.find('invite-step'), 'the invite dialog')
+      expect(m.find('where')).toBeNull()
+    } finally {
+      await m.unmount()
+      useWelcome.getState().reset()
+      useSession.setState({ status: { kind: 'signed-in', me: me() } } as never)
+    }
+  })
   test('reached: "달성했어요 · names" and only a way to hide it', async () => {
     let hidden = 0
     const m = await mount(<MemoryRouter><GoalCard goal={goal({ state: 'reached', reachedAt: '2026-11-04T00:00:00.000Z', skill: { path: AD, name: '광고 문구', runners: 3, people: ['민지', '지훈', 'Olga'] } })} onDismiss={() => hidden++} link={null} /></MemoryRouter>)

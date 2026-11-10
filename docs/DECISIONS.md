@@ -18785,3 +18785,60 @@ only in small grey type beside a "Yours" tab.
   sweep, Settings IA, Admin Home, the quick UX checks) follow the page instead of the tabs, and check the plain titles,
   the Admin shell's title and line, the "From `<team>`" block for an admin and a member, the chip, the search over both
   sections and where the keyboard lands (also with Settings over Admin); `audienceOf` has unit tests.
+## The team menu — the team on top of the sidebar, me at the bottom (feat/team-menu, 2026-11-10, product owner)
+
+The owner agreed: "top of the sidebar = the team, bottom = me". The top was a plain link home with a 20 px logo and the
+team name at 15 px, and 관리자 was one more row in the main list, between 팀 스킬 and the rooms. Placement: Team AX core
+(`web/src/components/TeamMenu.tsx`, `Sidebar.tsx`, `SearchDialog.tsx`, `Layout.tsx`); no API, data or permission change.
+Plan: `docs/AGENTS/plan/20261110-0443-team-menu.md`. Amends "Desktop sidebar: rooms first" (no 관리자 row) and the team
+logo's header (28 px).
+
+- **The header (768 px and wider).** The logo at 28 px with rounded corners (the team's, or the product's mark), the
+  team name semibold at 16 px, cut with "…" when long, and a ▾. Measured: the rows are 14 px, section titles 12 px, the
+  profile line 14 px, page titles 20 px (Files 18 px), so the name reads as the top without outshouting a page. The
+  logo's middle is in line with the rows' icons and the ▾ with the profile line's ▾. The button is 44 px high with the
+  rows' hover background, the same while the menu is open, a focus ring, `aria-haspopup="menu"` and `aria-expanded`.
+- **The menu** (under the button, the sidebar's width): the team again with its whole name (the button may cut it) and
+  its address (`GET /api/me` `team.address`, the one Settings › 앱 shows, never the address the page was opened at;
+  none known: no line; the menu's description for a screen reader), then **팀원 초대** / Invite people and **관리자** /
+  Admin. Admin keeps its word: it is the page's
+  own name and the 나 tab's row, and the menu around it already says "team". Nothing personal: Settings, Usage, the
+  away switch and Sign out stay in the profile menu at the bottom. No plan banner, no settings submenu.
+- **Who sees it.** The invite endpoints are admins' only (`/api/admin/invites`, `/api/admin/team-link`), so both items
+  are for owners and admins. A member would get a menu with no item, which ARIA does not allow and which leads nowhere,
+  so for a member the header is the logo and the name, not a button (no ▾, no hover); their team address is in
+  Settings › 앱 with its copy button.
+- **Home.** The header no longer goes home (a click on the logo opening a menu and a click beside it going home would be
+  two meanings in one spot). Home is the first row, 트리나에게 묻기 (it opens `/`), and ⇧⌘O.
+- **팀원 초대** opens the invite dialog Home's goal card opens (`onboarding/InviteStep.tsx` in a dialog titled 팀원 초대:
+  the team invite link's message with its copy button, or the link made in one press; the link's settings under
+  "링크 관리"). While the owner's welcome steps are unfinished it opens the owner's invite step instead, as the goal card
+  does, never a second invite dialog (also when the steps are already on screen: `pages/Welcome.tsx` goes to the invite
+  step on the new entry; the owner's progress is read first when the page has not read it yet). An admin who is not
+  the owner always gets the dialog: the steps are the owner's, and Welcome sends anyone else Home. Home's goal card had
+  the same gap (its [팀원 초대] took such an admin to /welcome and back Home once the team's progress had been read, by
+  the invite dialog's link panel or Files); it now sends the owner only too (`GoalCard.tsx`). One dialog for the window
+  (`Layout.tsx`), so ⌘K opens the same; a page change closes it (its "스킬 넣기" and "팀 파일 넣기" links, ⇧⌘O), as
+  leaving Home closes the goal card's. Closing it gives the keyboard back to the team button when it was opened from
+  the menu, and to where it was before ⌘K when opened from there. The single-use invite links with a role and groups
+  stay on Admin › Members & invites.
+- **Keyboard**, as in the profile menu: Enter or Space opens it on its first item, ↑ ↓ wrap, Home and End, Esc closes it
+  and gives the keyboard back to the button, Tab and a click outside close it.
+- **⌘K** finds 관리자 and 팀원 초대 for owners and admins by their words and their other names (Invite teammates and
+  멤버·초대 / Members & invites for the invite; 멤버·초대 and 팀 설정 / Team settings for Admin), not listed before
+  anything is typed, so the empty palette keeps its six actions. A member finds neither.
+- **Phones keep the AI's drawer.** Below 768 px the ☰ drawer belongs to the 트리나 tab and holds the AI's history only
+  ("Phone navigation: four tabs"): its header names the AI with the product's mark, as the tab does. A team menu there
+  would put team things in the AI's tab and give Admin a second place, so it stays as it was: Admin on the 나 tab, right
+  under 알림함. The phone app is the web app in a web view, so the same holds there; a tablet at 768 px or more gets the
+  computer's sidebar and its team menu.
+- **Not changed:** Admin › Team settings still previews the header with the 20 px logo; another PR is changing the admin
+  pages, and the preview follows after it. The profile menu.
+- Tests: `web/test/unit/sidebar.test.tsx` (a member's header is no button; owners and admins: the menu, its items and
+  address, the keyboard, Esc, Tab, Invite's dialog and the focus after it, the dialog closed by a page change, the
+  owner's unfinished steps and an admin who is not the owner, Admin's link; no Admin row; the logo at 28 px; the phone
+  drawer), e2e `sidebar.spec.ts` (sizes measured, the menu with axe, Admin, the keyboard, Invite's dialog and its link,
+  the owner's invite step from another page and on the steps themselves, ⌘K for an admin and a member, the phone drawer
+  and the 나 tab), `goal-card.test.tsx` (an admin who is not the owner gets the dialog), and the specs that went to Admin
+  through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured the 20 px logo (`team-icon.spec.ts`).
+- Version impact: **minor** (a visible change to the sidebar; no API or data change).

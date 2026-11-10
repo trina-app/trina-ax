@@ -4506,6 +4506,8 @@ export const ko = {
   "viewer.inGroup": "{room}에서",
   "viewer.inDm": "{name} 님과의 1:1 대화에서",
   "viewer.gone": "메시지가 삭제되어 이 파일은 더 이상 볼 수 없어요.",
+  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  "teamMenu.invite": "팀원 초대",
 } as const
 
 export type MessageKey = keyof typeof ko
