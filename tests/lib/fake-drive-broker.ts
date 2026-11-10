@@ -3,7 +3,7 @@
 // team key it knows, the strict bodies, single-use handoffs bound to the PKCE challenge. It never opens a connection.
 import crypto from 'node:crypto'
 import {
-  DRIVE_BROKER_PATHS, DRIVE_BROKER_SCOPE, driveBrokerSigningString, parseDriveBrokerAuthorization, parseDriveBrokerRedeem,
+  DRIVE_BROKER_PATHS, DRIVE_BROKER_SCOPE, driveBrokerConnectPage, driveBrokerSigningString, parseDriveBrokerAuthorization, parseDriveBrokerRedeem,
   parseDriveBrokerRefresh, parseDriveBrokerStart, parseDriveBrokerStatus,
 } from '../../shared/src/cloud-protocol/drive-broker'
 import type { DriveFetch } from '../../server/src/integrations/google-drive/client'
@@ -26,6 +26,9 @@ export class FakeDriveBroker {
   invalidGrant = false
   /** the start answer's Google address (a test makes it point elsewhere) */
   authorizeBase = 'https://accounts.google.com/o/oauth2/v2/auth'
+  /** the start answer's connectUrl: none (an older control plane), its own start page, or a given address with
+   * `{state}` replaced (a test makes it point elsewhere) */
+  connect: 'none' | 'page' | string = 'none'
   seen = new Set<string>()
   constructor(readonly google: FakeGoogleDrive) {}
   options(): BrokerOptions { return { origin: BROKER_ORIGIN, identity: () => ({ key: this.key, publicKey: this.publicKey }) } }
@@ -76,7 +79,8 @@ export class FakeDriveBroker {
       this.starts.set(state, { returnState: b.returnState, challenge: b.codeChallenge, purpose: b.purpose })
       const u = new URL(this.authorizeBase)
       u.searchParams.set('state', state); u.searchParams.set('scope', DRIVE_BROKER_SCOPE); u.searchParams.set('redirect_uri', BROKER_ORIGIN + '/drive-broker/google/callback')
-      return Response.json({ authorizationUrl: u.href, expiresAt: new Date(Date.now() + 600_000).toISOString() })
+      const connectUrl = this.connect === 'none' ? undefined : this.connect === 'page' ? driveBrokerConnectPage(BROKER_ORIGIN, state) : this.connect.replace('{state}', state)
+      return Response.json({ authorizationUrl: u.href, ...(connectUrl ? { connectUrl } : {}), expiresAt: new Date(Date.now() + 600_000).toISOString() })
     }
     if (path === DRIVE_BROKER_PATHS.redeem) {
       const b = parseDriveBrokerRedeem(json)

@@ -83,6 +83,14 @@ one-time `handoff` (never a Google code or token). The callback checks the same 
 direct flow, then redeems the handoff with this flow's verifier. Refresh and revoke go to the control plane, never to
 Google's token endpoint.
 
+**The first page.** A control plane that has its own start page answers `start` with a `connectUrl` too:
+`<console origin>/drive-broker/connect?state=…`. It names the team, says that Trina reads Drive read-only, explains
+Google's screen for an unverified app, and links on to Google. The server passes `connectUrl` on only when it is exactly
+that page on `MYCEL_GOOGLE_DRIVE_BROKER_URL` (`driveBrokerConnectUrl`), and the web opens it in the sign-in window
+(`web/src/lib/driveSignIn.ts`, which checks the shape again). The phone app keeps opening Google directly: its browser
+hand-off accepts only `accounts.google.com`. With an older control plane there is no `connectUrl` and the web opens
+Google, as before.
+
 **Trust boundaries.**
 - Every call to the control plane is signed with this server's relay team key (`<data>/relay/team-key.pem`, Ed25519,
   with a timestamp and a nonce). The control plane serves only the key it recorded for a hosted team at enroll.
