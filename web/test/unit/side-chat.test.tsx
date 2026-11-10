@@ -6,17 +6,21 @@
 // chat (made by the first file when there is none), shown above the box with ✕, their ids in the send body; a failed
 // upload says why and is not sent.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
-import { MemoryRouter } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
+import { act } from 'react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Chat, type Me, type Message as MessageT, type ServerEvent } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
 import { askTrinaInRoom, fileSeed, messageSeed, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
+import { useViewerColumn, ViewerColumn } from '../../src/components/rooms/ViewerColumn'
+import RoomPage from '../../src/pages/Room'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
+import { useSideChats } from '../../src/store/sideChats'
 import { useSession } from '../../src/store/session'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
@@ -107,24 +111,74 @@ const sentTo = (id: string) => calls.find((c) => c.method === 'POST' && c.path =
 const team = room({ name: 'Marketing', memberCount: 6, activityAt: at(5) })
 const signIn = () => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { allChatsConfidential: false } } as unknown as Me } })
 
-function serve(existing: string | null, older: string[] = []) {
+/** The fake server: the room's side chats (`existing` the newest, then `older`; `newest`: more of the newest's fields,
+ * such as an answer not seen), each one made added in front; `turns`: a question is taken and its answer starts (else
+ * refused); the room page's reads (its messages: ben's `root`, members, AI, the thread). */
+function serve(existing: string | null, older: string[] = [], o: { newest?: Partial<Chat>; turns?: boolean } = {}) {
   calls = []
+  turns = {}
   const made = uuidv7()
+  let next = made
+  const chat = (id: string): Chat => ({ id, projectId: null, title: '', engine: 'claude-code', model: null, createdAt: at(1), updatedAt: at(1), deletedAt: null, runState: 'idle', sideRoomId: team.id, ...(id === existing ? o.newest : {}) })
+  const list = [...(existing ? [existing] : []), ...older]
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input), 'http://team.localhost')
     const method = init?.method ?? 'GET'
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
     calls.push({ method, path: u.pathname, search: u.search, body })
     const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } })
-    const chat = (id: string) => ({ id, projectId: null, title: '', engine: 'claude-code', model: null, createdAt: at(1), updatedAt: at(1), deletedAt: null, runState: 'idle', sideRoomId: team.id })
-    if (method === 'GET' && u.pathname === '/api/chats') return json({ items: existing ? [chat(existing), ...older.map(chat)] : [], nextCursor: null })
-    if (method === 'POST' && u.pathname === '/api/chats') return json(chat(made))
-    if (method === 'GET' && /^\/api\/chats\/[^/]+\/messages$/.test(u.pathname)) return json({ items: [], nextCursor: null, activeLeafId: null })
+    if (method === 'GET' && u.pathname === '/api/chats') return json({ items: list.slice(0, Number(u.searchParams.get('limit') ?? 50)).map(chat), nextCursor: null })
+    if (method === 'POST' && u.pathname === '/api/chats') {
+      const id = next
+      next = uuidv7()
+      list.unshift(id)
+      return json(chat(id))
+    }
+    const sent = /^\/api\/chats\/([^/]+)\/messages$/.exec(u.pathname)
+    if (method === 'GET' && sent) return json({ items: turns[sent[1]!] ?? [], nextCursor: null, activeLeafId: null })
+    if (method === 'POST' && sent && o.turns) {
+      const chatId = sent[1]!
+      const userMessage = msg({ chatId, role: 'user', content: body.content, parentId: turns[chatId]?.at(-1)?.id ?? null })
+      const assistantMessage = msg({ chatId, role: 'assistant', parentId: userMessage.id, status: 'streaming', turnId: uuidv7() })
+      turns[chatId] = [...(turns[chatId] ?? []), userMessage, assistantMessage]
+      return json({ userMessage, assistantMessage, turnId: assistantMessage.turnId, queuePosition: 0 }, 202)
+    }
     if (method === 'POST' && /^\/api\/turns\/[^/]+\/answer$/.test(u.pathname)) return new Response(null, { status: 204 })
+    const base = `/api/rooms/${team.id}`
+    if (method === 'GET' && u.pathname === `${base}/messages`) return json({ items: [root], nextCursor: null })
+    if (method === 'GET' && u.pathname === `${base}/members`) return json({ items: [ME, BEN].map((user) => ({ user, joinedAt: at(-60) })) })
+    if (method === 'GET' && u.pathname === `${base}/ai`) return json({ answering: 0, mine: [] })
+    if (method === 'GET' && u.pathname === `${base}/ai/requests`) return json({ items: [] })
+    if (method === 'GET' && u.pathname === `${base}/messages/${root.id}/thread`) return json({ root, items: [], nextCursor: null })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
   }) as typeof fetch
   return { made }
 }
+/** the room's newest side chat has an answer I have not seen: a panel opens on it (else on a new chat) */
+const UNSEEN = { newest: { unseen: true } } as const
+/** each side chat's messages on the fake server (`serve` with `turns`), by chat */
+let turns: Record<string, MessageT[]> = {}
+/** the answer of the chat's last question ends (message.done), with `unseen` when no panel had it on screen (chat.updated) */
+function answerEnds(chatId: string, o: { unseen?: boolean } = {}) {
+  const a = turns[chatId]!.at(-1)!
+  const done = { ...a, status: 'done' as const, content: 'Wednesday, two drafts.' }
+  turns[chatId] = [...turns[chatId]!.slice(0, -1), done]
+  act(() => {
+    useChats.getState().handleEvent({ type: 'message.done', seq: 1, at: 0, data: { chatId, messageId: a.id, status: 'done', message: done } } as ServerEvent)
+    const row = useChats.getState().chats.find((c) => c.id === chatId)!
+    useChats.getState().handleEvent({ type: 'chat.updated', seq: 2, at: 0, data: { chatId, change: 'updated', chat: { ...row, runState: 'idle', ...(o.unseen ? { unseen: true } : {}) } } } as ServerEvent)
+  })
+}
+const root = message({ roomId: team.id, seq: 1, author: BEN, body: 'logo drafts by Friday?' })
+/** the room page at `path` (/rooms/:id, or a thread: /rooms/:id/t/:root) */
+const roomPage = (path = `/rooms/${team.id}`) => mount(
+  <MemoryRouter initialEntries={[path]}>
+    <Routes>
+      <Route path="/rooms/:roomId" element={<RoomPage />} />
+      <Route path="/rooms/:roomId/t/:messageId" element={<RoomPage />} />
+    </Routes>
+  </MemoryRouter>,
+)
 
 test('no side chat yet: the empty line; the first question makes a side chat of the room and sends it there', async () => {
   signIn()
@@ -157,17 +211,47 @@ test('no side chat yet: the empty line; the first question makes a side chat of 
   }
 })
 
-test('the room\'s newest side chat opens again, with "open as a full chat"', async () => {
+test('opened, it is a new chat: the room\'s earlier side chat is not shown but listed in 🕘, where it opens', async () => {
   signIn()
   const id = uuidv7()
   serve(id)
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
-    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
-    expect(calls.some((c) => c.path === `/api/chats/${id}/messages`)).toBe(true)
+    await m.until(() => !!m.find('side-chat-empty'), 'a new chat')
+    expect(m.find('side-chat-starters')).not.toBeNull()
+    expect(m.find('side-chat-open-full')).toBeNull()
+    // the newest asked for once, its messages not read, nothing made
+    expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/chats')).toHaveLength(1)
+    expect(calls.some((c) => c.path === `/api/chats/${id}/messages`)).toBe(false)
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
+    await m.click('side-chat-history')
+    await m.until(() => !!m.find('side-chat-history-item'), 'the list')
+    const item = m.get('side-chat-history-item')
+    expect(item.getAttribute('aria-current')).toBeNull()
+    await m.click(item)
+    await m.until(() => !!m.find('side-chat-open-full'), 'the earlier chat')
+    expect(calls.some((c) => c.path === `/api/chats/${id}/messages`)).toBe(true)
   } finally {
     await m.unmount()
+  }
+})
+
+test('the first opening on this page (after a reload): the newest side chat while it is not done (running, queued, an answer not seen, failed unseen, the AI waiting on me)', async () => {
+  const cases: Partial<Chat>[] = [{ runState: 'running' }, { runState: 'queued' }, { unseen: true }, { unseen: true, lastOutcome: 'error' }, { waiting: true }]
+  for (const newest of cases) {
+    signIn()
+    const id = uuidv7()
+    serve(id, [], { newest })
+    const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => !!m.find('side-chat-open-full'), `the chat (${JSON.stringify(newest)})`)
+      expect(calls.some((c) => c.path === `/api/chats/${id}/messages`)).toBe(true)
+      expect(calls.some((c) => c.method === 'POST' && c.path === '/api/chats')).toBe(false)
+    } finally {
+      await m.unmount()
+      useRooms.getState().reset()
+      useChats.getState().reset()
+    }
   }
 })
 
@@ -203,7 +287,7 @@ test('a side chat\'s answer: one click in words (side-chat-send.test.tsx); as a 
 test("two panels of a room (the page's and the file viewer's) are one chat: the same chat, draft and quote; an ask is quoted once", async () => {
   signIn()
   const id = uuidv7()
-  serve(id)
+  serve(id, [], UNSEEN)
   const seed = { key: 'kq', author: 'acme', at: at(1), text: 'the launch date' }
   const m = await mount(
     <MemoryRouter>
@@ -295,7 +379,7 @@ test('autoFocus false: the box leaves the focus where it is as the panel opens; 
 test('🕘 lists the room\'s side chats and opens one; "New chat" leaves the list', async () => {
   signIn()
   const id = uuidv7(), old = uuidv7()
-  serve(id, [old])
+  serve(id, [old], UNSEEN)
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
@@ -318,7 +402,7 @@ test('🕘 lists the room\'s side chats and opens one; "New chat" leaves the lis
 test('while the AI waits for the answer to its question, the box answers it (not a new message)', async () => {
   signIn()
   const id = uuidv7()
-  serve(id)
+  serve(id, [], { newest: { waiting: true } })
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
@@ -463,7 +547,7 @@ test('"Ask Trina about this file" reaches the room page that listens, only for i
 test('📎 attaches a file into the side chat: a chip with its size and ✕; sent, its id goes with the question and the message shows it', async () => {
   signIn()
   const id = uuidv7()
-  serve(id)
+  serve(id, [], UNSEEN)
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
@@ -491,7 +575,7 @@ test('📎 attaches a file into the side chat: a chip with its size and ✕; sen
 test('a picture pasted into the box shows as itself at once (not pasted as text); ✕ takes it out; a dropped file is attached too', async () => {
   signIn()
   const id = uuidv7()
-  serve(id)
+  serve(id, [], UNSEEN)
   // the upload is held: the tile shows while it uploads
   answerUpload = (name, chatId, size) => (name === 'image.png' ? null : answerAttachment(name, chatId, size))
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
@@ -526,7 +610,7 @@ test('a picture pasted into the box shows as itself at once (not pasted as text)
 test('an upload that fails says why on its chip and is not sent; too many files say the limit', async () => {
   signIn()
   const id = uuidv7()
-  serve(id)
+  serve(id, [], UNSEEN)
   answerUpload = (name, chatId, size) => (name === 'huge.pdf' ? { status: 413, body: { error: { code: 'payload_too_large', message: 'The file is too large.' } } } : answerAttachment(name, chatId, size))
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
@@ -584,7 +668,7 @@ test('no side chat yet: the first file makes one of the room and goes into it; a
 test('two panels of a room show the same files', async () => {
   signIn()
   const id = uuidv7()
-  serve(id)
+  serve(id, [], UNSEEN)
   const m = await mount(
     <MemoryRouter>
       <div data-testid="page"><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></div>
@@ -638,7 +722,7 @@ test('the first question and a file at the same moment make one side chat, and b
 test('while the AI waits for the answer to its question, the box answers with its text alone; the files stay for the next message', async () => {
   signIn()
   const id = uuidv7()
-  serve(id)
+  serve(id, [], { newest: { waiting: true } })
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
@@ -662,7 +746,7 @@ test('while the AI waits for the answer to its question, the box answers with it
 test('another side chat from 🕘 drops the files (they were uploaded into the one shown)', async () => {
   signIn()
   const id = uuidv7(), old = uuidv7()
-  serve(id, [old])
+  serve(id, [old], UNSEEN)
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
@@ -680,5 +764,227 @@ test('another side chat from 🕘 drops the files (they were uploaded into the o
     expect(chips(m)).toHaveLength(0)
   } finally {
     await m.unmount()
+  }
+})
+
+// ---------------- opened again: a new chat (docs/DECISIONS.md "The side chat opens on a new chat") ----------------
+const body = (m: Mounted) => m.container.ownerDocument!.body
+const count = (m: Mounted, testId: string) => body(m).querySelectorAll(`[data-testid="${testId}"]`).length
+const answerDone = (m: Mounted) => !!body(m).querySelector('[data-testid="assistant-message"][data-status="done"]')
+const boxText = (m: Mounted) => (m.get('side-chat-input') as unknown as { value: string }).value
+/** ✦ in the room header, and the panel's chat drawn (a new one, or one kept) */
+async function openSide(m: Mounted) {
+  await m.click('room-side-chat-button')
+  await m.until(() => !!m.find('side-chat-panel') && !m.find('side-chat-history-list') && !body(m).querySelector('[data-testid="side-chat-panel"] [aria-label="' + en('common.loading') + '"]'), 'the side chat')
+}
+async function askInSide(m: Mounted, text: string) {
+  const before = count(m, 'user-message')
+  await m.type('side-chat-input', text)
+  await m.click('side-chat-send')
+  await m.until(() => count(m, 'user-message') === before + 1 && !!m.find('side-chat-open-full'), 'the question in its chat')
+}
+const fresh = (m: Mounted) => !!m.find('side-chat-empty') && !!m.find('side-chat-starters') && count(m, 'user-message') === 0 && !m.find('side-chat-open-full')
+
+test('the room page: ✦, a question, ✕, ✦: a new empty chat (nothing made for it), the asked one in 🕘; ✦ to close and leaving the room do the same', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await openSide(m)
+    expect(fresh(m)).toBe(true)
+    await askInSide(m, 'what did I miss?')
+    answerEnds(made)
+    await m.until(() => answerDone(m), 'the answer')
+    // ✕, then ✦: a new chat, its starters; opening it made nothing
+    await m.click('side-chat-close')
+    expect(m.find('side-chat-panel')).toBeNull()
+    await openSide(m)
+    expect(fresh(m)).toBe(true)
+    expect(m.get('side-chat-new').hasAttribute('disabled')).toBe(true)
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/chats')).toHaveLength(1)
+    // 🕘: the one asked, which opens with its question and answer
+    await m.click('side-chat-history')
+    await m.until(() => count(m, 'side-chat-history-item') === 1, 'the list')
+    await m.click('side-chat-history-item')
+    await m.until(() => count(m, 'user-message') === 1 && answerDone(m), 'the asked chat')
+    // ✦ closes it, ✦ opens a new one
+    await m.click('room-side-chat-button')
+    expect(m.find('side-chat-panel')).toBeNull()
+    await openSide(m)
+    expect(fresh(m)).toBe(true)
+    // the old one again from 🕘, then the room left with it open
+    await m.click('side-chat-history')
+    await m.until(() => count(m, 'side-chat-history-item') === 1, 'the list')
+    await m.click('side-chat-history-item')
+    await m.until(() => count(m, 'user-message') === 1, 'the asked chat')
+  } finally {
+    await m.unmount()
+  }
+  const back = await roomPage()
+  try {
+    await back.until(() => !!back.find('room-message'), 'the room again')
+    expect(back.find('side-chat-panel')).toBeNull()
+    await openSide(back)
+    expect(fresh(back)).toBe(true)
+  } finally {
+    await back.unmount()
+  }
+})
+
+test('an answer still on its way when it closes: ✦ shows that chat; one that ended while closed and is not seen, too; seen, the next ✦ is new', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await openSide(m)
+    await askInSide(m, 'summarize the launch thread')
+    expect(answerDone(m)).toBe(false)
+    await m.click('side-chat-close')
+    // running: the same chat, its answer still coming (nothing more can be asked meanwhile)
+    await openSide(m)
+    expect(count(m, 'user-message')).toBe(1)
+    expect(m.find('side-chat-open-full')).not.toBeNull()
+    expect(m.get('side-chat-new').hasAttribute('disabled')).toBe(true)
+    await m.click('side-chat-close')
+    // it ends while the panel is closed: not seen
+    answerEnds(made, { unseen: true })
+    await openSide(m)
+    await m.until(() => count(m, 'user-message') === 1 && answerDone(m), 'the answer shown')
+    // seen now: the server's word (after the /seen of the chat on screen, store/sessionMarkers.ts)
+    act(() => {
+      const row = useChats.getState().chats.find((c) => c.id === made)!
+      const { unseen: _, ...seen } = row
+      useChats.getState().handleEvent({ type: 'chat.updated', seq: 3, at: 0, data: { chatId: made, change: 'updated', chat: seen } } as ServerEvent)
+    })
+    await m.click('side-chat-close')
+    await openSide(m)
+    expect(fresh(m)).toBe(true)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('what was typed or attached when it closed stays for this page\'s session, with the chat it was going into', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await openSide(m)
+    await askInSide(m, 'who sends the drafts?')
+    answerEnds(made)
+    await m.until(() => answerDone(m), 'the answer')
+    // a follow-up typed, not sent: the same chat and the text
+    await m.type('side-chat-input', 'and by when?')
+    await m.click('side-chat-close')
+    await openSide(m)
+    expect(count(m, 'user-message')).toBe(1)
+    expect(boxText(m)).toBe('and by when?')
+    // the box emptied: the next opening is new
+    await m.type('side-chat-input', '')
+    await m.click('side-chat-close')
+    await openSide(m)
+    expect(fresh(m)).toBe(true)
+    // a new chat's draft stays in it; a file attached keeps the chat it was uploaded into
+    await pick(m, [pdf()])
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the file attached')
+    const into = uploads[0]!.chatId
+    expect(into).not.toBe(made)
+    await m.click('side-chat-close')
+    await openSide(m)
+    expect(chips(m)).toHaveLength(1)
+    expect(useSideChats.getState().byRoom[team.id]!.chatId).toBe(into)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('"Ask Trina about this" on a message after the side chat was closed: a new empty chat with the message quoted', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await openSide(m)
+    await askInSide(m, 'what did I miss?')
+    answerEnds(made)
+    await m.until(() => answerDone(m), 'the answer')
+    await m.click('side-chat-close')
+    await m.click('message-ask-trina')
+    await m.until(() => !!m.find('side-chat-quote'), 'the message quoted')
+    expect(m.get('side-chat-quote').textContent).toContain('logo drafts by Friday?')
+    expect(count(m, 'user-message')).toBe(0)
+    expect(m.find('side-chat-empty')).not.toBeNull()
+    expect(m.find('side-chat-open-full')).toBeNull()
+    // its quick questions, not the starters
+    expect(m.find('side-chat-starters')).toBeNull()
+    expect(m.find('side-chat-quick-summarize')).not.toBeNull()
+  } finally {
+    await m.unmount()
+  }
+})
+
+/** the file viewer's column (components/ImageViewer.tsx keeps its state for one opening of the viewer): ✦ in its bar
+ * asks about the file */
+function ViewerHarness() {
+  const column = useViewerColumn(team.id)
+  return (
+    <>
+      <button type="button" data-testid="viewer-ask" onClick={() => column.ask(fileSeed('f-1', 'acme-brief.pdf'))} />
+      <ViewerColumn place={{ roomId: team.id, fileId: 'f-1', messageId: root.id }} state={column.state} onAsk={column.ask} onThread={column.toThread} onHide={column.hide} />
+    </>
+  )
+}
+
+test('the file viewer: ✦ is a new chat with the file quoted; "스레드로 돌아가기" and ✦ again keep it; closing the viewer on it closes it, unless the room page has it open', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const v = await mount(<MemoryRouter><ViewerHarness /></MemoryRouter>)
+  const shows = () => v.get('viewer-column').getAttribute('data-show')
+  try {
+    await v.until(() => shows() === 'thread', 'the file\'s thread')
+    await v.click('viewer-ask')
+    await v.until(() => shows() === 'trina' && !!v.find('side-chat-empty'), 'the side chat')
+    expect(v.get('side-chat-quote-file').textContent).toContain('acme-brief.pdf')
+    expect(count(v, 'user-message')).toBe(0)
+    await askInSide(v, 'when is the launch?')
+    answerEnds(made)
+    await v.until(() => answerDone(v), 'the answer')
+    // the thread, then ✦ again: the same chat, the file quoted again
+    await v.click('viewer-column-back')
+    await v.until(() => shows() === 'thread', 'the thread again')
+    await v.click('viewer-ask')
+    await v.until(() => shows() === 'trina' && count(v, 'user-message') === 1 && answerDone(v), 'the same chat')
+    expect(v.find('side-chat-quote-file')).not.toBeNull()
+    await v.click('side-chat-quote-remove')
+  } finally {
+    // the viewer closes on the side chat
+    await v.unmount()
+  }
+  // ✦ on the room page afterwards: a new chat
+  const p = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await p.until(() => !!p.find('side-chat-empty'), 'the panel')
+    expect(fresh(p)).toBe(true)
+    await askInSide(p, 'and the budget?')
+    // the room page has it open: the viewer starts on it, the same chat, and closing the viewer leaves it open
+    useRooms.getState().setSide(team.id, 'trina')
+    const v2 = await mount(<MemoryRouter><ViewerHarness /></MemoryRouter>)
+    try {
+      await v2.until(() => v2.get('viewer-column').getAttribute('data-show') === 'trina' && v2.get('viewer-column').querySelectorAll('[data-testid="user-message"]').length === 1, 'the same chat beside the file')
+    } finally {
+      await v2.unmount()
+    }
+    expect(useSideChats.getState().byRoom[team.id]!.open).toBe(true)
+    expect(count(p, 'user-message')).toBe(1)
+  } finally {
+    await p.unmount()
   }
 })

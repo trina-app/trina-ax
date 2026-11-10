@@ -275,3 +275,54 @@ test('a side chat is named after its question, never the quote; a quick question
   await expect(items.nth(1)).toContainText('한 줄로 정리해 줘')
   for (const t of await items.allTextContents()) expect(t).not.toMatch(/^벤 · /)
 })
+
+// docs/DECISIONS.md "The side chat opens on a new chat"; SHOTS_DIR: the new chat opened again and 🕘 with the old one
+async function openedShot(page: Page, name: string) {
+  if (!process.env.SHOTS_DIR) return
+  fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true })
+  await page.mouse.move(5, 5)
+  await page.waitForTimeout(250)
+  await page.screenshot({ path: path.join(process.env.SHOTS_DIR, `side-chat-opens-new-${name}-${page.viewportSize()!.width}-light.png`) })
+}
+
+test('closed and opened again (✕, then ✦): a new empty chat with its starters; the one asked is in 🕘 and opens there', async ({ page }) => {
+  const { side } = await open(page, { ask: false })
+  await side.getByTestId('side-chat-close').click()
+  await expect(page.getByTestId('room-side-chat')).toHaveCount(0)
+  await page.getByTestId('room-side-chat-button').click()
+  const again = page.getByTestId('room-side-chat')
+  await expect(again.getByTestId('side-chat-empty')).toBeVisible()
+  await expect(again.getByTestId('side-chat-starters')).toBeVisible()
+  await expect(again.getByTestId('user-message')).toHaveCount(0)
+  await expect(again.getByTestId('side-chat-new')).toBeDisabled()
+  await expect(again.getByTestId('side-chat-input')).toBeFocused()
+  await openedShot(page, 'reopen')
+  const items = await historyTitles(again)
+  await expect(items).toHaveCount(1)
+  await expect(items.first()).toContainText('한 줄로 정리해 줘')
+  await openedShot(page, 'history')
+  await items.first().click()
+  await expect(again.getByTestId('user-message')).toHaveCount(1)
+  await expect(again.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1)
+  // ✦ to close it and ✦ again: new once more
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(page.getByTestId('room-side-chat')).toHaveCount(0)
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(page.getByTestId('room-side-chat').getByTestId('side-chat-empty')).toBeVisible()
+  await expect(page.getByTestId('room-side-chat').getByTestId('user-message')).toHaveCount(0)
+})
+
+test('a phone: ‹ and ✦ again open a new chat over the room; asking about a message then quotes it in a new chat', async ({ page }) => {
+  const { side } = await open(page, { ask: false, phone: true })
+  await side.getByTestId('side-chat-back').click()
+  await expect(page.getByTestId('room-side-chat')).toHaveCount(0)
+  await expect(page.getByTestId('room')).toBeVisible()
+  await page.getByTestId('room-side-chat-button').click()
+  const again = page.getByTestId('room-side-chat')
+  await expect(again.getByTestId('side-chat-empty')).toBeVisible()
+  await expect(again.getByTestId('user-message')).toHaveCount(0)
+  await expect(page.getByTestId('room')).toBeHidden()
+  await again.getByTestId('side-chat-input').blur()
+  await openedShot(page, 'reopen')
+  await expect(await historyTitles(again)).toHaveText([/^한 줄로 정리해 줘/])
+})
