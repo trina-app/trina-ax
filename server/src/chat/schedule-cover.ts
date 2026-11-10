@@ -13,6 +13,11 @@
 //     planted message cannot steer it to another channel.
 //   - a lapse (the folder moved, renamed, deleted, its rules changed, the person's write access gone) stops every save
 //     there: the run saves in the person's own folder and says why (chat/schedule-scope.ts checkLapse).
+//   - the person's own folder: a new file there, or one this run made, also after a room read (ownSave: nobody else
+//     reads it; never a hidden, skills or project folder or an instruction file), so the fallback works in every run.
+//     #275 does the same for every own chat; when it lands this one goes.
+//   - "my folder" as a listed place is what the person keeps there: a file in it that an AI turn wrote after the task was
+//     confirmed (another run, a chat) may hold what that turn read, so reading it counts as an unlisted place.
 // Every cover is checked again right before the call writes (recheck), an absent target is reserved for the one call
 // that claimed it (two calls of a run at the same time cannot both make one path), and the first cover of a run is
 // audited `schedule.save_cover`.
@@ -40,8 +45,8 @@ import { instructionLike } from './turn'
 /** What the cover needs of the turn (chat/turn.ts TurnExec). */
 export interface CoverHost {
   readonly id: string
-  readonly spec: { userId: string; chatId: string; locale: Locale }
   readonly rt: { db: Database; ctx: AppContext; files: { fx: FsCtx; rules(): RuleSet } }
+  readonly spec: { userId: string; chatId: string; locale: Locale }
   livePrincipal(): Principal
   noteReads(): void
   patchToolStep(tool: string, patch: (s: Step) => Partial<StoredStep>): void
@@ -92,7 +97,7 @@ function refuse(done: string, why: string, next: string, names: string[] = []): 
 /** One save: the call (its key: tool and input), where it saves, whether it may make a new file there, the files it
  * copies bytes from (`from`) and other places its bytes come from (`read`: a room file's room), and whether it is the
  * main AI's own call (its step says why it went on). */
-export interface SaveCall { key: string; tool: string; path: string; mayBeNew: boolean; from: readonly string[]; read: readonly ReadSource[]; main: boolean }
+export interface SaveCall { key: string; tool: string; path: string; mayBeNew: boolean; from: readonly string[]; read: readonly ReadSource[]; main: boolean; own?: boolean }
 
 /** One run's covers (TurnExec.scheduleCover): null outside a confirmed free-text task's run. */
 export class ScheduleCover {
@@ -104,6 +109,8 @@ export class ScheduleCover {
   private covered = new Map<string, SaveCall>()
   private audited = false
   private stepped = new Set<string>()
+  /** files of the person's own folder this run read whose content an AI turn wrote after the task was confirmed */
+  private aiOwn = new Set<string>()
 
   private constructor(private host: CoverHost, readonly scheduleId: string) {}
 
@@ -183,7 +190,9 @@ export class ScheduleCover {
       try { if (componentC(this.host.rt.ctx).files.aiTrashed(r.rel)) return refuse(done, `'${r.rel}' was just put in the trash, and saving there again would replace what was removed`, `use another name, or ${elsewhere}`, [row.save_folder]) } catch { return undefined }
       const claimed = this.reserved.get(r.rel)
       if (claimed && claimed !== c.key) return refuse(done, `another call of this run is saving '${r.rel}' right now`, 'wait for it, then change that file, or save under another name')
-      if (!this.made.has(r.rel) && this.made.size >= MAX_COVERED_FILES) return refuse(done, `a run saves at most ${MAX_COVERED_FILES} new files in its save folder`, `${elsewhere}, or put several results in one file`, [row.save_folder])
+      // the files this run made there, as the file layer recorded them (a conflict copy under another name counts), and
+      // the ones claimed now and not made yet
+      if (!this.made.has(r.rel) && this.newFiles(row.save_folder) >= MAX_COVERED_FILES) return refuse(done, `a run saves at most ${MAX_COVERED_FILES} new files in its save folder`, `${elsewhere}, or put several results in one file`, [row.save_folder])
     }
     // what the run read: every room on the card, every place fewer people can see than the file on the card
     this.host.noteReads()
@@ -193,6 +202,12 @@ export class ScheduleCover {
     }
     const scope = [...(readScope(db, this.host.spec.chatId) ?? []), ...extra]
     const on = new Set(rowSources(row).map(scopeKey))
+    // a file of the own folder an AI turn wrote after the yes is not "my folder" here: it may hold what that turn read
+    for (const p of c.from) this.noteOwnRead(p)
+    if (this.aiOwn.size && on.has(`user:${this.host.spec.userId}`)) {
+      const files = [...this.aiOwn].slice(0, 3)
+      return refuse(done, `this run read ${files.join(', ')}${this.aiOwn.size > 3 ? ` and ${this.aiOwn.size - 3} more` : ''} in the user's own folder, which an AI run or chat wrote after this task was confirmed; what an AI saved there may come from places the card does not list, so it does not count as "my folder" here`, `${elsewhere}; the user can move it in a chat after checking it`, [row.save_folder])
+    }
     const rooms = this.unlistedRooms(scope, on)
     if (rooms.length) return refuse(done, `this run read ${rooms.join(', ')}, which the task's card does not list, so nothing it read may go to ${row.save_folder}`, `${elsewhere}; the user can add the room to the task by making it again in a chat`, [row.save_folder])
     const readers = readersOf(db, rules, r.segs)
@@ -239,10 +254,59 @@ export class ScheduleCover {
     return null
   }
 
+  /** New files this run made under `folder` (file_events creates of this turn, by the path the file layer chose: a
+   * conflict copy too) and the absent paths claimed now that are not made yet. */
+  private newFiles(folder: string): number {
+    const made = new Set((this.host.rt.db.query("SELECT DISTINCT path FROM file_events WHERE turn_id = ? AND action = 'create' AND substr(path, 1, ?) = ?")
+      .all(this.host.id, folder.length + 1, `${folder}/`) as { path: string }[]).map((x) => x.path))
+    for (const rel of this.made) if (rel.startsWith(`${folder}/`)) made.add(rel)
+    return made.size
+  }
+
+  /** A file the run read (chat/turn.ts noteReads): one of the person's own whose content an AI turn other than this one
+   * wrote after the task was confirmed is kept apart (save: not "my folder"). Fails closed: an error keeps it apart. */
+  noteOwnRead(rel: string): void {
+    const mine = `users/${this.host.spec.userId}/`
+    if (!rel.startsWith(mine) || this.aiOwn.has(rel)) return
+    try {
+      const row = this.row()
+      if (!row?.confirmed_at) return
+      const hit = this.host.rt.db.query("SELECT 1 FROM file_events WHERE path = ? AND turn_id IS NOT NULL AND turn_id <> ? AND at > ? AND action IN ('create', 'update', 'upload', 'restore') LIMIT 1").get(rel, this.host.id, row.confirmed_at)
+      if (hit) this.aiOwn.add(rel)
+    } catch { this.aiOwn.add(rel) }
+  }
+
+  /**
+   * A new file in the person's own folder after a room read in a run (the room card would ask nobody): null = goes on;
+   * undefined = not such a file (the usual card). Inside users/<them>/, never a hidden, skills or plugin folder, a
+   * project's folder (its dev environment may run a file by its name) or an instruction file; a file that was there
+   * before this run asks. The same claims as save.
+   */
+  ownSave(c: SaveCall): null | undefined {
+    try {
+      const fx = this.host.rt.files.fx
+      const r = authorize(fx, this.host.rt.files.rules(), this.host.livePrincipal(), c.path, 'write', { createDirs: true })
+      const segs = r.segs
+      if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.host.spec.userId) return undefined
+      if (r.exists ? !r.st?.isFile() || !this.madeHere(r.rel) : !c.mayBeNew) return undefined
+      if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel) || fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return undefined
+      const k = r.rel.normalize('NFC').toLowerCase()
+      const projects = this.host.rt.db.query('SELECT folder_path AS f FROM projects').all() as { f: string }[]
+      if (projects.some(({ f }) => { const d = f.normalize('NFC').toLowerCase().replace(/\/+$/, ''); return d === '' || k === d || k.startsWith(`${d}/`) })) return undefined
+      if (!r.exists && componentC(this.host.rt.ctx).files.aiTrashed(r.rel)) return undefined
+      const claimed = this.reserved.get(r.rel)
+      if (!r.exists && claimed && claimed !== c.key) return undefined
+      if (!r.exists) this.reserved.set(r.rel, c.key)
+      this.covered.set(c.key, { ...c, own: true })
+      return null
+    } catch { return undefined }
+  }
+
   /** Right before a covered call writes: still covered (the same checks again), else why not. Calls nothing covered: null. */
   recheck(key: string): string | null {
     const c = this.covered.get(key)
     if (!c) return null
+    if (c.own) return this.ownSave(c) === null ? null : refuse(`Not saved: '${c.path}'.`, 'the file in the user\'s own folder changed while this run was saving it (someone else made or changed it)', 'save it under another name and say so')
     const again = this.save(c)
     return again === undefined ? refuse(`Not saved: '${c.path}'.`, 'the task\'s save folder changed while this run was saving', `save it in the user's personal folder (${this.mine}) instead and say so`) : again
   }

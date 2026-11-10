@@ -20,7 +20,8 @@ import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
 import { addSources } from '../../chat/read-scope'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
-import { askConfirm } from '../../tools/url-gate'
+import { askConfirm, carriesAddress } from '../../tools/url-gate'
+import { parse as parseHost } from 'tldts'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
 import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
@@ -127,7 +128,7 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
 
 /** What a write sends: the whole text and the parts that say where it goes (shown first on the card); `dest`: every
  * value that says where it goes, for a scheduled run's pinned recipients (pinTargets). */
-interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null }
+interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown }
 
 /** more than this cannot be checked on a card: such a write is refused, never shown cut */
 export const MAX_CARD_PAYLOAD = 100_000
@@ -200,28 +201,69 @@ export function pinTargets(args: unknown): string[] | null {
   return bad || out.size > PIN_VALUES_MAX ? null : [...out.values()]
 }
 
-/** The recipients a scheduled run's task pinned for the person's own connection `row` on its card (Q2 a), or null: the
- * card did not list it (then nobody can be asked, as before). */
-function pinsFor(ctx: AppContext, turnId: string, row: Row): string[] | null {
-  const r = ctx.db.query('SELECT s.personal_sends AS p FROM turns t JOIN schedules s ON s.id = t.schedule_id AND s.user_id = t.user_id WHERE t.id = ? AND s.confirmed_at IS NOT NULL AND s.template_id IS NULL').get(turnId) as { p: string | null } | null
+/** The recipients a scheduled run's task pinned for the person's own connection `row` on its card (Q2 a), with the
+ * addresses the card showed for its runs (allowed_urls), or null: the card did not list it (then nobody can be asked,
+ * as before). */
+function pinsFor(ctx: AppContext, turnId: string, row: Row): { pins: string[]; urls: string[] } | null {
+  const r = ctx.db.query('SELECT s.personal_sends AS p, s.allowed_urls AS u FROM turns t JOIN schedules s ON s.id = t.schedule_id AND s.user_id = t.user_id WHERE t.id = ? AND s.confirmed_at IS NOT NULL AND s.template_id IS NULL').get(turnId) as { p: string | null; u: string | null } | null
   try {
     const all = JSON.parse(r?.p ?? '[]') as { connectionId?: unknown; pins?: unknown }[]
     const hit = Array.isArray(all) ? all.find((x) => x && x.connectionId === row.id && Array.isArray(x.pins)) : undefined
     const pins = hit ? (hit.pins as unknown[]).filter((p): p is string => typeof p === 'string') : []
-    return pins.length ? pins : null
+    const urls = (JSON.parse(r?.u ?? '[]') as unknown[]).filter((u): u is string => typeof u === 'string')
+    return pins.length ? { pins, urls } : null
   } catch { return null }
+}
+
+/** Does any text of `v` name a host with a public suffix in the middle of other words ("mail data.attacker.example")? A
+ * chat links such a name and fetches its preview. File names count too ("report.md": .md is a country's suffix): a
+ * pinned send's text may not carry them (fails closed). */
+function hostNamesIn(v: unknown, depth = 0): boolean {
+  if (depth > 32) return true
+  if (typeof v === 'string') {
+    for (const m of v.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').matchAll(/[\p{L}\p{N}_-]+(?:[.\u3002\uFF0E\uFF61][\p{L}\p{N}_-]+)+/gu)) {
+      const p = parseHost(m[0].replace(/[\u3002\uFF0E\uFF61]/g, '.'))
+      if (p.domain && p.isIcann) return true
+    }
+    return false
+  }
+  if (Array.isArray(v)) return v.some((x) => hostNamesIn(x, depth + 1))
+  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).some((x) => hostNamesIn(x, depth + 1))
+  return false
+}
+
+/** A call's arguments without the pinned recipients and the task's own addresses (a value that is one of them is
+ * emptied, and each is cut out of longer text), for the check that nothing else in it can take data out. */
+function withoutPinned(v: unknown, pins: readonly string[], cut: readonly string[], depth = 0): unknown {
+  if (depth > 32) return v
+  if (typeof v === 'string') {
+    if (pins.some((p) => pinForm(p) === pinForm(v))) return ''
+    let t = v
+    for (const x of cut) if (x) t = t.split(x).join(' ')
+    return t
+  }
+  if (Array.isArray(v)) return v.map((x) => withoutPinned(x, pins, cut, depth + 1))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, withoutPinned(x, pins, cut, depth + 1)]))
+  return v
 }
 
 /** A scheduled run's write to the person's own connection that its card listed: refused (the reason) unless every value
  * of the call that may say where it goes is one of the pinned recipients (pinTargets); a call whose recipients cannot be
  * told, or cannot be checked, is refused (fails closed). null: send. */
-function pinnedRefusal(row: Row, pins: readonly string[], dest: readonly string[] | null | undefined): string | null {
+function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, dest: readonly string[] | null | undefined, raw: unknown): string | null {
+  const { pins, urls } = pinned
   const why = (w: string, next: string) => refusal({ done: `Nothing was sent to ${row.name}.`, why: { kind: 'mode', mode: 'this scheduled run', why: w }, next, names: [row.name] })
   if (dest === null) return why(`this call has more arguments than the server can check against the recipients the card pinned (more than ${PIN_VALUES_MAX} values that may say where it goes, or nested more than ${PIN_DEPTH_MAX} levels deep)`, 'send less at once, with only the pinned recipients, and say in the summary what was not sent')
   if (!dest?.length) return why('the server cannot tell where this call sends (none of its arguments names a recipient it knows), so it cannot check the recipients the card pinned', `say so in the summary; send only with an argument that names one of the pinned recipients (${pins.map((p) => `'${p}'`).join(', ')})`)
   const allowed = new Set(pins.map(pinForm))
   const other = dest.filter((v) => !allowed.has(pinForm(v)))
   if (other.length) return why(`the task's card allows ${row.name} only at ${pins.map((p) => `'${p}'`).join(', ')}, and this call also names ${other.slice(0, 5).map((v) => `'${clip(v.replace(/\s+/g, ' '), 120)}'`).join(', ')}`, 'send only to the pinned recipients, and say in the summary what was not sent; the user can send the rest in a chat')
+  // what it says may not take data out either: a link in a message's text is fetched for its preview (a chat), a
+  // picture in a page or a mail is loaded when it is opened, so a pinned recipient still reaches the address in it. Any
+  // web address, host name, address-like argument or long random-looking part (tools/url-gate.ts carriesAddress) that is
+  // not a pinned recipient or one of the task's own addresses (the card showed them) is refused
+  const rest = withoutPinned(raw ?? {}, pins, [...pins, ...urls])
+  if (carriesAddress(rest) || hostNamesIn(rest)) return why('this call carries a web address, a host name or a long random-looking part that is not one of the recipients the card pinned or the addresses the task may open (a link or a picture in what is sent can take data out when the service shows a preview or someone opens it)', 'send it without links, addresses or random-looking parts, and say in the summary what was left out; the user can send it in a chat')
   return null
 }
 
@@ -261,7 +303,7 @@ async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: Buil
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
-    const no = pinnedRefusal(row, pins, sent.dest)
+    const no = pinnedRefusal(row, pins, sent.dest, sent.raw)
     if (no) throw new CallError(no, 'refused (scheduled run: not a pinned recipient)')
     return false
   }
@@ -463,7 +505,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // after a room read, a tool that was a write when the turn began raised no room card: it asks even if the
         // service calls it read-only now
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
-          confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args), dest: pinTargets(args) }, b, tc)
+          confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args), dest: pinTargets(args), raw: args }, b, tc)
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
@@ -633,7 +675,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         const u = new URL(url)
         let current = row
         if (a.method !== 'GET' && a.method !== 'HEAD') {
-          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)) }, b, tc)
+          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null } }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }

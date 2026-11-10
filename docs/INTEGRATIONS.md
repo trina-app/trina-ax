@@ -519,6 +519,9 @@ connections with their address and the first 1,000 characters of their notes.
   under a content name such as text, body or title (a whole e-mail or web address under a short one such as title or
   name still counts) or a block's kind such as `type: "text"`, and every number and yes/no except a few settings such as
   `limit`; for `api_request` the full address too). A call with no such value, with more than 50, or nested deeper than 8 is refused.
+  What it sends may carry no other web address, host name or long random-looking part (`carriesAddress`, and host
+  names in running text) unless it is a pinned recipient or one of the task's own addresses: a link in a message is
+  fetched for its preview. An `allow` team connection's content is not checked this way yet (a follow-up).
   After a room read, such a write skips the room card only when every room the run read is on the schedule's card
   (`TurnTool.sendsTo` names the connection a call writes to); an `allow` team connection keeps the room card then. docs/DECISIONS.md "Scheduled tasks: saving and sending allowed on the card".
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the

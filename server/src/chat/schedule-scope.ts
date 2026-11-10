@@ -44,7 +44,8 @@ export const MAX_PINS = 10
 export const MAX_SOURCES = 20
 
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
-const oneLine = (s: string, n = 200) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n)
+// no control, direction-changing or invisible characters: a member-set room name cannot reorder or hide card text
+const oneLine = (s: string, n = 200) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, n)
 
 /** The folder rules that decide who reads and writes `segs` (actual names): those of every ruled folder from the team
  * root down to it, as one hash. Subjects are groups, people and roles, never who is in a group: a member joining or
@@ -177,9 +178,12 @@ export function cleanPins(pins: readonly string[]): string[] {
 /** One recipient value in the form pins are compared in: trimmed, without case, a channel's leading '#', an address's
  * trailing '/', and the dashes of an id written as 32 hex digits (a Notion page id with or without them). */
 export function pinForm(v: string): string {
-  let s = v.trim().toLowerCase()
+  const t = v.trim()
+  // a web address: its scheme and host without case, its path, query and fragment as written (they may differ by case)
+  const u = /^([a-z][a-z0-9+.-]*:\/\/[^/?#]*)(.*)$/i.exec(t)
+  if (u) return (u[1]!.toLowerCase() + u[2]!).replace(/\/+$/, '')
+  let s = t.toLowerCase()
   if (s.startsWith('#')) s = s.slice(1)
-  if (/^[a-z][a-z0-9+.-]*:\/\//.test(s)) s = s.replace(/\/+$/, '')
   if (/^[0-9a-f-]{32,36}$/.test(s) && s.replace(/-/g, '').length === 32) s = s.replace(/-/g, '')
   return s
 }

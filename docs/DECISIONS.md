@@ -17986,8 +17986,15 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
   rounds). This refuses many real calls rather than guess; the AI is told which value was not pinned. Values are compared once each in the pins' form (without case, a
   channel's '#', an address's trailing '/', a 32-hex id's dashes), so padding a list with one pin written many ways does
   not push another recipient out; more than 50 such values, or nesting deeper than 8, is refused, never cut. A call with
-  none is refused too (the server cannot tell where it goes). A task whose card did not pin the connection: "nobody
-  could be asked", as before. Pins on the card lose invisible and direction-changing characters (`\p{Cf}`, default
+  none is refused too (the server cannot tell where it goes). **What it says is checked too** (third review): a link in
+  a message's text is fetched for its preview, a picture in a page or a mail is loaded when someone opens it, so a pinned
+  recipient still reaches an address in the content. Any web address, host name (a public suffix, also in running text
+  and file names such as "report.md"), address-like argument or long random-looking part (`carriesAddress`, as #274
+  hardened it) that is not a pinned recipient or one of the task's own addresses (`allowed_urls`, the card showed them)
+  is refused. A task whose card did not pin the connection: "nobody could be asked", as before.
+- **Follow-up, not fixed here:** an "allow" team connection in a run without a room read sends what the AI writes with no
+  such check of its content (no pins, no address check), as before this change. The same check could apply there; it
+  changes what existing tasks may send, so it is left for its own decision. Pins on the card lose invisible and direction-changing characters (`\p{Cf}`, default
   ignorable code points, the Hangul fillers among them); look-alike letters are not marked.
 - **Lapses (Q1 a):** the folder on disk not the one the card showed (moved, renamed, deleted, another made with its name),
   the rule hash changed, or the person no longer writes there. Who is in a group does not count: the card showed a
@@ -18002,6 +18009,18 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
 - **Left as it was:** new files in the person's own folder after a room read are #275's (every own chat, scheduled runs
   included). A save that needs no card (nothing narrower read, no room) goes on as before, inside or outside the folder.
   delete_files, skill_files and post_to_room refuse in a scheduled run whatever its card allowed.
+- **"My folder" is what the person keeps there:** a file of the person's own folder whose content an AI turn other than
+  this run wrote after the task was confirmed (another run's fallback save, a chat) does not count as the listed "my
+  folder": it may hold what that turn read (a narrower folder the card does not list), so reading it keeps the run's
+  save out of the wider folder (third review: laundering across runs). By the path's file events; #275's
+  `outside_content` mark can replace it when it lands.
+- **The own folder in a run:** a new file in the person's own folder, or one this run made, goes on after a room read too
+  (`ownSave`; never a hidden, skills, plugin or project folder, an instruction file or a file that was there before), so
+  the fallback the run is told to use works. #275 does the same for every own chat; this one goes when it lands.
+- **The cap** counts the files the file layer made under the save folder in this run (file_events creates, so a conflict
+  copy made under another name counts) and the paths claimed now and not made yet.
+- **Right before the file is placed:** make_file, edit_hwp and save_room_file check the cover again in `placeProduced`
+  (`ToolCtx.beforePlace`), after a conversion that can take seconds.
 - **Listed folders' own rules:** each listed folder (and the team root) is kept with the fingerprint of its rules; a
   change lapses the permission like one on the way to the save folder (content that became more private does not go on
   under the old yes); one kept without a fingerprint lapses too. **수정** and **다시 확인** bind the fingerprints as they
@@ -18009,7 +18028,8 @@ connections are core. Plan `docs/AGENTS/plan/20261110-0007-schedule-save-scope.m
 - **Residual risk:** a planted message in a listed room can still make a run put a useless new file in the approved folder
   (people see and delete it) or send content to a pinned recipient; it cannot replace a file, reach another folder or
   send anywhere unpinned. Two identical calls at the same time share one claim on a path (only the run's own file is
-  affected).
+  affected). Look-alike letters in pins are not marked. Pins compare a web address's scheme and host without case and
+  its path as written; names on the card lose control and invisible characters.
 
 ## 대화방 PDF도 쪽을 이미지로 — room_file reads a scanned PDF's pages (fix/room-file-pdf-pages, 2026-11-10, product owner)
 

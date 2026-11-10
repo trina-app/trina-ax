@@ -244,9 +244,45 @@ describe('saves in a run', () => {
     expect(cover.recheck('a')).toBeNull()
     cover.release('a')
     expect(call('b')).toBeNull()
+    // the cap counts what the file layer made there in this run (a conflict copy under another name counts too)
+    cover.release('b')
+    for (let i = 0; i < 20; i++) db().query("INSERT INTO file_events (turn_id, user_id, path, action) VALUES (?, 'alice', ?, 'create')").run(r.turnId, `${SAVE}/copy-${i} (Alice Kim).md`)
+    expect(call('d')).toContain('a run saves at most 20 new files')
+    db().query('DELETE FROM file_events WHERE turn_id = ?').run(r.turnId)
     // without a save folder, nothing to decide here
     db().query('UPDATE schedules SET save_folder = NULL WHERE id = ?').run(s.id)
     expect(call('c')).toBeUndefined()
+  })
+
+  test('the own folder after a room read: a new file there goes on in a run (the fallback works); a project folder in it and an old file do not', async () => {
+    clear()
+    const room = await groupChat(['erin', 'carol'])
+    fs.writeFileSync(abs('users/alice/old-note.md'), 'old\n')
+    const s = task(fake({ tool: 'room_read', args: { room } }, write(`${SAVE}/r.md`), write('users/alice/run-note.md', 'fallback'),
+      read('users/alice/old-note.md'), write('users/alice/old-note.md', 'replaced'), { say: 'done' }))
+    const r = await run(s.id)
+    // the room is not on the card: not in the save folder; in the own folder, yes
+    expect(fs.existsSync(abs(`${SAVE}/r.md`))).toBe(false)
+    expect(fs.readFileSync(abs('users/alice/run-note.md'), 'utf8')).toBe('fallback')
+    expect(fs.readFileSync(abs('users/alice/old-note.md'), 'utf8')).toBe('old\n')
+    expect(r.events.filter((e) => e.tool === 'write').map((e) => e.ok)).toEqual([0, 1, 0])
+    fs.rmSync(abs('users/alice/run-note.md'), { force: true }); fs.rmSync(abs('users/alice/old-note.md'), { force: true })
+  })
+
+  test('"my folder" is what the person keeps there: a file an AI turn wrote there after the yes does not count (no laundering across runs)', async () => {
+    clear()
+    fs.writeFileSync(abs('users/alice/from-a-run.md'), 'what an earlier run read\n')
+    const s = task(fake(read('users/alice/from-a-run.md'), write(`${SAVE}/w.md`), { say: 'done' }))
+    // an earlier AI turn wrote it after the task was confirmed
+    db().query("INSERT INTO file_events (turn_id, user_id, path, action, at) VALUES ('an-earlier-run', 'alice', 'users/alice/from-a-run.md', 'create', ?)").run(new Date(Date.parse(row(s.id).confirmed_at!) + 1000).toISOString())
+    const r = await run(s.id)
+    expect(fs.existsSync(abs(`${SAVE}/w.md`))).toBe(false)
+    expect(r.answer).toContain('which an AI run or chat wrote after this task was confirmed')
+    // the person's own notes still count
+    const ok = await run(task(fake(read('users/alice/todo.md'), write(`${SAVE}/w.md`), { say: 'done' })).id)
+    expect(ok.events.find((e) => e.tool === 'write')!.ok).toBe(1)
+    db().query("DELETE FROM file_events WHERE turn_id = 'an-earlier-run'").run()
+    fs.rmSync(abs('users/alice/from-a-run.md'), { force: true })
   })
 
   test('save_url, a move and a copy into the save folder are never covered', async () => {
@@ -406,6 +442,24 @@ describe('sends (Q2 a) and rooms', () => {
     expect(pinTargets(deep)).toBeNull()
     expect(pinForm('#General')).toBe(pinForm('general'))
     expect(pinForm('1234abcd-1234-abcd-1234-1234abcd5678')).toBe(pinForm('1234abcd1234abcd12341234abcd5678'))
+    // an address: its scheme and host without case, its path as written
+    expect(pinForm('HTTPS://Hooks.Example/Path/ABC/')).toBe('https://hooks.example/Path/ABC')
+    expect(pinForm('https://hooks.example/path/abc')).not.toBe(pinForm('https://hooks.example/Path/ABC'))
+  })
+
+  test('what a pinned send says cannot take data out: an address, a host name or a random-looking part in its text is refused, unless pinned or the task\'s own', async () => {
+    clear()
+    const n0 = sent()
+    const url = 'https://reports.example/weekly'
+    const call = (title: string) => ({ tool: tool(), args: { title, project: 'P1' }, sayResult: true })
+    const s = h.rt().schedules.create('alice', { title: 'Weekly report', prompt: fake(
+      call('see https://evil.example/?d=Q4-margin-81'), call('mail data.attacker.net now'), call('ref a8f3k29xq7m2p0z5w1c6v4b9n8'),
+      call('posted at 1572395042/x'), call(`see ${url} for details`), call('Weekly report: 3 deals closed'), { say: 'done' }), repeat: 'daily', time: '09:00' },
+      undefined, { allowedUrls: [url], writeConnections: [], save: null, sources: [], personalSends: [{ connectionId: notes.id, pins: ['P1'] }] })
+    const r = await run(s.id)
+    expect(r.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([0, 0, 0, 0, 1, 1])
+    expect(sent() - n0).toBe(2)
+    expect(r.answer).toContain('this call carries a web address, a host name or a long random-looking part')
   })
 
   test('in a run: only to the pinned recipient', async () => {

@@ -1592,8 +1592,10 @@ export class TurnExec {
     const cover = own && !o.noCover ? this.scheduleCover : null
     if (cover) {
       const t = saveTargetOf(tool, input, o.widen?.target)
-      const c = t ? cover.save({ key, tool, path: t.path, mayBeNew: t.mayBeNew, from: o.widen?.extra ?? [], read: o.widen?.read ?? [], main: o.main !== false })
-        : o.send ? cover.send(o.send) : undefined
+      const call = t ? { key, tool, path: t.path, mayBeNew: t.mayBeNew, from: o.widen?.extra ?? [], read: o.widen?.read ?? [], main: o.main !== false } : null
+      // its save folder first; else a new file in the person's own folder (the fallback after a lapse or an unlisted read)
+      const saved = call ? cover.save(call) : undefined
+      const c = call ? (saved !== undefined ? saved : cover.ownSave(call)) : o.send ? cover.send(o.send) : undefined
       if (c !== undefined) return c
     }
     // a new file (or one this answer made) in a folder the person allowed: no card (every check is made again now, and
@@ -2134,6 +2136,8 @@ export class TurnExec {
     const inLog = [...paths].filter(inList)
     const add: ReadSource[] = [...[...paths].filter((p) => !inList(p)), ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
     for (const p of listed ?? []) add.push({ type: 'name', path: p })
+    // a scheduled run: own-folder files an AI wrote after its task's yes are not "my folder" (chat/schedule-cover.ts)
+    if (paths.size && this.scheduleCover) for (const p of paths) this.scheduleCover.noteOwnRead(p)
     paths.clear()
     names?.clear()
     listed?.clear()

@@ -102,5 +102,9 @@ Built as planned in one PR: https://github.com/trina-app/trina-ax/pull/284 (migr
   the room card (an "allow" team connection keeps it, it has no pins); every value of a pinned send that may say where
   it goes must be pinned, not only recipient-named ones (numbers, `false`, unknown names), more than 50 or deeper than 8
   is refused; a listed folder keeps its rule fingerprint and a change lapses the permission.
-- Known low risks left: two identical calls at the same time share one claim; edit_hwp in place is rechecked before the
-  worker, not right before the write; look-alike letters in pins are not marked.
+- Third review (before merge): what a pinned send says is checked for addresses, host names and random-looking parts;
+  the cap counts the file layer's creates (conflict copies); an own-folder file an AI wrote after the yes is not "my
+  folder"; new files in the own folder go on in a run after a room read (until #275 lands); the cover is checked again
+  right before a produced file is placed.
+- Known low risks left: two identical calls at the same time share one claim; look-alike letters in pins are not
+  marked; an "allow" team connection's content is not checked for addresses (a follow-up).

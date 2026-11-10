@@ -28,6 +28,7 @@ import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../poli
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
+import { callKey } from './schedule-cover'
 import { visionText } from '../files/vision-text'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { hwpWritingOffText, hwpWritingOn, writesHangul } from '../tools/hwp-writing'
@@ -477,6 +478,8 @@ function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; ar
       // after a room read, a tool with its own card asks there alone, with the room card's line (chat/turn.ts ownCard)
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
+      // a save a scheduled task's card covered: checked again right before the file is placed (after a conversion)
+      ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}),
       confirmWidening: async (target, sources, binding) => {
         const no = await exec.confirmWidening(target, sources, binding, call ? { tool: call.tool, args: call.args, main: files === exec.files } : undefined)
         if (no || !call) return no

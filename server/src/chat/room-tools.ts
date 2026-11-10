@@ -42,6 +42,7 @@ import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { placeProduced } from '../tools/make-file'
 import { Denied, ToolError } from '../policy/errors'
+import { callKey } from './schedule-cover'
 import { authorize } from '../policy/authorize'
 import type { ToolCtx } from '../files/service'
 import type { AppContext } from '../context'
@@ -591,7 +592,9 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoo
     const bytes = readRegular(abs, 1024 * 1024 * 1024).bytes
     rt.files.quarantine.assertBytes(bytes)
     fs.writeFileSync(tmp, bytes, { mode: 0o600 })
-    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call) }
+    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call),
+      // a save a scheduled task's card covered: checked again right before the copy is placed (chat/schedule-cover.ts)
+      ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: file.mime } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''
     return { ...text(`Saved a copy of "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" from ${inRoom ? 'this' : 'that'} room as ${made.path} (${made.size} bytes).${note}`), summary: `save_room_file -> ${made.path} (${made.size} B)` }
