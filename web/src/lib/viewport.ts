@@ -9,14 +9,16 @@ export function followVisualViewport() {
   const vv = window.visualViewport
   if (!vv) return
   const root = document.documentElement
-  // the on-screen keyboard: the visible height (zoom undone) well below the tallest seen at this width. iOS keeps the
-  // layout height and shrinks the visual one; Android resizes both. Then nothing sits under the home indicator
-  // (index.css: --safe-bottom is 0 while .keyboard-open).
+  // the on-screen keyboard: on a touch screen, the visible height (zoom undone) well below the tallest seen at this
+  // width. iOS keeps the layout height and shrinks the visual one; Android resizes both. Then nothing sits under the
+  // home indicator and a message box sits on the keyboard (index.css: --safe-bottom and --box-bottom while
+  // .keyboard-open; the tab bar and the notes under a box go). A computer's window made shorter is no keyboard.
+  const touch = window.matchMedia?.('(pointer: coarse)')
   let tallest = 0, width = 0
   const apply = () => {
     if (window.innerWidth !== width) { width = window.innerWidth; tallest = 0 }
     tallest = Math.max(tallest, window.innerHeight, vv.height * vv.scale)
-    const keyboard = tallest - vv.height * vv.scale > 150
+    const keyboard = !!touch?.matches && tallest - vv.height * vv.scale > 150
     root.classList.toggle('keyboard-open', keyboard)
     root.style.setProperty('--app-h', `${Math.round(vv.height)}px`)
     root.style.setProperty('--kb-inset', `${keyboard ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0}px`)

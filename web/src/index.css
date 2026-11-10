@@ -123,6 +123,10 @@
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-inset-bottom, 0px));
 }
 html.keyboard-open { --safe-bottom: 0px; }
+/* under a message box (a room's, a thread's, the side chat's, an AI chat's): the home indicator's room, at least 0.75rem;
+   with the keyboard up the box sits on it (lib/viewport.ts), only a hair of space under it */
+:root { --box-bottom: max(0.75rem, var(--safe-bottom)); }
+html.keyboard-open { --box-bottom: 0.25rem; }
 html, body { height: 100%; }
 /* the top inset: the page's own background runs under the status bar; full-screen layers pad themselves */
 #root { padding-top: var(--safe-top); }

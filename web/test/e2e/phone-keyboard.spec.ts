@@ -66,6 +66,15 @@ async function closeKeyboard(page: Page, kind: Kind) {
 const gap = (list: Locator) => list.evaluate((s) => Math.round(s.scrollHeight - s.scrollTop - s.clientHeight))
 const box = async (l: Locator) => (await l.boundingBox())!
 
+/** The box sits on the keyboard: at most 8 px between its bottom and the visual viewport's (no home-indicator room,
+ * no tab bar under it while the keyboard is up). */
+async function onKeyboard(page: Page, el: Locator) {
+  const b = await box(el)
+  const bottom = await page.evaluate(() => window.visualViewport!.height + window.visualViewport!.offsetTop)
+  expect(b.y + b.height).toBeLessThanOrEqual(bottom)
+  expect(bottom - (b.y + b.height)).toBeLessThanOrEqual(8)
+}
+
 /** the list at its bottom, its last message in sight right above the message box, and the box above the keyboard */
 async function newestAboveBox(list: Locator, last: Locator, input: Locator, visible: number) {
   await expect.poll(() => gap(list)).toBeLessThanOrEqual(1)
@@ -93,6 +102,7 @@ test('the room at its bottom: the keyboard keeps the newest message right above 
     await input.tap()
     await openKeyboard(page, kind, '[data-testid="room-scroller"]')
     await newestAboveBox(list, last, input, KB_TOP)
+    await onKeyboard(page, page.getByTestId('room-composer'))
     // and down again: still at the bottom, no jump
     await closeKeyboard(page, kind)
     await newestAboveBox(list, last, input, H)
@@ -106,6 +116,7 @@ test('a DM and a thread at their bottom: the newest message stays right above th
     await input.tap()
     await openKeyboard(page, kind, '[data-testid="room-scroller"]')
     await newestAboveBox(list, page.getByTestId('room-message').last(), input, KB_TOP)
+    await onKeyboard(page, page.getByTestId('room-composer'))
     await closeKeyboard(page, kind)
   }
   // a thread with 30 replies, the whole screen on a phone
@@ -123,8 +134,24 @@ test('a DM and a thread at their bottom: the newest message stays right above th
     await tinput.tap()
     await openKeyboard(page, kind, '[data-testid="thread-scroller"]')
     await newestAboveBox(tlist, tlast, tinput, KB_TOP)
+    // under a thread's box only its "also send to the room" choice, then the keyboard
+    await onKeyboard(page, thread.getByTestId('room-also-in-room'))
     await closeKeyboard(page, kind)
     await expect.poll(() => gap(tlist)).toBeLessThanOrEqual(1)
+  }
+})
+
+test('the 트리나 tab: the tab bar steps aside while the keyboard is up, and comes back when it goes down', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const tabs = page.getByTestId('bottom-tabs')
+  await expect(tabs).toBeVisible()
+  await page.getByTestId('composer-input').tap()
+  for (const kind of ['app', 'safari'] as const) {
+    await openKeyboard(page, kind)
+    await expect(tabs).toBeHidden()
+    await closeKeyboard(page, kind)
+    await expect(tabs).toBeVisible()
   }
 })
 
@@ -172,6 +199,9 @@ test('the AI chat at its bottom: the newest answer stays right above the box', a
     expect(a.y + a.height).toBeLessThanOrEqual(b.y)
     expect(a.y + a.height).toBeGreaterThan(b.y - 200)
     expect(b.y + b.height).toBeLessThanOrEqual(KB_TOP)
+    // under the box only the line that says who sees the chat (always shown), then the keyboard
+    await expect(page.getByTestId('composer-phone-footer')).toBeVisible()
+    await onKeyboard(page, page.getByTestId('composer-phone-footer'))
     await closeKeyboard(page, kind)
     await expect.poll(() => gap(list)).toBeLessThanOrEqual(1)
   }
@@ -198,7 +228,11 @@ test('the ✦ side chat at its bottom: the newest answer stays right above its b
     const a = await box(last), b = await box(input)
     expect(a.y + a.height).toBeLessThanOrEqual(b.y)
     expect(b.y + b.height).toBeLessThanOrEqual(KB_TOP)
+    // its "AI can make mistakes" line steps aside while typing; the box sits on the keyboard
+    await expect(side.getByTestId('side-chat-disclaimer')).toBeHidden()
+    await onKeyboard(page, side.getByTestId('side-chat-box'))
     await closeKeyboard(page, kind)
+    await expect(side.getByTestId('side-chat-disclaimer')).toBeVisible()
     await expect.poll(() => gap(list)).toBeLessThanOrEqual(1)
   }
 })

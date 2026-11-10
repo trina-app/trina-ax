@@ -513,7 +513,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </ImageGroup>
         </div>
       </div>
-      <div className="shrink-0 px-4 pb-[max(0.75rem,var(--safe-bottom))]">
+      <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
         {quoted && (
           <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
             <div className="flex items-start gap-2">
@@ -583,7 +583,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </div>
         </div>
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
-        <p className="pt-1.5 text-center text-[11px] text-faint" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
+        <p className="pt-1.5 text-center text-[11px] text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
     </FileDropZone>
   )

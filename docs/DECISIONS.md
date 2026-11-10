@@ -19506,6 +19506,13 @@ Save. Amends "The keyboard keeps the newest message in sight (end-to-end run, 20
   draft stays; nothing gives the focus back, so the keyboard comes back only when the person taps the box. A phone's menu sheet no longer
   closes when the list under it scrolls (it stands on its own, not by its button, which a touch screen hides): the list
   moving as the keyboard went down closed it.
+- **The box sits on the keyboard.** While the keyboard is up (a touch screen only: a computer's window made shorter is
+  no keyboard), the space under a room's, a thread's, the side chat's and an AI chat's box is 0.25rem instead of the
+  home indicator's room (`--box-bottom`, index.css), and the tab bar, the push questions above it and the side chat's
+  "AI can make mistakes" line step aside; all come back when it goes down. Kept under the box: a thread's "also send to
+  the room" choice and, in an AI chat, the engine picker and the line that says who sees the chat ("Always say who sees
+  a chat"). Checked in the iOS simulator with a WKWebView host that hides the keyboard's ^ v ✓ bar like the phone app;
+  the band seen before was mostly that bar, which the app does not show.
 - **The status dialog on a touch screen** (`pointer: coarse`) does not focus its box on opening, nor after a suggestion,
   an emoji or ✕: most people tap a suggestion. A computer: as before. Other sheets with a text field were checked and
   keep their focus: rename, new folder, a room's name, the people picker's search, the search palette (the text is
@@ -19523,6 +19530,7 @@ Save. Amends "The keyboard keeps the newest message in sight (end-to-end run, 20
   scrolls; the keyboard closing at the bottom; a computer's window; no ResizeObserver), `viewport-keyboard.test.ts`,
   e2e `phone-keyboard.spec.ts` at 390 px (the keyboard as Android, the iPhone app and iOS Safari bring it: the room
   at its bottom and scrolled up, a DM, a thread, the AI chat, the side chat; a long press while typing, 😭 and the
-  draft kept; the emoji sheet's search; the status sheet; a computer's status dialog). The "app" runs fail without
+  draft kept; the emoji sheet's search; the status sheet; a computer's status dialog; at most 8 px between a box, or
+  the line under it, and the keyboard; the tab bar gone while typing). The "app" runs fail without
   the fix. Checked by hand in the iOS 26.5 simulator: Safari and a WKWebView host (before and after).
 - Version impact: **patch** (web app only; no API, data, setting or text change).
