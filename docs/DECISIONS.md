@@ -18739,6 +18739,61 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   the tool lists of `b-chat`, `b-browser` and `i-wiring`.
 - Version impact: **minor** (a new AI tool and card field; no API change, no migration).
 
+## Who sees it, always — 누가 보는지 늘 한 줄로 (feat/always-show-who-sees, 2026-11-10, product owner)
+
+The owner (2026-11-10): "진짜 누가 볼 수 있는지 모르겠어서 개 헷갈리네". Only a shared project chat said who sees it
+("프로젝트 사람 N명이 볼 수 있어요"). A chat only its person sees said nothing under a project page's box, and nothing under
+an open chat on a phone, so "is this shared?" had no answer. Plan: `docs/AGENTS/plan/20261110-0837-always-show-who-sees.md`.
+
+- **One line, always** (`components/chat/WhoSees.tsx`, `lib/sharedChat.ts whoSees`). It sits under a project's new-chat
+  box (the project page and `/?project=`) and under every open chat's box: a team project's, a personal project's and a
+  chat without a project. On a computer it is in the row under the box; in an open chat it follows "AI는 실수할 수 있어요.
+  중요한 내용은 확인해 주세요." and replaces "내 채팅은 나만 볼 수 있어요". On a phone it is the one line under the box, as the
+  shared line was. It is quiet text with a 12 px icon: a lock while only I see it, people otherwise. An open chat shows it
+  once the chat is loaded. No new panel or button.
+- **The words.** "나만 봐요" is for a chat of one person, which nobody else ever opens, admins included (`chatFor`). It is
+  also for a shared one whose count is 1. "나와 관리자만 봐요" is for a shared one that nobody else sees by a rule
+  (`Project.alone`, below). Anything else keeps "프로젝트 사람 N명이 이 채팅을 볼 수 있어요." (the box: "새 채팅은 …").
+  All five languages; en "Only you" / "You and admins", as the owner's brief worded them.
+- **Decision: how the count treats admins.** `Project.audience` and `Chat.shared.audience` count everyone who can read the
+  folder, the owner and every admin included, for every caller. #304 (`adminsApart`) changes only the new-project dry run,
+  not these counts. So a count of 1 means nobody else, not even an admin, and "나만" there is exact. A member alone in a
+  shared project of theirs counts the owner and the admins too ("3명"). For them the line says "나와 관리자만 봐요". It
+  names nobody: "관리자", the owner included, as in "멤버는 관리자가 바꿔요". If members' counts later leave the admins out
+  (#304's `adminsApart` applied to `Project.audience`), a member's count of 1 must read "나와 관리자만" as well.
+- **Decision: `Project.alone` is role-blind and goes only to who may read the rules** (`Audiences.alone`, sent from
+  `chat/project-access.ts membersView`; optional, `true` only). Each other person in the audience is judged as a member
+  would be (`rules.access` with the role member). Someone who sees it through a person, group, role or everyone rule
+  counts, whatever their role, so an admin who made a project for one member counts as a member there. It is sent only to
+  the owner, admins and whoever may change the project's members (`membersEditable`): they can read its rules anyway (GET
+  access answers them its participants). For anyone else, `true` would say that everyone else who sees it is an admin.
+  With a name beside it (whose question is answered there, a creator whose account was switched off or whose rule was
+  taken out), it would say who is an admin, which the people directory and GET access keep from members (independent
+  review, must-fix). They read the count. While the folder is in the trash nobody sees it by a rule. The chat page takes it
+  from the chat's project (the header's crumb loads it), so `Chat.shared` has no such field. Cost: one pass over the
+  audience per project (the list already computes the audience), plus one `rules.access` call per admin.
+- **Decision: a button only while shared.** For a shared chat, or a box whose new chat will be shared, the line opens
+  `ProjectMembersDialog` (#298) for whoever may change the members (`Project.membersEditable`). Its tooltip says "멤버
+  관리". Anyone else gets plain text; #298's hint stays on the 멤버 line. A personal project is never shared, and in a chat
+  of one person, or a team project that does not share its chats, adding a member does not change "나만 봐요", so the line
+  opens nothing there. `/?project=` shows the line as text (the project page has the dialog). After a save the dialog reads
+  the project again (`GET /api/projects/:id`), so `audience` and `alone` both come from the server. If that read fails,
+  it keeps the saved count and drops `alone`. The chat page reads its chat again.
+- **The 멤버 line says the same** (coordinator, same PR): the project page's 멤버 line (#298's `MembersRow`) uses the same
+  words by the same rule and the same `Project.alone` (`whoSeesText`): "나만 봐요" for a count of 1 (it said "1명이
+  봐요"), "나와 관리자만 봐요" where the box says so, else "N명이 봐요". The members dialog's count line (`AccessSummary`)
+  stays: it counts the people being chosen before a save, which `alone` does not describe, and #304 changes it.
+- **Left as they were:** the Home box without a project (its page footer on a computer says "내 채팅은 나만 볼 수 있어요");
+  the line under a chat in the trash or read-only under safe operations; the header's shared mark; the edit dialog's
+  sharing switch. Another person's change of the members shows on the next load, as the count did.
+- Tests: `tests/unit/b-who-sees.test.ts` (a member alone, the owner alone, a member added, an admin who made a project
+  for one member, a member who may not read the rules with only admins left), web unit `who-sees.test.tsx` (the words, an
+  admin vs a member caller, clickable only when editable and shared, no line on Home), `project-members.test.tsx` and
+  `project-list-menu.test.tsx` (the read after a save), e2e `shared-project-chats.spec.ts` (only me, Bob added from the
+  line makes it 2, Bob out again from the open chat's line, a chat without a project, a member alone, a member who cannot
+  change the members; at 1440 and 390) and `chat-look.spec.ts`.
+- Version impact: **minor** (a visible line on every project chat box and open chat; one optional response field).
+
 ## 상태 메시지 — an emoji, a short text and when it clears (feat/custom-status, 2026-11-10, product owner)
 
 넣을 곳: trina-ax core (`server/src/auth/status-messages.ts`, `server/src/auth/status-plan.ts`, `server/src/routes/people.ts`,
