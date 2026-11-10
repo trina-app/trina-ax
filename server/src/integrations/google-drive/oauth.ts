@@ -127,7 +127,7 @@ export class GoogleDrive {
   }
   /** Start a Google sign-in either way: this server's own client (authorize), or the hosting service's (broker.ts),
    * which makes the Google address for this flow. The routes use this. */
-  async begin(user: string, session: string, share?: { shareId?: string }) {
+  async begin(user: string, session: string, share?: { shareId?: string }): Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }> {
     if (!this.viaBroker) return this.authorize(user, session, share)
     const p = this.prepare(user, session, share)
     try {
