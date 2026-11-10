@@ -4408,10 +4408,15 @@ export class MockServer {
   sharedMayEdit(p: Project, u: User): boolean {
     return p.createdBy?.id === u.id || (u.role !== 'member' && this.access(p.folderPath, u) === 'write')
   }
-  sharedProjectOut(p: Project): Project {
+  sharedProjectOut(p: Project, viewer?: User): Project {
     const personal = p.folderPath.startsWith('users/')
+    // who changes its members (server/src/chat/project-access.ts membersView): a team project made here (projectMembers),
+    // in place, by its creator (while active) or an admin
+    const pm = this.projectMembers.get(p.folderPath)
+    const creator = this.users.find((u) => u.id === p.createdBy?.id && u.status === 'active')
+    const members = personal ? {} : { membersEditable: !!pm && !p.inTrash && !!viewer && this.sharedMayEdit(p, viewer), creatorChangesMembers: !!pm && !p.inTrash && !!creator }
     return { ...p, shareChats: !personal && this.sharedProjects.has(p.id), audience: this.sharedAudience(p).length,
-      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length }
+      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length, ...members }
   }
   /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
   sharedView(chat: Chat, viewer: User): Chat | null {
@@ -4514,8 +4519,8 @@ export class MockServer {
       return Response.json({ ok: true })
     }
 
-    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p)) }))
-    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project))
+    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p, c.user)) }))
+    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project, c.user))
     over('updateProject', (c, base) => {
       const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const { shareChats, ...rest } = c.body as { shareChats?: boolean }
@@ -4526,7 +4531,7 @@ export class MockServer {
         if (shareChats) this.sharedProjects.add(p.id)
         else this.sharedProjects.delete(p.id)
       }
-      return this.sharedProjectOut(base({ ...c, body: rest }) as Project)
+      return this.sharedProjectOut(base({ ...c, body: rest }) as Project, c.user)
     })
     // its shared chats go to their creators' trash, as chats of theirs without project (one whose creator cannot see
     // the project goes for good); everyone else who saw one hears it is gone

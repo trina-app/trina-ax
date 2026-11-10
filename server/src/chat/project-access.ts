@@ -11,14 +11,14 @@ import type { Database } from 'bun:sqlite'
 import type { FolderRuleInput, Locale, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, ProjectParticipant } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
-import { atLeast, RuleSet, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { hiddenEntry, badSegment } from '../policy/names'
 import { rulesHash, withRules } from '../admin/access-edit'
 import { afterAccessChange, captureState, ensureFolderRow, getFolderByPath, isProjectsFolder, replaceRules, resolveFolderPath, rulesOf, validateRules } from '../admin/folders'
 import { getTeamSettings } from '../admin/settings'
 import { audit } from '../admin/audit'
 import { activePrincipals, Audiences } from './shared'
-import { projectFolderName, projectPaths } from './projects'
+import { mayEditProject, projectFolderName, projectPaths } from './projects'
 import type { ProjectRow } from './store'
 import { tr } from './i18n'
 import { skillsUnder } from '../skills/switch-on'
@@ -144,6 +144,19 @@ export const accessEditable = (r: Pick<ProjectRow, 'folder_path' | 'trashed_with
 }
 
 /**
+ * What a team project's page says about its members to `p` (Project.membersEditable, Project.creatorChangesMembers):
+ * whether `p` changes them (mayEditProject and accessEditable: a member's older project on an admin's folder is not
+ * theirs to change, so it gets no 관리 that would end in "not editable"; review M6), and whether its creator does (their
+ * account active, the folder theirs to change), so the hint names them only then. Nothing for a personal project.
+ */
+export function membersView(ctx: AppContext, r: ProjectRow, p: Principal, canEdit: boolean): { membersEditable?: boolean; creatorChangesMembers?: boolean } {
+  if (r.folder_path === 'users' || r.folder_path.startsWith('users/')) return {}
+  const creator = r.created_by ? loadPrincipal(ctx.db, r.created_by) : null
+  const byCreator = (who: Principal) => mayEditProject(ctx.files, who, r) && accessEditable(r, ctx.files, who)
+  return { membersEditable: canEdit && accessEditable(r, ctx.files, p), creatorChangesMembers: !!creator && byCreator(creator) }
+}
+
+/**
  * GET /api/projects/:id/access: who sees a team project, as its edit screen shows it to `p` (its creator or an admin).
  * A member gets only the count for a project they may not change (its folder's rules are an admin's), and of the rules
  * on folders inside it only those of folders they can read (an admin's restricted folder inside is not named).
@@ -237,18 +250,28 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
     const n = people.filter((x) => isAdminRole(x) || x.id === p.id || users.has(x.id) || x.groups.some((g) => groups.has(g))).length
     return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] }
   }
-  const { next, rules } = proposed(ctx, r, p, body.participants, locale)
+  const { current, next, rules } = proposed(ctx, r, p, body.participants, locale)
   const after = withRules(rules, r.folder_path, next)
   const segs = segsOf(r.folder_path)
   const added = people.filter((x) => !atLeast(rules.access(x, segs), 'read') && atLeast(after.access(x, segs), 'read'))
   const removed = people.filter((x) => atLeast(rules.access(x, segs), 'read') && !atLeast(after.access(x, segs), 'read'))
   const n = people.filter((x) => atLeast(after.access(x, segs), 'read')).length
-  if (!added.length) return { people: n, added: 0, removed: removed.length, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] }
+  // what the save writes besides the people chosen (participantRules): the screen asks first, since the person did not
+  // choose it (review M4)
+  const extra = { ...(addsFloor(current, next) ? { addsFloor: true } : {}), ...(restoresCreator(current, next, creatorOf(db, r)) ? { restoresCreator: true } : {}) }
+  if (!added.length) return { people: n, added: 0, removed: removed.length, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], ...extra }
   // what the caller can read themselves: a member is never told about a folder inside it they cannot see
   const seen = whatTheySee(ctx, r.folder_path, p.id, (s) => atLeast(rules.access(p, s), 'read') && added.some((x) => atLeast(after.access(x, s), 'read')))
   const sharedChats = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(r.id) as { n: number }).n
-  return { people: n, added: added.length, removed: removed.length, ...seen, sharedChats }
+  return { people: n, added: added.length, removed: removed.length, ...seen, sharedChats, ...extra }
 }
+
+/** The save writes the floor (everyone: none) on a folder that has no everyone rule now (one an older build made). */
+export const addsFloor = (current: readonly FolderRuleInput[], next: readonly FolderRuleInput[]): boolean =>
+  !current.some((x) => x.subjectType === 'everyone') && next.some(isFloor)
+/** The save puts the creator's write rule back on a folder that has no rule of theirs now (taken away in Admin). */
+export const restoresCreator = (current: readonly FolderRuleInput[], next: readonly FolderRuleInput[], creator: string | null): boolean =>
+  !!creator && !current.some((x) => x.subjectType === 'user' && x.subjectId === creator) && next.some((x) => x.subjectType === 'user' && x.subjectId === creator)
 
 /** The folder's rules now and after the change (checked: editable, the participants). */
 function proposed(ctx: AppContext, r: ProjectRow, p: Principal, participants: readonly ProjectParticipant[], locale: Locale) {

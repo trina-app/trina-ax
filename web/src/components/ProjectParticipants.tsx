@@ -1,15 +1,18 @@
-// Who sees a team project (docs/DECISIONS.md "Projects live only in projects/"): the participant picker of the project
-// create, edit and share dialogs, and the "볼 수 있는 사람" line under it. People come from the people directory
-// (/api/people, every member may read it); groups ("부서" in Korean copy) are a member's own groups (Me.groups) and, for
-// admins, every group (Admin › Groups). The creator, the owner and admins always see the project: the line says so. The
-// count is the server's (POST /api/projects/access-preview), so it matches who really sees it.
-import { useEffect, useId, useMemo, useState } from 'react'
-import { Search, Users } from 'lucide-react'
+// Who sees a team project (docs/DECISIONS.md "Projects live only in projects/", "Project members in one panel"): the
+// member picker of the project create, share and members dialogs, and the count line under it. People come from the
+// people directory (/api/people, every member may read it: a name and a title); groups ("부서" in Korean copy) are a
+// member's own groups (Me.groups) and, for admins, every group (Admin › Groups). The creator, the owner and admins
+// always see the project: the line says so. The count is the server's (POST /api/projects/access-preview), so it
+// matches who really sees it.
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Search, User, Users, X } from 'lucide-react'
+import clsx from 'clsx'
 import type { Group, ProjectAccessPreview, ProjectParticipant } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { isAdmin, useMe } from '../store/session'
+import { IconButton } from './ui'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
 export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly ProjectParticipant[]) => {
@@ -17,7 +20,8 @@ export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly P
   return ka.size === new Set(b.map(participantKey)).size && b.every((x) => ka.has(participantKey(x)))
 }
 
-export interface ParticipantOption extends ProjectParticipant { name: string }
+/** A person or group the picker can show: its name, and for a person the directory's title (two people of one name). */
+export interface ParticipantOption extends ProjectParticipant { name: string; title?: string }
 
 /** What the picker offers: groups (a member's own; every group for admins), then the active people, both by name. */
 export function useParticipantOptions(extra: readonly ParticipantOption[] = []): ParticipantOption[] {
@@ -33,81 +37,184 @@ export function useParticipantOptions(extra: readonly ParticipantOption[] = []):
   }, [admin])
   return useMemo(() => {
     const groups = (admin ? allGroups ?? [] : me?.groups ?? []).map((g) => ({ subjectType: 'group' as const, subjectId: g.id, name: g.name }))
-    const persons = (people ?? []).map((p) => ({ subjectType: 'user' as const, subjectId: p.id, name: p.name }))
+    const persons = (people ?? []).map((p) => ({ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.title ? { title: p.title } : {}) }))
     const out = new Map<string, ParticipantOption>()
     for (const x of [...groups.sort(byName), ...persons.sort(byName), ...extra]) if (!out.has(participantKey(x))) out.set(participantKey(x), x)
     return [...out.values()]
   }, [admin, allGroups, me, people, extra])
 }
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
+/** what a search compares: case and width folded, spaces left out ("김 강현" finds 김강현) */
+const fold = (s: string) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, '')
 
 /**
- * A searchable list of groups and people with a checkbox each. `fixed`: always on and not changeable here (the creator,
- * a person or group with a rule set in Admin › Folder permissions); `tags` says why beside the name.
+ * The members now and a search to add. The list: `fixed` first (always in and not changed here: me or the creator, a
+ * person or group with a rule set in Admin › Folder permissions; the tag says why), then the groups and people chosen,
+ * each with × to take them out. With `current` (the members saved now: the members dialog) a row added since is marked
+ * 새로 and a row taken out stays, struck through, with 되돌리기 until the save. Focusing the search lists everyone who
+ * can be added, typing narrows it, and the results take the list's place (on a phone's sheet too) until one is added,
+ * Esc, or focus leaves.
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
-  /** key → the tag shown instead of a checkbox (e.g. "만든 사람") */
+  /** key → the tag shown instead of × (e.g. "만든 사람") */
   fixed?: ReadonlyMap<string, string>
+  /** the members as saved now: rows show what the save changes */
+  current?: readonly ProjectParticipant[]
   testId?: string
 }) {
   const t = useT()
   const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLInputElement>(null)
+  // focus put back on the box after an add: not a person asking for the list again
+  const quiet = useRef(false)
   const searchId = useId()
+  const byKey = useMemo(() => new Map(options.map((x) => [participantKey(x), x])), [options])
   const picked = new Set(value.map(participantKey))
-  // the fixed ones (me, the creator, a rule set in Admin) first, then the picker's order
-  const shown = options.filter((x) => !q.trim() || x.name.toLowerCase().includes(q.trim().toLowerCase()))
-    .sort((a, b) => Number(fixed.has(participantKey(b))) - Number(fixed.has(participantKey(a))))
-  const toggle = (x: ParticipantOption) =>
-    onChange(picked.has(participantKey(x)) ? value.filter((y) => participantKey(y) !== participantKey(x)) : [...value, { subjectType: x.subjectType, subjectId: x.subjectId }])
+  const before = current ? new Set(current.map(participantKey)) : null
+  const searching = open || q.trim() !== ''
+
+  // fixed ones in their order, then the chosen and the ones taken out before saving: groups, then people, by name
+  const rows: ParticipantOption[] = []
+  const seen = new Set<string>()
+  for (const k of [...fixed.keys(), ...value.map(participantKey), ...(current ?? []).map(participantKey)]) {
+    const x = byKey.get(k)
+    if (x && !seen.has(k)) { seen.add(k); rows.push(x) }
+  }
+  const rank = (x: ParticipantOption) => (fixed.has(participantKey(x)) ? 0 : 1)
+  rows.sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? 0 : a.subjectType === b.subjectType ? byName(a, b) : a.subjectType === 'group' ? -1 : 1))
+
+  const needle = fold(q)
+  const results = options.filter((x) => {
+    const k = participantKey(x)
+    return !picked.has(k) && !fixed.has(k) && (!needle || fold(x.name).includes(needle) || fold(x.title ?? '').includes(needle))
+  })
+
+  const add = (x: ParticipantOption) => {
+    onChange([...value, { subjectType: x.subjectType, subjectId: x.subjectId }])
+    setQ('')
+    setOpen(false)
+    quiet.current = true
+    input.current?.focus()
+    quiet.current = false
+  }
+  const remove = (x: ParticipantOption) => onChange(value.filter((y) => participantKey(y) !== participantKey(x)))
+  const sub = (x: ParticipantOption) => [x.subjectType === 'group' ? t('projects.groupTag') : x.title, fixed.get(participantKey(x))].filter(Boolean).join(' · ')
+
   return (
-    <div className="rounded-lg border border-line" data-testid={testId}>
+    <div
+      ref={box}
+      className="rounded-lg border border-line"
+      data-testid={testId}
+      // focus left the picker (not to a result): the list again
+      onBlur={(e) => { if (!box.current?.contains(e.relatedTarget as Node | null)) setOpen(false) }}
+    >
       <label htmlFor={searchId} className="flex items-center gap-2 border-b border-line px-2.5">
         <Search size={14} className="shrink-0 text-faint" aria-hidden />
-        <input id={searchId} className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('projects.participantsSearch')} aria-label={t('projects.participantsSearch')} data-testid={`${testId}-search`} />
+        <input
+          ref={input}
+          id={searchId}
+          className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none max-sm:min-h-10"
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen(true) }}
+          onFocus={() => { if (!quiet.current) setOpen(true) }}
+          onClick={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') { setOpen(true); return }
+            // Esc closes the results first; the dialog stays open
+            if (e.key === 'Escape' && searching) { e.preventDefault(); setQ(''); setOpen(false) }
+          }}
+          placeholder={t('projects.participantsSearch')}
+          aria-label={t('projects.participantsSearch')}
+          autoComplete="off"
+          data-testid={`${testId}-search`}
+        />
       </label>
-      <ul className="max-h-48 overflow-y-auto p-1 text-sm">
-        {shown.map((x) => {
-          const k = participantKey(x)
-          const tag = fixed.get(k)
-          return (
-            <li key={k}>
-              <label className={`flex min-h-9 items-center gap-2 rounded-md px-2 ${tag === undefined ? 'cursor-pointer hover:bg-hover' : ''}`}>
-                <input type="checkbox" checked={tag !== undefined || picked.has(k)} disabled={tag !== undefined} onChange={() => toggle(x)} data-testid={`participant-${x.subjectType}-${x.subjectId}`} />
-                {x.subjectType === 'group' && <Users size={14} className="shrink-0 text-faint" aria-hidden />}
-                <span className="min-w-0 truncate">{x.name}</span>
-                {x.subjectType === 'group' && <span className="shrink-0 text-xs text-faint">{t('projects.groupTag')}</span>}
-                {tag !== undefined && <span className="ml-auto shrink-0 text-xs text-faint">{tag}</span>}
-              </label>
-            </li>
-          )
-        })}
-        {!shown.length && <li className="px-2 py-2 text-faint">{t('projects.participantsNone')}</li>}
-      </ul>
+      {searching ? (
+        <ul className="p-1 text-sm sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.searchResults')} data-testid={`${testId}-results`}>
+          {results.map((x) => {
+            const s = sub(x)
+            return (
+              <li key={participantKey(x)}>
+                {/* the box keeps the focus on a click: the list stays until the add */}
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => add(x)}
+                  className="flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-hover sm:min-h-10"
+                  data-testid={`participant-add-${x.subjectType}-${x.subjectId}`}
+                >
+                  <RowIcon group={x.subjectType === 'group'} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{x.name}</span>
+                    {s && <span className="block truncate text-xs text-faint">{s}</span>}
+                  </span>
+                  <span className="shrink-0 text-xs font-medium text-accent-text">{t('projects.add')}</span>
+                </button>
+              </li>
+            )
+          })}
+          {!results.length && <li className="px-2 py-2 text-faint">{t('projects.participantsNone')}</li>}
+        </ul>
+      ) : (
+        <ul className="p-1 text-sm sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.participants')}>
+          {rows.map((x) => {
+            const k = participantKey(x)
+            const tag = fixed.get(k)
+            const out = !!before && before.has(k) && !picked.has(k)
+            const fresh = !!before && !before.has(k) && picked.has(k)
+            const s = sub(x)
+            return (
+              <li key={k} className="flex min-h-11 items-center gap-2.5 rounded-md px-2 py-1.5 sm:min-h-10" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
+                <RowIcon group={x.subjectType === 'group'} />
+                {/* the name on one line; the title, the group tag and the tag under it */}
+                <span className="min-w-0 flex-1">
+                  <span className={clsx('block truncate', out && 'text-faint line-through')}>{x.name}</span>
+                  {(s || fresh) && (
+                    <span className="block truncate text-xs text-faint">
+                      {s}
+                      {fresh && <>{s && ' · '}<span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
+                    </span>
+                  )}
+                </span>
+                {tag === undefined && (out ? (
+                  <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => onChange([...value, { subjectType: x.subjectType, subjectId: x.subjectId }])} aria-label={t('projects.undoRemoveLabel', { name: x.name })} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
+                    {t('projects.undoRemove')}
+                  </button>
+                ) : (
+                  <IconButton label={t('projects.removeMember', { name: x.name })} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
+                    <X size={14} aria-hidden />
+                  </IconButton>
+                ))}
+              </li>
+            )
+          })}
+          {!rows.length && <li className="px-2 py-2 text-faint">{t('projects.membersNone')}</li>}
+        </ul>
+      )}
     </div>
   )
 }
 
-/** "볼 수 있는 사람: 영업 부서 · 김소라 · 팀장·관리자 (9명)": the names chosen (at most 4, then "외 N"), the owner and
- * admins, and how many people that is (null while the server counts). */
-export function AccessSummary({ names, count, testId = 'project-access-summary' }: { names: readonly string[]; count: number | null; testId?: string }) {
+const RowIcon = ({ group }: { group: boolean }) =>
+  group ? <Users size={14} className="shrink-0 text-faint" aria-hidden /> : <User size={14} className="shrink-0 text-faint" aria-hidden />
+
+/** "9명이 봐요 (팀장·관리자 포함)": how many people see it (the server's count; the last one stays while it counts
+ * again). The names are the list above it. */
+export function AccessSummary({ count, testId = 'project-access-summary' }: { count: number | null; testId?: string }) {
   const t = useT()
-  const MAX = 4
-  const parts = [...names.slice(0, MAX), ...(names.length > MAX ? [t('projects.whoMore', { n: names.length - MAX })] : []), t('projects.whoAdmins')]
+  const last = useRef<number | null>(null)
+  if (count !== null) last.current = count
+  const n = count ?? last.current
   return (
-    <p className="text-xs leading-5 break-keep text-muted" data-testid={testId}>
-      <span className="font-medium text-ink">{t('projects.who')}</span> {count === null ? parts.join(' · ') : t('projects.whoLine', { names: parts.join(' · '), n: count })}
+    <p className={clsx('text-xs leading-5 break-keep text-muted', count === null && n !== null && 'opacity-60')} aria-live="polite" data-testid={testId}>
+      {n === null ? t('projects.whoCounting') : t('projects.whoCount', { n })}
     </p>
   )
-}
-
-/** The names of the summary line, in the picker's order: groups as "{name} 부서", then people. */
-export function summaryNames(t: ReturnType<typeof useT>, chosen: readonly ProjectParticipant[], options: readonly ParticipantOption[], first: readonly string[] = []): string[] {
-  const byKey = new Map(options.map((x) => [participantKey(x), x]))
-  const items = chosen.map((x) => byKey.get(participantKey(x))).filter((x): x is ParticipantOption => !!x)
-  return [...first, ...items.filter((x) => x.subjectType === 'group').map((x) => t('projects.whoGroup', { name: x.name })), ...items.filter((x) => x.subjectType === 'user').map((x) => x.name)]
 }
 
 /** How many people would see the project with these participants (the server's dry run), asked again 300 ms after the

@@ -558,12 +558,14 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
       // a project in place keeps its folder (docs/DECISIONS.md "Projects live only in projects/"): no folder to choose;
-      // an admin reads one line that this older project is outside projects/
+      // an admin reads on its 멤버 line that this older project is outside projects/ (where its members are changed)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
       await expect(page.getByTestId('project-folder-choose')).toHaveCount(0)
-      await expect(page.getByTestId('project-form-legacy')).toBeVisible()
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+      await expect(page.getByTestId('project-members-manage')).toHaveCount(0)
+      await page.getByTestId('project-members-toggle').click()
+      await expect(page.getByTestId('project-members-hint')).toContainText('관리자 › 폴더 권한')
 
       // safe operations (1A): a shared chat is read-only, and says where to ask instead
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()

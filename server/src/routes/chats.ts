@@ -19,7 +19,7 @@ import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, lookupFolder, mayEditProject, projectFolderName, projectPaths } from '../chat/projects'
-import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, newProjectRules, previewAccess, projectAccess, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
+import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
@@ -165,8 +165,9 @@ export const chatsRoutes: RouteModule = {
   register(kit, ctx) {
     const rt = getChatRuntime(ctx)
     const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
-    /** a project as the API shows it, with its shared chats (chat/shared.ts projectShare) */
-    const projectOut = (r: ProjectRowT, canEdit: boolean) => rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r))
+    /** a project as the API shows it to `p`, with its shared chats (chat/shared.ts projectShare) and who changes its
+     * members (chat/project-access.ts membersView) */
+    const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean) => ({ ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r)), ...membersView(ctx, r, p, canEdit) })
     kit.handle(API.frequentQuestions, ({ auth }) => frequentQuestions(ctx.db, auth.user.id))
 
     // ---------------- chats ----------------
@@ -553,7 +554,10 @@ export const chatsRoutes: RouteModule = {
       const p = principal(ctx, auth)
       const rows = ctx.db.query(`SELECT ${PROJECT_COLS} FROM projects ORDER BY name COLLATE NOCASE, id`).all() as Parameters<typeof rt.store.toProject>[0][]
       const aud = new Audiences(ctx.db, ctx.files)
-      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => rt.store.toProject(r, mayEdit(ctx, p, r), projectShare(ctx.db, ctx.files, r, aud))) }
+      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => {
+        const canEdit = mayEdit(ctx, p, r)
+        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud)), ...membersView(ctx, r, p, canEdit) }
+      }) }
     })
 
     kit.handle(API.createProject, ({ c, body, auth }) => {
@@ -590,7 +594,7 @@ export const chatsRoutes: RouteModule = {
         const segs = f.path.split('/')
         if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== p.id || segs[2] !== 'projects') { removeMade(parent.createdTop ?? f.createdTop); place(false) }
         try { db.transaction(() => { insert(f.path); audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: null }) })() } catch (e) { removeMade(parent.createdTop ?? f.createdTop); throw e }
-        return projectOut(rt.store.projectRow(id)!, true)
+        return projectOut(rt.store.projectRow(id)!, p, true)
       }
 
       // team: always a new folder projects/<name>, made by the server (members have no write on projects/), with its
@@ -611,7 +615,7 @@ export const chatsRoutes: RouteModule = {
         })()
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
-      return projectOut(rt.store.projectRow(id)!, true)
+      return projectOut(rt.store.projectRow(id)!, p, true)
     })
 
     // the dry run of who would see a project (chat/project-access.ts): a new one (whoever may make team projects), or a
@@ -652,7 +656,7 @@ export const chatsRoutes: RouteModule = {
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
       if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      return projectOut(r!, mayEdit(ctx, p, r!))
+      return projectOut(r!, p, mayEdit(ctx, p, r!))
     })
 
     kit.handle(API.updateProject, ({ c, params, body, auth }) => {
@@ -728,7 +732,7 @@ export const chatsRoutes: RouteModule = {
       if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
-      return projectOut(after, mayEdit(ctx, p, after))
+      return projectOut(after, p, mayEdit(ctx, p, after))
     })
 
     // a personal project becomes a team project: a new projects/<name> with the participants chosen (as createProject
@@ -769,7 +773,7 @@ export const chatsRoutes: RouteModule = {
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
       if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
       const after = rt.store.projectRow(r!.id)!
-      return projectOut(after, mayEdit(ctx, p, after))
+      return projectOut(after, p, mayEdit(ctx, p, after))
     })
 
     kit.handle(API.deleteProject, async ({ c, params, query, auth }) => {
