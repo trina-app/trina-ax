@@ -27,6 +27,7 @@ import { errorText, isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
+import { useBackCloses } from '../lib/backCloses'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
@@ -48,7 +49,7 @@ import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
-import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
+import { EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from '../components/ui'
 import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
@@ -128,6 +129,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     useSideChats.getState().close(roomId)
     setSideOpen(false)
   }, [roomId, setSideOpen])
+  // on a phone the side chat fills the screen: Android's Back closes it and the room stays (QA TC-080)
+  const phone = !useMediaQuery('(min-width: 768px)')
+  useBackCloses(sideOpen && !threadId, closeSide, phone)
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
   const askTrina = useCallback((m: RoomMessage) => {
