@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 10:30
 - Branch: `fix/human-waits-deadline-test`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `tests/unit/turn-deadline.test.ts`. Why: the failure is in a unit test's timing; the code it covers works.
 - Version impact: none, a test-only change
 
@@ -39,4 +39,12 @@ None for the product. The test takes about 0.4 s longer.
 
 ## Result
 
-Filled in at the end.
+A flake, not a regression. The test file has not changed since 2026-10-27, and on dev it passed 20 of 20 runs alone
+(macOS and Linux Docker, bun 1.3.12), and in Docker with the 83 files of the failed shard 5 and with dev's own shard.
+It fails with the CI error (Received length: 1) when the runner is busy: in Docker held to one CPU with three busy
+loops beside it, 6 of 20 runs failed; with a 100 ms stall injected after the first card opens it fails every time.
+In a scan of the CI runs since 2026-11-03 that failed or were re-run, these two jobs are the only failures of it.
+
+Built as planned: the deadline is 500 ms, the first wait stays 20 ms and every assertion stays. Under the same
+one-CPU load, 20 of 20 runs pass; the file passes 20 of 20 runs in Linux Docker (`oven/bun:1.3.12`); typecheck and
+the chat suites (21 files, 413 tests) pass. The test takes about 0.4 s longer.
