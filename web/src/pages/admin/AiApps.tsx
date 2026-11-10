@@ -3,6 +3,7 @@
 // setup (installer --app-connectors, server.json appConnectors with a public host, or MYCEL_REMOTE_MCP_ORIGIN;
 // docs/site/agents/mcp-connector.md), so with it off this page shows those settings. It was part of Admin › App connectors.
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { REMOTE_MCP } from '@mycel/shared/api'
 import { api } from '../../lib/api'
@@ -32,7 +33,14 @@ export default function AdminAiApps() {
                 </a>
               </p>
               {on && remote.resource ? <ConnectorAddress resource={remote.resource} /> : <ConnectorOff admin />}
-              <ul className="-mx-2 divide-y divide-line" data-testid="admin-ai-app-list"><AiAppRows on={on} onConnect={setOpenApp} /></ul>
+              <ul className="-mx-2 divide-y divide-line" data-testid="admin-ai-app-list"><AiAppRows on={on} onConnect={setOpenApp} connected={remote.items} /></ul>
+              {/* my own connections: the list with Disconnect stays in Settings › AI apps; here one line says how many */}
+              {remote.items.length > 0 && (
+                <p className="text-xs text-muted" data-testid="admin-ai-apps-mine">
+                  {t('aiApps.mineSummary', { n: remote.items.length, names: [...new Set(remote.items.map((x) => x.clientName))].join(', ') })}{' '}
+                  <Link to="/settings/ai-apps" className="text-accent-text hover:underline" data-testid="admin-ai-apps-manage">{t('aiApps.manage')}</Link>
+                </p>
+              )}
               {openApp && remote.resource && <AiAppDialog app={openApp} resource={remote.resource} known={remote.items.map((x) => x.id)} onClose={() => setOpenApp(null)} />}
             </div>
           )
