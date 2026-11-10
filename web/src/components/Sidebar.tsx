@@ -35,6 +35,7 @@ import { markerOf, needsMe, waitingOrRunning, type MarkerView } from '../lib/ses
 import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
 import { sharedRights } from '../lib/sharedChat'
+import { useChatLinkItem } from './chat/copyChatLink'
 import { SharedIcon } from './chat/SharedChat'
 import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
@@ -429,10 +430,12 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
   // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
   const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
   const roomTitle = useRoomTitle()
+  const linkItem = useChatLinkItem(chat, 'chat-row-copy-link')
   const items: MenuItem[] = [
     chat.pinnedAt
       ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-unpin' }
       : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-pin' },
+    linkItem,
     ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat), testId: 'chat-row-rename' }] : []),
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: 'chat-row-move' }] : []),
