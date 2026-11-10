@@ -24,7 +24,8 @@ import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToRe
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
-import { attachContextMenu } from './context-menu'
+import { attachContextMenu, contextMenuOpen } from './context-menu'
+import { keyboardBack, keyboardTarget } from '../common/keyboard-focus'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
@@ -153,6 +154,12 @@ export class AppWindow {
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
+  /** the view that had the keyboard last (its own focus event; the pane reports its tabs) and whether it is the in-app
+   * browser's: the window gives the keyboard back there (settleKeys) */
+  private keys?: { view: WebContentsView; inPane: boolean }
+  /** `keys` when the window lost the focus (the system may hand the keyboard to another view before it is back) */
+  private keysAtBlur?: { view: WebContentsView; inPane: boolean }
+  private settleQueued = false
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -175,6 +182,7 @@ export class AppWindow {
       guardUiView(v.webContents)
       // a right-click in the app's own text fields (the invite link box, the browser's address): the edit items
       attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
+      this.watchKeys(v, v === this.chrome)
     }
     this.chrome.setBackgroundColor('#ECEAE4')
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
@@ -197,6 +205,11 @@ export class AppWindow {
       for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
       debug('window closed, team disposed')
     })
+    // back to the window (Cmd-Tab, the dock, a notification's click): the keyboard goes back where it was
+    this.win.on('blur', () => {
+      this.keysAtBlur = this.keys
+    })
+    this.win.on('focus', () => this.keysBack())
     this.layout()
     this.shell.webContents.once('did-finish-load', () => this.win.show())
   }
@@ -384,6 +397,7 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    this.watchKeys(app, false)
     // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
     attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
     const failedNavigation = (url: string) => {
@@ -479,6 +493,7 @@ export class AppWindow {
           if (this.pane) this.sendSiteSettings(this.pane.siteSettings())
         },
         teamHosts: () => teamHostnames(this.teams.teams),
+        onKeys: (view) => this.keysAt(view, true),
       },
       browserSes,
       this.o.pageScript,
@@ -588,6 +603,10 @@ export class AppWindow {
       if (!wc.isDestroyed()) wc.close()
       this.app = undefined
     }
+    // the team page and the pane's tabs are gone: nothing of theirs to give the keyboard back to
+    const own = [this.shell, this.chrome, this.hostbar]
+    if (this.keys && !own.includes(this.keys.view)) this.keys = undefined
+    if (this.keysAtBlur && !own.includes(this.keysAtBlur.view)) this.keysAtBlur = undefined
     this.currentOrigin = ''
   }
 
@@ -911,6 +930,8 @@ export class AppWindow {
 
   layout() {
     if (this.win.isDestroyed()) return
+    // the views change: the one with the keyboard may leave the window (the team list, the pane closed)
+    this.settleKeysSoon()
     const [w, h] = this.win.getContentSize()
     const views = this.win.contentView
     const show = (v: WebContentsView, rect: Electron.Rectangle) => {
@@ -938,6 +959,73 @@ export class AppWindow {
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
     this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
+  }
+
+  // ---------------------------------------------------------------- keyboard
+
+  private watchKeys(view: WebContentsView, inPane: boolean) {
+    view.webContents.on('focus', () => this.keysAt(view, inPane))
+  }
+
+  private keysAt(view: WebContentsView, inPane: boolean) {
+    this.keys = { view, inPane }
+  }
+
+  /** the window's views on screen that could have the keyboard */
+  private shownViews(): WebContentsView[] {
+    const children = this.win.contentView.children
+    return [this.shell, this.chrome, this.hostbar, this.app, this.pane?.shownTab()].filter((v): v is WebContentsView => !!v && !v.webContents.isDestroyed() && children.includes(v))
+  }
+
+  /** the window has the focus and no dialog or right-click menu of the app is open over it */
+  private keysReady(): boolean {
+    return !this.win.isDestroyed() && this.win.isFocused() && !this.allowAllOpen && !this.choosingFiles && !contextMenuOpen()
+  }
+
+  private keysTo(view: WebContentsView, why: string) {
+    const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : 'browser tab'
+    debug('keyboard to', name, why)
+    view.webContents.focus()
+  }
+
+  /** The window got the focus back: the view that had the keyboard when it lost it gets it again, at once (common/
+   * keyboard-focus.ts keyboardBack); nothing had it: settleKeys. */
+  private keysBack() {
+    const atBlur = this.keysAtBlur
+    this.keysAtBlur = undefined
+    if (this.win.isDestroyed()) return
+    const back = keyboardBack({ ready: this.keysReady(), shown: this.shownViews(), atBlur })
+    if (back) this.keysTo(back, 'back')
+    this.settleKeysSoon()
+  }
+
+  /** settleKeys a turn later: the views settle first, and a click that gave a view the keyboard meanwhile wins */
+  private settleKeysSoon() {
+    if (this.settleQueued) return
+    this.settleQueued = true
+    setImmediate(() => {
+      this.settleQueued = false
+      this.settleKeys()
+    })
+  }
+
+  /**
+   * The window has the focus and no view in it has the keyboard (after a start, a minimize, the team list, the pane
+   * closed): give it to the view in front (common/keyboard-focus.ts, docs/DECISIONS.md "창으로 돌아오면 키보드는 보던
+   * 곳으로"). Never while the window is in the back (focusing a view brings it forward on macOS), and never over the
+   * app's own dialogs or right-click menus.
+   */
+  private settleKeys() {
+    if (this.win.isDestroyed()) return
+    const target = keyboardTarget({
+      ready: this.keysReady(),
+      shown: this.shownViews(),
+      hasKeys: (v) => v.webContents.isFocused(),
+      last: this.keys,
+      paneTab: this.pane?.shownTab(),
+      page: this.mode === 'team' && this.app ? this.app : this.shell,
+    })
+    if (target) this.keysTo(target, 'settle')
   }
 
   private updateTitle() {

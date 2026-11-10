@@ -57,6 +57,8 @@ export interface PaneHost {
   onSavePermissions(p: ReturnType<SitePermissions['toJSON']>): void
   /** hostnames of every team this app knows (relay and office addresses): never opened in the pane */
   teamHosts(): ReadonlySet<string>
+  /** a tab of the pane got the keyboard (the window gives it back there, common/keyboard-focus.ts) */
+  onKeys?(view: WebContentsView): void
 }
 
 interface ConsoleEntry {
@@ -231,6 +233,12 @@ export class BrowserPane {
     return this.isOpen
   }
 
+  /** the tab on screen (the pane open), not a popup window */
+  shownTab(): WebContentsView | undefined {
+    const t = this.isOpen ? this.activeTab() : undefined
+    return t && !t.popup && !t.wc.isDestroyed() ? t.view : undefined
+  }
+
   private layout() {
     if (this.disposed || this.host.win.isDestroyed()) return
     const win = this.host.win
@@ -343,6 +351,7 @@ export class BrowserPane {
       refresh()
     })
     wc.on('did-navigate-in-page', refresh)
+    if (!popup) wc.on('focus', () => this.host.onKeys?.(view))
     wc.on('will-prevent-unload', (e) => {
       if (tab.forceLeave) e.preventDefault()
     })

@@ -18997,3 +18997,34 @@ this page", #263) and "Trina side chat" ("It opens the room's newest side chat")
   ✦: a new chat, the old one in 🕘; a phone; 보기 and ✦ still bring the chat back), `side-chat-attachments.spec.ts`,
   `room-file-viewer.spec.ts`, `room-hover-bar.spec.ts`, `room-drop.spec.ts`.
 - Version impact: **patch** (a behaviour change of one panel; no API, data or text change).
+
+## 창으로 돌아오면 키보드는 보던 곳으로 — the keyboard goes back where it was when the desktop window gets the focus (fix/desktop-page-focus, 2026-11-10)
+
+- **Why:** coming back to the desktop app (Cmd-Tab, a dock click, a notification's click, a start or the relaunch after
+  an update), typing did nothing until a click into the team page. The window is a `BaseWindow` holding several views
+  (the team page, the in-app browser's toolbar and tab, the host strip, the app's own welcome / team list / offline
+  screen); unlike a `BrowserWindow`, nothing gives one of them the keyboard. Checked in the desktop e2e (Electron 44,
+  macOS): after a start with a team, a minimize and a restore, or the team list and [돌아가기], the window was focused
+  and no view had the keyboard. After the window was ordered out and back in (Cmd-H and a dock click) the window's first
+  view, the team page, had it even when the person had been in the in-app browser, and Chromium had moved the page's
+  focus to its first focusable element: the message box lost it. PR #317 worked around it for the room sound only.
+- **The rule** (`desktop/src/common/keyboard-focus.ts`, `main/app-window.ts`): when the window gets the focus back, the
+  view that had the keyboard when it lost it gets it again, at once (a click that brought the window back is handled
+  after that and wins). Any other time the views change while the window has the focus (a team page loaded, back from
+  the team list or the offline screen, the in-app browser closed), and no view has the keyboard: the view that had it
+  last if it is still on screen, else the in-app browser's tab when the keyboard was last in the pane, else the team
+  page, else the app's own screen. Focusing the view keeps the page's own element (the message box, its draft and
+  caret). Never while the window is in the back (focusing a view brings it forward on macOS), while one of the app's
+  dialogs (Allow all websites, the file chooser) or right-click menus is open, or over a view that has the keyboard.
+- **The page's own element:** the team page's preload remembers the element that had the focus when the page lost it
+  and, when the page gets it back with another element focused, focuses that element again if it is still in the page.
+  A notification's click that opens another conversation drops it (the page's own focus there wins).
+- **Left as before:** a page load in a view takes the keyboard to that view (Chromium; the in-app browser's page loads
+  while the person types in the team page, a reload of the team page while the person types in the pane's toolbar). On
+  return to the window the keyboard goes back to where the person was. A site's own element in the in-app browser after
+  Cmd-H is not restored (the tab gets the keyboard; the site's first element may have it). Phones and the web app: no
+  change.
+- Tests: `tests/unit/e-keyboard-focus.test.ts` (the decisions, the page's element, the wiring),
+  `desktop/e2e/keyboard-focus.spec.ts` (a start, the message box across another window, an order-out and a minimize,
+  the team list and back, the in-app browser in front, a layout not taking it from the toolbar, a page load while away).
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
