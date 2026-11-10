@@ -151,6 +151,19 @@ export default function Files() {
     return accessChanged.on(() => void loadProjects())
   }, [loadProjects])
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
+  // back from Admin's edit panel opened from "Who can see it" (AccessTree's from=files): the folder's panel opens again
+  // once the folder is here, where the chip would show; the address loses `access` (a reload does not open it again)
+  const accessParam = params.get('access')
+  useEffect(() => {
+    if (accessParam !== '1' || !tree || tree.path.normalize('NFC') !== path.normalize('NFC')) return
+    if (offersFolderAccess(tree.path, tree.access, me.user.id, byFolder.get(tree.path.normalize('NFC')) ?? null)) setAccessFor({ path: tree.path, access: tree.access })
+    setParams((prev) => {
+      const n = new URLSearchParams(prev)
+      n.delete('access')
+      return n
+    }, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessParam, tree])
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   // several items at once: the checked rows (paths), the row clicked last (Shift+click selects from it), the folder

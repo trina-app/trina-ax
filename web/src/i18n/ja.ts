@@ -1797,6 +1797,7 @@ export const ja: Record<MessageKey, string> = {
   'accessEdit.title': "ルールを変更",
   'accessEdit.back': "フォルダーに戻る",
   'accessEdit.backToPeople': "人ごとに戻る",
+  'accessEdit.backToFiles': "ファイルに戻る",
   'accessEdit.basic': "基本のアクセス",
   'accessEdit.basicHint': "オーナーと管理者は、ルールに関係なくすべてのフォルダーを開いて変更できます。",
   'accessEdit.basic.follow': "上のフォルダーと同じ",

@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, Project } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { adminsOnly, chipOf, chipPlace, chipText, headlineText } from '../../src/lib/folder-access'
+import { changeHere } from '../../src/components/FolderAccess'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
@@ -69,5 +70,18 @@ describe('what it says', () => {
     expect(chipText(en, { kind: 'people', n: 1 })).toBe('1 person sees it')
     expect(chipText(en, { kind: 'people', n: 6 })).toBe('6 people see it')
     expect(headlineText(en, { kind: 'people', n: 6 })).toBe('6 people see it (owner and admins included)')
+  })
+})
+
+describe('where an admin changes the rules from the panel', () => {
+  test('a team folder and a legacy project\'s folder: yes; a project\'s own folder in projects/ and one\'s own folder: no', () => {
+    expect(changeHere('shared', 'ask')).toBe(true)
+    expect(changeHere('projects/falcon/docs', 'ask')).toBe(true)
+    expect(changeHere('shared/clients/acme', 'project')).toBe(true)
+    expect(changeHere('projects/falcon', 'project')).toBe(false)
+    // the project list did not load: still none on a folder of projects/ itself
+    expect(changeHere('projects/falcon', 'ask')).toBe(false)
+    expect(changeHere('users/olga', 'own')).toBe(false)
+    expect(changeHere('', null)).toBe(false)
   })
 })
