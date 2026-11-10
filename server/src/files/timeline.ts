@@ -30,7 +30,7 @@ const MAX_READS = 40
 
 const parentOf = (p: string) => p.split('/').slice(0, -1).join('/')
 /** `p` and every folder above it */
-const selfAndAbove = (p: string) => { const s = p.split('/'); return s.map((_, i) => s.slice(0, i + 1).join('/')) }
+export const selfAndAbove = (p: string) => { const s = p.split('/'); return s.map((_, i) => s.slice(0, i + 1).join('/')) }
 function parse(detail: string | null): Record<string, unknown> {
   if (!detail) return {}
   try { const d = JSON.parse(detail); return d && typeof d === 'object' ? d : {} } catch { return {} }
@@ -38,15 +38,26 @@ function parse(detail: string | null): Record<string, unknown> {
 
 /** Newest first. `stop`: end the walk after the first entry for which it returns true (that entry is included). */
 export function fileTimeline(db: Database, rel: string, o: { limit?: number; stop?: (e: TimelineEntry) => boolean } = {}): TimelineEntry[] {
+  return fileTimelineWalk(db, rel, o).entries
+}
+
+/** fileTimeline, and whether the walk was cut short (`cut`: `limit` entries, or MAX_READS reads, before it reached the
+ * event that made the file or ran out of history; not when `stop` ended it). `before`: only events older than this id
+ * (the file as it was then: a copy's source at the copy). */
+export function fileTimelineWalk(db: Database, rel: string, o: { limit?: number; stop?: (e: TimelineEntry) => boolean; before?: number } = {}): { entries: TimelineEntry[]; cut: boolean } {
   const limit = o.limit ?? 200
   const out: TimelineEntry[] = []
   let cur = rel
-  let before = Number.MAX_SAFE_INTEGER
+  let before = o.before ?? Number.MAX_SAFE_INTEGER
+  // set when the walk ends on its own: the file's making, a stop, or no more history
+  let ended = false
+  let stopped = false
   let skipTrash: string | null = null
   const push = (r: Row, kind: TimelineKind, from: string | null): boolean => {
     const e: TimelineEntry = { id: r.id, at: r.at, userId: r.user_id, turnId: r.turn_id, kind, path: cur, from, size: r.size, sha256: r.sha256 }
     out.push(e)
-    return out.length >= limit || !!o.stop?.(e)
+    if (o.stop?.(e)) { stopped = true; return true }
+    return out.length >= limit
   }
   const moveKind = (from: string, to: string, d: Record<string, unknown>): TimelineKind =>
     d.tool === 'rename_file' || parentOf(from) === parentOf(to) ? 'renamed' : 'moved'
@@ -74,6 +85,7 @@ export function fileTimeline(db: Database, rel: string, o: { limit?: number; sto
         case 'delete':
           if (typeof d.movedTo === 'string') continue // the other half of a move row, read from the 'create'
           if (skipTrash && d.trashId === skipTrash) { skipTrash = null; continue } // went to the trash, came back
+          ended = true
           break outer // another file had this name before
         case 'create': {
           if (typeof d.movedFrom === 'string') {
@@ -83,14 +95,17 @@ export function fileTimeline(db: Database, rel: string, o: { limit?: number; sto
           }
           if (Array.isArray(d.sourcePaths)) {
             const src = typeof d.sourcePaths[0] === 'string' ? d.sourcePaths[0] : null
-            if (push(r, 'copied', src) || !d.replaced) break outer
+            if (push(r, 'copied', src)) break outer
+            if (!d.replaced) { ended = true; break outer }
             continue
           }
           push(r, 'created', null)
+          ended = true
           break outer
         }
         case 'upload':
-          if (push(r, 'uploaded', null) || !d.replaced) break outer
+          if (push(r, 'uploaded', null)) break outer
+          if (!d.replaced) { ended = true; break outer }
           continue
         case 'update':
           if (push(r, 'edited', null)) break outer
@@ -112,9 +127,9 @@ export function fileTimeline(db: Database, rel: string, o: { limit?: number; sto
           continue
       }
     }
-    if (rows.length < BATCH) break
+    if (rows.length < BATCH) { ended = true; break }
   }
-  return out
+  return { entries: out, cut: !ended && !stopped }
 }
 
 /** Who made the content `sha` of the file at `rel`: the newest content event, when it made exactly this content.

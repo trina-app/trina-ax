@@ -93,7 +93,7 @@ import { auditOnceUse, authorsWrite, createGrant, everyoneWrites, folderAudience
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
-import { CONTENT_KINDS, fileTimeline } from '../files/timeline'
+import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
 import type { RoomTurnContext } from './runtime'
 import { knowledgeGraphOf, type KnowledgeGraph, type LookupPassage, type LookupResult } from '../knowledge-graph/service'
 import { locKey } from '../files/locations'
@@ -213,6 +213,17 @@ const OWN_HASH_BUDGET = 128 * 1024 * 1024
 /** the folders right under users/<id>/ the server names itself (tools/save-url.ts, chat/room-tools.ts, video, exports,
  * personal projects): their names carry nobody's words (noteOwnNames) */
 const SERVER_OWN_FOLDERS: ReadonlySet<string> = new Set(['downloads', 'images', 'videos', 'exports', 'projects'])
+/** the files of one folder whose names a listing showed that are traced (noteOwnNames): more counts as outside */
+const OWN_NAMES_MAX = 500
+/** a file's last name, and whether two names are one: the same once a trailing " (2)" or a conflict copy's "(… - …)"
+ * before the extension is taken off (a copy or move into a taken name keeps the words of the name; noteOwnNames) */
+const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+const plainName = (n: string): string => {
+  let s = n.normalize('NFC')
+  for (let i = 0; i < 8; i++) { const m = /^(.*\S)\s*\([^()]*\)(\.[^./]*)?$/.exec(s); if (!m) break; s = m[1]! + (m[2] ?? '') }
+  return s
+}
+const sameName = (a: string, b: string) => plainName(a) === plainName(b)
 /** a file's history read for its outside mark (fileOutsideLevel): a longer one counts as outside */
 const FILE_TIMELINE_MAX = 1000
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
@@ -1582,21 +1593,6 @@ export class TurnExec {
   private noteOwnNames(folders: Iterable<string>, subfolders: Iterable<string>, files: Iterable<string>) {
     const root = `users/${this.spec.userId}`
     const inside = (p: string) => p.startsWith(root + '/')
-    const db = this.rt.db
-    const branch = JSON.stringify([...this.branchTurns()])
-    const marked = (turnId: string | null) => (turnId ? this.turnOutsideLevel(turnId) : 0)
-    const createsAt = (p: string) => (db.query(`SELECT MAX(COALESCE(t.outside_content, 2)) AS o FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id
-      WHERE e.path = ? AND e.action = 'create' AND e.turn_id IS NOT NULL AND e.turn_id NOT IN (SELECT value FROM json_each(?))`).get(p, branch) as { o: number | null }).o ?? 0
-    const folderLevel = (d: string) => {
-      // a folder the server names itself (save_url's and save_room_file's downloads, videos, exports, personal projects)
-      if (SERVER_OWN_FOLDERS.has(d.slice(root.length + 1))) return 0
-      const first = db.query(`SELECT turn_id AS t FROM file_events WHERE path >= ? AND path < ? ORDER BY id ASC LIMIT 1`).get(d + '/', d + '0') as { t: string | null } | null
-      return Math.max(createsAt(d), first ? marked(first.t) : 0)
-    }
-    // the files a listing, glob or grep showed in a folder: every create of a direct child by an AI turn
-    const childFiles = (d: string) => (db.query(`SELECT MAX(COALESCE(t.outside_content, 2)) AS o FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id
-      WHERE e.path >= ? AND e.path < ? AND instr(substr(e.path, ?), '/') = 0 AND e.action = 'create' AND e.turn_id IS NOT NULL
-      AND e.turn_id NOT IN (SELECT value FROM json_each(?))`).get(d + '/', d + '0', d.length + 2, branch) as { o: number | null }).o ?? 0
     const items: [kind: 'file' | 'folder' | 'children', path: string][] = []
     const above = (p: string) => { const segs = p.split('/'); for (let n = 3; n < segs.length; n++) items.push(['folder', segs.slice(0, n).join('/')]) }
     for (const f of files) if (inside(f)) { items.push(['file', f]); above(f) }
@@ -1608,11 +1604,112 @@ export class TurnExec {
         const k = `${kind}\u0000${p}`
         if (this.namesSeen.has(k)) continue
         this.namesSeen.add(k)
-        level = Math.max(level, kind === 'file' ? createsAt(p) : kind === 'children' ? childFiles(p) : folderLevel(p))
+        level = Math.max(level, kind === 'file' ? this.fileNameLevel(p) : kind === 'children' ? this.childNamesLevel(p) : this.folderNameLevel(p))
         if (level >= 2) break
       }
     } catch { level = 2 }
     this.applyOutside(level)
+  }
+
+  /** The mark of an AI turn (turnOutsideLevel), 0 for a person's event (no turn). */
+  private markOf(turnId: string | null): number { return turnId ? this.turnOutsideLevel(turnId) : 0 }
+
+  /**
+   * The mark the name of the file `rel` carries: that of the event that gave the file this name. Its history is walked
+   * back while the name stays (files/timeline.ts: a move, a folder above moved or renamed, a restore; a copy goes on in its
+   * source as it was then), up to the create there, or the move or rename that changed the name. A copy or move that only
+   * added a " (2)" or a conflict copy's words keeps the name (sameName). A history cut short: 2. `before`: the file as it
+   * was before that event (a copy's source).
+   */
+  private fileNameLevel(rel: string, depth = 0, before?: number): number {
+    if (depth > 4) return 2
+    const { entries, cut } = fileTimelineWalk(this.rt.db, rel, { limit: FILE_TIMELINE_MAX, ...(before !== undefined ? { before } : {}) })
+    let name = baseName(rel)
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i]!
+      const last = i === entries.length - 1
+      if (e.kind === 'moved' || e.kind === 'renamed') {
+        if (e.from && sameName(baseName(e.from), name)) { name = baseName(e.from); continue }
+        return this.markOf(e.turnId)
+      }
+      // a copy over a file that was there keeps the older name; the copy that made the file names it after its source
+      if (e.kind === 'copied') {
+        if (!last) continue
+        return e.from && sameName(baseName(e.from), name) ? this.fileNameLevel(e.from, depth + 1, e.id) : this.markOf(e.turnId)
+      }
+      if (e.kind === 'created' || (e.kind === 'uploaded' && last)) return this.markOf(e.turnId)
+    }
+    return cut ? 2 : 0
+  }
+
+  /**
+   * The mark the name of the folder `d` carries, as fileNameLevel: walked back while the name stays (the folder moved, a
+   * folder above it moved or renamed, a restore from the trash; a folder copy goes on in its source as it was then), up
+   * to the event that made it by this name (the Files screen's new folder, a move or rename that changed the name). A
+   * folder with no event of its own was made on the way to the first file saved in it: that event names it, but for the
+   * folders the server names itself (SERVER_OWN_FOLDERS). A history cut short: 2.
+   */
+  private folderNameLevel(d: string, depth = 0, start = Number.MAX_SAFE_INTEGER): number {
+    if (depth > 4) return 2
+    const db = this.rt.db
+    const root = `users/${this.spec.userId}`
+    let cur = d, name = baseName(d), before = start
+    const restored = new Set<string>()
+    // no event of its own: the first event at or under the place after `after` names it
+    const firstUnder = (p: string, after: number) => {
+      if (SERVER_OWN_FOLDERS.has(p.slice(root.length + 1))) return 0
+      const first = db.query('SELECT turn_id AS t FROM file_events WHERE id > ? AND path >= ? AND path < ? ORDER BY id ASC LIMIT 1').get(after, p + '/', p + '0') as { t: string | null } | null
+      return first ? this.markOf(first.t) : 0
+    }
+    for (let reads = 0; reads < 40; reads++) {
+      const keys = selfAndAbove(cur)
+      const rows = db.query(`SELECT id, turn_id AS t, path, action, detail FROM file_events WHERE id < ? AND path IN (${keys.map(() => '?').join(',')})
+        AND action IN ('create', 'delete', 'restore') ORDER BY id DESC LIMIT 500`).all(before, ...keys) as { id: number; t: string | null; path: string; action: string; detail: string | null }[]
+      let moved = false
+      for (const r of rows) {
+        before = r.id
+        const det = parseJson(r.detail)
+        if (det.folder !== true) continue
+        if (r.path !== cur) {
+          // a folder above moved or was renamed: the same name, at the place it had then
+          if (r.action === 'create' && typeof det.movedFrom === 'string') { cur = det.movedFrom + cur.slice(r.path.length); moved = true; break }
+          continue
+        }
+        if (r.action === 'create') {
+          if (typeof det.movedFrom === 'string') {
+            if (!sameName(baseName(det.movedFrom), name)) return this.markOf(r.t)
+            cur = det.movedFrom; name = baseName(cur); moved = true; break
+          }
+          const src = Array.isArray(det.sourcePaths) && typeof det.sourcePaths[0] === 'string' ? det.sourcePaths[0] as string : null
+          if (src) return sameName(baseName(src), name) ? this.folderNameLevel(src, depth + 1, r.id) : this.markOf(r.t)
+          return this.markOf(r.t)
+        }
+        if (r.action === 'restore') {
+          if (typeof det.trashId === 'string') restored.add(det.trashId)
+          const original = typeof det.originalPath === 'string' ? det.originalPath : null
+          if (original && original !== cur) { cur = original; moved = true; break }
+          continue
+        }
+        // a delete: the other half of a move, a trip to the trash it came back from; else another folder had this place
+        // before, and this one was made after it
+        if (typeof det.movedTo === 'string') continue
+        if (typeof det.trashId === 'string' && restored.has(det.trashId)) continue
+        return firstUnder(cur, r.id)
+      }
+      if (moved) continue
+      if (rows.length < 500) return firstUnder(cur, 0)
+    }
+    return 2
+  }
+
+  /** The names of the files right inside `d` that a listing, glob or grep showed (fileNameLevel each, as on disk now); a
+   * folder with more than OWN_NAMES_MAX files: 2. */
+  private childNamesLevel(d: string): number {
+    const ents = fs.readdirSync(path.join(this.rt.files.fx.root, ...d.split('/')), { withFileTypes: true }).filter((e) => e.isFile() && !e.name.startsWith('.'))
+    if (ents.length > OWN_NAMES_MAX) return 2
+    let level = 0
+    for (const e of ents) { level = Math.max(level, this.fileNameLevel(`${d}/${e.name}`)); if (level >= 2) break }
+    return level
   }
   /** names noteOwnNames looked at in this turn (by kind and path) */
   private namesSeen = new Set<string>()
@@ -1633,15 +1730,15 @@ export class TurnExec {
   /** How much outside content the content of `rel` (a file as the file layer names it) carries, the most of: the marks
    * of every AI turn that wrote a version of it, back to the event that made the file (turns.outside_content; a turn row
    * that is gone counts as 2): an edit, by the person or by a clean answer, keeps what it was made on; for a copy also
-   * its source's (`depth` copies back, then 2); a history longer than FILE_TIMELINE_MAX counts as 2; and the marks of every
+   * its source's (`depth` copies back, then 2); a history cut short (longer than FILE_TIMELINE_MAX or the walk's reads) counts as 2; and the marks of every
    * AI turn that produced exactly these bytes anywhere (bytesOutsideLevel: a copy on the Files screen or of a folder, a
    * restore from the trash or a version, a copy whose source changed since). A file only people wrote, or with no known
    * history, carries none. */
   private fileOutsideLevel(rel: string, depth = 0, budget = { left: OWN_HASH_BUDGET }): number {
     if (depth > 4) return 2
     try {
-      const all = fileTimeline(this.rt.db, rel, { limit: FILE_TIMELINE_MAX })
-      if (all.length >= FILE_TIMELINE_MAX) return 2
+      const { entries: all, cut } = fileTimelineWalk(this.rt.db, rel, { limit: FILE_TIMELINE_MAX })
+      if (cut) return 2
       let level = 0
       for (const e of all) {
         if (!CONTENT_KINDS.has(e.kind)) continue
@@ -1697,7 +1794,7 @@ export class TurnExec {
   readsFree(name: string, args: unknown): boolean { return this.toolSet?.readsFree(name, args) ?? false }
   /** what the room card shows of a call, in words (roomChangeDetails), with stored secrets hidden */
   roomCardDetails(tool: string, input: unknown): ConfirmDetailT[] {
-    return roomChangeDetails(tool, input, this.spec.locale, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
+    return roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
@@ -1860,7 +1957,7 @@ export class TurnExec {
     // is the AI's choice; some APIs act on a GET)
     if (own && this.ownCard(tool) && this.readsFree(tool, input) && !carriesAddress(input)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
-    const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p), this.spec.userId)
+    const w = roomChangeWrites(tool, this.cardInput(tool, input), (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
       return own
         ? `Not done (${tool}): this chat holds messages from the user's team chat rooms (other people's words), so a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed here only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in a new chat, or you can write the content out with write or edit.`
@@ -1904,7 +2001,7 @@ export class TurnExec {
       }
     }
     const L = this.spec.locale
-    const what = this.redact(this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, input, L, BROWSER_TOOL_NAMES))
+    const what = this.redact(this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, this.cardInput(tool, input), L, BROWSER_TOOL_NAMES))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
     const details = this.roomCardDetails(tool, input)
@@ -2118,6 +2215,14 @@ export class TurnExec {
     const doc = typeof a.file_path === 'string' ? a.file_path : null
     if (typeof a.output === 'string') return hwpOutputPath(a.output, (doc !== null ? this.sourceRel(doc) : null) ?? doc ?? '')
     return doc
+  }
+
+  /** A call's input as a room card shows it: edit_hwp's output as the tool writes it (hwpTarget: "x.hwp/" saves x.hwp, an
+   * empty output ".hwpx" at the team root), everything else as given. */
+  private cardInput(tool: string, input: unknown): unknown {
+    if (tool !== 'edit_hwp' || !input || typeof input !== 'object' || typeof (input as { output?: unknown }).output !== 'string') return input
+    const out = this.hwpTarget(input)
+    return out === null ? input : { ...(input as Record<string, unknown>), output: out }
   }
 
   /** A document an edit_hwp call names, as the file layer resolves it for the person (tools/edit-hwp.ts), or null. */

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 03:09
 - Branch: `fix/outside-name-moves`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat/turn.ts`, `server/src/files/timeline.ts`). Why: the outside-content mark is a
   core permission rule (docs/REPOSITORY-RULES.md).
 - Version impact: patch (a fix to #275's name tracing; no API, data or setting change)
@@ -48,4 +48,6 @@ project-taint, the security permission matrix.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Names follow moves, renames, restores and copies (a copy in its source as it was at the copy); a
+" (2)" or a conflict copy's words keep a name; a walk cut short counts as outside; the edit_hwp card names its real
+output. The five probe and folder cases fail on #275's code and pass here.

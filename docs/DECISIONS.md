@@ -18318,3 +18318,34 @@ asks.**
   folder), `b-chat-rooms-save.test.ts` (into my own folder no card, an existing file a card), `b-chat-rooms.test.ts`
   (a scheduled run saves a new file of my own), `b-room-ai-grants.test.ts`.
 - Version impact: **minor** (fewer cards and a reversed decision; one add-only migration; no API change).
+## 이름도 옮겨 가면 표시가 따라간다 — a planted name keeps its outside mark when it moves (fix/outside-name-moves, 2026-11-10)
+
+Amends "대화방을 읽은 뒤 카드 줄이기" (S2, names). Since #275 a new file of the person's own folder needs no card after a
+room read, so the AI names it, and a name a later chat is shown counts as outside content when an AI turn with outside
+content made it. The security re-review of #275 found that the mark was lost as soon as the name moved: name tracing
+looked only at create events at the exact path, while a person's move or copy writes a create with no AI turn, and a
+folder rename writes one row for the folder only. Probed: the person moved or copied the file, renamed its folder, or a
+clean chat copied or moved it (no card there); a later listing showed the planted name, and `remember` kept it without a
+card.
+
+- **A name's history is walked back while the name stays** (`TurnExec.fileNameLevel`): through moves and renames that
+  keep it, a folder above moved or renamed, a restore from the trash (`files/timeline.ts`, which content tracing already
+  used), and a copy, which goes on in its source as it was at the copy (`fileTimelineWalk`'s `before`: the original
+  deleted since changes nothing). The mark is the one of the event that gave the file this name: the create there, or
+  the move or rename that changed it (by the person: none; by an AI turn: its `turns.outside_content`). A copy or move
+  into a taken name keeps the words: a trailing " (2)" or a conflict copy's "(… - …)" is the same name.
+- **Folder names the same way** (`folderNameLevel`): the folder's own rows (a move or rename of it, a folder above moved
+  or renamed, a restore, a folder copy in its source), up to the row that made it by this name. A folder with no row of
+  its own was made on the way to the first file saved in it, which names it (the folders the server names itself
+  carry nothing, as before).
+- **A listing's files** are traced one by one as they are on disk now (`childNamesLevel`); a folder with more than 500
+  counts as outside.
+- **A walk cut short counts as outside.** `fileTimelineWalk` says when it stopped at its entry limit or its 40 reads,
+  before the event that made the file or the end of the history (`cut`); names and content (`fileOutsideLevel`) then
+  count 2. `fileTimeline` is unchanged for its other callers.
+- **The room card for edit_hwp** names the output as the tool writes it (`TurnExec.cardInput` → `hwpTarget`): "x.hwp/"
+  saves x.hwp, an empty output `.hwpx` at the team root, in the step line, the details and the instruction check.
+- Tests: `b-chat-rooms-fewer-cards.test.ts` (the person moves the file, copies it and deletes the original, renames its
+  folder; a clean chat copies it and another moves it; a planted folder name moved by the person keeps its mark and one
+  renamed by the person to a name of theirs does not; a walk cut short; each of the five fails on #275's code).
+- Version impact: **patch** (a fix; no API, data or setting change).
