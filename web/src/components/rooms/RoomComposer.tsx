@@ -1,7 +1,8 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
-// button sends, like the AI chat's box), files (the clip, paste or drop; each is uploaded at once with POST
-// /api/rooms/:id/files and sent by id; a picture shows as itself at once, a 64 px square, while it uploads), and "@"
+// button sends, like the AI chat's box), files (the clip, paste, or a drop anywhere on the room's column or the thread
+// around the box: components/FileDropZone.tsx; each is uploaded at once with POST /api/rooms/:id/files and sent by id;
+// a picture shows as itself at once, a 64 px square, while it uploads), and "@"
 // for the room's members: a picked name (or "@트리나") stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
@@ -37,6 +38,8 @@ import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
+import { useFileDrop } from '../chat/ComposerFiles'
+import { useDropTarget } from '../FileDropZone'
 
 interface Upload {
   key: number
@@ -66,7 +69,6 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const [text, setTextState] = useState(() => drafts.get(key) ?? '')
   const [alsoInRoom, setAlsoInRoom] = useState(false)
   const [files, setFiles] = useState<Upload[]>([])
-  const [drag, setDrag] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const setText = (s: string) => {
@@ -189,6 +191,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     for (const u of added) void upload(u)
   }
 
+  // files dropped on the column around the box (the room's, the thread's: FileDropZone) come here, with its checks: a box
+  // with no room left for one more refuses the whole drop. Outside every column the box takes drops on itself.
+  const inZone = useDropTarget({ files: addFiles, refusal: () => (files.length >= ROOM_FILES_MAX ? t('rooms.tooMany', { n: ROOM_FILES_MAX }) : null) })
+  const { drag, dropProps } = useFileDrop({ files: inZone ? undefined : addFiles })
+
   const removeFile = (u: Upload) => {
     u.abort.abort()
     setFiles((list) => list.filter((x) => x.key !== u.key))
@@ -226,19 +233,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       <VoiceLive voice={voice} />
       <div
         className={clsx('mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
-        onDragOver={(e) => {
-          if (![...e.dataTransfer.types].includes('Files')) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'copy'
-          setDrag(true)
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return
-          e.preventDefault()
-          setDrag(false)
-          addFiles(Array.from(e.dataTransfer.files))
-        }}
+        {...dropProps}
         data-testid="room-composer"
       >
         {!voice.recording && mention.list}

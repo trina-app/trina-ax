@@ -9,6 +9,8 @@
 // project editor; stop: whoever asked; edit and regenerate: their own messages; no move, no queued sends, team files
 // only). While someone else's question is answered the box holds the text with a line saying whose; the others get no
 // live text, so the messages are read again when that turn starts and ends. While safe operations are on it is read-only.
+// Files from this computer dropped anywhere on the screen (its header, the messages, the box) go into the box
+// (components/FileDropZone.tsx); a chat in the trash or a read-only one says why nothing can be attached.
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -46,6 +48,7 @@ import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
+import { FileDropZone } from '../components/FileDropZone'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -331,7 +334,7 @@ function ChatView({ chatId }: { chatId: string }) {
     )
 
   return (
-    <div className="flex h-full flex-col">
+    <FileDropZone className="flex h-full flex-col" empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
           it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
           the name, and a new chat. */}
@@ -437,7 +440,7 @@ function ChatView({ chatId }: { chatId: string }) {
           }}
         />
       )}
-    </div>
+    </FileDropZone>
   )
 }
 

@@ -8,7 +8,8 @@
 // box's chat does (`reload`).
 // The row above the box (ComposerFileList): a picture from this computer as its 64 px square at once, while it uploads
 // (ChipThumb.tsx PictureTile), any other file as a compact chip with its size or its upload's progress; each with ✕ and,
-// failed, the reason beside it. The box takes files dropped on it (useFileDrop) and pasted into its text (`onPaste`).
+// failed, the reason beside it. The box takes files dropped on it or on the panel around it (useFileDrop,
+// components/FileDropZone.tsx) and pasted into its text (`onPaste`).
 import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
@@ -22,6 +23,7 @@ import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, saveChips, shareStash, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
+import { dragKind, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
@@ -207,34 +209,99 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, teamFil
   }
 }
 
-/** The box as a drop target: files from this computer, and (`onTeamPath`) a team file dragged from the file screen, a
- * preview or a message. `drag`: something that can be dropped is over it. */
-export function useFileDrop(onFiles: (files: File[]) => void, onTeamPath?: (path: string) => void) {
-  const [drag, setDrag] = useState(false)
+/** Drag events a drop target nearer the pointer took already: the targets around it let them be (the nearest wins). */
+const taken = new WeakSet<object>()
+
+/** A drop target: a box, or a panel around one (components/FileDropZone.tsx). `files`: files from this computer;
+ * `teamPath`: a team file dragged from the file screen, a preview or a message (left out: not taken here); `refusal`:
+ * why a drop of this kind would do nothing here (shown instead, and the drop does nothing), or null.
+ * `drag`: something it takes is over it (not over a nearer target inside it); `refusal`: the reason for that drag.
+ * Moving over its own parts is not leaving it: a count of the enters and leaves that reached it, and the element the
+ * pointer goes to (`relatedTarget`) when the browser says. Off on a drop, on leaving it, at the drag's end and on Esc. */
+export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File[]) => void; teamPath?: (path: string) => void; refusal?: (kind: DropKind) => string | null }) {
+  const [over, setOver] = useState<{ kind: DropKind; refusal: string | null; covered: boolean } | null>(null)
+  const depth = useRef(0)
+  const zone = useRef<HTMLElement | null>(null)
+  const take = { files: !!files, team: !!teamPath }
+  const off = () => {
+    depth.current = 0
+    zone.current = null
+    setOver(null)
+  }
+  const offRef = useRef(off)
+  offRef.current = off
+  const showing = over !== null
+  useEffect(() => {
+    if (!showing) return
+    const stop = () => offRef.current()
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') stop() }
+    // the pointer went somewhere else on the page without a leave reaching this target (the element it was over was
+    // taken out of the page meanwhile, say)
+    const elsewhere = (e: Event) => { if (zone.current && !zone.current.contains(e.target as Node | null)) stop() }
+    window.addEventListener('keydown', key)
+    window.addEventListener('dragend', stop)
+    window.addEventListener('drop', stop)
+    window.addEventListener('dragover', elsewhere)
+    return () => {
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('dragend', stop)
+      window.removeEventListener('drop', stop)
+      window.removeEventListener('dragover', elsewhere)
+    }
+  }, [showing])
+  /** a drag event of this target's own part of the page (one from a dialog drawn elsewhere through a portal is not) */
+  const own = (e: DragEvent<HTMLElement>) => e.currentTarget.contains(e.target as Node)
+  const show = (e: DragEvent<HTMLElement>, kind: DropKind) => {
+    zone.current = e.currentTarget
+    const nearer = taken.has(e.nativeEvent)
+    if (!nearer) taken.add(e.nativeEvent)
+    const why = nearer ? null : (refusal?.(kind) ?? null)
+    setOver((o) => (o && o.kind === kind && o.refusal === why && o.covered === nearer ? o : { kind, refusal: why, covered: nearer }))
+    return { nearer, why }
+  }
   return {
-    drag,
+    drag: !!over && !over.covered,
+    refusal: over && !over.covered ? over.refusal : null,
     dropProps: {
-      onDragOver: (e: DragEvent<HTMLElement>) => {
-        const types = [...e.dataTransfer.types]
-        if (!types.includes('Files') && !(onTeamPath && types.includes(TEAM_FILE_DRAG_TYPE))) return
-        e.preventDefault()
-        // attached as a copy: a file-list row's drag also allows "move" (for the list's folder rows)
-        e.dataTransfer.dropEffect = 'copy'
-        setDrag(true)
+      onDragEnter: (e: DragEvent<HTMLElement>) => {
+        const kind = dragKind(e.dataTransfer, take)
+        if (!kind || !own(e)) return
+        depth.current++
+        show(e, kind)
       },
-      onDragLeave: () => setDrag(false),
-      onDrop: (e: DragEvent<HTMLElement>) => {
-        const teamPath = onTeamPath && e.dataTransfer.getData(TEAM_FILE_DRAG_TYPE)
-        if (teamPath) {
-          e.preventDefault()
-          setDrag(false)
-          onTeamPath(teamPath)
-          return
-        }
-        if (!e.dataTransfer.files.length) return
+      onDragOver: (e: DragEvent<HTMLElement>) => {
+        const kind = dragKind(e.dataTransfer, take)
+        if (!kind || !own(e)) return
+        depth.current = Math.max(depth.current, 1)
+        const { nearer, why } = show(e, kind)
+        if (nearer) return
         e.preventDefault()
-        setDrag(false)
-        onFiles(Array.from(e.dataTransfer.files))
+        // attached as a copy (a file-list row's drag also allows "move", for the list's folder rows); refused: no drop
+        e.dataTransfer.dropEffect = why ? 'none' : 'copy'
+      },
+      onDragLeave: (e: DragEvent<HTMLElement>) => {
+        if (!dragKind(e.dataTransfer, take) || !own(e)) return
+        depth.current = Math.max(0, depth.current - 1)
+        const to = e.relatedTarget as Node | null
+        // still over one of its own parts
+        if (to && e.currentTarget.contains(to)) return
+        // out of it (where the browser says where the pointer went), else when every enter has had its leave
+        if (to || depth.current === 0) off()
+      },
+      onDrop: (e: DragEvent<HTMLElement>) => {
+        const kind = dragKind(e.dataTransfer, take)
+        if (!kind) return
+        const nearer = taken.has(e.nativeEvent)
+        off()
+        if (nearer || !own(e)) return
+        taken.add(e.nativeEvent)
+        // taken here even when refused or empty: the browser would open a dropped file in place of the app
+        e.preventDefault()
+        if (refusal?.(kind)) return
+        const path = kind === 'team' ? e.dataTransfer.getData(TEAM_FILE_DRAG_TYPE) : ''
+        if (path) return teamPath?.(path)
+        const list = Array.from(e.dataTransfer.files ?? [])
+        if (list.length && files) files(list)
       },
     },
   }
