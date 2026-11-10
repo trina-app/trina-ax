@@ -79,6 +79,8 @@ describe('where an admin changes the rules from the panel', () => {
     expect(changeHere('projects/falcon/docs', 'ask')).toBe(true)
     expect(changeHere('shared/clients/acme', 'project')).toBe(true)
     expect(changeHere('projects/falcon', 'project')).toBe(false)
+    // the project list did not load: still none on a folder of projects/ itself
+    expect(changeHere('projects/falcon', 'ask')).toBe(false)
     expect(changeHere('users/olga', 'own')).toBe(false)
     expect(changeHere('', null)).toBe(false)
   })
