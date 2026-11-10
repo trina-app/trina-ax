@@ -42,6 +42,7 @@ import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { placeProduced } from '../tools/make-file'
 import { Denied, ToolError } from '../policy/errors'
+import { callKey } from './schedule-cover'
 import { authorize } from '../policy/authorize'
 import type { ToolCtx } from '../files/service'
 import type { AppContext } from '../context'
@@ -171,7 +172,7 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         syncMine()
         let named = ''
         const to = a.data.save_as?.trim().slice(0, 80)
-        try { return await saveRoomFile(exec, files, a.data, false, (n) => { named = n }, planned.take(args)) } finally { label('save_room_file', named && to ? `${named} → ${to}` : named) }
+        try { return await saveRoomFile(exec, files, a.data, false, (n) => { named = n }, planned.take(args), { tool: 'save_room_file', args }) } finally { label('save_room_file', named && to ? `${named} → ${to}` : named) }
       },
     },
   ]
@@ -228,7 +229,7 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   named(file.name)
   // in a room's own session the room is "this room": its own name is not given to the AI there (rooms/ai.ts roomLabel)
   const where = inRoom ? 'this room' : `the ${neutralizeTags(roomKindLine(room.kind, title.replace(/[\r\n"<>]+/g, ' ').slice(0, 120)))}`
-  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, timeZone)} in ${where}. ${FILE_NOTE}`
+  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, timeZone)} (the team's time zone) in ${where}. ${FILE_NOTE}`
   const kind = mediaKind(file.name)
   if (kind) return { ...text(`${head}\nThis is a${kind === 'audio' ? 'n audio' : ' video'} file: video and audio sent in a room cannot be read here, only its name is known. The user can open it in the room${r.canSave ? '; or, if the user wants, save a copy to a team folder with save_room_file and read it there with read' : ', or save it to the team folder and ask again'}.`), summary: `room_file -> ${kind} not read` }
   const pdf = ext(file.name) === 'pdf'
@@ -567,7 +568,7 @@ function saveLabel(exec: TurnExec) {
   }
 }
 
-async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoom: boolean, named: (name: string) => void, planned?: string): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
+async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoom: boolean, named: (name: string) => void, planned?: string, call?: { tool: string; args: unknown }): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
   const { rt, spec } = exec
   const checked = saveTarget(exec, a, inRoom)
   if ('text' in checked) return { ...text(checked.text, true), summary: checked.summary }
@@ -579,7 +580,8 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoo
   // the room is where the bytes come from: saving where people outside it can read asks (the wider-audience card)
   addSources(rt.db, spec.chatId, saveSources(exec, checked))
   try { roomFilesOf(rt.ctx).open(spec.userId, room.id, file.id, false) } catch { return { ...text(gone, true), summary: 'save_room_file -> not found' } }
-  const refusal = await exec.confirmWidening(target)
+  // `call`: the tool call itself (a scheduled run's card may cover it, chat/schedule-cover.ts)
+  const refusal = await exec.confirmWidening(target, [], undefined, call)
   if (refusal) { const e = endOfText(refusal); return { ...text(refusal, true), summary: `save_room_file -> ${e === 'failed' ? 'the check failed' : cardEndShort(e)} (wider audience)` } }
   // the card may have waited minutes: the person still in the room, the message still there and seen, the bytes as read
   exec.abort.signal.throwIfAborted()
@@ -593,7 +595,9 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoo
     const bytes = readRegular(abs, 1024 * 1024 * 1024).bytes
     rt.files.quarantine.assertBytes(bytes)
     fs.writeFileSync(tmp, bytes, { mode: 0o600 })
-    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b) }
+    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call),
+      // a save a scheduled task's card covered: checked again right before the copy is placed (chat/schedule-cover.ts)
+      ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: file.mime } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''
     return { ...text(`Saved a copy of "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" from ${inRoom ? 'this' : 'that'} room as ${made.path} (${made.size} bytes).${note}`), summary: `save_room_file -> ${made.path} (${made.size} B)` }

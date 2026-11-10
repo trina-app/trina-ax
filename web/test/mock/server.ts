@@ -1152,7 +1152,7 @@ export class MockServer {
   }
 
   /** The edit card of a scheduled task (server/src/tools/schedules.ts scheduleCard, mode 'edit'), in Korean. */
-  scheduleEditRequest(x: Schedule, b: { title: string; prompt: string; repeat: Schedule['repeat']; time: string; weekday?: number | null; day?: number | null; date?: string | null; projectId: string | null }) {
+  scheduleEditRequest(x: Schedule, b: { title: string; prompt: string; repeat: Schedule['repeat']; time: string; weekday?: number | null; day?: number | null; date?: string | null; projectId: string | null; saveFolder?: string | null; saveSources?: string[] }) {
     if (x.templateId) throw new Fail('conflict', 409, '이 예약 작업은 이 방법으로 바꿀 수 없어요. 화면을 새로 고친 뒤 다시 해 주세요.', undefined, { reason: 'schedule_template' })
     const bad: Record<string, string> = {}
     if (!b.title.trim() || b.title.trim().length > 80) bad['body.title'] = '이 칸을 확인해 주세요.'
@@ -1167,12 +1167,19 @@ export class MockServer {
     const lines = [`예약 작업을 이렇게 바꿀까요? 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인해 주세요.\n\n제목: ${b.title.trim()}\n일정: ${when}${project ? `\n프로젝트: ${project.name}` : ''}`]
     if (opens.length) lines.push(`실행할 때마다 아래 주소 ${opens.length}개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.`)
     if (long.length) lines.push(`주소 뒤에 긴 내용(200자 넘는 쿼리)이 붙은 아래 주소 ${long.length}개는 실행 때 열지 않아요(강조 표시). 이런 주소는 늘 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요.`)
+    // the save folder and its places (server/src/chat/schedule-scope.ts), as the edit keeps them
+    const folder = b.saveFolder === undefined ? x.saveFolder ?? null : b.saveFolder
+    const kept = (x.saveSources ?? []).filter((y) => !b.saveSources || b.saveSources.includes(y.key))
+    const placeName = (y: NonNullable<Schedule['saveSources']>[number]) => (y.kind === 'mine' ? '내 폴더' : y.kind === 'room' ? `#${y.name} 대화` : y.kind === 'root' ? '팀 폴더 맨 위' : `${y.name}/`)
+    if (folder) lines.push(`새 파일 저장: ${folder} (지금 ${x.saveReaders ?? 30}명이 볼 수 있어요).${kept.length ? ` 넣어도 되는 내용: ${kept.map(placeName).join(', ')}` : ''}`)
+    if (x.personalSends?.length) lines.push(`보낼 수 있는 곳: ${x.personalSends.map((y) => `${y.name} · ${y.pins.map((q) => `'${q}'`).join(', ')}`).join('; ')}`)
     const details = [{ label: '지시문', text: b.prompt.trim() }]
     if (opens.length) details.push({ label: '실행 때 묻지 않고 여는 주소', text: opens.join('\n') })
     if (long.length) details.push({ label: '실행 때 열지 않는 주소(긴 쿼리)', text: long.join('\n'), marks: long.map((u) => new URL(u).search) } as never)
-    const key = JSON.stringify([b.title.trim(), b.prompt.trim(), b.repeat, b.time, b.weekday ?? null, b.day ?? null, b.date ?? null, b.projectId])
+    const key = JSON.stringify([b.title.trim(), b.prompt.trim(), b.repeat, b.time, b.weekday ?? null, b.day ?? null, b.date ?? null, b.projectId, folder, kept.map((y) => y.key)])
+    const sends = !!x.personalSends?.length
     return { kind: 'ask_user' as const, origin: 'server' as const, requestId: `schedule-edit-${x.id}-${Bun.hash(key).toString(36)}`, allowText: false, multiple: false,
-      question: lines.join('\n\n'), options: [{ label: '바꾸기', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }], details }
+      question: lines.join('\n\n'), options: sends ? [{ label: '바꾸기(연결 서비스에 보내기 허용)', value: 'save_write' }, { label: '바꾸기(연결 서비스에는 보내지 않음)', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }] : [{ label: '바꾸기', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }], details }
   }
 
   /** "devqueue": box_shell on srt waits in the team queue (Step.devEnvRun, server/src/devenv/srt/queue.ts): #2 in line,
@@ -3682,7 +3689,10 @@ export class MockServer {
         if (c.body.requestId !== r.requestId) throw new Fail('conflict', 409, '예약 작업이나 연결 서비스가 그 사이에 바뀌었어요. 카드를 다시 확인해 주세요.', undefined, { reason: 'schedule_card_changed' })
         if (!r.options.some((o) => o.value === c.body.answer)) fail('validation', 400, '이 확인은 카드의 버튼으로만 답할 수 있어요.')
         if (c.body.answer !== 'cancel') Object.assign(x, { title: c.body.title.trim(), prompt: c.body.prompt.trim(), repeat: c.body.repeat, time: c.body.time, weekday: c.body.weekday ?? null, day: c.body.day ?? null, date: c.body.date ?? null,
-          projectId: c.body.projectId, needsReview: false, reviewSince: null })
+          projectId: c.body.projectId, needsReview: false, reviewSince: null,
+          ...(c.body.saveFolder !== undefined ? { saveFolder: c.body.saveFolder, saveLapsed: null } : {}),
+          ...(c.body.saveSources ? { saveSources: (x.saveSources ?? []).filter((y) => c.body.saveSources!.includes(y.key)) } : {}),
+          ...(c.body.answer === 'save' ? { personalSends: [] } : {}) })
       }
       const { userId: _, ...out } = x
       return out
@@ -3690,6 +3700,13 @@ export class MockServer {
     // like server/src/chat/schedule-review.ts: the schedule card again, with the whole instruction and its addresses
     getScheduleReview: (c) => {
       const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
+      // a lapsed save folder (server/src/chat/schedule-review.ts, mode 'recheck'): the folder as it is now
+      if (!x.needsReview && x.saveFolder && x.saveLapsed) return { request: {
+        kind: 'ask_user' as const, origin: 'server' as const, requestId: `schedule-recheck-${x.id}`, allowText: false, multiple: false,
+        question: `이 예약 작업의 저장 허용을 멈춰 뒀어요: 저장 폴더의 권한 설정이 바뀌었어요. 그동안 결과는 내 폴더에 저장해요. 아래 폴더에 다시 새 파일을 저장해도 될지 골라 주세요.\n\n제목: ${x.title}\n일정: 매주 월요일 09:00\n\n새 파일 저장: ${x.saveFolder} (지금 ${(x.saveReaders ?? 30) + 2}명이 볼 수 있어요).`,
+        options: [{ label: '다시 허용', value: 'resave' }, { label: '그대로 두기', value: 'keep' }],
+        details: [{ label: '지시문', text: x.prompt }],
+      } }
       if (!x.needsReview) throw new Fail('conflict', 409, undefined, undefined, { reason: 'schedule_not_waiting' })
       const url = 'https://feeds.example.com/r/c2fsyxj5ltk4nzy1ndmy'
       return { request: {
@@ -3701,6 +3718,12 @@ export class MockServer {
     },
     confirmScheduleReview: (c) => {
       const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
+      if (x.saveLapsed && !x.needsReview) {
+        if (c.body.requestId !== `schedule-recheck-${x.id}`) throw new Fail('conflict', 409, '예약 작업이나 연결 서비스가 그 사이에 바뀌었어요. 카드를 다시 확인해 주세요.', undefined, { reason: 'schedule_card_changed' })
+        if (c.body.answer === 'resave') Object.assign(x, { saveLapsed: null, saveReaders: (x.saveReaders ?? 30) + 2 })
+        const { userId: _, ...out } = x
+        return out
+      }
       if (c.body.answer !== 'resume' && c.body.answer !== 'keep') fail('validation', 400, '이 확인은 카드의 버튼으로만 답할 수 있어요.')
       if (c.body.requestId !== `schedule-review-${x.id}`) throw new Fail('conflict', 409, '예약 작업이나 연결 서비스가 그 사이에 바뀌었어요. 카드를 다시 확인해 주세요.', undefined, { reason: 'schedule_card_changed' })
       if (c.body.answer === 'resume') Object.assign(x, { needsReview: false, reviewSince: null, enabled: true, nextRunAt: new Date(Date.now() + 86400_000).toISOString() })
@@ -4340,7 +4363,11 @@ export class MockServer {
       this.schedules.push({ userId: owner.id, id: uuidv7(), title: String(body.title ?? '주간 회의록 요약'), prompt: String(body.prompt ?? '매주 월요일 shared/회의록 에서 지난주 회의록을 읽고 users/olga/주간요약.md 에 정리해 줘.'),
         repeat: tpl === 'weekly-summary' ? 'weekly' : tpl ? 'daily' : (body.repeat as Schedule['repeat'] | undefined) ?? 'weekly', time: '09:00', weekday: tpl === 'daily-file-index' ? null : 1, day: null, date: null, projectId: null,
         enabled: body.enabled !== false, resumeBlockedReason: null, nextRunAt: body.enabled === false ? null : new Date(Date.now() + 86400_000).toISOString(), lastRunAt: null, lastChatId: null, needsReview: false, reviewSince: null,
-        ...(tpl ? { templateId: tpl, templateVersion: 1, sourcePath: 'shared/회의록', outputPath: `users/${owner.id}/reports` } : {}) })
+        ...(tpl ? { templateId: tpl, templateVersion: 1, sourcePath: 'shared/회의록', outputPath: `users/${owner.id}/reports` } : {}),
+        // what its card lets runs save and send (server/src/chat/schedule-scope.ts): "saveFolder" and "lapsed" in the body
+        ...(typeof body.saveFolder === 'string' ? { saveFolder: body.saveFolder, saveReaders: 30, saveLapsed: body.lapsed === true ? 'rules' as const : null,
+          saveSources: [{ key: `user:${owner.id}`, kind: 'mine' as const, name: null }, { key: 'room:r1', kind: 'room' as const, name: '영업팀' }],
+          personalSends: body.sends === true ? [{ name: '내 Notion', pins: ['일일 메모'] }] : [] } : {}) })
     }
     else if (p === '/__test/schedule-review') {
       // a free-text task made before the schedule card: paused until its owner confirms it again
