@@ -151,6 +151,13 @@ export const Project = z.object({
   /** how many shared chats it has (not in the trash): the delete dialog says they go to their creators' trash, the
    * repoint dialog who will see them */
   sharedChats: z.number().int().nonnegative().optional(),
+  /** a team project's members (docs/DECISIONS.md "Project members in one panel"): the caller changes them in the members
+   * dialog (its creator or an admin, `ProjectAccess.editable` for them: a projects/<name> folder in place, and for a
+   * member creator one the server made). Absent for a personal project and from older servers: false. */
+  membersEditable: z.boolean().optional(),
+  /** a team project: its creator changes its members too (their account is active and the folder is theirs to change),
+   * so its page names them in "멤버는 …님(만든 사람)이나 관리자가 바꿔요"; false: only admins. Absent: personal, older server */
+  creatorChangesMembers: z.boolean().optional(),
   /** while it shares its chats: the caller may send files from the computer into them (they go into the project's chat
    * attachments folder, which the caller may write: server/src/uploads/shared-chat.ts). false: the message box offers
    * team files only. Absent (older server, or not sharing): allowed. */

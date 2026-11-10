@@ -1,5 +1,7 @@
 // The "…" on each card of the Projects list (pages/Projects.tsx), rendered and clicked:
-// - what it offers: 이름 바꾸기 and 삭제 only to people who may edit the project (Project.canEdit), 링크 복사 to everyone;
+// - what it offers: 이름 바꾸기 and 삭제 only to people who may edit the project (Project.canEdit), 멤버 only to people who
+//   may change its members (Project.membersEditable), 링크 복사 to everyone;
+// - 멤버 opens the members dialog over the list (components/ProjectMembersDialog.tsx), and a save goes to the project;
 // - 링크 복사 copies the project page's full address on this origin and says so;
 // - 이름 바꾸기 is the chat rename's small prompt, and the card shows the new name;
 // - 삭제 is the project page's own confirm: the sentence that says its shared chats go to their creators' trash (by the
@@ -43,6 +45,11 @@ beforeAll(() => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     calls.push({ key, body: init?.body ? JSON.parse(String(init.body)) : undefined })
     if (key === 'GET /api/projects') return json(200, { items: list })
+    // the members dialog (project-members.test.tsx has the rest)
+    if (key === 'GET /api/people') return json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }] })
+    if (key.endsWith('/access')) return json(200, { editable: true, rulesHash: 'h1', people: 3, otherRules: [], participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }, { subjectType: 'user', subjectId: 'sora', name: 'Sora' }] })
+    if (key === 'POST /api/projects/access-preview') return json(200, { people: 2, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
+    if (key.endsWith('/participants')) return json(200, { editable: true, rulesHash: 'h2', people: 2, otherRules: [], participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }] })
     const id = key.split('/').at(-1)!
     const p = id in now ? now[id] : list.find((x) => x.id === id)
     if (!p && key.startsWith('GET /api/projects/')) return json(404, { error: { code: 'not_found', message: 'not found' } })
@@ -99,6 +106,32 @@ describe('the Projects list', () => {
       ])
       await m.click(within(card(m, 'Acme launch'), 'project-card-menu')!)
       expect(await open(m, 'Acme finance')).toEqual([['project-card-copy-link', ko('rooms.menu.copyLink')]])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('멤버 for whoever may change the members: the members dialog opens over the list and saves there', async () => {
+    list = list.map((p) => (p.id === SHARED ? { ...p, folderPath: 'projects/acme-sales', membersEditable: true, audience: 3 } : p))
+    const m = await page()
+    try {
+      await loaded(m)
+      expect(await open(m, 'Acme sales')).toEqual([
+        ['project-card-rename', ko('chat.rename')],
+        ['project-card-members', ko('projects.participants')],
+        ['project-card-copy-link', ko('rooms.menu.copyLink')],
+        ['project-card-delete', ko('common.delete')],
+      ])
+      await m.click(within(card(m, 'Acme sales'), 'project-card-members')!)
+      await m.until(() => m.find('participant-user-sora'), 'the members dialog')
+      expect(m.html()).toContain(ko('projects.membersTitle', { name: 'Acme sales' }))
+      await m.click('participant-remove-user-sora')
+      await m.click('project-members-save')
+      await m.until(() => !m.find('project-members-dialog'), 'the dialog closed')
+      expect(calls.find((c) => c.key === `PUT /api/projects/${SHARED}/participants`)?.body).toEqual({ participants: [], expectedHash: 'h1' })
+      expect(useProjects.getState().byId[SHARED]?.audience).toBe(2)
+      // still on the list
+      expect(cards(m).length).toBe(3)
     } finally {
       await m.unmount()
     }

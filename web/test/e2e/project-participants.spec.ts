@@ -1,7 +1,9 @@
-// Projects live only in projects/ (docs/DECISIONS.md "Projects live only in projects/"): a member makes a team project
-// with the people they choose and always reads who sees it; the creator adds someone later and a confirm says what they
-// will see first; narrowing saves at once; deleting it may take its folder to the trash. The team setting can keep team
-// projects to admins.
+// Projects live only in projects/ (docs/DECISIONS.md "Projects live only in projects/", "Project members in one
+// panel"): a member makes a team project with the people they choose and reads how many see it; the creator adds
+// someone later from the 멤버 line of the project page and a confirm says what they will see first; taking someone out
+// saves at once; deleting it may take its folder to the trash. Someone who cannot change the members reads who does;
+// the list card's ⋯ 멤버 and /projects/:id?members=1 open the same dialog. The team setting can keep team projects to
+// admins.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -33,28 +35,44 @@ test('a member makes a team project with a person, then adds one more: the confi
   await b.getByTestId('project-new').click()
   const dialog = b.getByRole('dialog')
   await b.getByTestId('project-name').fill('주간 보고')
-  // a team project by default, no folder to choose; who sees it is always said
+  // a team project by default, no folder to choose; how many see it is always said
   await expect(b.getByTestId('project-kind-team')).toBeChecked()
   await expect(dialog.getByTestId('project-folder')).toHaveCount(0)
-  await expect(b.getByTestId('project-access-summary')).toHaveText('볼 수 있는 사람 나 · 팀장·관리자 (2명)')
-  // my own group is offered (부서); I am always in it
-  await expect(dialog.getByText('영업', { exact: true })).toBeVisible()
-  await expect(b.getByTestId('participant-user-bob')).toBeDisabled()
+  await expect(b.getByTestId('project-access-summary')).toHaveText('2명이 봐요 (팀장·관리자 포함)')
+  // I am always in it (no × to take me out)
+  await expect(b.getByTestId('participant-user-bob')).toContainText('나')
+  await expect(b.getByTestId('participant-remove-user-bob')).toHaveCount(0)
+  // the search lists everyone I can add, my own group (부서) too; typing narrows it
+  await b.getByTestId('project-participants-search').click()
+  await expect(b.getByTestId('project-participants-results').getByText('영업', { exact: true })).toBeVisible()
+  await expect(b.getByTestId('participant-add-user-jiwoo')).toBeVisible()
   await b.getByTestId('project-participants-search').fill('소라')
-  await b.getByTestId('participant-user-sora').check()
-  await expect(b.getByTestId('project-access-summary')).toHaveText('볼 수 있는 사람 나 · 김소라 · 팀장·관리자 (3명)')
+  await expect(b.getByTestId('participant-add-user-jiwoo')).toHaveCount(0)
+  await b.getByTestId('participant-add-user-sora').click()
+  await expect(b.getByTestId('participant-user-sora')).toBeVisible()
+  await expect(b.getByTestId('project-access-summary')).toHaveText('3명이 봐요 (팀장·관리자 포함)')
   await b.getByTestId('project-save').click()
   await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
   const id = b.url().split('/').pop()!
 
-  // someone else put a file there; Bob adds Jiwoo: the confirm first
-  expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/notes.md', text: '# notes\n' } })).ok()).toBeTruthy()
-  expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/skills/견적서/SKILL.md', text: '---\nname: 견적서\ndescription: 견적서 초안\n---\n' } })).ok()).toBeTruthy()
+  // the 멤버 line says how many see it; the edit dialog no longer holds the members
+  await expect(b.getByTestId('project-members')).toContainText('3명이 봐요')
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-edit').click()
-  await expect(b.getByTestId('participant-user-sora')).toBeChecked()
-  await b.getByTestId('participant-user-jiwoo').check()
-  await b.getByTestId('project-save').click()
+  await expect(b.getByRole('dialog').getByTestId('project-participants')).toHaveCount(0)
+  await b.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+
+  // someone else put a file there; Bob adds Jiwoo from the 멤버 line: the confirm first
+  expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/notes.md', text: '# notes\n' } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/skills/견적서/SKILL.md', text: '---\nname: 견적서\ndescription: 견적서 초안\n---\n' } })).ok()).toBeTruthy()
+  await b.getByTestId('project-members-manage').click()
+  await expect(b.getByRole('dialog')).toContainText('멤버 · 주간 보고')
+  await expect(b.getByTestId('participant-user-bob')).toHaveAttribute('data-state', 'fixed')
+  await expect(b.getByTestId('participant-user-sora')).toHaveAttribute('data-state', 'member')
+  await b.getByTestId('project-participants-search').fill('지우')
+  await b.getByTestId('participant-add-user-jiwoo').click()
+  await expect(b.getByTestId('participant-user-jiwoo')).toHaveAttribute('data-state', 'new')
+  await b.getByTestId('project-members-save').click()
   const confirm = b.getByTestId('project-widen-confirm')
   await expect(confirm).toContainText('1명이 새로 이 프로젝트를 보게 돼요.')
   await expect(confirm).toContainText('파일 1개 (다른 사람이 올린 1개 포함)')
@@ -64,14 +82,16 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByRole('dialog')).toHaveCount(0)
   const access = await (await b.request.get(`/api/projects/${id}/access`)).json() as { participants: { subjectId: string }[] }
   expect(access.participants.map((x) => x.subjectId)).toEqual(['bob', 'sora', 'jiwoo'])
+  await expect(b.getByTestId('project-members')).toContainText('4명이 봐요')
 
-  // narrowing: no confirm, saved at once
-  await b.getByTestId('project-menu').click()
-  await b.getByTestId('project-edit').click()
-  await b.getByTestId('participant-user-sora').uncheck()
-  await b.getByTestId('project-save').click()
+  // taking someone out: struck through until the save, then saved at once (no confirm)
+  await b.getByTestId('project-members-manage').click()
+  await b.getByTestId('participant-remove-user-sora').click()
+  await expect(b.getByTestId('participant-user-sora')).toHaveAttribute('data-state', 'removed')
+  await b.getByTestId('project-members-save').click()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   expect(((await (await b.request.get(`/api/projects/${id}/access`)).json()) as { participants: { subjectId: string }[] }).participants.map((x) => x.subjectId)).toEqual(['bob', 'jiwoo'])
+  await expect(b.getByTestId('project-members')).toContainText('3명이 봐요')
 
   // deleting it offers to put its folder in the trash
   await b.getByTestId('project-menu').click()
@@ -81,6 +101,44 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b).toHaveURL(/\/projects$/)
   expect((await page.request.get(`/api/files/tree?path=${encodeURIComponent('projects/주간 보고')}`)).status()).toBe(404)
   await b.context().close()
+})
+
+test('who cannot change the members reads who does; the list card\'s ⋯ 멤버 and ?members=1 open the dialog', async ({ page, browser }) => {
+  await reset(page)
+  await signIn(page)
+  const r = await page.request.post('/api/projects', { headers: H, data: { name: '견적', scope: 'team', participants: [{ subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
+  const id = ((await r.json()) as { id: string }).id
+  // Bob is in it but did not make it: the line opens to say who changes the members, by name; no 관리, no ⋯ 멤버
+  const b = await asBob(browser)
+  await b.goto(`/projects/${id}`)
+  await expect(b.getByTestId('project-members')).toContainText('2명이 봐요')
+  await expect(b.getByTestId('project-members-manage')).toHaveCount(0)
+  await b.getByTestId('project-members-toggle').click()
+  await expect(b.getByTestId('project-members-hint')).toHaveText('멤버는 Olga님(만든 사람)이나 관리자가 바꿔요.')
+  await b.goto(`/projects/${id}?members=1`)
+  await expect(b.getByTestId('project-members')).toBeVisible()
+  await expect(b.getByRole('dialog')).toHaveCount(0)
+  await expect(b).toHaveURL(new RegExp(`/projects/${id}$`))
+  await b.goto('/projects')
+  await b.getByTestId('project-card').getByTestId('project-card-menu').click()
+  await expect(b.getByTestId('project-card-members')).toHaveCount(0)
+  await b.context().close()
+
+  // the creator: ⋯ 멤버 on the list opens the members without leaving it
+  await page.goto('/projects')
+  await page.getByTestId('project-card').hover()
+  await page.getByTestId('project-card').getByTestId('project-card-menu').click()
+  await page.getByTestId('project-card-members').click()
+  await expect(page.getByRole('dialog')).toContainText('멤버 · 견적')
+  await expect(page.getByTestId('participant-user-bob')).toHaveAttribute('data-state', 'member')
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await expect(page).toHaveURL(/\/projects$/)
+  // and /projects/:id?members=1 opens it on the page; closing it drops the parameter
+  await page.goto(`/projects/${id}?members=1`)
+  await expect(page.getByRole('dialog')).toContainText('멤버 · 견적')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
 })
 
 test('a team that lets only admins make team projects: a member makes a personal one', async ({ page, browser }) => {
