@@ -19483,9 +19483,10 @@ Save. Amends "The keyboard keeps the newest message in sight (end-to-end run, 20
   ran next no longer followed. The phone app's WebView, unlike Safari, also shrinks `innerHeight` with the keyboard.
 - **One hook for every list** (`lib/stickToBottom.ts useStickToBottom`: the room's timeline, DMs and group chats, a
   thread, the ✦ side chat, the AI chat; before, each list had its own copy of the refs and handlers):
-  - A scroll event while the list's own size differs from the size its ResizeObserver last saw is the browser's, not
-    the reader's (`scrolledByReader`): it changes nothing, and the observer, which runs after it in the same frame,
-    decides.
+  - A scroll event while the list's own height differs from the height its ResizeObserver last saw, moving the list no
+    further than that difference, is the browser's, not the reader's (`scrolledByReader`: clamping, the WebView's
+    22 px): it changes nothing, and the observer, which runs after it in the same frame, decides. A bigger move is a
+    real scroll, the reader's or the app's own (a thread opened at a reply puts it in view while its box settles).
   - The list changed size (`placeAfterResize`): following (at the bottom, or within 80 px of it) → to the bottom; not
     following and the list itself got shorter or taller within a second of a `visualViewport` change (the keyboard) →
     back to where the reader left it, so the first message in sight stays in its place and an engine's nudge is undone;

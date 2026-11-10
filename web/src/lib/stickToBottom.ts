@@ -9,8 +9,8 @@
 // The list's own size changing is not the reader scrolling. In the iPhone app's WebView the keyboard shrinks the list
 // and, in the same frame, the engine moves its scrollTop up a little (22 px measured, iOS 26.5): that scroll event comes
 // before the size watcher and read as the reader leaving the bottom, so the list stopped following and the newest
-// messages went behind the box. A scroll event while the list's size differs from the size last seen is left to the
-// size watcher, which runs after it in the same frame.
+// messages went behind the box. A scroll event while the list's height differs from the height last seen, moving it no
+// further than that difference, is left to the size watcher, which runs after it in the same frame.
 import { useEffect, useRef } from 'react'
 
 /** Near the bottom: a list this close to its end follows it. */
@@ -33,11 +33,14 @@ export function followsAfterScroll(el: Pick<HTMLElement, 'scrollTop' | 'scrollHe
   return el.scrollTop < lastTop - 1 ? false : was
 }
 
-/** Is this scroll event the reader's? Not while the list's own size differs from the size the watcher last saw: the
- * browser moved it while laying the list out again (a keyboard, the message box growing), and the watcher decides.
- * Nothing seen yet (no ResizeObserver): the reader's, as before. */
-export function scrolledByReader(el: Pick<HTMLElement, 'clientHeight' | 'clientWidth'>, seen: ListSize | null): boolean {
-  return !seen || (el.clientHeight === seen.height && el.clientWidth === seen.width)
+/** Is this scroll event the reader's (or the app's own: a link's message scrolled into view)? Not when the list's own
+ * height differs from the height the watcher last saw and the list moved no further than that difference: the browser
+ * moved it while laying the list out again (clamping as it grows; the iPhone app's WebView nudging it 22 px as the
+ * keyboard shrinks it 381 px), and the watcher, which runs next, decides. A bigger move is a real scroll. Nothing seen
+ * yet (no ResizeObserver): the reader's, as before. */
+export function scrolledByReader(el: Pick<HTMLElement, 'clientHeight' | 'scrollTop'>, seen: ListSize | null, lastTop: number): boolean {
+  if (!seen || el.clientHeight === seen.height) return true
+  return Math.abs(el.scrollTop - lastTop) > Math.abs(el.clientHeight - seen.height) + 1
 }
 
 /** Where the list goes after it or its content changed size (null: where it is). Following: to the bottom. Not
@@ -68,7 +71,7 @@ export interface ListState {
 /** The list's scroll event (useStickToBottom's onScroll): whether the reader is at the bottom now. False and nothing
  * changed when the scroll was the browser's, during the list's own size change (scrolledByReader). */
 export function onListScroll(el: Box, st: ListState, canStick: () => boolean = () => true): boolean {
-  if (!scrolledByReader(el, st.seen.current)) return false
+  if (!scrolledByReader(el, st.seen.current, st.lastTop.current)) return false
   st.stick.current = followsAfterScroll(el, st.stick.current, st.lastTop.current) && canStick()
   st.lastTop.current = el.scrollTop
   return true
@@ -83,8 +86,8 @@ export function jumpToBottom(el: Pick<HTMLElement, 'scrollTop' | 'scrollHeight'>
 
 /** Watch the list and its content (ResizeObserver, after layout) and the visual viewport (a phone's keyboard; iOS
  * changes only that): when a size changed, put the list where placeAfterResize says. Only the observer records the
- * size, as it runs last in a frame: a scroll event the engine sends after a visual viewport event of the same frame is
- * still told apart (scrolledByReader). Returns the cleanup. No ResizeObserver (an old browser, a test without a DOM):
+ * size and the place, as it runs last in a frame: a scroll event the engine sends after a visual viewport event of the
+ * same frame is still told apart (scrolledByReader). Returns the cleanup. No ResizeObserver (an old browser, a test without a DOM):
  * nothing is watched. */
 export function watchListSize(
   scroller: HTMLElement,

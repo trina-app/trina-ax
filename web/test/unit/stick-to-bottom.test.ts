@@ -123,10 +123,11 @@ test('scrolled up, the message box grows a line (no keyboard): the browser keeps
   el.scrollTop = 2430
   expect(onScroll()).toBe(true)
   expect(st.stick.current).toBe(false)
-  // the box grows by 24 px while the reader flicks on up, in the same frame
+  // the box grows by 24 px while the reader flicks on up 50 px, in the same frame: more than the box explains, the reader's
   el.clientHeight = 605
   el.scrollTop = 2380
-  expect(onScroll()).toBe(false)
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
   ro.fire()
   expect(el.scrollTop).toBe(2380)
   // the next scroll event is the reader's again
@@ -185,12 +186,31 @@ test("a computer's window: a narrower list keeps the browser's place, content gr
   expect(placeAfterResize({ ...el, clientHeight: 300 }, false, 1200, null)).toBeNull()
 })
 
-test('a scroll event is the reader\'s unless the list\'s own size changed since the observer saw it', () => {
-  expect(scrolledByReader({ clientHeight: 700, clientWidth: 390 }, { height: 700, width: 390 })).toBe(true)
-  expect(scrolledByReader({ clientHeight: 306, clientWidth: 390 }, { height: 700, width: 390 })).toBe(false)
-  expect(scrolledByReader({ clientHeight: 700, clientWidth: 600 }, { height: 700, width: 390 })).toBe(false)
+test("a scroll event is the reader's unless the list's own height changed and it moved no further than that", () => {
+  const seen = { height: 700, width: 390 }
+  // the same height: the reader's
+  expect(scrolledByReader({ clientHeight: 700, scrollTop: 900 }, seen, 2300)).toBe(true)
+  // 394 px shorter, moved 22 px (the WebView's nudge) or not at all: the browser's
+  expect(scrolledByReader({ clientHeight: 306, scrollTop: 2278 }, seen, 2300)).toBe(false)
+  expect(scrolledByReader({ clientHeight: 306, scrollTop: 2300 }, seen, 2300)).toBe(false)
+  // 24 px shorter (the box grew a line) and a link's message scrolled into view 1,500 px up: a real scroll
+  expect(scrolledByReader({ clientHeight: 676, scrollTop: 800 }, seen, 2300)).toBe(true)
+  // a computer's window only narrower: the reader's, as before (the browser's own anchoring included)
+  expect(scrolledByReader({ clientHeight: 700, scrollTop: 2100 }, seen, 2300)).toBe(true)
   // no ResizeObserver: every scroll event is the reader's, as before
-  expect(scrolledByReader({ clientHeight: 306, clientWidth: 390 }, null)).toBe(true)
+  expect(scrolledByReader({ clientHeight: 306, scrollTop: 2278 }, null, 2300)).toBe(true)
+})
+
+test("opening a thread at a reply: the app scrolls it into view as the box below settles its height; the list stops following", () => {
+  const el = new Box(3000, 700, 390, 2300)
+  const { st, ro, onScroll } = setup(el)
+  // the box settles 20 px taller and the highlighted reply is put in the middle, in the same frame
+  el.clientHeight = 680
+  el.scrollTop = 1200
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+  ro.fire()
+  expect(el.scrollTop).toBe(1200)
 })
 
 test('no ResizeObserver: nothing is watched, and the cleanup is harmless', () => {
