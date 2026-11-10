@@ -13,8 +13,9 @@
 // message of the timeline; it takes a seq but stays out of the timeline (unless sent to the room too), moves my place in
 // the thread, not in the room, and makes me follow the thread (the root's author and people mentioned in it follow it
 // too). New replies notify the followers (room notices, as DM messages and mentions do) and mark the root for them;
-// nobody else is notified and no badge goes up for them. Reactions (react) take from the sending budget and notify
-// nobody. Nobody is told who read what: room.read goes to the reader's own windows only.
+// nobody else is notified and no badge goes up for them. Reactions (react: any one emoji, docs/DECISIONS.md "Any emoji as
+// a reaction") take from the sending budget and notify nobody; a message carries at most ROOM_REACTION_EMOJI_MAX
+// different emoji. Nobody is told who read what: room.read goes to the reader's own windows only.
 //
 // Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
 // (setHidden; room_members.hidden_at). Nobody else is told and nothing is audited. It comes back by itself when something
@@ -31,7 +32,7 @@
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -731,15 +732,22 @@ export class Rooms {
   }
 
   // ---------------- reactions ----------------
-  /** Put my reaction on a message I can see, or take it off (on: false). The same again changes nothing and costs
-   * nothing; a change takes from the sending budget. Event lines, deleted messages and private previews take none.
-   * Never a notice, an unread count or anything for the AI. */
-  react(userId: string, roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean): { reactions: RoomReaction[] } {
+  /** Put my reaction (any one emoji, the route checked it) on a message I can see, or take it off (on: false). The same
+   * again changes nothing and costs nothing; a change takes from the sending budget. A message carries at most
+   * ROOM_REACTION_EMOJI_MAX different emoji: a new one past that is refused (409), mine on one that is there is not.
+   * Event lines, deleted messages and private previews take none. Never a notice or an unread count. */
+  react(userId: string, roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean, locale: Locale = DEFAULT_LOCALE): { reactions: RoomReaction[] } {
     const { me } = this.mine(userId, roomId)
     const m = messageRow(this.db, roomId, messageId)
     if (!m || !canSee(this.db, m, me)) return fail('not_found')
     if (m.event || m.deleted_at || m.visibility !== 'room') fail('validation', undefined, { fields: { 'params.messageId': 'not a message to react to' } })
     const has = !!this.db.query('SELECT 1 FROM room_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').get(m.id, userId, emoji)
+    if (on && !has && !this.db.query('SELECT 1 FROM room_reactions WHERE message_id = ? AND emoji = ?').get(m.id, emoji)) {
+      // a new emoji on the message: only while it has fewer than the most (the rows of people still in the room; a
+      // person who leaves takes theirs, forgetMember). Checked and written in one go: nothing else runs in between.
+      const kinds = (this.db.query('SELECT COUNT(DISTINCT emoji) n FROM room_reactions WHERE message_id = ?').get(m.id) as { n: number }).n
+      if (kinds >= ROOM_REACTION_EMOJI_MAX) fail('conflict', tr('roomReactionsFull', locale, { n: String(ROOM_REACTION_EMOJI_MAX) }), { params: { reason: 'reactions_full' } })
+    }
     if (has !== on) {
       this.takeSendToken(userId)
       if (on) this.db.query('INSERT OR IGNORE INTO room_reactions (room_id, message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?, ?)').run(roomId, m.id, userId, emoji, nowIso())

@@ -20,7 +20,8 @@
 // line, not deleted, for the whole room) can get replies in a thread (SendRoomMessageBody.threadRootId). Replies live in
 // the thread, not in the room's timeline, unless sent to the room too (alsoInRoom); the root carries the thread's
 // summary (RoomMessage.thread). A thread follows its root: who cannot see the root (a later member) sees none of it.
-// Reactions are 8 fixed emoji (ROOM_REACTIONS); they never notify or count. Nobody is told who has read what.
+// Reactions are any one emoji (RoomReactionEmoji), at most ROOM_REACTION_EMOJI_MAX different ones on a message; they
+// never notify or count. Nobody is told who has read what.
 //
 // Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
 // (setRoomHidden; a group chat is left instead). Nobody else is told. It stays a room they are in: reachable from the
@@ -34,6 +35,7 @@ import { z } from 'zod'
 import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
+import { isStatusEmoji } from '../status-message'
 import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
@@ -287,17 +289,22 @@ export const RoomFile = z.object({
 })
 export type RoomFile = z.infer<typeof RoomFile>
 
-/** The reactions a message can get (a fixed set; the request is checked against it). */
-export const ROOM_REACTIONS = ['👍', '✅', '👀', '🙏', '😂', '🎉', '❤️', '🔥'] as const
-export const RoomReactionEmoji = z.enum(ROOM_REACTIONS)
+/** A reaction: any one emoji (docs/DECISIONS.md "Any emoji as a reaction"), by the rule of a status message's emoji
+ * (isStatusEmoji, shared/src/status-message.ts): a single emoji or one sequence (ZWJ, flag, keycap, skin tone), never
+ * text, several emoji or invisible tag letters (only the three subdivision flags carry them), at most 32 UTF-16 units. */
+export const RoomReactionEmoji = z.string().refine(isStatusEmoji, 'one emoji')
 export type RoomReactionEmoji = z.infer<typeof RoomReactionEmoji>
+/** Different emoji one message may carry, at most: a new one past this is refused (409, params.reason
+ * 'reactions_full'); adding mine to one that is there always works. */
+export const ROOM_REACTION_EMOJI_MAX = 20
 /** Who reacted with one emoji: at most this many names come with it (the count is all of them). */
 export const ROOM_REACTION_NAMES = 10
 
 /** One emoji on a message: how many members put it there, whether I did, and who (the first ROOM_REACTION_NAMES, in
  * the order they reacted; only people in the room now). In the order the emoji were first used. */
 export const RoomReaction = z.object({
-  emoji: RoomReactionEmoji,
+  /** one emoji (RoomReactionEmoji; the server stores nothing else) */
+  emoji: z.string(),
   count: z.number().int().positive(),
   mine: z.boolean(),
   users: z.array(UserRef),
@@ -669,7 +676,7 @@ export const ROOMS = {
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
-  reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: 'Put one of the fixed reactions on a message I can see, or take mine off. Never notifies.' }),
+  reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: `Put a reaction (any one emoji) on a message I can see, or take mine off. A message carries at most ${ROOM_REACTION_EMOJI_MAX} different emoji: a new one past that is refused (409, reason reactions_full). Never notifies.` }),
   editRoomMessage: endpoint({ method: 'PATCH', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', body: EditRoomMessageBody, response: RoomMessage, summary: 'Edit my own message.' }),
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
   markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); nobody else is told.' }),
