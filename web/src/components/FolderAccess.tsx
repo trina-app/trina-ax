@@ -1,9 +1,9 @@
 // "Who can see it" on the Files page (docs/DECISIONS.md "Who can see a folder, in place"): a chip at the end of the
 // breadcrumbs for the folder on screen, and a panel (the chip, or a folder row's ⋯ menu). What a member learns is the
 // server's answer (GET /api/files/audience: a count only where they can write) or a team project's own count
-// (Project.audience); their own folder says "only you" by its path. The owner and admins read the count apart: the
-// people by its rules ("3명"), then those who see it only by role ("팀장·관리자 2명도 볼 수 있어요"; the server's split,
-// never sent to members). An admin's panel adds the people by name and where
+// (Project.audience); their own folder says "only you" by its path. The owner and admins' chip says the people by its
+// rules ("3명"; its accessible name adds "팀장·관리자 2명도 볼 수 있어요"; the server's split, never sent to members); the
+// panel's headline keeps the total (the panel is redesigned in its own branch). An admin's panel adds the people by name and where
 // their access comes from, from the admin endpoints (FolderAccessAdmin.tsx, loaded only for admins). Nothing here
 // decides access.
 import { UserRound, Users } from 'lucide-react'
@@ -11,7 +11,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Access, AccessTreeNode, FolderAudience, Project } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { adminsOnly, byRoleText, chipLabel, chipOf, chipPlace, chipText, headlineText, type ChipPlace } from '../lib/folder-access'
+import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText, type ChipPlace } from '../lib/folder-access'
 import { useFolderWords } from '../lib/folderLabels'
 import { useLocale, useT } from '../i18n'
 import { accessChanged } from '../store/live'
@@ -72,7 +72,7 @@ export function FolderAccessChip({ path, access, project, onOpen }: { path: stri
   const me = useMeStrict()
   const place = chipPlace(path, { me: me.user.id, access, project })
   const a = useFolderAccess(path, place, isAdmin(me))
-  const chip = a.ready ? chipOf(place, { audience: a.audience, project, adminsOnly: a.adminsOnly }) : null
+  const chip = a.ready ? chipOf(place, { audience: a.audience, project, adminsOnly: a.adminsOnly, apart: true }) : null
   if (!chip) return null
   const Icon = chip.kind === 'onlyYou' ? UserRound : Users
   return (
@@ -128,13 +128,9 @@ export function FolderAccessPanel({ target, project, onClose }: { target: { path
           ) : !chip ? (
             !a.ready && <Skeleton lines={2} />
           ) : (
-            <div>
-              <p className="text-base font-semibold text-ink" data-testid="folder-access-headline">
-                {headlineText(t, chip)}
-              </p>
-              {/* the owner and admins who see it only by role, apart and quieter (a number, never a name) */}
-              {byRoleText(t, chip) && <p className="mt-0.5 text-sm text-muted" data-testid="folder-access-by-role">{byRoleText(t, chip)}</p>}
-            </div>
+            <p className="text-base font-semibold text-ink" data-testid="folder-access-headline">
+              {headlineText(t, chip)}
+            </p>
           )}
           {place === 'own' && <p className="text-sm text-muted">{t('folderAccess.ownFolder')}</p>}
           {place === 'project' && project && (

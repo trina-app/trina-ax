@@ -19541,7 +19541,7 @@ The owner, on a project whose members are its creator and the group "leads" (3 p
 said "5명이 봐요" and the members dialog "5명이 봐요 (팀장·관리자 포함)". "Why 5? leads has 3 people including me." The
 other 2 were the owner and an admin, who see every project by role. Right, but it read as wrong. Plan:
 `docs/AGENTS/plan/20261110-1618-members-count-apart.md`. Amends "Who sees it, always" (the 멤버 line) and "Who can see a
-folder, in place" (the chip and the panel).
+folder, in place" (the chip).
 
 - **The count apart** (shared `AudienceSplit`, `server/src/policy/access.ts splitOf`): `direct` the people who see it by
   its own rules, `byRole` the owner and admins who see it only by their role; they add up to the total beside them, which
@@ -19560,14 +19560,15 @@ folder, in place" (the chip and the panel).
 - **The words, for the owner and admins.** The 멤버 row: "멤버 3명" (en "Members 3"); "나만 봐요" and "나와 관리자만 봐요" stay,
   by the same rule as the line under the box, which keeps the total ("프로젝트 사람 5명이 …": who sees the chat). The
   members dialog's and the new-project line (`AccessSummary`): "멤버 3명 · 팀장·관리자 2명도 볼 수 있어요", the role part
-  quieter and left out at 0. The folder chip: "3명"; its panel: "3명이 봐요" and under it "팀장·관리자 2명도 볼 수 있어요"; no
-  rule letting anyone in reads "팀장과 관리자만". The share switch: "멤버 3명과 팀장·관리자 2명이 보고 이어갈 수 있어요". English
+  quieter and left out at 0. The folder chip: "3명" (its accessible name "3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요"); no
+  rule letting anyone in reads "팀장과 관리자만". The folder panel is left as it was ("5명이 봐요 (팀장·관리자 포함)"): it
+  is redesigned in its own branch (`feat/drive-like-access`). The share switch: "멤버 3명과 팀장·관리자 2명이 보고 이어갈 수 있어요". English
   first ("3 members · 2 more can see it as the owner and admins"), then ko, id, ja, es.
 - **No names** of the owner or admins, in the line, a tooltip or the chip's accessible name (#326): a number for the owner
   and admins, the role words alone for a member.
 - **The project side's role line hangs on one switch** (`web/src/lib/whoByRole.ts`, `PROJECTS_BY_ROLE`, `byRoleLine(…,
-  'project')`): the members dialog, the new-project line, the share switch and a project folder's chip and panel take it
-  from there, so if projects stop being seen by role, turning it off leaves every project line with its members only.
+  'project')`): the members dialog, the new-project line, the share switch and a project folder's chip take it from
+  there, so if projects stop being seen by role, turning it off leaves every project line with its members only.
   Folders keep theirs (the owner and admins open every team folder by role).
 - **Left as they were:** the chat lines and the shared mark (who sees a chat: everyone, admins included), the copy and
   delete cards, #298's dialog layout (only its count line changed, and its fallback after a save drops the old split).

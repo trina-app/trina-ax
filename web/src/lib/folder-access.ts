@@ -38,13 +38,15 @@ export type Chip = { kind: 'onlyYou' } | { kind: 'team' } | { kind: 'adminsOnly'
 const people = (n: number, split: AudienceSplit | undefined, where: 'project' | 'folder'): Chip =>
   !split ? { kind: 'people', n } : split.direct === 0 ? { kind: 'adminsOnly' } : { kind: 'people', n: split.direct, byRole: split.byRole, where }
 
-/** What the chip says, once the answers it needs are here; null while they are not (never a wrong number). */
-export function chipOf(place: ChipPlace | null, o: { audience?: FolderAudience | null; project?: Project | null; adminsOnly?: boolean }): Chip | null {
+/** What the chip says, once the answers it needs are here; null while they are not (never a wrong number). `apart`: the
+ * chip, which says the server's split when there is one; the panel's headline takes the total as before (the panel is
+ * redesigned in its own branch). */
+export function chipOf(place: ChipPlace | null, o: { audience?: FolderAudience | null; project?: Project | null; adminsOnly?: boolean; apart?: boolean }): Chip | null {
   if (place === 'own') return { kind: 'onlyYou' }
-  if (place === 'project') return o.project?.audience !== undefined ? people(o.project.audience, o.project.audienceSplit, 'project') : null
+  if (place === 'project') return o.project?.audience !== undefined ? people(o.project.audience, o.apart ? o.project.audienceSplit : undefined, 'project') : null
   if (place !== 'ask' || o.audience?.people === undefined) return null
   if (o.adminsOnly) return { kind: 'adminsOnly' }
-  return o.audience.everyone ? { kind: 'team' } : people(o.audience.people, o.audience.split, 'folder')
+  return o.audience.everyone ? { kind: 'team' } : people(o.audience.people, o.apart ? o.audience.split : undefined, 'folder')
 }
 
 /** The chip's words: "나만 봐요", "팀 전체가 봐요", "팀장과 관리자만", "3명" (by its rules: the owner and admins apart),
@@ -56,17 +58,14 @@ export function chipText(t: T, c: Chip): string {
   return c.byRole !== undefined ? t('folderAccess.direct', { n: c.n }) : t('folderAccess.people', { n: c.n })
 }
 
-/** The panel's headline: "3명이 봐요" by its rules (the role line follows), or a member's total, which says the owner
- * and admins are in it. */
+/** The panel's headline (a chip without the split): a count says the owner and admins are in it. */
 export function headlineText(t: T, c: Chip): string {
-  if (c.kind !== 'people') return chipText(t, c)
-  return c.byRole !== undefined ? t('folderAccess.people', { n: c.n }) : t('folderAccess.peopleAll', { n: c.n })
+  return c.kind === 'people' ? t('folderAccess.peopleAll', { n: c.n }) : chipText(t, c)
 }
 
-/** Under the headline, quieter: "팀장·관리자 2명도 볼 수 있어요" (never a name); nothing when nobody sees it only by role. */
-export function byRoleText(t: T, c: Chip): string | null {
-  return c.kind === 'people' ? byRoleLine(t, c.byRole, c.where ?? 'folder') : null
+/** The chip's accessible name. Apart: "3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요" (a number, never a name; no role part at
+ * 0); otherwise the panel's headline. */
+export function chipLabel(t: T, c: Chip): string {
+  if (c.kind !== 'people' || c.byRole === undefined) return headlineText(t, c)
+  return [t('folderAccess.people', { n: c.n }), byRoleLine(t, c.byRole, c.where ?? 'folder')].filter(Boolean).join(' · ')
 }
-
-/** The chip's accessible name: the headline and the role line. */
-export const chipLabel = (t: T, c: Chip): string => [headlineText(t, c), byRoleText(t, c)].filter(Boolean).join(' · ')

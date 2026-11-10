@@ -3,7 +3,7 @@
 // server's AudienceSplit.byRole), the role words alone for a member's new project (#304 `adminsApart`); never a name.
 // - A folder: always (the owner and admins open every team folder by role).
 // - A project: while the owner and admins see every project by role. Every project-side role line (the members dialog,
-//   the new-project line, the share switch, a project folder's chip and panel) comes from `byRoleLine(…, 'project')`,
+//   the new-project line, the share switch, a project folder's chip) comes from `byRoleLine(…, 'project')`,
 //   so if projects stop being seen by role, PROJECTS_BY_ROLE is the one switch to turn off.
 import type { MessageKey } from '../i18n'
 
