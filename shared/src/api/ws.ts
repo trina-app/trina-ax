@@ -119,6 +119,10 @@ export const ConfirmDetail = z.object({
   collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
+  /** whole lines of `text` to show in red with a short note after them (the AI's members card: a name that is not in
+   * the person's own messages, "내 메시지에 없는 이름이에요"). `text` holds them too, so a client that does not know this
+   * still shows every line. */
+  alerts: z.array(z.object({ text: z.string(), note: z.string() })).max(50).optional(),
 })
 export type ConfirmDetail = z.infer<typeof ConfirmDetail>
 

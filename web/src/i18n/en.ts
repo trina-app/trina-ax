@@ -2130,6 +2130,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.skills.move': 'Skill moved',
   'audit.act.skills.move_refused': 'Skill move declined',
   'audit.act.files.ai_trash': 'AI move to trash',
+  'audit.act.projects.ai_members': 'AI project members change',
   'audit.act.skills.copy': 'Skill copied',
   'audit.act.skills.files': 'Skill folder files changed by the AI',
   'audit.act.skills.files_refused': 'Skill folder change declined',
