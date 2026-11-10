@@ -2435,6 +2435,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.check': "Volver a comprobar",
   'credentials.checked': "Comprobado.",
   'credentials.connected': "Conectado.",
+  'credentials.added': "Cuenta añadida. Las cuentas se usan en el orden de la lista.",
   'credentials.unverifiedSaved': "Guardado. Se comprobará con la primera pregunta.",
   'credentials.replace': "Reemplazar token o clave",
   'credentials.reconnect': "Volver a conectar",
