@@ -6,8 +6,11 @@
 // - the save asks first when someone gains it (what they will see, and how many lose it), or when the server's dry run
 //   says the save also writes the floor rule or puts the creator's rule back; taking people out alone saves at once;
 //   cancelling saves nothing; a change by someone else meanwhile (409 rules_changed) is shown with what is there now;
-// - a project that cannot be changed here says who does it, with no save.
+// - a project that cannot be changed here says who does it, with no save;
+// - the independent review: Esc on the search or a result closes the results, not the dialog; a "no access" rule from Admin is no
+//   member (only in the read-only box); after × the keyboard is on 되돌리기, after 되돌리기 on ×.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { Project, ProjectAccess, ProjectAccessPreview } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
@@ -15,7 +18,7 @@ import { ProjectMembersDialog } from '../../src/components/ProjectMembersDialog'
 import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
 import { useSession } from '../../src/store/session'
-import { installDom, mount, removeDom, type Mounted } from './dom-host'
+import { FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const P1 = '01900000-0000-7000-8000-0000000000a1'
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -121,6 +124,51 @@ describe('the members now', () => {
     await addBob(m)
     await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCount', { n: 4 }), 'the new count', 2000)
     expect(m.get('project-access-summary').textContent).not.toContain('Sora')
+    await m.unmount()
+  })
+})
+
+describe('the keyboard and Admin\'s rules', () => {
+  test('Esc from the search or a result closes the results and the dialog stays; × then 되돌리기 keep the focus on the row', async () => {
+    signedIn('member')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview()),
+    }
+    let closed = 0
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project()} onClose={() => { closed++ }} onSaved={() => {}} /><DialogHost /></MemoryRouter>)
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    const esc = async (el: ReturnType<Mounted['get']>) => act(async () => { el.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
+    await m.type('project-participants-search', 'bo')
+    await m.until(() => m.find('participant-add-user-bob'), 'the results', 2000)
+    await esc(m.get('participant-add-user-bob'))
+    expect(m.find('project-participants-results')).toBeNull()
+    expect(m.find('participant-user-sora')).not.toBeNull()
+    expect((m.get('project-participants-search') as unknown as { value: string }).value).toBe('')
+    expect(closed).toBe(0)
+    await m.click('participant-remove-user-sora')
+    await m.settle(20)
+    expect(document.activeElement).toBe(m.get('participant-undo-user-sora') as unknown as Element)
+    await m.click('participant-undo-user-sora')
+    await m.settle(20)
+    expect(document.activeElement).toBe(m.get('participant-remove-user-sora') as unknown as Element)
+    // the results did not open on the way
+    expect(m.find('project-participants-results')).toBeNull()
+    await m.unmount()
+  })
+
+  test('a "no access" rule from Admin is not a member: only the read-only box lists it', async () => {
+    signedIn('member')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access({ otherRules: [{ path: 'projects/acme', subjectType: 'user', subjectId: 'jiwoo', name: 'Jiwoo', access: 'none' }] })),
+      'POST /api/projects/access-preview': () => json(200, preview()),
+    }
+    const m = await dialog()
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    expect(m.find('participant-user-jiwoo')).toBeNull()
+    expect(m.get('project-other-rules').textContent).toContain(`Jiwoo: ${en('access.none')}`)
     await m.unmount()
   })
 })

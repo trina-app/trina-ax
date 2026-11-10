@@ -68,15 +68,16 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
   // a rule set in Admin › Folder permissions, which the list shows tagged
   const extra = useMemo<ParticipantOption[]>(() => [
     ...(access?.participants ?? []).map(({ subjectType, subjectId, name }) => ({ subjectType, subjectId, name })),
-    ...(access?.otherRules ?? []).filter((r) => r.path === project.folderPath && r.subjectId && r.name && (r.subjectType === 'group' || r.subjectType === 'user'))
+    ...(access?.otherRules ?? []).filter((r) => r.path === project.folderPath && r.access !== 'none' && r.subjectId && r.name && (r.subjectType === 'group' || r.subjectType === 'user'))
       .map((r) => ({ subjectType: r.subjectType as 'group' | 'user', subjectId: r.subjectId!, name: r.name! })),
   ], [access, project.folderPath])
   const options = useParticipantOptions(extra)
-  // the creator and anyone with a rule set in Admin › Folder permissions: not changed here
+  // the creator and anyone who sees it by a rule set in Admin › Folder permissions (read): not changed here. A "no
+  // access" rule is no member: it stays in the read-only box below
   const fixed = useMemo(() => {
     const m = new Map<string, string>()
     for (const x of access?.participants ?? []) if (x.creator) m.set(participantKey(x), t('projects.creatorTag'))
-    for (const r of access?.otherRules ?? []) if (r.path === project.folderPath && r.subjectId && (r.subjectType === 'group' || r.subjectType === 'user')) m.set(`${r.subjectType}:${r.subjectId}`, `${t(`access.${r.access}`)} · ${t('projects.folderRuleTag')}`)
+    for (const r of access?.otherRules ?? []) if (r.path === project.folderPath && r.access !== 'none' && r.subjectId && (r.subjectType === 'group' || r.subjectType === 'user')) m.set(`${r.subjectType}:${r.subjectId}`, `${t(`access.${r.access}`)} · ${t('projects.folderRuleTag')}`)
     return m
   }, [access, project.folderPath, t])
   const editable = !!access?.editable
@@ -131,7 +132,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
         {/* changed elsewhere meanwhile (a folder moved, an admin's rule): who changes it now */}
         {access && !editable && (
           <p className="text-sm break-keep text-muted" data-testid="project-members-locked">
-            {admin ? t('projects.legacyNote', { folder: words.path(project.folderPath) || t('files.root') }) : t('projects.membersByAdmins')}
+            {!admin ? t('projects.membersByAdmins') : /^projects\/[^/]+$/.test(project.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote', { folder: words.path(project.folderPath) || t('files.root') })}
           </p>
         )}
         {editable && otherRules.length > 0 && (

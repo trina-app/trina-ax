@@ -17947,16 +17947,22 @@ review of the plan changed it before building (M4 part A, M6, S3–S7, and the c
 - **Decision: the hint names the creator only while they can change members** (review S7). `Project.creatorChangesMembers`
   is true when the creator's account is active and the folder is theirs to change (the same two checks for them). The
   line then reads "멤버는 {creator}님(만든 사람)이나 관리자가 바꿔요", else "멤버는 관리자가 바꿔요". An admin is never named.
-  An admin on a project outside `projects/` reads the existing legacy note with a link to Admin › Folder permissions.
-  This tells a member whether the creator's account is active, which the people directory shows already. Accepted.
+  An admin on a project outside `projects/` reads the existing legacy note with a link to Admin › Folder permissions
+  (one whose `projects/<name>` folder is not in place: that it is missing, with the same link). This tells anyone who
+  sees the project whether the creator's account is active, whether they can still write its folder and whether the
+  server made that folder, nothing more (no rule, no other name). Accepted: the people directory shows the first, and
+  the other two only decide whose name the hint says.
 - **The list** (`ParticipantPicker`, for create, share and members). The members first: the creator (or "나" for a new
   project) fixed, a person or group with a rule set in Admin › Folder permissions tagged "읽기 · 폴더 권한", neither with
   ×; then groups, then people. Each row is the name on one line and title · tag under it (the directory's title tells two
   people of one name apart). With the members as saved, a row added is marked 새로 (its title kept) and a row taken out
   stays struck through with 되돌리기 until the save. Focusing the empty search lists everyone who can be added (review
   S5), typing narrows it (name or title, case and spaces folded), and the results take the list's place, also in the
-  phone's bottom sheet (S6), until one is added, Esc, or focus leaves. × and 되돌리기 take taps from 44 px on phones.
-  The box "폴더 권한에서 정한 규칙" (rules on folders inside, roles, everyone rules) stays below, read-only.
+  phone's bottom sheet (S6), until one is added, Esc (from the search or a result: the dialog stays open), or focus
+  leaves the picker. × and 되돌리기 take taps from 44 px on phones, and the keyboard stays on the row after either. A "no
+  access" rule from Admin is no member: it is listed only in the box "폴더 권한에서 정한 규칙" (rules on folders inside,
+  roles, everyone rules), read-only below. In the create and share dialogs the picker is a labelled group, not inside a
+  `<label>` (a click on a row's text would otherwise focus the search).
 - **Decision: the count line only** (review S4). "9명이 봐요 (팀장·관리자 포함)"; the names line ("볼 수 있는 사람: 영업 부서 ·
   김소라 · 팀장·관리자 (9명)") is gone from all three dialogs, since the list above it names them. While it counts again
   the last count stays, dimmed.

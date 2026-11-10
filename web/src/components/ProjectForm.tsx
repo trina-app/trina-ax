@@ -18,7 +18,7 @@ import FolderPicker from './FolderPicker'
 import { refusalKey } from '../lib/sharedChat'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { Button, Field, Modal, Switch, confirmDialog, inputCls } from './ui'
-import { AccessSummary, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from './ProjectParticipants'
+import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from './ProjectParticipants'
 
 export function ProjectForm({ project, onClose, onSaved }: {
   project?: Project
@@ -147,12 +147,12 @@ export function ProjectForm({ project, onClose, onSaved }: {
           </Field>
         )}
         {picking && (
-          <Field label={t('projects.participants')}>
+          <MembersField label={t('projects.participants')}>
             <div className="space-y-2">
               <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />
               <AccessSummary count={count} />
             </div>
-          </Field>
+          </MembersField>
         )}
         {repointable && (
           <Field label={t('projects.folder')} hint={t('projects.repointHint')}>

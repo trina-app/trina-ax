@@ -41,9 +41,9 @@ import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
-import { AccessSummary, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
+import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
-import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
 import { useFocusAfterRemove } from './admin/common'
 import { useFolderWords } from '../lib/folderLabels'
 
@@ -305,6 +305,9 @@ export function ProjectHome() {
   useEffect(() => {
     let live = true
     setP(null)
+    // another project's page (back and forward): no dialog of the one before
+    setMembersState(false)
+    setEditing(false)
     api.call(API.getProject, { params: { id: projectId! } }).then(
       (x) => {
         if (!live) return
@@ -495,12 +498,14 @@ function MembersRow({ project: p, sideAction, onManage }: { project: Project; si
         action={<button type="button" className={sideAction} onClick={onManage} data-testid="project-members-manage">{t('projects.manage')}</button>}
       />
     )
-  const legacy = isAdmin(me) && !/^projects\/[^/]+$/.test(p.folderPath)
+  // an admin: where its members are changed instead (a project made before outside projects/, or one whose folder is
+  // not there), with the link
+  const admin = isAdmin(me)
   return (
     <DisclosureRow testId="project-members" icon={<Users size={16} />} label={t('projects.participants')} meta={meta}>
-      {legacy ? (
+      {admin ? (
         <p className="text-sm leading-6 break-keep text-muted" data-testid="project-members-hint">
-          {t('projects.legacyNote', { folder: words.path(p.folderPath) || t('files.root') })}{' '}
+          {/^projects\/[^/]+$/.test(p.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote', { folder: words.path(p.folderPath) || t('files.root') })}{' '}
           <Link to={`/admin/folders?folder=${encodeURIComponent(p.folderPath)}`} className="text-accent-text underline">{t('projects.otherRulesLink')}</Link>
         </p>
       ) : (
@@ -555,12 +560,12 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
     >
       <div className="space-y-4">
         <p className="text-sm break-keep text-muted">{t('projects.shareBody')}</p>
-        <Field label={t('projects.participants')}>
+        <MembersField label={t('projects.participants')}>
           <div className="space-y-2">
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />
             <AccessSummary count={count} />
           </div>
-        </Field>
+        </MembersField>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

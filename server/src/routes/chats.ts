@@ -554,9 +554,10 @@ export const chatsRoutes: RouteModule = {
       const p = principal(ctx, auth)
       const rows = ctx.db.query(`SELECT ${PROJECT_COLS} FROM projects ORDER BY name COLLATE NOCASE, id`).all() as Parameters<typeof rt.store.toProject>[0][]
       const aud = new Audiences(ctx.db, ctx.files)
+      const creators = new Map<string, Principal | null>()
       return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => {
         const canEdit = mayEdit(ctx, p, r)
-        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud)), ...membersView(ctx, r, p, canEdit) }
+        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud)), ...membersView(ctx, r, p, canEdit, creators) }
       }) }
     })
 

@@ -912,6 +912,7 @@ export const ko = {
   "projects.manage": "관리",
   "projects.membersByCreator": "멤버는 {name}님(만든 사람)이나 관리자가 바꿔요.",
   "projects.membersByAdmins": "멤버는 관리자가 바꿔요.",
+  "projects.membersFolderMissing": "이 프로젝트의 폴더가 제자리에 없어서 여기서는 멤버를 바꿀 수 없어요. 관리자 › 폴더 권한에서 확인해 주세요.",
   "projects.membersNone": "아직 멤버가 없어요. 위에서 찾아 추가해 주세요.",
   "projects.searchResults": "추가할 사람과 부서",
   "projects.newTag": "새로",

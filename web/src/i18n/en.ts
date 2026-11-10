@@ -913,6 +913,7 @@ export const en: Record<MessageKey, string> = {
   "projects.manage": "Manage",
   "projects.membersByCreator": "{name} (who made it) or an admin changes its members.",
   "projects.membersByAdmins": "An admin changes its members.",
+  "projects.membersFolderMissing": "This project's folder is not in its place, so its members are not changed here. Check it in Admin › Folder permissions.",
   "projects.membersNone": "No members yet. Find people or groups above to add them.",
   "projects.searchResults": "People and groups to add",
   "projects.newTag": "New",

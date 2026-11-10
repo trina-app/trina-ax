@@ -892,6 +892,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.manage": "管理",
   "projects.membersByCreator": "メンバーは{name}さん（作成者）か管理者が変更します。",
   "projects.membersByAdmins": "メンバーは管理者が変更します。",
+  "projects.membersFolderMissing": "このプロジェクトのフォルダーが見つからないため、ここではメンバーを変更できません。管理 › フォルダーの権限で確認してください。",
   "projects.membersNone": "まだメンバーがいません。上で検索して追加してください。",
   "projects.searchResults": "追加できる人とグループ",
   "projects.newTag": "新規",

@@ -892,6 +892,7 @@ export const es: Record<MessageKey, string> = {
   "projects.manage": "Gestionar",
   "projects.membersByCreator": "Los miembros los cambia {name} (quien lo creó) o un administrador.",
   "projects.membersByAdmins": "Los miembros los cambia un administrador.",
+  "projects.membersFolderMissing": "La carpeta de este proyecto no está en su sitio, así que sus miembros no se cambian aquí. Revísala en Administración › Permisos de carpetas.",
   "projects.membersNone": "Aún no hay miembros. Busca arriba personas o grupos para añadirlos.",
   "projects.searchResults": "Personas y grupos que puedes añadir",
   "projects.newTag": "Nuevo",

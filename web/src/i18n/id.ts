@@ -913,6 +913,7 @@ export const id: Record<MessageKey, string> = {
   "projects.manage": "Kelola",
   "projects.membersByCreator": "Anggota diubah oleh {name} (pembuatnya) atau admin.",
   "projects.membersByAdmins": "Anggota diubah oleh admin.",
+  "projects.membersFolderMissing": "Folder proyek ini tidak ada di tempatnya, jadi anggotanya tidak diubah di sini. Periksa di Admin › Izin folder.",
   "projects.membersNone": "Belum ada anggota. Cari orang atau grup di atas untuk menambahkannya.",
   "projects.searchResults": "Orang dan grup yang bisa ditambahkan",
   "projects.newTag": "Baru",

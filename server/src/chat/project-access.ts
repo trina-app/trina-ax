@@ -147,11 +147,14 @@ export const accessEditable = (r: Pick<ProjectRow, 'folder_path' | 'trashed_with
  * What a team project's page says about its members to `p` (Project.membersEditable, Project.creatorChangesMembers):
  * whether `p` changes them (mayEditProject and accessEditable: a member's older project on an admin's folder is not
  * theirs to change, so it gets no 관리 that would end in "not editable"; review M6), and whether its creator does (their
- * account active, the folder theirs to change), so the hint names them only then. Nothing for a personal project.
+ * account active, they can still write the folder, the folder theirs to change), so the hint names them only then: a
+ * viewer learns those three things about the creator, nothing else. Nothing for a personal project.
  */
-export function membersView(ctx: AppContext, r: ProjectRow, p: Principal, canEdit: boolean): { membersEditable?: boolean; creatorChangesMembers?: boolean } {
+export function membersView(ctx: AppContext, r: ProjectRow, p: Principal, canEdit: boolean, creators?: Map<string, Principal | null>): { membersEditable?: boolean; creatorChangesMembers?: boolean } {
   if (r.folder_path === 'users' || r.folder_path.startsWith('users/')) return {}
-  const creator = r.created_by ? loadPrincipal(ctx.db, r.created_by) : null
+  // (`creators`: the list's people, read once per request)
+  const load = (id: string) => { if (!creators) return loadPrincipal(ctx.db, id); if (!creators.has(id)) creators.set(id, loadPrincipal(ctx.db, id)); return creators.get(id)! }
+  const creator = r.created_by ? load(r.created_by) : null
   const byCreator = (who: Principal) => mayEditProject(ctx.files, who, r) && accessEditable(r, ctx.files, who)
   return { membersEditable: canEdit && accessEditable(r, ctx.files, p), creatorChangesMembers: !!creator && byCreator(creator) }
 }
