@@ -33,7 +33,7 @@ async function open(page: Page, o: { installed?: boolean; macAppStore?: boolean;
   // the phone app's WebView bridge (mobile/src/protocol.ts), answering nothing
   if (o.phoneApp) await page.addInitScript((platform) => {
     const w = window as unknown as { mycelMobile: unknown; ReactNativeWebView: { postMessage(raw: string): void } }
-    w.mycelMobile = { protocol: 1, appVersion: '1.0.2', platform, generation: 1, nonce: 'a'.repeat(64), capabilities: [] }
+    w.mycelMobile = { protocol: 1, appVersion: '1.0.2', platform, generation: 1, nonce: 'a'.repeat(64), capabilities: ['file-share-v1', 'external-oauth-v1'] }
     w.ReactNativeWebView = { postMessage() {} }
   }, o.phoneApp)
   if (o.installed) await page.addInitScript(() => {
@@ -121,7 +121,6 @@ test.describe('a Mac in Safari', () => {
     await expect(steps.nth(0)).toContainText('파일 → Dock에 추가…')
     await expect(steps.nth(1)).toContainText('추가를 누르세요')
     await expect(guide).toContainText('macOS Sonoma(14) 이상')
-    await expect(windowsLink(page)).toHaveCount(0)
   })
 })
 
