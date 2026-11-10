@@ -18653,3 +18653,32 @@ Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기"
   `skill-files.test.ts` (S7 in a side chat with a quote; the same copy in a plain chat gets its card),
   `b-side-chat.test.ts` (the rule's three ways in, an edited branch).
 - Version impact: **patch** (a security consistency fix; no API, data or setting change).
+
+## 트리나에게 묻기는 ✦ — "Ask Trina" has Trina's mark (fix/ask-trina-icon, 2026-11-10, product owner)
+
+Amends "Desktop sidebar: rooms first" (the first row's icon) and "Trina side chat" (where the ✦ shows). The owner: the
+icon left of "트리나에게 묻기" at the top of the sidebar looked off. It was an orange-red outlined speech bubble with a
+plus (`MessageSquarePlus`, `text-accent-text`) among monochrome icons, so it read as an error or a notice, not as
+"start a chat with Trina".
+
+- **One mark for asking Trina.** "트리나에게 묻기" uses `AiMark` (rooms/AiFace.tsx), the ✦ of a room's header, a
+  message's "Ask Trina about this" and the image viewer: in the sidebar's first row, in ⌘K's action row and on the
+  new-chat button of a phone AI chat's header. Where the product is not named after its AI it is the plain sparkle, as
+  `AiMark` is everywhere.
+- **Sized to its row.** A new place, `nav`: the star drawn 18 in the 16 px slot of the icons below it (as tall as them,
+  14 × 15.5 px painted against their 12–15 × 13–15; its words start where theirs do), the sparkle 16 and in the row's
+  colour. Filled with the star's own light orange, it carries less contrast than the stroked icons beside it (measured
+  at 1440 against the lightest, 검색: 0.3× in light, 0.6× in dark), so it is not heavier; its colour is the one accent there,
+  as the old bubble's was. The phone header's is the room header's (`toolbar`, drawn 24), its button 44 px in both
+  looks.
+- **Not ambiguous with the side chat**: the two already had the same words ("트리나에게 묻기", since fix/ask-trina-label),
+  and the same mark says the same thing: ask Trina; the sidebar row starts a chat of its own, the ✦ in a room asks
+  beside that room. A pen-on-square "new chat" icon was the alternative; it would make one action wear two marks.
+- **Left as they are:** the phone tab bar's 트리나 tab keeps its monochrome sparkle (a tab shows which one is on in ink
+  or grey; a fixed orange star could not), and the phone drawer has no "Ask Trina" row (the tab is the new chat).
+  "Use skill", "Chat with this folder" and Scheduled's "New in chat" keep their speech bubble: other actions, other
+  words.
+- Tests: web unit `ai-face.test.tsx` (the `nav` place in both looks), `sidebar.test.tsx` (the row's mark, no bubble, no
+  accent class); e2e `sidebar.spec.ts` (drawn size, centred on the slot and the row, words aligned), `search-palette.spec.ts`
+  (⌘K's row) and `phone-nav.spec.ts` (the phone header's ✦, 44 px).
+- Version impact: **patch** (one icon; no text, API or data change).

@@ -19,7 +19,7 @@
 // come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
 // most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -45,6 +45,7 @@ import { useChatActions } from './chat/chatActions'
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
+import { AiMark } from './rooms/AiFace'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { useRowMenu } from './rooms/RoomMenu'
 import { useRoomTitle } from './rooms/RoomIcon'
@@ -373,7 +374,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
   return (
     <div className="space-y-0.5 px-2" data-testid="nav-rows">
       <button type="button" className={clsx(nav, 'w-full font-medium')} onClick={onNewChat} data-testid="new-chat">
-        <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.askAi', { name: aiName(t) })}</span>
+        <AiMark place="nav" /> <span className="truncate">{t('sidebar.askAi', { name: aiName(t) })}</span>
         <kbd className={kbd}>{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
       </button>
       <button type="button" className={clsx(nav, 'w-full')} aria-keyshortcuts={onMac() ? 'Meta+K' : 'Control+K'} onClick={onSearch} data-testid="nav-search">

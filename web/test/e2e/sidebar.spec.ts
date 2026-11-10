@@ -50,6 +50,26 @@ test('in order: the team, one labeled row each, the rooms, then the AI chats', a
     said(t['sidebar.askAi'].replace('{name}', ai), true), said(t['sidebar.search'], true), said(t['sidebar.projects']), said(t['sidebar.scheduled']), said(t['inbox.title']), said(t['sidebar.files']), said(t['sidebar.skills']), said(t['sidebar.admin']),
   ])
   for (const id of [...ROWS[0], ...ROWS[1]]) expect(Math.round((await s.getByTestId(id).boundingBox())!.height)).toBe(36)
+  // 트리나에게 묻기's icon is the ✦ that asks the AI (the room header's, rooms/AiFace.tsx AiMark), not the orange speech
+  // bubble: Trina's star drawn 18 (the sparkle 16) in the 16 px slot of the icons below it, on the same middle, so its
+  // words start where theirs do
+  const mark = s.getByTestId('new-chat').locator('svg')
+  await expect(mark).toHaveCount(1)
+  expect(await mark.evaluate((e) => e.hasAttribute('data-trina-star'))).toBe(PRODUCT_NAMED_AFTER_AI)
+  const icon = async (id: string) => (await s.getByTestId(id).locator('svg').first().boundingBox())!
+  const [star, search] = [await icon('new-chat'), await icon('nav-search')]
+  expect(star.width).toBe(PRODUCT_NAMED_AFTER_AI ? 18 : 16)
+  expect(search.width).toBe(16)
+  expect(star.x + star.width / 2).toBe(search.x + search.width / 2)
+  const row = (await s.getByTestId('new-chat').boundingBox())!
+  expect(star.y + star.height / 2).toBe(row.y + row.height / 2)
+  const wordsAt = (id: string) => s.getByTestId(id).evaluate((e) => {
+    const text = [...e.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.trim()) ?? e.querySelector('span')!.firstChild!
+    const r = document.createRange()
+    r.selectNodeContents(text)
+    return Math.round([...r.getClientRects()].find((x) => x.width > 0)!.x)
+  })
+  expect(await wordsAt('new-chat')).toBe(await wordsAt('nav-projects'))
   await expect(s.getByRole('link', { name: t['sidebar.projects'], exact: true })).toHaveAttribute('href', '/projects')
   await expect(s.getByTestId('nav-icons')).toHaveCount(0)
 })

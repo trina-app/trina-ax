@@ -115,6 +115,13 @@ test('an AI chat\'s ‹ goes back where it came from; the browser\'s back then n
   const chat = page.url()
   await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1, { timeout: 20_000 })
   await expect(page.getByTestId('bottom-tabs')).toHaveCount(0)
+  // the header's new chat (트리나에게 묻기) is the ✦ of a room's header (rooms/AiFace.tsx AiMark): drawn 24 (the sparkle
+  // 18) in its 44 px button
+  const ask = page.getByTestId('chat-new')
+  await expect(ask).toHaveAccessibleName(t['sidebar.askAi'].replace('{name}', ai))
+  expect(await ask.locator('svg').evaluate((e) => e.hasAttribute('data-trina-star'))).toBe(PRODUCT_NAMED_AFTER_AI)
+  expect((await ask.locator('svg').boundingBox())!.width).toBe(PRODUCT_NAMED_AFTER_AI ? 24 : 18)
+  expect((await ask.boundingBox())!).toMatchObject({ width: 44, height: 44 })
   const before = await historyLength(page)
   await page.getByTestId('chat-back').click()
   await expect(page).toHaveURL(/\/$/)
