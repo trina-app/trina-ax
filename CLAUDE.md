@@ -25,6 +25,10 @@ Instructions for coding agents that work in this repository.
   `<timestamp>-<feature>.md` (`date -u +%Y%m%d-%H%M`, e.g. `20261107-0830-room-message-links.md`) and commit it as the
   first commit on the branch. Format and template: [docs/AGENTS/README.md](docs/AGENTS/README.md). Link the plan in
   the PR.
+- Changelog: a user-visible change adds its entry as one new file `changelog.d/<slug>.md`, written as it would have
+  been under `## Unreleased` (format: [changelog.d/README.md](changelog.d/README.md)). Do not edit `CHANGELOG.md`:
+  `bun run check:docs` fails on a new line under `## Unreleased`, and the release folds the files in with
+  `bun run changelog:collect`.
 - `dev` takes merges without waiting for full CI. Before you merge, run `bun run typecheck`, `bun run check:i18n`
   and the unit tests for the area you changed.
 - Keep PRs small. Before you add a migration, check the highest number in `server/migrations/` on `dev`: two files

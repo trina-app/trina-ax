@@ -4,6 +4,8 @@
 
 코드를 쓰기 전에 `docs/AGENTS/plan/<timestamp>-<feature>.md`에 계획을 먼저 쓰고 브랜치의 첫 커밋으로 올린다. 형식과 템플릿은 [AGENTS/README.md](AGENTS/README.md).
 
+사용자에게 보이는 변경은 변경 기록을 새 파일 `changelog.d/<slug>.md` 하나에 쓴다. `CHANGELOG.md`는 고치지 않는다(`## Unreleased` 아래에 줄을 더하면 `bun run check:docs`가 실패한다). 릴리스 때 `bun run changelog:collect`가 모은다. 형식은 [changelog.d/README.md](../changelog.d/README.md).
+
 - 채팅·권한·파일·스킬·휴대폰·AI 연결·사용량·Linux 실행 기반은 Team AX 코어에 먼저 넣는다.
 - 트리나 브랜드는 `editions/trina/branding/`에 둔다. Payple/Paddle·요금제·AWS 리전 선택과 고객 서버 운영·고객 주소·사이트는 비공개 `trina-ax-core`의 `editions/trina/`에 둔다(공개 레포에 넣지 않는다).
 - 의료 전용 코드는 메디컬 포크의 `editions/medical/`에 둔다. 운영 중인 메디컬 작업을 수정하지 않는다.

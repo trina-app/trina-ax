@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 08:34
 - Branch: `chore/changelog-fragments`
-- Status: in progress
+- Status: done
 - Where: trina-ax repository process: `changelog.d/`, `CHANGELOG.md`, `scripts/`, contributor and release docs.
   Why: the merge conflicts come from this repository's own CHANGELOG.md; no product code changes
   (docs/REPOSITORY-RULES.md).
@@ -79,4 +79,16 @@ Out:
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+- `scripts/changelog-collect.ts` (`bun run changelog:collect`) and `scripts/check-changelog.ts` (`bun run
+  check:changelog`, now the last step of `bun run check:docs`). The rules live in the collect script, so the release
+  refuses the same fragments the check refuses.
+- `changelog.d/README.md` and 49 fragment files, one per entry that was under `## Unreleased` (same text, byte for
+  byte); CHANGELOG.md keeps `## Unreleased` with one note. The stray `||||||| 878a597a` line is gone. This change's
+  own entry is `changelog.d/changelog-fragments.md`.
+- Docs: REPOSITORY-RULES, AGENTS.md, CLAUDE.md, docs/AGENTS/README.md, CONTRIBUTING.md, docs/site/develop/
+  contributing.md, docs/site/agents/coding-agents.md, the PR template; the release step in docs/RELEASE-CI.md section
+  1 and .github/RELEASE_TEMPLATE.md.
+- Added after the first draft: hidden files in `changelog.d/` (`.DS_Store`, `.gitkeep`) are not entries; collect says
+  "bump the version first" when server/package.json still has the released version.
+- Tests: `tests/unit/changelog-fragments.test.ts` (8 tests). PR: see the branch's pull request into `dev`.

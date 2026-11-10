@@ -2,6 +2,8 @@
 
 Use this to write the annotated tag message before the release workflow runs. Replace every placeholder with reviewed changes; a title-only tag is not useful release guidance. Publishing/backfilling GitHub releases is a separate maintainer action.
 
+**Changes / 변경 내용:** start from the version's section in CHANGELOG.md. The release commit writes it with `bun run changelog:collect`, which moves the entries in `changelog.d/` under the new version (docs/RELEASE-CI.md section 1). / 릴리스 커밋에서 `bun run changelog:collect`가 `changelog.d/`의 항목으로 쓴 CHANGELOG.md의 해당 버전 부분에서 시작하세요.
+
 **Roll-out / 배포 속도:** a stable release reaches about 10% of servers and offices the first day, 50% the second and all from the third (docs/RELEASE-CI.md "단계적 배포"). To send it to every server at once (a fix for a bad release, a security fix), copy the line in the box below, on its own, anywhere in the tag message outside a code block; the workflow removes it from the notes. Any other line that mentions the word with a colon (in a sentence, a list, bold, code, or with another word after it) stops the release, so write about roll-outs without that colon. / stable 릴리스는 첫날 약 10%, 둘째 날 50%, 셋째 날부터 모두가 받습니다. 모두에게 한 번에 보내려면(나쁜 릴리스를 고친 릴리스, 보안 수정) 아래 상자의 줄을 그대로, 코드 블록 밖의 한 줄로 태그 메시지에 넣으세요. 워크플로가 노트에서 뺍니다. 그 낱말에 콜론을 붙인 다른 줄이 있으면 배포가 멈춰요.
 
 ```

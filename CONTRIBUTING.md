@@ -43,6 +43,8 @@ bun test tests/unit/release-notices.test.ts tests/unit/source-code-offer.test.ts
 1. Create a branch from current `main` in your fork or checkout.
 2. Explain the problem, change and validation. Include a synthetic screenshot for visible UI changes.
 3. Update the relevant documentation alongside behavior changes. Keep unrelated formatting out of the diff.
+   For a user-visible change, add its changelog entry as one new file `changelog.d/<slug>.md`
+   ([format](changelog.d/README.md)); do not edit CHANGELOG.md.
 4. Preserve existing copyright, license and source-offer notices. Contributions follow the applicable repository or component license; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 The shared Team AX core is maintained upstream. Maintainers may route general server, client, permission or engine
