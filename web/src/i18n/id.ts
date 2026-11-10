@@ -4327,7 +4327,7 @@ export const id: Record<MessageKey, string> = {
   "shareRoom.askedAgain": "Sekarang lebih banyak orang yang tidak bisa membukanya",
   "shareRoom.sendAttached": "Lampirkan dan kirim",
   "shareRoom.sentFiles": "Terkirim ke {room} · {n} file dilampirkan",
-  "rooms.fileNoAccess": "Anda tidak punya akses",
+  "rooms.fileNoAccess": "Tidak bisa dibuka: dipindah, dihapus, atau tanpa akses",
   "rooms.fileAttachedCopy": "Membuka salinan yang dilampirkan",
   "rooms.downloadFile": "Unduh {name}",
   // 팀장 넘기기 (docs/DECISIONS.md "W6"; components/handover/): the confirm, the lead flag on an invite, Home's card, the Inbox rows
