@@ -10,7 +10,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
-import { normUrl, rememberUrls } from '../tools/url-gate'
+import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -88,7 +88,7 @@ import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../s
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, createGrant, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
@@ -1499,6 +1499,21 @@ export class TurnExec {
   get roomsSeen(): boolean {
     return !!(this.rt.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(this.spec.chatId) as { rooms_seen: number } | null)?.rooms_seen
   }
+  /** A tool whose own card is the call's only one (rooms/ai-tools.ts ROOMS_SEEN_OWN_CARD_TOOLS, a connection's tools),
+   * in the person's own chat after a room read with the person there to answer (not a scheduled run or a draft): no
+   * room card (confirmRoomChange); the tool's card asks every time and leads with the room line (TurnPerson.roomsSeen,
+   * chat/tools.ts). */
+  ownCard(tool: string): boolean {
+    return (ROOMS_SEEN_OWN_CARD_TOOLS.has(tool) || !!this.toolSet?.connection(tool)) && !this.room && !this.shared && !this.restricted && this.spec.clientKind !== 'schedule' && this.roomsSeen
+  }
+  /** a connection tool's call that only reads (chat/tools.ts ChatToolSet.readsOnly); false for anything else */
+  readsOnly(name: string, args: unknown): boolean { return this.toolSet?.readsOnly(name, args) ?? false }
+  /** ...that may go without the room card: a read by the service's own mark, not api_request's GET (ChatToolSet.readsFree) */
+  readsFree(name: string, args: unknown): boolean { return this.toolSet?.readsFree(name, args) ?? false }
+  /** what the room card shows of a call, in words (roomChangeDetails), with stored secrets hidden */
+  roomCardDetails(tool: string, input: unknown): ConfirmDetailT[] {
+    return roomChangeDetails(tool, input, this.spec.locale, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
+  }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
@@ -1643,6 +1658,11 @@ export class TurnExec {
     // the rest of the chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
     const own = !this.room
     if (own ? !this.roomsSeen || ROOMS_SEEN_READ_ONLY_TOOLS.has(tool) || (this.browser && ROOMS_SEEN_BROWSER_READ_TOOLS.has(tool)) : ROOM_READ_ONLY_TOOLS.has(tool)) return null
+    // a connection's read the service marks read-only goes on without a card (ownCard: the person there to answer)
+    // unless its arguments carry an address or a random-looking part (tools/url-gate.ts carriesAddress: then this card);
+    // its arguments go to the service the person or the team connected. api_request's GET or HEAD asks here (the method
+    // is the AI's choice; some APIs act on a GET)
+    if (own && this.ownCard(tool) && this.readsFree(tool, input) && !carriesAddress(input)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
     const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
@@ -1650,6 +1670,9 @@ export class TurnExec {
         ? `Not done (${tool}): this chat holds messages from the user's team chat rooms (other people's words), so a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed here only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in a new chat, or you can write the content out with write or edit.`
         : `Not done (${tool}): in a team chat room, a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in their own chat, or you can write the content out with write or edit.`
     }
+    // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
+    // move or copy of a skill or instruction file is still refused
+    if (own && this.ownCard(tool) && !this.readsOnly(tool, input)) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -1677,7 +1700,7 @@ export class TurnExec {
     const what = this.redact(this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, input, L, BROWSER_TOOL_NAMES))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
-    const details = roomChangeDetails(tool, input, L, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
+    const details = this.roomCardDetails(tool, input)
     // why every change here waits for a card, and what the AI does instead (docs/DECISIONS.md "Refusals say why, who and
     // what next": a scheduled run that read a room was told "the user did not allow this" for a card nobody saw)
     const roomWhy = own

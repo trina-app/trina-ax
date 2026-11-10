@@ -213,7 +213,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const linesNone = linesOf(none, L)
         const linesAll = all ? linesOf(all, L) : []
         const extra = all && linesAll.join('\n') !== linesNone.join('\n') ? (linesAll.length ? tr('postRoomWithFiles', L, { line: linesAll.join(' ') }) : tr('postRoomWithFilesAll', L)) : ''
-        const question = [ask, [...linesNone, extra].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
+        // after a room read (the side chat reads its room) this card is the call's only one (no room card before it,
+        // rooms/ai-tools.ts): it leads with the room card's line, as the tools with their own card do (chat/turn.ts ownCard)
+        const question = [exec.roomsSeen ? tr('roomsSeenWhy', L) : '', ask, [...linesNone, extra].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
         const shown = first.body.slice(first.at)
         const marks = opaqueParts(shown)
         const options = [

@@ -113,7 +113,7 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
   process.env.MYCEL_MOBILE_EDITION = 'trina'
   delete process.env.MYCEL_MOBILE_GOOGLE_SERVICES; delete process.env.MYCEL_MOBILE_BUILD_NUMBER
   const c = appConfig({ config: {}, projectRoot: mobileRoot } as never)
-  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.2')
+  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.3')
   expect(c.ios).toMatchObject({ bundleIdentifier: 'app.trina.ax', supportsTablet: false, buildNumber: '1', appleTeamId: 'YWW96288YY', infoPlist: { ITSAppUsesNonExemptEncryption: false } })
   for (const key of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSPhotoLibraryUsageDescription']) {
     expect(c.ios?.infoPlist?.[key]).toBeTruthy()

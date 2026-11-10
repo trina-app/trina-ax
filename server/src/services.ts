@@ -146,6 +146,14 @@ export interface TurnTool {
   call(args: unknown, t: TurnToolContext): Promise<TurnToolResult>
   /** the step label under the answer ("AI PM · create_task"); default: shared/src/step-labels.ts by the tool name */
   label?(args: unknown, locale: Locale): string
+  /** a connection's tool (integrations/connections/tools.ts): does this call only read (true), or change something at
+   * the service, where the tool asks on its own card (false)? After a room read, a read goes on without the room card
+   * and a write asks on the connection's card alone (chat/turn.ts confirmRoomChange, TurnPerson.roomsSeen). Only the
+   * integrations provider's tools are taken at their word; any other tool keeps the room card */
+  readOnly?: boolean | ((args: unknown) => boolean)
+  /** its reads still raise the room card after a room read: a read only by the AI's choice of method (api_request's GET
+   * or HEAD; some APIs change something on a GET), not by the service's own mark */
+  readsNeedCard?: boolean
 }
 
 /**
