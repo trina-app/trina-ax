@@ -2435,6 +2435,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.check': "再確認",
   'credentials.checked': "確認しました。",
   'credentials.connected': "接続しました。",
+  'credentials.added': "アカウントを追加しました。リストの順番に使います。",
   'credentials.unverifiedSaved': "保存しました。最初の質問時に確認します。",
   'credentials.replace': "トークンまたはキーを置換",
   'credentials.reconnect': "再接続",

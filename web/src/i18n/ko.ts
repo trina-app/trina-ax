@@ -2471,6 +2471,7 @@ export const ko = {
   'credentials.check': '다시 확인',
   'credentials.checked': '확인했어요.',
   'credentials.connected': '연결했어요.',
+  'credentials.added': '계정을 추가했어요. 목록 순서대로 써요.',
   'credentials.unverifiedSaved': '저장했어요. 첫 질문 때 확인돼요.',
   'credentials.replace': '토큰·키 바꾸기',
   'credentials.reconnect': '다시 연결',
