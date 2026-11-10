@@ -2092,6 +2092,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.skills.move': 'Movió una habilidad',
   'audit.act.skills.move_refused': 'Rechazó mover una habilidad',
   'audit.act.files.ai_trash': 'La IA movió a la papelera',
+  'audit.act.projects.ai_members': 'La IA cambió los miembros del proyecto',
   'audit.act.skills.copy': 'Copió una habilidad',
   'audit.act.skills.files': 'La IA cambió archivos de una carpeta de habilidades',
   'audit.act.skills.files_refused': 'Rechazó un cambio en una carpeta de habilidades',
