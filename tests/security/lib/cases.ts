@@ -385,6 +385,9 @@ export const SPECS: Record<string, Spec> = {
   tree: { build: (c) => c.get('/api/files/tree?path=users%2Falice'), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceFileName)) throw new Error(`${who} sees a file name in users/alice`) } },
   content: { build: (c) => c.get('/api/files/content?path=users%2Falice%2Ftodo.md'), scope: 'users-alice' },
+  // who can see a folder: another person's folder answers 404 to everyone else, the owner and admins too, and never a count
+  folderAudience: { build: (c) => c.get('/api/files/audience?path=users%2Falice'), scope: 'users-alice',
+    check: (r, w, who) => { if (who !== 'memberIn' && /"people"/.test(r.text)) throw new Error(`${who} got a count for users/alice`) } },
   saveContent: { build: (c) => c.put('/api/files/content', { path: 'users/alice/todo.md', content: 'overwritten', baseSha256: null }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} wrote into users/alice`) } },
   download: { build: (c) => c.get('/api/files/download?path=users%2Falice%2Ftodo.md'), scope: 'users-alice' },
