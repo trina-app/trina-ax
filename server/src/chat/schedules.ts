@@ -133,9 +133,12 @@ export function describeSchedule(s: Pick<ScheduleRow, 'repeat' | 'time' | 'weekd
 export function scheduledRunBlock(title: string, when: string, allows?: string | null): string {
   return [
     `<scheduled_run title="${title.replace(/["<>]/g, "'")}">`,
-    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers. No confirmation card is shown in a run, so a step that needs the user's yes on one is skipped (that is not the user refusing anything)${allows ? ', except what the user allowed for this task on its card:' : '.'}`,
+    // what cannot happen in a run, and that it is not the person's no (docs/DECISIONS.md "Refusals say why, who and what
+    // next": every run reported "the user did not allow saving to …" for a card nobody saw); then what this task's card
+    // allowed without a card (chat/schedule-cover.ts runAllowance)
+    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers. No confirmation card is shown in a run, so a step that needs the user's yes on one is skipped: saving where more people can see it than what you read, moving or copying files to where other people see them, changing skills, any change after reading a team chat room, connecting a service, making a video, opening more web addresses than a run may open without asking. That is not the user refusing anything.${allows ? ' What the user allowed for this task on its card goes on without one:' : ''}`,
     ...(allows ? [allows] : []),
-    'Do the task with what you can find, save files in the user\'s personal folder unless the task names another folder, and end with a short summary of what you did and found, with each skipped step and why.',
+    'Do the task with what you can find, save files in the user\'s personal folder unless the task names another folder, and end with a short summary of what you did and found, with each skipped step and that the user can do it in a chat (or change the task on the Scheduled page).',
     '</scheduled_run>',
   ].join('\n')
 }

@@ -647,11 +647,56 @@ describe('second review round', () => {
     await turn('alice', chat, fake({ tool: 'room_read', args: { room: roomId } }, { say: 'read' }))
     const row = h.rt().store.chatRow(chat)!
     const started = h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
-      user: { parentId: row.active_leaf_id, content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'scheduled change' } }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
-    await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
+      user: { parentId: row.active_leaf_id, content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'scheduled change' }, sayResult: true }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    const done = await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
     expect(events(started.turnId).find((e) => e.tool === 'write')).toMatchObject({ ok: 0 })
     expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
+    // bug 1 (docs/DECISIONS.md "Refusals say why, who and what next"): the text says nobody was asked, never that the
+    // user refused, and what the user can do instead
+    const said = done.data.message.content as string
+    expect(said).toContain('Not done (write): nothing was changed. Why: nobody could be asked: this is a scheduled run with nobody watching')
+    expect(said).toContain('The user did not refuse anything')
+    expect(said).not.toContain('did not allow')
+    expect(said).toContain('Next step: a scheduled run that read a room changes nothing (nobody is there to answer the card): the user can do it in a chat')
     fs.rmSync(abs(), { force: true })
+    // the room card alone (a save to the person's own folder needs no wider-audience card): the same reason
+    const again = h.rt().createTurn({ chat: h.rt().store.chatRow(chat)!, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+      user: { parentId: h.rt().store.chatRow(chat)!.active_leaf_id, content: fake({ tool: 'write', args: { file_path: 'users/alice/run-note.md', content: 'x' }, sayResult: true }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    const own = (await ws.alice!.next('message.done', (f) => f.data.message.turnId === again.turnId, 30_000)).data.message.content as string
+    expect(fs.existsSync(path.join(h.team, 'users/alice/run-note.md'))).toBe(false)
+    expect(own).toContain('Not done (write): nothing was changed. Why: nobody could be asked: this is a scheduled run')
+    expect(own).toContain("This chat holds messages from the user's team chat rooms")
+    expect(own).not.toContain('did not allow')
+    expect(events(again.turnId).find((e) => e.tool === 'write')!.summary).toBe('write -> nobody to ask (scheduled run) (after a room read)')
+  })
+
+  // bug 1 at the other cards a run reaches: the wider-audience card and the skill-write card
+  test('a scheduled run that would save where more people see it, or into skills/: nobody was asked, and the text says so', async () => {
+    if (!ws.carol) { ws.carol = await h.ws('carol'); await ws.carol.next('hello') }
+    fs.mkdirSync(path.join(h.team, 'users/carol'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'users/carol/private-notes.md'), 'only carol\n')
+    const chat = await newChat('carol')
+    const row = h.rt().store.chatRow(chat)!
+    const started = h.rt().createTurn({ chat: row, userId: 'carol', locale: 'ko', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+      user: { parentId: row.active_leaf_id, content: fake(
+        { tool: 'read', args: { file_path: 'users/carol/private-notes.md' } },
+        { tool: 'write', args: { file_path: 'shared/weekly-from-run.md', content: 'summary' }, sayResult: true },
+        { tool: 'write', args: { file_path: 'skills/from-run.md', content: '# rule\n' }, sayResult: true },
+        { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    const done = await ws.carol!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
+    const said = done.data.message.content as string
+    expect(fs.existsSync(path.join(h.team, 'shared/weekly-from-run.md'))).toBe(false)
+    expect(fs.existsSync(path.join(h.team, 'skills/from-run.md'))).toBe(false)
+    expect(ws.carol!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
+    // the wider-audience card (chat/turn.ts askWidening)
+    expect(said).toContain("Nothing was saved to 'shared/weekly-from-run.md'. Why: nobody could be asked: this is a scheduled run")
+    expect(said).toContain("Next step: save it in the user's personal folder (users/carol) instead and say so")
+    // the skill-write card (chat/turn.ts confirmSkillWrite): only the reason changed
+    expect(said).toContain("Nothing was saved to 'skills/from-run.md' in skills/ (team skills and team rules every teammate's AI follows). Why: nobody could be asked")
+    expect(said).not.toContain('did not allow')
+    const skillLine = events(started.turnId).filter((e) => e.tool === 'write').map((e) => e.summary)
+    expect(skillLine).toContain('write -> nobody to ask (scheduled run) (team skills)')
+    fs.rmSync(path.join(h.team, 'users/carol/private-notes.md'), { force: true })
   })
 })

@@ -462,6 +462,8 @@ export const es: Record<MessageKey, string> = {
   'steps.earlier': "{n, plural, one {# paso anterior} other {# pasos anteriores}}",
   'steps.running': "En ejecución",
   'steps.done': "Completado",
+  'steps.postView': 'Ver',
+  'steps.postViewLabel': 'Ver en la sala',
   'devEnvQueue.waiting': 'Esperando el entorno de desarrollo… n.º {n} en la fila',
   'devEnvQueue.waitingNoPlace': 'Esperando el entorno de desarrollo…',
   'devEnvQueue.cancel': 'Cancelar',

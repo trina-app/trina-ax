@@ -462,6 +462,8 @@ export const ja: Record<MessageKey, string> = {
   'steps.earlier': "{n, plural, one {以前の#ステップ} other {以前の#ステップ}}",
   'steps.running': "実行中",
   'steps.done': "完了",
+  'steps.postView': '表示',
+  'steps.postViewLabel': 'ルームで表示',
   'devEnvQueue.waiting': '開発環境を待っています… {n}番目',
   'devEnvQueue.waitingNoPlace': '開発環境を待っています…',
   'devEnvQueue.cancel': 'キャンセル',

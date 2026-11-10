@@ -162,6 +162,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
+  'server/src/policy/refusal.ts': { why: 'the screen names a refusal points the person to, as the app shows them (ko next to en/id/ja/es)' },
   'server/src/chat/delete-files.ts': { why: 'the delete_files card (ko next to en/id/ja/es)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },

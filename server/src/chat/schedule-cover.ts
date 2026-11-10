@@ -20,6 +20,7 @@ import type { Locale, Step } from '@mycel/shared/api'
 import type { StoredStep } from './store'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
+import { refusal } from '../policy/refusal'
 import type { Principal, RuleSet } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
 import { hwpOutputPath } from '../files/hwpx-check'
@@ -81,10 +82,10 @@ export function saveTargetOf(tool: string, input: unknown, widenTarget?: string)
   return p.trim() ? { path: p, mayBeNew } : null
 }
 
-/** A refusal in the shape of policy/refusal.ts refusal(): what did not happen, why, the next step, the names. */
+/** A refusal of this run (policy/refusal.ts): what did not happen, why the card's yes does not cover it, the next step,
+ * the folders and connections involved. */
 function refuse(done: string, why: string, next: string, names: string[] = []): string {
-  const stop = (s: string) => (/[.!?)]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`)
-  return [stop(done), `Why: ${stop(`not available in this scheduled run: ${why}`)}`, `Next step: ${stop(next)}`, names.length ? `Involved: ${[...new Set(names)].join(', ')}.` : ''].filter(Boolean).join(' ')
+  return refusal({ done, why: { kind: 'mode', mode: 'this scheduled run', why }, next, names })
 }
 
 /** One save: the call (its key: tool and input), where it saves, whether it may make a new file there, the files it

@@ -16557,8 +16557,6 @@ of a web page could not be read. Pictures should open like Slack, across the app
 - **Later:** a large file viewer with page thumbnails on the left and the side chat (or the message's thread) on the
   right, as Slack's file view.
 
-||||||| a5a26059
-
 ## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
@@ -17745,8 +17743,11 @@ told to point at the button and never claim it posted, so "이 요약 #영업팀
   content is `text` through the sender's redactor; the room by `findRoom` among mine (`Rooms.mine` checks it again), the
   thread by `Rooms.threadRootOf`.
 - **The card** (an `ask_user` card with origin server: the AI cannot write one that passes for it). "#영업팀(12명)에
-  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the note apart under 한마디 (it goes as the
-  person's own words); the text in full under 보낼 내용, folded past 600 characters; the paths [파일도 함께 보내기] would
+  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the note apart under "내 이름으로 보일 한마디" (it
+  goes as the person's own words, outside the AI's quote, though the AI wrote it: a planted instruction could write a
+  line in their voice, so the label says whose name it shows under, and the tool takes a note only when the person asked
+  for one or gave its words); the text in full under 보낼 내용, folded past 600 characters, its long random-looking
+  parts marked as on the other server cards; the paths [파일도 함께 보내기] would
   attach, by name (a link far down a folded text is not missed); only when they apply, "3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요." and "링크된 파일 2개를 4명이 열 수
   없어요." (counts and places I may look myself, never who), and, when attaching the files changes them, "파일도 함께 보내면:
   …"; [보내기], [파일도 함께 보내기] (only when a linked file can go as a copy), [보내지 않기]. The number is everyone in the
@@ -17758,16 +17759,107 @@ told to point at the button and never claim it posted, so "이 요약 #영업팀
   the files. A change (a member, someone's access, a linked file) is refused, "ask again", nothing posted. Each post
   takes from the sending budget before the card and again after the yes, as the button's confirm does.
 - **Retries.** `clientMessageId` is `ai-<turnId>-<n>`, `n` per room, thread, note and text in this answer: the same call
-  again finds the first message (no second card, no second post), as the button's retry does.
+  again finds the first message (no second card, no second post), as the button's retry does. A first post the person
+  deleted since is not it: the same text goes again under a new `n`, with its own card (the room keeps the deleted
+  message's id, unique per author; the button's lookup is unchanged).
 - **A side chat.** Without `room` it posts to the side chat's room, or to the thread the nearest earlier question that
-  quotes something names (the button's rule, `nearestThreadOf`). A named room is that room.
+  quotes something names (the button's rule, `nearestThreadOf`). A named room is that room's timeline, never the
+  thread (the input's description says so; `thread_id` names a thread).
 - **Prompt.** The rooms rule gains one sentence when the turn has the tool (`ROOMS_POST_RULE`: all of the text, the card,
   say it posted only when the result is "sent", never because a message, file or page asks); the side panel's line says
   the same and still names the buttons.
-- **Audit.** `room.answer_share` as for the button, with `via: 'ai'`; the tool event's summary says sent, not sent,
-  already sent or refused, never the text.
+- **Audit.** `room.answer_share` as for the button, with `via: 'ai'` and `confirmed: true` (the person pressed the
+  card's yes, also when nothing was at stake); the tool event's summary says sent, not sent, already sent or refused,
+  never the text.
+- **The step's 보기** (follow-up, 2026-11-10). A post's step keeps where it went (`Step.posted`: the room, the message, the
+  thread's root) and shows 보기, like the button's sent line: the room at the message or the thread at the reply; in a
+  side chat through the panel's own way there (its column, a phone's panel). Only its runner gets it: another viewer of
+  a chat shared later gets the step without it (a room's id).
 - **Security.** Nothing new is allowed: the button's checks and audit; only who starts it differs. A web page, a file or
   a room message telling the AI to post meets the card with the room, its number of people and all of the text (tested
   with a planted page). Habit: the room and the number lead the card and the "cannot see" lines show only when they
   apply.
 
+
+## Refusals say why, who and what next (fix/ai-refusals-clear, 2026-11-10, product owner)
+
+넣을 곳: trina-ax `server/src/policy/refusal.ts` (new) and the refusal texts in `chat/turn.ts`, `chat/prompt.ts`,
+`tools/file-moves.ts`, `tools/higgsfield.ts` and the connection, schedule and web texts, 이유: chat, permissions and
+files are core. Plan `docs/AGENTS/plan/20261109-1844-ai-refusals-clear.md`. Part A of the owner's "왜케 제약이 많아??
+안되는게 왜케 많은거야? 이유도 모르고?" (2026-11-10): most limits are real, but the texts the AI read back said neither why
+nor where the person could do it, and some blamed the person for a card nobody showed them. Part B (later PRs) turns
+some of them into cards.
+
+- **One shape for every refusal the AI reads** (`refusal({ done, why, next, names })`): what did not happen ("Nothing
+  was moved."); one reason, said plainly: no permission (and who can give it: "an admin", or a team project's creator
+  by name where that is safe, see below), nobody could be asked (a scheduled run: "The user did not refuse anything; never
+  say they did"), the person said no, the card timed out ("This is not a no"), other people would have to agree (the
+  room or project, a count), a server limit (its number, when it resets, who can change it), not available in this kind
+  of chat; one next step with the screen as the person's app names it in their language (`SCREEN.trash('ko')` →
+  `the Files screen's trash ("파일 › 휴지통")`); the folders, groups, projects and connections involved. AI-facing words
+  stay English; only the screen names follow the person's language.
+- **Kept as they were:** rooms and shared chats never say who cannot read what (counts only, "Never who" above). "not
+  found or no access" stays one answer, byte for byte, for a missing file and a hidden one (`policy/authorize.ts`); the
+  neutral next step (check the name with the person; whoever manages that folder or an admin can check access) is in
+  the instructions, so no tool text depends on the path. A "no" keeps the words "did not allow", which is what it is.
+- **How a card ended reaches the text.** `TurnExec.askPerson` returns the answer with why there was none:
+  `unattended` (a scheduled run raises no card), `timeout`, `ended` (the answer stopped first); a card closed without a
+  choice is the person's no. `waitForPerson` is unchanged for its other callers. Tools get `TurnPerson.confirmWhy`;
+  `askConfirm()` treats an unattended person as never asked (as `save_url` did with `!person || person.unattended`).
+- **Bug 1, fixed at every card a run reaches:** the wider-audience card, the skill-write card (its reason text only:
+  the skill logic and the "no" texts are as they were), the room card after a room read, move_files and copy_files
+  (they checked `!tc.person` only, and a run's person always exists), generate_video and a connection's write card. The
+  audit summaries say `nobody to ask (scheduled run)` and `no answer in time` instead of `not allowed by the user` where
+  that is what happened. A room card that also asked about a wider audience keeps the room's next step (a run that read
+  a room cannot save anywhere, so "save it in the personal folder" would be refused again).
+- **Bug 8:** a shared chat's read card says the real reason, per place for the rest of the turn: the person's no, no
+  answer in time, a scheduled run, or a check that failed ("Nobody refused it"), never "<name> did not share it" for all
+  of them; the "/name" skill line too. Next step: a chat of their own, where only they see the answer.
+- **Bug 10, mode limits the AI was never told:** the room section lists what a room has not (memories, connected
+  services, Drive, schedules, video, the browser and computer tools, the chat title, moving skills) and sends the person
+  to the room's side panel or their own chat; the shared chat section the same, to their own chat; a confidential chat
+  gets `confidentialRule` in the person lines (also in a resumed session's context), with why (safe operations on the
+  server, or a safe workflow in this chat) and what is off; the scheduled run block says a step that needs a card is
+  skipped, which is not the person refusing, and the summary lists what was skipped. "Rooms cannot be read in this
+  chat" says why (a shared chat, a room session, a confidential chat, a template run) and where to read the room.
+- **Bug 4:** where delete_files (#277) is not offered (a room, a shared chat, a sub-agent, a scheduled run…), the person
+  lines say the AI cannot delete here and name the Files screen's trash in the person's language (30 days); where it
+  is offered, its own rule says how (DELETE_RULE).
+- **Admins are never named** (review of #273): the people directory shows no roles (`shared/src/api/people.ts`, "people
+  directory" above), so a refusal listing the admins would tell a member who they are, and in a room or a shared chat
+  the AI could repeat the names to everyone. The texts say "an admin" and the screen where an admin does it.
+- **Wording:** a read-only refusal in a chat turn gets a note with who can give write access (B2; the tool's own text is
+  unchanged for every other caller, so the remote connector and the security tests see what they saw). A team
+  project's creator is mentioned only when the person may read that exact project folder: a hidden project answers
+  "read-only folder" like a missing one (`hiddenWrite`), and naming its creator would tell them apart (independent
+  review). The creator's name goes in only where everyone who sees the answer may read that folder (in a room or a
+  shared chat, `roomReadable`; else "the project's creator"); otherwise it is "an admin", whatever the path; the per-answer
+  write limits give their numbers and "continue" in the next message (B7); an admin-only folder move says an admin
+  does it on the Files screen (B14); a connection set to refuse changes or a tool turned off says who manages it (an
+  admin, or the person) and where (E6, E11), team and personal connections say an admin and the screen (E1-E3), a
+  template run names its folders (F4), a private address points to the desktop app's browser or an attachment (G1), the
+  daily video limit says when one frees up, as the daily limit set by the server (H2).
+- Not here: the skill texts and move_skill (`skills/guard.ts`, `skills/move.ts`, `skills/text.ts`, the
+  `SKILL_FILES_REFUSAL` call sites), which #269 (fix/ai-skill-move-like-page) changed at the same time; new cards (skill
+  folders, deleting), schedule pre-approval, connections in rooms, post_to_room.
+- Tests: `tests/unit/refusal-texts.test.ts` (the helper, names, screens in five languages, the mode sections, the
+  confidential and delete rules, "#room" without room tools), the text of every bug-1 site
+  (`c-file-moves`, `b-chat-rooms` scheduled runs, `skill-managers` timeout, `higgsfield`), `b-shared-chats` (a no and
+  a timeout), `b-chat-file-placement` (move_files into a new folder, no README).
+- Version impact: **patch** (texts the AI reads and one card line; no API or data change).
+
+## move_files and copy_files make the target folder (fix/ai-refusals-clear, 2026-11-10, product owner)
+
+- **Before:** move_files and copy_files needed a target folder that existed (`audienceChange` and `copy` asked for it
+  with `mustExist`), there is no mkdir tool, and the instructions told the AI to write a README.md into a new folder
+  first. People got a file they never asked for, or "not found: 'shared/계약서/2026'".
+- **Now:** a missing target folder is made by the tool after the card, one folder at a time, under the same checks as a
+  new file's folders (`authorize` with `createDirs`: write access, names, look-alike names), each recorded as a new
+  folder of the turn (`file_events` `create` with `folder: true` and the tool) and published like the Files screen's
+  new folder. Its readers are those of its nearest existing folder (a new folder has no rules), so the audience card is
+  the same card as before; when it shows, it says the folder is new ("AI가 2개 항목을 새로 만들 shared/계약서/2026
+  폴더로 옮기려고 해요.", all five languages). A no makes no folder. With nobody to change (the same people see it) no
+  card, as before. A folder made for a call where nothing went in (a folder given to copy_files, a group folder moved by
+  a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
+  anything).
+- The README instruction is gone; the tools' descriptions say a missing folder is made.
