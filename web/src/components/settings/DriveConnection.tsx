@@ -2,14 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { DriveConnection as Connection, DriveFlow } from '@mycel/shared/api'
 import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
+import { driveSignInUrl } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
 import { Button, confirmDialog } from '../ui'
-
-function googleAuthorization(value: string): string {
-  const u = new URL(value)
-  if (u.origin !== 'https://accounts.google.com' || u.pathname !== '/o/oauth2/v2/auth' || u.username || u.password) throw new Error('invalid authorization URL')
-  return u.href
-}
 
 /**
  * Connecting the person's own Google account to Drive (Settings > MCP, and a chat's connect_service card):
@@ -61,7 +56,7 @@ export function useDriveFlow(onConnected: (c: Connection) => void) {
     try {
       const result = await api.call(API.authorizeDrive, { body: {} })
       if (g !== generation.current) return
-      const url = googleAuthorization(result.authorizationUrl)
+      const url = driveSignInUrl(result, !!mobileApp())
       setAuthorizationUrl(url)
       setFlow({ flowId: result.flowId, state: 'pending', account: null, expiresAt: result.expiresAt, reason: null })
       if (mobileApp()) await openExternal(url, { purpose: 'google-oauth' })
