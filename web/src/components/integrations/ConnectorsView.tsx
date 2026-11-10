@@ -10,7 +10,7 @@ import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../li
 import { useT } from '../../i18n'
 import { Button, IconButton, StickyHeader, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { ActionMenu, type AddMenuItem } from '../PageActions'
+import { SplitAction, type AddMenuItem } from '../PageActions'
 
 // the split button (Add ⌄, a connector's Connect ⌄) is every page's now (components/PageActions.tsx)
 export { SplitAction, type AddMenuItem } from '../PageActions'
@@ -35,12 +35,7 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
           <input type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
         </div>
         {onAdd && (moreAdd?.length ? (
-          <div className="flex shrink-0 items-stretch" data-testid="integration-add-group">
-            <Button variant="primary" className="rounded-r-none" onClick={onAdd} data-testid="integration-add">
-              <Plus size={15} aria-hidden /> {t('integrations.add')}
-            </Button>
-            <ActionMenu items={moreAdd} label={t('integrations.addMore')} testId="integration-add-more" />
-          </div>
+          <SplitAction label={t('integrations.add')} icon={<Plus size={15} aria-hidden />} onPrimary={onAdd} items={moreAdd} testId="integration-add" menuLabel={t('integrations.addMore')} />
         ) : (
           <Button variant="primary" className="shrink-0" onClick={onAdd} data-testid="integration-add">
             <Plus size={15} aria-hidden /> {t('integrations.add')}

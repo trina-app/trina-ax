@@ -196,7 +196,7 @@ export function CountBadge({ n, testId }: { n: number | null | undefined; testId
 /** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. */
 export function SearchBox({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
   return (
-    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-10 max-md:flex-1', className)}>
+    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-11 max-md:flex-1', className)}>
       <Search size={15} className="shrink-0 text-faint" aria-hidden />
       <input
         type="search"

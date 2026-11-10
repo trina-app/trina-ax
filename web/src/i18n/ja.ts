@@ -2053,7 +2053,7 @@ export const ja: Record<MessageKey, string> = {
   'activity.chip.file': "ファイル",
   'activity.chip.tool': "AIツール",
   'activity.filters': "絞り込み",
-  'common.filtersOn': "{count, plural, one {#件の絞り込みを適用中} other {#件の絞り込みを適用中}}",
+  'common.filtersOn': "{count, plural, one {#件適用中} other {#件適用中}}",
   'activity.when': "期間",
   'activity.range.any': "すべての期間",
   'activity.range.today': "今日",

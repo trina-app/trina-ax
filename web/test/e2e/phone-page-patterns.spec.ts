@@ -53,7 +53,8 @@ test('the search and Filters share one row; the role filter opens under it and i
   await page.getByTestId('member-filters-toggle').click()
   await expect(page.getByTestId('member-filters-toggle')).toHaveAttribute('aria-expanded', 'true')
   await page.getByTestId('member-role-filter').selectOption('owner')
-  await expect(page.getByTestId('member-filters-count')).toHaveText(new RegExp('1'))
+  // the button says how many filters are on, to the eye and in its name
+  await expect(page.getByTestId('member-filters-toggle')).toHaveAccessibleName(`${t['activity.filters']} 1 on`)
   await expect(page.getByTestId('member-card-olga')).toBeVisible()
   await expect(page.getByTestId('member-card-bob')).toHaveCount(0)
 })
@@ -70,6 +71,13 @@ test('rows: one line with the role on the right; the owner\'s choice is 44 px; a
   // the first member comes early: the header is one line and the search row
   expect((await box(page, 'member-card-olga')).y).toBeLessThan(330)
   await expect(page.getByTestId('member-email-olga')).toHaveCount(0)
+  // a username that is not the name: on the second line
+  expect((await page.request.post('/api/admin/users', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Carol Kim', username: 'carol', role: 'member', groupIds: [], temporaryPassword: 'maple2026' } })).ok()).toBeTruthy()
+  await page.reload()
+  const carol = page.getByTestId('member-card-carol')
+  await expect(carol).toContainText('Carol Kim')
+  await expect(carol).toContainText('carol')
+  expect((await carol.boundingBox())!.height).toBeGreaterThan(56)
   // a search that matches the email only: the email shows on the second line
   expect((await page.request.patch('/api/me', { headers: { [CSRF_HEADER]: '1' }, data: { email: 'boss@acme.example' } })).ok()).toBeTruthy()
   await page.reload()
@@ -79,11 +87,34 @@ test('rows: one line with the role on the right; the owner\'s choice is 44 px; a
 })
 
 test('only the search row stays at the top while the list scrolls', async ({ page }) => {
+  // enough people to scroll
+  for (let i = 0; i < 14; i++) await page.request.post('/api/admin/users', { headers: { [CSRF_HEADER]: '1' }, data: { name: `Person ${i}`, username: `person${i}`, role: 'member', groupIds: [], temporaryPassword: 'maple2026' } })
+  await page.reload()
   const controls = page.getByTestId('members-header-controls')
   await expect(controls).toBeVisible()
-  const h = (await controls.boundingBox())!.height
-  expect(h).toBeLessThanOrEqual(60)
-  await expect(page.getByTestId('members-header')).not.toHaveAttribute('data-sticky-header', /.*/)
+  expect((await controls.boundingBox())!.height).toBeLessThanOrEqual(64)
+  const content = page.getByTestId('admin-content')
+  const top = (await content.boundingBox())!.y
+  await content.evaluate((el) => { el.scrollTop = el.scrollHeight })
+  await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
+  // the controls are stuck at the top of the page's box; the line and the buttons scrolled away
+  expect(Math.round((await controls.boundingBox())!.y)).toBe(Math.round(top))
+  await expect(page.getByTestId('invite-new')).not.toBeInViewport()
+})
+
+test('an admin who is not the owner reads the roles; the other pages keep their buttons', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  await signIn(page, { username: 'dana', password: 'dana password 1' })
+  await page.goto('/admin/members')
+  await expect(page.getByTestId('member-card-bob')).toBeVisible()
+  // read, not a choice: the owner alone changes roles
+  await expect(page.getByTestId('member-card-bob').locator('select')).toHaveCount(0)
+  await expect(page.getByTestId('member-role-bob')).toHaveText(t['role.member'])
+  for (const [path, id] of [['/admin/groups', 'group-new'], ['/admin/usage', 'usage-csv']] as const) {
+    await page.goto(path)
+    await expect(page.getByTestId(id)).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  }
 })
 
 test('Connectors and AI apps say their name once on a phone (the bar), in Admin and in Settings', async ({ page }) => {
@@ -97,13 +128,15 @@ test('Connectors and AI apps say their name once on a phone (the bar), in Admin 
   }
 })
 
-test.describe('a computer', () => {
-  test.use({ viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false })
-  test('every button and the role filter in the row, as before', async ({ page }) => {
-    await expect(page.getByTestId('members-table')).toBeVisible()
-    for (const id of ['invite-new', 'team-link-open', 'member-add', 'member-role-filter-pill']) await expect(page.getByTestId(id)).toBeVisible()
-    await expect(page.getByTestId('invite-new-more')).toHaveCount(0)
-    await expect(page.getByTestId('member-filters-toggle')).toHaveCount(0)
-    await expect(page.getByRole('heading', { level: 2, name: new RegExp(t['members.title']) })).toBeVisible()
+for (const width of [768, 1440]) {
+  test.describe(`${width} px`, () => {
+    test.use({ viewport: { width, height: 900 }, hasTouch: false, isMobile: false })
+    test('every button and the role filter in the row, the title shown, as before', async ({ page }) => {
+      await expect(page.getByTestId('members-table')).toBeVisible()
+      for (const id of ['invite-new', 'team-link-open', 'member-add', 'member-role-filter-pill']) await expect(page.getByTestId(id)).toBeVisible()
+      await expect(page.getByTestId('invite-new-more')).toHaveCount(0)
+      await expect(page.getByTestId('member-filters-toggle')).toHaveCount(0)
+      await expect(page.getByRole('heading', { level: 2, name: new RegExp(t['members.title']) })).toBeVisible()
+    })
   })
-})
+}

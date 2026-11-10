@@ -23,7 +23,7 @@ export function PhoneFilters({ active, children, testId = 'phone-filters' }: { a
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(!open)}
-        className={clsx('inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border bg-surface px-3 text-sm text-ink transition hover:bg-hover', active ? 'border-line-strong' : 'border-line')}
+        className={clsx('inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border bg-surface px-3 text-sm text-ink transition hover:bg-hover', active ? 'border-line-strong' : 'border-line')}
         data-testid={`${testId}-toggle`}
       >
         <SlidersHorizontal size={15} className="shrink-0 text-muted" aria-hidden />

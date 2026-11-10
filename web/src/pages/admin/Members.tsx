@@ -185,7 +185,8 @@ export default function Members() {
     roleEditable(u) ? (
       <InlineRole user={u} busy={roleBusy.busy === u.id} onChange={(r) => void changeRole(u, r)} compact={compact} />
     ) : (
-      <span className={compact ? 'px-2 text-sm text-muted' : 'text-sm text-ink'} data-testid={`member-role-${u.username}`}>
+      // compact: the size the select has on a touch screen (16 px there, index.css), so the rows' roles line up
+      <span className={compact ? 'px-2 text-sm text-ink [@media(pointer:coarse)]:text-base' : 'text-sm text-ink'} data-testid={`member-role-${u.username}`}>
         {t(`role.${u.role}`)}
       </span>
     )
@@ -497,7 +498,7 @@ function InlineRole({ user, busy, onChange, compact }: { user: User; busy: boole
         if (!busy) onChange(e.target.value as MemberRole)
       }}
       // compact (a phone's row): the words and the arrow only, 44 px tall to tap, like a phone's settings value
-      className={clsx('cursor-pointer rounded-md text-sm focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none aria-busy:opacity-60', compact ? 'h-11 border border-transparent bg-transparent pl-2 text-muted hover:text-ink' : 'h-8 border border-line bg-surface pl-2.5 text-ink hover:bg-hover')}
+      className={clsx('cursor-pointer rounded-md text-sm focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none aria-busy:opacity-60', compact ? 'h-11 border border-transparent bg-transparent pl-2 text-ink hover:bg-hover' : 'h-8 border border-line bg-surface pl-2.5 text-ink hover:bg-hover')}
       data-testid={`member-role-${user.username}`}
     >
       <option value="member">{t('role.member')}</option>

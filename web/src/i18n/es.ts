@@ -2053,7 +2053,7 @@ export const es: Record<MessageKey, string> = {
   'activity.chip.file': "Archivos",
   'activity.chip.tool': "Herramientas de IA",
   'activity.filters': "Filtros",
-  'common.filtersOn': "{count, plural, one {# filtro aplicado} other {# filtros aplicados}}",
+  'common.filtersOn': "{count, plural, one {# activo} other {# activos}}",
   'activity.when': "Cuándo",
   'activity.range.any': "Cualquier fecha",
   'activity.range.today': "Hoy",

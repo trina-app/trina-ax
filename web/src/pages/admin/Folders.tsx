@@ -114,15 +114,17 @@ export default function Folders() {
   const [actions, setActions] = useState<HTMLElement | null>(null)
   const [filter, setFilter] = useState<HTMLElement | null>(null)
   const [head, setHead] = useState(0)
+  // the part of the header that sticks: the whole header from 768 px, only its controls row on a phone
+  // (AdminPageHeader); measured again when the width crosses 768 px (the header's elements change then)
   useLayoutEffect(() => {
-    const el = document.querySelector<HTMLElement>('[data-testid="folders-header"]')
-    if (!el) return
+    const el = document.querySelector<HTMLElement>(`[data-testid="${phone ? 'folders-header-controls' : 'folders-header'}"]`)
+    if (!el) { setHead(0); return }
     const measure = () => setHead(el.getBoundingClientRect().height)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [phone])
   return (
     <FolderHeaderSlots.Provider value={{ actions, filter }}>
       {/* the same header as Members and Groups: title, one line, Add folder; under them the by folder / by person

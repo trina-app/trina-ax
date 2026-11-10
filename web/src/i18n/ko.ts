@@ -2086,7 +2086,7 @@ export const ko = {
   'activity.chip.file': "파일",
   'activity.chip.tool': "AI 도구",
   'activity.filters': "필터",
-  'common.filtersOn': "필터 {count}개 적용",
+  'common.filtersOn': "{count}개 켜짐",
   'activity.when': "기간",
   'activity.range.any': "전체 기간",
   'activity.range.today': "오늘",

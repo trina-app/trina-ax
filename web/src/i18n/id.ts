@@ -2087,7 +2087,7 @@ export const id: Record<MessageKey, string> = {
   'activity.chip.file': "File",
   'activity.chip.tool': "Alat AI",
   'activity.filters': "Filter",
-  'common.filtersOn': "{count} filter aktif",
+  'common.filtersOn': "{count} aktif",
   'activity.when': "Waktu",
   'activity.range.any': "Kapan saja",
   'activity.range.today': "Hari ini",

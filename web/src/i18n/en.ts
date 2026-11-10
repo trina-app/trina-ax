@@ -2087,7 +2087,7 @@ export const en: Record<MessageKey, string> = {
   'activity.chip.file': "Files",
   'activity.chip.tool': "AI tools",
   'activity.filters': "Filters",
-  'common.filtersOn': "{count, plural, one {# filter on} other {# filters on}}",
+  'common.filtersOn': "{count, plural, one {# on} other {# on}}",
   'activity.when': "When",
   'activity.range.any': "Any time",
   'activity.range.today': "Today",

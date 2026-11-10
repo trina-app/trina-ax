@@ -3,7 +3,6 @@
 // on a phone (below 768 px) the main one stays a button and the others go under its ⌄ (SplitAction), so a header holds
 // one row instead of three buttons on two rows. SplitAction and its menu were Connectors' own (Add ⌄, a connector's
 // Connect ⌄); every page uses them from here.
-import clsx from 'clsx'
 import { ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button, useMediaQuery } from './ui'
@@ -18,27 +17,28 @@ export interface AddMenuItem {
 
 /** A primary button with a ⌄ menu of other ways to do it. `menuLabel`: the ⌄'s name ("More ways to invite").
  * `menuTestId`: the ⌄'s test id. */
-export function SplitAction({ label, icon, onPrimary, items, testId, menuLabel, menuTestId = 'integration-add-more', size }: {
+export function SplitAction({ label, icon, onPrimary, items, testId, menuLabel, menuTestId = 'integration-add-more' }: {
   label: string
   icon?: ReactNode
   onPrimary: () => void
   items: AddMenuItem[]
   testId: string
   menuLabel: string
+  /** Connectors' tests know the ⌄ as integration-add-more (Add ⌄ and a connector's Connect ⌄) */
   menuTestId?: string
-  size?: 'sm'
 }) {
   return (
     <div className="flex shrink-0 items-stretch" data-testid={`${testId}-group`}>
-      <Button variant="primary" size={size} className="rounded-r-none" onClick={onPrimary} data-testid={testId}>{icon}{icon ? ' ' : ''}{label}</Button>
-      <ActionMenu items={items} label={menuLabel} testId={menuTestId} size={size} />
+      {/* a phone: 44 px, for a finger */}
+      <Button variant="primary" className="rounded-r-none max-md:min-h-11" onClick={onPrimary} data-testid={testId}>{icon}{icon ? ' ' : ''}{label}</Button>
+      <ActionMenu items={items} label={menuLabel} testId={menuTestId} />
     </div>
   )
 }
 
 /** The ⌄ half of a split button: a small menu of the other ways. A dialog opened from it gets the focus back on this
  * button when it closes (the item is gone with the menu). */
-export function ActionMenu({ items, label, testId, size }: { items: AddMenuItem[]; label: string; testId: string; size?: 'sm' }) {
+export function ActionMenu({ items, label, testId }: { items: AddMenuItem[]; label: string; testId: string }) {
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
@@ -74,7 +74,7 @@ export function ActionMenu({ items, label, testId, size }: { items: AddMenuItem[
           aria-expanded={open}
           aria-label={label}
           onClick={() => setOpen((v) => !v)}
-          className={clsx('flex items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover', size === 'sm' ? 'h-8 max-md:min-h-11 max-md:px-2.5' : 'h-9 max-sm:min-h-10')}
+          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-md:min-h-11 max-md:px-2.5"
           data-testid={testId}
         >
           <ChevronDown size={15} aria-hidden />
