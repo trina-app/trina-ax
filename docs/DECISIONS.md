@@ -18842,3 +18842,47 @@ logo's header (28 px).
   and the 나 tab), `goal-card.test.tsx` (an admin who is not the owner gets the dialog), and the specs that went to Admin
   through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured the 20 px logo (`team-icon.spec.ts`).
 - Version impact: **minor** (a visible change to the sidebar; no API or data change).
+## 정보가 새는 곳 셋 — a member's dry run, the delete card, the matrix coverage (fix/access-info-leaks, 2026-11-10)
+
+- **Why:** a plan review found three places where a member learns what their permissions do not show them. Each was
+  confirmed by a test that failed before the fix.
+- **A new project's dry run never tells a member who is an admin.** `POST /api/projects/access-preview` without
+  `projectId` counted the owner and admins in: naming an admin left the count as it was and naming a member added one,
+  so anyone who may make team projects could ask, for free and with no trace, whether a person is an admin (members are
+  never told roles: the people directory, rooms). An exact count of everyone who sees it cannot hide that (the overlap
+  of the admins with the names chosen is the leak), so for a caller who is not the owner or an admin the count is of the
+  caller and the people and groups chosen, as if nobody were an admin, and the answer says so (`adminsApart: true`).
+  The share dry run (`POST /api/projects/:id/share` with `dryRun`) uses the same count (`viewersAdded`, `adminsApart`).
+  The line under the picker (`AccessSummary`, also in the members dialog) reads "2명과 팀장·관리자가 봐요" then
+  (`projects.whoCountApart`); the owner and admins read "4명이 봐요 (팀장·관리자 포함)" as before.
+- **Left as it is, an open question for the owner:** every count of who reads a folder whose rules the member sets still
+  counts the owner and admins, and a member sets them on any team project they make (every member, unless only admins
+  may make projects). So making one project (audited, seen by admins) and then naming a person in its dry run
+  (`projectId`: `added` 0 for an admin, 1 for a member) still tells who the admins are; so do `ProjectAccess.people`,
+  the `PUT …/participants` answer, `Project.audience`, a copy dry run into the folder (`viewersAdded`) and the delete
+  card's first number for its files (independent review). This change only removes the free, traceless way. Closing it
+  means counting admins apart in every audience count a member sees (projects, shared chats, the copy and delete cards,
+  the scheduled-task card), a product decision with copy changes in several features, not made here. The count still
+  includes the members of the caller's own groups chosen, as the group's team room shows them.
+- **The delete card's "cannot restore" number only for the owner and admins.** The card said how many of the people who
+  lose the items cannot restore them (readers without write). How many lose them a member already learns (a copy dry
+  run into a folder they can write answers `viewersAdded`); the second number added how many people can write the
+  folder, which only Admin › Folder permissions shows. `AiTrashPlan.writersShown` (the owner and admins) keeps the
+  number; anyone else reads "쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요." whenever someone else loses
+  the items, the same whether one, none or all of them can write. The audit row keeps both numbers. Left: with several
+  items, how many lose them is counted across the items, which says a little about how their audiences overlap.
+- **Every route has a matrix case again, and CI checks it.** 46 routes had none (the dev environment, the team link,
+  the welcome steps and company profile, skill packs and drafts, the AI access request, room search and the room AI's
+  cards, away, demo, after-update). Each case (`tests/security/lib/misc-cases.ts`) is written from what the route is
+  meant to allow and aimed at something the wrong person must not reach; writes are refused after the permission check,
+  and the owner's team start runs last; the draft routes are aimed at the owner's own draft chats, so an admin's 404 is
+  the ownership check (review: an ordinary chat answers 404 to everyone). Two scopes are added, `admins` and
+  `own-owner`. A few cases (the dev environment's stop and remove routes) can only use ids nobody has, since the world
+  has no runs or sites. The matrix still has its two known failures on dev (`driveShareFolders` as owner and admin). `tests/security` is not part of
+  CI, so the coverage half (no server, `tests/security/lib/coverage.ts`) also runs as
+  `tests/unit/security-route-coverage.test.ts`: a new route without a matrix case now fails CI.
+- Tests: `tests/unit/project-preview-roles.test.ts`, `tests/unit/ai-delete-files.test.ts` (the card for a member and an
+  admin), `tests/unit/security-route-coverage.test.ts`, `tests/security/project-participants.test.ts`,
+  `tests/security/r1-copy-share.test.ts` (the share dry run), the permission
+  matrix, `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`.
+- Version impact: **patch** (two answers say less to members; one optional response field; no data change).

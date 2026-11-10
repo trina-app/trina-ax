@@ -194,8 +194,13 @@ describe('what a member may not reach through a project (review)', () => {
 
 describe('the dry run', () => {
   test('a new project: who would see it', async () => {
-    expect((await preview('alice', { participants: [] })).body).toEqual({ people: 3, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
-    expect((await preview('alice', { participants: [group('marketing'), user('bob')] })).body.people).toBe(5)
+    // a member: herself and the people and groups chosen; the owner and admins see it too but are not counted, so the
+    // count never says who is an admin (tests/unit/project-preview-roles.test.ts)
+    expect((await preview('alice', { participants: [] })).body).toEqual({ people: 1, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], adminsApart: true })
+    expect((await preview('alice', { participants: [group('marketing'), user('bob')] })).body.people).toBe(3)
+    expect((await preview('alice', { participants: [user('carol')] })).body.people).toBe((await preview('alice', { participants: [user('bob')] })).body.people)
+    // an admin: everyone who would see it
+    expect((await preview('carol', { participants: [group('marketing'), user('bob')] })).body).toEqual({ people: 5, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
     expect((await preview('alice', { participants: [group('finance')] })).status).toBe(400)
   })
 
@@ -402,7 +407,9 @@ describe('share and delete', () => {
     expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ toParent: 'groups/marketing', participants: [] }) })).status).toBe(400)
     expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [group('finance')] }) })).status).toBe(400)
     const dry = await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [user('erin')], dryRun: true }) })
-    expect(dry.body).toEqual({ viewersAdded: 3 })
+    // erin only: the owner and admins are not counted for a member (never who the admins are); an admin's counts them
+    expect(dry.body).toEqual({ viewersAdded: 1, adminsApart: true })
+    expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [user('carol')], dryRun: true }) })).body).toEqual({ viewersAdded: 1, adminsApart: true })
     expect(fs.existsSync(path.join(A.team, 'projects/보고서'))).toBe(false)
     const r = await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [user('erin')] }) })
     expect(r.status).toBe(200)

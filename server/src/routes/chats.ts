@@ -750,7 +750,8 @@ export const chatsRoutes: RouteModule = {
       if (body.toParent !== undefined && body.toParent !== 'projects') fail('validation', tr('projectLocation', locale), { fields: { 'body.toParent': 'project_location' }, params: { reason: 'project_location' } })
       assertMayCreateTeamProject(ctx.db, p, locale)
       const participants = checkParticipants(ctx.db, p, body.participants, locale)
-      if (body.dryRun) return { viewersAdded: Math.max(0, previewAccess(ctx, p, { participants }, null, locale).people - 1) }
+      // (a member: the people and groups chosen only, as the new-project dry run: never who the admins are)
+      if (body.dryRun) { const dry = previewAccess(ctx, p, { participants }, null, locale); return { viewersAdded: Math.max(0, dry.people - 1), ...(dry.adminsApart ? { adminsApart: true } : {}) } }
       // its skills/ is copied into projects/<name>/skills: those skills switch on in this project's chats (asked first:
       // skills/switch-on.ts)
       const skillsOn = skillsUnder(ctx.files.fx.root, r!.folder_path)

@@ -240,8 +240,11 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
 
 /**
  * POST /api/projects/access-preview: a dry run. A new project: who would see it (the caller, the owner, admins and the
- * participants). An existing one (its creator or an admin, a projects/<name> folder in place): who gains and who loses
- * it, and what the people who gain it would see. Nothing is saved.
+ * participants). For a caller who is not the owner or an admin, only the caller and the participants (`adminsApart`):
+ * with the admins counted in, naming an admin would not change the count and naming a member would, which tells any
+ * member who may make projects, for free, who the admins are (members are never told roles). An existing one (its
+ * creator or an admin, a projects/<name> folder in place): who gains and who loses it, and what the people who gain it
+ * would see. Nothing is saved.
  */
 export function previewAccess(ctx: AppContext, p: Principal, body: { participants: readonly ProjectParticipant[] }, r: ProjectRow | null, locale: Locale): ProjectAccessPreview {
   const db = ctx.db
@@ -250,8 +253,9 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
     const list = checkParticipants(db, p, body.participants, locale)
     const users = new Set(list.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
     const groups = new Set(list.filter((x) => x.subjectType === 'group').map((x) => x.subjectId))
-    const n = people.filter((x) => isAdminRole(x) || x.id === p.id || users.has(x.id) || x.groups.some((g) => groups.has(g))).length
-    return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] }
+    const admin = isAdminRole(p)
+    const n = people.filter((x) => (admin && isAdminRole(x)) || x.id === p.id || users.has(x.id) || x.groups.some((g) => groups.has(g))).length
+    return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], ...(admin ? {} : { adminsApart: true }) }
   }
   const { current, next, rules } = proposed(ctx, r, p, body.participants, locale)
   const after = withRules(rules, r.folder_path, next)

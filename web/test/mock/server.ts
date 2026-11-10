@@ -2166,8 +2166,12 @@ export class MockServer {
     },
     getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c)),
     previewProjectAccess: (c) => {
-      const people = (members: { creator: string; participants: { subjectType: string; subjectId: string }[] }) => this.users.filter((u) => u.status === 'active' && (u.role !== 'member' || u.id === members.creator || members.participants.some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))))
-      if (!c.body.projectId) return { people: people({ creator: c.user.id, participants: c.body.participants }).length, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }
+      const people = (members: { creator: string; participants: { subjectType: string; subjectId: string }[] }, admins = true) => this.users.filter((u) => u.status === 'active' && ((admins && u.role !== 'member') || u.id === members.creator || members.participants.some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))))
+      // a member's new project: the owner and admins are not counted (as the server: the count never says who is an admin)
+      if (!c.body.projectId) {
+        const admin = c.user.role !== 'member'
+        return { people: people({ creator: c.user.id, participants: c.body.participants }, admin).length, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...(admin ? {} : { adminsApart: true }) }
+      }
       const p = this.projectToEdit({ ...c, params: { id: c.body.projectId } })
       const pm = this.projectMembers.get(p.folderPath) ?? fail('conflict', 409, '이 프로젝트를 볼 수 있는 사람은 관리자 › 폴더 권한에서 바꿔요.', undefined, { reason: 'project_not_editable' })
       const before = new Set(people(pm).map((u) => u.id))
@@ -2195,7 +2199,8 @@ export class MockServer {
       const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.')
       const people = this.users.filter((u) => u.status === 'active' && (u.role !== 'member' || (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId))))).filter((u) => u.id !== c.user.id)
-      if (c.body.dryRun) return { viewersAdded: people.length }
+      // (a member's dry run leaves the owner and admins out, as the server's)
+      if (c.body.dryRun) return c.user.role === 'member' ? { viewersAdded: people.filter((u) => (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))).length, adminsApart: true } : { viewersAdded: people.length }
       // its skills/ holds skills: copied into projects/<name> they switch on there, asked first (server/src/skills/switch-on.ts)
       const skills = [...this.files.keys()].filter((k) => k.startsWith(`${p.folderPath}/skills/`)).map((k) => /^skills\/([^/]+)\/SKILL\.md$/.exec(k.slice(p.folderPath.length + 1))?.[1]).filter((x): x is string => !!x).sort()
       if (skills.length && !c.body.skillsOk) fail('conflict', 409, `이 폴더의 스킬 ${skills.length}개가 이 프로젝트 채팅에서 켜져요: ${skills.join(', ')}`, undefined, { reason: 'project_skills_on', skills: skills.join('\n'), count: skills.length })
