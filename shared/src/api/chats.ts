@@ -374,6 +374,12 @@ export const ProjectAccessPreview = z.object({
   /** those project skills by name (their folder's name, at most 10, sorted): the confirm names them, since the people
    * who gain the project start using them in its chats */
   skillNames: z.array(z.string()).max(10).optional(),
+  /** an existing project: saving also writes the floor rule ("everyone: none"), which a folder older builds made does not
+   * have, so anyone who saw it only through a rule above it stops seeing it; the screen asks first. Absent: false */
+  addsFloor: z.boolean().optional(),
+  /** an existing project: saving also puts its creator's rule back (someone took it away in Admin › Folder
+   * permissions); the screen asks first. Absent: false */
+  restoresCreator: z.boolean().optional(),
 })
 export type ProjectAccessPreview = z.infer<typeof ProjectAccessPreview>
 export const PutProjectParticipantsBody = z.object({ participants: z.array(ProjectParticipant).max(200), expectedHash: z.string().min(1).max(64) })
@@ -408,7 +414,7 @@ export const CHATS = {
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read.' }),
   createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: a new team project folder projects/<name> with participants (members too, unless the team lets only admins), or a personal one in users/<me>/projects/<name>. Nowhere else.' }),
-  previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants, or (projectId: its creator or an admin) who gains and loses an existing one and what the people who gain it would see. Nothing is saved.' }),
+  previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants, or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator\'s rule back (the screen asks first then). Nothing is saved.' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', response: Project, summary: 'One project.' }),
   getProjectAccess: endpoint({ method: 'GET', path: '/api/projects/:id/access', auth: 'user', owner: 'B', response: ProjectAccess, summary: 'Who sees a team project: its participants, the rules the project screen does not change, the rules hash (its creator or an admin).' }),
   putProjectParticipants: endpoint({ method: 'PUT', path: '/api/projects/:id/participants', auth: 'user', owner: 'B', body: PutProjectParticipantsBody, response: ProjectAccess, summary: 'Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats).' }),
