@@ -29,6 +29,14 @@
 // project's skills with none. A start folder that is a skill folder, in one, or groups/ or projects/ themselves writes
 // no team folder (fail closed). An absent skills folder is made as an srt mount point while the run lives
 // (placeholders.ts holdSkillFolders), so the deny holds for a folder the command would make.
+// Read scope of a project run (QA TC-095, Dion's report of 2026-11-07, docs/DECISIONS.md "Write only in the starting
+// folder"): a run that starts in a project folder could read every folder the person may read and copy a file from one
+// of them into the project folder, which more people may see, with no card (copy_files asks first). With `people` (the
+// team's active people), a folder outside the starting folder stays readable in such a run only when everyone who can
+// see the starting folder can read it too, so nothing a run copies into the project folder reaches a new person. Every
+// other folder is hidden in the run, the person's own users/<id> too when the project has other people (fail closed:
+// a run then cannot read or write the own folder). A run in the chat's work folder (start null) writes only the own
+// folder, so it keeps the person's whole read access. Without `people` the view is as before (the tests of the rules).
 // folderView with no run gives the person's access (what the person may open); with a run, the access of that run.
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
@@ -70,7 +78,11 @@ const skillStart = (start: string) => skillRootOf(start) !== null || (!start.inc
 export const runMayWrite = (run: RunWrites, personId: string, folder: string) =>
   ((run.start !== null && !skillStart(run.start) && isUnder(folder, run.start)) || isUnder(folder, `users/${personId}`)) && !runSkillFolders(run, personId).some((f) => isUnder(folder, f))
 
-export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal, run?: RunWrites): FolderView {
+/** Who may see `folder` (team-relative): every person whose access there is not none, with users/ and .system/ fixed. */
+const audienceOf = (rules: Pick<RuleSet, 'access'>, people: readonly Principal[], folder: string) =>
+  people.filter((q) => accessOf(rules, q, folder) !== 'none').map((q) => q.id)
+
+export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[]): FolderView {
   // the team root as a starting folder would make every folder writable again: fail closed
   if (run && run.start !== null && (run.start === '' || run.start.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a starting folder: ${JSON.stringify(run.start)}`)
   const cands = new Set<string>(['', 'users', `users/${p.id}`, PRODUCT.systemDir])
@@ -85,11 +97,20 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Pr
     cands.add(f)
   }
   const sorted = [...cands].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0))
+  // a project run: the people who see the starting folder (the person included); a folder outside it is read only when
+  // all of them read it too (see the note above folderView)
+  const startAudience = run?.start && people ? audienceOf(rules, [...people.filter((q) => q.id !== p.id), p], run.start) : null
+  const coversStart = (folder: string) => {
+    if (!startAudience) return true
+    const readers = new Set(audienceOf(rules, [...people!.filter((q) => q.id !== p.id), p], folder))
+    return startAudience.every((id) => readers.has(id))
+  }
   const out: FolderView = { read: [], write: [], denyRead: [], denyWrite: [] }
   const got = new Map<string, Access>()
   for (const c of sorted) {
     let a = accessOf(rules, p, c)
     if (run && a === 'write' && !runMayWrite(run, p.id, c)) a = 'read'
+    if (startAudience && a !== 'none' && !isUnder(c, run!.start!) && !coversStart(c)) a = 'none'
     got.set(c, a)
     // the nearest candidate above (the team root has none above it: none)
     let parent: Access = 'none'

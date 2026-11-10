@@ -1,0 +1,1 @@
+- Dev environment (srt): a command in a project chat no longer copies a file into the project folder from a folder that some people of the project may not see (your own folder, a group folder) with no card. The run now reads only the team folders that everyone who sees the project may read too; a chat with no project keeps your whole read access.

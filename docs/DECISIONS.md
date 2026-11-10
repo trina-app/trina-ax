@@ -5641,7 +5641,14 @@ later PR removes it.
   project folder has no change record and no older versions, it skips the read-scope check, and a shared writable
   folder is a code channel between people (a git hook, `package.json` scripts or a Makefile that another person's AI
   runs later with that person's access, G-SRT-11). The project folder stays shared by its writers, with its change
-  window. A copy from a folder the person may read into the project folder still skips the read-scope check.
+  window. A copy from a folder the person may read into the project folder still skipped the read-scope check (Dion,
+  2026-11-07; reproduced on potenlab with srt, QA TC-095). **Amended 2026-11-10:** a project run reads a folder outside
+  its starting folder only when everyone who can see the starting folder may read it too (`folderView` with the team's
+  active people, `srt/access.ts`); every other folder is hidden in the run, the person's own `users/<id>` too when the
+  project has other people. So what a run can copy into the project folder reaches no new person. A run in a chat's
+  work folder (no project) keeps the person's whole read access: it writes only `users/<id>`. Cost: in a project shared
+  with others, a run no longer reads or writes the person's own folder, nor a group folder some project members do not
+  see; such a file goes into the project through the AI's copy (with its card) or the Files screen.
   `settingsProblems` refuses a run whose settings make another team folder writable. A writable folder inside a
   read-only one (an admin's project folder below the read-only team root) also gets a `denyRead` landing, because srt
   binds reads back after writes and would cover it read-only (Docker A28c, A28d).

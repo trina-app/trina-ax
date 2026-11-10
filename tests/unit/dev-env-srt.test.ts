@@ -233,6 +233,39 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
 
 const BASE = '/var/lib/mycel'
 const TEAM = `${BASE}/team`
+describe('a project run reads only what everyone in the project may read (QA TC-095)', () => {
+  const everyone = Object.values(PEOPLE)
+  test('falcon (alice, bob by finance, the admins): shared and skills stay; marketing and her own folder are hidden', () => {
+    const v = folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'projects/falcon' }, everyone)
+    expect(v).toEqual({ read: ['shared', 'skills'], write: ['projects/falcon'], denyRead: [], denyWrite: ['projects/falcon/public', 'projects/falcon/skills'] } as FolderView)
+    // what bob may not read cannot be copied into the folder bob sees
+    expect(viewAccess(v, 'groups/marketing/brief.md')).toBe('none')
+    expect(viewAccess(v, 'users/alice/private.txt')).toBe('none')
+    expect(viewAccess(v, 'shared/s.md')).toBe('read')
+    expect(viewAccess(v, 'projects/falcon/src/x.ts')).toBe('write')
+  })
+  test('a project only she can see (in her own folder) keeps her whole read access', () => {
+    const start = 'users/alice/demo'
+    expect(folderView(FIXTURE_RULES, PEOPLE.alice!, { start }, everyone)).toEqual(folderView(FIXTURE_RULES, PEOPLE.alice!, { start }))
+  })
+  test('a chat with no project (the work folder) is not narrowed: it writes only her own folder', () => {
+    expect(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: null }, everyone)).toEqual(folderView(FIXTURE_RULES, PEOPLE.alice!, { start: null }))
+  })
+  test('never more than without the people, and every readable folder outside the start is readable by all who see it', () => {
+    const paths = ['shared/a', 'skills/s/SKILL.md', 'groups/marketing/b', 'groups/marketing/salaries/c', 'groups/finance/d', 'projects/falcon/e', 'projects/falcon/public/f', 'projects/atlas/g', 'users/alice/h', 'users/bob/i', 'x/y']
+    for (const p of everyone) for (const start of ['projects/falcon', 'projects/atlas', 'groups/marketing', 'groups/finance', 'shared']) {
+      const narrow = folderView(FIXTURE_RULES, p, { start }, everyone), wide = folderView(FIXTURE_RULES, p, { start })
+      const seers = everyone.filter((q) => FIXTURE_RULES.access(q, start.split('/')) !== 'none')
+      for (const rel of paths) {
+        const a = viewAccess(narrow, rel)
+        expect(RANK[a], `${p.id} ${start} ${rel}`).toBeLessThanOrEqual(RANK[viewAccess(wide, rel)])
+        const inside = rel === start || rel.startsWith(start + '/')
+        if (a !== 'none' && !inside && !rel.startsWith('users/')) for (const q of seers) expect(FIXTURE_RULES.access(q, rel.split('/')), `${q.id} reads ${rel} (${p.id} in ${start})`).not.toBe('none')
+      }
+    }
+  })
+})
+
 const aliceView = folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'projects/falcon' })
 const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'] }
 
@@ -672,7 +705,7 @@ describe('the team setting', () => {
 })
 
 describe('a command follows the person, not the project', () => {
-  test('a project chat: starts in the project folder, with all of the person\'s folders and none of the others', async () => {
+  test('a project chat: starts in the project folder; reads only what everyone who sees the project may read (QA TC-095)', async () => {
     const r = await alice().call({ command: 'echo hello' })
     expect(r.isError).toBeUndefined()
     expect(out(r)).toContain('Exit code 0.')
@@ -683,12 +716,14 @@ describe('a command follows the person, not the project', () => {
     expect(run.settingsMode).toBe(0o600)
     const s = lastSettings()
     const t = (r: string) => path.join(h.team, r)
-    // Q0 (b): only the project folder and her own folder are writable; her other writable folders are read-only
-    expect(s.filesystem.allowWrite).toEqual([t(FALCON), t('users/alice'), personHome(devBase, 'alice')])
-    expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared'), t('groups/marketing')]))
-    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system'), t('groups/marketing/salaries')]))
-    // the skills folders are made as mount points for the run (read-only there) and go again after it
-    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public'), t('projects/falcon/skills'), t('users/alice/skills')])
+    // Q0 (b): only the project folder is writable. Falcon is seen by bob (finance) and the admins too, so a folder they
+    // may not read (groups/marketing, her own users/alice) is hidden in the run: nothing of it can be copied into falcon
+    expect(s.filesystem.allowWrite).toEqual([t(FALCON), personHome(devBase, 'alice')])
+    expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared')]))
+    for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/marketing', 'users/alice']) expect(p.startsWith(t(no))).toBe(false)
+    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system')]))
+    // the project's skills folder is made as a mount point for the run (read-only there) and goes again after it
+    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public'), t('projects/falcon/skills')])
     expect(fs.existsSync(t('projects/falcon/skills'))).toBe(false)
     expect(fs.existsSync(t('users/alice/skills'))).toBe(false)
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/finance', 'projects/atlas', 'users/bob']) expect(p.startsWith(t(no))).toBe(false)
@@ -723,9 +758,9 @@ describe('a command follows the person, not the project', () => {
     expect([...runs.values()][0]!.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FALCON)))
     expect(s.filesystem.allowRead).toContain(path.join(h.team, FALCON))
     expect(s.filesystem.allowWrite).not.toContain(path.join(h.team, FALCON))
-    // groups/finance is writable for bob, but not his starting folder: read-only in this run
+    // groups/finance is writable for bob, but alice sees falcon and may not read groups/finance: hidden in this run
     expect(s.filesystem.allowWrite).not.toContain(path.join(h.team, 'groups/finance'))
-    expect(s.filesystem.allowRead).toContain(path.join(h.team, 'groups/finance'))
+    expect(s.filesystem.allowRead).not.toContain(path.join(h.team, 'groups/finance'))
     expect([...runs.values()][0]!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
   })
   test('a project folder the person cannot open: the run starts in the chat\'s work folder and the folder stays hidden', async () => {
@@ -736,6 +771,8 @@ describe('a command follows the person, not the project', () => {
     expect(s.filesystem.allowRead).toContain(path.join(h.team, 'projects/falcon/public'))
   })
   test('the rules are read again for every command', async () => {
+    // a chat with no project keeps the person's whole read access, so a group she leaves goes from the next command
+    const alice = () => shell('alice', null, chatPlain)
     await alice().call({ command: 'echo 1' })
     expect(lastSettings().filesystem.allowRead).toContain(path.join(h.team, 'groups/marketing'))
     h.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
@@ -879,7 +916,9 @@ describe('jobs and the queue (per team)', () => {
     expect(rows().find((r) => r.name === 'next')).toMatchObject({ state: 'ended', end_reason: 'setting' })
   })
   test('a running job stops when the person\'s folder access changes, or the person is out of scope', async () => {
-    await alice().call({ command: 'sleep', job: true, log_name: 'long' })
+    // a chat with no project: its run reads all of her folders, so leaving a group changes its access (in falcon,
+    // groups/marketing is hidden already: QA TC-095)
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'long' })
     await pollSrt(h.ctx)
     expect(rows()[0]).toMatchObject({ state: 'running' })
     h.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
