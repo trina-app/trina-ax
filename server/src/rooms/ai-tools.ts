@@ -10,7 +10,7 @@ import { FILE_TOOLS } from '@mycel/shared'
  * private to the person until they post one.
  */
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'agent',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   // this room's own files (chat/room-tools.ts roomSessionTools): what they read joins the read scope as the room
   'room_file', 'save_room_file',
@@ -38,7 +38,7 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
  * signed-in browser (box_shell; the in-app browser is off for room turns as a whole, chat/turn.ts).
  */
 export const ROOM_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'knowledge_explore', 'skill', 'find_skills', 'ask_user',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
   // this room's files: the asking message's attachments and earlier ones the person sees (read, or a copy saved)
   'room_file', 'save_room_file',
@@ -73,7 +73,7 @@ export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
 }
 
 /** Tools that look through a folder and everything under it; in a shared chat without a path, the project folder. */
-export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob', 'search', 'knowledge_explore'])
+export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob', 'knowledge_explore'])
 
 /**
  * Tools that change nothing (they read, search, ask the person, or answer in the session's own chat). In a room every
@@ -82,9 +82,20 @@ export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob', 'searc
  * people's words, and one of them may tell the AI to change something.
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
+  'list', 'glob', 'grep', 'read', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
   'room_file', 'room_thread', 'project_chats', 'project_chat',
 ])
+
+/**
+ * Tools whose calls of one answer may run at the same time on its tool connection (mcp/socket.ts CallQueue): those of
+ * ROOM_READ_ONLY_TOOLS that only read team files and add to the turn's read scope and sources (each add is done
+ * without a wait in between, files/service.ts TurnFiles). Every other tool, unknown ones and tools added later
+ * included (fails closed), runs alone and in order. Left out on purpose: ask_user, share_file, artifact, web_fetch
+ * (cards, links and chat output), room_file and room_thread (they patch their step: TurnExec.patchToolStep matches
+ * calls to steps first in, first out per tool), skill, find_skills and hwp_render (not needed side by side).
+ */
+export const PARALLEL_READ_TOOLS: ReadonlySet<string> = new Set(
+  ['list', 'glob', 'grep', 'read', 'knowledge_explore'].filter((t) => ROOM_READ_ONLY_TOOLS.has(t)))
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
 export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'save_as']
@@ -95,12 +106,36 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
  * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts), and post_to_room
- * its own card with the room and all of the text (chat/post-to-room.ts): no room card before either. Every other
- * tool (writes, moves, schedules, connections' tools and call_tool, the browser's clicks and pages, box_shell, forget,
- * connect_service, tools added later) waits for the person's yes on a card for the rest of that chat (fails closed).
+ * its own card with the room and all of the text, which leads with the room line (chat/post-to-room.ts): no room card
+ * before either. A connection's read that the service marks read-only, whose arguments carry no address or
+ * random-looking part, goes on too (chat/turn.ts confirmRoomChange; not api_request's GET), and the tools with a card of
+ * their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write). delete_files, and skill_files into a
+ * skill folder, refuse there (chat/delete-files.ts, chat/skill-files.ts). Every other tool (writes, the browser's clicks
+ * and pages, box_shell, forget, tools added later) waits for the person's yes on the room card for the rest of that chat
+ * (fails closed), but a new file in the person's own folder, and a new team file the person allowed for the answer or
+ * the room (chat/turn.ts confirmRoomChange; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])
+/**
+ * Tools whose own card shows everything the call does: after a room read in the person's own chat the room card is
+ * not raised for them; their card is the call's only one, carries the room card's line and asks every time
+ * (TurnPerson.roomsSeen; chat/turn.ts ownCard). A connection's tools join them by provider (chat/tools.ts connection).
+ * A tool listed here must never act without asking when TurnPerson.roomsSeen is set.
+ */
+export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule_create', 'generate_video', 'move_files', 'copy_files', 'move_skill', 'connect_service'])
+
+/**
+ * A person's own AI chat (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"): the tools whose use keeps what the chat holds
+ * to the team's own words, like a room session's ROOM_FILE_TOOLS, with reading one of the person's rooms (room_read: its
+ * words are what a room card weighs, its room joins the read scope) and naming the chat or keeping a memory (nothing
+ * comes in). Any other tool (the web and its search, a connection's tools and call_tool, Google Drive, the browser,
+ * box_shell, video, tools added later: fails closed) marks the chat as having used something from outside
+ * (chats.room_outside, until a new session: an own chat's session carries earlier answers), and then no room card is
+ * skipped there. So does `rooms`: its list names other rooms (a group chat's name is its members' words) without
+ * putting them in the read scope, so their members would not be weighed.
+ */
+export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'set_title', 'remember'])

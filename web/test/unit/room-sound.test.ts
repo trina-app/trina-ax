@@ -374,7 +374,38 @@ describe('the chime', () => {
     expect(ctx.oscillators.map((o) => Math.round(o.frequency.value))).toEqual([784, 1568, 1047, 2093])
     expect(ctx.oscillators.every((o) => o.type === 'sine')).toBe(true)
     expect(Math.max(...ctx.oscillators.map((o) => o.stop)) - ctx.currentTime).toBeLessThan(1)
-    expect(ctx.gains[0]!.value).toBeLessThanOrEqual(0.2)
+    expect(ctx.gains[0]!.value).toBe(0.36)
+  })
+
+  test('the mixed peak of both notes and their octaves stays under the clip limit', () => {
+    const ctx = new FakeCtx()
+    ctx.state = 'running'
+    playChime(ctx as never)
+    const master = ctx.gains[0]!.value
+    // gains[1..] are the per-partial envelopes, in the same order as the oscillators; the ramps are exponential
+    const env = (g: FakeParam, t: number) => {
+      let prev = g.events[0]!
+      if (t < prev[2]) return 0
+      for (const e of g.events.slice(1)) {
+        if (t <= e[2]) return prev[1] * Math.pow(e[1] / prev[1], (t - prev[2]) / (e[2] - prev[2]))
+        prev = e
+      }
+      return 0
+    }
+    const rate = 48000
+    let peak = 0
+    for (let i = 0; i < rate; i++) {
+      const t = ctx.currentTime + i / rate
+      let sum = 0
+      ctx.oscillators.forEach((o, k) => {
+        if (t >= o.start && t <= o.stop) sum += Math.sin(2 * Math.PI * o.frequency.value * (t - o.start)) * env(ctx.gains[k + 1]!, t)
+      })
+      peak = Math.max(peak, Math.abs(sum * master))
+    }
+    expect(peak).toBeGreaterThan(0.1) // clearly audible
+    expect(peak).toBeLessThan(0.9)
+    // and with every partial at its top at once (the worst case) the sum is still under it
+    expect(master * 2 * (1 + 0.2)).toBeLessThan(0.9)
   })
 
   test('made and unlocked at the first gesture, once; plays only once unlocked, starting the context again if it rests', async () => {

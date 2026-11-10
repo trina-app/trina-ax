@@ -88,6 +88,12 @@ export interface ChatToolSet extends TurnToolSet {
   context: string[]
   /** the step label a per-person tool gives its call, or null for the shared labels */
   stepLabel(name: string, input: unknown, locale: Locale): string | null
+  /** a connection's tool (the integrations provider's, saying whether a call reads: TurnTool.readOnly); any other is not */
+  connection(name: string): boolean
+  /** a connection tool's call that only reads; false for a write and for any tool that is not a connection's */
+  readsOnly(name: string, input: unknown): boolean
+  /** ...and that may go without the room card after a room read (the service's own mark, not api_request's method) */
+  readsFree(name: string, input: unknown): boolean
 }
 
 /** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
@@ -185,20 +191,36 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
+  // the connections' tools by name, with whether a call only reads (integrations/connections/tools.ts): after a room
+  // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
+  // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
+  const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
   // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
   for (const p of confidential || exec.restricted || exec.room || exec.shared ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
-    for (const t of built.tools) if (add(wrapRegistered(exec, t)) && t.label) labels.set(t.name, t.label.bind(t))
+    for (const t of built.tools) {
+      if (!add(wrapRegistered(exec, t))) continue
+      if (t.label) labels.set(t.name, t.label.bind(t))
+      if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
+    }
     if (built.prompt) prompt.push(built.prompt)
     const ctxText = built.context === undefined ? built.prompt : built.context
     if (ctxText) context.push(ctxText)
+  }
+  /** a connection tool's call that only reads (its readOnly, asked of the call's arguments); false for anything else */
+  const readsOnly = (name: string, input: unknown): boolean => {
+    const ro = connections.get(name)?.readOnly
+    try { return typeof ro === 'function' ? ro(input) === true : ro === true } catch { return false }
   }
   const set: ChatToolSet = {
     prompt,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
+    connection: (name) => connections.has(name),
+    readsOnly: (name, input) => readsOnly(name, input),
+    readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args, caller) {
@@ -235,7 +257,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
       // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
       // saves, what it copies, where its bytes come from)
-      const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args), main: files === exec.files })
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args, (x) => exec.hwpTarget(x)), main: files === exec.files })
       if (roomNo) return { ...text(roomNo, true), summary: `${name} -> ${roomShort(roomNo)} (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
@@ -257,7 +279,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // like write and edit: what the chat read may go where more people see it (asked before the worker runs); a new
         // file also carries the document it is made from
         const a = args as { output?: unknown; file_path?: unknown }
-        const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
+        // where the tool writes, as it decides it (the document's extension as the file layer resolves it: turn.ts hwpTarget)
+        const target = exec.hwpTarget(a)
         const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `edit_hwp -> ${roomShort(refusal)} (wider audience)` }
       }
@@ -275,6 +298,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const p = (args as { path?: unknown } | null)?.path
         try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
       }
+      // what the call read (search passages, make_file's sources) counts now, as the file tools' reads do (afterFileTool):
+      // a file of the person's own folder may carry outside content (turn.ts noteOwnReads) before the next card or memory
+      exec.noteReads()
       exec.afterTool()
       // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
       const note = exec.placementNote(tools.has('move_files'))
@@ -321,7 +347,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       recordSent(exec.rt.db, exec.spec.chatId, args)
       // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts); one that
       // also needs the wider-audience card below gets that one card
-      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: !caller || caller.files === exec.files })
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args, (x) => exec.hwpTarget(x)), main: !caller || caller.files === exec.files })
       if (roomNo) return { refusal: roomNo, summary: `${name} -> ${roomShort(roomNo)} (${exec.room ? 'room' : 'after a room read'})` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
@@ -347,13 +373,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
  * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
  * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
-export function widenOf(name: string, args: unknown): WidenOf | undefined {
+export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown) => string | null): WidenOf | undefined {
   const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
   if (!a) return undefined
   if (name === 'write' || name === 'edit') return typeof a.file_path === 'string' ? { target: a.file_path, extra: [] } : undefined
   if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: typeof a.source === 'string' ? [a.source] : [] } : undefined
   if (name === 'edit_hwp') {
-    const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
+    const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
     return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
   }
   return undefined
@@ -422,6 +448,23 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
 }
 
+/** The person for a call whose own card stands in for the room card after a room read (chat/turn.ts ownCard): the
+ * tool asks every time (roomsSeen), each of its cards leads with the room card's line, and a card that shows no details
+ * of its own shows what the room card would have (the folder and every file of a move, a video's file), so its one yes
+ * is given seeing all of it. */
+function roomLinePerson(exec: TurnExec, p: TurnPerson, call: { tool: string; args: unknown }): TurnPerson {
+  const lead = `${tr('roomsSeenWhy', p.locale)}\n\n`
+  const extra = (e?: ConfirmExtra): ConfirmExtra => (e?.details?.length ? e : { ...e, details: exec.roomCardDetails(call.tool, call.args) })
+  return {
+    ...p, roomsSeen: true,
+    // every way a card is raised (askConfirm uses confirmWhy first): a method left unwrapped would show a card without
+    // the line or the details
+    confirm: (question, allow, deny, e) => p.confirm(lead + question, allow, deny, extra(e)),
+    ...(p.confirmWhy ? { confirmWhy: (question: string, allow: string, deny: string, e?: ConfirmExtra) => p.confirmWhy!(lead + question, allow, deny, extra(e)) } : {}),
+    ...(p.choose ? { choose: (question: string, options: { label: string; value: string }[], e?: ConfirmExtra) => p.choose!(lead + question, options, extra(e)) } : {}),
+  }
+}
+
 /** `call`: the tool call this context is for: a room call a grant or [이번만] let through is checked again after the
  * tool's own wider-audience card (it may have waited: make_file's pictures and template) */
 function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
@@ -430,7 +473,8 @@ function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; ar
     signal: exec.abort.signal,
     files: {
       signal: exec.abort.signal,
-      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: turnPerson(exec),
+      // after a room read, a tool with its own card asks there alone, with the room card's line (chat/turn.ts ownCard)
+      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       confirmWidening: async (target, sources, binding) => {
         const no = await exec.confirmWidening(target, sources, binding)
@@ -642,7 +686,9 @@ function moveSkillTool(exec: TurnExec): Tool {
       const head = copy
         ? plan.name !== plan.skill.name ? skillText('copyConfirmNamed', L, { name: plan.skill.name, as: plan.name, from, to: dest }) : skillText('copyConfirm', L, { name: plan.skill.name, from, to: dest })
         : skillText('moveConfirm', L, { name: plan.skill.name, from, to: dest })
+      // after a room read this card is the call's only one (chat/turn.ts ownCard): it leads with the room card's line
       const question = [
+        exec.ownCard('move_skill') ? tr('roomsSeenWhy', L) : '',
         `${head}\n${changeLine(plan, L)}\n${editorsLine(plan, L)}`,
         plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '',
         why,

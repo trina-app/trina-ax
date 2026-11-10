@@ -45,6 +45,27 @@ export function ensureSetupToken(cfg: AppConfig, db: AppContext['db']): string |
   return t
 }
 
+/** The index of the removed search by meaning tool (`search`): its vectors in <data>/semantic.db, with SQLite's WAL
+ * files beside it. Nothing reads them any more (the knowledge graph has its own search by meaning, in its document
+ * index), so the first start of this version deletes them and says so in one line; later starts find nothing. The model
+ * it downloaded (<data>/models) stays: the knowledge graph uses the same pinned files. */
+export function removeOldSemanticIndex(dataDir: string, log: Pick<Logger, 'info' | 'warn'>): boolean {
+  let bytes = 0
+  const found = ['semantic.db', 'semantic.db-wal', 'semantic.db-shm'].map((n) => path.join(dataDir, n)).filter((f) => {
+    // lstat: a link is removed itself, never what it points to
+    try { bytes += fs.lstatSync(f).size; return true } catch { return false }
+  })
+  if (!found.length) return false
+  try {
+    for (const f of found) fs.rmSync(f, { force: true })
+  } catch (e) {
+    log.warn('the old search by meaning index (semantic.db) could not be removed', { err: e })
+    return false
+  }
+  log.info('removed the old search by meaning index (semantic.db): the knowledge graph has its own', { bytes })
+  return true
+}
+
 /** The socket peer as rate limits and the audit log see it: an IPv4 client of a dual-stack ('::') listener arrives
  * as ::ffff:a.b.c.d and is written a.b.c.d, the same address an IPv4-only listener reports. */
 export function peerIp(addr: string | null | undefined): string | null {
@@ -79,6 +100,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   setupServerCgroups({ log, mode: cfg.mode }) // Linux production: S/main + S/conv before any child process (no-op elsewhere)
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
+  removeOldSemanticIndex(cfg.dataDir, log)
   const db = openDb(path.join(cfg.dataDir, 'app.db'), { log }) // log: a warning per migration renamed after this DB ran it
   syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
   // the hosting service's speech key belongs to its hosted servers only (a hosted team's backup restored here keeps none)

@@ -32,6 +32,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página"),
   save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo"),
   hwp_render: t('한글 문서 쪽 보기', 'View HWP page', 'Lihat halaman HWP', "HWPのページを表示", "Ver página HWP"),
+  // the removed search by meaning tool: its steps stay in older chats
   search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado"),
   knowledge_explore: t('지식 그래프 검색', 'Search knowledge graph', 'Cari di grafik pengetahuan', "ナレッジグラフを検索", "Buscar en el grafo de conocimiento"),
   schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada"),
@@ -104,7 +105,7 @@ export function mediaStepKind(step: { tool?: string; label: string }): MediaKind
 /** Tools that only look things up: the read-only Explore helper's tools (server/src/chat/subagents.ts EXPLORE_TOOLS).
  * A failed call of one changed nothing, so the steps list under an answer that did not fail shows it with the quiet
  * mark even when no later step worked (web/src/components/chat/Steps.tsx stepMark). */
-export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'knowledge_explore', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
 
 export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', "ブラウザー", "Navegador")
 

@@ -33,7 +33,7 @@
 // allow-list of ④.
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
-import { getDomain } from 'tldts'
+import { getDomain, parse } from 'tldts'
 import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
 import type { CardOutcome } from '../policy/refusal'
@@ -119,6 +119,10 @@ export interface TurnPerson {
   turnUrls(): Iterable<string>
   /** a scheduled run: nobody is watching, so no card is raised (it could only go unanswered) */
   unattended?: boolean
+  /** the person's own chat holds messages from their team chat rooms and the room card was left to this call's own
+   * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
+   * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
+  roomsSeen?: boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
   unattendedLabel?: string
   /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/
@@ -371,6 +375,118 @@ function entropy(s: string): number {
   for (const k of n.values()) { const p = k / s.length; e -= p * Math.log2(p) }
   return e
 }
+
+/**
+ * Does a tool input carry a web address or a long random-looking part? A call that only reads can still take data out
+ * in them (a search term, an id or an address the AI made up from what it read). After a room read, a connection's read
+ * asks first when it does (chat/turn.ts confirmRoomChange). The input as the tool takes it (a text that holds a JSON
+ * object or list, call_tool's arguments, as what it holds), in its JSON as a URL parser reads it (NFKC, without the
+ * characters it drops), as written and %-decoded: an http(s) address (extractUrls), any scheme with a slash or a
+ * backslash after it ("https:/…", "https:\\…", "ws://…"), an address without one (after "//" or "www.", or a host
+ * name, an IPv4 number or a bracketed IPv6 address before a path, a query or a port; not an e-mail address's domain);
+ * a random-looking part (opaqueParts); a whole value that is a host name with a public suffix or an IPv4 address
+ * ("data.attacker.example"); any text under an argument named for an address (url, link, host, domain, site, …: any
+ * word of the name). An input it cannot read whole counts.
+ */
+export function carriesAddress(input: unknown): boolean {
+  let v: unknown, json: string
+  try { v = expandJson(input, 0); json = JSON.stringify(v ?? null) } catch { return true }
+  if (typeof json !== 'string') return true
+  // full-width letters and dots as URL parsers read them (ａｃｍｅ．ｃｏｍ is acme.com), without the characters they drop
+  // (a soft hyphen or a zero-width space inside a host: "atta\u200Bcker.com" is attacker.com)
+  json = asParsed(json)
+  const plain = json.includes('%') ? json.replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => { try { return decodeURIComponent(m) } catch { return m } }) : json
+  return [json, plain].some((t) => extractUrls(t, 1).length > 0 || SCHEME.test(t) || bareAddress(t)) || opaqueParts(json, 1).length > 0 || addressArg(v, 0) || wholeHost(v, 0)
+}
+const MAX_DEPTH = 32
+/** a text that holds a JSON object or list, as what it holds (call_tool parses its arguments so); too deep: thrown */
+function expandJson(v: unknown, depth: number): unknown {
+  if (depth > MAX_DEPTH) throw new Error('too deep')
+  if (typeof v === 'string') {
+    const t = v.trim()
+    if (!/^[[{]/.test(t)) return v
+    let x: unknown
+    try { x = JSON.parse(t) } catch { return v }
+    return x && typeof x === 'object' ? expandJson(x, depth + 1) : v
+  }
+  if (Array.isArray(v)) return v.map((x) => expandJson(x, depth + 1))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, expandJson(x, depth + 1)]))
+  return v
+}
+/** a scheme and a slash or a backslash (URL parsers read "https:/x" and "https:\\x" as https://x), or a web scheme
+ * with neither ("https:x" is https://x too) */
+const SCHEME = /(?:^|[^a-z0-9+.-])(?:[a-z][a-z0-9+.-]*:[\\/]|(?:https?|wss?|ftp):)/i
+/** the dots a host name may be written with (URL parsers map the ideographic and full-width ones to ".") */
+const DOTS = /[\u3002\uFF0E\uFF61\u2024\uFE52]/g
+/** a text as a URL parser reads a host in it: NFKC (full-width forms), the default-ignorable characters it drops removed */
+const asParsed = (s: string) => s.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+/** an IPv4 address written as one number or in parts that a URL parser takes (1572395042, 0x5db8d822, 0135.0270.0330.042,
+ * 1.1): parts in decimal, hex or octal; one decimal number only from 8 digits on (from 1.0.0.0), so a count or a page
+ * number is not one */
+function numericHost(run: string): string | null {
+  const t = run.replace(DOTS, '.').replace(/\.+$/, '')
+  if (t.length > 40) return null
+  const parts = t.split('.')
+  if (parts.length > 4 || !parts.every((p) => /^(?:0x[0-9a-f]*|\d+)$/i.test(p))) return null
+  if (parts.length === 1 && /^\d+$/.test(t) && (t.length < 8 || Number(t) > 0xffffffff)) return null
+  return t
+}
+/** a bracketed IPv6 address ("[2606:2800:220:1::248]") */
+const IPV6 = /\[[0-9a-fA-F:.]{2,45}\]/g
+/** after a host: a path (also with a backslash, which URL parsers read as "/"; written "\\" in JSON), a query, a fragment or a port */
+const AFTER_HOST = /^(?:[/?#]|:\d|\\\\)/
+/** a run of letters, digits, dots and hyphens (one class: no backtracking on a long text): a host name when it has a
+ * dot and its last label is a name, or it is an IPv4 address */
+const HOST_RUN = /[\p{L}\p{N}.\u3002\uFF0E\uFF61\u2024\uFE52-]+/gu
+function hostOf(run: string): string | null {
+  const host = run.replace(DOTS, '.').replace(/\.+$/, '')
+  const labels = host.split('.')
+  if (labels.length < 2 || labels.some((l) => !l)) return null
+  return /^\p{L}[\p{L}\p{N}-]+$/u.test(labels.at(-1)!) || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) ? host : null
+}
+function bareAddress(text: string): boolean {
+  for (const m of text.matchAll(HOST_RUN)) {
+    const at = m.index!, name = hostOf(m[0]), host = name ?? numericHost(m[0])
+    if (!host) continue
+    if (text.slice(Math.max(0, at - 2), at) === '//' || /^www\./i.test(host)) return true
+    // an e-mail address's domain, or a file in a path (docs/README.md#setup)
+    if (at > 0 && (text[at - 1] === '@' || text[at - 1] === '/')) continue
+    if (AFTER_HOST.test(text.slice(at + m[0].length, at + m[0].length + 2))) return true
+  }
+  for (const m of text.matchAll(IPV6)) {
+    if ((m[0].match(/:/g) ?? []).length >= 2 && AFTER_HOST.test(text.slice(m.index! + m[0].length, m.index! + m[0].length + 2))) return true
+  }
+  return false
+}
+/** a value that is a host name and nothing else: one with a public suffix (not "notes.txt"), or an IPv4 address; not
+ * the value of an argument named for a file ("path": "README.md") */
+function wholeHost(v: unknown, depth: number): boolean {
+  if (typeof v === 'string') {
+    const m = /^(?:\/\/)?([\p{L}\p{N}.\u3002\uFF0E\uFF61\u2024\uFE52-]+?)(?::\d+)?$/u.exec(asParsed(v).trim())
+    const host = m ? hostOf(m[1]!) : null
+    if (!host) return false
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return true
+    const p = parse(host, { allowPrivateDomains: true })
+    return !!p.publicSuffix && (p.isIcann === true || p.isPrivate === true)
+  }
+  if (!v || typeof v !== 'object' || depth > MAX_DEPTH) return false
+  return Object.entries(v).some(([k, x]) => (typeof x !== 'string' || Array.isArray(v) || !nameWords(k).some((w) => FILE_ARG.test(w))) && wholeHost(x, depth + 1))
+}
+const FILE_ARG = /^(?:paths?|files?|filenames?|filepaths?|dirs?|folders?|names?|titles?)$/
+const nameWords = (k: string) => k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+/** argument names that say the value is an address (any word of the name: pageUrl, urlToFetch, webhook_url, site) */
+const ADDRESS_ARG = /^(?:urls?|uris?|links?|hrefs?|endpoints?|hosts?|hostnames?|domains?|sites?|websites?|webhooks?)$/
+function addressArg(v: unknown, depth: number): boolean {
+  if (!v || typeof v !== 'object') return false
+  if (depth > MAX_DEPTH) return true
+  for (const [k, x] of Object.entries(v)) {
+    if (nameWords(k).some((w) => ADDRESS_ARG.test(w)) && hasText(x, depth + 1)) return true
+    if (addressArg(x, depth + 1)) return true
+  }
+  return false
+}
+const hasText = (v: unknown, depth: number): boolean =>
+  typeof v === 'string' ? v.trim() !== '' : !!v && typeof v === 'object' && (depth > MAX_DEPTH || Object.values(v).some((x) => hasText(x, depth + 1)))
 
 export const TEXT = {
   unseen: {

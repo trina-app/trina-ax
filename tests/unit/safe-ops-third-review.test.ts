@@ -4,7 +4,6 @@ import path from 'node:path'
 import { Database } from 'bun:sqlite'
 import { makeCApp } from '../lib/c-app'
 import { SearchAdmission } from '../../server/src/files/search-admission'
-import { SemanticIndex } from '../../server/src/search/semantic'
 import { sha256 } from '../../server/src/files/store'
 
 test('R3: empty-ledger live search blocks first quarantine on an independent connection in both passes', async () => {
@@ -66,14 +65,13 @@ test('R3: cancelled and invalid-pattern live searches release only after rg exit
   } finally { await a.close() }
 })
 
-test('R3: replaced Office source cannot relabel cached quarantined text for grep or embedding', async () => {
+test('R3: replaced Office source cannot relabel cached quarantined text for grep', async () => {
   const a = await makeCApp('r3-office-source'), rel = 'shared/old.docx', abs = path.join(a.team,rel)
   const original = Buffer.from('synthetic original document before quarantine'), marker = 'R3_OLD_QUARANTINED_SOURCE'
   const office = a.ctx.files.office as typeof a.ctx.files.office & {extract: (rel:string, bytes:Buffer)=>Promise<string>}
   const extract = office.extract, stamp = new Date(1700000000000)
   fs.writeFileSync(abs,original); fs.utimesSync(abs,stamp,stamp)
   office.extract = async () => marker
-  let index: SemanticIndex | undefined
   try {
     await office.update(rel)
     a.ctx.files.quarantine.add(original,'pptx')
@@ -81,12 +79,7 @@ test('R3: replaced Office source cannot relabel cached quarantined text for grep
     office.extract = async () => 'replacement clean extracted text'
     const result = await a.ctx.files.grep(a.toolCtx('bob'), {path:'shared',pattern:marker,output_mode:'content'})
     expect(result.text).not.toContain(marker)
-    let embedded = false
-    index = new SemanticIndex({dataDir:a.data,root:a.team,office,quarantine:a.ctx.files.quarantine,
-      embedder:async()=>async texts => { embedded ||= texts.some(t=>t.includes(marker)); return texts.map(()=>new Float32Array(384)) }})
-    await index.refresh(30000)
-    expect(embedded).toBe(false)
-  } finally { index?.db.close(); office.extract=extract; await a.close() }
+  } finally { office.extract=extract; await a.close() }
 })
 
 test('R3: mismatched text/provenance from concurrent cache writers is refused before consumption', async () => {
