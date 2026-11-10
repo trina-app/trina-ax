@@ -111,6 +111,8 @@ describe('what a row says', () => {
       const t = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
       expect(actionLabel(t, tool('read', 'read shared/마케팅/plan.csv -> 4 lines'))).toBe('파일 읽기')
       expect(actionLabel(t, tool('(connect)', 'accepted peer={"pid":1,"uid":501}'))).toBe('AI 도구 연결')
+      // set_title has no step under an answer, but the log still names it in words (QA TC-069)
+      expect(actionLabel(t, tool('set_title', 'set_title -> ok'))).toBe('채팅 이름 짓기')
       // another service's tool keeps its own name
       expect(actionLabel(t, tool('create_issue', 'create_issue -> ok'))).toBe('create_issue')
       expect(actionLabel(t, tool('constructor', ''))).toBe('constructor')

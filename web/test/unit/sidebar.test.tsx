@@ -557,14 +557,44 @@ describe('a chat row\'s "…"', () => {
     useChats.setState({ chats: [chat(1), chat(2, { projectId: P }), chat(3, { projectId: P, shared: shared('mina', true) }), chat(4, { projectId: P, shared: shared('bob', true) }), chat(5, { projectId: P, shared: shared('bob', false), pinnedAt: '2026-11-02T00:00:00.000Z' })] })
     const m = await render()
     const pin = ['chat-row-pin', ko('chat.pin')]
+    const link = ['chat-row-copy-link', ko('rooms.menu.copyLink')]
     try {
-      expect(await items(m, '채팅 1')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 2')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
-      expect(await items(m, '채팅 3')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 4')).toEqual([pin, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')]])
+      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([pin, link, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link])
     } finally {
+      await m.unmount()
+    }
+  })
+
+  test('링크 복사: the chat\'s address alone on this origin; the toast says who can open it (the project\'s people, or only me)', async () => {
+    useChats.setState({ chats: [chat(1), chat(3, { projectId: P, shared: shared('bob', false) })] })
+    const copied: string[] = []
+    const g = globalThis as Record<string, unknown>
+    const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    const hadLocation = 'location' in g
+    const loc = g.location
+    g.location = { origin: 'https://team.acme.example', pathname: '/', search: '' }
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: { ...globalThis.navigator, clipboard: { writeText: async (x: string) => void copied.push(x) } } })
+    const m = await render()
+    try {
+      for (const [title, n, text] of [['채팅 1', 1, ko('chat.linkCopiedPrivate')], ['채팅 3', 3, ko('chat.linkCopiedShared', { n: 3 })]] as const) {
+        const row = m.get('recents-list').querySelectorAll('li').find((li) => li.textContent?.includes(title))!
+        await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+        await m.click(row.querySelector('[data-testid="chat-row-copy-link"]')!)
+        await m.until(() => copied.length === (n === 1 ? 1 : 2), 'the copy')
+        expect(copied.at(-1)).toBe(`https://team.acme.example/c/${chat(n).id}`)
+        expect(useUi.getState().toasts.at(-1)?.text).toBe(text)
+      }
+      expect(ko('chat.linkCopiedShared', { n: 3 })).toBe('링크를 복사했어요 · 프로젝트 사람 3명이 열 수 있어요')
+      await m.settle(1600)
+    } finally {
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+      if (hadLocation) g.location = loc
+      else delete g.location
       await m.unmount()
     }
   })
@@ -604,7 +634,7 @@ describe('a chat row\'s "…"', () => {
       await m.settle(0)
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       link.dispatchEvent(e)
-      await m.until(() => shown() === 4, 'the menu')
+      await m.until(() => shown() === 5, 'the menu')
       expect(e.defaultPrevented).toBe(true)
       await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
       expect(shown()).toBe(0)
@@ -612,7 +642,7 @@ describe('a chat row\'s "…"', () => {
       press('pointerdown')
       await m.settle(600)
       press('pointerup')
-      await m.until(() => shown() === 4, 'the sheet')
+      await m.until(() => shown() === 5, 'the sheet')
       expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
       // the click that follows the finger lifting is no tap on the row
       await m.click(link)
@@ -629,9 +659,9 @@ describe('a chat row\'s "…"', () => {
       hold('pointerdown')
       await m.settle(600)
       hold('pointerup')
-      await m.until(() => shown() === 4, 'the sheet again')
+      await m.until(() => shown() === 5, 'the sheet again')
       await m.click(more)
-      expect(shown()).toBe(4)
+      expect(shown()).toBe(5)
     } finally {
       await m.unmount()
     }
