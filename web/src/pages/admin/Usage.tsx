@@ -96,7 +96,13 @@ export default function Usage() {
   // known engines by their product name (Claude, Codex, API); anything else keeps the report's own label
   const engineName = (k: string, label = k) => ENGINE_LABEL[k as keyof typeof ENGINE_LABEL] ?? label
   const modelName = (k: string, label: string) => (k === '' ? t('composer.defaultModel') : label)
-  const credName = (k: string, label: string) => (k === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : label || t('usage.deletedCredential'))
+  // removed connections have no label: with more than one, a number tells them apart (QA TC-068)
+  const removed = (facets?.credentials ?? []).filter((c) => c.key !== TRIAL_CREDENTIAL_ID && !c.label).map((c) => c.key)
+  const removedName = (k: string) => {
+    const i = removed.indexOf(k)
+    return removed.length > 1 && i >= 0 ? t('usage.deletedCredentialN', { n: i + 1 }) : t('usage.deletedCredential')
+  }
+  const credName = (k: string, label: string) => (k === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : label || removedName(k))
   const rowLabel = (key: string, label: string) =>
     groupBy === 'engine' ? engineName(key, label) : groupBy === 'model' ? modelName(key, label) : groupBy === 'credential' ? credName(key, label) : label
   const all = (k: MessageKey) => ({ value: ALL, label: t(k) })
