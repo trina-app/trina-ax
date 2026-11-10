@@ -1,7 +1,7 @@
 # Changelog entries as one file per change (changelog.d/)
 
 - Date (UTC): 2026-11-10 08:34
-- Branch: `chore/changelog-fragments`
+- Branch: `chore/changelog-d` (`chore/changelog-fragments` was taken by #322, an overlapping PR)
 - Status: done
 - Where: trina-ax repository process: `changelog.d/`, `CHANGELOG.md`, `scripts/`, contributor and release docs.
   Why: the merge conflicts come from this repository's own CHANGELOG.md; no product code changes
