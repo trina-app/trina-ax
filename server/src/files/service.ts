@@ -13,6 +13,7 @@ import { audit } from '../admin/audit'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
@@ -1185,9 +1186,10 @@ export class FileService {
   }
 
   private limits(ctx: ToolCtx, rel: string, size: number) {
-    if (ctx.files.bytesWritten + size > this.cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+    // the numbers and "continue in the next message" (policy/refusal.ts writeLimitText)
+    if (ctx.files.bytesWritten + size > this.cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', this.cfg.maxWriteBytesPerTurn, rel))
     assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
-    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= this.cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
+    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= this.cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', this.cfg.maxFilesWrittenPerTurn, rel))
   }
 
   /** Someone changed the file after this writer read it: leave the original alone, save a conflict copy. */

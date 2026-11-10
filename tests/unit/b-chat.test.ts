@@ -402,7 +402,7 @@ describe('tools', () => {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'web_fetch', args: { url: 'https://example.com' }, sayResult: true }))
       // set_title: the first message of a new chat (chat/title.ts)
-      expect(r.done.content.split(' | ')[0]).toBe('ask_user,connect_service,edit,edit_files,find_skills,forget,glob,grep,list,move_skill,read,remember,room_file,room_read,rooms,save_room_file,set_title,skill,web_fetch,write')
+      expect(r.done.content.split(' | ')[0]).toBe('ask_user,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,move_skill,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,skill,skill_files,web_fetch,write')
       expect(r.done.content).toContain(`fetched https://example.com for alice in ${chat.id}`)
       const audit = h.ctx.db.query("SELECT tool, ok FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(r.started.turnId)
       expect(audit).toEqual([{ tool: 'web_fetch', ok: 1 }])

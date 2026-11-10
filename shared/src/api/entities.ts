@@ -272,6 +272,9 @@ export const Step = z.object({
   detail: z.string().max(4000).optional(),
   /** web search cards */
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
+  /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
+   * room at the message, or the thread at the reply), as the button's sent line has it */
+  posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat

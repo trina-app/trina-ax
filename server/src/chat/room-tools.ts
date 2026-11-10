@@ -45,6 +45,7 @@ import { authorize } from '../policy/authorize'
 import type { ToolCtx } from '../files/service'
 import type { AppContext } from '../context'
 import { z } from 'zod'
+import { cardEndShort, endOfText } from '../policy/refusal'
 
 export const ROOM_READ_TOOL_NAMES = ['rooms', 'room_read', 'room_file'] as const
 /** how a room file's content is framed for the AI (people wrote it; the room's messages have ROOM_DATA_NOTE) */
@@ -493,7 +494,7 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoo
   addSources(rt.db, spec.chatId, saveSources(exec, checked))
   try { roomFilesOf(rt.ctx).open(spec.userId, room.id, file.id, false) } catch { return { ...text(gone, true), summary: 'save_room_file -> not found' } }
   const refusal = await exec.confirmWidening(target)
-  if (refusal) return { ...text(refusal, true), summary: 'save_room_file -> not allowed by the user (wider audience)' }
+  if (refusal) { const e = endOfText(refusal); return { ...text(refusal, true), summary: `save_room_file -> ${e === 'failed' ? 'the check failed' : cardEndShort(e)} (wider audience)` } }
   // the card may have waited minutes: the person still in the room, the message still there and seen, the bytes as read
   exec.abort.signal.throwIfAborted()
   let abs: string
