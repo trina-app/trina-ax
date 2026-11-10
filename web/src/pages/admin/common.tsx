@@ -227,19 +227,29 @@ export const matches = (q: string, locale: string, ...texts: (string | null | un
 const FlatCards = createContext(false)
 export const FlatCardsProvider = FlatCards.Provider
 
+/** The name the phone's bar shows for this page (a group of Team settings on a phone): a section or card with the same
+ * title keeps it for screen readers only, so the name is not said twice on screen. */
+const BarTitle = createContext<string | null>(null)
+export const BarTitleProvider = BarTitle.Provider
+const useInBar = (title: ReactNode) => {
+  const bar = useContext(BarTitle)
+  return bar !== null && title === bar
+}
+
 /** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove.
  * No title, no line and no buttons: the card has no header row (the page header above names it).
  * flat: below the md width no frame, a section that ends with a hairline (like the team invite link on Members), for a
  * page whose cards would stack frame on frame on a phone. Its content must not reach into the card's padding. */
-export function Card({ title, actions, children, desc, headingRef, testId, flat }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string; flat?: boolean }) {
+export function Card({ title, actions, children, desc, headingRef, testId, flat, id }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string; flat?: boolean; id?: string }) {
   const head = title || desc || actions
+  const inBar = useInBar(title)
   if (useContext(FlatCards)) {
     return (
-      <section className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId}>
+      <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId}>
         {head && (
           <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
             <div className="min-w-0 flex-1 max-sm:basis-full">
-              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium">{title}</h2>}
+              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium', inBar && 'sr-only')}>{title}</h2>}
               {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
             </div>
             {actions}
@@ -250,7 +260,7 @@ export function Card({ title, actions, children, desc, headingRef, testId, flat 
     )
   }
   return (
-    <section className={clsx('mb-6 rounded-2xl border border-line bg-surface', flat && 'max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent max-md:pb-6')} data-testid={testId}>
+    <section id={id} className={clsx('mb-6 rounded-2xl border border-line bg-surface', flat && 'max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent max-md:pb-6')} data-testid={testId}>
       {head && (
         <header className={clsx('flex flex-wrap items-center gap-2 border-b border-line px-4 py-3', flat && 'max-md:border-b-0 max-md:px-0 max-md:pt-0')}>
           {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
@@ -359,11 +369,12 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
  * `actions`: a button beside the heading (Add limit). `headingRef`: the heading takes the focus when a link opens the
  * page at this group (#ai-limits). */
 export function SettingsSection({ title, desc, actions, children, testId, id, headingRef }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children: ReactNode; testId?: string; id?: string; headingRef?: Ref<HTMLHeadingElement> }) {
+  const inBar = useInBar(title)
   return (
     <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium focus:outline-none">{title}</h2>
+          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium focus:outline-none', inBar && 'sr-only')}>{title}</h2>
           {desc && <div className="mt-1 text-sm text-muted">{desc}</div>}
         </div>
         {actions}
@@ -374,19 +385,21 @@ export function SettingsSection({ title, desc, actions, children, testId, id, he
 }
 
 /**
- * One setting as one row: its name, a short line on what it does under it, and the control on the right (stacked on a
- * phone). `id` is the control's id: the name labels it and the line describes it. `more`: the longer details, behind
- * "Learn more" (kept in the page, hidden, so the row reads short). `heading`: the name is a heading, for a row whose
- * control is not one field (the team logo). `below`: under the line, always shown (an error, a state).
+ * One setting as one row: its name, a short line on what it does under it, and the control on the right. Below 768 px
+ * a wide control (a select, a text field, the logo's buttons) goes under the line; an `inline` one (a switch, a short
+ * number) stays on the right of the name, as on a phone's Settings, with the line under the name. `id` is the control's
+ * id: the name labels it and the line describes it. `more`: the longer details, behind "Learn more" (kept in the page,
+ * hidden, so the row reads short). `heading`: the name is a heading, for a row whose control is not one field (the team
+ * logo). `below`: under the line, always shown (an error, a state).
  */
-export function SettingRow({ id, title, desc, more, control, below, heading, testId, attrs }: {
-  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; testId?: string; attrs?: Record<string, string>
+export function SettingRow({ id, title, desc, more, control, below, heading, inline, testId, attrs }: {
+  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; inline?: boolean; testId?: string; attrs?: Record<string, string>
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const descId = id ? `${id}-desc` : undefined
   return (
-    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:gap-8" data-testid={testId} {...attrs}>
+    <div className={clsx('flex py-4 md:flex-row md:items-start md:gap-8', inline ? 'items-start gap-4' : 'flex-col gap-3')} data-testid={testId} {...attrs}>
       <div className="min-w-0 flex-1">
         {heading ? <h3 className="text-sm font-medium text-ink">{title}</h3> : <label htmlFor={id} className="text-sm font-medium text-ink">{title}</label>}
         {(desc || more) && (
@@ -403,7 +416,7 @@ export function SettingRow({ id, title, desc, more, control, below, heading, tes
         {more && <div hidden={!open} className="mt-2 max-w-prose text-xs leading-relaxed text-faint">{more}</div>}
         {below}
       </div>
-      {control && <div className="flex shrink-0 justify-start sm:justify-end sm:pt-0.5">{control}</div>}
+      {control && <div className={clsx('flex shrink-0 md:justify-end md:pt-0.5', inline ? 'pt-0.5 max-md:items-center max-md:gap-2' : 'justify-start')}>{control}</div>}
     </div>
   )
 }

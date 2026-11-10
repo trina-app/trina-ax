@@ -3977,6 +3977,7 @@ export const es: Record<MessageKey, string> = {
   "teamSettings.section.time": "Hora y actualizaciones",
   "teamSettings.section.data": "Conservación de datos",
   "teamSettings.section.ai": "Miembros e IA",
+  "teamSettings.group.engine": "Motor de IA",
   "teamSettings.learnMore": "Más información",
   "teamSettings.days": "días",
   "teamSettings.unsaved": "Cambios sin guardar",

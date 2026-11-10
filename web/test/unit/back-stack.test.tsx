@@ -287,6 +287,36 @@ describe('the hook in the app', () => {
     }
   })
 
+  test('several lists (a group of Team settings): both go under the page, outermost first; ‹ names the nearer one', async () => {
+    seen = []
+    historyAt(2)
+    const entries: { path: string; state: unknown }[] = []
+    function Group() {
+      const l = useLocation()
+      entries.push({ path: l.pathname + l.hash, state: l.state })
+      useListUnderPage(['/admin', '/admin/settings'], true, true)
+      const label = useBackLabel('/admin/settings', (p) => (p === '/admin/settings' ? 'Team settings' : null))
+      return <span data-testid="label">{label ?? '‹'}</span>
+    }
+    const m = await mount(
+      <MemoryRouter initialEntries={['/settings/notifications']}>
+        <Note />
+        <Routes>
+          <Route path="/admin/:section/:sub" element={<Group />} />
+          <Route path="*" element={<Link to="/admin/settings/limits#ai-limits" data-testid="go">go</Link>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    try {
+      await press(m.get('go'))
+      await m.until(() => (entries.at(-1)?.state as Record<string, unknown> | null)?.[BELOW] === '/admin/settings', 'the group over both lists')
+      expect(entries.at(-1)!.path).toBe('/admin/settings/limits#ai-limits')
+      expect(m.get('label').textContent).toBe('Team settings')
+    } finally {
+      await m.unmount()
+    }
+  })
+
   test('the first entry of the document (a pasted address, the app opened on a push): rebuilt', async () => {
     seen = []
     historyAt(0)

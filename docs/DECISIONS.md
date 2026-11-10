@@ -19625,3 +19625,51 @@ stayed on screen. Shared parts, so every page gets them (the remaining pages mov
   roles), only the search row sticky while the list scrolls, the other pages' buttons still there, Connectors and AI
   apps named once, 768 and 1440 px unchanged), `people-console.spec.ts`.
 - Version impact: **minor** (a visible change on phones; no API, data or permission change).
+
+### The form pages, and Team settings in groups (feat/phone-form-pages, 2026-11-10)
+
+Admin › Team settings was one page of about 6,700 px at 390 px, each of ~25 switches under its text, and a save bar that
+Back could leave behind; System put every value under its label; buttons on these pages were 32 to 36 px. The owner
+decided that Team settings splits into pages on phones and stays one page on computers.
+
+- **Team settings on a phone** (`pages/admin/teamSettingsGroups.ts`): `/admin/settings` is a list of its groups, each a
+  page at `/admin/settings/<group>` under "‹ Team settings" (the same `PhoneList`, bar and Back as Admin's list). The
+  groups are the page's own sections in the page's order, small ones together: General (name, language, logo, time zone,
+  update window), Keeping data, Members and AI, Voice input, AI engine (AI defaults, who picks the engine, members' own
+  accounts; one new name, "AI engine"), Usage limits, Knowledge graph, Company profile, and Dev environment where the
+  server has it. 8 or 9 rows, all on the first screen.
+- **Links into it.** On a phone a `#part` of the page opens its group in place of the link (`#ai-limits` → Usage limits,
+  `#speech` → Voice input, `#ai`, `#ts-time`, `#knowledge-graph`, the old Providers tab's addresses), keeping the
+  `#hash`. Entered from outside Admin (an Inbox notice, a pasted address), both lists go under it, so Back walks group →
+  Team settings → Admin → where you were (`useListUnderPage` takes the lists outermost first); from inside Admin (Usage's
+  "Usage limits") nothing goes under it and "‹ Usage" goes back to Usage, as for Admin's own pages. A computer opening
+  `/admin/settings/<group>` gets the one page at that group (`#anchor`), and the page now scrolls to any of its parts'
+  `#hash` (only `#ai` and `#ai-limits` did).
+- **One form, kept.** The groups are drawn by the one Team settings page, which stays while the list and its groups
+  change, so a change in General is still there on the list and in Keeping data; the save bar shows on the list and on
+  the groups whose fields it saves (not on the ones that save on their own), sticky at the bottom. Leaving Team settings
+  with unsaved changes on a phone keeps the changed fields for the session (put back over what is saved when it opens
+  again, so nobody else's later change is undone); ‹ does not ask first, since nothing is lost. "Go to the field" from
+  the list opens General at that field. Computers: as before.
+- **Rows** (`admin/common.tsx`): `SettingRow` `inline` keeps a switch or a short number on the right of its name below
+  768 px, the line under the name (as Settings › Notifications' `PrefRow`); a select or a text field still goes under
+  the line, full width. A section or card whose name the phone bar shows keeps it for screen readers only
+  (`BarTitleProvider`). System's rows put the value on the right of the label (`text-right`), and a long one (the
+  connection, an address, the update state) under the label. Settings › Profile: username and role on the right.
+  The rows that switched at 640 px (`SettingRow`, Settings' `Row`, System's `Row`) switch at 768 px.
+- **44 px buttons** (`components/ui.tsx` `PhoneTargets`): inside it, below 768 px, `Button` and `IconButton` are at
+  least 44 px and a `Switch` takes taps from a 44 px box (`touch-hit`). Team settings, System and Settings' own sections
+  (Profile, Security & devices, Browser, Memory, Allowed for the AI, Notifications, About) use it; other pages keep their
+  sizes. Language and theme choices and System's "Show details" are 44 px; small icon buttons inside a line keep their
+  look with a 44 px box (`touch-hit`).
+- Removed on phones: Team settings' 6,700 px page (its groups' pages instead), the duplicate group names under the bar,
+  the frames around the lists in Memory, Allowed for the AI and Browser (plain rows, as Security's devices).
+- Not changed: the keyboard's sheets (#336), the list pages (Groups, Folder permissions, Providers, Connectors, AI apps,
+  Plugins, Slack, Usage, Activity log: their own PR), Settings › Apps (its QR code shows only on a computer's browser
+  already: a phone's browser and the phone app know they are one).
+- Tests: `web/test/e2e/phone-form-pages.spec.ts` (list → group → ‹ and Back; the save bar on the list, kept after
+  leaving, saved; "Go to the field" from the list; `#ai-limits`, `#speech` and the old Providers address open their
+  group, Back walks the lists; switches on the right with the line under the name; System's values on the right and 44
+  px buttons; Profile's 44 px choices; no page wider than the screen in English and Spanish; a computer's one page and a
+  group's address there), `phone-admin.spec.ts` (Usage → Usage limits under "‹ Usage").
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).

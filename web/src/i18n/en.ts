@@ -4017,6 +4017,7 @@ export const en: Record<MessageKey, string> = {
   "teamSettings.section.time": "Time and updates",
   "teamSettings.section.data": "Keeping data",
   "teamSettings.section.ai": "Members and AI",
+  "teamSettings.group.engine": "AI engine",
   "teamSettings.learnMore": "Learn more",
   "teamSettings.days": "days",
   "teamSettings.unsaved": "Unsaved changes",

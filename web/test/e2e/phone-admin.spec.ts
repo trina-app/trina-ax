@@ -113,14 +113,16 @@ test('a link from inside the app (Settings › Usage → Admin › Usage): the l
   await expect(page).toHaveURL(/\/settings\/usage$/)
 })
 
-test('a page that opens another (Usage → its limits in Team settings): ‹ names the page it came from; the #hash keeps its place', async ({ page }) => {
+test('a page that opens another (Usage → its limits in Team settings): ‹ names the page it came from; the #hash opens its group', async ({ page }) => {
   await openAdmin(page)
   await page.getByTestId('admin-row-usage').click()
   await page.getByTestId('usage-limits-link').click()
-  await expect(page).toHaveURL(/\/admin\/settings#ai-limits$/)
+  // on a phone the limits are a group of Team settings of their own (teamSettingsGroups.ts), opened in place of the link
+  await expect(page).toHaveURL(/\/admin\/settings\/limits#ai-limits$/)
+  await expect(page.getByTestId('admin-bar-title')).toHaveText(t['budgets.title'])
+  await expect(page.getByTestId('engine-budgets')).toBeVisible()
+  // inside Admin: no list put under it, Back goes where it came from
   await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.usage'])
-  // the page scrolled to its limits (a push with a #hash is left to the page)
-  await expect.poll(() => scrollTop(page)).toBeGreaterThan(100)
   await page.getByTestId('admin-back').click()
   await expect(page).toHaveURL(/\/admin\/usage$/)
 })

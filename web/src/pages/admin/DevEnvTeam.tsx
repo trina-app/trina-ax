@@ -53,7 +53,7 @@ function DevEnvTeamForm() {
   )
   const planOffline = !!r.plan && r.plan.network !== 'open'
   return (
-    <Card title={<span className="inline-flex items-center gap-2"><TerminalSquare size={16} aria-hidden /> {t('devEnv.title')} <Badge tone="warn">{t('devEnv.experiment')}</Badge></span>}
+    <Card id="dev-env" title={<span className="inline-flex items-center gap-2"><TerminalSquare size={16} aria-hidden /> {t('devEnv.title')} <Badge tone="warn">{t('devEnv.experiment')}</Badge></span>}
       desc={t(srt ? 'devEnvTeam.desc' : 'devEnvTeam.descBox')}>
       {/* disabled while a save runs: the form takes the saved setting from the answer, which would erase an edit made
           before the answer came */}
