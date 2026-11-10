@@ -1,7 +1,8 @@
 // The Files search's results (src/components/FileContentSearch.tsx FileContentList): the knowledge graph's document rows
 // first (one per document: name, place, a short passage with the query's words marked; a click opens the file at that
 // place), then the exact-line matches as before. An answer without `documents` (the documents part off, an older
-// server) looks exactly as it did; document rows with no line at all show no second "nothing found".
+// server) looks exactly as it did; document rows with no line at all show no second "nothing found", but their label
+// says that no line has the words (meaning search has no score floor: a word no file has still gets rows, QA TC-061).
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { FileContentHits, Locale } from '@mycel/shared/api'
@@ -71,17 +72,23 @@ describe('document rows and line matches', () => {
     const only = render({ items: [], documents: DOCS, ...none })
     expect(only).not.toContain(esc(translate('ko', 'files.search.none')))
     expect(only).not.toContain(esc(translate('ko', 'files.search.scope', { q: '환불 정책', folder: 'shared' })))
+    expect(only).toContain(esc(translate('ko', 'files.search.documentsOnly', { q: '환불 정책' })))
+    expect(only).not.toContain(esc(translate('ko', 'files.search.documents')))
     expect(render({ items: [], documents: [], ...none })).toContain(esc(translate('ko', 'files.search.none')))
     // a note about the line search still shows (e.g. office documents being indexed)
     expect(render({ items: [], documents: DOCS, ...none, indexing: 2 })).toContain(esc(translate('ko', 'files.search.indexing', { n: 2 })))
   })
 
-  test('five languages: the one new label', () => {
+  test('five languages: the two labels', () => {
     for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) {
       setLocale(l)
       const label = translate(l, 'files.search.documents')
       expect(label, l).not.toBe('files.search.documents')
-      expect(render({ items: [], documents: DOCS, ...none }), l).toContain(esc(label))
+      expect(render({ items: LINES, documents: DOCS, ...none }), l).toContain(esc(label))
+      const only = translate(l, 'files.search.documentsOnly', { q: '환불 정책' })
+      expect(only, l).not.toBe('files.search.documentsOnly')
+      expect(only, l).toContain('환불 정책')
+      expect(render({ items: [], documents: DOCS, ...none }), l).toContain(esc(only))
     }
   })
 })

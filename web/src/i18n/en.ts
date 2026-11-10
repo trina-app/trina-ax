@@ -680,6 +680,7 @@ export const en: Record<MessageKey, string> = {
   'files.search.placeholder': 'Search inside files',
   'files.search.clear': 'Clear search',
   'files.search.documents': 'Related documents',
+  'files.search.documentsOnly': 'No line has “{q}”. Documents close in meaning:',
   'files.search.scope': 'Lines that contain “{q}” in {folder}',
   'files.search.none': 'No file you can open contains this text.',
   'files.search.line': 'Line {n}',
