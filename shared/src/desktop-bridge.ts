@@ -136,7 +136,9 @@ export interface DesktopBridge {
    * desktop apps do not have it. */
   setBadgeCount?(n: number, dot?: boolean): void
   /** Whether this window is focused, as the desktop app sees it. The page's own document.hasFocus() is false while the
-   * in-app browser pane holds the keyboard, which is still the person looking at the window. Optional (older apps). */
+   * in-app browser pane holds the keyboard, and after the app starts until a click into the page, which is still the
+   * person looking at the window. Since 2026-11-10 also false while the team list or the offline screen covers the
+   * page (the page still reports itself visible there). Optional (older apps). */
   focus?: {
     get(): Promise<boolean>
     onChange(cb: (focused: boolean) => void): () => void

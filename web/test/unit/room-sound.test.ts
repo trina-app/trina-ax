@@ -59,7 +59,7 @@ describe('shouldRing', () => {
 
   test('the rule (docs/DECISIONS.md "화면에 연 대화는 울리지 않는다"): looked at with that conversation on screen, quiet; looked at on another, or not looked at, it rings', () => {
     const root = uuidv7(), team = { kind: 'team', muted: false }
-    const reply = { threadRootId: root, following: true }
+    const reply = { threadRootId: root, following: true as const }
     // `viewing`: what this device shows in a window the person looks at (null: none is looked at)
     // 1. looked at, that conversation on screen: a DM's timeline; for a reply the thread panel showing it (its room not open)
     expect(shouldRing(base({ viewing: { room: ROOM } }))).toBe(false)

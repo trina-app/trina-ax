@@ -18668,6 +18668,12 @@ In a focused window that shows the conversation, a new message should only appea
   phones only; the desktop app has no Web Push. A browser with Web Push: the worker shows nothing for a notice read
   meanwhile (the page reads the room on screen at once); one still unread (scrolled up) is shown silently, as before.
   Not skipped: WebKit takes a push subscription away after a few pushes that show nothing, whatever tab is open.
+- **The team list over the page.** The desktop app takes the team page's view out of the window while the team list
+  or the offline screen shows, and the page still reports itself `visible` (checked on macOS). Going by the window's
+  focus alone, a message in the room open under the team list would be read without a sound. So the desktop app's
+  word is now "the window focused and the team page shown" (`AppWindow.teamFocused`, told on every layout, the
+  window's focus and blur, and answered by `bridge:focus`). Desktop apps before this keep the window's focus alone,
+  which the session markers already went by.
 - **What a tab tells the others** (`mycel.roomSound.view`) now also lists the threads on screen (`threads`, at most 20
   read back; an older tab's word without it still counts for its room).
 - Not done: the desktop app does not give the team page its focus back when its window comes to the front, so typing
@@ -18678,6 +18684,6 @@ In a focused window that shows the conversation, a new message should only appea
   not the page's), e2e `room-sound-on-screen.spec.ts` (a browser: the room open is quiet, another room open rings; the
   desktop app: quiet and read while focused, rings in the back, rings for another room; Web Audio, Notification,
   `showNotification` and the bridge stubbed), desktop e2e `page-focus.spec.ts` (run by hand on a Mac: started with a
-  team, the window focused, the page's own focus false and the bridge's word true; skipped when another app is in
-  front).
+  team, the window focused, the page's own focus false and the bridge's word true; false under the team list, where
+  the page still says visible, and true again on 돌아가기; skipped when another app is in front).
 - Version impact: **patch** (a fix; no API, data, setting or text change).

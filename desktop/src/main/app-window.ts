@@ -183,12 +183,13 @@ export class AppWindow {
     this.win.on('resize', () => this.layout())
     this.win.on('focus', () => {
       void this.recheck(false)
-      // "visible" for the team page's session markers is this window's focus (the in-app browser may hold the keys)
-      this.send(this.app, 'bridge:focus', true)
+      // "looked at" for the team page (its session markers, room sound and reading) is this window's focus while the
+      // page is shown (the in-app browser or the address strip may hold the keys): teamFocused
+      this.sendFocus(true)
       // a team opened while the window was in the back: the system's question now, while the person looks
       if (this.app) this.notifier.ask()
     })
-    this.win.on('blur', () => this.send(this.app, 'bridge:focus', false))
+    this.win.on('blur', () => this.sendFocus(false))
     this.win.on('close', () => {
       const [width, height] = this.win.getSize()
       o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
@@ -925,6 +926,7 @@ export class AppWindow {
       hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
+      this.sendFocus()
       return
     }
     hide(this.shell)
@@ -938,6 +940,28 @@ export class AppWindow {
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
     this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.sendFocus()
+  }
+
+  /** Is the person looking at the team page (DesktopBridge.focus, docs/DECISIONS.md "화면에 연 대화는 울리지 않는다")?
+   * This window focused and the team page shown in it: not under the team list or the offline screen, where its view
+   * is only taken out of the window and the page still reports itself visible. `windowFocused`: the focus event's own
+   * word (else the window's). */
+  teamFocused(windowFocused?: boolean): boolean {
+    if (this.win.isDestroyed() || !this.app || this.mode !== 'team') return false
+    return windowFocused ?? this.win.isFocused()
+  }
+
+  /** the word last told to which team page (each page asks once itself as it starts) */
+  private focusTold?: { app: WebContentsView; focused: boolean }
+  /** Tell the team page when teamFocused changes (the window's focus, the team list or the offline screen over it). */
+  private sendFocus(windowFocused?: boolean) {
+    const app = this.app
+    if (!app) return
+    const focused = this.teamFocused(windowFocused)
+    if (this.focusTold?.app === app && this.focusTold.focused === focused) return
+    this.focusTold = { app, focused }
+    this.send(app, 'bridge:focus', focused)
   }
 
   private updateTitle() {

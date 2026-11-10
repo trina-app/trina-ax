@@ -79,8 +79,9 @@ async function arrives(page: Page, roomId: string, from: { id: string; name: str
 
 const notes = (page: Page) => page.evaluate(() => ((window as unknown as { __notes: number[] }).__notes).length)
 const shown = (page: Page) => page.evaluate(() => (window as unknown as { __shown: string[] }).__shown)
-/** past the sound's wait for a read elsewhere (store/roomSound.ts SETTLE_MS) and the notification's (NOTIFY_DELAY_MS) */
-const settle = (page: Page) => page.waitForTimeout(3600)
+/** well past the sound's wait for a read elsewhere (store/roomSound.ts SETTLE_MS, 1.5 s) and the notification's
+ * (NOTIFY_DELAY_MS, 3 s) */
+const settle = (page: Page) => page.waitForTimeout(4500)
 
 async function openRoom(page: Page, roomId: string) {
   await page.goto(`/rooms/${roomId}`)

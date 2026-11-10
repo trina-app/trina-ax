@@ -2,11 +2,12 @@
 
 - Date (UTC): 2026-11-10 08:12
 - Branch: `fix/no-sound-open-conversation`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/lib/attention.ts`, `web/src/lib/roomSound.ts`, `web/src/store/roomSound.ts`,
-  `web/src/store/sessionMarkers.ts`, the room page and thread panel, their tests, docs/DECISIONS.md, CHANGELOG). Why:
-  the room sound and reading a room are the web app's (see docs/REPOSITORY-RULES.md).
-- Version impact: patch. No API, data or desktop app change.
+  `web/src/store/sessionMarkers.ts`, the room page and thread panel, `desktop/src/main` for the focus word, their
+  tests, docs/DECISIONS.md, CHANGELOG). Why: the room sound and reading a room are the web app's (see
+  docs/REPOSITORY-RULES.md).
+- Version impact: patch. No API or data change.
 
 ## Goal
 
@@ -39,7 +40,7 @@ Out:
   subscription away after a few pushes that show nothing.
 - The phone app: in the foreground it shows no banner and plays no sound (`quietForeground`), and the page does not ring
   for the room on screen: no bug there. Its silent list entry stays.
-- The desktop app giving the team page its focus back when the window is focused (a desktop release; not needed here).
+- The desktop app giving the team page its focus back when the window is focused (not needed here).
 
 ## Steps
 
@@ -63,4 +64,10 @@ the room-* specs, inbox-rooms.
 
 ## Result
 
-Filled in at the end.
+Built as planned (PR #317), plus one desktop change found in review: the app's focus word is false while the team list
+covers the team page (the page still reports itself visible there). `lib/attention.ts` keeps the desktop app's window focus (`watchWindowFocus`,
+read by the session markers) and the rule's two parts (`lookingAt`, `conversationOnScreen`); the room sound's view and
+the tabs' localStorage word carry the threads on screen. Reproduced first in `room-sound-on-screen.spec.ts` (4 notes
+before the fix, none after). Added a desktop e2e (`page-focus.spec.ts`, by hand on a Mac) for the premise. Differs from
+the plan: the desktop app's own notification for the room open in a window in the back stays as before (none: the
+room's messages count nothing in that window while it is open); written down in DECISIONS.
