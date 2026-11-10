@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-10 08:06
 - Branch: `feat/any-emoji-reactions` (on `feat/custom-status`, PR #288, for its one-emoji rule; rebased onto `dev` once
   that merges)
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`shared/src/api/rooms.ts`, `server/src/rooms/service.ts`, `server/src/rooms/reader.ts`,
   `web/src/components/EmojiPicker.tsx`, `web/src/components/rooms/Reactions.tsx`, `web/src/components/StatusMessage.tsx`,
   `web/scripts/emoji-data.ts`). Why: team chat is core (see docs/REPOSITORY-RULES.md)
@@ -74,4 +74,11 @@ status e2e specs, the full web e2e once.
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR #319 (to `dev`, after #288). Differences from the plan:
+- The computer's strip is not the phone's: the hover row already has ✅ 👀 👍, so its ☺+ strip shows ❤️ 😂 😭 🙏 🎉 🔥
+  and More emoji (the eight of before and 😭 stay one or two clicks away); the phone's is 👍 ✅ 👀 ❤️ 😂 😭.
+- Sizes measured on the build: entry chunk unchanged (247.6 kB), the shared room chunk +5.9 kB (1.8 kB gzip), the data
+  chunks en 90.7 kB (33.1 kB gzip) and ko 107.2 kB (37.0 kB gzip), loaded only when a picker opens.
+- The popover closes on Tab (as a menu does) and when its button scrolls out of sight; inside a dialog (the image
+  viewer's thread column) it opens inside that dialog.
+- One emoji, one form (`shared/src/emoji-form.ts`): ❤ and ❤️ are one reaction (from the review).

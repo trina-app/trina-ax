@@ -8,6 +8,7 @@
 // the state changes (test/unit/rooms-store.test.ts), handleEvent adds the requests they need. A reconnect the server
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
+import { emojiForm } from '@mycel/shared'
 import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { noteRecent } from '../lib/emoji'
@@ -652,7 +653,9 @@ export const useRooms = create<RoomsState>((set, get) => {
       }
     },
 
-    async react(roomId, messageId, emoji, on) {
+    async react(roomId, messageId, picked, on) {
+      // the form the server keeps (❤ and ❤️ are one reaction)
+      const emoji = emojiForm(picked)
       const before = findMessage(get(), roomId, messageId)?.reactions ?? []
       // a new emoji on a message that has the most different ones already: the server would refuse it (409)
       if (on && before.length >= ROOM_REACTION_EMOJI_MAX && !before.some((r) => r.emoji === emoji)) {

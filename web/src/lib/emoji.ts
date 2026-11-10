@@ -2,7 +2,7 @@
 // reaction"). The data is two lazy chunks the build makes from emojibase-data (scripts/emoji-data.ts): English names
 // and keywords for everyone, Korean ones for a Korean speaker or a search in Hangul. Nothing here is markup: the names
 // are shown as text, and only strings that are one emoji (the server's rule) are offered or remembered.
-import { isStatusEmoji } from '@mycel/shared'
+import { emojiForm, isStatusEmoji } from '@mycel/shared'
 import type { MessageKey } from '../i18n'
 
 export interface Emoji {
@@ -52,11 +52,11 @@ export const SEARCH_MAX = 120
 
 /** The emoji whose names or keywords (English, and Korean when loaded) hold every word of the query, best first: a name
  * that starts with it, then a word of a name that does, then the others, each in the data's order. An emoji typed or
- * pasted into the search is itself the result (a skin tone, one newer than the data). */
+ * pasted into the search is itself the result (a skin tone, one newer than the data), in its full form (emojiForm). */
 export function searchEmoji(list: readonly Emoji[], query: string, max = SEARCH_MAX): string[] {
   const raw = query.trim()
   if (!raw) return []
-  if (isStatusEmoji(raw)) return [raw]
+  if (isStatusEmoji(raw)) return [emojiForm(raw)]
   const q = raw.toLowerCase()
   const terms = q.split(/\s+/)
   const hits: { rank: number; i: number; emoji: string }[] = []
@@ -114,7 +114,7 @@ export function readRecent(userId: string, s: Store | null = local()): string[] 
   try {
     const v = JSON.parse(s?.getItem(recentKey(userId)) ?? '[]') as unknown
     if (!Array.isArray(v)) return []
-    return [...new Set(v.filter((x): x is string => typeof x === 'string' && isStatusEmoji(x)))].slice(0, RECENT_MAX)
+    return [...new Set(v.filter((x): x is string => typeof x === 'string' && isStatusEmoji(x)).map(emojiForm))].slice(0, RECENT_MAX)
   } catch {
     return []
   }
@@ -123,7 +123,8 @@ export function readRecent(userId: string, s: Store | null = local()): string[] 
 /** An emoji I just used goes first (once); the oldest past RECENT_MAX goes. */
 export function noteRecent(userId: string, emoji: string, s: Store | null = local()): string[] {
   if (!isStatusEmoji(emoji)) return readRecent(userId, s)
-  const next = [emoji, ...readRecent(userId, s).filter((x) => x !== emoji)].slice(0, RECENT_MAX)
+  const e = emojiForm(emoji)
+  const next = [e, ...readRecent(userId, s).filter((x) => x !== e)].slice(0, RECENT_MAX)
   try { s?.setItem(recentKey(userId), JSON.stringify(next)) } catch { /* storage full or blocked: this time only */ }
   return next
 }

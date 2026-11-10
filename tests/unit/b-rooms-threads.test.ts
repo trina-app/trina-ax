@@ -441,6 +441,14 @@ test('reactions: any one emoji; text, several emoji, invisible letters and over-
   expect(seen.every((r: any) => r.count === 1 && r.users[0].id === nora.id)).toBe(true)
   // the others get them live, each with their own "mine"
   await put(otto.client, '😭')
+  // one emoji in one form: with or without its selector it is the same reaction (the fully qualified one is kept)
+  const heart = await put(otto.client, '\u2764')
+  expect(heart.body.reactions.filter((r: any) => r.emoji === '\u2764' || r.emoji === '\u2764\uFE0F').map((r: any) => [r.emoji, r.count])).toEqual([['\u2764\uFE0F', 1]])
+  expect((await put(nora.client, '\u2764\uFE0F')).body.reactions.find((r: any) => r.emoji === '\u2764\uFE0F').count).toBe(2)
+  expect((await put(otto.client, '\u{1F44D}\uFE0F')).body.reactions.filter((r: any) => r.emoji === '\u{1F44D}' || r.emoji === '\u{1F44D}\uFE0F')).toMatchObject([{ emoji: '\u{1F44D}', mine: true }])
+  expect((await put(otto.client, '1\u20E3')).body.reactions.some((r: any) => r.emoji === '1\uFE0F\u20E3' && r.count === 2)).toBe(true)
+  expect((await put(otto.client, '\u{1F3F3}\u200D\u{1F308}')).body.reactions.some((r: any) => r.emoji === '\u{1F3F3}\uFE0F\u200D\u{1F308}' && r.count === 2)).toBe(true)
+  expect(h.ctx.db.query("SELECT COUNT(*) n FROM room_reactions WHERE message_id = ? AND emoji IN ('\u2764', '\u{1F44D}\uFE0F', '1\u20E3')").get(m.id)).toEqual({ n: 0 })
   const ev = hub.to('room.reactions').filter((e) => e.target === mia.id).at(-1)!.data as any
   const cry = (d: any) => d.data.reactions.find((r: any) => r.emoji === '😭')
   expect(cry(ev)).toMatchObject({ count: 2, mine: false })

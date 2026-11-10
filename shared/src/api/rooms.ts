@@ -35,6 +35,7 @@ import { z } from 'zod'
 import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
+import { emojiForm } from '../emoji-form'
 import { isStatusEmoji } from '../status-message'
 import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
@@ -291,8 +292,9 @@ export type RoomFile = z.infer<typeof RoomFile>
 
 /** A reaction: any one emoji (docs/DECISIONS.md "Any emoji as a reaction"), by the rule of a status message's emoji
  * (isStatusEmoji, shared/src/status-message.ts): a single emoji or one sequence (ZWJ, flag, keycap, skin tone), never
- * text, several emoji or invisible tag letters (only the three subdivision flags carry them), at most 32 UTF-16 units. */
-export const RoomReactionEmoji = z.string().refine(isStatusEmoji, 'one emoji')
+ * text, several emoji or invisible tag letters (only the three subdivision flags carry them), at most 32 UTF-16 units.
+ * Taken in its fully qualified form (emojiForm): ❤ and ❤️ are one reaction. */
+export const RoomReactionEmoji = z.string().refine(isStatusEmoji, 'one emoji').transform(emojiForm)
 export type RoomReactionEmoji = z.infer<typeof RoomReactionEmoji>
 /** Different emoji one message may carry, at most: a new one past this is refused (409, params.reason
  * 'reactions_full'); adding mine to one that is there always works. */

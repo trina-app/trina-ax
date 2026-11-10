@@ -278,6 +278,7 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
             first={{ label: t('status.emojiGrid'), emoji: STATUS_EMOJI, testId: 'status-emoji-grid', itemTestId: 'status-emoji-pick' }}
             selected={emoji ? [emoji] : []}
             onPick={(e) => { setEmoji(e); setPicking(false); input.current?.focus() }}
+            onDismiss={() => { setPicking(false); input.current?.focus() }}
           />
         ) : empty ? (
           <ul aria-label={t('status.suggestions')} className="-mx-2 mt-3" data-testid="status-suggestions">

@@ -56,11 +56,12 @@ export function emojiData(): Plugin {
   return {
     name: 'mycel-emoji-data',
     resolveId(id) {
-      return id in IDS ? `\0${id}` : null
+      return Object.hasOwn(IDS, id) ? `\0${id}` : null
     },
     load(id) {
-      const lang = IDS[id.slice(1) as keyof typeof IDS]
-      if (!id.startsWith('\0') || !lang) return null
+      const key = id.slice(1)
+      if (!id.startsWith('\0') || !Object.hasOwn(IDS, key)) return null
+      const lang = IDS[key as keyof typeof IDS]
       built ??= installedEmojiModules()
       return `export default ${JSON.stringify(built[lang])}`
     },

@@ -19013,9 +19013,16 @@ sheet.
   message's rule takes (`isStatusEmoji`, shared/src/status-message.ts, the same function, not a copy): one emoji or one
   sequence (a ZWJ sequence of at most four, a flag, a keycap, a skin tone, the three subdivision flags), at most 32
   UTF-16 units; never text, markup, two emoji, a lone half of a flag, a lone skin tone or selector, a direction mark or
-  zero-width space, or tag letters outside those three flags (400). Nothing is normalised: ❤ without its selector would
-  be a reaction of its own (the picker always sends the full form, as the eight did). `ROOM_REACTIONS` is gone; the
-  eight work as before. No migration: `room_reactions.emoji` was always a plain TEXT column (migration 251's comment
+  zero-width space, or tag letters outside those three flags (400). One emoji, one form: the server keeps the fully
+  qualified form (`emojiForm`, shared/src/emoji-form.ts: the emoji selector after a pictograph drawn as text by default,
+  none after one drawn as an emoji anyway, a keycap's), so ❤ and ❤️, 👍 and 👍 with a selector, are one reaction, not
+  two chips that look alike; the picker's paste and "Recently used" use the same function. It changes the form only,
+  never what is accepted. `ROOM_REACTIONS` is gone; the eight work as before (they were in that form already).
+- **What the rule still lets through** (it is the status message's, shared, and stays as it is here): two regional
+  indicators that are no country's flag (🇽🇽, drawn as two boxed letters), a ZWJ chain of up to four that is no real
+  sequence (drawn as up to four emoji), and an unassigned pictograph code point (drawn as a box). None of it is text the
+  AI could read as words beyond two letters, and none is invisible; a list of real flags and sequences would tighten
+  both features at once, later if needed. No migration: `room_reactions.emoji` was always a plain TEXT column (migration 251's comment
   about "the fixed emoji" is history).
 - **The limits.** One of each emoji per person and message (the table's key), as before. A message carries at most
   `ROOM_REACTION_EMOJI_MAX` = 20 different emoji: a 21st different one is refused with 409 (`params.reason`
@@ -19037,9 +19044,12 @@ sheet.
   (Smileys & emotion … Flags; no tabs). A search looks in English names and keywords, and in Korean ones for a Korean
   speaker or a search in Hangul; a name that starts with it comes first, then a word of a name, then keywords; an emoji
   typed or pasted into it is offered as it is (a skin tone, one newer than the data). Enter picks the first match, ↓
-  goes into the grid, arrows move by the grid on screen, Esc closes and gives the keyboard back to ☺+. On a computer it
-  is a popover by ☺+ fixed to the window (placed like a menu, following the button when the list scrolls; a click
-  outside closes it); on a phone, or opened from the long-press sheet, the app's dialog, a bottom sheet (the phone app's
+  goes into the grid, arrows move by the grid on screen, Esc clears the search, then closes and gives the keyboard back
+  to ☺+, Tab leaves it as it leaves a menu; Enter and Esc while a Hangul syllable is being typed are the input method's.
+  On a computer it is a popover by ☺+ fixed to the window (placed like a menu, following the button when the list
+  scrolls and going when the button is out of sight; a click outside closes it), inside the dialog its button is in
+  when there is one (the image viewer's thread column: over the viewer, inside its focus trap, its keys not the
+  viewer's); on a phone, or opened from the long-press sheet, the app's dialog, a bottom sheet (the phone app's
   WebView alike), whose search does not raise the keyboard by itself. No skin-tone choice and no team emoji.
 - **The data.** `emojibase-data` 18.0.0 (MIT) with Unicode CLDR's names and keywords (Unicode-3.0), trimmed at build
   time by a Vite plugin (`web/scripts/emoji-data.ts`) to the emoji up to Emoji 15.0 (newer ones are boxes on many
@@ -19051,18 +19061,28 @@ sheet.
   notice and the Unicode License v3 text are `resources/notices/unicode-emoji/` (`EMBEDDED_DATA` in
   `scripts/release-notices.ts`), NOTICE and docs/THIRD-PARTY-NOTICES.md.
 - **The status dialog** ("상태 메시지") uses the same picker inline: its 32 status emoji are the first view, then the
-  search and every emoji. No "Recently used" there (that is the reactions').
-- Tests: `tests/unit/b-rooms-threads.test.ts` (any emoji: ten kinds accepted; text, markup, a shortcode, spaces, two
+  search and every emoji. No "Recently used" there (that is the reactions'). Esc in its search clears the words, then
+  closes the picker, not the dialog.
+- **Size of a message's reactions:** at most 20 emoji with the first 10 names each, about 13 kB in the worst case (20
+  different emoji, each by 10 or more people). Kept as it is; fewer names in lists and events would be the lever.
+- **The review of this branch** (an independent deep review that tried to inject through a reaction and to flood a
+  message) found two must-fix items, both fixed: the picker opened behind the image viewer from its thread column and
+  lost the keyboard to the viewer's focus trap, and ❤ / ❤️ were two reactions (now one form). Also in from it: the
+  input-method guard, Esc in the status dialog's picker, `Object.hasOwn` in the data plugin. The server's checks, the
+  cap, `room_read` and the notices held up.
+- Tests: `tests/unit/b-rooms-threads.test.ts` (any emoji: ten kinds accepted, one form for ❤ / ❤️, 👍 with a selector, a
+  keycap and a ZWJ flag without selectors; text, markup, a shortcode, spaces, two
   emoji, two flags, half a flag, a lone skin tone or selector, tag letters, a tag-letter flag spelling words, a
   zero-width space, a direction override, the text selector, a trailing joiner, five people joined, a joiner chain, 5,000
   characters and non-strings refused with nothing stored or sent; realtime with each person's own "mine"; the cap of 20
   with 409 `reactions_full` in English, joining and taking off at the cap, room again after one goes and after a member
   leaves; the AI's line with rows that are not one emoji; the old eight and the sending budget), `tests/security/lib/rooms-cases.ts`
   (markup refused), `tests/unit/release-notices.test.ts` (the web bundle carries the Unicode notice and licence),
-  `web/test/unit/emoji.test.ts` (every emoji of the built data is one the server takes; search ranking, Korean, a pasted
-  emoji, the limit; recently used: order, the 16, per person, junk and broken storage), `web/test/unit/message-hover-bar.test.tsx`
-  (the strip), `web/test/e2e/room-reaction-picker.spec.ts` (😭 from the strip; More emoji, search "cry", pick, Recently
-  used first next time, "울음", a pasted skin tone, Enter; the keyboard and Esc; the toast at 20; the status dialog's
-  picker; the phone's sheet).
+  `web/test/unit/emoji.test.ts` (every emoji of the built data is one the server takes, in the form it keeps; the form;
+  search ranking, Korean, a pasted emoji, the limit; recently used: order, the 16, per person, junk and broken storage),
+  `web/test/unit/message-hover-bar.test.tsx` (the strip), `web/test/e2e/room-reaction-picker.spec.ts` (😭 from the strip;
+  More emoji, search "cry", pick, Recently used first next time, "울음", a pasted skin tone, Enter; the keyboard, Esc and
+  Tab; the toast at 20; the status dialog's picker and its Esc; the phone's sheet), `web/test/e2e/room-file-viewer.spec.ts`
+  (the picker from the viewer's thread column: over it, the keyboard in it, Esc closes only the picker).
 - Version impact: **minor** (a visible feature; the endpoint takes more than before and refuses only a 21st different
   emoji; older apps draw any reaction as a chip).

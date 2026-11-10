@@ -3,7 +3,7 @@
 // names find it, best matches first; an emoji typed into the search is offered as it is; "Recently used" keeps the
 // last 16, the newest first, per person, and drops anything that is not one emoji.
 import { describe, expect, test } from 'bun:test'
-import { isStatusEmoji } from '@mycel/shared'
+import { emojiForm, isStatusEmoji } from '@mycel/shared'
 import { RoomReactionEmoji } from '@mycel/shared/api'
 import { EMOJI_VERSION_MAX, emojiModules, installedEmojiModules } from '../../scripts/emoji-data'
 import { EMOJI_GROUPS, hasHangul, noteRecent, parseEmoji, readRecent, recentKey, RECENT_MAX, searchEmoji } from '../../src/lib/emoji'
@@ -16,7 +16,9 @@ describe('the data the build makes', () => {
     expect(lines.length).toBeGreaterThan(1500)
     expect(mods.ko.split('\n')).toHaveLength(lines.length)
     expect(list).toHaveLength(lines.length)
-    for (const e of list) expect([e.emoji, RoomReactionEmoji.safeParse(e.emoji).success]).toEqual([e.emoji, true])
+    // and in the one form the server keeps (emojiForm): what the picker sends is what comes back
+    for (const e of list) expect([e.emoji, RoomReactionEmoji.safeParse(e.emoji).data]).toEqual([e.emoji, e.emoji])
+    for (const e of list) expect(emojiForm(e.emoji)).toBe(e.emoji)
     expect(new Set(list.map((e) => e.emoji)).size).toBe(list.length)
     // the groups the picker heads, nothing else (no skin tones or hair alone)
     expect([...new Set(list.map((e) => e.group))].sort()).toEqual(EMOJI_GROUPS.map((g) => g.group).sort())
@@ -84,6 +86,30 @@ describe('search', () => {
     // two emoji, or an emoji with tag letters, are no emoji: a text search (that finds nothing)
     expect(searchEmoji(list, '😭😭')).toEqual([])
     expect(searchEmoji(list, '😭\u{E0068}')).toEqual([])
+  })
+})
+
+describe('one emoji in one form', () => {
+  test('the selector where the emoji is drawn as text otherwise, none where it is not; keycaps; skin tones as they are', () => {
+    expect(emojiForm('\u2764')).toBe('\u2764\uFE0F')
+    expect(emojiForm('\u2764\uFE0F')).toBe('\u2764\uFE0F')
+    expect(emojiForm('\u{1F44D}\uFE0F')).toBe('\u{1F44D}')
+    expect(emojiForm('\u{1F44D}\u{1F3FD}')).toBe('\u{1F44D}\u{1F3FD}')
+    expect(emojiForm('\u261D\u{1F3FD}')).toBe('\u261D\u{1F3FD}')
+    expect(emojiForm('1\u20E3')).toBe('1\uFE0F\u20E3')
+    expect(emojiForm('\u2764\u200D\u{1F525}')).toBe('\u2764\uFE0F\u200D\u{1F525}')
+    expect(emojiForm('\u{1F9D1}\u200D\u2695')).toBe('\u{1F9D1}\u200D\u2695\uFE0F')
+    expect(emojiForm('\u{1F1F0}\u{1F1F7}')).toBe('\u{1F1F0}\u{1F1F7}')
+  })
+  test('never makes one emoji of something that is not', () => {
+    for (const s of ['', 'text', '\u2764\u2764', '<b>', '\u{1F44D}\u{E0068}']) expect(emojiForm(s)).toBe(s)
+  })
+  test('the search and "Recently used" give the same form', () => {
+    expect(searchEmoji([], '\u2764')).toEqual(['\u2764\uFE0F'])
+    const m = new Map<string, string>()
+    const st = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+    noteRecent('u1', '\u2764', st)
+    expect(noteRecent('u1', '\u2764\uFE0F', st)).toEqual(['\u2764\uFE0F'])
   })
 })
 

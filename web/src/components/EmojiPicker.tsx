@@ -42,12 +42,14 @@ export interface EmojiPickerProps {
   selected?: readonly string[]
   /** the search takes the keyboard when the picker opens */
   autoFocus?: boolean
+  /** Esc in an empty search (one with words clears them first): the picker inline in a dialog closes, not the dialog */
+  onDismiss?: () => void
   /** the grid's height */
   gridClassName?: string
   className?: string
 }
 
-export function EmojiPicker({ onPick, first, recents = false, selected = [], autoFocus = false, gridClassName = 'h-72', className }: EmojiPickerProps) {
+export function EmojiPicker({ onPick, first, recents = false, selected = [], autoFocus = false, onDismiss, gridClassName = 'h-72', className }: EmojiPickerProps) {
   const t = useT()
   const locale = useLocale()
   const meId = useMe()?.user.id
@@ -84,7 +86,15 @@ export function EmojiPicker({ onPick, first, recents = false, selected = [], aut
   /** the grid's buttons, in order */
   const buttons = () => [...(grid.current?.querySelectorAll<HTMLButtonElement>('button[data-emoji]') ?? [])]
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    // a Hangul syllable still being typed: Enter and Esc are the input method's
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    if (e.key === 'Escape' && (q || onDismiss)) {
+      // the words first, then the picker (not the dialog or popover around it, which see the key as handled)
+      e.preventDefault()
+      e.stopPropagation()
+      if (q) setQ('')
+      else onDismiss?.()
+    } else if (e.key === 'Enter') {
       e.preventDefault()
       const top = searching ? results[0] : undefined
       if (top) onPick(top)
@@ -232,6 +242,7 @@ function Popover({ anchor, title, onClose, children }: { anchor: HTMLElement; ti
       onContextMenu={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         e.stopPropagation()
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return
         if (e.key === 'Escape') {
           e.preventDefault()
           close.current()
@@ -243,11 +254,13 @@ function Popover({ anchor, title, onClose, children }: { anchor: HTMLElement; ti
       }}
       // (measured at 0,0 before it is placed: unseen, yet its search can take the keyboard already)
       style={spot ? { left: spot.x, top: spot.y } : { left: 0, top: 0, opacity: 0 }}
-      className={clsx('fixed z-40 flex max-h-[calc(100dvh-1rem)] flex-col rounded-xl border border-line bg-surface p-2 shadow-lg', PANEL_W)}
+      className={clsx('fixed z-[60] flex max-h-[calc(100dvh-1rem)] flex-col rounded-xl border border-line bg-surface p-2 text-ink shadow-lg', PANEL_W)}
       data-testid="emoji-popover"
     >
       {children}
     </div>,
-    document.body,
+    // inside the dialog its button is in (the image viewer's thread column), whose focus trap keeps the keyboard in it
+    // and which is over the page; else in <body>
+    anchor.closest('[aria-modal="true"]') ?? document.body,
   )
 }

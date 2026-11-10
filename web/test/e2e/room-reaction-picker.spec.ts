@@ -168,6 +168,15 @@ test('the status dialog opens the same picker, its 32 first; a search finds any 
   await page.getByTestId('emoji-search').press('Enter')
   await expect(page.getByTestId('status-emoji-button')).toHaveText('🚀')
   await expect(page.getByTestId('status-dialog')).toBeVisible()
+  // Esc in the picker's search: its words first, then the picker, never the dialog
+  await page.getByTestId('status-emoji-button').click()
+  await page.getByTestId('emoji-search').fill('rock')
+  await page.getByTestId('emoji-search').press('Escape')
+  await expect(page.getByTestId('emoji-search')).toHaveValue('')
+  await page.getByTestId('emoji-search').press('Escape')
+  await expect(page.getByTestId('emoji-picker')).toHaveCount(0)
+  await expect(page.getByTestId('status-dialog')).toBeVisible()
+  await expect(page.getByTestId('status-text')).toBeFocused()
 })
 
 /** A long press with a finger on a message: its sheet. */
