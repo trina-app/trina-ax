@@ -11,9 +11,9 @@
 // raises (a yes before a change, a question) show under its answer as in the full chat; while it waits for the answer
 // to its question, what I type in the box answers it (lib/askAnswer.ts), as the full chat's box does.
 // Files and pictures go with a question as in the full chat's box, with its own parts (components/chat/ComposerFiles.tsx):
-// 📎, pasted into the box, or dropped anywhere on the panel; each is uploaded into this side chat at once (my own
-// attachments folder, as in any chat of mine; a side chat not made yet is made by the first file) and shows above the
-// box, a picture as its 64 px square, with ✕. At most 20 per message, the same messages when one fails. They go with what
+// 📎, pasted into the box, or dropped anywhere on the panel (components/FileDropZone.tsx: its overlay, the nearest panel
+// wins); each is uploaded into this side chat at once (my own attachments folder, as in any chat of mine; a side chat
+// not made yet is made by the first file) and shows above the box, a picture as its 64 px square, with ✕. At most 20 per message, the same messages when one fails. They go with what
 // is typed in the box (a starter or quick question goes alone, and an answer to the AI's question is its text alone);
 // "Share to room" sends the answer, never these. No team-folder files here (the full chat has them).
 // Which chat it shows, its draft, its quote and its files are kept per room on this page (store/sideChats.ts; the files in
@@ -25,7 +25,7 @@ import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, S
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
 import { formatDate, formatDateTime } from '../../lib/format'
@@ -41,7 +41,8 @@ import { sideChatOnScreen } from '../../store/sessionMarkers'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
-import { ComposerFileList, useComposerFiles, useFileDrop } from '../chat/ComposerFiles'
+import { ComposerFileList, useComposerFiles } from '../chat/ComposerFiles'
+import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { Tooltip } from '../Tooltip'
@@ -198,7 +199,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     onError: setFileError,
     reload: false,
   })
-  const { drag, dropProps } = useFileDrop((all) => void files.addFiles(all))
+  // files dropped anywhere on the panel (FileDropZone), with the box's own check: no room left for one more refuses the drop
+  const dropTarget: DropTarget = { files: (all) => void files.addFiles(all), refusal: () => (files.live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) }
   const picker = useRef<HTMLInputElement>(null)
   // they were uploaded into one chat: once another shows (New chat, 🕘, the chat deleted meanwhile, the room left and
   // joined again), they go, in every panel of the room
@@ -354,14 +356,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t('sideChat.placeholder', { name })
 
   const body = (
-    // files dropped anywhere on the panel go with the next question (the box shows the drop)
-    <div
-      className="flex min-h-0 flex-1 flex-col"
-      {...dropProps}
-      // moving between the panel's own parts is not leaving it (the box's drop ring would flicker)
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropProps.onDragLeave() }}
-      data-testid="side-chat-panel"
-    >
+    // files dropped anywhere on the panel go with the next question (the overlay over the panel shows the drop)
+    <FileDropZone className="flex min-h-0 flex-1 flex-col" target={dropTarget} data-testid="side-chat-panel">
       <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line', closeX ? 'pr-2 pl-4 md:px-4' : 'px-2 max-md:pl-0.5 md:px-4')}>
         {!closeX && (
           <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="side-chat-back">
@@ -473,7 +469,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             )}
           </div>
         )}
-        <div className={clsx('rounded-xl border bg-canvas transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-line focus-within:border-line-strong')} data-testid="side-chat-box">
+        <div className="rounded-xl border border-line bg-canvas transition focus-within:border-line-strong" data-testid="side-chat-box">
           <ComposerFileList files={files.files} onRemove={files.removeFile} className="px-3 pt-2.5" />
           <textarea
             ref={box}
@@ -517,7 +513,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
         <p className="pt-1.5 text-center text-[11px] text-faint" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
-    </div>
+    </FileDropZone>
   )
   if (!frame) return body
   return (

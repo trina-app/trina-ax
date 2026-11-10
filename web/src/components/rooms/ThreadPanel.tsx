@@ -4,7 +4,8 @@
 // as in the room). The column is components/rooms/RoomSideColumn.tsx: drawn here (`frame`), or by the room page or the
 // file viewer (components/rooms/ViewerColumn.tsx) around this (frame={false}). The root on top with its reactions, a
 // hairline with how many replies, the replies (the room's list: runs, reactions, my AI questions asked here), and the
-// reply box with "대화방에도 보내기". What I see is marked read in the thread (POST …/thread/read) while the window has
+// reply box with "대화방에도 보내기" (a file dropped anywhere on the thread goes into it: components/FileDropZone.tsx). What
+// I see is marked read in the thread (POST …/thread/read) while the window has
 // the focus and the end of the thread is in sight. A thread I cannot see (I joined after its root, it is gone) says so.
 // `alone`: a message that cannot have a thread (an AI answer only its asker sees), shown by itself from what this window
 // has, with no reply count and no box. `closeX`: the ✕ at every width, never the phone's ‹ (the file viewer's sheet on a
@@ -25,6 +26,7 @@ import { RoomComposer } from './RoomComposer'
 import { RoomMessages } from './RoomMessages'
 import { RoomSideColumn } from './RoomSideColumn'
 import { ImageGroup } from '../ImageViewer'
+import { FileDropZone } from '../FileDropZone'
 
 const NO_PENDING: PendingSend[] = []
 const NO_REPLIES: RoomMessage[] = []
@@ -126,7 +128,8 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const count = root?.thread?.replyCount ?? replies.filter((m) => !m.deletedAt).length
 
   const body = (
-    <>
+    // a file dropped anywhere on the thread goes into its reply box (none: the overlay says nothing can be attached)
+    <FileDropZone className="flex min-h-0 flex-1 flex-col" data-testid="thread-drop">
       {/* the ✕ keeps the same 16 px from the right edge as the replies and the reply box */}
       <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line', closeX ? 'pr-2 pl-4 md:px-4' : 'px-2 max-md:pl-0.5 md:px-4')}>
         {!closeX && (
@@ -170,7 +173,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
       {!notFound && root && !root.deletedAt && !alone && (
         <RoomComposer roomId={roomId} threadRootId={rootId} members={members} meId={meId} autoFocus={focusBox} onSent={() => { stick.current = true }} />
       )}
-    </>
+    </FileDropZone>
   )
   if (!frame) return body
   return (

@@ -11,6 +11,7 @@ import { useSession } from './store/session'
 import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
 import { setMobilePushSession } from './lib/mobile-push'
+import { guardFileDrops } from './lib/fileDrop'
 import './index.css'
 import './theme.edition.css'
 
@@ -27,6 +28,8 @@ useSession.subscribe(state => {
 })
 initPwa()
 followVisualViewport()
+// a file dropped where nothing takes it is not opened in place of the app
+guardFileDrops(window)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
