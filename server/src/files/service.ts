@@ -185,6 +185,9 @@ export interface ToolCtx {
    * they refuse whenever the target is wider than the sources.
    */
   confirmWidening?: (target: string, sources: string[], binding?: string) => Promise<string | null>
+  /** checked right before a produced file is placed (tools/make-file.ts placeProduced): a scheduled run's save its task's
+   * card covered is checked again there, after a long conversion (chat/schedule-cover.ts); throws to refuse */
+  beforePlace?: () => void
 }
 export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 'image/jpeg'; data: string }[]; text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 

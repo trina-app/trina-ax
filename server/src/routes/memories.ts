@@ -24,6 +24,7 @@ import { registerNotifications } from './notifications'
 import { registerPush } from './push'
 import { installPush } from '../notifications/push-service'
 import { needsReview, type ScheduleRow } from '../chat/schedules'
+import { scopeOut } from '../chat/schedule-scope'
 import { awaitingReview, confirmReview, reviewCard } from '../chat/schedule-review'
 import { editCard, saveTask, saveTemplate } from '../chat/schedule-edit'
 import { approveSuggestion, contributeSkills, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview, CONTRIBUTE_BODY_MAX } from '../skills/suggestions'
@@ -101,7 +102,7 @@ export const memoriesRoutes: RouteModule = {
       projectId: s.project_id, enabled: !!s.enabled, resumeBlockedReason: rt.schedules.resumeBlockedReason(s), nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
       templateId: s.template_id, templateVersion: s.template_version, sourcePath: s.template_source_path, outputPath: s.template_output_path,
       pendingDueAt: s.pending_due_at, retryAt: s.retry_at, deferredCount: s.deferred_count, ...lastOf(s),
-      needsReview: needsReview(s), reviewSince: s.review_since })
+      needsReview: needsReview(s), reviewSince: s.review_since, ...scopeOut(ctx, s) })
     /** the last run's result, and for a run that needed the owner's own key for a template, which one */
     function lastOf(s: ScheduleRow) {
       const lastOutcome = rt.schedules.lastOutcome(s.user_id, s.id)

@@ -154,6 +154,9 @@ export interface TurnTool {
   /** its reads still raise the room card after a room read: a read only by the AI's choice of method (api_request's GET
    * or HEAD; some APIs change something on a GET), not by the service's own mark */
   readsNeedCard?: boolean
+  /** the connection a call changes something at (a write), else null (a read, or not a connection's tool): a scheduled
+   * run that read a room skips the room card for it only when its task's card allowed it (chat/schedule-cover.ts) */
+  sendsTo?(args: unknown): string | null
 }
 
 /**

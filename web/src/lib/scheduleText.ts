@@ -57,3 +57,11 @@ export const cardLine = (s: Schedule, t: T, locale: Locale) => [stateLabel(s, t)
 
 /** What it does: a task's instruction, a template's folders (its prompt is the server's own, never shown). */
 export const schedulePreview = (s: Schedule) => (s.templateId ? `${s.sourcePath ?? ''} → ${s.outputPath ?? ''}` : s.prompt)
+
+/** A place whose content may go into a task's save folder, in words ("내 폴더", "#영업 대화", "groups/marketing/"). */
+export const sourceName = (x: NonNullable<Schedule['saveSources']>[number], t: T) =>
+  x.kind === 'mine' ? t('scheduled.sourceMine') : x.kind === 'root' ? t('scheduled.sourceRoot') : x.kind === 'room' ? t('scheduled.sourceRoom', { name: x.name ?? '?' }) : `${x.name ?? '?'}/`
+
+/** The list card's save line, the shape of a template's folders line: "저장: shared/주간보고", or "저장 폴더를 다시 확인해
+ *  주세요" when its permission lapsed (server/src/chat/schedule-scope.ts); '' for a task without a save folder. */
+export const saveLine = (s: Schedule, t: T) => (!s.saveFolder ? '' : s.saveLapsed ? t('scheduled.saveLapsed') : t('scheduled.saveLine', { folder: s.saveFolder }))

@@ -31,6 +31,10 @@ export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
  * those tasks are confirmed or deleted; a turn or skip id never starts with it). */
 const REVIEW_SOURCE = 'schedule-review-'
 const reviewSource = (userId: string, since: string) => `${REVIEW_SOURCE}${userId}-${Date.parse(since) || 0}`
+/** Source of a "check the save folder again" notice: the task and the time its save permission lapsed (one notice per
+ * lapse, chat/schedule-scope.ts markLapsed). */
+const SAVE_LAPSE_SOURCE = 'schedule-save-'
+const saveLapseSource = (scheduleId: string, at: string) => `${SAVE_LAPSE_SOURCE}${scheduleId}-${Date.parse(at) || 0}`
 const services = new WeakMap<AppContext, Notifications>()
 type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null; sort_at?: string }
 type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
@@ -324,7 +328,14 @@ export class Notifications {
       AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL) ${userId ? 'AND s.user_id=?' : ''}
       GROUP BY s.user_id, s.review_since ORDER BY s.review_since LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { user_id: string; review_since: string }[]
     for (const row of reviews) this.record(row.user_id, 'schedule.failure', reviewSource(row.user_id, row.review_since), row.review_since, true)
-    return Math.max(rows.length, skips.length, reviews.length, needs.length, gone.length)
+    // a task whose save folder lapsed (moved, renamed, deleted, its rules changed, the owner's write access gone): one
+    // notice per lapse, shown in the app always (its runs save in the own folder until the owner checks it again)
+    const lapses = db.query(`SELECT s.id, s.user_id, s.save_lapsed_at FROM schedules s
+      WHERE s.save_lapsed_at IS NOT NULL AND s.save_lapsed_at >= ? AND s.save_folder IS NOT NULL
+      AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL) ${userId ? 'AND s.user_id=?' : ''}
+      ORDER BY s.save_lapsed_at LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; save_lapsed_at: string }[]
+    for (const row of lapses) this.record(row.user_id, 'schedule.failure', saveLapseSource(row.id, row.save_lapsed_at), row.save_lapsed_at, true)
+    return Math.max(rows.length, skips.length, reviews.length, needs.length, gone.length, lapses.length)
   }
   preferences(userId: string) { return getPreferences(this.ctx.db, userId) }
   private locale(userId: string) { return getUser(this.ctx.db, userId)?.locale ?? teamDefaultLocale(this.ctx.db) }
@@ -487,6 +498,11 @@ export class Notifications {
       // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
       const gone = this.ctx.db.query('SELECT schedule_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string } | null
       if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true, ...this.scheduleOf(row.user_id, gone.schedule_id) }
+    }
+    if (row.event_type === 'schedule.failure' && row.source_id.startsWith(SAVE_LAPSE_SOURCE)) {
+      // its save folder to check again: the Scheduled page, never a chat; the task by its title while it is there
+      const id = row.source_id.slice(SAVE_LAPSE_SOURCE.length).replace(/-\d+$/, '')
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, saveLapsed: true, ...this.scheduleOf(row.user_id, id) }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat

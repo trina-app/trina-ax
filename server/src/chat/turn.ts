@@ -39,6 +39,7 @@ import { getTeamSettings } from '../admin/settings'
 import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
+import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
 import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { recordSkillUse } from '../admin/skill-usage'
@@ -741,7 +742,8 @@ export class TurnExec {
     let scheduled = ''
     if (spec.clientKind === 'schedule') {
       const s = rt.db.query('SELECT * FROM schedules WHERE last_chat_id = ?').get(spec.chatId) as ScheduleRow | null
-      scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task') + '\n\n'
+      // what its card let it do without a card (a save folder, sends), instead of "everything is declined"
+      scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task', s ? runAllowance(rt.ctx, s) : null) + '\n\n'
     }
     // the previous answer paused at a per-answer limit: the AI learns that with this message, so "continue" (or anything
     // else) is read knowing the work was cut off there (the session or the history has what it did)
@@ -1763,6 +1765,8 @@ export class TurnExec {
    * AI turn that produced exactly these bytes anywhere (bytesOutsideLevel: a copy on the Files screen or of a folder, a
    * restore from the trash or a version, a copy whose source changed since). A file only people wrote, or with no known
    * history, carries none. */
+  /** fileOutsideLevel for a scheduled run's check of "my folder" (chat/schedule-cover.ts) */
+  ownFileOutside(rel: string): number { return this.fileOutsideLevel(rel) }
   private fileOutsideLevel(rel: string, depth = 0, budget = { left: OWN_HASH_BUDGET }): number {
     if (depth > 4) return 2
     try {
@@ -1975,7 +1979,7 @@ export class TurnExec {
    * its own room only, that room's grant ([이 방에서는 항상 허용], sideGrantRoom). Nothing is covered once the chat used
    * something from outside the team (chats.room_outside, kept until a new session: noteRoomTool, noteOwnReads).
    */
-  async confirmRoomChange(tool: string, input: unknown, o: { widen?: WidenOf; main?: boolean; noCover?: boolean } = {}): Promise<string | null> {
+  async confirmRoomChange(tool: string, input: unknown, o: { widen?: WidenOf; main?: boolean; noCover?: boolean; send?: string | null } = {}): Promise<string | null> {
     // a room's session: always; the person's own chat: once a room's messages came into it (chats.rooms_seen), for
     // the rest of the chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
     const own = !this.room
@@ -1999,6 +2003,16 @@ export class TurnExec {
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
     if (this.roomAllowed.has(key)) return null
+    // a scheduled run that read a room: what its task's card allowed goes on without the card nobody answers (a new file
+    // in its save folder, a send to a pinned connection: chat/schedule-cover.ts); `send` is the connection a call writes
+    // to (TurnTool.sendsTo). A new file in the person's own folder is the next rule's, in a run too
+    const cover = own && !o.noCover ? this.scheduleCover : null
+    if (cover) {
+      const t = tool === 'save_room_file' ? (o.widen?.target ? { path: o.widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const c = t ? cover.save({ key, tool, path: t.path, mayBeNew: t.mayBeNew, from: o.widen?.extra ?? [], read: o.widen?.read ?? [], main: o.main !== false })
+        : o.send ? cover.send(o.send) : undefined
+      if (c !== undefined) return c
+    }
     // the person's own chat: a new file in their own folder (or one this answer made) goes on without a card; nobody but
     // them reads it, and the steps and the answer's file list show it
     if (own && !o.noCover && this.ownFolderTarget(tool, input, o.widen)) {
@@ -2150,6 +2164,9 @@ export class TurnExec {
    * through: null.
    */
   async recheckRoomCover(tool: string, input: unknown, o: { main?: boolean } = {}): Promise<string | null> {
+    // a save a scheduled task's card covered: the same checks again, right before it writes (chat/schedule-cover.ts)
+    const scheduled = this.scheduleCover?.recheck(callKey(tool, input)) ?? null
+    if (scheduled) return scheduled
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -2688,8 +2705,10 @@ export class TurnExec {
     const inLog = [...paths].filter(inList)
     const add: ReadSource[] = [...[...paths].filter((p) => !inList(p)), ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
     for (const p of listed ?? []) add.push({ type: 'name', path: p })
-    // the person's own files carry what the chat that wrote them had seen (noteOwnReads)
+    // the person's own files carry what the chat that wrote them had seen (noteOwnReads); in a scheduled run one an AI
+    // wrote after seeing other people's content is not "my folder" for its save folder either (chat/schedule-cover.ts)
     if (paths.size) this.noteOwnReads(paths)
+    if (paths.size && this.scheduleCover) for (const p of paths) this.scheduleCover.noteOwnRead(p)
     paths.clear()
     names?.clear()
     listed?.clear()
@@ -2702,10 +2721,33 @@ export class TurnExec {
    * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
    * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
    */
-  async confirmWidening(target: string, extraSources: string[] = [], binding?: string): Promise<string | null> {
+  async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }): Promise<string | null> {
     const need = this.widenNeed(target, extraSources, binding)
-    return need ? (await this.askWidening(need, { binding }))?.text ?? null : null
+    if (!need) return null
+    // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
+    // that saves (its claim on an absent path, its step); only the tools a card may cover (never save_url, a video or
+    // anything else that saves)
+    const cover = call && COVER_TOOLS.has(call.tool) ? this.scheduleCover : null
+    if (cover && call) {
+      // make_file's first check names its output without the format's extension: the file it makes is the one covered
+      const output = (call.args as { output?: unknown } | null)?.output
+      const path = call.tool === 'make_file' && target === output ? writeTargetOf(call.tool, call.args, (src) => this.sourceRel(src))?.path ?? target : target
+      const c = cover.save({ key: callKey(call.tool, call.args), tool: call.tool, path, mayBeNew: true, from: extraSources, read: [], main: call.main !== false })
+      if (c !== undefined) return c
+    }
+    return (await this.askWidening(need, { binding }))?.text ?? null
   }
+
+  /** A scheduled run's covers (chat/schedule-cover.ts): null in any other turn and in a template's run. */
+  get scheduleCover(): ScheduleCover | null {
+    if (this.scheduleCoverMemo === undefined) {
+      try { this.scheduleCoverMemo = this.spec.clientKind === 'schedule' && !this.templateScope && !this.room ? ScheduleCover.of(this) : null } catch { this.scheduleCoverMemo = null }
+    }
+    return this.scheduleCoverMemo
+  }
+  private scheduleCoverMemo: ScheduleCover | null | undefined = undefined
+  /** A call ended: what it claimed under a scheduled task's card goes (chat/schedule-cover.ts). */
+  releaseScheduleCover(tool: string, args: unknown) { this.scheduleCoverMemo?.release(callKey(tool, args)) }
 
   /** Would saving at `target` (with `extraSources` copied in, and bytes from `read`: a room file's room, not yet in the
    * chat's read scope) need the wider-audience card now? Its card's facts, or null (no card: nothing narrower was read,
