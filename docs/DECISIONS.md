@@ -18644,7 +18644,10 @@ chips, "답글 N개", "(수정됨)", a file's size and "미리보기" and the av
   part selected, under its author line. A selection crossing a day keeps the date line, and an event line is a line of
   its own (both were in the copy before; the least change). It reads the page (the rows, their `select-text` words, the
   run's name and `<time>`), so the timeline and a thread's panel (root and replies, two lists) copy the same way. No
-  `text/html`: a paste into Slack, Docs or the room's own box gets the same text.
+  `text/html`: a paste into Slack, Docs or the room's own box gets the same text. Firefox splits a dragged selection
+  around what cannot be selected into several ranges; they are read as one (first start to last end). The parts are
+  read with one off-screen layout per copy (innerText keeps the line breaks); pictures and diagrams are dropped from
+  the copy first.
 - **A selection inside one message is the browser's own copy**, as before, now without "(수정됨)". The same for a
   selection that reaches the next message's very start (a triple click).
 - **The AI chat and the ✦ side chat** (they share `chat/Messages.tsx`, not the room list): the rows under a message
@@ -18653,5 +18656,6 @@ chips, "답글 N개", "(수정됨)", a file's size and "미리보기" and the av
   button (Markdown and HTML) is unchanged.
 - Not done: a rich (HTML) copy of several messages; the AI chat's own multi-message format.
 - Tests: web unit `message-copy.test.ts`; e2e `room-copy.spec.ts` (three runs with a file, a reaction and an edited
-  message with a thread copied clean; a partial first message; one message as before; a thread's panel; the side chat).
+  message with a thread copied clean; a partial first message; Firefox's several ranges; one message as before; a
+  thread's panel; the side chat; a day line and an AI answer with a code block).
 - Version impact: **patch** (a fix; no API or data change).

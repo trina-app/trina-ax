@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 08:09
 - Branch: `fix/clean-message-copy`
-- Status: in progress
+- Status: done
 - Where: trina-ax/web (room message list, chat message action rows). Why: room and chat screens are core UI (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a copy fix with no API or data change
 
@@ -50,4 +50,9 @@ thread and side-chat e2e specs plus a new `room-copy.spec.ts`.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The copy handler reads the page (rows, their `select-text` words, the run's name and `<time>`), so the
+timeline and a thread's two lists copy the same way; the parts are read with one off-screen layout (innerText keeps the
+line breaks). Added after the review: Firefox's selection of several ranges is read as one; a hidden ("withheld") row
+and the run's avatar cannot be selected; a clone drops pictures and diagrams. Also unselectable now: the AI chat's steps
+toggle. Unit tests (web) 2081 pass, 0 fail; e2e room, thread, side-chat and chat specs 178 pass (22 screenshot tests
+skipped), the new `room-copy.spec.ts` 8 pass. PR: #316.

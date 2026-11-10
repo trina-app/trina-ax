@@ -103,6 +103,28 @@ test('a selection that starts mid-message gives the part selected, under its aut
   expect(await copied(page)).toBe(['소라님  오후 6:01', '부탁드려요', 'acme-brief.pdf', '', 'Olga  오후 6:03', '네네, 수요일까지 보내기로했어요'].join('\n'))
 })
 
+test("Firefox's selection of several ranges (it splits a drag around what cannot be selected) copies as one", async ({ page }) => {
+  await openRoom(page)
+  // Chromium keeps one range; the selection the handler reads is made to look like Firefox's: one range per message's
+  // words, the first in the second message, the last in the fourth
+  await page.evaluate(() => {
+    const ps = [...document.querySelectorAll('[data-testid="room-message"] p.whitespace-pre-wrap')]
+    const ranges = ps.slice(1).map((p) => {
+      const r = document.createRange()
+      r.selectNodeContents(p)
+      return r
+    })
+    getSelection()!.removeAllRanges()
+    getSelection()!.addRange(ranges[0]!.cloneRange())
+    const real = window.getSelection.bind(window)
+    window.getSelection = () => {
+      const s = real()!
+      return { rangeCount: ranges.length, isCollapsed: false, getRangeAt: (i: number) => ranges[i]!, toString: () => s.toString() } as unknown as Selection
+    }
+  })
+  expect(await copied(page)).toBe(['소라님  오후 6:01', '피드백 부탁드려요', 'acme-brief.pdf', '', 'Olga  오후 6:03', '네네, 수요일까지 보내기로했어요', '', '벤  오후 6:04', '👍'].join('\n'))
+})
+
 test('a selection inside one message copies just that text', async ({ page }) => {
   await openRoom(page)
   const msgs = page.getByTestId('room-message')
@@ -169,4 +191,56 @@ test('the side chat: a question and its answer copy without the buttons; the ans
   const md = await page.evaluate(() => navigator.clipboard.readText())
   expect(md.length).toBeGreaterThan(0)
   expect(text).toContain(md.replace(/\*\*/g, '').split('\n')[0]!.trim())
+})
+
+test("a day line and an AI answer: the date between the days, the answer's words without its code bar or who asked", async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await routeRoom(page, {
+    members: [SORA, BEN],
+    messages: [
+      { id: id(1), author: BEN, body: '내일 봐요', extra: { createdAt: '2026-11-04T14:50:00.000Z' } },
+      { id: id(2), author: SORA, body: '빌드 명령 알려 주세요', extra: { createdAt: '2026-11-05T09:01:00.000Z' } },
+      { id: id(3), author: null as unknown as typeof SORA, body: '이렇게 하면 돼요.\n\n```sh\nbun run build\n```\n\n끝나면 알려 주세요.', extra: { authorKind: 'ai', author: null, askedBy: SORA, createdAt: '2026-11-05T09:02:00.000Z' } },
+    ],
+  })
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const msgs = page.getByTestId('room-message')
+  await expect(msgs).toHaveCount(3)
+  await expect(page.getByTestId('room-day')).toHaveCount(2)
+  const answer = msgs.nth(2)
+  await expect(answer.getByTestId('room-ai-asked-by')).toBeVisible()
+  await drag(page, words(msgs.nth(0)), answer.locator('.answer p').last())
+  const text = await copied(page)
+  console.log(`copied (day line, AI answer):\n${JSON.stringify(text)}`)
+  expect(text).toBe([
+    '벤  오후 11:50',
+    '내일 봐요',
+    '',
+    '2026년 11월 5일 목요일',
+    '',
+    '소라님  오후 6:01',
+    '빌드 명령 알려 주세요',
+    '',
+    '트리나  오후 6:02',
+    '이렇게 하면 돼요.',
+    '',
+    'bun run build',
+    '',
+    '끝나면 알려 주세요.',
+  ].join('\n'))
+})
+
+// SHOTS_DIR=<folder>: the selection over three runs, at 1440 and 390, light (only the words are marked)
+test('shots: the selection marks only the words', async ({ page }) => {
+  test.skip(!process.env.SHOTS_DIR, 'SHOTS_DIR not set')
+  const dir = process.env.SHOTS_DIR!
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width > 400 ? 900 : 844 })
+    await openRoom(page)
+    const msgs = page.getByTestId('room-message')
+    await drag(page, words(msgs.nth(0)), words(msgs.nth(3)))
+    await page.mouse.move(5, 5)
+    await page.screenshot({ path: `${dir}/after-selection-${width}-light.png` })
+  }
 })

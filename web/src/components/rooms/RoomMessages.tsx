@@ -463,7 +463,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
 function WithheldRow({ roomId, m, flash, onJump }: { roomId: string; m: RoomMessage; flash: boolean; onJump?: () => void }) {
   const t = useT()
   return (
-    <div id={messageDomId(m.id)} className={clsx('-mx-2 rounded-lg px-2 py-0.5 transition', flash && 'bg-accent-soft')} data-testid="room-message" data-withheld="">
+    <div id={messageDomId(m.id)} className={clsx('-mx-2 rounded-lg px-2 py-0.5 transition select-none', flash && 'bg-accent-soft')} data-testid="room-message" data-withheld="">
       {m.authorKind === 'ai' && <AskedBy roomId={roomId} m={m} onJump={onJump} />}
       <p className={clsx('text-reading leading-reading text-faint', WORDS)} data-testid="room-withheld">{t(m.authorKind === 'ai' ? 'rooms.withheldAnswer' : 'rooms.withheldMessage')}</p>
     </div>
