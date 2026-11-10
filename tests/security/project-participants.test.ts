@@ -307,6 +307,92 @@ describe('narrowing, conflicts, the creator gone', () => {
   })
 })
 
+describe('the members panel (docs/DECISIONS.md "Project members in one panel")', () => {
+  const view = async (who: Who, id: string) => {
+    const one = (await A.json(`/api/projects/${id}`, { as: who })).body as Record<string, unknown>
+    const inList = ((await A.json('/api/projects', { as: who })).body.items as Record<string, unknown>[]).find((x) => x.id === id)
+    expect(inList?.membersEditable).toBe(one.membersEditable)
+    expect(inList?.creatorChangesMembers).toBe(one.creatorChangesMembers)
+    return { membersEditable: one.membersEditable, creatorChangesMembers: one.creatorChangesMembers }
+  }
+
+  test('membersEditable: the creator and admins of a project the server made; a participant reads the creator changes them', async () => {
+    const p = await create('alice', { name: 'Panel', participants: [user('erin')] })
+    expect(await view('alice', p.id)).toEqual({ membersEditable: true, creatorChangesMembers: true })
+    expect(await view('carol', p.id)).toEqual({ membersEditable: true, creatorChangesMembers: true })
+    expect(await view('erin', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: true })
+    // a personal project has no members: neither field
+    const own = await create('alice', { name: 'Panel mine', scope: 'personal' })
+    expect(await view('alice', own.id)).toEqual({ membersEditable: undefined, creatorChangesMembers: undefined })
+  })
+
+  test('an older project: a member creator on an admin\'s projects/<name> gets no 관리 (only admins), one outside projects/ nobody', async () => {
+    fs.mkdirSync(path.join(A.team, 'projects/panel-old'), { recursive: true })
+    const row = ensureFolderRow(A.ctx.db, 'projects/panel-old')
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, row.id, [{ subjectType: 'group', subjectId: 'marketing', access: 'write' }], 'carol'))()
+    const old = uuidv7()
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'Panel old', 'projects/panel-old', '', 'alice', '2026-01-01T00:00:00Z')").run(old)
+    // alice may edit its name (she writes the folder) but not its members: those are the admins'
+    expect((await A.json(`/api/projects/${old}`, { as: 'alice' })).body.canEdit).toBe(true)
+    expect(await view('alice', old)).toEqual({ membersEditable: false, creatorChangesMembers: false })
+    expect(await view('carol', old)).toEqual({ membersEditable: true, creatorChangesMembers: false })
+    expect(await view('erin', old)).toEqual({ membersEditable: false, creatorChangesMembers: false })
+    // and what the dialog would have answered: not editable for her, so the page offers nothing that ends there
+    expect((await access('alice', old)).body.editable).toBe(false)
+    const legacy = uuidv7()
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'Panel legacy', 'groups/marketing/panel', '', 'alice', '2026-01-01T00:00:00Z')").run(legacy)
+    fs.mkdirSync(path.join(A.team, 'groups/marketing/panel'), { recursive: true })
+    expect(await view('alice', legacy)).toEqual({ membersEditable: false, creatorChangesMembers: false })
+    expect(await view('carol', legacy)).toEqual({ membersEditable: false, creatorChangesMembers: false })
+  })
+
+  test('a creator whose account is off is not named as the one who changes members; a folder in the trash has no 관리', async () => {
+    // a member of its own, as createProject writes a project (disabling alice would disturb the other tests)
+    A.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('gus', 'gus', 'Gus Lee', 'member')").run()
+    A.ctx.db.query("INSERT INTO group_members VALUES ('marketing', 'gus')").run()
+    fs.mkdirSync(path.join(A.team, 'projects/panel-gus'), { recursive: true })
+    const row = ensureFolderRow(A.ctx.db, 'projects/panel-gus')
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, row.id, [{ subjectType: 'user', subjectId: 'gus', access: 'write' }, { subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'gus'))()
+    const p = { id: uuidv7() }
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, folder_made) VALUES (?, 'Panel gus', 'projects/panel-gus', '', 'gus', '2026-01-01T00:00:00Z', 1)").run(p.id)
+    expect(await view('erin', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: true })
+    A.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'gus'").run()
+    expect(await view('erin', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: false })
+    expect(await view('carol', p.id)).toEqual({ membersEditable: true, creatorChangesMembers: false })
+    A.ctx.db.query('UPDATE projects SET trashed_with = ? WHERE id = ?').run(uuidv7(), p.id)
+    expect(await view('carol', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: false })
+  })
+
+  test('the dry run says when the save also writes the floor rule or puts the creator\'s rule back (the screen asks then)', async () => {
+    // a folder an older build made: the creator's rule only, no floor; the root opens to everyone
+    fs.mkdirSync(path.join(A.team, 'projects/panel-nofloor'), { recursive: true })
+    const nf = ensureFolderRow(A.ctx.db, 'projects/panel-nofloor')
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, nf.id, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], 'alice'))()
+    const id = uuidv7()
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, folder_made) VALUES (?, 'No floor', 'projects/panel-nofloor', '', 'alice', '2026-01-01T00:00:00Z', 1)").run(id)
+    const root = ensureFolderRow(A.ctx.db, '')
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, root.id, [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'carol'))()
+    try {
+      // nobody gains it and nobody was chosen to go, yet bob and erin lose it: the screen must ask
+      const r = await preview('alice', { projectId: id, participants: [] })
+      expect(r.body).toMatchObject({ added: 0, addsFloor: true })
+      expect(r.body.removed).toBeGreaterThan(0)
+      expect(r.body.restoresCreator).toBeUndefined()
+    } finally { A.ctx.db.transaction(() => replaceRules(A.ctx.db, root.id, [], 'carol'))() }
+    // the creator's rule taken out in Admin › Folder permissions: the save puts it back
+    const p = await create('alice', { name: 'Panel creator', participants: [user('erin')] })
+    const row = ensureFolderRow(A.ctx.db, p.folderPath)
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, row.id, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
+    const c = await preview('carol', { projectId: p.id, participants: [user('erin')] })
+    expect(c.body).toMatchObject({ added: 1, restoresCreator: true })
+    expect(c.body.addsFloor).toBeUndefined()
+    // an ordinary change: neither
+    const q = await create('alice', { name: 'Panel plain', participants: [user('erin')] })
+    const plain = await preview('alice', { projectId: q.id, participants: [] })
+    expect(plain.body).toEqual({ people: 3, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
+  })
+})
+
 describe('share and delete', () => {
   test('sharing a personal project makes projects/<name> with participants and copies the files; nowhere else', async () => {
     const own = await create('alice', { name: '보고서', scope: 'personal' })

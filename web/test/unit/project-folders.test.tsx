@@ -85,7 +85,7 @@ describe('the chat and its project', () => {
   })
 
   test('the new texts exist in every language', () => {
-    const keys = ['files.openProject', 'files.isProject', 'projects.who', 'projects.whoLine', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.openProject', 'files.isProject', 'projects.whoCount', 'projects.membersCount', 'projects.membersByCreator', 'projects.membersByAdmins', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
   })
@@ -100,8 +100,8 @@ describe('the chat and its project', () => {
   })
 
   test('who can see a team project: the owner and admins too, and groups are 부서 in Korean', () => {
-    expect(translate('ko', 'projects.whoAdmins')).toContain('관리자')
-    expect(translate('en', 'projects.whoAdmins')).toContain('admins')
+    expect(translate('ko', 'projects.whoCount', { n: 9 })).toBe('9명이 봐요 (팀장·관리자 포함)')
+    expect(translate('en', 'projects.whoCount', { n: 9 })).toContain('admins')
     expect(translate('ko', 'projects.whoGroup', { name: '영업' })).toBe('영업 부서')
   })
 })
