@@ -42,7 +42,7 @@ import { markerOf } from '../../lib/sessionMarkers'
 import { quotes, sendTargets } from '../../lib/sideChatSend'
 import { aiName } from '../../lib/tabs'
 import { readStash } from '../../lib/teamAttach'
-import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
+import { useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
@@ -258,11 +258,10 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     olderRead.current.pages++
     void useChats.getState().loadOlder(chatId).catch(() => {})
   }, [needOlder, chatId, thread.nextCursor])
-  const scroller = useRef<HTMLDivElement>(null)
-  const content = useRef<HTMLDivElement>(null)
+  // new answers, pictures loading and a phone's keyboard: at the bottom it stays there (lib/stickToBottom.ts)
+  const list = useStickToBottom()
+  const { scroller, content, stick } = list
   const box = useRef<HTMLTextAreaElement>(null)
-  const stick = useRef(true)
-  const lastTop = useRef(0)
   // the box's files (the full chat box's own parts), kept per room like the draft, in every panel of the room
   const [fileError, setFileError] = useState<string | null>(null)
   const files = useComposerFiles({
@@ -319,19 +318,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
 
   const last = messages.at(-1)
   useLayoutEffect(() => {
-    const el = scroller.current
-    if (el && stick.current) jumpToBottom(el, lastTop)
+    list.follow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [last?.id, last?.content.length, messages.length])
-  useEffect(() => {
-    const s = scroller.current, c = content.current
-    if (!s || !c) return
-    return stickToBottom(s, c, () => stick.current, undefined, () => { lastTop.current = s.scrollTop })
-  }, [])
   const onScroll = () => {
-    const el = scroller.current
-    if (!el) return
-    stick.current = followsAfterScroll(el, stick.current, lastTop.current)
-    lastTop.current = el.scrollTop
+    list.onScroll()
   }
 
   const fail = (e: unknown) => toast({ level: 'warn', text: errorText(e, locale, t('error.network')) })
@@ -522,7 +513,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </ImageGroup>
         </div>
       </div>
-      <div className="shrink-0 px-4 pb-[max(0.75rem,var(--safe-bottom))]">
+      <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
         {quoted && (
           <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
             <div className="flex items-start gap-2">
@@ -592,7 +583,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </div>
         </div>
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
-        <p className="pt-1.5 text-center text-[11px] text-faint" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
+        <p className="pt-1.5 text-center text-[11px] text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
     </FileDropZone>
   )

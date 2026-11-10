@@ -19,7 +19,7 @@ import { applyMyStatus, useStatusOf } from '../store/statusMessages'
 import { toast } from '../store/ui'
 import { EmojiPicker } from './EmojiPicker'
 import { placeTip, Tooltip } from './Tooltip'
-import { Button, Field, IconButton, inputCls, Modal } from './ui'
+import { Button, Field, IconButton, inputCls, Modal, useMediaQuery } from './ui'
 
 /** A status in words: "In a meeting · until 3:30 PM"; an emoji alone: "Until 3:30 PM", or the emoji. */
 export function useStatusWords(): (s: StatusMessage) => string {
@@ -169,6 +169,11 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
   const [picking, setPicking] = useState(false)
   const [busy, setBusy] = useState<'save' | 'clear' | null>(null)
   const input = useRef<HTMLInputElement>(null)
+  // a touch screen: the box does not take the keyboard on opening (most people tap a suggestion, and the keyboard
+  // covered them and the buttons); it comes up when the box is tapped
+  const touch = useMediaQuery('(pointer: coarse)')
+  /** after a suggestion, an emoji or ✕: the box takes the keyboard on a computer; a touch screen leaves it down */
+  const focusBox = () => { if (!touch) input.current?.focus() }
   const labelId = useId()
 
   const empty = !emoji && !text.trim()
@@ -181,14 +186,14 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
     setText(t(s.text))
     setClear(s.clear)
     if (s.clear === 'dates') { setFrom(today); setTo(today) }
-    input.current?.focus()
+    focusBox()
   }
   const startOver = () => {
     setEmoji('')
     setText('')
     setClear('today')
     setPicking(false)
-    input.current?.focus()
+    focusBox()
   }
   const save = async () => {
     if (!canSave) return
@@ -249,7 +254,7 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
           <div className="relative min-w-0 flex-1">
             <input
               ref={input}
-              data-autofocus
+              data-autofocus={touch ? undefined : ''}
               value={text}
               onChange={(e) => setText(e.target.value)}
               maxLength={STATUS_TEXT_MAX}
@@ -277,8 +282,8 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
             gridClassName="h-60"
             first={{ label: t('status.emojiGrid'), emoji: STATUS_EMOJI, testId: 'status-emoji-grid', itemTestId: 'status-emoji-pick' }}
             selected={emoji ? [emoji] : []}
-            onPick={(e) => { setEmoji(e); setPicking(false); input.current?.focus() }}
-            onDismiss={() => { setPicking(false); input.current?.focus() }}
+            onPick={(e) => { setEmoji(e); setPicking(false); focusBox() }}
+            onDismiss={() => { setPicking(false); focusBox() }}
           />
         ) : empty ? (
           <ul aria-label={t('status.suggestions')} className="-mx-2 mt-3" data-testid="status-suggestions">

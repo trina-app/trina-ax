@@ -29,7 +29,7 @@ export function BottomTabs() {
   if (hidesTabs(path)) return null
   const current = tabOf(path)
   return (
-    <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden" data-bottom-bar data-testid="bottom-tabs">
+    <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden in-[.keyboard-open]:hidden" data-bottom-bar data-testid="bottom-tabs">
       <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<Sparkles size={22} aria-hidden />} label={aiName(t)} testId="tab-ai" />
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats">
         {aiWaits ? (

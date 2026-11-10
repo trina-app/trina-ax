@@ -230,7 +230,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }
 
   return (
-    <div ref={root} className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+    <div ref={root} className="shrink-0 pb-[var(--box-bottom)] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
       <VoiceLive voice={voice} />
       {above}
       <div

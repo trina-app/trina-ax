@@ -1,9 +1,10 @@
 // lib/stickToBottom.ts: a message list at its bottom stays there when its content grows and when the list itself gets
-// shorter (a phone's keyboard with interactive-widget=resizes-content: the list shrinks from below, its scroll position
-// stays and no scroll event comes). A reader who scrolled up is left where they are. followsAfterScroll: the scroll event
-// of the list's own jump to the bottom, coming after a card was added, does not read as the reader scrolling up.
+// shorter or taller (a phone's keyboard); a reader who scrolled up keeps the message in sight where it was. A scroll
+// event in the same frame as the list's own size change is the browser's, not the reader's (the iPhone app's WebView
+// moves the list 22 px up as the keyboard opens). followsAfterScroll: the scroll event of the list's own jump to the
+// bottom, coming after a card was added, does not read as the reader scrolling up.
 import { expect, test } from 'bun:test'
-import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../src/lib/stickToBottom'
+import { followsAfterScroll, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
 
 /** a ResizeObserver whose callbacks the test runs, as the browser would after a layout */
 class FakeRO {
@@ -15,40 +16,208 @@ class FakeRO {
   disconnect() { this.disconnected = true }
   fire() { if (!this.disconnected) this.cb() }
 }
-/** a scroller 844 px tall at 390 x 844, holding 3,000 px of messages, scrolled to the bottom */
-const list = () => {
-  const s = { scrollHeight: 3000, clientHeight: 700, scrollTop: 2300 }
-  return { scroller: s, content: {}, bottomGap: () => s.scrollHeight - s.scrollTop - s.clientHeight }
+/** a visual viewport whose events the test sends */
+class FakeVV {
+  handlers = new Map<string, Set<() => void>>()
+  addEventListener(type: string, h: () => void) { (this.handlers.get(type) ?? this.handlers.set(type, new Set()).get(type)!).add(h) }
+  removeEventListener(type: string, h: () => void) { this.handlers.get(type)?.delete(h) }
+  send(type: string) { for (const h of this.handlers.get(type) ?? []) h() }
+  count() { return [...this.handlers.values()].reduce((n, s) => n + s.size, 0) }
 }
 
-test('the keyboard opens (the list shrinks to 306 px): the newest message stays in sight', () => {
-  const { scroller, content, bottomGap } = list()
-  let atBottom = true
-  const stop = stickToBottom(scroller as never, content as never, () => atBottom, FakeRO as never)
+/** a scrolling box whose scrollTop the browser keeps between 0 and its end, as a real one */
+class Box {
+  private top = 0
+  constructor(public scrollHeight: number, public clientHeight: number, public clientWidth: number, top: number) { this.scrollTop = top }
+  get scrollTop() { return this.top }
+  set scrollTop(v: number) { this.top = Math.max(0, Math.min(v, this.scrollHeight - this.clientHeight)) }
+}
+/** px between what is in sight and the end of the list */
+const gap = (el: Box) => el.scrollHeight - el.scrollTop - el.clientHeight
+
+/** A list as the hook drives it: the size watcher, and the list's scroll handler (useStickToBottom's onScroll). */
+function setup(el: Box, stick = true) {
+  const st = { stick: { current: stick }, lastTop: { current: el.scrollTop }, seen: { current: null as ListSize | null } }
+  const vv = new FakeVV()
+  const stop = watchListSize(el as never, {} as never, { follows: () => st.stick.current, lastTop: st.lastTop, seen: st.seen }, FakeRO as never, vv as never)
   const ro = FakeRO.last!
-  expect(ro.observed).toEqual([content, scroller])
-  // 844 → 450 high: the list loses 394 px from below, scrollTop stays
-  scroller.clientHeight = 306
-  expect(bottomGap()).toBe(394)
+  // observe() reports the first size at once
   ro.fire()
-  expect(scroller.scrollTop).toBe(scroller.scrollHeight)
+  // the hook's own scroll handler
+  const onScroll = () => onListScroll(el, st)
+  return { st, ro, vv, stop, onScroll }
+}
+
+test('the keyboard opens at the bottom (the list shrinks to 306 px): the newest message stays in sight', () => {
+  const el = new Box(3000, 700, 390, 2300)
+  const { ro, stop } = setup(el)
+  expect(ro.observed.length).toBe(2)
+  // 844 → 450 high: the list loses 394 px from below, scrollTop stays and no scroll event comes (Android)
+  el.clientHeight = 306
+  expect(gap(el)).toBe(394)
+  ro.fire()
+  expect(gap(el)).toBe(0)
   // a picture loads and the content grows: still at the bottom
-  scroller.scrollHeight = 3400
+  el.scrollHeight = 3400
   ro.fire()
-  expect(scroller.scrollTop).toBe(3400)
-  // a reader who scrolled up to an older message is left there
-  atBottom = false
-  scroller.scrollTop = 500
-  scroller.clientHeight = 700
-  ro.fire()
-  expect(scroller.scrollTop).toBe(500)
+  expect(gap(el)).toBe(0)
   stop()
   expect(ro.disconnected).toBe(true)
 })
 
+test("the iPhone app's frame: the list shrinks and the engine nudges it 22 px up before the size watcher; it still follows", () => {
+  // measured in the iOS 26.5 simulator, a WKWebView like the phone app's: 8580 / 629 / 9209 before, 8558 / 248 after
+  const el = new Box(9209, 629, 393, 8580)
+  const { st, ro, onScroll } = setup(el)
+  el.clientHeight = 248
+  el.scrollTop = 8558
+  expect(gap(el)).toBe(403)
+  // the scroll event comes first: the browser's, not the reader's
+  expect(onScroll()).toBe(false)
+  expect(st.stick.current).toBe(true)
+  ro.fire()
+  expect(gap(el)).toBe(0)
+  // the list's own jump comes back as a scroll event next frame: still following
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(true)
+})
+
+test('before this fix, that nudge read as the reader leaving the bottom', () => {
+  const el = { scrollHeight: 9209, clientHeight: 248, scrollTop: 8558 }
+  expect(followsAfterScroll(el, true, 8580)).toBe(false)
+})
+
+/** messages of 120 px each from the content's top; the first one in sight and how far below the list's top it starts */
+const firstInSight = (el: { scrollTop: number }) => {
+  const i = Math.floor(el.scrollTop / 120)
+  return { i, offset: i * 120 - el.scrollTop }
+}
+
+test('scrolled up to read: the keyboard opens and closes, and the message in sight keeps its place', () => {
+  const el = new Box(6000, 629, 393, 5371)
+  const { st, ro, vv, onScroll } = setup(el, true)
+  // the reader scrolls up to message 20
+  el.scrollTop = 2430
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+  const before = firstInSight(el)
+  // the keyboard: the list shrinks, the engine nudges it, a visual viewport event and the size watcher
+  el.clientHeight = 248
+  el.scrollTop = 2408
+  vv.send('resize')
+  expect(onScroll()).toBe(false)
+  ro.fire()
+  expect(firstInSight(el)).toEqual(before)
+  expect(st.stick.current).toBe(false)
+  // the keyboard closes: the list grows back, the message stays
+  el.clientHeight = 629
+  vv.send('resize')
+  ro.fire()
+  expect(firstInSight(el)).toEqual(before)
+  expect(el.scrollTop).toBe(2430)
+})
+
+test('scrolled up, the message box grows a line (no keyboard): the browser keeps its place, a scroll in that frame is not undone', () => {
+  const el = new Box(6000, 629, 393, 5371)
+  const { st, ro, onScroll } = setup(el, true)
+  el.scrollTop = 2430
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+  // the box grows by 24 px while the reader flicks on up 50 px, in the same frame: more than the box explains, the reader's
+  el.clientHeight = 605
+  el.scrollTop = 2380
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+  ro.fire()
+  expect(el.scrollTop).toBe(2380)
+  // the next scroll event is the reader's again
+  el.scrollTop = 2300
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+})
+
+test('canStick false (a room opened around an older message): a scroll near the bottom does not follow', () => {
+  const el = new Box(3000, 700, 390, 2300)
+  const st = { stick: { current: false }, lastTop: { current: 2300 }, seen: { current: { height: 700, width: 390 } as ListSize | null } }
+  expect(onListScroll(el, st, () => false)).toBe(true)
+  expect(st.stick.current).toBe(false)
+  expect(onListScroll(el, st)).toBe(true)
+  expect(st.stick.current).toBe(true)
+})
+
+test('at the bottom, the keyboard closes (the list grows, the browser clamps): still at the bottom, no jump up', () => {
+  const el = new Box(3000, 306, 390, 2694)
+  const { st, ro, onScroll } = setup(el)
+  el.clientHeight = 700
+  el.scrollTop = 2300
+  expect(onScroll()).toBe(false)
+  ro.fire()
+  expect(gap(el)).toBe(0)
+  expect(st.stick.current).toBe(true)
+})
+
+test('a visual viewport event (iOS) settles the list early but leaves the size to the observer', () => {
+  const el = new Box(3000, 700, 390, 2300)
+  const { st, ro, vv, stop } = setup(el)
+  el.clientHeight = 306
+  vv.send('resize')
+  expect(gap(el)).toBe(0)
+  expect(st.seen.current).toEqual({ height: 700, width: 390 })
+  ro.fire()
+  expect(st.seen.current).toEqual({ height: 306, width: 390 })
+  stop()
+  expect(vv.count()).toBe(0)
+})
+
+test("a computer's window: a narrower list keeps the browser's place, content growing above a reader is the browser's", () => {
+  const el = { scrollTop: 1000, scrollHeight: 5000, clientHeight: 700, clientWidth: 780 }
+  const seen = { height: 700, width: 780 }
+  // narrower and shorter at once: rewrapped messages, the browser's own scroll anchoring keeps the place
+  expect(placeAfterResize({ ...el, clientWidth: 600, clientHeight: 650 }, false, 1200, seen)).toBeNull()
+  // the content alone grew (a picture above): nothing done here
+  expect(placeAfterResize({ ...el, scrollHeight: 5400 }, false, 1200, seen)).toBeNull()
+  // shorter without a keyboard (the message box grew): the browser's place
+  expect(placeAfterResize({ ...el, clientHeight: 650 }, false, 1200, seen, false)).toBeNull()
+  // shorter with the keyboard: back to where the reader left it
+  expect(placeAfterResize({ ...el, clientHeight: 300 }, false, 1200, seen, true)).toBe(1200)
+  // following: the bottom, whatever changed
+  expect(placeAfterResize(el, true, 1200, seen)).toBe(5000)
+  // nothing seen yet: nothing to go back to
+  expect(placeAfterResize({ ...el, clientHeight: 300 }, false, 1200, null)).toBeNull()
+})
+
+test("a scroll event is the reader's unless the list's own height changed and it moved no further than that", () => {
+  const seen = { height: 700, width: 390 }
+  // the same height: the reader's
+  expect(scrolledByReader({ clientHeight: 700, scrollTop: 900 }, seen, 2300)).toBe(true)
+  // 394 px shorter, moved 22 px (the WebView's nudge) or not at all: the browser's
+  expect(scrolledByReader({ clientHeight: 306, scrollTop: 2278 }, seen, 2300)).toBe(false)
+  expect(scrolledByReader({ clientHeight: 306, scrollTop: 2300 }, seen, 2300)).toBe(false)
+  // 24 px shorter (the box grew a line) and a link's message scrolled into view 1,500 px up: a real scroll
+  expect(scrolledByReader({ clientHeight: 676, scrollTop: 800 }, seen, 2300)).toBe(true)
+  // a computer's window only narrower: the reader's, as before (the browser's own anchoring included)
+  expect(scrolledByReader({ clientHeight: 700, scrollTop: 2100 }, seen, 2300)).toBe(true)
+  // no ResizeObserver: every scroll event is the reader's, as before
+  expect(scrolledByReader({ clientHeight: 306, scrollTop: 2278 }, null, 2300)).toBe(true)
+})
+
+test("opening a thread at a reply: the app scrolls it into view as the box below settles its height; the list stops following", () => {
+  const el = new Box(3000, 700, 390, 2300)
+  const { st, ro, onScroll } = setup(el)
+  // the box settles 20 px taller and the highlighted reply is put in the middle, in the same frame
+  el.clientHeight = 680
+  el.scrollTop = 1200
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+  ro.fire()
+  expect(el.scrollTop).toBe(1200)
+})
+
 test('no ResizeObserver: nothing is watched, and the cleanup is harmless', () => {
-  const { scroller, content } = list()
-  expect(() => stickToBottom(scroller as never, content as never, () => true, undefined)()).not.toThrow()
+  const el = new Box(3000, 700, 390, 2300)
+  const vv = new FakeVV()
+  expect(() => watchListSize(el as never, {} as never, { follows: () => true, lastTop: { current: 0 }, seen: { current: null } }, undefined, vv as never)()).not.toThrow()
+  expect(vv.count()).toBe(0)
 })
 
 test('a scroll event: near the bottom the list follows; further up it stops only when the reader moved up', () => {
@@ -64,23 +233,21 @@ test('a scroll event: near the bottom the list follows; further up it stops only
 })
 
 test("the room's own jump to the bottom, its scroll event after a 330 px card came: still following, and the size watcher shows the whole card", () => {
-  // the step line came: the room jumped to the bottom (scrollTop 2300 of 3000, the last scroll event left it at 2280)
-  const scroller = { scrollHeight: 3000, clientHeight: 700, scrollTop: 2300 }
-  let follow = true
-  const stop = stickToBottom(scroller as never, {} as never, () => follow, FakeRO as never)
+  // the step line came: the room jumped to the bottom (scrollTop 2300 of 3000)
+  const el = new Box(3000, 700, 780, 2300)
+  const { st, ro, onScroll } = setup(el)
   // the card came in the same frame, before the jump's scroll event: 330 px more below
-  scroller.scrollHeight = 3330
-  // the scroll event: 330 px from the bottom, but nobody moved up (before this fix: "scrolled up", and the card stayed
-  // below the message box with only its "확인해 주세요" line in sight)
-  follow = followsAfterScroll(scroller, follow, 2280)
-  expect(follow).toBe(true)
-  FakeRO.last!.fire()
-  expect(scroller.scrollTop).toBe(3330)
+  el.scrollHeight = 3330
+  // the scroll event: 330 px from the bottom, but nobody moved up (before: "scrolled up", and the card stayed below the
+  // message box with only its "확인해 주세요" line in sight)
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(true)
+  ro.fire()
+  expect(gap(el)).toBe(0)
   // its preview loads and the card grows: still all in sight
-  scroller.scrollHeight = 3480
-  FakeRO.last!.fire()
-  expect(scroller.scrollTop).toBe(3480)
-  stop()
+  el.scrollHeight = 3480
+  ro.fire()
+  expect(gap(el)).toBe(0)
 })
 
 test("a link's message scrolled into view in the same frame as the list's jump to the bottom: one scroll event, and it stops following", () => {
@@ -95,18 +262,16 @@ test("a link's message scrolled into view in the same frame as the list's jump t
   expect(followsAfterScroll(el, true, lastTop.current)).toBe(false)
 })
 
-test('the size watcher says when it jumped, so the list knows where it left itself', () => {
-  const scroller = { scrollHeight: 3000, clientHeight: 700, scrollTop: 2300 }
-  const lastTop = { current: 2300 }
-  let follow = true
-  const stop = stickToBottom(scroller as never, {} as never, () => follow, FakeRO as never, () => { lastTop.current = scroller.scrollTop })
-  scroller.scrollHeight = 3330
-  FakeRO.last!.fire()
-  expect(lastTop.current).toBe(3330)
-  // not following: no jump, nothing said
-  follow = false
-  scroller.scrollHeight = 3600
-  FakeRO.last!.fire()
-  expect(lastTop.current).toBe(3330)
-  stop()
+test('the size watcher remembers where it left the list; not following, a content change leaves it alone', () => {
+  const el = new Box(3000, 700, 390, 2300)
+  const { st, ro } = setup(el)
+  el.scrollHeight = 3330
+  ro.fire()
+  expect(st.lastTop.current).toBe(2630)
+  st.stick.current = false
+  el.scrollTop = 1000
+  el.scrollHeight = 3600
+  ro.fire()
+  expect(el.scrollTop).toBe(1000)
+  expect(st.lastTop.current).toBe(1000)
 })

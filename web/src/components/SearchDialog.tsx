@@ -433,7 +433,8 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   const optId = (r: Row) => `sr-${r.key.replace(/[^a-zA-Z0-9_-]/g, '_')}`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 sm:p-4 sm:pt-[10vh]" onMouseDown={onClose}>
+    // phones: the whole screen, ending on the keyboard (lib/viewport.ts --kb-inset), so the last results scroll into sight
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 max-sm:bottom-[var(--kb-inset,0px)] sm:p-4 sm:pt-[10vh]" onMouseDown={onClose}>
       <div
         ref={ref}
         role="dialog"

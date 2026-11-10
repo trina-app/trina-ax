@@ -177,7 +177,7 @@ export function PhonePushAsk() {
       if (code !== 'push_denied' && code !== 'push_unavailable' && !(error instanceof DOMException && error.name === 'AbortError')) setFailed(true)
     } finally { setBusy(false) }
   }
-  return <div role="region" aria-label={t('push.title')} className="mx-3 mb-2 shrink-0 rounded-xl border border-line bg-surface p-3 shadow-sm" data-testid="phone-push-ask">
+  return <div role="region" aria-label={t('push.title')} className="mx-3 mb-2 shrink-0 rounded-xl border border-line bg-surface p-3 shadow-sm in-[.keyboard-open]:hidden" data-testid="phone-push-ask">
     <p className="text-sm font-medium">{t('push.ask')}</p>
     {failed && <p className="mt-1 text-sm text-danger" role="alert">{t('push.failed')}</p>}
     <div className="mt-2.5 flex justify-end gap-2">

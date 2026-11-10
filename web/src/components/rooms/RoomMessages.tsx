@@ -62,6 +62,7 @@ import { Tooltip } from '../Tooltip'
 import { StatusEmoji } from '../StatusMessage'
 import { useViewerItem, ViewerMeta } from '../ImageViewer'
 import { roomFileItem, roomItem } from '../../lib/imageViewer'
+import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
 
 const NO_RUNS: RoomAiRun[] = []
@@ -455,6 +456,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
                 onMore={() => {
                   if (Date.now() - pressedAt.current < 400) return
                   close()
+                  // before the emoji sheet takes the focus (it gives it back on closing): no text field to give it back
+                  // to, so the keyboard does not come back by itself
+                  dismissKeyboard()
                   setPicking(true)
                 }}
               />
