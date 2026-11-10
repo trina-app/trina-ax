@@ -15,7 +15,7 @@
 --   active accounts only. The row goes with the person (cascade, and
 --   admin/users.ts deleteUser: the users row stays as a tombstone).
 -- Additive only (reader 1): an older build ignores the table (no statuses shown).
--- Numbered 283: 280 (project_folder_made) is the highest on dev; 281 and 282 are taken by open branches.
+-- Numbered 283: 281 (turn_outside_content) and 282 (schedule_save_scope) came first.
 CREATE TABLE user_status_messages (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   emoji TEXT NOT NULL,
