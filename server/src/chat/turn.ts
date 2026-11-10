@@ -89,7 +89,7 @@ import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../dem
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { OWN_CHAT_TEAM_TOOLS, PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
-import { auditOnceUse, createGrant, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
+import { auditOnceUse, authorsWrite, createGrant, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -114,6 +114,8 @@ export const SESSION_STASH_MAX = 20 * 1024 * 1024
  * Tool.widen): `target` the team path it saves at, `extra` team files whose bytes it copies, `read` other places its
  * bytes come from (save_room_file: the room of the file, from its message on). */
 export interface WidenOf { target: string; extra: string[]; read?: ReadSource[] }
+/** A room whose words are in a session, and the oldest message of it that was read (null: none; TurnExec.sessionRooms) */
+type SessionRoom = { id: string; from: number | null }
 
 export interface TurnSpec extends QueueTiming {
   turnId: string
@@ -149,6 +151,13 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
 const HIDDEN_STEP_TOOLS = new Set(['set_title'])
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
+/** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
+const OWN_HASH_BUDGET = 128 * 1024 * 1024
+/** the folders right under users/<id>/ the server names itself (tools/save-url.ts, chat/room-tools.ts, video, exports,
+ * personal projects): their names carry nobody's words (noteOwnNames) */
+const SERVER_OWN_FOLDERS: ReadonlySet<string> = new Set(['downloads', 'images', 'videos', 'exports', 'projects'])
+/** a file's history read for its outside mark (fileOutsideLevel): a longer one counts as outside */
+const FILE_TIMELINE_MAX = 1000
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
@@ -1450,14 +1459,70 @@ export class TurnExec {
   private noteOwnReads(paths: Iterable<string>) {
     const mine = `users/${this.spec.userId}/`
     let level = 0
+    // the bytes hashed for this call (bytesOutsideLevel): past OWN_HASH_BUDGET a file counts as outside unhashed
+    const budget = { left: OWN_HASH_BUDGET }
     for (const p of paths) {
       if (!p.startsWith(mine)) continue
-      level = Math.max(level, this.fileOutsideLevel(p))
+      level = Math.max(level, this.fileOutsideLevel(p, 0, budget))
       if (level >= 2) break
     }
+    this.applyOutside(level)
+  }
+
+  /** What an own-folder read or name carried (noteOwnReads, noteOwnNames): 1 taints the chat, 2 also marks it outside. */
+  private applyOutside(level: number) {
     if (level >= 1 && !this.tainted) this.taint()
     if (level >= 2) this.markOutside()
   }
+
+  /**
+   * Names of the person's own folder that went to the model (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"): a new file
+   * there needs no card after a room read, and its name is the AI's choice, so a name can carry words too. A name counts
+   * as the mark of the AI turn that made it (turnOutsideLevel; this chat's branch adds nothing):
+   * - a file's name (one the AI read, or one a listing, glob or grep showed in a folder): every create at that path (a new
+   *   file, a copy, a move or rename into it) by an AI turn;
+   * - a folder's name (a listing's sub-folder, a folder on the way to a file shown): its newest create, and the first
+   *   event at or under it (a folder made on the way to a new file has no event of its own).
+   * `folders`: folders whose files' names were shown (TurnFiles.namePaths); `subfolders`: folders shown by name
+   * (TurnFiles.listedNames); `files`: files shown (TurnFiles.readPaths). Each is looked at once per turn.
+   */
+  private noteOwnNames(folders: Iterable<string>, subfolders: Iterable<string>, files: Iterable<string>) {
+    const root = `users/${this.spec.userId}`
+    const inside = (p: string) => p.startsWith(root + '/')
+    const db = this.rt.db
+    const branch = JSON.stringify([...this.branchTurns()])
+    const marked = (turnId: string | null) => (turnId ? this.turnOutsideLevel(turnId) : 0)
+    const createsAt = (p: string) => (db.query(`SELECT MAX(COALESCE(t.outside_content, 2)) AS o FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id
+      WHERE e.path = ? AND e.action = 'create' AND e.turn_id IS NOT NULL AND e.turn_id NOT IN (SELECT value FROM json_each(?))`).get(p, branch) as { o: number | null }).o ?? 0
+    const folderLevel = (d: string) => {
+      // a folder the server names itself (save_url's and save_room_file's downloads, videos, exports, personal projects)
+      if (SERVER_OWN_FOLDERS.has(d.slice(root.length + 1))) return 0
+      const first = db.query(`SELECT turn_id AS t FROM file_events WHERE path >= ? AND path < ? ORDER BY id ASC LIMIT 1`).get(d + '/', d + '0') as { t: string | null } | null
+      return Math.max(createsAt(d), first ? marked(first.t) : 0)
+    }
+    // the files a listing, glob or grep showed in a folder: every create of a direct child by an AI turn
+    const childFiles = (d: string) => (db.query(`SELECT MAX(COALESCE(t.outside_content, 2)) AS o FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id
+      WHERE e.path >= ? AND e.path < ? AND instr(substr(e.path, ?), '/') = 0 AND e.action = 'create' AND e.turn_id IS NOT NULL
+      AND e.turn_id NOT IN (SELECT value FROM json_each(?))`).get(d + '/', d + '0', d.length + 2, branch) as { o: number | null }).o ?? 0
+    const items: [kind: 'file' | 'folder' | 'children', path: string][] = []
+    const above = (p: string) => { const segs = p.split('/'); for (let n = 3; n < segs.length; n++) items.push(['folder', segs.slice(0, n).join('/')]) }
+    for (const f of files) if (inside(f)) { items.push(['file', f]); above(f) }
+    for (const d of folders) if (d === root || inside(d)) { items.push(['children', d]); if (inside(d)) { items.push(['folder', d]); above(d) } }
+    for (const d of subfolders) if (inside(d)) { items.push(['folder', d]); above(d) }
+    let level = 0
+    try {
+      for (const [kind, p] of items) {
+        const k = `${kind}\u0000${p}`
+        if (this.namesSeen.has(k)) continue
+        this.namesSeen.add(k)
+        level = Math.max(level, kind === 'file' ? createsAt(p) : kind === 'children' ? childFiles(p) : folderLevel(p))
+        if (level >= 2) break
+      }
+    } catch { level = 2 }
+    this.applyOutside(level)
+  }
+  /** names noteOwnNames looked at in this turn (by kind and path) */
+  private namesSeen = new Set<string>()
 
   /** The turns of this chat on the branch this answer continues, and this turn (in the person's own chat): their files
    * hold nothing the chat's own marks do not already say (its session carries them). */
@@ -1472,18 +1537,26 @@ export class TurnExec {
   }
   private branchTurnIds: Set<string> | null = null
 
-  /** How much outside content the content of `rel` (a file as the file layer names it) carries, the most of: the mark of
-   * the AI turn that wrote its newest content (turns.outside_content; a turn row that is gone counts as 2), for a copy
-   * also its source's (`depth` copies back, then 2), and the marks of every AI turn that produced exactly these bytes
-   * anywhere (bytesOutsideLevel: a copy on the Files screen or of a folder, a restore from the trash or a version, a copy
-   * whose source changed since). A person's own save of new bytes, or bytes with no known history, carry none. */
-  private fileOutsideLevel(rel: string, depth = 0): number {
+  /** How much outside content the content of `rel` (a file as the file layer names it) carries, the most of: the marks
+   * of every AI turn that wrote a version of it, back to the event that made the file (turns.outside_content; a turn row
+   * that is gone counts as 2): an edit, by the person or by a clean answer, keeps what it was made on; for a copy also
+   * its source's (`depth` copies back, then 2); a history longer than FILE_TIMELINE_MAX counts as 2; and the marks of every
+   * AI turn that produced exactly these bytes anywhere (bytesOutsideLevel: a copy on the Files screen or of a folder, a
+   * restore from the trash or a version, a copy whose source changed since). A file only people wrote, or with no known
+   * history, carries none. */
+  private fileOutsideLevel(rel: string, depth = 0, budget = { left: OWN_HASH_BUDGET }): number {
     if (depth > 4) return 2
     try {
-      const [e] = fileTimeline(this.rt.db, rel, { limit: 1000, stop: (x) => CONTENT_KINDS.has(x.kind) }).filter((x) => CONTENT_KINDS.has(x.kind))
-      let level = e?.turnId ? this.turnOutsideLevel(e.turnId) : 0
-      if (level < 2 && e?.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1))
-      if (level < 2 && depth === 0) level = Math.max(level, this.bytesOutsideLevel(rel))
+      const all = fileTimeline(this.rt.db, rel, { limit: FILE_TIMELINE_MAX })
+      if (all.length >= FILE_TIMELINE_MAX) return 2
+      let level = 0
+      for (const e of all) {
+        if (!CONTENT_KINDS.has(e.kind)) continue
+        if (e.turnId) level = Math.max(level, this.turnOutsideLevel(e.turnId))
+        if (level < 2 && e.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1, budget))
+        if (level >= 2) return 2
+      }
+      if (depth === 0) level = Math.max(level, this.bytesOutsideLevel(rel, budget))
       return level
     } catch { return 2 }
   }
@@ -1497,12 +1570,16 @@ export class TurnExec {
 
   /** The most any AI turn that produced the bytes of `rel` carries (file_events by sha256, the hash the AI read or the
    * file's bytes now); 0 for an empty file; 2 for a file over OWN_HASH_MAX the AI did not read whole (a search hit in a
-   * big document: not hashed on the server's thread). */
-  private bytesOutsideLevel(rel: string): number {
+   * big document: not hashed on the server's thread), and for one past this call's `budget` of bytes. */
+  private bytesOutsideLevel(rel: string, budget: { left: number }): number {
     let sha = this.files.allReads.get(rel)
     if (!sha) {
       const abs = path.join(this.rt.files.fx.root, ...rel.split('/'))
-      if (fs.lstatSync(abs).size > OWN_HASH_MAX) return 2
+      const size = fs.lstatSync(abs).size
+      // hashed on the server's thread: one file up to OWN_HASH_MAX, a call's files up to OWN_HASH_BUDGET (grep hits in big
+      // documents); past either, the file counts as outside
+      if (size > OWN_HASH_MAX || size > budget.left) return 2
+      budget.left -= size
       sha = sha256Regular(abs)
     }
     if (sha === EMPTY_SHA256) return 0
@@ -1689,15 +1766,16 @@ export class TurnExec {
     // a new file (or one this answer made) in a folder the person allowed: no card (every check is made again now, and
     // once more right before it writes: recheckRoomCover). The rooms whose words are in this session: the room's own; in
     // the person's own chat every room its read scope holds (none: nothing is covered)
-    const rooms = own ? this.scopeRooms() : [this.room!.roomId]
+    const rooms = this.sessionRooms()
+    const roomIds = rooms.map((r) => r.id)
     const target = this.roomGrantTarget(tool, input, rooms)
     const coverable = !!target && !this.roomOutside()
     // where a grant is kept: the room session's room; a side chat's own room when it is the only room the chat read
-    const grantRoom = own ? this.sideGrantRoom(rooms) : this.room!.roomId
+    const grantRoom = own ? this.sideGrantRoom(roomIds) : this.room!.roomId
     if (target && coverable && !o.noCover) {
       const once = this.answerCovers(target)
       if (once) {
-        auditOnceUse(this.rt.db, { userId: this.spec.userId, rooms, folder: once.join('/'), segs: target.segs, tool, turnId: this.id, chat: own })
+        auditOnceUse(this.rt.db, { userId: this.spec.userId, rooms: roomIds, folder: once.join('/'), segs: target.segs, tool, turnId: this.id, chat: own })
         this.roomCovered.set(key, { rel: target.segs.join('/'), rooms })
         if (o.main !== false) this.coverStep(tool, 'roomOnceStep')
         return null
@@ -1787,7 +1865,7 @@ export class TurnExec {
   private roomAnswerAllowed: { folder: string[]; audience: string; id: string }[] = []
   /** calls a grant or [이번만] let through without a card, by tool and input, with the file and the rooms whose members
    * must all still write it: checked again right before they write (recheckRoomCover) */
-  private roomCovered = new Map<string, { rel: string; rooms: readonly string[] }>()
+  private roomCovered = new Map<string, { rel: string; rooms: readonly SessionRoom[] }>()
 
   /** The session used something from outside the team's own words (chats.room_outside: a web page, a search, a
    * connection): its author is no member of the room, so nothing is let through without the card. A room question's mark
@@ -1796,9 +1874,21 @@ export class TurnExec {
     return !!(this.rt.db.query('SELECT room_outside FROM chats WHERE id = ?').get(this.spec.chatId) as { room_outside: number } | null)?.room_outside
   }
 
-  /** The rooms whose messages the person's own chat holds (its read scope's room sources), each once. */
-  private scopeRooms(): string[] {
-    return [...new Set((readScope(this.rt.db, this.spec.chatId) ?? []).flatMap((s) => (s.type === 'room' ? [s.id] : [])))]
+  /** The rooms whose words are in this session, each with the oldest message of it that was read (`from`: the read
+   * scope's room sources, a source without a seq from the room's start; null: none of its messages were read): a room
+   * session's own room; the person's own chat, every room its read scope holds. */
+  private sessionRooms(): SessionRoom[] {
+    const from = new Map<string, number>()
+    for (const s of readScope(this.rt.db, this.spec.chatId) ?? []) if (s.type === 'room') from.set(s.id, Math.min(from.get(s.id) ?? Infinity, s.fromSeq ?? 0))
+    if (this.room) return [{ id: this.room.roomId, from: from.get(this.room.roomId) ?? null }]
+    return [...from].map(([id, f]) => ({ id, from: f }))
+  }
+
+  /** May every member of each room write `rel` (actual names), and everyone whose words were read there (the read part's
+   * authors and askers, rooms/ai-grants.ts authorsWrite: someone who left is no member)? None: no. */
+  private roomsWrite(rooms: readonly SessionRoom[], rel: string): boolean {
+    const db = this.rt.db, fx = this.rt.files.fx, rules = this.rt.files.rules()
+    return rooms.length > 0 && rooms.every((r) => everyoneWrites(db, fx, rules, r.id, rel) && (r.from === null || authorsWrite(db, fx, rules, r.id, r.from, rel)))
   }
 
   /** A ✦ side chat (chats.side_room_id) whose read scope holds its own room and no other: that room, whose grants for this
@@ -1824,7 +1914,7 @@ export class TurnExec {
     const c = this.roomCovered.get(key)
     if (!c) return null
     let still = false
-    try { still = !this.roomOutside() && c.rooms.length > 0 && c.rooms.every((id) => everyoneWrites(this.rt.db, this.rt.files.fx, this.rt.files.rules(), id, c.rel)) } catch { still = false }
+    try { still = !this.roomOutside() && c.rooms.length > 0 && this.roomsWrite(c.rooms, c.rel) } catch { still = false }
     return still ? null : this.confirmRoomChange(tool, input, { ...o, noCover: true })
   }
 
@@ -1838,7 +1928,7 @@ export class TurnExec {
    * instruction-like file; and every member of each room may write it. `exists`: its folder is there (only then is
    * "always" offered, a grant names a folder that is there). Fails closed: any error is null.
    */
-  private roomGrantTarget(tool: string, input: unknown, rooms: readonly string[]): { segs: string[]; isNew: boolean; exists: boolean } | null {
+  private roomGrantTarget(tool: string, input: unknown, rooms: readonly SessionRoom[]): { segs: string[]; isNew: boolean; exists: boolean } | null {
     if (!rooms.length || this.spec.clientKind === 'schedule') return null
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
@@ -1856,7 +1946,7 @@ export class TurnExec {
       // would replace what the person agreed to remove with something they never saw. Rooms do not get delete_files
       // (rooms/ai-tools.ts ROOM_TOOLS); this keeps it so if that ever changes, and for a trash from the person's own chat
       if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
-      if (!rooms.every((id) => everyoneWrites(this.rt.db, fx, rules, id, r.rel))) return null
+      if (!this.roomsWrite(rooms, r.rel)) return null
       return { segs, isNew: !r.exists, exists: r.existing >= folder.length }
     } catch { return null }
   }
@@ -1904,8 +1994,18 @@ export class TurnExec {
     } catch { return true }
   }
 
+  /** Where an edit_hwp call writes, as tools/edit-hwp.ts decides it: its output whenever `output` is a string (an empty
+   * one too), with the extension of the document as the file layer resolves it (the path as given when it cannot be:
+   * the tool then refuses), else the document itself; null for an input without a document. */
+  hwpTarget(input: unknown): string | null {
+    const a = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+    const doc = typeof a.file_path === 'string' ? a.file_path : null
+    if (typeof a.output === 'string') return hwpOutputPath(a.output, (doc !== null ? this.sourceRel(doc) : null) ?? doc ?? '')
+    return doc
+  }
+
   /** A document an edit_hwp call names, as the file layer resolves it for the person (tools/edit-hwp.ts), or null. */
-  private sourceRel(p: string): string | null {
+  sourceRel(p: string): string | null {
     try { return authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), p, 'read').rel } catch { return null }
   }
 
@@ -2274,6 +2374,9 @@ export class TurnExec {
     // for what its listings and globs showed (the names may reach a channel)
     const names = this.room || this.slackChat ? this.files.namePaths : null
     const listed = this.room || this.slackChat ? this.files.listedNames : null
+    // the names of the person's own files and folders the AI was shown carry what the chat that made them had seen
+    // (noteOwnNames), in every chat (a listing alone too)
+    this.noteOwnNames(this.files.namePaths, this.files.listedNames, paths)
     if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
     // reads the answer's source list records (with their sha256: "대화방에 보내기" goes by those files) apart from the
@@ -2418,7 +2521,7 @@ export class TurnExec {
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
     // a file a tool produces (make_file, edit_hwp): the card shows the file, not a text diff
     const produced = tool === 'make_file' || tool === 'edit_hwp'
-    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : undefined
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? this.hwpTarget(a) ?? undefined : undefined
     // make_file saves where its output gets the format's extension ("x.md" as docx is "x.md.docx"): the card and its
     // approval are for that path, never for the one typed (review M1/S8: a `*` approval was left at "x.md")
     const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
@@ -2542,7 +2645,7 @@ export class TurnExec {
   dropSkillApproval(tool: string, args: unknown): void {
     if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
-    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : undefined
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? this.hwpTarget(a) ?? undefined : undefined
     const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
     if (typeof target !== 'string') return
     try { this.files.skillApprovals.delete(authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'write', { createDirs: true }).rel) } catch { /* no such path: nothing was approved for it */ }
@@ -2961,9 +3064,9 @@ function teamSegs(p: unknown): string[] | null {
 /** Where write, make_file, edit_hwp or edit saves, as the call names it, and whether the call may make a new file there
  * (edit and edit_hwp without an output change a file in place); null for any other tool or an input it cannot be read
  * from. make_file: its output with the format's extension (tools/make-file.ts); a folder-like output ("x/") is not
- * followed (no cover: the card). edit_hwp with an output: the output's extension comes from the document as the file
- * layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output that lands on the document
- * itself is seen as the existing file it is; a document that cannot be resolved: null. */
+ * followed (no cover: the card). edit_hwp with an output (any string, an empty one too): the output's extension comes
+ * from the document as the file layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output
+ * that lands on the document itself is seen as the existing file it is; a document that cannot be resolved: null. */
 export function writeTargetOf(tool: string, input: unknown, source: (p: string) => string | null): { path: string; mayBeNew: boolean } | null {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
@@ -2976,7 +3079,9 @@ export function writeTargetOf(tool: string, input: unknown, source: (p: string) 
       mayBeNew = true
       break
     case 'edit_hwp': {
-      if (!str(a.output)) { p = str(a.file_path); mayBeNew = false; break }
+      // an output whenever one is given, an empty one too (tools/edit-hwp.ts: `output === undefined` is in place; "" puts
+      // ".hwpx" at the team root)
+      if (typeof a.output !== 'string') { p = str(a.file_path); mayBeNew = false; break }
       const src = source(str(a.file_path))
       if (src === null) return null
       p = hwpOutputPath(str(a.output), src)
@@ -3023,7 +3128,7 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
     case 'write': return { targets: [str(a.file_path)], shown: fits(str(a.content)) }
     case 'edit': return { targets: [str(a.file_path)], shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
     case 'edit_files': return { targets: list(a.file_paths), shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
-    case 'edit_hwp': return str(a.output) ? { targets: [str(a.output)], shown: false } : { targets: [str(a.file_path)], shown: fits(hwpLines(a.changes)) }
+    case 'edit_hwp': return typeof a.output === 'string' ? { targets: [hwpOutputPath(a.output, str(a.file_path))], shown: false } : { targets: [str(a.file_path)], shown: fits(hwpLines(a.changes)) }
     case 'make_file': return { targets: [str(a.output)], shown: !str(a.source) && !str(a.template) && !list(a.images).length && fits(str(a.content)) }
     case 'save_url': {
       // the file is named by save_as, or, for a folder ("…/") or none, by the address's last name (tools/save-url.ts)
@@ -3098,8 +3203,10 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       const changes = Array.isArray(a.changes) ? a.changes as Record<string, unknown>[] : []
       const lines = changes.map((c) => (c && typeof c === 'object' && typeof c.find === 'string' ? `${c.find} → ${str(c.replace)}` : tr('roomAiChangeCell', L)))
       // saved as a new file: the rest of the document it copies is not on the card
-      const notShown = str(a.output) ? tr('roomAiChangeNotShown', L, { from: str(a.file_path) }) : ''
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.output) ? [field('roomAiChangeSaveAs', str(a.output))] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), str(a.output)])
+      // an output whenever one is given (an empty one too): where the tool puts it (hwpOutputPath, tools/edit-hwp.ts)
+      const out = typeof a.output === 'string' ? hwpOutputPath(a.output, str(a.file_path)) : ''
+      const notShown = out ? tr('roomAiChangeNotShown', L, { from: str(a.file_path) }) : ''
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(out ? [field('roomAiChangeSaveAs', out)] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), out])
     }
     case 'move_files':
     case 'copy_files':

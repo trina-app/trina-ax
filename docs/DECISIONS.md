@@ -18033,6 +18033,29 @@ asks.**
   through copies, folder copies and restores, older own chats without the outside mark, an attached own file not
   counted, `rooms` names not weighed, and new files in a project's folder. Left as notes: file names the AI writes in
   the own folder reach later chats through `list` and `glob` (names, not content; they carry no mark).
+- **Second security review** (of 1af88ea6), all fixed here:
+  - **M1, edit_hwp with `output: ""`.** An empty output is an output: the tool writes `.hwp`/`.hwpx` at the team root,
+    while the check took it for an in-place edit of the document (a file this answer made in the own folder: no card).
+    Every check now goes by where the tool writes (`TurnExec.hwpTarget`, `writeTargetOf`: `typeof output === 'string'`,
+    the document's extension as the file layer resolves it), also the wider-audience checks in `chat/tools.ts` (N2) and
+    the card's "save as". The room sessions' grant had the same gap since #198.
+  - **S1, people who left the room.** The covers weighed only today's members, but the messages of someone who left (or
+    was taken out) stay in what was read. Now everyone who wrote, or asked an AI answer, from the oldest message read on
+    (the read scope's room `fromSeq`) must still be a member who may write the target (`rooms/ai-grants.ts authorsWrite`),
+    in a room session too; otherwise no cover, no grant used and no "always".
+  - **S2, names.** A new file of the own folder is named by the AI, so a name can carry words. The names a later chat is
+    shown (a listing's files and sub-folders, glob's and grep's paths, a file read, the folders above them) count like
+    content (`noteOwnNames`): a file's name by every create at that path by an AI turn (a new file, a copy, a move or
+    rename into it), a folder's by its newest create and the first event at or under it (a folder made on the way to a
+    file has no event of its own); this chat's branch adds nothing, and the folders the server names itself
+    (`downloads`, `images`, `videos`, `exports`, `projects`) carry nothing. Chosen over limiting the names the AI may
+    give (only words from the person's message, or a fixed pattern): that would bring a card back for nearly every save,
+    as the AI names the files; tracing them adds no card where nothing was planted.
+  - **S3, the person's edit.** One save by the person cleared the mark (only the newest content counted). Now every AI
+    turn that wrote a version, back to the file's making, counts (an edit, the person's or a clean answer's, keeps what
+    it was made on); a history over 1,000 entries counts as outside.
+  - **N1.** Own files are hashed on the server's thread up to 64 MB each and 128 MB per call (`OWN_HASH_BUDGET`); past
+    that a file counts as outside unhashed.
 - **Words for the AI.** `ROOMS_RULE` and `room_read`'s description say that a new file in the user's own folder is the
   one change after a room read that needs no card.
 - **What remains.** Planted room text can add new files in the person's own folder, and, after one [이번만] or a grant,
