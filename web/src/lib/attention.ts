@@ -3,11 +3,12 @@
 //
 // In a browser on a computer: the page is on screen and its window has the focus. In the desktop app: the page is on
 // screen and the app's window has the focus, as the app says (DesktopBridge.focus). The team page is one of several
-// views in that window, and its own `document.hasFocus()` is false while the window is focused: after the app starts
-// with a team (a login start, a relaunch after an update) until the person clicks into the page, and while the in-app
-// browser or the address strip has the keyboard. Going by the page's own focus, a new message in the room on screen
-// rang and was not marked read (the owner, 2026-11-10: "the desktop app open on that conversation, and the sound still
-// played"). An app without the word (older than session markers): the page's own focus, as before.
+// views in that window, and its own `document.hasFocus()` is false while the window is focused: while the in-app
+// browser or the address strip has the keyboard, and in desktop apps before "창으로 돌아오면 키보드는 보던 곳으로" also
+// after a start with a team (a login start, a relaunch after an update) until the person clicked into the page. Going
+// by the page's own focus, a new message in the room on screen rang and was not marked read (the owner, 2026-11-10:
+// "the desktop app open on that conversation, and the sound still played"). An app without the word (older than
+// session markers): the page's own focus, as before.
 // On a phone (the phone app, or a browser whose only pointer is a finger) the page on screen is what the person looks
 // at: there is no other window to lose focus to. And a WKWebView (the phone app on an iPhone, and Chrome, Firefox or
 // Edge there) reports no focus until the person touches the page (WebKit bug 226025), so `document.hasFocus()` said "not
