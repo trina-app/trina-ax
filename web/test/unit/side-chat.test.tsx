@@ -7,7 +7,7 @@
 // upload says why and is not sent.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Chat, type Me, type Message as MessageT, type ServerEvent } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
@@ -170,9 +170,16 @@ function answerEnds(chatId: string, o: { unseen?: boolean } = {}) {
   })
 }
 const root = message({ roomId: team.id, seq: 1, author: BEN, body: 'logo drafts by Friday?' })
+/** the page's navigate (a link, Back) */
+let go: NavigateFunction = () => {}
+function Nav() {
+  go = useNavigate()
+  return null
+}
 /** the room page at `path` (/rooms/:id, or a thread: /rooms/:id/t/:root) */
 const roomPage = (path = `/rooms/${team.id}`) => mount(
   <MemoryRouter initialEntries={[path]}>
+    <Nav />
     <Routes>
       <Route path="/rooms/:roomId" element={<RoomPage />} />
       <Route path="/rooms/:roomId/t/:messageId" element={<RoomPage />} />
@@ -899,6 +906,16 @@ test('what was typed or attached when it closed stays for this page\'s session, 
     await openSide(m)
     expect(chips(m)).toHaveLength(1)
     expect(useSideChats.getState().byRoom[team.id]!.chatId).toBe(into)
+    // the file taken out: that chat has nothing in it, a new chat already, so it stays (no empty one left in 🕘)
+    await m.click(m.get(`side-chat-box`).querySelector(`[aria-label="${en('composer.removeAttachment', { name: 'acme-brief.pdf' })}"]`)!)
+    await m.click('side-chat-close')
+    await openSide(m)
+    expect(!!m.find('side-chat-empty') && !!m.find('side-chat-starters') && count(m, 'user-message') === 0).toBe(true)
+    expect(useSideChats.getState().byRoom[team.id]!.chatId).toBe(into)
+    await pick(m, [pdf('second.pdf')])
+    await m.until(() => uploads.length === 2, 'the second file')
+    expect(uploads[1]!.chatId).toBe(into)
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/chats')).toHaveLength(2)
   } finally {
     await m.unmount()
   }
@@ -925,6 +942,40 @@ test('"Ask Trina about this" on a message after the side chat was closed: a new 
     // its quick questions, not the starters
     expect(m.find('side-chat-starters')).toBeNull()
     expect(m.find('side-chat-quick-summarize')).not.toBeNull()
+    // closed without asking: the next ✦ is new, its starters, no quote left over
+    await m.click('side-chat-close')
+    await openSide(m)
+    expect(fresh(m)).toBe(true)
+    expect(m.find('side-chat-quote')).toBeNull()
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('a thread in the side chat\'s place: ✦ brings the same chat back; the thread closed with nothing in its place closes it', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await openSide(m)
+    await askInSide(m, 'what did I miss?')
+    answerEnds(made)
+    await m.until(() => answerDone(m), 'the answer')
+    // a thread takes the column; ✦ switches back to the same chat
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('room-thread') && !m.find('side-chat-panel'), 'the thread in its place')
+    await openSide(m)
+    expect(m.find('room-thread')).toBeNull()
+    expect(count(m, 'user-message')).toBe(1)
+    // the thread again, then closed (Back): the column is empty, the side chat closed with it
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('room-thread'), 'the thread')
+    await act(async () => { await go(`/rooms/${team.id}`) })
+    await m.until(() => !m.find('room-thread'), 'the thread closed')
+    await openSide(m)
+    expect(fresh(m)).toBe(true)
   } finally {
     await m.unmount()
   }
@@ -964,10 +1015,13 @@ test('the file viewer: ✦ is a new chat with the file quoted; "스레드로 돌
     await v.until(() => shows() === 'trina' && count(v, 'user-message') === 1 && answerDone(v), 'the same chat')
     expect(v.find('side-chat-quote-file')).not.toBeNull()
     await v.click('side-chat-quote-remove')
+    // back on the thread when the viewer closes: it showed the side chat, so that closes too
+    await v.click('viewer-column-back')
+    await v.until(() => shows() === 'thread', 'the thread again')
   } finally {
-    // the viewer closes on the side chat
     await v.unmount()
   }
+  expect(useSideChats.getState().byRoom[team.id]!.open).toBe(false)
   // ✦ on the room page afterwards: a new chat
   const p = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
   try {

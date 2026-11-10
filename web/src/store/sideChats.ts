@@ -3,9 +3,8 @@
 // Kept per room, like a room's draft (store/rooms.ts roomDrafts), so every panel of the room shows the same chat and
 // draft: the room page's and one opened beside a file in the viewer. Opened again after it was closed, it starts on a new
 // chat unless the last one is not done (SideChatPanel.tsx sideChatOpening). What one click under an answer did
-// (components/rooms/SendHere.tsx: sent
-// where, or why not) is kept by the answer's id for this page's session, so a panel opened again (✦ after 보기 opened
-// the thread) still says it. Gone at sign-out (store/rooms.ts reset).
+// (components/rooms/SendHere.tsx: sent where, or why not) is kept by the answer's id for this page's session, so a panel
+// opened again (✦ after 보기 opened the thread) still says it. Gone at sign-out (store/rooms.ts reset).
 import { create } from 'zustand'
 import type { SideSeed } from '../components/rooms/SideChatPanel'
 
@@ -21,7 +20,8 @@ export interface SideChatState {
   seedKeys: string[]
   /** it is open: a panel shows it, or a thread took its place in the column (the room page's or the file viewer's), so
    * the next panel shows the same chat. False (not opened on this page yet, or closed since: ✕, ‹ or ✦ on the room
-   * page, the room left, the file viewer closed on it): the next panel opens it afresh */
+   * page, the room left, the thread in its place closed, the file viewer that showed it closed): the next panel opens it
+   * afresh */
   open: boolean
 }
 

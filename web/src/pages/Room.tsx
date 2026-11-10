@@ -12,8 +12,9 @@
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
 // ✦ opens my Trina side chat (components/rooms/SideChatPanel.tsx) in the same place: one of the two at a time, in the
 // room's right column (components/rooms/RoomSideColumn.tsx). Which one shows is in the rooms store (side), so the file
-// viewer can start the same way. Its ✕ (‹ on a phone), ✦ again and leaving the room close the side chat: the next ✦
-// opens a new chat (store/sideChats.ts open); a thread that takes its place does not, so ✦ brings the same chat back.
+// viewer can start the same way. Its ✕ (‹ on a phone), ✦ again, leaving the room and the thread that took its place
+// closing close the side chat: the next ✦ opens it afresh (store/sideChats.ts open). ✦ while that thread is open brings
+// the same chat back, and so does ✦ after 보기 under an answer opened the thread (SideChatPanel.tsx threadClosedOn).
 // Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 이름 바꾸기 for those who may, 링크 복사,
 // and 대화방 나가기 or 숨기기 by kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
 // (docs/DECISIONS.md "대화 숨기기").
@@ -42,7 +43,7 @@ import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
-import { SideChatPanel, type SideSeed } from '../components/rooms/SideChatPanel'
+import { roomLeft, SideChatPanel, threadClosedOn, type SideSeed } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
@@ -113,8 +114,15 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the two at a time (a thread that opens closes it). In the store (side), gone when the page leaves the room
   const sideOpen = useRooms((s) => s.side[roomId] === 'trina')
   const setSideOpen = useCallback((on: boolean) => useRooms.getState().setSide(roomId, on ? 'trina' : null), [roomId])
-  // a thread takes its place (the side chat stays open: ✦ brings it back); its ✕, ‹ or ✦ closes it
+  // a thread takes its place (the side chat stays open: ✦ brings it back); the thread closing with nothing in its place,
+  // or the side chat's ✕, ‹ or ✦, closes it
   useEffect(() => { if (threadId) setSideOpen(false) }, [threadId, setSideOpen])
+  const lastThread = useRef(threadId)
+  useEffect(() => {
+    const was = lastThread.current
+    lastThread.current = threadId
+    if (was && !threadId) threadClosedOn(roomId)
+  }, [threadId, roomId])
   const closeSide = useCallback(() => {
     useSideChats.getState().close(roomId)
     setSideOpen(false)
@@ -174,8 +182,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     useRooms.getState().open(roomId)
     return () => {
       useRooms.getState().close(roomId)
-      // back in the room, ✦ opens a new chat
-      useSideChats.getState().close(roomId)
+      // back in the room, ✦ opens the side chat afresh
+      roomLeft(roomId)
     }
   }, [roomId])
   // not in my list (yet): ask for the room itself; "not found" when I am not in it

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 07:53
 - Branch: `fix/side-chat-opens-new`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, `web/` (`components/rooms/SideChatPanel.tsx`, `store/sideChats.ts`, `pages/Room.tsx`,
   `components/rooms/ViewerColumn.tsx`). Why: the room side chat is core (docs/REPOSITORY-RULES.md).
 - Version impact: patch. A behaviour change of one panel; no API, data or text change.
@@ -37,8 +37,8 @@ Out: anything on the server; remembering the chat across a reload.
 1. `store/sideChats.ts`: `open` per room (a panel shows it, or a thread took its place) and `close(roomId)`.
 2. `SideChatPanel.tsx`: a panel that comes on screen while the room's side chat is closed decides once, before its first
    paint, which chat it shows (`sideChatOpening`); the newest side chat after a reload only when not done.
-3. Closing: the room page's ✕ / ‹ / ✦, leaving the room, and closing the file viewer while its column was on Trina
-   (unless the room page has it open). 보기 is a hand-off, not a close.
+3. Closing: the room page's ✕ / ‹ / ✦, leaving the room, the thread in its place closing, and closing the file viewer
+   after it showed Trina (unless the room page has it open). 보기 is a hand-off, not a close.
 4. Unit tests in `side-chat.test.tsx`; adjust the tests that expected the newest chat to open.
 
 ## Risks
@@ -52,4 +52,7 @@ Phones and the phone app use the same panel and the same rules. No migration, no
 
 ## Result
 
-Filled in at the end.
+Built as planned, in PR #315. Changed after the independent review: the viewer closing ends the side chat also when
+its column went back to the thread, and so does the room page's thread that took its place closing (보기 excepted), so
+an old chat does not linger until the room is left; a quote alone no longer survives a fresh opening; an emptied chat
+made for a file is reused; a failed chip keeps no chat. DECISIONS "The side chat opens on a new chat".

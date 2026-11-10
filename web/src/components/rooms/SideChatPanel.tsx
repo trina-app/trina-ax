@@ -10,9 +10,10 @@
 // chat opens on a new chat": the starters, or the message or file it was asked about), made by the first question, so
 // opening and closing leaves nothing behind; the last chat comes back while it is not done (its answer on its way, the
 // AI waiting on me, an answer I have not seen) or while what I typed or attached waits in its box (sideChatOpening).
-// Closing is ✕, ‹ or ✦ on the room page, leaving the room, or closing the file viewer on it; a thread taking its place
-// (보기, a thread opened from the room, "스레드로 돌아가기" in the viewer), hiding the viewer's column or sheet, and the
-// room page and the viewer showing it together are not, so ✦ brings the same chat back. "New chat" starts another one
+// Closing is ✕, ‹ or ✦ on the room page, leaving the room, the thread that took its place on the room page closing, or
+// the file viewer closing after it showed it (also from its thread). The column switching between a thread and it (✦,
+// "스레드로 돌아가기"), hiding the viewer's column or sheet, and the room page and the viewer showing it together are not;
+// nor is 보기, a hand-off (threadClosedOn, viewerClosedOn): ✦ brings the same chat back. "New chat" starts another one
 // with the next question; 🕘 lists the room's side chats (newest first) and opens one. Cards the AI
 // raises (a yes before a change, a question) show under its answer as in the full chat; while it waits for the answer
 // to its question, what I type in the box answers it (lib/askAnswer.ts), as the full chat's box does.
@@ -50,7 +51,7 @@ import { sideChatOnScreen } from '../../store/sessionMarkers'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
-import { ComposerFileList, useComposerFiles } from '../chat/ComposerFiles'
+import { ComposerFileList, useComposerFiles, type Pending } from '../chat/ComposerFiles'
 import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
@@ -90,34 +91,51 @@ function notDone(chatId: string): boolean {
   const s = useChats.getState()
   const messages = s.threads[chatId]?.messages ?? []
   if (runningMessage(messages) || messages.some((m) => m.local?.state === 'sending')) return true
+  // a card of it open in this window, also for a chat the list does not keep (one opened from 🕘)
+  if (Object.values(s.requests).some((r) => r.chatId === chatId)) return true
   const chat = s.chats.find((c) => c.id === chatId)
-  return !!chat && !!markerOf(chat, { card: Object.values(s.requests).some((r) => r.chatId === chatId) })
+  return !!chat && !!markerOf(chat)
 }
 /** the composer's stash of the room's box files (components/chat/ComposerFiles.tsx), the same in every panel of the room */
 const filesDraft = (roomId: string) => `side:${roomId}`
 
 /** A panel that comes on screen while the room's side chat is closed opens it afresh: a new chat (made by the first
- * question), unless the last one is not done (notDone) or something waits in its box (typed text; files, which were
- * uploaded into that chat), which stays with it for this page's session. A quote stays either way, but alone keeps no
- * old chat. Returns the change, or null: it is open (another panel shows it, or a thread took its place), so this panel
- * shows the same chat. */
-export function sideChatOpening(roomId: string, userId: string): Partial<SideChatState> | null {
+ * question), with the starters or what this opening asks about, unless the last one is not done (notDone) or something
+ * waits in its box: typed text, files (uploaded into that chat; a failed one is not sent), which stay with the chat and
+ * its quote for this page's session. A chat with nothing in it yet (made for a file) is a new chat already, so it stays
+ * rather than leave an empty one in 🕘. Returns the change, or null: it is open (another panel shows it, or a thread
+ * took its place), so this panel shows the same chat. */
+function sideChatOpening(roomId: string, userId: string): Partial<SideChatState> | null {
   const s = sideChatOf(useSideChats.getState(), roomId)
   if (s.open) return null
+  const box = !!s.draft.trim() || readStash<Pending>(userId, filesDraft(roomId)).some((f) => f.status !== 'failed')
+  const quote = box ? {} : { quoted: null }
   // undefined: none known on this page yet, looked for as the panel opens (findSideChat); null: a new chat already
   const id = s.chatId
-  if (!id || notDone(id) || s.draft.trim() || readStash(userId, filesDraft(roomId)).length) return { open: true }
-  return { open: true, chatId: null }
+  if (!id || box || notDone(id) || !useChats.getState().threads[id]?.messages.length) return { open: true, ...quote }
+  return { open: true, chatId: null, ...quote }
 }
 
-/** the rooms whose side chat 보기 is showing elsewhere, closing the file viewer it was in (`view` below) */
-const handedOff = new Set<string>()
-/** The file viewer closed while its column was on the room's side chat (components/rooms/ViewerColumn.tsx): that closes
- * the side chat, unless the room page has it open under the viewer or 보기 closed the viewer to show where an answer
- * went. */
+/** 보기 under an answer showed it elsewhere (`view` below): the column it leaves closing for that (the file viewer it
+ * was in; the thread it opened on the room page, closed again) does not close the side chat: ✦ brings it back */
+const handedOff = { viewer: new Set<string>(), thread: new Set<string>() }
+/** The file viewer closed after its column showed the room's side chat (components/rooms/ViewerColumn.tsx): that closes
+ * the side chat, unless the room page has it open under the viewer or 보기 closed the viewer. */
 export function viewerClosedOn(roomId: string) {
-  if (handedOff.delete(roomId)) return
+  if (handedOff.viewer.delete(roomId)) return
   if (useRooms.getState().side[roomId] !== 'trina') useSideChats.getState().close(roomId)
+}
+/** The room page's thread closed (pages/Room.tsx): a side chat it took the place of is closed with it, unless the
+ * column switched back to the side chat (✦, "Ask Trina about this") or 보기 opened that thread. */
+export function threadClosedOn(roomId: string) {
+  if (handedOff.thread.delete(roomId)) return
+  if (useRooms.getState().side[roomId] !== 'trina') useSideChats.getState().close(roomId)
+}
+/** The room page left the room: its side chat is closed (back in it, ✦ opens it afresh). */
+export function roomLeft(roomId: string) {
+  handedOff.viewer.delete(roomId)
+  handedOff.thread.delete(roomId)
+  useSideChats.getState().close(roomId)
 }
 
 /** the side chat being made for the room's first question or file, per room */
@@ -406,7 +424,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // chat back), or the room at the message (a phone: this panel closes so the room shows). From the file viewer's column
   // the viewer closes first. A hand-off, not a close: the side chat stays open, also when the viewer closes on it.
   const view = (s: SentHere) => {
-    if (getImageViewer()) handedOff.add(roomId)
+    if (getImageViewer()) handedOff.viewer.add(roomId)
+    if (s.to === 'thread' && s.rootId) handedOff.thread.add(roomId)
     closeImageViewer(true, () => {
       if (s.to === 'thread' && s.rootId) return navigate(`/rooms/${s.roomId}/t/${s.rootId}?m=${s.messageId}`, { state: { fromRoom: true } })
       if (!window.matchMedia?.('(min-width: 48rem)').matches) useRooms.getState().setSide(s.roomId, null)
