@@ -1,7 +1,8 @@
 // One room (/rooms/:roomId; the mobile app links here from a notice): a 48px header with the room's name (its mark
 // beside it on computers) and member count, which open the room's info (components/rooms/MembersDialog.tsx: the name,
 // 초대하기, the members), and the bell (my notifications for the room, components/rooms/RoomNotifyMenu.tsx); the messages (components/rooms/RoomMessages.tsx),
-// older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
+// older ones loaded on scrolling up; the message box at the bottom (a file dropped anywhere on the room's column, its
+// header, messages or box, goes into the box: components/FileDropZone.tsx). What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
 // A link or a search result (?m=<message>) older than the newest page opens the room as a window around it
 // (store/rooms.ts loadAround): newer pages load on scrolling down, nothing in it is marked read, new messages wait, and
@@ -45,6 +46,7 @@ import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
+import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
 import { usePresenceOf } from '../store/presence'
@@ -279,7 +281,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
 
   return (
     <div className="flex h-full" data-testid="room-page">
-    <div className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} data-testid="room">
+    {/* a file dropped anywhere on the room's column (not on the thread or side chat beside it) goes into its box */}
+    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4">
         <Tooltip label={t('tabs.back')}>
           <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
@@ -381,7 +384,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         }}
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
-    </div>
+    </FileDropZone>
     {/* the room's right column: the thread in the address, else my Trina side chat */}
     {threadId ? (
       <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider="thread">
