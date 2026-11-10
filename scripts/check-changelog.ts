@@ -11,8 +11,8 @@ const ROOT = path.resolve(import.meta.dir, '..')
 
 /** Every problem with changelog.d/ and CHANGELOG.md; empty when both follow the rules. */
 export function checkChangelog(root = ROOT): string[] {
-  const { problems } = readFragments(root)
-  return [...problems, ...changelogProblems(fs.readFileSync(path.join(root, CHANGELOG), 'utf8'))]
+  const { fragments, problems } = readFragments(root)
+  return [...problems, ...changelogProblems(fs.readFileSync(path.join(root, CHANGELOG), 'utf8'), fragments)]
 }
 
 if (import.meta.main) {

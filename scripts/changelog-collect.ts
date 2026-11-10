@@ -88,17 +88,20 @@ export function splitUnreleased(changelog: string): { head: string[]; body: stri
   return { head: lines.slice(0, at + 1), body: lines.slice(at + 1, end), tail: lines.slice(end), bodyStart: at + 2 }
 }
 
-/** The lines under "## Unreleased" other than blank lines and the note, with their line numbers. */
-export function unreleasedEntries(changelog: string): { line: number; text: string }[] {
+/** The lines under "## Unreleased" other than blank lines and the note, with their line numbers. `copy`: the line is
+ * already in a fragment (a merge that kept both sides of an entry's move into changelog.d/). */
+export function unreleasedEntries(changelog: string, fragments: readonly Fragment[] = []): { line: number; text: string; copy: boolean }[] {
   const s = splitUnreleased(changelog)
   if (!s) return []
+  const known = new Set(fragments.flatMap((f) => f.text.split('\n').map((l) => l.trim()).filter(Boolean)))
   return s.body
-    .map((text, i) => ({ line: s.bodyStart + i, text }))
+    .map((text, i) => ({ line: s.bodyStart + i, text, copy: known.has(text.trim()) }))
     .filter((l) => l.text.trim() && l.text.trim() !== UNRELEASED_NOTE)
 }
 
-/** Problems with CHANGELOG.md: conflict markers, a missing "## Unreleased", entries under it. */
-export function changelogProblems(changelog: string): string[] {
+/** Problems with CHANGELOG.md: conflict markers, a missing "## Unreleased", lines under it (new ones, and copies of
+ * the fragments' lines, reported once). */
+export function changelogProblems(changelog: string, fragments: readonly Fragment[] = []): string[] {
   const problems: string[] = []
   changelog.split('\n').forEach((line, i) => {
     if (isConflictMarker(line)) problems.push(`${CHANGELOG}:${i + 1}: a merge-conflict marker. Resolve the conflict and delete the marker line.`)
@@ -106,7 +109,13 @@ export function changelogProblems(changelog: string): string[] {
   if (!splitUnreleased(changelog)) {
     problems.push(`${CHANGELOG}: the "${UNRELEASED}" heading is missing. Put it back above the newest release, followed by the note: ${UNRELEASED_NOTE}`)
   }
-  for (const { line, text } of unreleasedEntries(changelog)) {
+  const entries = unreleasedEntries(changelog, fragments)
+  const copies = entries.filter((e) => e.copy)
+  if (copies.length) {
+    const n = copies.length === 1 ? 'line is' : `${copies.length} lines are`
+    problems.push(`${CHANGELOG}:${copies[0]!.line}: ${n} under ${UNRELEASED} and already in ${FRAGMENT_DIR}/ (a merge kept both sides). Delete ${copies.length === 1 ? 'it' : 'them'} from ${CHANGELOG}; only the note stays under ${UNRELEASED}.`)
+  }
+  for (const { line, text } of entries.filter((e) => !e.copy)) {
     const shown = text.length > 80 ? `${text.slice(0, 77)}...` : text
     problems.push(`${CHANGELOG}:${line}: "${shown}" is under ${UNRELEASED}. New entries go in ${WHERE}, not in ${CHANGELOG}; move it there and leave ${CHANGELOG} as it is. The release moves the files in.`)
   }
@@ -121,7 +130,7 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export type CollectResult = { changelog: string; section: string; deleted: string[]; carried: boolean }
+export type CollectResult = { changelog: string; section: string; deleted: string[]; carried: boolean; copies: number }
 
 /** Fold changelog.d/ into CHANGELOG.md under "## <version> — <date>". Throws with a message when it cannot. */
 export function collect(root = ROOT, opts: { version?: string; date?: string; dryRun?: boolean } = {}): CollectResult {
@@ -141,8 +150,10 @@ export function collect(root = ROOT, opts: { version?: string; date?: string; dr
     const hint = opts.version ? '' : ' Bump the version in server/package.json first (docs/RELEASE-CI.md section 1), or name the new version.'
     throw new Error(`${CHANGELOG} already has a "## ${version}" section.${hint}`)
   }
-  // lines someone still wrote under "## Unreleased" (dev merges before CI): they go first, as written
-  const left = s.body.filter((l) => l.trim() !== UNRELEASED_NOTE).join('\n').trim()
+  // lines someone still wrote under "## Unreleased" (dev merges before CI) go first, as written; copies of a fragment's
+  // lines (a merge that kept both sides) are dropped, so no entry shows twice
+  const copies = new Set(unreleasedEntries(changelog, fragments).filter((e) => e.copy).map((e) => e.line))
+  const left = s.body.filter((l, i) => l.trim() !== UNRELEASED_NOTE && !copies.has(s.bodyStart + i)).join('\n').trim()
   const blocks = [...(left ? [left] : []), ...fragments.map((f) => f.text)]
   if (!blocks.length) throw new Error(`Nothing to collect: ${FRAGMENT_DIR}/ has no entries and nothing is under ${UNRELEASED}.`)
   const paragraphs = blocks.filter((b) => !isBullet(b))
@@ -155,7 +166,7 @@ export function collect(root = ROOT, opts: { version?: string; date?: string; dr
     fs.writeFileSync(file, out)
     for (const f of deleted) fs.rmSync(path.join(root, f))
   }
-  return { changelog: out, section, deleted, carried: !!left }
+  return { changelog: out, section, deleted, carried: !!left, copies: copies.size }
 }
 
 const USAGE = 'Usage: bun run changelog:collect [<version>] [--date YYYY-MM-DD] [--dry-run]'
@@ -178,6 +189,7 @@ if (import.meta.main) {
     else {
       console.log(`${CHANGELOG}: wrote ${r.section.split('\n')[0]} with ${r.deleted.length} entr${r.deleted.length === 1 ? 'y' : 'ies'} from ${FRAGMENT_DIR}/ and deleted them.`)
       if (r.carried) console.log(`Also moved what was still under ${UNRELEASED} into the new section (first); check it reads right.`)
+      if (r.copies) console.log(`Dropped ${r.copies} line(s) under ${UNRELEASED} that were copies of ${FRAGMENT_DIR}/ entries.`)
       console.log('Review the section (add the channel line and any upgrade note), then commit it with the version bump.')
     }
   } catch (e) {

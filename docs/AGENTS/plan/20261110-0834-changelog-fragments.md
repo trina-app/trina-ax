@@ -90,5 +90,8 @@ Built as planned:
   contributing.md, docs/site/agents/coding-agents.md, the PR template; the release step in docs/RELEASE-CI.md section
   1 and .github/RELEASE_TEMPLATE.md.
 - Added after the first draft: hidden files in `changelog.d/` (`.DS_Store`, `.gitkeep`) are not entries; collect says
-  "bump the version first" when server/package.json still has the released version.
-- Tests: `tests/unit/changelog-fragments.test.ts` (8 tests). PR: see the branch's pull request into `dev`.
+  "bump the version first" when server/package.json still has the released version. A trial merge of an open PR
+  (#295) that kept both sides put all 49 moved lines back under `## Unreleased`: the check now reports such copies
+  of fragment lines in one message (and each new line on its own), and collect drops the copies, so no entry shows
+  twice in a release.
+- Tests: `tests/unit/changelog-fragments.test.ts` (9 tests). PR: see the branch's pull request into `dev`.

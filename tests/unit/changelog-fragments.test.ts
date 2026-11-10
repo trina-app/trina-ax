@@ -97,6 +97,18 @@ test('check: a new line under ## Unreleased fails and says to use changelog.d/<s
   expect(checkChangelog(repo({}, `# Changelog\n\n${OLDER}`))[0]).toContain('"## Unreleased" heading is missing')
 })
 
+test('a merge that kept both sides: copies of fragments are reported once, and collect drops them', () => {
+  const both = `${HEAD}- B, a copy.\n- New, written the old way.\n- A, a copy.\n${UNRELEASED_NOTE}\n\n${OLDER}`
+  const problems = checkChangelog(repo({ 'a.md': '- A, a copy.\n', 'b.md': '- B, a copy.\n' }, both))
+  expect(problems).toEqual([
+    'CHANGELOG.md:7: 2 lines are under ## Unreleased and already in changelog.d/ (a merge kept both sides). Delete them from CHANGELOG.md; only the note stays under ## Unreleased.',
+    expect.stringContaining('CHANGELOG.md:8: "- New, written the old way." is under ## Unreleased'),
+  ])
+  const r = collect(repo({ 'a.md': '- A, a copy.\n', 'b.md': '- B, a copy.\n' }, both), { version: '1.1.0', date: '2026-11-11' })
+  expect(r.copies).toBe(2)
+  expect(r.section).toBe('## 1.1.0 — 2026-11-11\n\n- New, written the old way.\n- A, a copy.\n- B, a copy.\n')
+})
+
 test('check: headings, rules, open code blocks, conflict markers, bad names and non-text fail', () => {
   expect(fragmentProblems('f.md', '## 1.2.0\n- x')[0]).toContain('f.md:1: a heading or a rule line')
   expect(fragmentProblems('f.md', 'Title\n=====\n')[0]).toContain('f.md:2: a heading or a rule line')
