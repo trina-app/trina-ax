@@ -7,7 +7,9 @@
 // Shared project chats (docs/DECISIONS.md "Shared project chats"): the setting is in the edit dialog (ProjectForm), the
 // list is "채팅" (my chats there and every shared chat of the project I can see, those with the people icon and the
 // faces of who wrote in them: ProjectChatRow; it follows chat events, so another person's new chat shows at once), the
-// box says who sees a new chat, and deleting the project says its shared chats go to their creators' trash. My pinned
+// box says who sees a new chat ("나만 봐요" too: docs/DECISIONS.md "Who sees it, always"; while it will be shared, the
+// line opens the members dialog for whoever may change them), and deleting the project says its shared chats go to their
+// creators' trash. My pinned
 // chats there come first, the most recently pinned first, with the sidebar's pin before the title (docs/DECISIONS.md
 // "Pinned chats"; pinning is the sidebar row's "···").
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
@@ -421,7 +423,7 @@ export function ProjectHome() {
         <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
           <div className="min-w-0 lg:col-start-1">
             {/* a project whose folder is in the trash (only admins see it) takes no chat: the line says why instead */}
-            {p.inTrash ? <ProjectTrashNote project={p} /> : <NewChatComposer projectId={p.id} project={p} placeholder={t('projects.newChat')} />}
+            {p.inTrash ? <ProjectTrashNote project={p} /> : <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.newChat')} />}
           </div>
           <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             <div className="divide-y divide-line">

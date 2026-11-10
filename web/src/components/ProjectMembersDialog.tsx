@@ -1,6 +1,7 @@
 // A team project's members (docs/DECISIONS.md "Project members in one panel"): opened from 관리 on the 멤버 row of the
-// project page and from 멤버 in a list card's ⋯, for whoever may change them (Project.membersEditable: its creator or an
-// admin, a projects/<name> folder in place). The members now and a search to add (components/ProjectParticipants.tsx),
+// project page, from 멤버 in a list card's ⋯ and from the line under a shared chat's box that says who sees it
+// (components/chat/WhoSees.tsx), for whoever may change them (Project.membersEditable: its creator or an admin, a
+// projects/<name> folder in place). The members now and a search to add (components/ProjectParticipants.tsx),
 // the count line, and the rules this screen does not change, read-only (a link to Admin › Folder permissions for
 // admins). Saving goes through the same folder rules as Admin › Folder permissions (the rules hash it read; 409 when
 // someone changed them meanwhile, and the list shows what is there now). A confirm first when someone gains it, or when
@@ -92,7 +93,12 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
       if (asksFirst(p) && !(await confirmMembers(t, p))) return
       const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash } })
       shown(a)
-      const next = { ...project, audience: a.people }
+      // the project as the server sees it now: how many see it, and whether anyone else does by a rule (Project.alone:
+      // the line under a chat's box, docs/DECISIONS.md "Who sees it, always"); unread, the count alone
+      const next = await api.call(API.getProject, { params: { id: project.id } }).catch(() => {
+        const { alone: _, ...rest } = project
+        return { ...rest, audience: a.people }
+      })
       useProjects.getState().put(next)
       onSaved(next)
       onClose()

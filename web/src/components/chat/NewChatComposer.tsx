@@ -1,26 +1,31 @@
 // The box that starts a chat: on the new-chat page (pages/Home.tsx) and on a project's page (pages/Projects.tsx). The
 // first message creates the chat, in the project when there is one, and opens it. A draft and its attachments are kept
 // per place ("new", "project:<id>"), so a project's page and "/?project=<id>" share one.
-// In a project that shares its chats (docs/DECISIONS.md "Shared project chats") the new chat is a shared chat: the line
-// under the box says how many people will see it, and a file from this computer is saved in the project folder (a line
-// under the chips says so).
+// In a project that shares its chats (docs/DECISIONS.md "Shared project chats") the new chat is a shared chat, and a file
+// from this computer is saved in the project folder (a line under the chips says so). In a project the line under the box
+// always says who will see the new chat (components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always"): "나만
+// 봐요", "나와 관리자만 봐요" or how many people; while it will be shared, for whoever may change the project's members,
+// it opens the members dialog (`onMembers`).
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Attachment, Project } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { sharesNewChats } from '../../lib/sharedChat'
-import { useT } from '../../i18n'
 import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
 import { useEngines } from '../../store/engines'
 import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
+import { WhoSeesLine } from './WhoSees'
 
-export function NewChatComposer({ projectId, project, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor }: {
+export function NewChatComposer({ projectId, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor }: {
   projectId: string | null
-  /** the project, when known: whether its new chats are shared, and with how many people */
+  /** the project, when known: who will see its new chat (whether it is shared, and with how many people) */
   project?: Project | null
+  /** opens the project's members dialog (the project page's): the line under the box does, while the new chat will be
+   * shared and the person may change the members (Project.membersEditable) */
+  onMembers?: () => void
   initialText?: string
   /** a new value starts the box again with `initialText` (a chosen example or question) */
   resetKey?: number
@@ -36,10 +41,10 @@ export function NewChatComposer({ projectId, project, initialText, resetKey = 0,
   waitsFor?: { text: string; hint: string }
 }) {
   const me = useMeStrict()
-  const t = useT()
   const navigate = useNavigate()
-  const shared = !!project && project.id === projectId && sharesNewChats(project, !!me.server?.allChatsConfidential)
-  const sharedLine = shared ? t('projects.sharedNewChat', { n: project.audience ?? 0 }) : undefined
+  const known = !!project && project.id === projectId
+  const shared = known && sharesNewChats(project, !!me.server?.allChatsConfidential)
+  const who = known ? <WhoSeesLine shared={shared ? project : null} place="new" onOpen={shared && project.membersEditable ? onMembers : undefined} /> : undefined
   const send = useChats((s) => s.send)
   const upsertChat = useChats((s) => s.upsertChat)
   const models = useEngines((s) => s.models)
@@ -96,9 +101,8 @@ export function NewChatComposer({ projectId, project, initialText, resetKey = 0,
       skill={skill}
       autoFocus={autoFocus}
       placeholder={placeholder}
-      footer={sharedLine}
-      phoneFooter={sharedLine}
-      sharedUploads={shared ? { audience: project.audience ?? 0, allowed: project.chatUploads !== false } : undefined}
+      who={who}
+      sharedUploads={shared ? { audience: project!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
       projectId={projectId}
       waitsFor={waitsFor}
     />

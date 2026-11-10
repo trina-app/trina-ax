@@ -18653,3 +18653,50 @@ Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기"
   `skill-files.test.ts` (S7 in a side chat with a quote; the same copy in a plain chat gets its card),
   `b-side-chat.test.ts` (the rule's three ways in, an edited branch).
 - Version impact: **patch** (a security consistency fix; no API, data or setting change).
+
+## Who sees it, always — 누가 보는지 늘 한 줄로 (feat/always-show-who-sees, 2026-11-10, product owner)
+
+The owner (2026-11-10): "진짜 누가 볼 수 있는지 모르겠어서 개 헷갈리네". Only a shared project chat said who sees it
+("프로젝트 사람 N명이 볼 수 있어요"). A chat only its person sees said nothing under a project page's box, and nothing under
+an open chat on a phone, so "is this shared?" had no answer. Plan: `docs/AGENTS/plan/20261110-0837-always-show-who-sees.md`.
+
+- **One line, always** (`components/chat/WhoSees.tsx`, `lib/sharedChat.ts whoSees`). It sits under a project's new-chat
+  box (the project page and `/?project=`) and under every open chat's box: a team project's, a personal project's and a
+  chat without a project. On a computer it is in the row under the box; in an open chat it follows "AI는 실수할 수 있어요.
+  중요한 내용은 확인해 주세요." and replaces "내 채팅은 나만 볼 수 있어요". On a phone it is the one line under the box, as the
+  shared line was. It is quiet text with a 12 px icon: a lock while only I see it, people otherwise. No new panel or
+  button.
+- **The words.** "나만 봐요" is for a chat of one person, which nobody else ever opens, admins included (`chatFor`). It is
+  also for a shared one whose count is 1. "나와 관리자만 봐요" is for a shared one that nobody else sees by a rule. Anything
+  else keeps "프로젝트 사람 N명이 이 채팅을 볼 수 있어요." (the box: "새 채팅은 …"). All five languages; en "Only you" /
+  "You and admins".
+- **Decision: how the count treats admins.** `Project.audience` and `Chat.shared.audience` count everyone who can read the
+  folder, the owner and every admin included, for every caller. #304 (`adminsApart`) changes only the new-project dry run,
+  not these counts. So a count of 1 means nobody else, not even an admin, and "나만" there is exact. A member alone in a
+  shared project of theirs counts the owner and the admins too ("3명"). For them the line says "나와 관리자만 봐요". It
+  names nobody: "관리자", the owner included, as in "멤버는 관리자가 바꿔요". If members' counts later leave the admins out
+  (#304's `adminsApart` applied to `Project.audience`), a member's count of 1 must read "나와 관리자만" as well; `alone`
+  is already right for that.
+- **Decision: `alone` is role-blind** (`Audiences.alone`; `Project.alone` while it shares its chats, `Chat.shared.alone`;
+  optional, `true` only). Each other person in the audience is judged as a member would be (`rules.access` with the role
+  member). Someone who sees it through a person, group or everyone rule counts, whatever their role. So when an admin makes
+  a project for one member, that member reads the count, not "나와 관리자만", and the line never tells who is an admin (the
+  people directory hides roles). It tells only that nobody else has a rule there, which the members dialog already shows
+  its editors. While the folder is in the trash nobody sees it by a rule. Cost: one pass over the audience per project
+  (the list already computes the audience), plus one `rules.access` call per admin.
+- **Decision: a button only while shared.** For a shared chat, or a box whose new chat will be shared, the line opens
+  `ProjectMembersDialog` (#298) for whoever may change the members (`Project.membersEditable`). Anyone else gets plain
+  text; #298's hint stays on the 멤버 line. A personal project is never shared, and in a chat of one person, or a team
+  project that does not share its chats, adding a member does not change "나만 봐요", so the line opens nothing there.
+  `/?project=` shows the line as text (the project page has the dialog). After a save the dialog reads the project again
+  (`GET /api/projects/:id`), so `audience` and `alone` both come from the server. If that read fails, it keeps the saved
+  count and drops `alone`. The chat page reads its chat again.
+- **Left as they were:** the Home box without a project (its page footer on a computer says "내 채팅은 나만 볼 수 있어요");
+  the line under a chat in the trash or read-only under safe operations; the header's shared mark; the edit dialog's
+  sharing switch.
+- Tests: `tests/unit/b-who-sees.test.ts` (a member alone, the owner alone, a member added, an admin who made a project
+  for one member, a project that does not share), web unit `who-sees.test.tsx` (the words, an admin vs a member caller,
+  clickable only when editable and shared, no line on Home) and `project-members.test.tsx` (the read after a save), e2e
+  `shared-project-chats.spec.ts` (only me, Bob added from the line makes it 2, Bob out again from the open chat's line, a
+  chat without a project, a member alone, a member who cannot change the members; at 1440 and 390) and `chat-look.spec.ts`.
+- Version impact: **minor** (a visible line on every project chat box and open chat; one optional response field).

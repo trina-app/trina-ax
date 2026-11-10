@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 08:37
 - Branch: `feat/always-show-who-sees`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (web chat box and chat page, `server/src/chat/shared.ts`, the shared API types). Why: chats and
   permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a line that shows on every project chat box and open chat, and one optional response field
@@ -94,4 +94,15 @@ hint for people who may not change members (#298's hint stays on the 멤버 line
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+- Server: `Audiences.alone` in `server/src/chat/shared.ts`, used by `projectShare` (`Project.alone`, only while the
+  project shares its chats) and `sharedOf` (`Chat.shared.alone`). The fields are in `shared/src/api/entities.ts`.
+- Web: `lib/sharedChat.ts whoSees` and `components/chat/WhoSees.tsx`. Composer `who` replaces `phoneFooter`.
+  NewChatComposer and the chat page use the line; it opens the members dialog from the project page and from an open
+  shared chat. The dialog reads the project again after a save.
+- Five languages and the mock server.
+
+Differences from the plan:
+- The line under `/?project=` on Home is plain text. The dialog lives on the project page, and Home does not load it.
+
+The PR link is in the pull request.

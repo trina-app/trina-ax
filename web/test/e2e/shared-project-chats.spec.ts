@@ -6,7 +6,8 @@
 // (the names on hover and keyboard focus), and only what the person may do is offered. A file from the computer is saved
 // in the project folder ("채팅 첨부") with one line under the chips saying so; ✕ before sending puts it in the trash. While
 // someone else's question is answered the box keeps the text with a line saying whose; the read card goes to the person
-// who asked, the others see that it waits for them.
+// who asked, the others see that it waits for them. The line under every box says who sees the chat ("나만 봐요", "나와
+// 관리자만 봐요" or how many; docs/DECISIONS.md "Who sees it, always") and opens the members dialog for whoever may change them.
 // At 1440 and 390 px wide, with axe on each screen. The mock (test/mock/server.ts, "shared project chats"): "hold" keeps
 // an answer running until POST /__test/shared-release, "readcard" raises the read card first.
 import AxeBuilder from '@axe-core/playwright'
@@ -129,7 +130,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // safe operations (1A): the switch is off-limits and says why; a new chat in the project is a chat of one person
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveCount(0)
+      await expect(seenLine(page)).toHaveText('나만 봐요')
+      await expect(seenLine(page).getByRole('button')).toHaveCount(0)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
       await expect(toggle).toBeDisabled()
@@ -649,6 +651,84 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(b, 'shared chat, an answer hidden from me')
       const dir = process.env.SHOT_DIR
       if (dir) await b.screenshot({ path: `${dir}/withheld-${vp.name}.png` })
+      await b.context().close()
+    })
+
+    // docs/DECISIONS.md "Who sees it, always": the line under the box always says who sees the chat, and opens the members
+    // dialog for whoever may change them while the chat is shared. SHOT_DIR=<dir> saves light and dark screenshots.
+    test('who sees it, always: only me, a member added from the line makes it 2, a member alone reads 나와 관리자만', async ({ page, browser }) => {
+      const shots = async (p: Page, name: string) => {
+        const dir = process.env.SHOT_DIR
+        if (!dir) return
+        for (const scheme of ['light', 'dark'] as const) {
+          await p.emulateMedia({ colorScheme: scheme })
+          await p.waitForTimeout(200)
+          await p.screenshot({ path: `${dir}/who-sees-${name}-${vp.name}-${scheme}.png` })
+        }
+        await p.emulateMedia({ colorScheme: 'light' })
+      }
+      await reset(page)
+      await signIn(page)
+      // a team project of Olga (the owner) with nobody else in it, its chats shared
+      const id = ((await (await post(page, '/api/projects', { name: 'Solo', scope: 'team', instructions: '' })).json()) as { id: string }).id
+      expect((await patch(page, `/api/projects/${id}`, { shareChats: true })).ok()).toBeTruthy()
+      await page.goto(`/projects/${id}`)
+      await expect(seenLine(page)).toHaveText('나만 봐요')
+      // one quiet line, on a phone too: the button is no taller than the text (its 44 px tap box is drawn outside it)
+      expect((await seenLine(page).getByTestId('who-sees').boundingBox())!.height).toBeLessThanOrEqual(20)
+      expect((await seenLine(page).boundingBox())!.height).toBeLessThanOrEqual(26)
+      await audit(page, 'project box, only me')
+      await shots(page, 'project-only-me')
+      // Olga may change the members: the line opens the dialog; Bob added (the confirm first)
+      await seenLine(page).getByRole('button', { name: '나만 봐요' }).click()
+      await expect(page.getByTestId('project-members-dialog')).toBeVisible()
+      await page.getByTestId('project-participants-search').fill('Bob')
+      await page.getByTestId('participant-add-user-bob').click()
+      await page.getByTestId('project-members-save').click()
+      await page.getByTestId('dialog-confirm').click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
+      await expect(page.getByTestId('project-members')).toContainText('2명이 봐요')
+
+      // the open chat says it in the same place, and its line opens the same dialog: Bob out again, only me
+      await page.getByTestId('composer-input').fill('주간 보고 정리해 줘')
+      await page.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      await expect(seenLine(page)).toHaveText(vp.phone ? '프로젝트 사람 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 프로젝트 사람 2명이 이 채팅을 볼 수 있어요.`)
+      await shots(page, 'chat-two')
+      await seenLine(page).getByRole('button', { name: '프로젝트 사람 2명이 이 채팅을 볼 수 있어요.' }).click()
+      await page.getByTestId('participant-remove-user-bob').click()
+      await page.getByTestId('project-members-save').click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 봐요' : `${FOOTER_START} 나만 봐요`)
+      await audit(page, 'shared chat, only me')
+
+      // a chat without a project: only me, nothing to open
+      await page.goto('/')
+      await page.getByTestId('composer-input').fill('혼자 볼 메모')
+      await page.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 봐요' : `${FOOTER_START} 나만 봐요`)
+      await expect(seenLine(page).getByRole('button')).toHaveCount(0)
+      await shots(page, 'chat-only-me')
+
+      // Bob alone in a shared project of his: Olga (the owner) sees it too, and nobody else by a rule
+      const b = await bob(browser)
+      const H = { [CSRF_HEADER]: '1' }
+      const own = ((await (await b.request.post('/api/projects', { headers: H, data: { name: 'Solo Bob', scope: 'team', instructions: '' } })).json()) as { id: string }).id
+      expect((await b.request.patch(`/api/projects/${own}`, { headers: H, data: { shareChats: true } })).ok()).toBeTruthy()
+      await b.goto(`/projects/${own}`)
+      await expect(seenLine(b)).toHaveText('나와 관리자만 봐요')
+      await expect(seenLine(b).getByRole('button')).toHaveCount(1)
+      await shots(b, 'project-member-alone')
+      // Bob in Olga's project (Olga changes its members): the count, nothing to open
+      const theirs = ((await (await post(page, '/api/projects', { name: 'With Bob', scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: 'bob' }] })).json()) as { id: string }).id
+      expect((await patch(page, `/api/projects/${theirs}`, { shareChats: true })).ok()).toBeTruthy()
+      await b.goto(`/projects/${theirs}`)
+      await expect(seenLine(b)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
+      await expect(seenLine(b).getByRole('button')).toHaveCount(0)
+      await audit(b, 'project box, a member who cannot change the members')
       await b.context().close()
     })
   })

@@ -162,6 +162,11 @@ export const Project = z.object({
    * attachments folder, which the caller may write: server/src/uploads/shared-chat.ts). false: the message box offers
    * team files only. Absent (older server, or not sharing): allowed. */
   chatUploads: z.boolean().optional(),
+  /** while it shares its chats: nobody but the caller sees it by a rule of its folder (a person, group or everyone
+   * rule), so anyone else of `audience` is the owner or an admin, who see every project ("나와 관리자만 봐요" under the
+   * box, docs/DECISIONS.md "Who sees it, always"). Judged role-blind: it never tells whether someone is an admin.
+   * Absent: someone else sees it by a rule, it does not share its chats, or an older server. */
+  alone: z.literal(true).optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -221,6 +226,9 @@ export const Chat = z.object({
     /** I may send files from the computer here (they go into the project's chat attachments folder, which I may write:
      * server/src/uploads/shared-chat.ts). false: the message box offers team files only. Absent (older server): allowed. */
     canUpload: z.boolean().optional(),
+    /** nobody but me sees it by a rule of its project's folder: anyone else of `audience` is the owner or an admin
+     * (Project.alone, the same role-blind check). Absent: someone else does, or an older server. */
+    alone: z.literal(true).optional(),
     /** who wrote in it (sent a question there, its creator included), the most recent first, at most
      * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
      * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
