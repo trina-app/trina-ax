@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 17:36
 - Branch: `fix/apps-store-first`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (web `lib/apps.ts`, `components/settings/AppList.tsx`). Why: the page is core UI; the edition's
   links stay in `editions/trina/branding/apps.json` and do not change (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, one settings row offers its two ways in the other order; no server, API or data change
@@ -51,4 +51,9 @@ first and the .dmg folded.
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR #343. The Mac row's second way is a `<details>` fold under the row ("설치 파일 내려받기 ⌄"),
+closed by default, with the file buttons and, on a Mac, the install steps inside it; the chevron follows the label, as
+the owner's "Download installer ⌄" put it, and the text is small because it is the second way. The independent review
+found no must-fix item; from it: the unit test also checks the file and the warning sit inside the fold, DECISIONS says
+the warning comes with an unsigned file, and the edited paragraphs are wrapped. Left for later: the user guide's Mac
+install section still describes only the .dmg.

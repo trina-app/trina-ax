@@ -100,10 +100,11 @@ const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } cat
  * Desktop app: the Mac and Windows rows (lib/apps.ts computerApps). The Mac row offers the App Store first; the team
  * server's installer, when it has one, is folded under the row ("Download the installer" ⌄, with its install steps).
  * Inside a store build its own row is "This app" with the store's line (App Store on a Mac, Microsoft Store on Windows)
- * and no installer is offered anywhere; the desktop app's own row otherwise says how it updates. A browser on a Mac or a Windows PC marks this computer's row, with the
- * install steps under its installer, or says the server has no such app (and, in a browser that can install the page,
- * points at "Install as an app" below). With nothing to offer at all: the server's empty state, with the owner's hint;
- * with store links but no installer on the server, the owner still gets the hint under the rows.
+ * and no installer is offered anywhere; the desktop app's own row otherwise says how it updates. A browser on a Mac or
+ * a Windows PC marks this computer's row, with the install steps under its installer, or says the server has no such
+ * app (and, in a browser that can install the page, points at "Install as an app" below). With nothing to offer at all:
+ * the server's empty state, with the owner's hint; with store links but no installer on the server, the owner still
+ * gets the hint under the rows.
  */
 export function ComputerApps({ links, client, downloads, owner, server = 'office', installHere = false }: { links: AppDownloads; client: AppClient; downloads: DownloadItem[] | null | 'none'; owner: boolean; server?: DownloadsSource; /** a browser tab that can install the page as an app (the guide below is shown) */ installHere?: boolean }) {
   const t = useT()

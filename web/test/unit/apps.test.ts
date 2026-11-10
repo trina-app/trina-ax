@@ -116,14 +116,17 @@ describe('desktop apps', () => {
     const store = html.indexOf(`href="${ACME.mac}"`)
     const details = html.indexOf('<details')
     const dmg = html.indexOf('href="/downloads/Acme-0.1.0-mac-universal.dmg" download=""')
+    const end = html.indexOf('</details>')
     expect(store).toBeGreaterThan(-1)
     expect(details).toBeGreaterThan(store)
     expect(dmg).toBeGreaterThan(details)
+    expect(dmg).toBeLessThan(end)
     expect(html).toContain('data-testid="app-more-mac"')
     expect(html).not.toMatch(/<details[^>]* open/)
     expect(html.slice(details)).toContain(inHtml('apps.installerFile'))
     // the warning the file brings is inside the fold, on the Mac it is for
     expect(html.indexOf(inHtml('apps.macGatekeeper'))).toBeGreaterThan(details)
+    expect(html.indexOf(inHtml('apps.macGatekeeper'))).toBeLessThan(end)
     expect(html).not.toContain(inHtml('apps.winSmartScreen'))
     // on a Windows PC the Mac's fold has the file but not the steps
     const pc = renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('windows'), downloads: [mac, win], owner: false }))
