@@ -18629,8 +18629,8 @@ logo's header (28 px).
   the team invite link's message with its copy button, or the link made in one press; the link's settings under
   "링크 관리"). While the owner's welcome steps are unfinished it opens the owner's invite step instead, as the goal card
   does, never a second invite dialog (also when the steps are already on screen: `pages/Welcome.tsx` goes to the invite
-  step on the new entry). An admin who is not the owner always gets the dialog: the steps are the owner's, and Welcome
-  sends anyone else Home. One dialog for the window (`Layout.tsx`), so ⌘K opens the same; a page change closes it (its
+  step on the new entry; the owner's progress is read first when the page has not read it yet). An admin who is not
+  the owner always gets the dialog: the steps are the owner's, and Welcome sends anyone else Home. One dialog for the window (`Layout.tsx`), so ⌘K opens the same; a page change closes it (its
   "스킬 넣기" and "팀 파일 넣기" links, ⇧⌘O), as leaving Home closes the goal card's. Closing it gives the keyboard back
   to the team button when it was opened from the menu, and to where it was before ⌘K when opened from there. The
   single-use invite links with a role and groups stay on Admin › Members & invites.
@@ -18647,8 +18647,10 @@ logo's header (28 px).
 - **Not changed:** Admin › Team settings still previews the header with the 20 px logo; that page belongs to the admin
   shell's own work (follow-up). The profile menu.
 - Tests: `web/test/unit/sidebar.test.tsx` (a member's header is no button; owners and admins: the menu, its items and
-  address, the keyboard, Esc, Tab, Invite's dialog and the focus after it, Admin's link; no Admin row; the logo at 28 px;
-  the phone drawer), e2e `sidebar.spec.ts` (sizes measured, the menu with axe, Admin, the keyboard, Invite's dialog and
-  its link, ⌘K for an admin and a member, the phone drawer and the 나 tab), and the specs that went to Admin through the
-  row (`admin.spec.ts`, `admin-home.spec.ts`) or measured the 20 px logo (`team-icon.spec.ts`).
+  address, the keyboard, Esc, Tab, Invite's dialog and the focus after it, the dialog closed by a page change, the
+  owner's unfinished steps and an admin who is not the owner, Admin's link; no Admin row; the logo at 28 px; the phone
+  drawer), e2e `sidebar.spec.ts` (sizes measured, the menu with axe, Admin, the keyboard, Invite's dialog and its link,
+  the owner's invite step from another page and on the steps themselves, ⌘K for an admin and a member, the phone drawer
+  and the 나 tab), and the specs that went to Admin through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured
+  the 20 px logo (`team-icon.spec.ts`).
 - Version impact: **minor** (a visible change to the sidebar; no API or data change).

@@ -207,6 +207,28 @@ test('팀원 초대 in the team menu opens the invite flow; closing it gives the
   await expect(s.getByTestId('team-menu')).toBeFocused()
 })
 
+test('the owner with the welcome steps unfinished: 팀원 초대 opens their own invite step, also when the steps are on screen', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // the first visit starts the steps (회사 소개 first)
+  await page.goto('/welcome')
+  await expect(page.locator('[data-step="profile"]')).toBeVisible()
+  const invite = async () => {
+    await side(page).getByTestId('team-menu').click()
+    await page.getByRole('menuitem', { name: t['teamMenu.invite'] }).click()
+  }
+  // the steps on screen: their invite step, no dialog over them
+  await invite()
+  await expect(page.locator('[data-step="invite"]')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // from another page, right after it loads: the same step
+  await page.goto('/files')
+  await invite()
+  await expect(page).toHaveURL(/\/welcome$/)
+  await expect(page.locator('[data-step="invite"]')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
 test('⌘K finds 관리자 and 팀원 초대 for an admin (not listed before typing); a member finds neither', async ({ page }) => {
   await reset(page)
   await signIn(page)

@@ -313,7 +313,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     // the team menu's items (owners and admins), found by their words: "Invite teammates", "Members & invites" too
     if (admin)
       list.push(
-        { key: 'act:invite', kind: 'action', icon: UserPlus, title: t('teamMenu.invite'), href: '', terms: `${t('goal.invite')} ${t('admin.members')}`, typed: true, after: () => openTeamInvite(navigate, null) },
+        { key: 'act:invite', kind: 'action', icon: UserPlus, title: t('teamMenu.invite'), href: '', terms: `${t('goal.invite')} ${t('admin.members')}`, typed: true, after: () => void openTeamInvite(navigate, null) },
         { key: 'act:admin', kind: 'action', icon: Shield, title: t('sidebar.admin'), href: '/admin', terms: `${t('admin.title')} ${t('admin.members')} ${t('admin.settings')}`, typed: true },
       )
     return list

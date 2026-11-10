@@ -123,7 +123,7 @@ export function TeamMenu() {
             className={item}
             onClick={() => {
               hide(true)
-              openTeamInvite(navigate, button.current)
+              void openTeamInvite(navigate, button.current)
             }}
             data-testid="team-menu-invite"
           >
@@ -152,10 +152,13 @@ const useTeamInvite = create<{ open: boolean; returnTo: HTMLElement | null }>(()
 
 /** "Invite people" (the team menu, ⌘K): the owner's own invite step while the welcome steps are unfinished, else the
  * invite dialog. `returnTo`: where the keyboard goes when the dialog closes (null: where it was when it opened). */
-export function openTeamInvite(navigate: NavigateFunction, returnTo: HTMLElement | null) {
+export async function openTeamInvite(navigate: NavigateFunction, returnTo: HTMLElement | null) {
   const session = useSession.getState().status
   const owner = session.kind === 'signed-in' && isOwner(session.me)
   const computer = typeof matchMedia === 'function' && matchMedia('(min-width: 768px)').matches
+  // the owner's progress not read yet (a click right after the page loaded, before the setup row read it): read it first;
+  // a failed read opens the dialog
+  if (owner && !useWelcome.getState().loaded) await useWelcome.getState().load().catch(() => {})
   // a new history entry each time, so the steps already on screen open their invite step too (pages/Welcome.tsx)
   if (owner && showResume(useWelcome.getState().progress, computer)) return void navigate('/welcome', { state: INVITE_STEP_STATE })
   useTeamInvite.setState({ open: true, returnTo })
