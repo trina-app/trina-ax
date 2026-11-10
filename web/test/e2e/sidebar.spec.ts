@@ -152,7 +152,10 @@ test('the team menu by keyboard: Enter opens it on its first item, arrows wrap, 
   await signIn(page)
   const s = side(page)
   const button = s.getByTestId('team-menu')
-  await button.focus()
+  // reached by the keyboard (Shift+Tab from the first row): a focus ring
+  await s.getByTestId('new-chat').focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(button).toBeFocused()
   expect(await button.evaluate((e) => getComputedStyle(e).outlineStyle)).not.toBe('none')
   await page.keyboard.press('Enter')
   const invite = page.getByRole('menuitem', { name: t['teamMenu.invite'] })
