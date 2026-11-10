@@ -77,7 +77,9 @@ PR #327. Built as planned, with these changes found on the way:
   focused window (before, a network drop brought the app in front).
 - The review: the page's element is not remembered when a frame inside the page takes the focus, untrusted events do
   nothing, a dialog the page opened keeps the focus, the element is held weakly.
-- Left (pre-existing, checked on dev): a page load in a view takes the keyboard (the in-app browser loading while the
-  person types in the team page; a team page reload). The e2e spec is a new file `desktop/e2e/keyboard-focus.spec.ts`;
+- Added on the coordinator's request: a page load in the in-app browser (the AI, a site's redirect, a new tab) no longer
+  takes the keyboard from the team page (Chromium focuses a page as it loads, checked on dev); the tab keeps it only
+  after the person's own action in the in-app browser (`keyboardTaken`).
+- Left (pre-existing): a team page reload takes the keyboard from the pane's toolbar. The e2e spec is a new file `desktop/e2e/keyboard-focus.spec.ts`;
   #317's `page-focus.spec.ts` expects no page focus after a start and needs one step changed when both are in (PR
   comment).

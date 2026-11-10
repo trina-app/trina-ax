@@ -20,6 +20,14 @@
 // window shows. Focusing the view itself (webContents.focus) keeps the page's own focused element: the message box and
 // its draft.
 //
+// keyboardTaken: a page load in the in-app browser (the AI's navigate, a site's own redirect, a new tab) takes the
+// keyboard to that tab: Chromium focuses a page as it loads (checked on dev: the person typing in the team page's
+// message box lost the keyboard to the pane at every load). The tab keeps it only when the person's last action was in
+// the in-app browser (a click or a key in its tab or toolbar, its address bar, opening it from the team page or the
+// menu), when the app itself gave it (keyboardBack, keyboardTarget) or when the tab had it already; else the keyboard
+// goes straight back to the view that had it, else the team page. The AI's own clicks in a tab (CDP) do not count as
+// the person's. A click into a tab while it loads: the click's mouse press gives the tab the keyboard after all.
+//
 // keepPageFocus: the team page's own element. When the window was ordered out and back in, Chromium hands the page's
 // focus to its first focusable element on the way back: the message box lost the focus and typing went to a link. The
 // team page's preload (preload/app.ts) remembers the element that had the focus when the page lost it (the view lost
@@ -47,6 +55,28 @@ export interface KeyboardScene<V> {
 /** The window got the focus back: the view to give the keyboard to at once, or null. */
 export function keyboardBack<V>(s: { ready: boolean; shown: readonly V[]; atBlur?: { view: V } }): V | null {
   return s.ready && s.atBlur && s.shown.includes(s.atBlur.view) ? s.atBlur.view : null
+}
+
+/** A tab of the in-app browser got the keyboard (see above): keep it there, or give it `back` (null: leave it, e.g. the
+ * window is in the back: keyboardBack gives it back on return). */
+export function keyboardTaken<V>(s: {
+  took: V
+  /** the tab's page is loading */
+  loading: boolean
+  /** the person's last action was in the in-app browser */
+  personInPane: boolean
+  /** the app itself is giving the tab the keyboard */
+  given: boolean
+  ready: boolean
+  shown: readonly V[]
+  /** the view that had the keyboard before */
+  last?: V
+  page?: V
+}): { keep: boolean; back: V | null } {
+  if (!s.loading || s.personInPane || s.given || s.last === s.took) return { keep: true, back: null }
+  if (!s.ready) return { keep: false, back: null }
+  const onScreen = (v: V | undefined): v is V => v !== undefined && v !== s.took && s.shown.includes(v)
+  return { keep: false, back: onScreen(s.last) ? s.last : onScreen(s.page) ? s.page : null }
 }
 
 /** The view to give the keyboard to now, or null (leave it where it is). */

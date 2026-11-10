@@ -255,9 +255,8 @@ function registerIpc() {
   ipcMain.on('bridge:browser-cancel', (e, callId: string) => fromApp(e) && win!.pane?.cancel(String(callId)))
   ipcMain.on('bridge:pane', (e, what: string) => {
     if (!fromApp(e) || !win?.pane) return
-    if (what === 'open') win.pane.show()
-    else if (what === 'close') win.pane.hide()
-    else if (what === 'toggle') win.pane.toggle()
+    // the team page's Browser entry: the person's own (common/keyboard-focus.ts keyboardTaken)
+    if (what === 'open' || what === 'close' || what === 'toggle') win.paneByPerson(what)
   })
   ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? (win!.pane?.state() ?? null) : null))
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
@@ -327,7 +326,7 @@ function buildMenu() {
       label: tr('menu.view'),
       submenu: [
         { label: tr('menu.reload'), accelerator: 'CmdOrCtrl+R', click: () => win?.app?.webContents.reload() },
-        { label: tr('menu.browser'), accelerator: 'CmdOrCtrl+Shift+B', click: () => win?.pane?.toggle() },
+        { label: tr('menu.browser'), accelerator: 'CmdOrCtrl+Shift+B', click: () => win?.paneByPerson('toggle') },
         { type: 'separator' },
         { role: 'resetZoom', label: tr('menu.actualSize') },
         { role: 'zoomIn', label: tr('menu.zoomIn') },

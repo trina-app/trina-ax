@@ -15,7 +15,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, bindWindow, chrome, close, launch, newUserData, SHOP, signIn, tabPage, teamPage, welcome } from './helpers'
+import { ACME, addTeam, answer, bindWindow, call, chrome, close, launch, newTurn, newUserData, result, SHOP, signIn, tabPage, teamPage, welcome } from './helpers'
 
 const windowFocused = (app: ElectronApplication) => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some((w) => w.isFocused() && w.getTitle() !== 'away'))
 /** the address of the web contents that has the keyboard, or null */
@@ -26,6 +26,35 @@ const focused = (p: Page) => p.evaluate(() => {
   const el = document.activeElement as HTMLTextAreaElement | null
   return { id: el?.id ?? '', value: el?.value ?? '', caret: el?.selectionStart ?? -1 }
 })
+
+/**
+ * Type at the keyboard: each key goes to the web contents that has the keyboard, as the system sends a key press
+ * (Playwright's own key presses go straight to the page it drives, wherever the keyboard is). Letters only.
+ */
+const typeAtKeyboard = (app: ElectronApplication, text: string) => app.evaluate(({ webContents }, keys) => {
+  const w = webContents.getFocusedWebContents()
+  if (!w) return null
+  for (const k of keys) {
+    w.sendInputEvent({ type: 'keyDown', keyCode: k })
+    w.sendInputEvent({ type: 'char', keyCode: k })
+    w.sendInputEvent({ type: 'keyUp', keyCode: k })
+  }
+  return w.getURL()
+}, text)
+
+/** The person clicks an element of a view (the view gets the keyboard, then the mouse press reaches the page). */
+async function personClicks(app: ElectronApplication, p: Page, selector: string) {
+  const at = await p.locator(selector).evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+  })
+  await app.evaluate(({ webContents }, { url, x, y }) => {
+    const w = webContents.getAllWebContents().find((c) => c.getURL() === url)!
+    w.focus()
+    w.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+    w.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+  }, { url: p.url(), ...at })
+}
 
 /** another app in front of this computer: the window never gets the focus, nothing to check */
 async function needFocus(app: ElectronApplication) {
@@ -177,6 +206,56 @@ test('a frame in the page taking the focus (an artifact) is not the page losing 
       expect(await focused(page)).toMatchObject({ id: 'message', value: '초안' })
       expect(await pageFocus(page)).toBe(true)
     }
+  } finally {
+    await close(app)
+  }
+})
+
+test('a page load in the in-app browser does not take the keyboard from the message box: the typing goes on into the box', async () => {
+  const { app, page } = await started()
+  try {
+    await needFocus(app)
+    // the person opens the in-app browser; the AI opens a site and the person allows it in the toolbar
+    await page.evaluate(() => (window as unknown as { mycelDesktop: { pane: { open(): void } } }).mycelDesktop.pane.open())
+    newTurn()
+    const first = await call(ACME, 'navigate', { url: `${SHOP}/` })
+    await answer(app, '이번만 허용', 'site')
+    expect((await result(ACME, first.callId)).result.ok).toBe(true)
+    // the person clicks into the message box and types
+    await messageBox(page, '')
+    await personClicks(app, page, '#message')
+    await expect.poll(() => keyboardAt(app)).toMatch(/^http:\/\/acme\.localhost:19151\//)
+    expect(await typeAtKeyboard(app, 'abc')).toMatch(/^http:\/\/acme\.localhost:19151\//)
+    // the AI moves the browser on (the same turn: no question) while the person types
+    const next = await call(ACME, 'navigate', { url: `${SHOP}/?ai` })
+    await typeAtKeyboard(app, 'def')
+    expect((await result(ACME, next.callId)).result.ok).toBe(true)
+    await typeAtKeyboard(app, 'ghi')
+    // the site moves on by itself, and the app loads a page in the tab
+    const tab = await tabPage(app, (u) => u === `${SHOP}/?ai`)
+    await tab.evaluate(() => { location.href = '/?redirect' })
+    await tabPage(app, (u) => u === `${SHOP}/?redirect`)
+    await typeAtKeyboard(app, 'jkl')
+    await app.evaluate(({ webContents }, shop) => void webContents.getAllWebContents().find((w) => w.getURL().startsWith(shop))!.loadURL(`${shop}/?load`), SHOP)
+    await tabPage(app, (u) => u === `${SHOP}/?load`)
+    await typeAtKeyboard(app, 'mno')
+    await expect.poll(() => keyboardAt(app)).toMatch(/^http:\/\/acme\.localhost:19151\//)
+    expect(await pageFocus(page)).toBe(true)
+    expect(await focused(page)).toEqual({ id: 'message', value: 'abcdefghijklmno', caret: 15 })
+    // the person uses the address bar: the page they open there gets the keyboard, as in a browser
+    const c = await chrome(app)
+    await personClicks(app, c, '[data-testid="pane-address"]')
+    await c.getByTestId('pane-address').fill(`${SHOP}/?typed`)
+    await c.getByTestId('pane-address').press('Enter')
+    await tabPage(app, (u) => u === `${SHOP}/?typed`)
+    await expect.poll(() => keyboardAt(app)).toMatch(/^http:\/\/shop\.test:19153\/\?typed/)
+    // the person clicks back into the message box: the next load in the pane leaves it there
+    await personClicks(app, page, '#message')
+    await app.evaluate(({ webContents }, shop) => void webContents.getAllWebContents().find((w) => w.getURL().startsWith(shop))!.loadURL(`${shop}/?after`), SHOP)
+    await tabPage(app, (u) => u === `${SHOP}/?after`)
+    await typeAtKeyboard(app, 'pq')
+    await expect.poll(() => keyboardAt(app)).toMatch(/^http:\/\/acme\.localhost:19151\//)
+    expect((await focused(page)).value).toBe('abcdefghijklmnopq')
   } finally {
     await close(app)
   }

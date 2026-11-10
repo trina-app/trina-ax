@@ -59,6 +59,8 @@ export interface PaneHost {
   teamHosts(): ReadonlySet<string>
   /** a tab of the pane got the keyboard (the window gives it back there, common/keyboard-focus.ts) */
   onKeys?(view: WebContentsView): void
+  /** the person pressed a key or the mouse in a tab (not the AI's own clicks while it drives) */
+  onPersonActed?(view: WebContentsView): void
 }
 
 interface ConsoleEntry {
@@ -351,7 +353,16 @@ export class BrowserPane {
       refresh()
     })
     wc.on('did-navigate-in-page', refresh)
-    if (!popup) wc.on('focus', () => this.host.onKeys?.(view))
+    if (!popup) {
+      wc.on('focus', () => this.host.onKeys?.(view))
+      // the AI's clicks reach the tab as mouse presses too (CDP): only those while it does not drive are the person's
+      wc.on('before-input-event', (_e, i) => {
+        if (i.type !== 'keyUp' && this.driving === 0) this.host.onPersonActed?.(view)
+      })
+      wc.on('before-mouse-event', (_e, m) => {
+        if (m.type === 'mouseDown' && this.driving === 0) this.host.onPersonActed?.(view)
+      })
+    }
     wc.on('will-prevent-unload', (e) => {
       if (tab.forceLeave) e.preventDefault()
     })

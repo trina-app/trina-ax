@@ -25,7 +25,7 @@ import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
 import { attachContextMenu, contextMenuOpen } from './context-menu'
-import { keyboardBack, keyboardTarget } from '../common/keyboard-focus'
+import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
@@ -166,6 +166,11 @@ export class AppWindow {
   private keysAtBlur?: { view: WebContentsView; inPane: boolean }
   /** a notification's click asks for the team page when the window is back */
   private keysWanted?: WebContentsView
+  /** the person's last key or mouse press (or opening the in-app browser) was in the in-app browser: a page load there
+   * may take the keyboard (keyboardTaken) */
+  private personInPane = false
+  /** the view the app is giving the keyboard to right now (keysTo) */
+  private giving?: WebContentsView
   private settleQueued = false
 
   constructor(private o: AppWindowOptions) {
@@ -503,7 +508,8 @@ export class AppWindow {
           if (this.pane) this.sendSiteSettings(this.pane.siteSettings())
         },
         teamHosts: () => teamHostnames(this.teams.teams),
-        onKeys: (view) => this.keysAt(view, true),
+        onKeys: (view) => this.tabKeys(view),
+        onPersonActed: (view) => this.personActed(true, view),
       },
       browserSes,
       this.o.pageScript,
@@ -975,7 +981,50 @@ export class AppWindow {
   // ---------------------------------------------------------------- keyboard
 
   private watchKeys(view: WebContentsView, inPane: boolean) {
-    view.webContents.on('focus', () => this.keysAt(view, inPane))
+    const wc = view.webContents
+    wc.on('focus', () => this.keysAt(view, inPane))
+    // where the person acts: a key or a mouse press in this view
+    wc.on('before-input-event', (_e, i) => {
+      if (i.type !== 'keyUp') this.personActed(inPane)
+    })
+    wc.on('before-mouse-event', (_e, m) => {
+      if (m.type === 'mouseDown') this.personActed(inPane)
+    })
+  }
+
+  /** The person pressed a key or the mouse in a view (`tab`: a tab of the in-app browser), or opened the in-app browser.
+   * A mouse press in a tab whose page load gave the keyboard back (keyboardTaken) gives it to the tab after all. */
+  private personActed(inPane: boolean, tab?: WebContentsView) {
+    this.personInPane = inPane
+    if (tab && !tab.webContents.isDestroyed() && !tab.webContents.isFocused() && this.keysReady() && this.shownViews().includes(tab)) this.keysTo(tab, 'click')
+  }
+
+  /** The person opens, closes or toggles the in-app browser (the team page's Browser entry, the menu): opening it is an
+   * action in it, as a click there is. */
+  paneByPerson(what: 'open' | 'close' | 'toggle') {
+    const pane = this.pane
+    if (!pane) return
+    if (what === 'open' || (what === 'toggle' && !pane.open)) this.personActed(true)
+    if (what === 'open') pane.show()
+    else if (what === 'close') pane.hide()
+    else pane.toggle()
+  }
+
+  /** A tab of the in-app browser got the keyboard: a page load there does not take it from where the person is
+   * (common/keyboard-focus.ts keyboardTaken). */
+  private tabKeys(view: WebContentsView) {
+    const taken = keyboardTaken({
+      took: view,
+      loading: !view.webContents.isDestroyed() && view.webContents.isLoading(),
+      personInPane: this.personInPane,
+      given: this.giving === view,
+      ready: this.keysReady(),
+      shown: this.shownViews(),
+      last: this.keys?.view,
+      page: this.mode === 'team' && this.app ? this.app : undefined,
+    })
+    if (taken.keep) return this.keysAt(view, true)
+    if (taken.back) this.keysTo(taken.back, 'kept from a page load')
   }
 
   private keysAt(view: WebContentsView, inPane: boolean) {
@@ -996,7 +1045,12 @@ export class AppWindow {
   private keysTo(view: WebContentsView, why: string) {
     const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : 'browser tab'
     debug('keyboard to', name, why)
-    view.webContents.focus()
+    this.giving = view
+    try {
+      view.webContents.focus()
+    } finally {
+      this.giving = undefined
+    }
   }
 
   /** The window got the focus back: on macOS the view that had the keyboard when it lost it gets it again, at once

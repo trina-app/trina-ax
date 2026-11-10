@@ -19022,14 +19022,23 @@ this page", #263) and "Trina side chat" ("It opens the room's newest side chat")
   back with another element focused, focuses that element again if it is still in the page. The page's own moves win
   where they can be told apart: a notification's click that opens another conversation drops it, and a dialog the page
   opened meanwhile keeps the focus. Events the page dispatches itself do nothing.
+- **A page load in the in-app browser does not take the keyboard** (`keyboardTaken`): Chromium focuses a page as it
+  loads, so the AI's `navigate`, a site's own redirect or a new tab took the keyboard from the person typing in the team
+  page's message box (checked on dev). A tab that gets the keyboard while its page loads keeps it only when the
+  person's last action was in the in-app browser (a key or a mouse press in its tab or toolbar, its address bar,
+  opening it from the team page's Browser entry or the menu) or the app gave it; else the keyboard goes straight back to
+  the view that had it, else the team page. Key and mouse presses are the views' own input events; the AI's clicks in a
+  tab reach it as mouse presses too and do not count while it drives. A click into a tab while its page loads gives the
+  tab the keyboard on the click's mouse press.
 - **Also:** the app's own screen (the team list, the offline screen) takes the keyboard only in a focused window: a
   network drop while the person is in another app no longer brings the app in front.
-- **Left as before:** a page load in a view takes the keyboard to that view (Chromium; the in-app browser's page loads
-  while the person types in the team page, a reload of the team page while the person types in the pane's toolbar). On
-  return to the window the keyboard goes back to where the person was. A site's own element in the in-app browser after
-  Cmd-H is not restored (the tab gets the keyboard; the site's first element may have it). Phones and the web app: no
-  change.
+- **Left as before:** a reload of the team page takes the keyboard from the pane's toolbar (Chromium; the person's own
+  Cmd-R, or the app moving the page between the office and the team address). A site's own element in the in-app
+  browser after Cmd-H is not restored (the tab gets the keyboard; the site's first element may have it). Opening the
+  in-app browser does not move the keyboard there by itself. Phones and the web app: no change.
 - Tests: `tests/unit/e-keyboard-focus.test.ts` (the decisions, the page's element, the wiring),
   `desktop/e2e/keyboard-focus.spec.ts` (a start, the message box across another window, an order-out and a minimize,
-  the team list and back, the in-app browser in front, a layout not taking it from the toolbar, a page load while away).
+  the team list and back, the in-app browser in front, a layout not taking it from the toolbar, a page load while away,
+  typing into the message box while the AI, the site and the app load pages in the pane, the address bar's page taking
+  it).
 - Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.

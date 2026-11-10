@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { keepPageFocus, keyboardBack, keyboardTarget, type FocusableElement, type KeyboardScene } from '../../desktop/src/common/keyboard-focus'
+import { keepPageFocus, keyboardBack, keyboardTaken, keyboardTarget, type FocusableElement, type KeyboardScene } from '../../desktop/src/common/keyboard-focus'
 
 type V = 'page' | 'list' | 'toolbar' | 'tab' | 'closed tab' | 'strip'
 
@@ -55,6 +55,36 @@ describe('keyboardBack', () => {
     expect(keyboardBack<V>({ ready: true, shown: ['page'], atBlur: { view: 'tab' } })).toBeNull()
     expect(keyboardBack<V>({ ready: true, shown: ['page'] })).toBeNull()
     expect(keyboardBack<V>({ ready: false, shown: ['page'], atBlur: { view: 'page' } })).toBeNull()
+  })
+})
+
+describe('keyboardTaken', () => {
+  const taken = (over: Partial<Parameters<typeof keyboardTaken<V>>[0]> = {}) =>
+    keyboardTaken<V>({ took: 'tab', loading: true, personInPane: false, given: false, ready: true, shown: ['page', 'toolbar', 'tab'], last: 'page', page: 'page', ...over })
+
+  test('a page load in the pane (the AI, a site\'s redirect) does not take the keyboard from the team page', () => {
+    expect(taken()).toEqual({ keep: false, back: 'page' })
+    // nor from the toolbar's address bar the person was typing in... unless the person acted in the pane: see below
+    expect(taken({ last: 'toolbar' })).toEqual({ keep: false, back: 'toolbar' })
+    // the view that had it is gone: the team page
+    expect(taken({ last: 'list' })).toEqual({ keep: false, back: 'page' })
+    expect(taken({ last: undefined })).toEqual({ keep: false, back: 'page' })
+  })
+
+  test('the tab keeps it: the person acted in the pane last, the app gave it, it had it already, or no page was loading', () => {
+    expect(taken({ personInPane: true })).toEqual({ keep: true, back: null })
+    expect(taken({ given: true })).toEqual({ keep: true, back: null })
+    expect(taken({ last: 'tab' })).toEqual({ keep: true, back: null })
+    // a click into a tab that is not loading
+    expect(taken({ loading: false })).toEqual({ keep: true, back: null })
+  })
+
+  test('the window in the back: nothing is focused now (that would bring it forward), and the tab is not remembered', () => {
+    expect(taken({ ready: false })).toEqual({ keep: false, back: null })
+  })
+
+  test('nothing to give it back to: left where it is, not remembered', () => {
+    expect(taken({ shown: ['tab'], last: 'page' })).toEqual({ keep: false, back: null })
   })
 })
 
@@ -257,8 +287,21 @@ describe('wiring', () => {
     // every view reports when it gets the keyboard: the app's own three, the team page, the pane's tabs
     expect(win).toContain('this.watchKeys(v, v === this.chrome)')
     expect(win).toContain('this.watchKeys(app, false)')
-    expect(win).toContain('onKeys: (view) => this.keysAt(view, true),')
-    expect(pane).toContain("if (!popup) wc.on('focus', () => this.host.onKeys?.(view))")
+    expect(pane).toContain("wc.on('focus', () => this.host.onKeys?.(view))")
+  })
+
+  test('where the person acts: key and mouse presses in every view; in a tab not while the AI drives it; opening the pane', () => {
+    const main = readFileSync(join(dir, 'main/main.ts'), 'utf8')
+    expect(win).toMatch(/wc\.on\('before-input-event', \(_e, i\) => \{\s*if \(i\.type !== 'keyUp'\) this\.personActed\(inPane\)/)
+    expect(win).toMatch(/wc\.on\('before-mouse-event', \(_e, m\) => \{\s*if \(m\.type === 'mouseDown'\) this\.personActed\(inPane\)/)
+    expect(pane).toMatch(/before-input-event', \(_e, i\) => \{\s*if \(i\.type !== 'keyUp' && this\.driving === 0\) this\.host\.onPersonActed\?\.\(view\)/)
+    expect(pane).toMatch(/before-mouse-event', \(_e, m\) => \{\s*if \(m\.type === 'mouseDown' && this\.driving === 0\) this\.host\.onPersonActed\?\.\(view\)/)
+    expect(win).toContain('onKeys: (view) => this.tabKeys(view),')
+    expect(win).toContain('onPersonActed: (view) => this.personActed(true, view),')
+    // the team page's Browser entry and the menu go through paneByPerson; the AI's own show() does not
+    expect(main).toContain('win.paneByPerson(what)')
+    expect(main).toContain("click: () => win?.paneByPerson('toggle') }")
+    expect(main).not.toMatch(/win\.pane\.(show|toggle)\(\)/)
   })
 
   test('a right-click menu counts as open until it closes, also when it could not be shown', () => {
