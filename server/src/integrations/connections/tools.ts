@@ -23,6 +23,7 @@ import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
 import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
 import { noteScheduleUse } from './schedule-needs'
+import { pinForm } from '../../chat/schedule-scope'
 import { HIDDEN, secretHider } from './hide'
 import { say } from './text'
 import type { RemoteTool } from './mcp'
@@ -122,8 +123,9 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
   })()
 }
 
-/** What a write sends: the whole text and the parts that say where it goes (shown first on the card). */
-interface Sent { text: string; fields: { name: string; value: string }[] }
+/** What a write sends: the whole text and the parts that say where it goes (shown first on the card); `dest`: every
+ * value that says where it goes, for a scheduled run's pinned recipients (pinTargets). */
+interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] }
 
 /** more than this cannot be checked on a card: such a write is refused, never shown cut */
 export const MAX_CARD_PAYLOAD = 100_000
@@ -145,6 +147,62 @@ export function recipientFields(args: unknown): { name: string; value: string }[
   return out
 }
 
+/** A whole value that is an e-mail address or a web address: it says where something goes whatever its argument is
+ * called. */
+const ADDRESS = /^(?:mailto:)?[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$|^[a-z][a-z0-9+.-]*:\/\/\S+$/i
+
+/**
+ * Every value of a call that says where it goes, for a scheduled run's pinned recipients (Q2 a): each value under a
+ * recipient-like argument (RECIPIENT, at any depth: an object's or a list's every value; false, null and empty values say
+ * nothing), and every value anywhere that is a whole e-mail or web address, whatever its argument is called. [] when
+ * there is none: the server cannot tell where the call goes, and a pinned send refuses it.
+ */
+export function pinTargets(args: unknown): string[] {
+  const out = new Set<string>()
+  const leaves = (v: unknown, depth: number) => {
+    if (depth > 8 || v === null || v === undefined || v === false || v === '') return
+    if (Array.isArray(v)) { for (const x of v) leaves(x, depth + 1); return }
+    if (typeof v === 'object') { for (const x of Object.values(v as Record<string, unknown>)) leaves(x, depth + 1); return }
+    out.add(String(v))
+  }
+  const walk = (v: unknown, depth: number) => {
+    if (depth > 8 || v === null || v === undefined) return
+    if (typeof v === 'string') { if (ADDRESS.test(v.trim())) out.add(v.trim()); return }
+    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
+    if (typeof v !== 'object') return
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (RECIPIENT.test(k)) leaves(x, depth + 1)
+      else walk(x, depth + 1)
+    }
+  }
+  walk(args, 0)
+  return [...out].slice(0, 200)
+}
+
+/** The recipients a scheduled run's task pinned for the person's own connection `row` on its card (Q2 a), or null: the
+ * card did not list it (then nobody can be asked, as before). */
+function pinsFor(ctx: AppContext, turnId: string, row: Row): string[] | null {
+  const r = ctx.db.query('SELECT s.personal_sends AS p FROM turns t JOIN schedules s ON s.id = t.schedule_id AND s.user_id = t.user_id WHERE t.id = ? AND s.confirmed_at IS NOT NULL AND s.template_id IS NULL').get(turnId) as { p: string | null } | null
+  try {
+    const all = JSON.parse(r?.p ?? '[]') as { connectionId?: unknown; pins?: unknown }[]
+    const hit = Array.isArray(all) ? all.find((x) => x && x.connectionId === row.id && Array.isArray(x.pins)) : undefined
+    const pins = hit ? (hit.pins as unknown[]).filter((p): p is string => typeof p === 'string') : []
+    return pins.length ? pins : null
+  } catch { return null }
+}
+
+/** A scheduled run's write to the person's own connection that its card listed: refused (the reason) unless every value
+ * of the call that says where it goes is one of the pinned recipients; a call whose recipients cannot be told is refused
+ * (fails closed). null: send. */
+function pinnedRefusal(row: Row, pins: readonly string[], dest: readonly string[] | undefined): string | null {
+  const why = (w: string, next: string) => `Nothing was sent to ${row.name}. Why: not available in this scheduled run: ${w}. Next step: ${next}. Involved: ${row.name}.`
+  if (!dest?.length) return why('the server cannot tell where this call sends (none of its arguments names a recipient it knows), so it cannot check the recipients the card pinned', `say so in the summary; send only with an argument that names one of the pinned recipients (${pins.map((p) => `'${p}'`).join(', ')})`)
+  const allowed = new Set(pins.map(pinForm))
+  const other = dest.filter((v) => !allowed.has(pinForm(v)))
+  if (other.length) return why(`the task's card allows ${row.name} only at ${pins.map((p) => `'${p}'`).join(', ')}, and this call also names ${other.slice(0, 5).map((v) => `'${clip(v.replace(/\s+/g, ' '), 120)}'`).join(', ')}`, 'send only to the pinned recipients, and say in the summary what was not sent; the user can send the rest in a chat')
+  return null
+}
+
 /** A scheduled run may send to an "allow" connection only when the person allowed that on the schedule's card, which
  * offers only the connections the task names (tools/schedules.ts taskConnections). */
 function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string): boolean {
@@ -163,6 +221,13 @@ async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: Buil
   if (row.write_policy === 'allow' && row.scope === 'team') {
     if (!b.scheduled || scheduleMayWrite(ctx, b.turnId, row.id)) return false
     throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
+  }
+  // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
+  const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
+  if (pins) {
+    const no = pinnedRefusal(row, pins, sent.dest)
+    if (no) throw new CallError(no, 'refused (scheduled run: not a pinned recipient)')
+    return false
   }
   const person = b.scheduled ? null : tc.files.person
   if (!person) throw new CallError(`this would change something at ${row.name} and nobody can confirm it here (a scheduled run), so nothing was sent. Ask the user to do it in a chat.`, 'refused (nobody to ask)')
@@ -326,6 +391,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
     description: toolDescription(row, tool),
     inputSchema: tool.inputSchema,
     label: (args) => stepOf(ctx, b, row, tool.name, args),
+    // a write of this connection (a tool not marked read-only, as saved now; a tool that is gone: none)
+    sendsTo: () => (savedTools(ctx.db, row).find((x) => x.name === tool.name)?.readOnly === false ? row.id : null),
     call: hiding(ctx, [row], async (args, tc, h) => {
       const svc = integrationsOf(ctx)
       let confirmed = false
@@ -340,7 +407,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // turned off since the turn began: the person who manages the connection said no to this tool
         if (disabledTools(current).has(t.name)) throw new CallError(`${tool.name} of ${current.name} was turned off for the AI, so it did not run. Do not try it another way; tell the user (whoever manages the connection can turn it on in its settings).`, 'tool off')
         if (!t.readOnly) {
-          confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args) }, b, tc)
+          confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args), dest: pinTargets(args) }, b, tc)
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
@@ -473,6 +540,12 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       required: ['connection', 'method', 'path'],
       additionalProperties: false,
     },
+    // a write: any method but GET and HEAD, of the connection it names
+    sendsTo(args) {
+      const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+      const m = typeof a.method === 'string' ? a.method.toUpperCase() : ''
+      return m && m !== 'GET' && m !== 'HEAD' && typeof a.connection === 'string' ? resolve(a.connection)?.id ?? null : null
+    },
     label(args) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const r = typeof a.connection === 'string' ? resolve(a.connection) : undefined
@@ -500,7 +573,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         const u = new URL(url)
         let current = row
         if (a.method !== 'GET' && a.method !== 'HEAD') {
-          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)] }, b, tc)
+          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: [url, ...pinTargets(a.body)] }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }
@@ -630,6 +703,12 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
       },
       required: ['name'],
       additionalProperties: false,
+    },
+    // a write of the one tool it names (not marked read-only as saved now)
+    sendsTo(args) {
+      const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+      const hit = typeof a.name === 'string' ? resolve(a.name) : []
+      return hit.length === 1 && hit[0]!.tool.readOnly === false ? hit[0]!.row.id : null
     },
     label(args) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>

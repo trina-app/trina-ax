@@ -146,6 +146,9 @@ export interface TurnTool {
   call(args: unknown, t: TurnToolContext): Promise<TurnToolResult>
   /** the step label under the answer ("AI PM · create_task"); default: shared/src/step-labels.ts by the tool name */
   label?(args: unknown, locale: Locale): string
+  /** the connection a call changes something at (a write), else null (a read, or not a connection's tool): a scheduled
+   * run that read a room skips the room card for it only when its task's card allowed it (chat/schedule-cover.ts) */
+  sendsTo?(args: unknown): string | null
 }
 
 /**

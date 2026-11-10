@@ -31,6 +31,7 @@ import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { rememberUrls } from '../tools/url-gate'
 import { audit } from '../admin/audit'
 import { missingTemplateKey } from '../integrations/connections/schedule-needs'
+import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type ScopeSource } from './schedule-scope'
 
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
@@ -69,11 +70,17 @@ export interface ScheduleRow {
   confirmed_at: string | null
   /** when the server paused it because nobody confirmed it (the owner is told; cleared when they confirm it) */
   review_since: string | null
+  /** what the card let runs save and send without a card (migration 282, chat/schedule-scope.ts): the save folder as
+   * the card showed it, the places whose content may go there, the person's own connections with their pinned
+   * recipients, and a lapse (the folder moved or its rules changed: runs save in the own folder until confirmed again) */
+  save_folder?: string | null; save_folder_id?: string | null; save_rule?: string | null; save_readers?: number | null
+  save_sources?: string | null; personal_sends?: string | null; save_lapsed_at?: string | null; save_lapse_reason?: string | null
 }
 
 /** What the person approved on a scheduled task's card (tools/schedules.ts, chat/schedule-review.ts). Its presence is
- * the confirmation: a free-text task created without one never runs. */
-export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[] }
+ * the confirmation: a free-text task created without one never runs. `save`, `sources`, `personalSends`: the save
+ * folder, the places and the pinned personal connections the card showed (chat/schedule-scope.ts). */
+export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[]; save?: SaveFolder | null; sources?: ScopeSource[]; personalSends?: PersonalSend[] }
 
 /** A free-text task nobody confirmed on its card: it never runs and the switch cannot resume it (unknown = paused). */
 export function needsReview(s: Pick<ScheduleRow, 'template_id' | 'confirmed_at'>): boolean {
@@ -121,11 +128,14 @@ export function describeSchedule(s: Pick<ScheduleRow, 'repeat' | 'time' | 'weekd
   }
 }
 
-/** The block in front of a scheduled run's message (the AI must not wait for anyone). */
-export function scheduledRunBlock(title: string, when: string): string {
+/** The block in front of a scheduled run's message (the AI must not wait for anyone). `allows`: what this task's card
+ * let its runs do without a card (chat/schedule-cover.ts runAllowance), said instead of "everything is declined". */
+export function scheduledRunBlock(title: string, when: string, allows?: string | null): string {
   return [
     `<scheduled_run title="${title.replace(/["<>]/g, "'")}">`,
-    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers; anything that needs the user's confirmation will be declined. Do the task with what you can find, save files in the user's personal folder unless the task names another folder, and end with a short summary of what you did and found.`,
+    `This message was sent automatically by the user's scheduled task (${when}). Nobody is watching this chat now: do not ask questions or wait for answers. No confirmation card is shown in a run, so a step that needs the user's yes on one is skipped (that is not the user refusing anything)${allows ? ', except what the user allowed for this task on its card:' : '.'}`,
+    ...(allows ? [allows] : []),
+    'Do the task with what you can find, save files in the user\'s personal folder unless the task names another folder, and end with a short summary of what you did and found, with each skipped step and why.',
     '</scheduled_run>',
   ].join('\n')
 }
@@ -154,10 +164,12 @@ export class Schedules {
     const next = this.check(userId, input, now)
     const s = { repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }
     const id = newId()
-    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
+    const scope = scopeColumns(approval?.save ?? null, approval?.sources ?? [], approval?.personalSends ?? [])
+    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at,
+      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
       approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null,
-      approval ? now.toISOString() : null)
+      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends)
     return this.get(userId, id)!
   }
 
@@ -339,6 +351,9 @@ export class Schedules {
     const project = s.project_id ? this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) : null
     // a project gone since the caller looked: no run outside it (runDue and runNow say why)
     if (s.project_id && !project) return null
+    // its save folder moved, renamed or deleted, its rules changed, or its owner's write access gone: kept as a lapse
+    // (one notice), and the run saves in the own folder instead (chat/schedule-scope.ts; the run is told why)
+    try { checkLapse(this.rt.ctx, s, now) } catch (e) { this.rt.log.warn('schedule save folder check failed', { schedule: s.id, err: String(e) }) }
     // the owner's AI, as for a chat they start now (admin/engine-choice.ts, the same as Slack and rooms): their own
     // default engine and model when they may pick and it is on, else the team default; decided at each run, so a later
     // change of either applies. Every run is a new chat, so there is no chat engine to keep.

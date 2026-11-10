@@ -166,7 +166,7 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         syncMine()
         let named = ''
         const to = a.data.save_as?.trim().slice(0, 80)
-        try { return await saveRoomFile(exec, files, a.data, false, (n) => { named = n }, planned.take(args)) } finally { label('save_room_file', named && to ? `${named} → ${to}` : named) }
+        try { return await saveRoomFile(exec, files, a.data, false, (n) => { named = n }, planned.take(args), { tool: 'save_room_file', args }) } finally { label('save_room_file', named && to ? `${named} → ${to}` : named) }
       },
     },
   ]
@@ -480,7 +480,7 @@ function saveLabel(exec: TurnExec) {
   }
 }
 
-async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoom: boolean, named: (name: string) => void, planned?: string): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
+async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoom: boolean, named: (name: string) => void, planned?: string, call?: { tool: string; args: unknown }): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
   const { rt, spec } = exec
   const checked = saveTarget(exec, a, inRoom)
   if ('text' in checked) return { ...text(checked.text, true), summary: checked.summary }
@@ -492,7 +492,8 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoo
   // the room is where the bytes come from: saving where people outside it can read asks (the wider-audience card)
   addSources(rt.db, spec.chatId, saveSources(exec, checked))
   try { roomFilesOf(rt.ctx).open(spec.userId, room.id, file.id, false) } catch { return { ...text(gone, true), summary: 'save_room_file -> not found' } }
-  const refusal = await exec.confirmWidening(target)
+  // `call`: the tool call itself (a scheduled run's card may cover it, chat/schedule-cover.ts)
+  const refusal = await exec.confirmWidening(target, [], undefined, call)
   if (refusal) return { ...text(refusal, true), summary: 'save_room_file -> not allowed by the user (wider audience)' }
   // the card may have waited minutes: the person still in the room, the message still there and seen, the bytes as read
   exec.abort.signal.throwIfAborted()
@@ -506,7 +507,7 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, inRoo
     const bytes = readRegular(abs, 1024 * 1024 * 1024).bytes
     rt.files.quarantine.assertBytes(bytes)
     fs.writeFileSync(tmp, bytes, { mode: 0o600 })
-    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b) }
+    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: file.mime } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''
     return { ...text(`Saved a copy of "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" from ${inRoom ? 'this' : 'that'} room as ${made.path} (${made.size} bytes).${note}`), summary: `save_room_file -> ${made.path} (${made.size} B)` }

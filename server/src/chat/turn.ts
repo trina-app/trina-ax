@@ -38,6 +38,7 @@ import { getTeamSettings } from '../admin/settings'
 import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
+import { callKey, COVER_TOOLS, runAllowance, saveTargetOf, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
 import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { recordSkillUse } from '../admin/skill-usage'
@@ -640,7 +641,8 @@ export class TurnExec {
     let scheduled = ''
     if (spec.clientKind === 'schedule') {
       const s = rt.db.query('SELECT * FROM schedules WHERE last_chat_id = ?').get(spec.chatId) as ScheduleRow | null
-      scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task') + '\n\n'
+      // what its card let it do without a card (a save folder, sends), instead of "everything is declined"
+      scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task', s ? runAllowance(rt.ctx, s) : null) + '\n\n'
     }
     // the previous answer paused at a per-answer limit: the AI learns that with this message, so "continue" (or anything
     // else) is read knowing the work was cut off there (the session or the history has what it did)
@@ -1525,7 +1527,7 @@ export class TurnExec {
    * is this call's room yes (one card per call). `main`: the main AI's own call (its step line says what let it
    * through). `noCover`: asked again at write time (recheckRoomCover): no cover, no widening.
    */
-  async confirmRoomChange(tool: string, input: unknown, o: { widen?: WidenOf; main?: boolean; noCover?: boolean } = {}): Promise<string | null> {
+  async confirmRoomChange(tool: string, input: unknown, o: { widen?: WidenOf; main?: boolean; noCover?: boolean; send?: string | null } = {}): Promise<string | null> {
     // a room's session: always; the person's own chat: once a room's messages came into it (chats.rooms_seen), for
     // the rest of the chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
     const own = !this.room
@@ -1541,6 +1543,16 @@ export class TurnExec {
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
     if (this.roomAllowed.has(key)) return null
+    // a scheduled run that read a room: what its task's card allowed goes on without the card nobody answers (a new file
+    // in its save folder, a send to a connection it allowed: chat/schedule-cover.ts); `send` is the connection a call
+    // writes to (TurnTool.sendsTo). The rest asks that card, which says no at once
+    const cover = own && !o.noCover ? this.scheduleCover : null
+    if (cover) {
+      const t = saveTargetOf(tool, input, o.widen?.target)
+      const c = t ? cover.save({ key, tool, path: t.path, mayBeNew: t.mayBeNew, from: o.widen?.extra ?? [], read: o.widen?.read ?? [], main: o.main !== false })
+        : o.send ? cover.send(o.send) : undefined
+      if (c !== undefined) return c
+    }
     // a new file (or one this answer made) in a folder the person allowed: no card (every check is made again now, and
     // once more right before it writes: recheckRoomCover)
     const target = own ? null : this.roomGrantTarget(tool, input)
@@ -1637,6 +1649,9 @@ export class TurnExec {
    * the room card is asked now, as for any call (no cover). Returns the refusal, or null. Calls nothing let through: null.
    */
   async recheckRoomCover(tool: string, input: unknown, o: { main?: boolean } = {}): Promise<string | null> {
+    // a save a scheduled task's card covered: the same checks again, right before it writes (chat/schedule-cover.ts)
+    const scheduled = this.scheduleCover?.recheck(callKey(tool, input)) ?? null
+    if (scheduled) return scheduled
     if (!this.room) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
@@ -2043,10 +2058,30 @@ export class TurnExec {
    * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
    * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
    */
-  async confirmWidening(target: string, extraSources: string[] = [], binding?: string): Promise<string | null> {
+  async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }): Promise<string | null> {
     const need = this.widenNeed(target, extraSources, binding)
-    return need ? this.askWidening(need, { binding }) : null
+    if (!need) return null
+    // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
+    // that saves (its claim on an absent path, its step)
+    // (only the tools a card may cover: never save_url, a video or anything else that saves)
+    const cover = call && COVER_TOOLS.has(call.tool) ? this.scheduleCover : null
+    if (cover && call) {
+      const c = cover.save({ key: callKey(call.tool, call.args), tool: call.tool, path: target, mayBeNew: true, from: extraSources, read: [], main: call.main !== false })
+      if (c !== undefined) return c
+    }
+    return this.askWidening(need, { binding })
   }
+
+  /** A scheduled run's covers (chat/schedule-cover.ts): null in any other turn and in a template's run. */
+  get scheduleCover(): ScheduleCover | null {
+    if (this.scheduleCoverMemo === undefined) {
+      try { this.scheduleCoverMemo = this.spec.clientKind === 'schedule' && !this.templateScope && !this.room ? ScheduleCover.of(this) : null } catch { this.scheduleCoverMemo = null }
+    }
+    return this.scheduleCoverMemo
+  }
+  private scheduleCoverMemo: ScheduleCover | null | undefined = undefined
+  /** A call ended: what it claimed under a scheduled task's card goes (chat/schedule-cover.ts). */
+  releaseScheduleCover(tool: string, args: unknown) { this.scheduleCoverMemo?.release(callKey(tool, args)) }
 
   /** Would saving at `target` (with `extraSources` copied in, and bytes from `read`: a room file's room, not yet in the
    * chat's read scope) need the wider-audience card now? Its card's facts, or null (no card: nothing narrower was read,
