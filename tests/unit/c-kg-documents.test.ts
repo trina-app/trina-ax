@@ -102,10 +102,12 @@ describe('document types', () => {
 })
 
 describe('search', () => {
-  test('Korean finds parts of words (trigram) and short words', () => {
+  test('Korean finds parts of words (trigram) and short words at the start of a word, never in the middle of one', () => {
     expect(idx.search('회의록', { rootIds: ['projects/acme'] })[0]?.relPath).toBe('notes/plan.md')
     expect(idx.search('회의', { rootIds: ['projects/acme'] })[0]?.relPath).toBe('notes/plan.md')
     expect(idx.search('마케팅 예산을', { rootIds: ['projects/acme'] })[0]?.relPath).toBe('notes/plan.md')
+    // "의록" is inside "회의록": finding it took a full scan of the text, which held the one search worker (grep finds it)
+    expect(idx.search('의록', { rootIds: ['projects/acme'] })).toEqual([])
   })
   test('English, any case; snippet around the words', () => {
     const h = idx.search('QUARTERLY Budget', { rootIds: ['projects/acme'] })[0]!
@@ -116,6 +118,22 @@ describe('search', () => {
   test('only the folders asked', () => {
     expect(idx.search('회의록', { rootIds: ['projects/other'] })).toEqual([])
     expect(idx.search('회의록', { rootIds: [] })).toEqual([])
+  })
+  test('a longer passage on request, its lines kept; only the snippet otherwise', () => {
+    const h = idx.search('quarterly budget', { rootIds: ['projects/acme'], passage: 500 }).find((x) => x.relPath === 'notes/plan.md')!
+    expect(h.passage).toBeDefined()
+    expect(h.passage!.length).toBeLessThanOrEqual(500)
+    expect(h.passage!.toLowerCase()).toContain('quarterly budget')
+    expect(h.passage).toContain('\n')
+    expect(idx.search('quarterly budget', { rootIds: ['projects/acme'] })[0]!.passage).toBeUndefined()
+  })
+  test('a folder inside the root: only its files', () => {
+    expect(idx.search('budget', { rootIds: ['projects/acme'], prefix: 'notes' }).map((h) => h.relPath)).toEqual(['notes/plan.md'])
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'notes' })).toEqual([])
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'web' })[0]?.relPath).toBe('web/launch.html')
+    // "notes" does not take in "notes-old/" or "notesx"; a path that is not plain is no folder (no narrowing)
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'we' })).toEqual([])
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: '../web' }).map((h) => h.relPath)).toContain('web/launch.html')
   })
   test('odd questions give no error', () => {
     for (const q of ['"', '*', 'AND OR NOT', ')(', '\\', '%_', '']) expect(() => idx.search(q, { rootIds: ['projects/acme'] })).not.toThrow()

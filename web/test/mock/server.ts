@@ -60,7 +60,7 @@
 // as when the owner changed meanwhile)} until the next reset; signing in sets lastSeenAt (the ··· menu needs it).
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
-import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
+import type { KnowledgeGraphStatus, LocalSpeechTool, SourceLoc } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -655,6 +655,30 @@ export class MockServer {
     // a skills folder only admins can read (POST /__test/skills puts skills there): members never see its skills
     if (path === 'skills/임원' || path.startsWith('skills/임원/')) return user.role === 'member' ? 'none' : 'read'
     return 'write'
+  }
+
+  /** The passages the made-up knowledge graph holds of a file (GET /api/files/search's documents): the sections of a
+   * Markdown or text file under their headings, and the known text of the sample PDFs and spreadsheets with their place. */
+  passagesOf(path: string): { loc: SourceLoc | null; text: string }[] {
+    const known: Record<string, { loc: SourceLoc; text: string }[]> = {
+      'docs/handbook.pdf': [{ loc: { kind: 'page', page: 1 }, text: 'Company Handbook 2026 Section 1: Working hours are flexible.' }],
+      'docs/quote-form.pdf': [{ loc: { kind: 'page', page: 1 }, text: '견적서 2026 공급가액 합계 1,500,000원' }],
+      'docs/spend.xlsx': [{ loc: { kind: 'sheet', sheet: 'Q3 spend', range: 'A1:B3' }, text: 'month spend July 1200 August 900' }],
+      'docs/sources/report.pdf': Array.from({ length: 6 }, (_, i) => ({ loc: { kind: 'page' as const, page: i + 1 }, text: `Sales report page ${i + 1}` })),
+    }
+    if (known[path]) return known[path]!
+    const n = this.files.get(path)
+    if (!n?.data || !/\.(md|txt)$/i.test(path)) return []
+    const out: { loc: SourceLoc | null; text: string }[] = []
+    let heading: string | null = null
+    let body: string[] = []
+    const flush = () => { const text = body.join(' ').replace(/\s+/g, ' ').trim(); if (text) out.push({ loc: heading ? { kind: 'heading', heading } : null, text }); body = [] }
+    for (const line of dec.decode(n.data).split('\n')) {
+      const h = /^#{1,6}\s+(.+)$/.exec(line)
+      if (h) { flush(); heading = h[1]!.trim().slice(0, 200) } else body.push(line)
+    }
+    flush()
+    return out
   }
 
   entry(path: string, n: FileNode, user: User): FileEntry {
@@ -2400,6 +2424,35 @@ export class MockServer {
         .filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
+    },
+    // like server/src/team-files/content-search.ts: the lines that contain q (any case) in the text files the caller can
+    // read, and, while the knowledge graph's documents part is on, one row per document with a passage that holds a word
+    // of q (its best passage, cut around the first word, and its place)
+    searchFileContents: (c) => {
+      const q = String(c.query.q ?? '').trim().normalize('NFC')
+      const base = String(c.query.path ?? '')
+      if (base && (!this.files.has(base) || this.access(base, c.user) === 'none' || this.files.get(base)!.type !== 'folder')) fail('not_found', 404)
+      const visible = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+      const cut = (text: string, at: number) => { const s = Math.max(0, Math.min(at - 50, text.length - 160)); return (s > 0 ? '…' : '') + text.slice(s, s + 160) + (s + 160 < text.length ? '…' : '') }
+      const items: { path: string; name: string; line: number; snippet: string }[] = []
+      for (const [p, n] of visible) {
+        if (!/\.(md|txt|csv|html|json)$/i.test(p)) continue
+        dec.decode(n.data!).split('\n').forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
+      }
+      if (!this.kg.documents.enabled) return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
+      const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 2 || (w.length === 1 && w.charCodeAt(0) > 0x7f))
+      const documents: { path: string; name: string; loc: SourceLoc | null; snippet: string; score: number }[] = []
+      for (const [p] of visible) {
+        let best: { loc: SourceLoc | null; text: string; score: number; at: number } | null = null
+        for (const x of this.passagesOf(p)) {
+          const low = x.text.toLowerCase()
+          const hits = words.map((w) => low.indexOf(w)).filter((i) => i >= 0)
+          if (hits.length && (!best || hits.length > best.score)) best = { ...x, score: hits.length, at: Math.min(...hits) }
+        }
+        if (best) documents.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), loc: best.loc, snippet: cut(best.text, best.at), score: best.score })
+      }
+      documents.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+      return { items, documents: documents.slice(0, 20).map(({ score: _s, ...d }) => d), truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
     },
     recentFiles: (c) => {
       const items = [...this.files.entries()]

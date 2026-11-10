@@ -658,6 +658,7 @@ export const es: Record<MessageKey, string> = {
   'files.search.label': "Buscar en el contenido de los archivos",
   'files.search.placeholder': "Buscar dentro de archivos",
   'files.search.clear': "Borrar búsqueda",
+  'files.search.documents': "Documentos relacionados",
   'files.search.scope': "Líneas que contienen “{q}” en {folder}",
   'files.search.none': "Ningún archivo que pueda abrir contiene este texto.",
   'files.search.line': "Línea {n}",

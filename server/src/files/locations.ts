@@ -6,9 +6,9 @@
 //   - PowerPoint: `=== Slide N ===` before each slide's text and each slide's notes and charts
 //   - Word, OpenDocument, Hangul: Markdown headings (`## 환불 정책`); a body line that starts like one is indented
 // From these this module tells the place of any line (grep results, a read by lines), cuts text into search pieces
-// that never cross a page, slide, sheet or section (search/semantic.ts), and writes the short labels the AI sees
-// ("p.12", "시트 '매출' A1:F40", "슬라이드 3", "§ 환불 정책"). Text cached before the marks (an older text cache) gives
-// what it can: pages always, sheet names without ranges, and no slides or sections.
+// that never cross a page, slide, sheet or section (knowledge-graph/documents/index.ts), and writes the short labels
+// the AI sees ("p.12", "시트 '매출' A1:F40", "슬라이드 3", "§ 환불 정책"). Text cached before the marks (an older text
+// cache) gives what it can: pages always, sheet names without ranges, and no slides or sections.
 import type { SourceLoc } from '@mycel/shared/api'
 import { fileShareUrl } from '@mycel/shared/api'
 import { ext } from './extract'

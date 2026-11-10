@@ -13657,6 +13657,106 @@ PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `s
 - The print budget is not in the server unit's MemoryMax (above): `mycel-ctl apply-plan` could add `printBudgetMiB` to
   it (a hosting decision).
 
+## 지식 그래프로 더 빠른 답 — the AI and the Files search answer from the knowledge graph (feat/knowledge-graph-fast-answers, 2026-11-07, product owner)
+
+Plan: [20261107-0819-knowledge-graph-fast-answers](AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md). This entry
+covers wave 1 (no embeddings yet).
+
+- **Why.**
+  - The owner asked that "the AI on the Trina AX application" work from the knowledge graph and run much faster. Then,
+    looking at the Files screen: "what I mean by knowledge graph, people use it for this one."
+  - Measured on the dev server (10 days of test traffic, 74 question turns), document questions took 13.8 s and about
+    52,000 input tokens at the median, against 7.1 s and about 20,000 without files.
+  - The tools take about 0 s; the time is model round trips, about 3.5 per answer.
+  - `knowledge_explore` was called twice in that time.
+- **One search, three users.** `KnowledgeGraph.lookup()` is the only document search. It serves `knowledge_explore`, the
+  lookup before the model starts and the Files search, with the same access rule as before (each file passes
+  `authorize(read)` for the asker at the moment they ask). It searches documents only and never runs CodeGraph, so it is
+  fast enough for every message.
+- **Owner's rule: keep the knowledge graph simple.** One index, one search, no new screens or buttons, no new server
+  tables or settings, no new dependencies.
+- **Lookup before the model: strong, weak, none.**
+  - A strong match puts up to 10,000 characters of passages in front of the message, a weak match up to 5 file names,
+    and no match nothing.
+  - Limit 200 ms, so the model never waits on it.
+  - Rejected: always putting passages in, because it costs tokens on every message, and 40 of 74 question turns on the
+    dev server touched no file.
+  - The owner chose "always, but make it fast": the search always runs, and what goes in depends on the match.
+- **Not for the API engine.** The owner wants the change only on the engines that run on the team's own server
+  ("only on the local claude team own server"). The API engine still sees the new `knowledge_explore` answer and prompt
+  rule, because it shares one tool and one prompt; a second format would be a second code path.
+- **Not in rooms.** In a room, a search counts every folder it looked in as read, and an answer that used a folder some
+  members cannot see stays private. A lookup on every room question would keep answers private that used no file.
+- **No repeats only for resumed Claude sessions.** Codex and fresh Claude sessions start without the earlier blocks in
+  their history, so they get the block again. The list of passages already given is in memory: no table for a
+  convenience.
+- **Answer-ready tool results.** Today's short snippets made the AI read whole files (often 10,000–30,000 tokens).
+  `knowledge_explore` now returns:
+  - 3 passages of up to 1,500 characters to answer from;
+  - 12 short labelled hits;
+  - an optional `alt_query` (another wording, e.g. English for a Korean question).
+
+  Research for wave 2 showed that the AI ranking a dozen short labelled hits itself costs nothing extra, while a
+  reranking model costs about 45 s per question on two cores.
+- **Parallel read-only calls.**
+  - One answer's `list`, `glob`, `grep`, `read`, `search` and `knowledge_explore` calls run side by side on its MCP
+    connection, at most 4 at once. They are `PARALLEL_READ_TOOLS` in `rooms/ai-tools.ts`, a subset of the room's
+    read-only list, so the list can only shrink.
+  - Every other call (writes, cards, room tools, unknown tools, protocol messages) runs alone and in order, so a read
+    after a write sees it.
+  - Each call now gets its own context. Before, a call that reloaded the person wrote into the context the answer's
+    other calls shared.
+- **The Files search only adds.**
+  - Document rows come above the exact-line matches and are checked again with grep's own `visiblePath`, so they never
+    show what the line search could not.
+  - The API field is optional, so older apps keep working.
+  - One new label, "관련 문서", in five languages.
+- **Hard links.** The knowledge graph's file check now also requires one link to the file, as the read tool does and as
+  this document already promised. The index never stored a hard-linked file, so nothing visible changes.
+- **Benchmark.** `scripts/bench/` has 30 questions (15 Korean, 15 English) over 22 made-up Acme documents. Baseline on
+  a Mac with real AI:
+
+  | Engine | Median time | p90 | Median input tokens (`turns.input_tokens`, cache included) | Correct |
+  |---|---|---|---|---|
+  | Claude Code | 7.4 s | 10.0 s | 116,964 | 100% |
+  | Codex | 10.5 s | 16.2 s | 76,564 | 100% |
+
+  Compare only numbers from the same machine. The set is too easy to show a drop in correctness, so harder questions
+  come before wave 2's quality test.
+- **After wave 1** (same Mac, same 30 questions, the code after the review fixes):
+  - Claude Code: 6.9 s median (was 7.4), 80,469 input tokens (−31%), 1 tool call (was 2), 30/30 correct.
+  - Codex: 7.9 s (−25%), 57,949 tokens (−24%), 1 tool call, 29/30 correct.
+  - The miss was en-08, an English question ("the September outage") about a report written in Korean (장애 보고서).
+    Codex searched and grepped, but never gave the Korean wording or looked at file names. The rule and the empty
+    answer now say to try `alt_query` in the other language and glob file names first. Search by meaning (wave 2) is
+    the real fix for such questions. With that wording, three reruns of en-08 on Codex found it in two, with one
+    `knowledge_explore` call each (8–9 s, about 59,000 tokens). The third still missed after glob and grep.
+- **How it was built.** Each phase of the plan is a wave. Five agents built wave 1 in parallel on separate files, around
+  a contract commit that fixed `lookup()`'s signature first.
+- **Review fixes (same branch).** An independent review found two must-fix problems. Neither leaked a file to the wrong
+  person.
+  - **The deadline was not real.** The document search ran synchronously on the main thread, so the 200 ms race could
+    only fire after the search had finished. A 3,000-document index held the whole server for 260–720 ms per lookup,
+    on every message and every Files search.
+    - Searches now run in one worker with its own read-only connection (WAL mode).
+    - Each word adds a bounded number of pieces.
+    - One permission answer shares one folder listing. That listing, not the search, was most of the main thread's
+      cost.
+    - Rejected: only bounding the search. It still blocks, and a 2-core server is several times slower than the Mac it
+      was measured on.
+    - The worker is a separate bundle entry (`doc-search-worker.js`). `Bun.build` does not follow `new Worker()`.
+  - **The lookup widened the read scope.** Every file named in the block, even a weak, name-only one, joined the chat's
+    read scope, so a scheduled task's save to `shared/` could be refused (nobody answers its card).
+    - Scheduled runs now get no lookup.
+    - Weak blocks count as names shown, like `list`.
+    - Strong blocks still count as read, because their text reached the model.
+  - **Should-fix:**
+    - Budgets are in tokens (`knowledge-graph/tokens.ts`, an estimate that leans high: 4 ASCII characters or 0.8 of any
+      other character per token). A 10,000-character Korean block was 5,000–8,000 tokens against the planned 2,500.
+    - The tag guard catches spaces and zero-width characters.
+    - "감사" is a word again.
+    - The Files search keeps every typed word.
+
 ## 아이폰 알림의 이름 — who and where in a room push on the iPhone, never the text (feat/ios-notification-labels, 2026-11-07, product owner)
 넣을 곳: trina-ax `push-gateway/src/apns.ts`, `server/src/notifications/push-service.ts` (migration 263),
 `shared/src/api/push.ts`, `web/src/lib/mobile*.ts` and `mobile/` (`src/labels.ts`, `plugins/notification-service*`), 이유:
@@ -13844,6 +13944,69 @@ person's folder and only said that everyone could see the amounts; the person ha
   in each state, the detail), `steps-paused` and `steps-subtasks` updated, `web/test/e2e/chat.spec.ts` (mock
   "wrong-guess" and "save-fails").
 - Version impact: **minor** (a visible UI change; no API, setting or data change).
+
+## 뜻으로도 찾는 지식 그래프 — search by meaning in the knowledge graph, on by default (feat/knowledge-graph-meaning, 2026-11-07, product owner)
+
+Plan: [20261107-0819-knowledge-graph-fast-answers](AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md), waves 2
+and 3. This entry replaces the 2026-10-21 "뜻으로 찾기" tool and the 2026-11-01 "Search by meaning off by default"
+entries. Their tool is removed.
+
+- **The owner's choices:**
+  - Embeddings, on the team's own server only ("A the team own server yes").
+  - Always combined with keyword search.
+  - `multilingual-e5-small`, downloaded on first use.
+  - Admins see nothing ("admin doesnt need to see the embeding just automatically turn it on by default").
+  - On by default only if a quality test written before any run shows the combined search better overall and not worse
+    on any type of question.
+  - Keep it simple.
+- **The quality test passed, narrowly** (`scripts/bench/quality/`):
+  - The test: 150 questions (75 Korean, 75 English; 30 each of paraphrase, exact, table, cross-language and file name),
+    over 49 made-up Acme documents plus 3,000 Wikipedia articles (22,096 pieces).
+  - Recall@8 47.3% → 51.3% (+4.0 points, bootstrap 95% interval +0.7 to +8.0; McNemar 1 question lost, 7 gained,
+    p = 0.07). MRR 0.419 → 0.463.
+  - No type got worse by Recall@8, first place or MRR. Exact 83 → 87%, table 90 → 93%, file name 63 → 73% (first place
+    47 → 63%).
+  - Paraphrase (0 → 3%) and cross-language (0 → 0%) barely moved at that size. Meaning alone puts the right file in its
+    first 8 for 4 of 30 paraphrases and 1 of 30 cross-language questions: the model is the limit.
+  - In a small folder it does what was hoped. At 50 files: 59% → 76% overall, paraphrases 0 → 70%.
+  - So it is on by default, as the rule says, and the numbers are kept here rather than oversold.
+- **Why the lookup before the model does not use meaning:**
+  - With meaning on, almost every message with one distinctive word got a few loosely related files by meaning.
+  - e5 scores unrelated text 0.77–0.85 against 0.81–0.84 for related text, so no threshold separates them.
+  - `knowledge_explore` and the Files search use meaning; the lookup asks with `meaningOnly: false` and then does not
+    ask the worker for meaning at all (review must-fix).
+- **The query model has its own thread.** Opening it blocked the search worker for 0.7–0.8 s, so a 200 ms lookup got
+  nothing. A cold model is never waited for, and it unloads after 15 idle minutes. On macOS the process keeps about
+  350 MB after unloading, which the allocator holds for reuse; Linux was not measured.
+- **Indexing:**
+  - A separate process below people's work: one ONNX thread, batches of 4.
+  - It rests three times each batch's time (at most about a quarter of one core), because `nice` does not stop the
+    burstable CPU credits of 2-vCPU cloud servers from draining.
+  - It starts with 1.5 GB available (Linux: the tightest cgroup limit counts too), is stopped above 800 MB, pauses
+    while any answer runs or waits, and has a 15-minute ready limit and a 2-minute batch limit.
+  - Only a piece the model itself refused alone is marked; a kill or crash never marks one.
+  - Measured: about 3 pieces per second on an M-series Mac. In a 2-CPU, 4 GB container: 2.7 per second, at most
+    746 MB. About 9 hours for 22,000 pieces with the rest.
+- **Hosting plans:**
+  - Off by default where `mycel-ctl apply-plan` set limits. The whole server runs in about 1.3–1.8 GB there, and the
+    embedding process (600–800 MB) and the query model would share it with converters.
+  - `knowledgeGraph.meaning: true` turns it on.
+  - This differs from the earlier answer that hosted teams get it too (a review must-fix).
+- **Reviews:**
+  - The first review found two must-fix problems: the lookup before the model asked for meaning it threw away (waiting
+    on a cold model, losing keyword slots), and a passage with no length cap (one huge sheet name stopped indexing for
+    good).
+  - The should-fix round, all fixed: no wait on a cold model; the scan yields; the rest cycle; the model disposed in
+    its thread; failing pieces skipped.
+  - The second review found the hosting-plan must-fix, plus a killed process being reused, temporary failures marking
+    pieces for good, a stuck download, missed scans repeating, and the web e2e downloading the model. All fixed.
+- **Removed:** the `search` tool, `server/src/search/semantic.ts` and `MYCEL_SEMANTIC`. Their `<data>/semantic.db` is
+  deleted on start. The model files and the bundled runtime stay, because the new embedder uses them.
+- **AI benchmark with meaning on** (`scripts/bench/`, 30 questions, all pieces embedded first; the server indexed 94
+  pieces in 71 s at 609 MB):
+  - Claude Code 8.6 s median, 81,572 tokens, 30/30.
+  - Codex 8.5 s, 59,328 tokens, 30/30. The cross-language miss of wave 1 (en-08) is found in one call.
+  - Tokens and tool calls are unchanged from wave 1.
 
 ## Shared project chats — 공유 프로젝트 채팅, phase 1 (feat/shared-project-chats, 2026-11-07, product owner)
 

@@ -203,8 +203,10 @@ export const AppConfigFile = z.object({
    * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
   roomAiMentions: z.boolean().optional(),
   /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
-   * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any. */
-  knowledgeGraph: z.object({ codegraph: z.string().max(1000).optional() }).strict().optional(),
+   * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any.
+   * `meaning`: search by meaning in the document index (the model runs on this server); on unless false (wave 3 of
+   * docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md: the quality test passed). */
+  knowledgeGraph: z.object({ codegraph: z.string().max(1000).optional(), meaning: z.boolean().optional() }).strict().optional(),
 })
 export type AppConfigFile = z.infer<typeof AppConfigFile>
 
@@ -259,8 +261,8 @@ export interface AppConfig {
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
    * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
   demo?: DemoFile
-  /** see AppConfigFile.knowledgeGraph: codegraph absent = look on the PATH, '' = none */
-  knowledgeGraph?: { codegraph?: string }
+  /** see AppConfigFile.knowledgeGraph: codegraph absent = look on the PATH, '' = none; meaning false = no search by meaning */
+  knowledgeGraph?: { codegraph?: string; meaning?: boolean }
 }
 
 export class ConfigError extends Error { name = 'ConfigError' }
@@ -358,7 +360,10 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     ...(f.handoverSafe ? { handoverSafe: true } : {}),
     ...(f.roomAiMentions ? { roomAiMentions: true } : {}),
     ...(demo ? { demo } : {}),
-    ...(f.knowledgeGraph?.codegraph !== undefined ? { knowledgeGraph: { codegraph: f.knowledgeGraph.codegraph === '' ? '' : abs(f.knowledgeGraph.codegraph) } } : {}),
+    ...(f.knowledgeGraph && (f.knowledgeGraph.codegraph !== undefined || f.knowledgeGraph.meaning !== undefined) ? { knowledgeGraph: {
+      ...(f.knowledgeGraph.codegraph !== undefined ? { codegraph: f.knowledgeGraph.codegraph === '' ? '' : abs(f.knowledgeGraph.codegraph) } : {}),
+      ...(f.knowledgeGraph.meaning !== undefined ? { meaning: f.knowledgeGraph.meaning } : {}),
+    } } : {}),
   }
 }
 

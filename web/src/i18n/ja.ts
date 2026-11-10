@@ -658,6 +658,7 @@ export const ja: Record<MessageKey, string> = {
   'files.search.label': "ファイルの内容を検索",
   'files.search.placeholder': "ファイル内を検索",
   'files.search.clear': "検索をクリア",
+  'files.search.documents': "関連する文書",
   'files.search.scope': "{folder}内で“{q}”を含む行",
   'files.search.none': "開けるファイルにこのテキストは見つかりませんでした。",
   'files.search.line': "{n}行目",

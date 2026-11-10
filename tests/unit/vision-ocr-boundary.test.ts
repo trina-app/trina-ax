@@ -1,6 +1,6 @@
 // Where OCR may run (docs/DECISIONS.md "AI sees images and PDF pages"):
-// - Linux: nowhere. Not in read, chat attachments (read), drive_read, the grep / Office text cache or the semantic
-//   index; tesseract is no longer installed, and an installed one is never used. Scanned PDFs and images are simply not
+// - Linux: nowhere. Not in read, chat attachments (read), drive_read or the grep / Office text cache; tesseract is no
+//   longer installed, and an installed one is never used. Scanned PDFs and images are simply not
 //   text-searchable there (like Claude Code's own Grep).
 // - macOS: Apple Vision (mycel-ocr in OCR mode) only for the search index of scanned PDFs; photos stay out of the
 //   index, and an AI read sees images and scanned pages as images (mycel-ocr runs there only to draw pages / read the
@@ -65,13 +65,13 @@ describe.skipIf(process.platform !== 'linux')('Linux: no OCR anywhere', () => {
     expect(A.ctx.files.cfg.ocr).toBeNull()
     expect(A.ctx.engineConfig.ocr).toBeNull()
   })
-  test.skipIf(!canRead)('read, attachments, drive_read, the grep cache and the semantic index never start tesseract or mycel-ocr', async () => {
+  test.skipIf(!canRead)('read, attachments, drive_read and the grep cache never start tesseract or mycel-ocr', async () => {
     const turn = A.turn('alice', A.chat('alice'))
     const calls = await spawned(async () => {
       const ctx = A.toolCtx('alice', turn)
       for (const args of [{ file_path: 'users/alice/scan.pdf' }, { file_path: 'users/alice/mixed.pdf', offset: 1 }, { file_path: 'users/alice/page.png' }])
         expect((await A.ctx.files.call('read', args, ctx)).isError).toBeFalsy()
-      // the grep / semantic text cache of a scanned PDF (uploads and changes queue the same update)
+      // the grep text cache of a scanned PDF (uploads and changes queue the same update)
       await A.ctx.files.office.update('users/alice/scan.pdf')
       await A.ctx.files.office.update('users/alice/mixed.pdf')
       // drive_read converts with the same tools (tools/drive.ts)
@@ -87,7 +87,7 @@ describe.skipIf(process.platform !== 'linux')('Linux: no OCR anywhere', () => {
 })
 
 describe.skipIf(process.platform !== 'darwin' || !ocrBin() || !canRead)('macOS: Apple Vision only for the search index of scanned PDFs', () => {
-  test('the grep / semantic cache of a scanned PDF holds Apple Vision text; photos are not indexed', async () => {
+  test('the grep cache of a scanned PDF holds Apple Vision text; photos are not indexed', async () => {
     const calls = await spawned(() => A.ctx.files.office.update('users/alice/scan.pdf'))
     expect(recognition(calls)).toHaveLength(1)
     expect(fs.readFileSync(A.ctx.files.office.cachePath('users/alice/scan.pdf'), 'utf8').replace(/\s/g, '')).toContain('진료예약안내')

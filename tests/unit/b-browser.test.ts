@@ -70,7 +70,7 @@ describe('browser tools', () => {
     const r = await send(fake({ echo: 'tools' }), { window: 'win-web-00001', client: 'web' })(chat.id)
     const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     // file tools, B's tools (set_title: the chat's first message; edit_files) and C's registered tools (make_file, edit_hwp, share_file,
-    // artifact, web_fetch, save_url, schedule_*, promo_video, intro_deck, move_skill, post_to_room; search only with MYCEL_SEMANTIC=on), skill and find_skills; no browser tools
+    // artifact, web_fetch, save_url, schedule_*, promo_video, intro_deck, move_skill, post_to_room), skill and find_skills; no browser tools
     expect(d.data.message.content).toBe('artifact,ask_user,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,find_skills,forget,glob,grep,intro_deck,list,make_file,move_files,move_skill,post_to_room,promo_video,read,remember,rename_file,room_file,room_read,rooms,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,skill,skill_files,web_fetch,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)

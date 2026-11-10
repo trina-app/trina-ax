@@ -899,3 +899,65 @@ test.describe('phone', () => {
     await expect(page).toHaveURL(/select=plan\.md/)
   })
 })
+
+// The search box on the Files screen (FileContentSearch.tsx, GET /api/files/search): the knowledge graph's document rows
+// first (one per document, its place and a passage with the words marked; a click opens the file there), then the
+// exact-line matches as before. With the documents part off, only the line matches, as before.
+test('content search: document rows first, then the line matches; a row opens the file at its place', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const ok = async (r: Promise<{ ok(): boolean }>) => expect((await r).ok()).toBe(true)
+  await ok(page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data: { path: 'docs/kg/refund-guide.md', text: '# Overview\nGeneral notes.\n\n# Refund rules\nA refund is paid within 14 days.\n' } }))
+  await page.goto('/files')
+  const results = page.getByTestId('content-search')
+  await page.getByTestId('content-search-input').fill('refund')
+  const docs = results.getByTestId('content-doc')
+  await expect(docs).toHaveCount(1)
+  await expect(docs.first()).toContainText('refund-guide.md')
+  await expect(docs.first().getByTestId('content-doc-place')).toHaveText('§ Refund rules')
+  await expect(docs.first().locator('mark')).toHaveText('refund')
+  await expect(results.getByText('관련 문서', { exact: true })).toBeVisible()
+  // the line matches follow, as before
+  await expect(results.getByTestId('content-hit')).toHaveCount(2)
+  const docBox = (await results.getByTestId('content-documents').boundingBox())!
+  const lineBox = (await results.getByTestId('content-hit-file').first().boundingBox())!
+  expect(docBox.y + docBox.height).toBeLessThanOrEqual(lineBox.y)
+  await docs.first().click()
+  await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('refund-guide.md')
+
+  // a PDF passage: the row names the page, and the preview opens there
+  await page.getByTestId('content-search-input').fill('flexible hours')
+  const pdf = results.getByTestId('content-doc').filter({ hasText: 'handbook.pdf' })
+  await expect(pdf.getByTestId('content-doc-place')).toHaveText('1쪽')
+  await pdf.click()
+  const panel = page.getByTestId('file-panel')
+  await expect(panel.getByTestId('file-panel-title')).toHaveText('handbook.pdf')
+  await expect(panel.locator('[data-start-page]')).toHaveAttribute('data-start-page', '1', { timeout: 15_000 })
+
+  // the documents part off: only the line matches, no label
+  await ok(page.request.patch('/api/admin/knowledge-graph', { headers: { [CSRF_HEADER]: '1' }, data: { documents: false } }))
+  await page.getByTestId('content-search-input').fill('refund rules')
+  await expect(results.getByTestId('content-hit')).toHaveCount(1)
+  await expect(results.getByTestId('content-doc')).toHaveCount(0)
+  await expect(results.getByText('관련 문서', { exact: true })).toHaveCount(0)
+})
+
+test('content search on a phone: document rows fit the width, no sideways scroll', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const text = `# 환불 정책과 예외 사항 정리 (고객 응대용)\n${'환불은 결제일로부터 14일 이내에 요청하면 전액 돌려드립니다. '.repeat(6)}\n`
+  expect((await page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data: { path: 'docs/kg/아주 긴 이름의 환불 안내 문서 2026년 하반기 최종본.md', text } })).ok()).toBe(true)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/files')
+  await page.getByTestId('content-search-input').fill('환불 정책')
+  const doc = page.getByTestId('content-doc').first()
+  await expect(doc).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  const box = (await doc.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(390)
+  // the passage is at most two lines
+  const passage = doc.locator('span.line-clamp-2')
+  const lh = await passage.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight))
+  expect((await passage.boundingBox())!.height).toBeLessThanOrEqual(lh * 2 + 1)
+})
