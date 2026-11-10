@@ -2,7 +2,7 @@
 //  - Settings › Connectors: a card first in Discover; its + (or Connect on its page, DriveDetail) goes straight to Google
 //    sign-in (components/settings/DriveConnection.tsx). Back from Google, one inline line asks to confirm the account:
 //    a security step (the server holds the connection until the same person confirms it, docs/GOOGLE-DRIVE.md). Once
-//    linked it is a row in Yours (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
+//    linked it is a row among the connections (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
 //    client on this server yet: "Your admin needs to turn this on".
 //    An admin may not let members connect their own (Admin › Connectors › Google Drive): Connect is then off for
 //    members, and a connection made before says the admin turned it off. An owner or admin gets one button instead,
@@ -41,7 +41,7 @@ export function DriveLogo({ className }: { className?: string }) {
   return <LogoTile src={appConnectorLogo(DRIVE)} className={className} />
 }
 
-/** What Google Drive shows for one person, wherever it is (the row in Connectors › Yours, its page): the line under the
+/** What Google Drive shows for one person, wherever it is (its row among the connections in Connectors, its page): the line under the
  * name, the action on the right, and the steps while Google is open. Connect goes straight to Google; back from it, one
  * inline line asks to confirm the account (a security step: the server holds the link until the same person confirms
  * it, so a Google sign-in started by someone else can never land in this person's Drive connection). */
@@ -145,7 +145,7 @@ export function DriveTeamShares({ shares }: { shares: DriveTeamShare[] }) {
   )
 }
 
-/** The person's own Google Drive as one row (Connectors › Yours): the account, Connected and ⋯. */
+/** The person's own Google Drive as one row among the connections in Connectors: the account, Connected and ⋯. */
 export function DriveCard({ s }: { s: DriveConnectionState }) {
   const p = useDriveParts(s)
   return (

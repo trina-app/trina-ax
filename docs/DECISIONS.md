@@ -6187,6 +6187,9 @@ on every call as before.
 
 ## External services: Connected and Discover (feat/connectors-discover, 2026-11-02)
 
+(The tabs were replaced on 2026-11-10 by one page with Discover under the connections: "Connectors on one page; the
+container says whose a page is".)
+
 The screen was a long card per connection, and the only way in was typing an MCP address. It now follows the Team skills page: a title row with tabs and a search, one line per connection (name, kind or why it failed, its state) with the details a click away, and a Discover tab of services to add by name next to "Add connection" for anything else.
 
 - **Discover is a list in the web app, not a server feature.** An entry fills the add dialog with a name and an address, so sign-in, keys, access rules and the write policy stay exactly as they are, and a team connection still starts with only the admin who added it.
@@ -18727,3 +18730,58 @@ sheet and chips. English is the source of the words; ko, id, ja and es translate
   page's clock; the DM line; the member list's tap and the @ list; leave with a later first day; the phone's drawer
   row and sheet).
 - Version impact: **minor** (a visible feature, two endpoints, one additive table; older apps ignore the new field).
+## Connectors on one page; the container says whose a page is (feat/connectors-one-page, 2026-11-10, product owner)
+
+Replaces the tabs of "External services: Connected and Discover" (2026-11-02). The owner missed the Discover tab:
+Admin › Connectors with one connection showed one row and blank space. They also could not tell the team's list from
+their own: Admin and Settings use the same names (Providers, Connectors, AI apps), and Admin said "For the whole team"
+only in small grey type beside a "Yours" tab.
+
+- **One page, no tabs.** Settings › Connectors and Admin › Connectors list the connections first, then **Discover**
+  (the same Top connectors grid with Show all) under its own heading, after a hairline. The tab state is gone; nothing
+  else used it. With nothing connected yet there is no empty box and no heading: Discover comes first, in Settings under
+  the one existing empty line ("No MCP connected yet"). Someone who may not add connections sees only their
+  connections and no Discover, as before.
+- **The search filters every section.** A section without a match hides; when nothing on the page matches, one
+  "Nothing matches" line. A service already connected stays one card with its check in Discover and one row above;
+  nothing is listed twice.
+- **Where the keyboard lands.** A connector's page (a card, Drive's +, `?drive=1` from a notice or an old address) still
+  takes the place of the list, as it took the place of the Discover tab; its way back shows the list scrolled to
+  Discover with Discover's heading focused. Adding from Discover (a card's +, a connector page's Connect, "Add by its
+  address", or Add pressed over a connector's page) clears the search and focuses the heading of the list the new row
+  is in. The headings take focus with `tabIndex={-1}` and no ring, like Team settings' sections. Each page makes its own
+  heading ids (`useSectionIds`): Settings opens over the page it came from, which stays mounted under it, so Settings ›
+  Connectors can be on screen over Admin › Connectors (found in review).
+- **The container says the scope, the pages keep the same nouns.** Products that have both a team admin area and
+  personal settings usually name a page the same in both and let the area say whose it is, rather than putting "Team"
+  or "My" in front of each title. So: Admin's menu title is the team's logo and "`<team>` admin", and one line above every
+  Admin page says "Applies to everyone in `<team>`" (`AdminScope`, rendered once in `AdminLayout`), the pair of Settings'
+  "Just for you" in the same size and colour. That covers Providers, Connectors, AI apps, Plugins and every other Admin
+  page at once; the grey "For the whole team" beside each title goes. Page titles are the plain nouns ("Connectors" in
+  both); list headings are plain ("Connected", "Discover"). A first version with "Team connectors" / "My connectors",
+  "Connected for the team" / "Your connections" and a cross-link line under Admin's title was dropped for this.
+- **Settings › Connectors shows what the team provides as one block**, `From <team>`, above the person's own
+  (`FromTeam`, which replaces "Team connections" with its orange Team chip and "From your team"): the team's
+  connections the person may use, read-only, with **Ready** once they work (else the connection's own state, such as a
+  sign-in an admin still has to do); the templates shared with them, with **Connect your account** (once connected,
+  their own connection, **Ready**, with their own key's controls in its details). An admin also sees the team's
+  connections not for them, **Off for you**, from the admin team list they may read anyway, and one **Manage** link to
+  Admin › Connectors; the team's rows there have no manage buttons or tool switches for anyone (`IntegrationRow
+  readOnly`), while a connection made from a template keeps its owner's own controls (their key, disconnect). A
+  member's list has only what they may use, so a member never sees "Off for you" rows: nothing here widens what a
+  member can see.
+- **Who may use each, on the line (Admin).** Each team connection and template has one quiet chip after its name:
+  "Everyone", the first group with how many more groups and people ("Design +2"), one person's name, or "3 people";
+  every name in its tooltip; none while nobody may (the warning chip says so) and none until groups and people have
+  loaded. The full "Used by" line stays in a connection's details. A template's line no longer repeats who it is for.
+- **Strings.** New in all five languages: "Connected", Discover, `From <team>`, Manage, Ready, Connect your account,
+  Off for you, "Applies to everyone in `<team>`", "`<team>` admin", and the chip's "Everyone", "{name} +{n}" and
+  "{n} people". Removed because nothing uses them any more: the tab labels, "For the whole team", the Team chip,
+  "Team connections" and its hint, "From your team" and its hint, Admin's description and empty title and hint,
+  Settings' empty hint, "My connections" and the template's "For {who}" line.
+- Not changed: the dialogs, Drive's own pages, request rows, the Providers and AI apps pages beyond the shell's line,
+  the API and the data. Version impact: patch.
+- Tests: the connector e2e specs (Settings and Admin, Drive, Admin Drive, templates, requests, sticky title rows, the a11y
+  sweep, Settings IA, Admin Home, the quick UX checks) follow the page instead of the tabs, and check the plain titles,
+  the Admin shell's title and line, the "From `<team>`" block for an admin and a member, the chip, the search over both
+  sections and where the keyboard lands (also with Settings over Admin); `audienceOf` has unit tests.

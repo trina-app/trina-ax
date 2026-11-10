@@ -1,9 +1,10 @@
 // Small helpers shared by the admin screens.
 import clsx from 'clsx'
-import { Search } from 'lucide-react'
+import { Building2, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
+import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
 
@@ -124,10 +125,18 @@ export function useOneAtATime<K>() {
  * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
  * pages look the same.
  */
-/** "For the whole team": every Admin page says so next to its title (Settings pages say "Just for you", SettingsDialog.tsx) */
-export function PageScope() {
+/** "Applies to everyone in <team>": above every Admin page (AdminLayout.tsx), the pair of Settings' "Just for you"
+ * (SettingsDialog.tsx), in the same size and colour. The shell says whose a page is, so the titles keep the same nouns
+ * as Settings' (Connectors, Providers, AI apps). */
+export function AdminScope() {
   const t = useT()
-  return <span className="text-xs text-faint" data-testid="page-scope">{t('scope.team')}</span>
+  const me = useMeStrict()
+  return (
+    // mb-3: the title rows under it start 12px higher (-mt-3) to stay put when stuck, and would cover its descenders
+    <p className="mb-3 flex items-center gap-1.5 text-xs text-faint" data-testid="page-scope">
+      <Building2 size={13} className="shrink-0" aria-hidden /> {t('scope.teamName', { team: me.team.name })}
+    </p>
+  )
 }
 
 export function AdminPageHeader({ title, desc, actions, children, controls, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; controls?: ReactNode; testId?: string; className?: string; still?: boolean }) {
@@ -135,7 +144,6 @@ export function AdminPageHeader({ title, desc, actions, children, controls, test
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
-        <PageScope />
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>

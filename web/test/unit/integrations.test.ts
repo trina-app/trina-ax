@@ -4,10 +4,10 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  appPatch, authorizationUrl, authOf, canSignIn, covers, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
+  appPatch, audienceOf, authorizationUrl, authOf, canSignIn, covers, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
 
 const at = '2026-10-28T00:00:00.000Z'
 function connection(o: Partial<Integration> = {}): Integration {
@@ -213,6 +213,24 @@ describe('who may use a team connection', () => {
     expect(sameAccess({ everyone: false, groups: ['a', 'b'], users: ['x'] }, { everyone: false, groups: ['b', 'a'], users: ['x', 'x'] })).toBe(true)
     expect(sameAccess({ everyone: true, groups: ['a'], users: [] }, { everyone: true, groups: [], users: [] })).toBe(true)
     expect(normalAccess({ everyone: true, groups: ['a'], users: ['b'] })).toEqual({ everyone: true, groups: [], users: [] })
+  })
+  // Admin › Connectors: one chip after the name (components/integrations/IntegrationRow.tsx AudienceChip)
+  test('in one chip: everyone, the first group and how many more, one person by name, or how many people; nothing for nobody', () => {
+    const groups = [{ id: 'g1', name: 'Design' }, { id: 'g2', name: 'Finance' }]
+    const users = [{ id: 'olga', name: 'Olga' }, { id: 'bob', name: 'Bob' }, { id: 'ann', name: 'Ann' }]
+    expect(audienceOf({ everyone: true, groups: ['g1'], users: [] }, groups, users)).toEqual({ kind: 'everyone' })
+    expect(audienceOf({ everyone: false, groups: ['g1'], users: [] }, groups, users)).toEqual({ kind: 'named', name: 'Design', more: 0, all: 'Design' })
+    expect(audienceOf({ everyone: false, groups: ['g1', 'g2'], users: ['bob'] }, groups, users)).toEqual({ kind: 'named', name: 'Design', more: 2, all: 'Design, Finance, Bob' })
+    expect(audienceOf({ everyone: false, groups: [], users: ['bob'] }, groups, users)).toEqual({ kind: 'named', name: 'Bob', more: 0, all: 'Bob' })
+    expect(audienceOf({ everyone: false, groups: [], users: ['olga', 'bob', 'ann'] }, groups, users)).toEqual({ kind: 'people', n: 3, all: 'Olga, Bob, Ann' })
+    expect(audienceOf({ everyone: false, groups: [], users: [] }, groups, users)).toBeNull()
+    // a group deleted since: "?" as in the details, still counted, and a known name goes first
+    expect(audienceOf({ everyone: false, groups: ['gone', 'g2'], users: [] }, groups, users)).toEqual({ kind: 'named', name: 'Finance', more: 1, all: '?, Finance' })
+    expect(audienceOf({ everyone: false, groups: ['gone'], users: [] }, groups, users)).toEqual({ kind: 'named', name: '?', more: 0, all: '?' })
+    expect(translate('en', 'integrations.audience.more', { name: 'Design', n: 2 })).toBe('Design +2')
+    expect(translate('en', 'integrations.audience.people', { n: 3 })).toBe('3 people')
+    expect(translate('es', 'integrations.audience.people', { n: 1 })).toBe('1 persona')
+    expect(translate('ko', 'integrations.audience.people', { n: 3 })).toBe('3명')
   })
 })
 
