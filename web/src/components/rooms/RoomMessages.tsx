@@ -50,7 +50,7 @@ import { Button, confirmDialog, inputCls, useCopy } from '../ui'
 import { AiFace, AiFaceInline, AiMark } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
-import { reactable, ReactionChips, ReactionStrip } from './Reactions'
+import { reactable, ReactionChips, ReactionPanel, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { LinkedText } from './MessageText'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
@@ -322,6 +322,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   const parts = useMemo(() => mentionParts(text, ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(text, mentioned)]), [text, m, mentioned, ai, shared])
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
+  // the emoji picker from the long-press sheet's "More emoji" (a sheet of its own)
+  const [picking, setPicking] = useState(false)
   const menuOn = !deleted && !editing && (m.visibility === 'room' || removable)
   // a thread under it: only a message of the timeline for everyone, and only from the timeline (no thread in a thread)
   const threadOn = variant === 'timeline' && !!onThread && !m.threadRootId && m.visibility === 'room' && !deleted
@@ -414,7 +416,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
       {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine m={m} onOpen={() => onThread(m.id)} />}
       {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same
-          as a sheet, with the eight emoji on top (its own button never shows) */}
+          as a sheet, with six emoji and "More emoji" on top (its own button never shows) */}
       {menuOn && (
         <>
           <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} onAsk={askOn ? () => onAskTrina!(m) : undefined} more={moreItems} />
@@ -434,10 +436,16 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
                   close()
                   void useRooms.getState().react(roomId, m.id, e, !(m.reactions ?? []).some((r) => r.emoji === e && r.mine))
                 }}
+                onMore={() => {
+                  if (Date.now() - pressedAt.current < 400) return
+                  close()
+                  setPicking(true)
+                }}
               />
             ) : undefined}
             items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...(askOn ? [{ label: t('sideChat.askAbout'), icon: <AiMark place="menu" />, onSelect: () => onAskTrina!(m), testId: 'message-ask-trina-menu' }] : []), ...moreItems]}
           />
+          {picking && reactOn && <ReactionPanel roomId={roomId} m={m} anchor={null} onClose={() => setPicking(false)} />}
         </>
       )}
     </div>

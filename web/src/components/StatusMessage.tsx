@@ -17,6 +17,7 @@ import { useLocale, useT } from '../i18n'
 import { useMe, useMeStrict } from '../store/session'
 import { applyMyStatus, useStatusOf } from '../store/statusMessages'
 import { toast } from '../store/ui'
+import { EmojiPicker } from './EmojiPicker'
 import { placeTip, Tooltip } from './Tooltip'
 import { Button, Field, IconButton, inputCls, Modal } from './ui'
 
@@ -270,14 +271,14 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
         {!textOk && <p role="alert" className="mt-1.5 text-xs text-danger">{t('status.badText')}</p>}
 
         {picking ? (
-          <div role="group" aria-label={t('status.emojiGrid')} className="mt-3 grid grid-cols-8 gap-0.5" data-testid="status-emoji-grid">
-            {STATUS_EMOJI.map((e) => (
-              <button key={e} type="button" onClick={() => { setEmoji(e); setPicking(false); input.current?.focus() }} aria-pressed={emoji === e}
-                className={clsx('flex aspect-square items-center justify-center rounded-lg text-xl leading-none hover:bg-hover', emoji === e && 'bg-accent-soft')} data-testid="status-emoji-pick">
-                {e}
-              </button>
-            ))}
-          </div>
+          // the emoji picker (EmojiPicker.tsx): the 32 status emoji first, then a search and every emoji
+          <EmojiPicker
+            className="mt-3"
+            gridClassName="h-60"
+            first={{ label: t('status.emojiGrid'), emoji: STATUS_EMOJI, testId: 'status-emoji-grid', itemTestId: 'status-emoji-pick' }}
+            selected={emoji ? [emoji] : []}
+            onPick={(e) => { setEmoji(e); setPicking(false); input.current?.focus() }}
+          />
         ) : empty ? (
           <ul aria-label={t('status.suggestions')} className="-mx-2 mt-3" data-testid="status-suggestions">
             {SUGGESTIONS.map((s) => (
