@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 08:45
 - Branch: `chore/changelog-fragments`
-- Status: in progress
+- Status: done
 - Where: trina-ax (public), `changes/`, `scripts/changelog.ts`, rules in `CLAUDE.md`. Why: a repo process change, no product code.
 - Version impact: none. No shipped code changes.
 
@@ -42,4 +42,9 @@ that is forgotten before a release leaves notes out of `CHANGELOG.md`: the relea
 `bun test tests/unit/changelog-fragments.test.ts`, `bun run typecheck`.
 
 ## Result
+
+Built as planned: `changes/README.md`, `scripts/changelog.ts` (print, `--check`, `--fold`), npm scripts
+`changelog`, `changelog:check`, `changelog:fold`, the rule in `CLAUDE.md` and `AGENTS.md`, step 0 in `docs/RELEASE-CI.md`,
+9 unit tests (`tests/unit/changelog-fragments.test.ts`, one of them checks this repository's files). One stray
+`|||||||` line removed from `CHANGELOG.md`. The PR link is in the PR that holds this plan.
 
