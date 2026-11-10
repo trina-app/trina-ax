@@ -865,7 +865,7 @@ describe('the instructions of a room session', () => {
     const input: PromptInput = {
       user, groupNames: ['ZZ-LAYOFF-COMMITTEE'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
       project: { name: 'PROJECT-CANARY', folderPath: 'projects/falcon', instructions: 'PROJECT-INSTR-CANARY' }, browser: true,
-      tools: ['make_file', 'edit_hwp', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-05T09:00:00Z'),
+      tools: ['make_file', 'edit_hwp'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-05T09:00:00Z'),
       room: { name: 'acme', kind: 'team', members: 2, asker: user.name }, roomReadable: (rel) => !rel.startsWith('projects'), skillChanges: 'SKILL-CHANGES',
     }
     const built: [ReturnType<typeof turnPromptSections>, string][] = [

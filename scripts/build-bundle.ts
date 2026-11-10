@@ -59,7 +59,7 @@ export const hostArch = (): 'arm64' | 'amd64' => (process.arch === 'arm64' ? 'ar
 export const ROOT_FILES = ['mycel-bootstrap', 'mycel-launcher', 'mycel-account', 'engine.sb', 'pf-load'] as const
 /** server entry points: source -> bundled file in server/src/ */
 // office-worker.js: the bounded child process that reads spreadsheets and Hangul files (files/office-worker.ts)
-const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js'], ['files/office-worker.ts', 'office-worker.js'], ['safe-ops/deck-worker.ts','deck-worker.js'], ['files/hwp-preflight.ts', 'hwp-preflight.js']]
+const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js'], ['files/office-worker.ts', 'office-worker.js'], ['safe-ops/deck-worker.ts','deck-worker.js'], ['files/hwp-preflight.ts', 'hwp-preflight.js'], ['knowledge-graph/documents/search-worker.ts', 'doc-search-worker.js'], ['knowledge-graph/meaning/embed-worker.ts', 'kg-embed-worker.js']]
 
 export async function buildBundle(o: { version: string; out: string; signKey?: string | null; notes?: string | null; arch?: string; bunFor?: (arch: 'arm64' | 'amd64') => Promise<string> }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
@@ -293,8 +293,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
-    'server/src/hwp-preflight.js',
-    'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'server/src/deck-worker.js',
+    // every entry point built (main.js, the workers, doc-search-worker.js: without it searches run on the main thread)
+    ...ENTRIES.map(([, out]) => `server/src/${out}`),
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
     ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
     // the list flattened, with its sha256: root reads it with awk alone (packages.sh pk__flat_file)

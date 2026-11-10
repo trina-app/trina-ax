@@ -1,4 +1,6 @@
-// The runtime of search by meaning (server/src/search/semantic.ts) for the office and release bundles. The server
+// The runtime of search by meaning (the knowledge graph's embedder: server/src/knowledge-graph/meaning/embedder.ts and
+// embed-worker.ts) for the office and release bundles. The "semantic" names here (this file, SEMANTIC_EXTERNAL) come
+// from the older search tool, now removed: kept so the bundle scripts and their tests stay as they are. The server
 // bundles keep @huggingface/transformers external (its native onnxruntime / sharp addons can't be inlined: Bun.build
 // baked this repo's absolute node_modules paths into them), so this copies the package and its dependencies, resolved
 // like Node, into <serverDir>/node_modules, pruned to macOS arm64 (onnxruntime-node ships no macOS x64 build, so

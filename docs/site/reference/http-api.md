@@ -169,7 +169,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/attachments/team-file` | Signed in | Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn). |
 | `DELETE` | `/api/attachments/:id` | Signed in | Take an unsent team-file attachment of the caller out of its chat. A file they uploaded from their computer into a shared project chat, never sent and unchanged in its place, goes to the team trash (trashed: true); anything else stays where it is. |
 | `GET` | `/api/files/find` | Signed in | Files whose name contains q, among the files the caller can read (newest first). |
-| `GET` | `/api/files/search` | Signed in | Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person. |
+| `GET` | `/api/files/search` | Signed in | Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache; with the knowledge graph's documents part on, also the documents it finds (documents: one row each, its best passage and place). Rate limited per person. |
 | `GET` | `/api/files/recent` | Signed in | Recently changed files the caller can read (for the attach picker). |
 | `POST` | `/api/upload-sessions` | Signed in | Start a chunked upload (8 MB chunks). Expires after 24 h. |
 | `PUT` | `/api/upload-sessions/:id/chunks/:n` | Signed in | Store chunk n (0-based). Re-sending a stored chunk is a no-op. |

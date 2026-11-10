@@ -21,7 +21,7 @@ const conf = { bin: '/x/claude', authMode: 'managed' as const, agentHome: '/none
 const val = (a: string[], f: string) => a[a.indexOf(f) + 1]!
 /** Claude Code's built-in tools that run commands or touch files outside our gate: never a child's, never the main AI's */
 const BUILTIN_FILE_AND_SHELL = ['Read', 'Glob', 'Grep', 'Bash', 'PowerShell', 'Edit', 'Write', 'WebFetch', 'NotebookEdit', 'LSP', 'Skill', 'ToolSearch']
-const turnTools = [...Object.keys(FILE_TOOLS), 'search', 'make_file', 'share_file', 'artifact', 'web_fetch', 'move_files', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title', 'schedule_create', 'schedule_list', 'schedule_delete', 'generate_video', 'navigate', 'computer', 'my_aipm_list']
+const turnTools = [...Object.keys(FILE_TOOLS), 'knowledge_explore', 'make_file', 'share_file', 'artifact', 'web_fetch', 'move_files', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title', 'schedule_create', 'schedule_list', 'schedule_delete', 'generate_video', 'navigate', 'computer', 'my_aipm_list']
 
 describe('locked launch with the Agent tool', () => {
   const sub = { agents: buildAgentDefinitions({ tools: turnTools, webSearch: true }), prompt: 'CHILD RULES {CHAT_DIR}' }
@@ -93,9 +93,9 @@ describe('sub-agent definitions', () => {
     }
     expect(MAX_SUBAGENT_TURNS).toBe(50)
     // general-purpose: every tool of the turn except the main AI's own (writes included, like Claude Code)
-    expect(d['general-purpose'].tools).toEqual([...Object.keys(FILE_TOOLS), 'search', 'make_file', 'share_file', 'artifact', 'web_fetch', 'move_files', 'my_aipm_list'].map((t) => 'mcp__team__' + t).concat('WebSearch'))
+    expect(d['general-purpose'].tools).toEqual([...Object.keys(FILE_TOOLS), 'knowledge_explore', 'make_file', 'share_file', 'artifact', 'web_fetch', 'move_files', 'my_aipm_list'].map((t) => 'mcp__team__' + t).concat('WebSearch'))
     // Explore: read-only
-    expect(d.Explore.tools).toEqual(['list', 'glob', 'grep', 'read', 'search', 'web_fetch'].map((t) => 'mcp__team__' + t).concat('WebSearch'))
+    expect(d.Explore.tools).toEqual(['list', 'glob', 'grep', 'read', 'knowledge_explore', 'web_fetch'].map((t) => 'mcp__team__' + t).concat('WebSearch'))
     for (const t of d.Explore.tools) expect(t === 'WebSearch' || EXPLORE_TOOLS.has(t.slice('mcp__team__'.length))).toBe(true)
     expect(d.Explore.tools).not.toContain('mcp__team__write')
   })

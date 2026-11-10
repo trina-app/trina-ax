@@ -92,13 +92,14 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const lines = (rows: { path: string; error: string }[]) => rows.map((f) => `- ${f.path}: ${f.error}`).join('\n')
     if (!ok.length) throw new ToolError(`nothing was ${verb}:\n${lines(failed)}`)
 
-    // who can see them: one question for the whole call, on the server's card
+    // who can see them: one question for the whole call, on the server's card; after a room read this card stands in
+    // for the room card, so it asks even when nobody's access changes (TurnPerson.roomsSeen)
     const { added, lost, isNew } = svc.audienceChange(tc.user.id, ok, folder, mode)
     const L = tc.person?.locale ?? teamDefaultLocale(ctx.db)
     const where = `${folder || 'the team root'}${isNew ? ' (a new folder)' : ''}`
     const change = `this would change who can see ${ok.length === 1 ? 'it' : 'these files'} in ${where}: ${added} more, ${lost} fewer people`
     let confirmed = false
-    if (added > 0 || lost > 0) {
+    if (added > 0 || lost > 0 || tc.person?.roomsSeen) {
       // a scheduled run has a person who is never asked (unattended): the same answer as no chat at all
       if (!tc.person || tc.person.unattended) {
         throw new ToolError(refusal({
