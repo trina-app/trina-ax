@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 04:32
 - Branch: `fix/shared-upload-readonly-menu`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/uploads/shared-chat.ts`, `server/src/chat/`, `shared/src/api/entities.ts`,
   `web/src/components/chat/`). Why: chat, files and permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Two optional fields and a box that hides what would be refused; no migration.
@@ -46,4 +46,8 @@ Docker; the shared-chat e2e spec.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `sharedUploadPlace` now takes the database and any files layer with the same rules (`UploadFiles`), so
+the chat code can ask it; `Audiences.mayUpload` keeps one answer per project and person of a request. A team file
+dragged from the file screen still drops where the computer's files are not taken. `feat/room-drop-anywhere` was not
+on the remote when this was pushed, so there was no overlap to resolve in `useFileDrop` (its new `files` option is
+optional; the side chat's call is unchanged). PR: see the next commit.
