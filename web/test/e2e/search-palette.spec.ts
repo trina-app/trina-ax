@@ -45,7 +45,7 @@ test('with no text: needs attention, recents and actions; tabs and arrow keys', 
   await expect(palette(page).getByTestId('search-section-actions').getByRole('option')).toHaveCount(6) // new chat, project, schedule, MCP, files, the inbox
   // the new chat (트리나에게 묻기) has the ✦ that asks the AI, as on the sidebar's row (rooms/AiFace.tsx AiMark)
   const ask = palette(page).getByTestId('search-section-actions').getByRole('option').first().locator('svg')
-  expect(await ask.evaluate((e) => e.hasAttribute('data-trina-star'))).toBe(PRODUCT_NAMED_AFTER_AI)
+  expect(await ask.evaluate((e, named) => (named ? e.hasAttribute('data-trina-star') : e.classList.contains('lucide-sparkles')), PRODUCT_NAMED_AFTER_AI)).toBe(true)
   expect((await ask.boundingBox())!.width).toBe(PRODUCT_NAMED_AFTER_AI ? 18 : 16)
   // the first row is active; ↓ moves
   await expect(palette(page).getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
