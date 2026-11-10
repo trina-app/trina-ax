@@ -2493,6 +2493,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.check': 'Periksa lagi',
   'credentials.checked': 'Sudah diperiksa.',
   'credentials.connected': 'Terhubung.',
+  'credentials.added': 'Akun ditambahkan. Akun dipakai sesuai urutan daftar.',
   'credentials.unverifiedSaved': 'Disimpan. Diperiksa saat pertanyaan pertama.',
   'credentials.replace': 'Ganti token atau kunci',
   'credentials.reconnect': 'Hubungkan ulang',

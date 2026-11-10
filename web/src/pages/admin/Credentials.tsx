@@ -307,6 +307,15 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
     return () => { off(); clearInterval(poll) }
   }, [login, personal])
 
+  // the sign-in ended well: say so once (the dialog's own line only says "connected"; the order is the news)
+  const toasted = useRef<string | null>(null)
+  useEffect(() => {
+    if (login?.state !== 'done' || toasted.current === login.loginId) return
+    toasted.current = login.loginId
+    // the order hint only where an order can be changed: the team's list (not one's own, not the welcome steps)
+    toast({ level: 'success', text: replace || personal || simple ? t('credentials.connected') : t('credentials.added') })
+  }, [login, replace, personal, simple, t])
+
   const submit = async () => {
     if (!kind || !ready) return
     setBusy(true); setError(null); setBusyLogin(null)
@@ -363,6 +372,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
     } finally { setCodeBusy(false); sending.current = false }
   }
   const cancelLogin = async () => {
+    // the sign-in finished: closing any way (x, Esc, outside) is Done, so the list shows the new account
+    if (login?.state === 'done') { onDone(); return }
     if (login && !FINISHED.includes(login.state)) {
       try { await api.call(personal ? API.cancelMyCredentialLogin : API.cancelCredentialLogin, { params: { id: login.loginId } }) } catch (e) {
         // the new token is being saved right now: the dialog stays and shows how it ends

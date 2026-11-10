@@ -143,6 +143,47 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
 })
 
+// The sign-in's own Done button reloaded the list; closing the dialog any other way did not, so the new account only
+// showed after a page reload and nothing said it worked. Now the finished sign-in counts as Done however it is closed,
+// and one toast says the account was added and that accounts are used in list order.
+test('a finished sign-in shows the new account when the dialog is closed with Esc or the x, with a toast', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/admin/settings#ai')
+  const sharing = page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')
+  await sharing.press('Space')
+  await page.getByRole('dialog').getByRole('button').last().click()
+  await expect(sharing).toBeChecked()
+  await page.goto('/admin/providers')
+
+  const finishSignIn = async (testid: string, label: string) => {
+    await page.getByTestId(testid).click()
+    await page.getByTestId('kind-anthropic-oauth').check()
+    await page.getByTestId('credential-label').fill(label)
+    await page.getByTestId('plan-notice-ack').check()
+    await page.getByTestId('credential-submit').click()
+    await page.getByTestId('claude-code-input').fill('good-code#good-state')
+    await page.getByTestId('claude-code-submit').click()
+    await expect(page.getByTestId('claude-done')).toHaveText('연결했어요 · Claude 구독')
+  }
+  const added = page.getByTestId('toast').filter({ hasText: '계정을 추가했어요. 목록 순서대로 써요.' })
+
+  // the team's list, closed with Esc
+  await finishSignIn('provider-add-claude', '대표 Max')
+  await expect(added).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByTestId('credentials-claude')).toContainText('대표 Max')
+
+  // a member's own list in Settings, closed with the x
+  await page.goto('/settings/providers')
+  await finishSignIn('my-credential-add-claude', '내 Claude')
+  const addDialog = page.getByRole('dialog', { name: '계정 추가' })
+  await addDialog.getByRole('button', { name: '닫기' }).click()
+  await expect(addDialog).toHaveCount(0)
+  await expect(page.getByTestId('my-credentials')).toContainText('내 Claude')
+})
+
 test('personal connections are available by default, prefer subscriptions, and preserve an owner opt-out', async ({ page }) => {
   await reset(page)
   await signIn(page)
