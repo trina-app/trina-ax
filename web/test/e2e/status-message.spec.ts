@@ -220,6 +220,21 @@ test.describe('screens for review', () => {
     await sidebarRow(page, 'Bob').getByTestId('sidebar-room').click()
     await expect(page.getByTestId('room-status-line')).toBeVisible()
     await shot(page, 'status-1440-light-dm-line.png')
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+    await shot(page, 'status-1440-dark-dm-line.png')
+    // the emoji is as large as the name it follows; the DM line is the size of the notes around the box
+    const size = async (sel: string) => page.locator(sel).first().evaluate((e) => getComputedStyle(e).fontSize)
+    const sizes = {
+      sidebarName: await size('[data-testid="sidebar-room-row"] .truncate'),
+      sidebarEmoji: await size('[data-testid="sidebar-room-row"] [data-testid="status-emoji"]'),
+      authorName: await size('[data-testid="room-run"] p > span.truncate'),
+      authorEmoji: await size('[data-testid="room-run"] [data-testid="status-emoji"]'),
+      dmLine: await size('[data-testid="room-status-line"]'),
+      composer: await size('[data-testid="room-composer"] textarea'),
+    }
+    fs.writeFileSync(path.join(process.env.SHOTS_DIR!, 'status-sizes-1440.json'), JSON.stringify(sizes, null, 2))
+    expect(sizes.sidebarEmoji).toBe(sizes.sidebarName)
+    expect(sizes.authorEmoji).toBe(sizes.authorName)
   })
 
   test('1440: a room where authors show their emoji, and a hover', async ({ page }) => {
@@ -241,6 +256,10 @@ test.describe('screens for review', () => {
     await page.getByTestId('room-run').nth(1).getByTestId('status-emoji').hover()
     await expect(page.getByRole('tooltip')).toBeVisible()
     await shot(page, 'status-1440-light-room-hover.png')
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+    await shot(page, 'status-1440-dark-room-hover.png')
+    await page.getByTestId('room-members-button').click()
+    await shot(page, 'status-1440-dark-members.png')
   })
 
   test.describe('390', () => {
@@ -260,6 +279,10 @@ test.describe('screens for review', () => {
       await page.getByTestId('menu-open').click()
       await expect(page.locator('[data-drawer]').getByTestId('my-status-row')).toContainText('Out sick')
       await shot(page, 'status-390-light-drawer.png')
+      await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+      await shot(page, 'status-390-dark-drawer.png')
+      await page.locator('[data-drawer]').getByTestId('my-status-row').click()
+      await shot(page, 'status-390-dark-dialog-filled.png')
     })
   })
 })
