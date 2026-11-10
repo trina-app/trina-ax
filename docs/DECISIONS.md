@@ -18613,7 +18613,8 @@ of team chat apps (an emoji, a short text, it clears itself, suggestions, dates 
 sheet and chips. English is the source of the words; ko, id, ja and es translate it.
 
 - **What a person sets.** One emoji (one emoji or one emoji sequence: a ZWJ sequence of at most four, a flag, a
-  keycap, a skin tone, a subdivision flag; invisible tag letters only in that flag, after 🏴; no lone skin tone;
+  keycap, a skin tone, the England, Scotland and Wales flags; invisible tag letters only in those three, nowhere
+  else; no lone skin tone;
   `shared/src/status-message.ts` `isStatusEmoji`, the same check on the web and the server, `u` regex flag and no
   lookbehind so an older browser still loads), up to 100 characters of text (trimmed; no control characters, line or
   paragraph separators, format characters such as direction marks, zero-width spaces or tag letters, nor what draws
@@ -18680,8 +18681,8 @@ sheet and chips. English is the source of the words; ko, id, ja and es translate
   live statuses only. No new tool.
 - **The review of this branch** (an independent deep review that tried to read statuses from outside and to inject
   through them) found two holes, both fixed: typed words could pose as another member in `room_read`'s member line
-  (now in quotes), and invisible tag letters after any emoji reached the model (now only in a subdivision flag, and
-  stripped for the AI). Its other findings are in too: the clock's late notice, others' removed statuses, the account
+  (now in quotes), and invisible tag letters after any emoji reached the model (now only in the three subdivision
+  flags, and stripped for the AI). Its other findings are in too: the clock's late notice, others' removed statuses, the account
   notices, the queued directory read, the midnight gap, the stricter text, Esc in the member list. Names in the member
   line are as before (any member can rename themselves; that line is older than this branch).
 - **Out, for later:** setting the status from a calendar (Google Calendar), suggestions an admin can edit, a status

@@ -13,14 +13,15 @@ export const STATUS_DEFAULT_EMOJI = '💬'
 
 // One emoji: a single pictograph (with its presentation selector or a skin tone), a ZWJ sequence of at most four of
 // them (👩‍💻, 🏳️‍🌈, 👨‍👩‍👧‍👦), a flag (two regional indicators), a keycap (1️⃣) or a subdivision flag: 🏴 and its tag letters
-// (🏴󠁧󠁢󠁳󠁣󠁴󠁿), nowhere else (tag letters are invisible text a reader, or an AI, could be handed unseen). Only the `u` flag
+// (🏴󠁧󠁢󠁳󠁣󠁴󠁿, only the three emoji fonts draw), nowhere else (tag letters are invisible text a reader, or an AI, could be handed unseen). Only the `u` flag
 // and no lookbehind: an older browser still loads the page.
 // a lone regional indicator is half a flag, and a lone skin tone or selector is no emoji
 const PIC = '(?![\\p{Regional_Indicator}\\u{1F3FB}-\\u{1F3FF}])(?:\\p{Extended_Pictographic}|\\p{Emoji_Presentation})'
 const ELEM = `${PIC}(?:\\u{FE0F}|[\\u{1F3FB}-\\u{1F3FF}])?`
 const SEQ = `${ELEM}(?:\\u{200D}${ELEM}){0,3}`
 const FLAG = '\\p{Regional_Indicator}{2}'
-const SUBDIVISION = '\\u{1F3F4}[\\u{E0061}-\\u{E007A}]{2}[\\u{E0030}-\\u{E0039}\\u{E0061}-\\u{E007A}]{1,4}\\u{E007F}'
+// the three subdivision flags emoji fonts draw (England, Scotland, Wales): no other tag letters at all
+const SUBDIVISION = `\\u{1F3F4}\\u{E0067}\\u{E0062}(?:\\u{E0065}\\u{E006E}\\u{E0067}|\\u{E0073}\\u{E0063}\\u{E0074}|\\u{E0077}\\u{E006C}\\u{E0073})\\u{E007F}`
 const KEYCAP = '[0-9#*]\\u{FE0F}?\\u{20E3}'
 const ONE_EMOJI = new RegExp(`^(?:${FLAG}|${KEYCAP}|${SUBDIVISION}|${SEQ})$`, 'u')
 

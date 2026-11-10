@@ -109,10 +109,10 @@ describe('set and clear', () => {
 
 describe('what may be saved', () => {
   test('one emoji, or one emoji sequence; nothing else', async () => {
-    for (const e of ['🌴', '❤️', '👩‍💻', '🏳️‍🌈', '🇰🇷', '1️⃣', '🤷🏻‍♀️', '🏴󠁧󠁢󠁳󠁣󠁴󠁿', '👨‍👩‍👧‍👦']) expect(isStatusEmoji(e)).toBe(true)
-    // invisible tag letters only in a subdivision flag (🏴 + a region code), never after another emoji
+    for (const e of ['🌴', '❤️', '👩‍💻', '🏳️‍🌈', '🇰🇷', '1️⃣', '🤷🏻‍♀️', '🏴󠁧󠁢󠁳󠁣󠁴󠁿', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', '🏴󠁧󠁢󠁷󠁬󠁳󠁿', '👨‍👩‍👧‍👦']) expect(isStatusEmoji(e)).toBe(true)
+    // invisible tag letters only in the three subdivision flags emoji fonts draw, never after another emoji
     const tags = (w: string) => [...w].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('') + '\u{E007F}'
-    for (const e of ['', 'a', '1', '🌴🌴', '🌴 ', ' 🌴', '<b>', '🇰', '👩‍', '🌴\u202e', '😀'.repeat(20), '🏴\u{E0041}\u{E007F}', `😀${tags('approve')}`, `🏴${tags('ignoreall')}`, '🏻', '🏻🏻', '😀‍😀‍😀‍😀‍😀']) expect(isStatusEmoji(e)).toBe(false)
+    for (const e of ['', 'a', '1', '🌴🌴', '🌴 ', ' 🌴', '<b>', '🇰', '👩‍', '🌴\u202e', '😀'.repeat(20), '🏴\u{E0041}\u{E007F}', `😀${tags('approve')}`, `🏴${tags('ignoreall')}`, `🏴${tags('approv')}`, `🏴${tags('usca')}`, '🏻', '🏻🏻', '😀‍😀‍😀‍😀‍😀']) expect(isStatusEmoji(e)).toBe(false)
     for (const emoji of ['🌴🚌', ':palm_tree:', '<img src=x>', '🌴\n', `😀${[...'approve'].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('')}\u{E007F}`]) {
       const r = await set(mia, { emoji, text: '휴가 중', clear: 'never' })
       expect(r.status).toBe(400)
