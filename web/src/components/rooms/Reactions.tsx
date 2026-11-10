@@ -10,6 +10,7 @@ import { Plus, SmilePlus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { RoomMessage, RoomReaction } from '@mycel/shared/api'
 import { reactionWho } from '../../lib/rooms'
+import { dismissKeyboard } from '../../lib/viewport'
 import { useT } from '../../i18n'
 import { useNameOf } from '../../store/people'
 import { useRooms } from '../../store/rooms'
@@ -141,6 +142,8 @@ export function ReactionPicker({ m, roomId, className, buttonClassName, below = 
             }}
             onMore={() => {
               setOpen(false)
+              // a phone's width: the picker is a sheet; the keyboard goes down before it takes the focus
+              if (!window.matchMedia?.('(min-width: 48rem)').matches) dismissKeyboard()
               setMore(true)
             }}
           />

@@ -76,9 +76,9 @@ async function newestAboveBox(list: Locator, last: Locator, input: Locator, visi
   expect(b.y + b.height).toBeLessThanOrEqual(visible)
 }
 
-async function openRoom(page: Page, messages = MESSAGES): Promise<MockRoom> {
+async function openRoom(page: Page, messages = MESSAGES, kind: 'group' | 'dm' = 'group'): Promise<MockRoom> {
   await reset(page)
-  const room = await routeRoom(page, { members: [SORA], messages })
+  const room = await routeRoom(page, { members: [SORA], messages, kind })
   await signIn(page)
   await page.goto(`/rooms/${ROOM_ID}`)
   await expect(page.getByTestId('room-message')).toHaveCount(messages.length)
@@ -99,10 +99,39 @@ test('the room at its bottom: the keyboard keeps the newest message right above 
   }
 })
 
+test('a DM and a thread at their bottom: the newest message stays right above the box (the iPhone app, iOS Safari)', async ({ page }) => {
+  await openRoom(page, MESSAGES, 'dm')
+  const list = page.getByTestId('room-scroller'), input = page.getByTestId('room-input')
+  for (const kind of ['app', 'safari'] as const) {
+    await input.tap()
+    await openKeyboard(page, kind, '[data-testid="room-scroller"]')
+    await newestAboveBox(list, page.getByTestId('room-message').last(), input, KB_TOP)
+    await closeKeyboard(page, kind)
+  }
+  // a thread with 30 replies, the whole screen on a phone
+  const root = MESSAGES[0]!
+  const replies: MockMessage[] = Array.from({ length: 30 }, (_, i) => ({ id: `019a5f00-0000-7000-8000-0000000003${String(i).padStart(2, '0')}`, author: SORA, body: `${i + 1}번째 답장: 스레드에서 이어서 정리해 둘게요.`, threadRootId: root.id }))
+  await reset(page)
+  await routeRoom(page, { members: [SORA], messages: [...MESSAGES.slice(0, 3), ...replies] })
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}/t/${root.id}`)
+  const thread = page.getByTestId('thread-drop')
+  const tlist = thread.getByTestId('thread-scroller'), tinput = thread.getByTestId('room-input'), tlast = thread.getByTestId('room-message').last()
+  await expect(tlast).toContainText('30번째 답장')
+  await expect.poll(() => gap(tlist)).toBeLessThanOrEqual(1)
+  for (const kind of ['app', 'safari'] as const) {
+    await tinput.tap()
+    await openKeyboard(page, kind, '[data-testid="thread-scroller"]')
+    await newestAboveBox(tlist, tlast, tinput, KB_TOP)
+    await closeKeyboard(page, kind)
+    await expect.poll(() => gap(tlist)).toBeLessThanOrEqual(1)
+  }
+})
+
 test('the room scrolled up to read: the message in sight stays where it is as the keyboard comes up and goes down', async ({ page }) => {
   await openRoom(page)
   const list = page.getByTestId('room-scroller')
-  for (const kind of ['app', 'safari'] as const) {
+  for (const kind of ['app', 'safari', 'android'] as const) {
     // the reader scrolls up to an older message
     await list.evaluate((s) => { s.scrollTop = 600 })
     await expect.poll(() => list.evaluate((s) => s.scrollTop)).toBe(600)
@@ -336,5 +365,20 @@ test.describe('screens for review', () => {
     await page.waitForTimeout(300)
     await drawKeyboard(page)
     await shot('390-light-status-keyboard.png')
+  })
+  test.describe('1440', () => {
+    test.use({ viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false })
+    test('1440 light: the room and the status dialog, as before (nothing changes on a computer)', async ({ page }) => {
+      const dir = process.env.SHOTS_DIR!
+      fs.mkdirSync(dir, { recursive: true })
+      await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+      await openRoom(page)
+      await page.getByTestId('room-input').fill(DRAFT)
+      await page.screenshot({ path: path.join(dir, '1440-light-room.png') })
+      await page.getByTestId('account-menu').click()
+      await page.getByTestId('account-status').click()
+      await expect(page.getByTestId('status-text')).toBeFocused()
+      await page.screenshot({ path: path.join(dir, '1440-light-status.png') })
+    })
   })
 })

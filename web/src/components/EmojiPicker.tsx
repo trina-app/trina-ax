@@ -14,7 +14,6 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type K
 import { createPortal } from 'react-dom'
 import { useLocale, useT } from '../i18n'
 import { EMOJI_GROUPS, hasHangul, loadEmoji, loadedEmoji, readRecent, searchEmoji, type Emoji } from '../lib/emoji'
-import { dismissKeyboard } from '../lib/viewport'
 import { useMe } from '../store/session'
 import { menuSpot } from './rooms/MenuButton'
 import { inputCls, Modal, useMediaQuery } from './ui'
@@ -181,12 +180,7 @@ const PANEL_W = 'w-[19.5rem]'
  * the button), a bottom sheet on a phone or without an anchor. `title`: what it is for ("Add reaction"). */
 export function EmojiPanel({ anchor, title, onPick, onClose, selected, recents = true }: { anchor: HTMLElement | null; title: string; onPick: (emoji: string) => void; onClose: () => void; selected?: readonly string[]; recents?: boolean }) {
   const computer = useMediaQuery('(min-width: 48rem)')
-  const sheet = !computer || !anchor
-  // a phone's sheet: the keyboard goes down first, so the sheet is in sight (its search brings it back when tapped)
-  useLayoutEffect(() => {
-    if (sheet) dismissKeyboard()
-  }, [sheet])
-  if (sheet) {
+  if (!computer || !anchor) {
     return (
       <Modal open onClose={onClose} title={title} width={420}>
         <div data-testid="emoji-sheet">

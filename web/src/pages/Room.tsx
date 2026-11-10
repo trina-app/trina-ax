@@ -226,7 +226,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // thumbnails load after the text, a card of the AI's appears or grows (its preview), and a phone's keyboard shrinks
   // the list: stay at the bottom if we were there, so the whole card is in sight above the message box
   // (lib/stickToBottom.ts)
-  const list = useStickToBottom(() => !detachedNow.current && !useRooms.getState().timeline?.newerCursor)
+  const list = useStickToBottom(() => {
+    const th = useRooms.getState().timeline
+    return !detachedNow.current && !(th?.roomId === roomId && th.newerCursor)
+  })
   const { scroller, content, stick } = list
 
   // follow new messages while the reader is at the bottom (and always after my own send)

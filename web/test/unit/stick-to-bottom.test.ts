@@ -4,7 +4,7 @@
 // moves the list 22 px up as the keyboard opens). followsAfterScroll: the scroll event of the list's own jump to the
 // bottom, coming after a card was added, does not read as the reader scrolling up.
 import { expect, test } from 'bun:test'
-import { followsAfterScroll, jumpToBottom, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
+import { followsAfterScroll, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
 
 /** a ResizeObserver whose callbacks the test runs, as the browser would after a layout */
 class FakeRO {
@@ -43,12 +43,8 @@ function setup(el: Box, stick = true) {
   const ro = FakeRO.last!
   // observe() reports the first size at once
   ro.fire()
-  const onScroll = () => {
-    if (!scrolledByReader(el, st.seen.current)) return false
-    st.stick.current = followsAfterScroll(el, st.stick.current, st.lastTop.current)
-    st.lastTop.current = el.scrollTop
-    return true
-  }
+  // the hook's own scroll handler
+  const onScroll = () => onListScroll(el, st)
   return { st, ro, vv, stop, onScroll }
 }
 
@@ -115,9 +111,37 @@ test('scrolled up to read: the keyboard opens and closes, and the message in sig
   expect(st.stick.current).toBe(false)
   // the keyboard closes: the list grows back, the message stays
   el.clientHeight = 629
+  vv.send('resize')
   ro.fire()
   expect(firstInSight(el)).toEqual(before)
   expect(el.scrollTop).toBe(2430)
+})
+
+test('scrolled up, the message box grows a line (no keyboard): the browser keeps its place, a scroll in that frame is not undone', () => {
+  const el = new Box(6000, 629, 393, 5371)
+  const { st, ro, onScroll } = setup(el, true)
+  el.scrollTop = 2430
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+  // the box grows by 24 px while the reader flicks on up, in the same frame
+  el.clientHeight = 605
+  el.scrollTop = 2380
+  expect(onScroll()).toBe(false)
+  ro.fire()
+  expect(el.scrollTop).toBe(2380)
+  // the next scroll event is the reader's again
+  el.scrollTop = 2300
+  expect(onScroll()).toBe(true)
+  expect(st.stick.current).toBe(false)
+})
+
+test('canStick false (a room opened around an older message): a scroll near the bottom does not follow', () => {
+  const el = new Box(3000, 700, 390, 2300)
+  const st = { stick: { current: false }, lastTop: { current: 2300 }, seen: { current: { height: 700, width: 390 } as ListSize | null } }
+  expect(onListScroll(el, st, () => false)).toBe(true)
+  expect(st.stick.current).toBe(false)
+  expect(onListScroll(el, st)).toBe(true)
+  expect(st.stick.current).toBe(true)
 })
 
 test('at the bottom, the keyboard closes (the list grows, the browser clamps): still at the bottom, no jump up', () => {
@@ -151,6 +175,10 @@ test("a computer's window: a narrower list keeps the browser's place, content gr
   expect(placeAfterResize({ ...el, clientWidth: 600, clientHeight: 650 }, false, 1200, seen)).toBeNull()
   // the content alone grew (a picture above): nothing done here
   expect(placeAfterResize({ ...el, scrollHeight: 5400 }, false, 1200, seen)).toBeNull()
+  // shorter without a keyboard (the message box grew): the browser's place
+  expect(placeAfterResize({ ...el, clientHeight: 650 }, false, 1200, seen, false)).toBeNull()
+  // shorter with the keyboard: back to where the reader left it
+  expect(placeAfterResize({ ...el, clientHeight: 300 }, false, 1200, seen, true)).toBe(1200)
   // following: the bottom, whatever changed
   expect(placeAfterResize(el, true, 1200, seen)).toBe(5000)
   // nothing seen yet: nothing to go back to

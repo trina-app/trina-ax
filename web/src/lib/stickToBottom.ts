@@ -41,13 +41,37 @@ export function scrolledByReader(el: Pick<HTMLElement, 'clientHeight' | 'clientW
 }
 
 /** Where the list goes after it or its content changed size (null: where it is). Following: to the bottom. Not
- * following and the list itself got shorter or taller (a phone's keyboard): back to where the reader left it
- * (`lastTop`), so the first message in sight stays in its place and nothing the browser did in that frame moves it. A
- * change of width (a computer's window, which rewraps the messages) or of the content alone: the browser's place. */
-export function placeAfterResize(el: Box, follows: boolean, lastTop: number, seen: ListSize | null): number | null {
+ * following and the list itself got shorter or taller with the visual viewport (`keyboard`: a phone's keyboard came
+ * up or went down just now): back to where the reader left it (`lastTop`), so the first message in sight stays in its
+ * place and nothing the browser did in that frame moves it. Any other change (the message box growing, a computer's
+ * window narrower, the content alone): the browser's place, so a reader's scroll in that frame is never undone. */
+export function placeAfterResize(el: Box, follows: boolean, lastTop: number, seen: ListSize | null, keyboard = true): number | null {
   if (follows) return el.scrollHeight
-  if (!seen || el.clientWidth !== seen.width || el.clientHeight === seen.height) return null
+  if (!keyboard || !seen || el.clientWidth !== seen.width || el.clientHeight === seen.height) return null
   return lastTop
+}
+
+/** How long after a visual viewport event a change of the list's height counts as the keyboard's (placeAfterResize). */
+export const KEYBOARD_MS = 1000
+
+/** What useStickToBottom keeps for a list. */
+export interface ListState {
+  /** follows its newest message */
+  stick: { current: boolean }
+  /** where the list was last: its last scroll event by the reader, its own last jump to the bottom, or where the size
+   * watcher left it (followsAfterScroll, placeAfterResize) */
+  lastTop: { current: number }
+  /** the list's own size as the size watcher last saw it */
+  seen: { current: ListSize | null }
+}
+
+/** The list's scroll event (useStickToBottom's onScroll): whether the reader is at the bottom now. False and nothing
+ * changed when the scroll was the browser's, during the list's own size change (scrolledByReader). */
+export function onListScroll(el: Box, st: ListState, canStick: () => boolean = () => true): boolean {
+  if (!scrolledByReader(el, st.seen.current)) return false
+  st.stick.current = followsAfterScroll(el, st.stick.current, st.lastTop.current) && canStick()
+  st.lastTop.current = el.scrollTop
+  return true
 }
 
 /** The list's own jump to its bottom, remembered as its last position (followsAfterScroll compares the next scroll event
@@ -70,8 +94,11 @@ export function watchListSize(
   vv: Pick<VisualViewport, 'addEventListener' | 'removeEventListener'> | null | undefined = globalThis.visualViewport,
 ): () => void {
   if (typeof RO === 'undefined') return () => {}
+  /** when the visual viewport last changed (a keyboard): -Infinity for never */
+  let viewportAt = -Infinity
   const settle = (record: boolean) => {
-    const to = placeAfterResize(scroller, st.follows(), st.lastTop.current, st.seen.current)
+    const keyboard = Date.now() - viewportAt < KEYBOARD_MS
+    const to = placeAfterResize(scroller, st.follows(), st.lastTop.current, st.seen.current, keyboard)
     if (to !== null) scroller.scrollTop = to
     if (!record) return
     st.seen.current = { height: scroller.clientHeight, width: scroller.clientWidth }
@@ -80,7 +107,10 @@ export function watchListSize(
   const ro = new RO(() => settle(true))
   ro.observe(content)
   ro.observe(scroller)
-  const early = () => settle(false)
+  const early = () => {
+    viewportAt = Date.now()
+    settle(false)
+  }
   vv?.addEventListener('resize', early)
   vv?.addEventListener('scroll', early)
   return () => {
@@ -99,13 +129,12 @@ export function useStickToBottom(canStick?: () => boolean) {
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
-  /** where the list was last: its last scroll event by the reader, its own last jump to the bottom, or where the size
-   * watcher left it (followsAfterScroll, placeAfterResize) */
   const lastTop = useRef(0)
   const seen = useRef<ListSize | null>(null)
   const may = useRef(canStick)
   may.current = canStick
-  const follows = () => stick.current && (may.current?.() ?? true)
+  const can = () => may.current?.() ?? true
+  const follows = () => stick.current && can()
   useEffect(() => {
     const s = scroller.current, c = content.current
     if (!s || !c) return
@@ -116,14 +145,10 @@ export function useStickToBottom(canStick?: () => boolean) {
     scroller,
     content,
     stick,
-    /** The list's scroll event: whether the reader is at the bottom now. False and nothing changed when the scroll was
-     * the browser's, during the list's own size change. */
+    /** the list's scroll event (onListScroll) */
     onScroll(): boolean {
       const el = scroller.current
-      if (!el || !scrolledByReader(el, seen.current)) return false
-      stick.current = followsAfterScroll(el, stick.current, lastTop.current) && (may.current?.() ?? true)
-      lastTop.current = el.scrollTop
-      return true
+      return !!el && onListScroll(el, { stick, lastTop, seen }, can)
     },
     /** to the bottom while following (after new messages) */
     follow() {
