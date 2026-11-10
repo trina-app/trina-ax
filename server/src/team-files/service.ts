@@ -958,6 +958,9 @@ export class TeamFiles {
    * Copy a whole folder the caller can read into `toParent` (a folder the caller can write), under the same name
    * (" (2)" when taken). Only what the caller can read is copied (links, hard links, odd names and hidden entries are
    * left out); at most `limits` files / bytes (413 beyond). Built under a hidden temp name, then renamed into place.
+   * One file_events row for the whole copy (create {folder, sourcePaths}); the files inside get none. The history walk
+   * (files/timeline.ts fileTimelineWalk) follows a file inside to its source through that row, so the outside mark of
+   * the source's content and names goes with the copy (chat/turn.ts noteOwnReads, noteOwnNames).
    */
   copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number } = {}): { path: string; files: number; bytes: number } | { viewersAdded: number } {
     const user = this.principal(userId)

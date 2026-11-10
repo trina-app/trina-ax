@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 03:38
 - Branch: `fix/outside-name-moves-2`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat/turn.ts`, `server/src/files/timeline.ts`). Why: the outside-content mark is a
   core permission rule (docs/REPOSITORY-RULES.md).
 - Version impact: patch (fixes to #290's name tracing; no API, data or setting change)
@@ -47,4 +47,6 @@ folder copy (more of the file's past, as it was).
 
 ## Result
 
-Filled in at the end.
+Built as planned: an AI rename (and an AI copy under another name) keeps the old name's mark; the walks follow a folder
+above restored to another place and a folder copied as a whole; one budget of 500 names per call. The four new tests fail
+on #290's code and pass here.
