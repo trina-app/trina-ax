@@ -149,14 +149,20 @@ export const accessEditable = (r: Pick<ProjectRow, 'folder_path' | 'trashed_with
  * theirs to change, so it gets no 관리 that would end in "not editable"; review M6), and whether its creator does (their
  * account active, they can still write the folder, the folder theirs to change), so the hint names them only then: a
  * viewer learns those three things about the creator, nothing else. Nothing for a personal project.
+ * Project.alone ("나와 관리자만 봐요" under a chat's box, docs/DECISIONS.md "Who sees it, always") only for someone who
+ * may read its rules anyway (an owner or admin, or whoever changes its members: GET access answers them its
+ * participants). To anyone else it would say that the others who see it are admins, and with a name next to it (whose
+ * question is answered, a creator who lost their rule) who is one.
  */
-export function membersView(ctx: AppContext, r: ProjectRow, p: Principal, canEdit: boolean, creators?: Map<string, Principal | null>): { membersEditable?: boolean; creatorChangesMembers?: boolean } {
+export function membersView(ctx: AppContext, r: ProjectRow, p: Principal, canEdit: boolean, creators?: Map<string, Principal | null>, aud?: Audiences): { membersEditable?: boolean; creatorChangesMembers?: boolean; alone?: true } {
   if (r.folder_path === 'users' || r.folder_path.startsWith('users/')) return {}
   // (`creators`: the list's people, read once per request)
   const load = (id: string) => { if (!creators) return loadPrincipal(ctx.db, id); if (!creators.has(id)) creators.set(id, loadPrincipal(ctx.db, id)); return creators.get(id)! }
   const creator = r.created_by ? load(r.created_by) : null
   const byCreator = (who: Principal) => mayEditProject(ctx.files, who, r) && accessEditable(r, ctx.files, who)
-  return { membersEditable: canEdit && accessEditable(r, ctx.files, p), creatorChangesMembers: !!creator && byCreator(creator) }
+  const membersEditable = canEdit && accessEditable(r, ctx.files, p)
+  const alone = (membersEditable || isAdminRole(p)) && (aud ?? new Audiences(ctx.db, ctx.files)).alone(p.id, r)
+  return { membersEditable, creatorChangesMembers: !!creator && byCreator(creator), ...(alone ? { alone: true as const } : {}) }
 }
 
 /**
