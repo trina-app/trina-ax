@@ -257,17 +257,24 @@ export const RoomReadInput = z.strictObject({
   until: when.optional().describe('Only messages before this date or time; to read further back, the time of the oldest message shown.'),
   limit: z.number().int().min(1).max(200).optional().describe('At most this many messages, the newest ones (default 50, at most 200).'),
 })
-/** room_file: the text (or the picture) of a file sent in a room */
+/** room_file's PDF pages, as read takes them (server/src/chat/room-tools.ts, files/service.ts pdfPagesForModel) */
+const roomPages = z.string().max(100).optional().describe('PDF only: pages to read, e.g. "3", "1-5" or "1-3,7" (at most 20 per call). Pages with text come back as text, pages without a text layer (scans) as images. Without it a PDF of up to 10 pages comes whole; a longer one comes as text, naming its pages without a text layer.')
+const roomAsImages = z.boolean().optional().describe('PDF only: also show the pages as images, even pages that have text (charts, tables, layout). Pages without a text layer are always shown as images.')
+/** room_file: the text (or the picture, or a PDF's pages) of a file sent in a room */
 export const RoomFileInput = z.strictObject({
   room: z.string().min(1).max(200).describe('The room the file was sent in (its id or name, as for room_read).'),
   file: z.string().min(1).max(300).describe('The file\'s id from room_read ("file_id=…"), or its exact name.'),
   offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+  pages: roomPages,
+  as_images: roomAsImages,
 })
 
 /** room_file in a room's own AI session (rooms/ai.ts): a file of this room, nothing else */
 export const RoomFileHereInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>), or its exact name.'),
   offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+  pages: roomPages,
+  as_images: roomAsImages,
 })
 /** room_thread in a room's own AI session (rooms/ai.ts): one whole thread of this room, nothing else */
 export const RoomThreadHereInput = z.strictObject({
