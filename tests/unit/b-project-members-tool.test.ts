@@ -22,7 +22,8 @@ import path from 'node:path'
 import { API, uuidv7, type Room, type TurnRequest } from '@mycel/shared/api'
 import { FILE_TOOLS } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { compactName, foldName, matchName, MEMBERS_TEXT, nameSkeleton, PROJECT_MEMBERS_TOOL, projectMembersRefusal, projectMembersTool, said, shownName, type MembersExec, type Subject } from '../../server/src/chat/project-members'
+import { compactName, foldName, groupSubject, matchName, MEMBERS_TEXT, mentioned, nameParts, nameSkeleton, PROJECT_MEMBERS_TOOL, projectMembersRefusal, projectMembersTool, said, sameNames, shownName, type MembersExec, type Subject } from '../../server/src/chat/project-members'
+import { DICTS } from '../../web/src/i18n'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOM_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
@@ -121,6 +122,36 @@ describe('names (M2, M3, N3)', () => {
     expect('many' in matchName('Jun Park', mixed)).toBe(true)
   })
 
+  test('more look-alikes (Armenian, Latin IPA, Cherokee, Lisu, Greek capitals, the digits 0 and 1) fold to the Latin name', () => {
+    expect(nameSkeleton('Kim S\u0585ra')).toBe(nameSkeleton('Kim Sora'))
+    expect(nameSkeleton('Jun P\u0251rk')).toBe(nameSkeleton('Jun Park'))
+    expect(nameSkeleton('\u13e6im')).toBe(nameSkeleton('Kim'))
+    expect(nameSkeleton('\u13daora')).toBe(nameSkeleton('Sora'))
+    expect(nameSkeleton('\ua4e2ora')).toBe(nameSkeleton('Sora'))
+    expect(nameSkeleton('M\u026ana')).toBe(nameSkeleton('Mina'))
+    expect(nameSkeleton('\u0397ana')).toBe(nameSkeleton('Hana'))
+    expect(nameSkeleton('J0hn')).toBe(nameSkeleton('John'))
+    expect(nameSkeleton('A1ex')).toBe(nameSkeleton('Alex'))
+  })
+
+  test('a group goes by its labels in every language (the web\'s projects.whoGroup); a person who takes one shares its name (review MUST)', () => {
+    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(MEMBERS_TEXT.groupLabel[L]).toBe(DICTS[L]['projects.whoGroup'])
+    const sales = groupSubject({ id: 'g-sales', name: '영업', people: 12 })
+    const fake: Subject = { subjectType: 'user', subjectId: 'u-fake', name: '영업 부서' }
+    const everyone = [sales, fake]
+    // "영업 부서 넣어줘": the group and the person both fit, so nothing is asked without an id
+    expect(matchName('영업 부서', everyone)).toEqual({ many: [sales, fake] })
+    expect(sameNames(fake, everyone)).toBe(2)
+    expect(sameNames(sales, everyone)).toBe(2)
+    expect(matchName('Sales group', [groupSubject({ id: 'g2', name: 'Sales' })])).toMatchObject({ one: { subjectId: 'g2' } })
+    // a group word or an honorific after a name: the group, or the person, still
+    expect(matchName('영업팀', [sales])).toEqual({ one: sales })
+    expect(matchName('영업팀', [fake])).toEqual({ none: true })
+    const minjae: Subject = { subjectType: 'user', subjectId: 'mj', name: '이민재' }
+    expect(matchName('이민재님', [minjae])).toEqual({ one: minjae })
+    expect(matchName('민재 씨', [minjae], { partial: true })).toEqual({ one: minjae })
+  })
+
   test('an id counts only among its own name\'s candidates; a same name elsewhere needs the id', () => {
     const pool = people([['kang', '김강현'], ['kang2', '김강\u200b현'], ['bob', 'Bob Lee']])
     expect(matchName('김강현', pool)).toEqual({ many: [pool[0]!, pool[1]!] })
@@ -144,6 +175,24 @@ describe('the red mark\'s test: the whole name in the person\'s own words (M5, r
     expect(said(w('넣어줘'), '줘')).toBe(false)
     // a look-alike is not what they typed
     expect(said(w('Kim Sora 넣어줘'), 'Кim Sora')).toBe(false)
+  })
+
+  test('a mention: a group by a label or a group word; a person by a part of the name only nobody else in the pool has', () => {
+    const w = (t: string) => foldName(t)
+    const sales = groupSubject({ id: 'g-sales', name: '영업' })
+    expect(mentioned(w('영업팀 넣어줘'), sales, [sales])).toBe(true)
+    expect(mentioned(w('영업 부서 넣어줘'), sales, [sales])).toBe(true)
+    const minjae: Subject = { subjectType: 'user', subjectId: 'mj', name: '이민재' }
+    const erin: Subject = { subjectType: 'user', subjectId: 'erin', name: 'Erin Yoo' }
+    expect(nameParts('이민재')).toEqual(['민재'])
+    expect(nameParts('Erin Yoo')).toEqual(['erin', 'yoo'])
+    expect(mentioned(w('민재님 빼줘'), minjae, [minjae, erin])).toBe(true)
+    expect(mentioned(w('민재 씨 빼줘'), minjae, [minjae, erin])).toBe(true)
+    expect(mentioned(w('erin 빼줘'), erin, [minjae, erin])).toBe(true)
+    // another member has that part too: not a mention of this one (fail-safe: red)
+    const minjae2: Subject = { subjectType: 'user', subjectId: 'mj2', name: '김민재' }
+    expect(mentioned(w('민재님 빼줘'), minjae, [minjae, minjae2])).toBe(false)
+    expect(mentioned(w('erin 빼줘'), erin, [erin, { subjectType: 'user', subjectId: 'e2', name: 'Erin Park' }])).toBe(false)
   })
 })
 
@@ -316,10 +365,16 @@ describe('the attacks', () => {
     expect(seen.cards[0]!.question.startsWith(tr('roomsSeenWhy', 'en'))).toBe(true)
     expect(seen.cards[0]!.details![1]!.alerts).toBeUndefined()
     expect(seen.cards[0]!.question).not.toContain(MEMBERS_TEXT.red.en)
-    // removal by a part of the name: the person never wrote the whole name, so it is red
+    // removal by a part of the name nobody else in the project has: a mention, not red
     const q = await project('alice', 'Part', [user('erin')])
-    const part = await turn('alice', `Erin 빼줘\n${call({ remove: [{ name: 'Erin' }] })}`, { projectId: q.id, answer: 'skip' })
-    expect(part.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', alerts: [{ text: 'Erin Yoo · person', note: RED }] })
+    const part = await turn('alice', `Erin 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: q.id, answer: 'skip' })
+    expect(part.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person' })
+    // ...but a part another member has too is no mention of this one: red
+    h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('erin2', 'erin2', 'Erin Park', 'member')").run()
+    const r2 = await project('alice', 'Part two', [user('erin'), user('erin2')])
+    const two = await turn('alice', `Erin 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: r2.id, answer: 'skip' })
+    expect(two.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', alerts: [{ text: 'Erin Yoo · person', note: RED }] })
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'erin2'").run()
   })
 
   test('look-alike and invisible-character names: no card without the id; a member is sent to the panel; an admin\'s card shows the username, red for the look-alike', async () => {
@@ -333,7 +388,7 @@ describe('the attacks', () => {
     // a member: even with the id, no card can tell the two apart (anyone can set their own name)
     const member = await turn('alice', `김강현 넣어줘\n${call({ add: [{ name: '김강현', id: 'kang2' }] })}`, { projectId: p.id, answer: 'change' })
     expect(member.cards).toEqual([])
-    expect(member.content).toContain('share this name')
+    expect(member.content).toContain('another account or a group goes by this name too')
     expect(member.content).toContain(`/projects/${p.id}?members=1`)
     // an admin (Korean app): the username beside the name; the invisible character shown
     const ko = (await turn('carol', `김강현 넣어줘\n${call({ add: [{ name: '김강현', id: 'kang2' }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
@@ -342,6 +397,40 @@ describe('the attacks', () => {
     const cy = (await turn('carol', `Kim Sora 넣어줘\n${call({ add: [{ name: 'Kim Sora', id: 'sora2' }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
     expect(cy.details![1]).toEqual({ label: '추가 (1)', text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', alerts: [{ text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', note: MEMBERS_TEXT.notSaid.ko }] })
     expect(members(p.folderPath)).toEqual(['alice'])
+  })
+
+  test('a person named like a group\'s label ("Marketing group", "Marketing 부서"): no silent match; a member is sent to the panel, an admin sees the username', async () => {
+    const db = h.ctx.db
+    db.query("INSERT INTO users (id, username, name, role) VALUES ('mkt', 'mkt', 'Marketing group', 'member'), ('mkt2', 'mkt2', 'Marketing 부서', 'member')").run()
+    try {
+      const p = await project('alice', 'Labels')
+      // "Marketing group 넣어줘": the group (by its English label) and the person both fit: candidates, no card
+      const amb = await turn('alice', `Marketing group 넣어줘\n${call({ add: [{ name: 'Marketing group' }] })}`, { projectId: p.id, answer: 'change' })
+      expect(amb.cards).toEqual([])
+      expect(amb.content).toContain('id mkt;')
+      expect(amb.content).toContain(`id ${marketing}`)
+      // the person by id: a member cannot be shown which one it is, so the panel
+      const person = await turn('alice', `Marketing group 넣어줘\n${call({ add: [{ name: 'Marketing group', id: 'mkt' }] })}`, { projectId: p.id, answer: 'change' })
+      expect(person.cards).toEqual([])
+      expect(person.content).toContain('another account or a group goes by this name too')
+      expect(person.content).toContain(`/projects/${p.id}?members=1`)
+      // the group by id: its line says group and its head count, which no person can take, and that the name is shared
+      const group = (await turn('alice', `Marketing group 넣어줘\n${call({ add: [{ name: 'Marketing group', id: marketing }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
+      expect(group.details![1]).toEqual({ label: 'Add (1)', text: 'Marketing · group · 2 people · 3 share this name' })
+      // an admin (Korean app), the person by id: the username beside the name
+      const admin = (await turn('carol', `Marketing 부서 넣어줘\n${call({ add: [{ name: 'Marketing 부서', id: 'mkt2' }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
+      expect(admin.details![1]).toEqual({ label: '추가 (1)', text: 'Marketing 부서 · 사람 · @mkt2 · 같은 이름 2명' })
+      expect(members(p.folderPath)).toEqual(['alice'])
+    } finally { db.query("UPDATE users SET status = 'disabled' WHERE id IN ('mkt', 'mkt2')").run() }
+  })
+
+  test('a room picked with "#" names its title in the message: other people\'s words, so a name in it is still red', async () => {
+    const p = await project('alice', 'Room titles')
+    const rooms = (await h.api('alice').call(API.listRooms)).items as Room[]
+    const room = rooms.find((x) => x.kind === 'team' && x.name === 'Marketing')!.id
+    const r = await turn('alice', `#[Bob Lee 합류 요청](room:${room}) 방 요약해줘\n${hidden({ add: [{ name: 'Bob Lee' }] }, ['Bob Lee'])}`, { projectId: p.id, answer: 'skip' })
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.details![1]).toEqual({ label: 'Add (1)', text: 'Bob Lee · person', alerts: [{ text: 'Bob Lee · person', note: RED }] })
   })
 
   test('an id that is not its name\'s: refused with the name\'s candidates, nothing asked', async () => {

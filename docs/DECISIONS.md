@@ -18624,17 +18624,25 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   `ROOMS_SEEN_READ_ONLY_TOOLS` with post_to_room (N6): its card is the call's only one. delete_files has the same side
   chat gap (it refuses on `rooms_seen` only): left for its own change.
 - **Decision: names fold hard and must be unique** (M2, M3, N3). NFKC, case folding, invisible and direction-control
-  characters removed, spaces, dots, hyphens and underscores folded, and a small map of Cyrillic and Greek letters that
-  look like Latin ones. A name matches by that skeleton over people and groups at once (exact never wins over the rest);
-  one match only, else the AI gets the candidates (name, kind, the directory's title marked as the person's own words, a
-  group's head count, the id) and nothing is asked. A name another active account, or a group the caller may name, folds
-  to as well always needs an `id`, and an `id` counts only when it is one of that name's candidates. Even then a card
-  cannot tell two accounts of one name apart, and anyone can set their own name: an admin's card shows the account's
-  username beside it (its owner cannot change it), and anyone else is refused and sent to the members panel (the
-  security review of this tool, MUST 2). So anyone who sets their display name to a colleague's (or a group's) blocks
-  the AI path for members for that name: it fails closed to the panel. Accepted. Removal: among the
-  current members, a part of 2+ characters is enough when it is unique. Not a member: one message. A member names only
-  their own groups; another group is "not found" (its name is not theirs to learn).
+  characters removed, spaces, dots, hyphens and underscores folded, and a map of the letters Unicode TR39 lists as
+  looking like Latin ones that matter for names (Greek, Cyrillic, Armenian, Cherokee and Lisu letters, Latin small
+  capitals and IPA letters, the digits 0 and 1; capitals mapped before case folding, so a Greek Η is H). The whole
+  TR39 table was not shipped: it is large, and these cover the scripts a display name is faked with. A name matches by
+  that skeleton over people and groups at once (exact never wins over the rest); one match only, else the AI gets the
+  candidates (name, kind, the directory's title marked as the person's own words, a group's head count, the id) and
+  nothing is asked. A name given also matches without an honorific after it ("민재님", "민재 씨") and, for a group,
+  without a group word after it ("영업팀"). A group also goes by its labels as the app shows it in every language
+  ("영업 부서", "Sales group": the web's `projects.whoGroup`), so a person who takes such a label as their name shares
+  the group's name (the re-check of this tool, MUST: before, "영업 부서 넣어줘" found only that person, said and not
+  red). A name another active account or any group also goes by always needs an `id`, and an `id` counts only when it
+  is one of that name's candidates. Even then a card cannot tell two accounts of one name apart, and anyone can set
+  their own name: an admin's card shows the account's username beside it (its owner cannot change it), and anyone else
+  is refused ("another account or a group goes by this name too": no count, no group named) and sent to the members
+  panel (the security review of this tool, MUST 2). A group's own line says "부서" and its head count, which no person
+  can take: it goes on beside people of its name, and only another group of the name refuses. So anyone who sets their
+  display name to a colleague's (or a group's) blocks the AI path for members for that name: it fails closed to the
+  panel. Accepted. Removal: among the current members, a part of 2+ characters is enough when it is unique. Not a
+  member: one message. A member names only their own groups; another group is "not found".
 - **Decision: the rule difference must be the names** (M4). The save's rules (`participantRules`) may differ from the
   folder's now only by the named people and groups. An older folder without the floor rule, or one whose creator's rule
   an admin took out, is refused with what else would change and a link to the members panel (`/projects/:id?members=1`),
@@ -18647,16 +18655,24 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   돼요" with what they lose and that their AI chats start fresh (N4; nothing says reversible, M5); who is told: the people
   who gain it and those who saw it already (`access_changed`, `project_access_widened`), those removed (N1); and for an
   admin, that a removed admin (themself too) keeps seeing it (N2). No title on the card: anyone can set their own (M2).
-- **Decision: the red mark** (M5). A name the person's own messages on this branch do not hold outside `>` quote lines,
-  and a project other than the chat's that they did not name, get "내 메시지에 없는 이름이에요" in red. "Hold" means the
-  subject's own whole name as a word (spaces inside as the person liked, a Korean particle after it, never inside a
-  longer word: "민재" is not in "이민재님"), without the look-alike map, and never the name or project alias the AI gave
-  (a part of a name, or a look-alike picked by its id, would pass otherwise: the security review of this tool, MUST 1).
-  It reads the newest 200,000 characters of those messages (a regex per name: long messages must not stall the
-  server; older words left out only make more names red). A name followed by a longer Korean word that starts with a
-  particle counts as said ("박민" in "박민나"): accepted (`ConfirmDetail.alerts`: whole lines of the
-  detail's text with a note; the text keeps them, so an older app still shows every line), and the question says what
-  the red means.
+- **Decision: the red mark is a mention check** (M5). A person, group or project the person's own messages on this
+  branch do not mention gets "내 메시지에 없는 이름이에요" in red (`ConfirmDetail.alerts`: whole lines of the detail's text
+  with a note; the text keeps them, so an older app still shows every line), and the question says what the red means.
+  It catches a name the AI took from somewhere else (a quote, a room, a file); it proves nothing about who is meant: any
+  mention turns it off, also of a common word an insider renamed themselves to ("견적"), which is why same names and
+  group labels are handled apart (above). What counts as a mention:
+  - the subject's own whole name as a word (spaces inside as the person liked, a Korean particle or honorific after it,
+    never inside a longer word: "민재" is not in "이민재님"; no look-alike map), never the name or project alias the AI
+    gave (a part of a name or a look-alike picked by its id passed otherwise: the security review, MUST 1);
+  - a group by one of its labels or with a group word after its name ("영업 부서", "영업팀");
+  - a person by a part of their name ("민재님" for 이민재, "Erin" for Erin Yoo) only when nobody else in the pool has that
+    part (the members for a removal, everyone for an add), so people do not learn to ignore the red; a part another
+    one has stays red (fail-safe);
+  - not: `>` quote lines, and a room picked with "#" (`#[title](room:<id>)`: the title is other people's words, a group
+    chat's name is its members').
+  It reads the newest 200,000 characters of those messages (a regex per name: long messages must not stall the server;
+  older words left out only make more names red). A name followed by a longer Korean word that starts with a particle
+  counts as said ("박민" in "박민나"): accepted.
 - **The yes.** Bound to a fingerprint of the project, its folder, the rules hash, the next rules, who sees it before and
   after, and every project skill name (N5; the dry run's list stops at 10). On yes: the account, the right to change it,
   the names by the card's ids and the plan again; any difference ("changed while the card waited": a rename, an admin's
@@ -18671,8 +18687,10 @@ decisions: no 보기/편집 split; the tool also works in chats that read rooms,
   with the candidates). Step: "프로젝트 멤버 바꾸기 · 견적".
 - Tests: `tests/unit/b-project-members-tool.test.ts` (the names and the red mark's whole-word test, every refusal, Slack
   and a sub-agent through an answer, the card, a group and an admin removing themself, two cards and no after a no, the
-  creator, a side chat alone, a planted quote alone and `rooms_seen`, a removal by a part of a name in red, look-alike and
-  invisible names for a member and an admin, an id not of its name, a rename, a rule change, a group join and a new
+  creator, a side chat alone, a planted quote alone and `rooms_seen`, a room title in the message, a removal by a part of
+  a name (a mention when unique among the members, red when another member has it), look-alike (Armenian, Cherokee,
+  Lisu, IPA, Greek capitals, 0 and 1) and invisible names for a member and an admin, a person named like a group's
+  label ("Marketing group", "Marketing 부서") for a member and an admin, the group labels against the web's, an id not of its name, a rename, a rule change, a group join and a new
   project skill while the card waits, the older folders, who may, the audit and the busy card), web `ask-card-details.test.tsx` (the red lines), and
   the tool lists of `b-chat`, `b-browser` and `i-wiring`.
 - Version impact: **minor** (a new AI tool and card field; no API change, no migration).

@@ -46,6 +46,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { PROJECT_COLS, type ProjectRow } from './store'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
+import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 
@@ -102,6 +103,8 @@ export const MEMBERS_TEXT = {
   group: t('부서', 'group', 'grup', 'グループ', 'grupo'),
   groupPeople: t('{n}명', '{n, plural, one {# person} other {# people}}', '{n} orang', '{n, plural, one {#人} other {#人}}', '{n, plural, one {# persona} other {# personas}}'),
   sameName: t('같은 이름 {n}명', '{n} share this name', '{n} dengan nama ini', '同じ名前が{n}件', '{n} con este nombre'),
+  /** a group as the app labels it (web projects.whoGroup): a person who took such a label as their name shares it */
+  groupLabel: t('{name} 부서', '{name} group', 'Grup {name}', '{name}グループ', 'Grupo {name}'),
   keepsAdmin: t('관리자라 계속 봐요', 'keeps seeing it as an admin', 'tetap melihatnya sebagai admin', '管理者なので引き続き見られます', 'sigue viéndolo como administrador'),
   yes: t('멤버 바꾸기', 'Change members', 'Ubah anggota', 'メンバーを変更', 'Cambiar miembros'),
   no: t('바꾸지 않기', 'Don’t change', 'Jangan ubah', '変更しない', 'No cambiar'),
@@ -116,38 +119,74 @@ const say = (k: keyof typeof MEMBERS_TEXT, L: Locale, v: Record<string, string |
  * annotation marks, shorthand format and musical format controls, variation selectors, tags: invisible on screen, so
  * never part of a name to match */
 const INVISIBLE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu
-/** letters of other scripts that look like Latin ones (after case folding) */
+/**
+ * Letters that look like Latin ones, from the confusables of Unicode TR39 that matter for names: Greek, Cyrillic,
+ * Armenian, Cherokee and Lisu letters, Latin small capitals and IPA letters, and the digits 0 and 1 (O, l). The
+ * capitals are mapped before case folding (a Greek Η looks like H, its small η like n), the rest after.
+ */
+const LOOKALIKE_CAPITAL: Record<string, string> = {
+  '\u0391': 'a', '\u0392': 'b', '\u0395': 'e', '\u0396': 'z', '\u0397': 'h', '\u0399': 'i', '\u039A': 'k', '\u039C': 'm', '\u039D': 'n', '\u039F': 'o', '\u03A1': 'p', '\u03A4': 't', '\u03A5': 'y', '\u03A7': 'x', '\u0410': 'a', '\u0412': 'b', '\u0415': 'e', '\u041A': 'k', '\u041C': 'm', '\u041D': 'h', '\u041E': 'o', '\u0420': 'p', '\u0421': 'c', '\u0422': 't', '\u0423': 'y', '\u0425': 'x', '\u0406': 'i', '\u0408': 'j', '\u0405': 's', '\u051A': 'q', '\u051C': 'w', '\u13AA': 'a', '\u13F4': 'b', '\u13DF': 'c', '\u13AC': 'e', '\u13C0': 'g', '\u13BB': 'h', '\u13AB': 'j', '\u13E6': 'k', '\u13DE': 'l', '\u13B7': 'm', '\u13E2': 'p', '\u13A1': 'r', '\u13DA': 's', '\u13D4': 't', '\u13D9': 'v', '\u13B3': 'w', '\u13C3': 'z', '\u13A5': 'i', '\u0555': 'o', '\u054D': 'u',
+}
 const LOOKALIKE: Record<string, string> = {
-  а: 'a', в: 'b', е: 'e', ё: 'e', з: '3', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', і: 'i', ї: 'i', ј: 'j', ѕ: 's', һ: 'h', ԁ: 'd', ԛ: 'q', ԝ: 'w', ӏ: 'l', ɡ: 'g', ı: 'i',
-  α: 'a', β: 'b', ε: 'e', η: 'n', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ϲ: 'c', ϳ: 'j',
+  '\u0430': 'a', '\u0432': 'b', '\u0435': 'e', '\u0451': 'e', '\u0437': '3', '\u043A': 'k', '\u043C': 'm', '\u043D': 'h', '\u043E': 'o', '\u0440': 'p', '\u0441': 'c', '\u0442': 't', '\u0443': 'y', '\u0445': 'x', '\u0456': 'i', '\u0457': 'i', '\u0458': 'j', '\u0455': 's', '\u04BB': 'h', '\u0501': 'd', '\u051B': 'q', '\u051D': 'w', '\u04CF': 'l', '\u044C': 'b', '\u03B1': 'a', '\u03B2': 'b', '\u03B5': 'e', '\u03B7': 'n', '\u03B9': 'i', '\u03BA': 'k', '\u03BD': 'v', '\u03BF': 'o', '\u03C1': 'p', '\u03C4': 't', '\u03C5': 'u', '\u03C7': 'x', '\u03F2': 'c', '\u03F3': 'j', '\uAB7A': 'a', '\u13FC': 'b', '\uABAF': 'c', '\uAB7C': 'e', '\uAB90': 'g', '\uAB8B': 'h', '\uAB7B': 'j', '\uABB6': 'k', '\uABAE': 'l', '\uAB87': 'm', '\uABB2': 'p', '\uAB71': 'r', '\uABAA': 's', '\uABA4': 't', '\uABA9': 'v', '\uAB83': 'w', '\uAB93': 'z', '\uAB75': 'i', '\uA4D0': 'b', '\uA4D1': 'p', '\uA4D2': 'd', '\uA4D3': 'd', '\uA4D4': 't', '\uA4D6': 'g', '\uA4D7': 'k', '\uA4D9': 'j', '\uA4DA': 'c', '\uA4DC': 'z', '\uA4DD': 'f', '\uA4DF': 'm', '\uA4E0': 'n', '\uA4E1': 'l', '\uA4E2': 's', '\uA4E3': 'r', '\uA4E6': 'v', '\uA4E7': 'h', '\uA4EA': 'w', '\uA4EB': 'x', '\uA4EC': 'y', '\uA4EE': 'a', '\uA4F0': 'e', '\uA4F2': 'i', '\uA4F3': 'o', '\uA4F4': 'u', '\u0585': 'o', '\u057D': 'u', '\u0570': 'h', '\u0578': 'n', '\u0251': 'a', '\u026A': 'i', '\u0261': 'g', '\u0131': 'i', '\u028F': 'y', '\u1D0F': 'o', '\u1D04': 'c', '\u0030': 'o', '\u0031': 'l',
 }
 /** a name as it is matched: NFKC, invisible characters out, case folded, spaces collapsed */
 export const foldName = (s: string) => s.normalize('NFKC').replace(INVISIBLE, '').toLowerCase().replace(/\s+/g, ' ').trim()
 /** ...without spaces, dots, hyphens or underscores ("Minjaelee" is "Minjae Lee", "김 강현" is "김강현") */
 export const compactName = (s: string) => foldName(s).replace(/[\s.\-_·・]/g, '')
 /** ...and look-alike letters as the Latin ones they look like: two names with one skeleton count as the same name */
-export const nameSkeleton = (s: string) => [...compactName(s)].map((c) => LOOKALIKE[c] ?? c).join('')
+export const nameSkeleton = (s: string) => [...compactName([...s.normalize('NFKC')].map((c) => LOOKALIKE_CAPITAL[c] ?? c).join(''))].map((c) => LOOKALIKE[c] ?? c).join('')
 /** A name as the card and the AI show it: one line, whole, and every invisible character made visible ([U+200B]). */
 export const shownName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').replace(INVISIBLE, (c) => `[U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}]`).replace(/ {2,}/g, ' ').trim()
 
 /** A person or group that can be named. `people`: a group's active members. */
 export interface Subject { subjectType: 'user' | 'group'; subjectId: string; name: string; title?: string; people?: number
+  /** a group's labels as the app shows it in each language ("영업 부서", "Sales group"): it is called that too, so a
+   * person who takes such a label as their name shares the group's name (review of this tool: a person named "영업
+   * 부서" would otherwise be the only "영업 부서") */
+  aliases?: string[]
   /** an admin's card: the account's username beside a name another account shares (its owner cannot change it) */
   handle?: string }
 const keyOf = (s: { subjectType: string; subjectId: string }) => `${s.subjectType}:${s.subjectId}`
+/** A group as a subject, with its labels in every language (MEMBERS_TEXT.groupLabel: the web's projects.whoGroup). */
+export const groupSubject = (g: { id: string; name: string; people?: number }): Subject => ({
+  subjectType: 'group', subjectId: g.id, name: g.name, ...(g.people !== undefined ? { people: g.people } : {}),
+  aliases: [...new Set(Object.values(MEMBERS_TEXT.groupLabel).map((l) => l.replace('{name}', g.name)))],
+})
+/** the names a subject goes by: its own and, for a group, its labels */
+const namesOf = (s: Subject) => [s.name, ...(s.aliases ?? [])]
+const keysOf = (s: Subject) => new Set(namesOf(s).map(nameSkeleton).filter(Boolean))
+/** an honorific after a name ("민재님", "민재 씨", "田中さん") */
+const HONORIFICS = ['님', '씨', 'さん', '様', 'さま']
+/** a word after a group's name that still means the group ("영업팀", "영업 부서", "Sales team") */
+const GROUP_WORDS = ['팀', '부서', '부', '그룹', 'team', 'group', 'グループ']
+/** what a name given may stand for: as given, without an honorific after it, and (for a group only) without a group
+ * word after it; each as a skeleton */
+function queryKeys(name: string): { any: string[]; group: string[] } {
+  const k = nameSkeleton(name)
+  if (!k) return { any: [], group: [] }
+  const cut = (k2: string, ws: readonly string[]) => ws.map(nameSkeleton).filter((w) => k2.length > w.length && k2.endsWith(w)).map((w) => k2.slice(0, -w.length))
+  const any = [...new Set([k, ...cut(k, HONORIFICS)])]
+  return { any, group: [...new Set(any.flatMap((x) => cut(x, GROUP_WORDS)))] }
+}
 
 /** What one name given by the AI is: one subject, several (ask the user), none, or an id that is not the name's. */
 export type NameMatch = { one: Subject } | { many: Subject[] } | { none: true } | { wrongId: Subject[] }
 
 /**
- * The subjects `name` fits in `pool`: the same skeleton (exact, compact and look-alike matches together, people and
- * groups at once), or with `partial` (removal among the current members) a part of 2+ characters. One only; an `id`
- * must be one of them; a name that another active account or group (`everyone`) also folds to needs an `id`.
+ * The subjects `name` fits in `pool`: the same skeleton as one of a subject's names (exact, compact and look-alike
+ * matches together, people and groups at once, a group also by its labels; the name given also without an honorific
+ * after it, and for groups without a group word), or with `partial` (removal among the current members) a part of 2+
+ * characters. One only; an `id` must be one of them; a name that another active account or group (`everyone`) also
+ * goes by needs an `id`.
  */
 export function matchName(name: string, pool: readonly Subject[], o: { id?: string; partial?: boolean; everyone?: readonly Subject[] } = {}): NameMatch {
-  const q = nameSkeleton(name)
-  if (!q) return { none: true }
-  const hits = pool.filter((s) => { const k = nameSkeleton(s.name); return k === q || (!!o.partial && q.length >= 2 && k.includes(q)) })
+  const q = queryKeys(name)
+  if (!q.any.length) return { none: true }
+  const hits = pool.filter((s) => {
+    const keys = keysOf(s)
+    return (s.subjectType === 'group' ? [...q.any, ...q.group] : q.any).some((k) => keys.has(k) || (!!o.partial && k.length >= 2 && [...keys].some((x) => x.includes(k))))
+  })
   if (o.id !== undefined) {
     const hit = hits.find((s) => s.subjectId === o.id)
     return hit ? { one: hit } : hits.length ? { wrongId: hits } : { none: true }
@@ -159,11 +198,13 @@ export function matchName(name: string, pool: readonly Subject[], o: { id?: stri
   if (sameNames(hits[0]!, o.everyone ?? pool) > 1) return { many: hits }
   return { one: hits[0]! }
 }
-/** how many people and groups (`everyone`) fold to this subject's name, it included */
-export const sameNames = (s: Subject, everyone: readonly Subject[]): number => {
-  const k = nameSkeleton(s.name)
-  return Math.max(1, everyone.filter((x) => nameSkeleton(x.name) === k).length + (everyone.some((x) => keyOf(x) === keyOf(s)) ? 0 : 1))
+/** the people and groups (`everyone`) that go by one of this subject's names, it left out */
+export const sameNamed = (s: Subject, everyone: readonly Subject[]): Subject[] => {
+  const keys = keysOf(s)
+  return everyone.filter((x) => keyOf(x) !== keyOf(s) && namesOf(x).some((n) => keys.has(nameSkeleton(n))))
 }
+/** how many people and groups go by one of this subject's names, it included */
+export const sameNames = (s: Subject, everyone: readonly Subject[]): number => 1 + sameNamed(s, everyone).length
 
 /** how much of the person's own words the red mark reads (the newest first) */
 export const OWN_WORDS_MAX = 200_000
@@ -180,11 +221,13 @@ export function ownWords(db: import('bun:sqlite').Database, answerId: string): {
   let size = 0
   for (const r of rows) for (const line of (r.content ?? '').split('\n')) {
     if (/^\s*>/.test(line)) quoted = true
-    else if (size < OWN_WORDS_MAX) { kept.push(line); size += line.length + 1 }
+    // a room picked with "#" is in the message as #[its title](room:<id>): the title is other people's words (a group
+    // chat's name is its members')
+    else if (size < OWN_WORDS_MAX) { const l = line.replace(ROOM_REF_RE, ' '); kept.push(l); size += l.length + 1 }
   }
   return { text: kept.join('\n').slice(0, OWN_WORDS_MAX), quoted }
 }
-/** Korean particles and endings that follow a name in a sentence ("김소라님을", "영업팀이랑") */
+/** Korean particles, endings and honorifics that follow a name in a sentence ("김소라님을", "영업팀이랑") */
 const PARTICLE = '님|씨|이랑|이나|이|가|을|를|은|는|과|와|도|의|에게|에|께서|께|한테|랑|하고|나|으로|로|만|까지|부터|요'
 const esc = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /**
@@ -198,6 +241,29 @@ export function said(words: string, name: string): boolean {
   if (!n) return false
   const body = [...n].map(esc).join('[\\s.\\-_·・]*')
   return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?=$|[^\\p{L}\\p{N}]|${PARTICLE})`, 'u').test(words)
+}
+
+/** The parts of a person's name a sentence may use for them: a word of 2+ characters of a name of several ("Erin" of
+ * "Erin Yoo", "강현" of "김 강현"), and the given name of a Korean name written as one word ("민재" of "이민재"). */
+export function nameParts(name: string): string[] {
+  const words = foldName(name).split(' ').filter((w) => [...w].length >= 2)
+  const out = words.length > 1 ? words : []
+  if (words.length === 1 && /^[\uac00-\ud7a3]{3,4}$/.test(words[0]!)) out.push([...words[0]!].slice(1).join(''))
+  return [...new Set(out)]
+}
+/**
+ * Did the person mention this subject (the red mark's test: a mention, not a proof)? Its whole name as a word; a
+ * group also by one of its labels or with a group word after its name ("영업팀"); a person also by a part of their name
+ * ("민재님", "Erin") when nobody else in `pool` (the members for a removal, everyone for an add) has that part.
+ */
+export function mentioned(words: string, s: Subject, pool: readonly Subject[]): boolean {
+  if (said(words, s.name)) return true
+  if (s.subjectType === 'group') return (s.aliases ?? []).some((a) => said(words, a)) || GROUP_WORDS.some((w) => said(words, `${s.name}${w}`))
+  return nameParts(s.name).some((part) => {
+    const k = compactName(part)
+    const others = pool.filter((x) => keyOf(x) !== keyOf(s) && namesOf(x).some((n) => compactName(n).includes(k)))
+    return !others.length && said(words, part)
+  })
 }
 
 // ---------------- where it runs ----------------
@@ -237,8 +303,10 @@ export interface MembersPlan {
   next: ProjectParticipant[]
   plan: AccessPlan
   fingerprint: string
-  /** every active person and every group (the card's "같은 이름 N명") */
+  /** every active person and the groups the caller may name (the card's "같은 이름 N명", the red mark's unique parts) */
   everyone: Subject[]
+  /** the project's members now (the red mark's unique parts for a removal) */
+  members: Subject[]
 }
 const ruleKey = (r: { subjectType: string; subjectId: string | null; access: string }) => `${r.subjectType}:${r.subjectId ?? ''}:${r.access}`
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && new Set(a).size === new Set([...a, ...b]).size
@@ -480,14 +548,17 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const access = projectAccess(ctx, r, user)
     const people: Subject[] = listPeople(db).map((x) => ({ subjectType: 'user' as const, subjectId: x.id, name: x.name, ...(x.title ? { title: x.title } : {}) }))
     const allGroups = (db.query('SELECT g.id, g.name, (SELECT COUNT(*) FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = g.id AND u.status = \'active\' AND u.deleted_at IS NULL) AS n FROM groups g ORDER BY g.name').all() as { id: string; name: string; n: number }[])
-      .map((g) => ({ subjectType: 'group' as const, subjectId: g.id, name: g.name, people: g.n }))
+      .map((g) => groupSubject({ id: g.id, name: g.name, people: g.n }))
     // a member names their own groups only (checkParticipants); a group they are not in is "not found" (its name is not
     // theirs to learn)
     const groups = isAdminRole(user) ? allGroups : allGroups.filter((g) => user.groups.includes(g.subjectId))
-    // who else may carry the same name: every active person, and the groups the caller may name (a member never learns
-    // of another group by its name)
-    const everyone = [...people, ...groups]
-    const members: Subject[] = access.participants.map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId, name: x.name, ...(x.subjectType === 'group' ? { people: allGroups.find((g) => g.subjectId === x.subjectId)?.people ?? 0 } : {}) }))
+    // who else may carry the same name: every active person and every group (a person named like any group's label,
+    // "영업 부서", shares its name). A member learns nothing of a group they are not in from it: the refusal below says
+    // only that the name is shared, and the candidates are the pool's
+    const everyone = [...people, ...allGroups]
+    const members: Subject[] = access.participants.map((x) => (x.subjectType === 'group'
+      ? groupSubject({ id: x.subjectId, name: x.name, people: allGroups.find((g) => g.subjectId === x.subjectId)?.people ?? 0 })
+      : { subjectType: x.subjectType, subjectId: x.subjectId, name: x.name }))
     const creatorKey = access.participants.find((x) => x.creator)
     const problems: Problem[] = []
     const cand = (xs: readonly Subject[]) => xs.slice(0, 5).map((x) => `${ai(x.name)} · ${kindWord(x)}${x.title ? ` · ${ai(x.title)}` : ''}${x.people !== undefined ? ` · ${x.people} people` : ''} · id ${x.subjectId}`).join('; ')
@@ -522,13 +593,17 @@ export function projectMembersTool(exec: MembersExec): Tool {
     // anyone can set their own name. An admin's card shows the account's username beside it (its owner cannot change
     // it); anyone else is sent to the members panel (review of this tool, MUST 2)
     for (const s of [...adds, ...removes]) {
-      const n = sameNames(s, everyone)
+      const others = sameNamed(s, everyone)
+      const n = others.length + 1
       if (n <= 1) continue
+      // a group's card line says "부서" and its head count, which no person can take: only another group of the name
+      // leaves the card unable to tell them apart
+      if (s.subjectType === 'group' && !others.some((x) => x.subjectType === 'group')) continue
       if (s.subjectType === 'user' && isAdminRole(user)) {
         s.handle = (db.query('SELECT username FROM users WHERE id = ?').get(s.subjectId) as { username: string | null } | null)?.username ?? undefined
         if (s.handle) continue
       }
-      problems.push({ line: `'${ai(s.name)}': ${n} accounts or groups share this name, and the card cannot show which one is meant${isAdminRole(user) ? '' : ' to someone who is not an admin'}. The user can make this change on ${panel(spec.locale, r.name)} (/projects/${r.id}?members=1) after checking with the person, or ask an admin, whose card shows each account's username.` })
+      problems.push({ line: `'${ai(s.name)}': ${isAdminRole(user) ? `${n} accounts or groups share this name` : 'another account or a group goes by this name too'}, and the card cannot show which one is meant${isAdminRole(user) ? '' : ' to someone who is not an admin'}. The user can make this change on ${panel(spec.locale, r.name)} (/projects/${r.id}?members=1) after checking with the person, or ask an admin, whose card shows each account's username.` })
     }
     if (problems.length) {
       // a call by the card's own ids that no longer resolves is not "unclear": the caller says the names changed
@@ -547,7 +622,7 @@ export function projectMembersTool(exec: MembersExec): Tool {
     }
     const extra = extraRules(plan, adds, removes)
     if (extra.length) return { reason: 'rules_beyond_names', text: refusal({ done: NONE, why: { kind: 'failed', what: `saving these members would change more than the people and groups named: ${extra.join('; ')}` }, also: 'A card shows only the people and groups named, so this change is not asked here', next: `the user can make the change on ${panel(spec.locale, r.name)} (/projects/${r.id}?members=1), where the confirm says what else changes` }), audit: { addsFloor: plan.addsFloor, restoresCreator: plan.restoresCreator } }
-    return { plan: { r, access, adds, removes, already, next, plan, fingerprint: fingerprintOf(r, plan), everyone } }
+    return { plan: { r, access, adds, removes, already, next, plan, fingerprint: fingerprintOf(r, plan), everyone, members } }
   }
 }
 
@@ -559,7 +634,7 @@ const isAdminRole = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role
  * count, "같은 이름 N명"), and the red mark on a name not in the person's own messages (and on a project other than the
  * chat's). `notSaid`: how many of those.
  */
-export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'plan' | 'everyone'>, o: { L: Locale; admin: boolean; words: string; projectSaid: boolean; readRooms: boolean }): { question: string; details: ConfirmDetail[]; notSaid: number } {
+export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'plan' | 'everyone' | 'members'>, o: { L: Locale; admin: boolean; words: string; projectSaid: boolean; readRooms: boolean }): { question: string; details: ConfirmDetail[]; notSaid: number } {
   const { L } = o
   const { plan } = p
   const before = plan.before.length, after = plan.after.length, gained = plan.gained.length, lost = plan.lost.length
@@ -588,7 +663,7 @@ export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'pla
   }
   const lines = (xs: readonly Subject[], removal: boolean) => xs.map((s) => {
     const l = line(s, removal)
-    if (!said(o.words, s.name)) (removal ? alerts.remove : alerts.add).push(l)
+    if (!mentioned(o.words, s, removal ? p.members : p.everyone)) (removal ? alerts.remove : alerts.add).push(l)
     return l
   })
   const addLines = lines(p.adds, false)
