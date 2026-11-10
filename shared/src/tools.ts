@@ -312,7 +312,7 @@ export const PostToRoomInput = z.strictObject({
  * removed from a team project after their yes on the server's card. Names as the user wrote them; an id only from the
  * candidates the tool gave back for that name. */
 const ProjectMemberRef = z.strictObject({
-  name: z.string().trim().min(1).max(100).describe('The person or group as the user wrote it ("김강현", "영업").'),
+  name: z.string().trim().min(1).max(100).describe('The person or group as the user wrote it ("Sora Kim", "Sales").'),
   id: z.string().trim().min(1).max(64).optional().describe('Only the id the tool gave back among this name\'s candidates (two people or groups of one name).'),
 })
 export const ChangeProjectMembersInput = z.strictObject({
