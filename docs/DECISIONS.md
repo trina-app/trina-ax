@@ -17780,8 +17780,8 @@ nor where the person could do it, and some blamed the person for a card nobody s
 some of them into cards.
 
 - **One shape for every refusal the AI reads** (`refusal({ done, why, next, names })`): what did not happen ("Nothing
-  was moved."); one reason, said plainly: no permission (and who can give it, by display name: the admins, or a team
-  project's creator and the admins), nobody could be asked (a scheduled run: "The user did not refuse anything; never
+  was moved."); one reason, said plainly: no permission (and who can give it: "an admin", or a team project's creator
+  by name where that is safe, see below), nobody could be asked (a scheduled run: "The user did not refuse anything; never
   say they did"), the person said no, the card timed out ("This is not a no"), other people would have to agree (the
   room or project, a count), a server limit (its number, when it resets, who can change it), not available in this kind
   of chat; one next step with the screen as the person's app names it in their language (`SCREEN.trash('ko')` →
@@ -17811,19 +17811,23 @@ some of them into cards.
   server, or a safe workflow in this chat) and what is off; the scheduled run block says a step that needs a card is
   skipped, which is not the person refusing, and the summary lists what was skipped. "Rooms cannot be read in this
   chat" says why (a shared chat, a room session, a confidential chat, a template run) and where to read the room.
-- **Bug 4:** the instructions no longer promise deletion ("nothing is deleted unless the user asks"): the AI cannot
-  delete, says so, and points to the Files screen's trash (30 days). A delete tool is a later PR, after a security
-  review.
+- **Bug 4:** where delete_files (#277) is not offered (a room, a shared chat, a sub-agent, a scheduled run…), the person
+  lines say the AI cannot delete here and name the Files screen's trash in the person's language (30 days); where it
+  is offered, its own rule says how (DELETE_RULE).
+- **Admins are never named** (review of #273): the people directory shows no roles (`shared/src/api/people.ts`, "people
+  directory" above), so a refusal listing the admins would tell a member who they are, and in a room or a shared chat
+  the AI could repeat the names to everyone. The texts say "an admin" and the screen where an admin does it.
 - **Wording:** a read-only refusal in a chat turn gets a note with who can give write access (B2; the tool's own text is
   unchanged for every other caller, so the remote connector and the security tests see what they saw). A team
-  project's creator is named only when the person may read that exact project folder: a hidden project answers
+  project's creator is mentioned only when the person may read that exact project folder: a hidden project answers
   "read-only folder" like a missing one (`hiddenWrite`), and naming its creator would tell them apart (independent
-  review); otherwise it is the admins, whatever the path; the per-answer
-  write limits give their numbers and "continue" in the next message (B7); an admin-only folder move names the admins
-  (B14); a connection set to refuse changes or a tool turned off names who manages it and where (E6, E11), team
-  connections and personal connections name the admins and the screen (E1-E3), a template run names its folders (F4), a
-  private address points to the desktop app's browser or an attachment (G1), the daily video limit says when one frees
-  up and who sets it (H2).
+  review). The creator's name goes in only where everyone who sees the answer may read that folder (in a room or a
+  shared chat, `roomReadable`; else "the project's creator"); otherwise it is "an admin", whatever the path; the per-answer
+  write limits give their numbers and "continue" in the next message (B7); an admin-only folder move says an admin
+  does it on the Files screen (B14); a connection set to refuse changes or a tool turned off says who manages it (an
+  admin, or the person) and where (E6, E11), team and personal connections say an admin and the screen (E1-E3), a
+  template run names its folders (F4), a private address points to the desktop app's browser or an attachment (G1), the
+  daily video limit says when one frees up, as the daily limit set by the server (H2).
 - Not here: the skill texts and move_skill (`skills/guard.ts`, `skills/move.ts`, `skills/text.ts`, the
   `SKILL_FILES_REFUSAL` call sites), which #269 (fix/ai-skill-move-like-page) changed at the same time; new cards (skill
   folders, deleting), schedule pre-approval, connections in rooms, post_to_room.

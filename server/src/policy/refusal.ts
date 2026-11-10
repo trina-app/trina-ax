@@ -53,7 +53,7 @@ export interface Refusal {
   also?: string
 }
 
-const stop = (s: string) => (/[.!?)]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`)
+const stop = (s: string) => (/[.!?]\)?$/.test(s.trim()) ? s.trim() : `${s.trim()}.`)
 
 /** "A, B and C" (at most `max` names, then "and N more") */
 export function nameList(names: readonly string[], max = 3): string {
@@ -158,31 +158,32 @@ export const SCREEN = {
 } as const satisfies Record<string, (L: Locale) => string>
 
 // ---------------- who can give access ----------------
-/** Active owners and admins, by display name (owner first). */
-export function adminNames(db: Database): string[] {
-  return (db.query("SELECT name FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, name, id").all() as { name: string }[])
-    .map((r) => oneLine(r.name)).filter(Boolean)
-}
+// Admins are never named: the people directory shows no roles (shared/src/api/people.ts, DECISIONS "people
+// directory"), so a refusal that listed them would tell a member who the admins are, and in a room or a shared chat the
+// AI could repeat the names to everyone (review of #273). "An admin" and the screen where they do it are enough.
 
 /**
  * Who can give write access at `rel` (the path as a read-only refusal named it): a team project's folder by its creator
- * (who chooses the project's people) and the admins, any other folder by the admins (Admin › Folder permissions, or
- * Admin › Groups for a group's folder). `sees`: may the person read this folder (exact names, as the rules match them)?
- * The creator is named only when they may: "read-only folder: you cannot create files in 'projects/<x>'" is also what
- * a hidden project answers (policy/authorize.ts hiddenWrite), so a lookup by that name alone would tell a hidden project
- * from a missing one and name its creator (independent review). Otherwise the answer is the admins, whatever the path.
+ * (who chooses the project's people) or an admin, any other folder by an admin (Admin › Folder permissions, or Admin ›
+ * Groups for a group's folder). `sees`: may the person read this folder (exact names, as the rules match them)? Only
+ * then is the creator mentioned at all: "read-only folder: you cannot create files in 'projects/<x>'" is also what a
+ * hidden project answers (policy/authorize.ts hiddenWrite), so a lookup by that name alone would tell a hidden project
+ * from a missing one (independent review). `nameable`: may the creator's name go into this answer (in a room or a shared
+ * chat, only when everyone there may read that project folder); otherwise "the project's creator" without a name.
  */
-export function writeGranters(db: Database, rel: string, L: Locale, sees: (segs: string[]) => boolean): { names: string[]; how: string } {
-  const admins = adminNames(db)
+export function writeGranters(db: Database, rel: string, L: Locale, sees: (segs: string[]) => boolean, nameable: (segs: string[]) => boolean = () => true): { who: string; how: string } {
   const segs = rel.split('/').filter(Boolean)
   const top = segs[0]
   if (top === 'projects' && segs.length >= 2 && sees(segs.slice(0, 2))) {
     // the exact folder name (no case folding: a name typed in another case is not the folder the rules were read for)
     const p = db.query("SELECT p.name, u.name AS creator FROM projects p LEFT JOIN users u ON u.id = p.created_by AND u.status = 'active' AND u.deleted_at IS NULL WHERE p.trashed_with IS NULL AND p.folder_path = ? LIMIT 1").get(segs.slice(0, 2).join('/')) as { name: string; creator: string | null } | null
-    if (p?.creator) return { names: [oneLine(p.creator), ...admins], how: `the project's creator adds people to the project, an admin in ${SCREEN.adminFolders(L)}` }
+    if (p?.creator) {
+      const creator = nameable(segs.slice(0, 2)) ? `${oneLine(p.creator)} (the project's creator)` : "the project's creator"
+      return { who: `${creator} or an admin`, how: `the creator adds people to the project; an admin can also change ${SCREEN.adminFolders(L)}` }
+    }
   }
-  if (top === 'groups' && segs.length >= 2) return { names: admins, how: `an admin adds them to the group in ${SCREEN.adminGroups(L)} or changes ${SCREEN.adminFolders(L)}` }
-  return { names: admins, how: `an admin in ${SCREEN.adminFolders(L)}` }
+  if (top === 'groups' && segs.length >= 2) return { who: 'an admin', how: `an admin adds them to the group in ${SCREEN.adminGroups(L)} or changes ${SCREEN.adminFolders(L)}` }
+  return { who: 'an admin', how: `in ${SCREEN.adminFolders(L)}` }
 }
 
 /** The next step after "not found or no access": the same for a missing file and a hidden one (it names nothing about
@@ -195,15 +196,15 @@ const oneLine = (s: string) => s.replace(/\s+/g, ' ').replace(/[<>]/g, ' ').trim
 
 /**
  * B2: after a "read-only" refusal (policy/authorize.ts), who can give write access there and what the person can do
- * now; null for any other text (never for "not found or no access"). `sees` as for writeGranters. `button`: the answer
- * gets the "save in my folder" button (a person's own chat; not a room or a shared chat).
+ * now; null for any other text (never for "not found or no access"). `sees` and `nameable` as for writeGranters.
+ * `button`: the answer gets the "save in my folder" button (a person's own chat; not a room or a shared chat).
  */
-export function readOnlyNote(db: Database, text: string, L: Locale, o: { userId: string; sees: (segs: string[]) => boolean; button: boolean }): string | null {
+export function readOnlyNote(db: Database, text: string, L: Locale, o: { userId: string; sees: (segs: string[]) => boolean; nameable?: (segs: string[]) => boolean; button: boolean }): string | null {
   const m = /read-only(?: folder)?: you cannot (?:change|create files in) '([^']*)'/.exec(text)
   if (!m || text.includes(`Write access to '${m[1]}'`)) return null
-  const g = writeGranters(db, m[1]!, L, o.sees)
+  const g = writeGranters(db, m[1]!, L, o.sees, o.nameable)
   const own = o.button ? `they also get a button under your answer to save it in their own folder (users/${o.userId}), and you may save it there if they ask` : `you may save it in their own folder (users/${o.userId}) if they ask`
-  return `Write access to '${m[1]}': ${g.names.length ? `${nameList(g.names)} can give it (${g.how})` : g.how}. Next step: tell the user so; ${own}.`
+  return `Write access to '${m[1]}': ${g.who} can give it (${g.how}). Next step: tell the user so; ${own}.`
 }
 
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */

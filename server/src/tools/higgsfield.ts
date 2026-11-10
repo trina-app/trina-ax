@@ -128,7 +128,7 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
         const free = oldest ? new Date(Date.parse(oldest) + 24 * 3600_000).toISOString().replace(/\.\d+Z$/, 'Z') : null
         throw new ToolError(refusal({
           done: 'No video was made and no credits were spent.',
-          why: { kind: 'limit', limit: `${daily} videos per person in any 24 hours`, resets: free ? `when the oldest of them is 24 hours old, at ${free} UTC (give the time in the user's time zone)` : 'within 24 hours', setBy: 'the server\'s operator (MYCEL_HIGGSFIELD_DAILY)' },
+          why: { kind: 'limit', limit: `${daily} videos per person in any 24 hours (the daily limit set by the server)`, resets: free ? `when the oldest of them is 24 hours old, at ${free} UTC (give the time in the user's time zone)` : 'within 24 hours' },
           next: 'the user can ask again after that time',
         }))
       }

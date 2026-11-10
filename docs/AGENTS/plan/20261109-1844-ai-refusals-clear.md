@@ -37,7 +37,7 @@ In:
 - B9 / bug 5: move_files and copy_files make a missing target folder (same audience card; the card says the folder is
   new, in all five languages). The prompt no longer tells the AI to write a README.md to make a folder.
 - Bug 4: the prompt says the AI cannot delete files and the person can use the Files screen's trash.
-- Wording: read-only names who can grant write (B2); the per-answer write limit gives the number and "continue in the
+- Wording: read-only says who can grant write (B2); the per-answer write limit gives the number and "continue in the
   next message" (B7); admin-only folder moves name the admins (B14); connection, schedule, web and video refusals that
   only need words (E, F, G, H2).
 
@@ -90,6 +90,9 @@ folder"). Differences and additions:
   where nothing went in is taken away again; a failed shared-chat check no longer says a yes was needed.
 - Audit summaries say `nobody to ask (scheduled run)` / `no answer in time` where that happened (cards of rooms,
   shared chats, the wider audience, skills, connections).
+- Review of #273: admins are never named (the app shows no roles); a project's creator is named in a room or a shared
+  chat only when everyone there may read the project folder; the video limit no longer shows a setting's name.
+- dev's delete_files (#277) came in meanwhile: the "cannot delete here" line is only where delete_files is not offered.
 - Also removed a leftover merge marker in DECISIONS.md (from merge 8c1df78a).
 
 PR: https://github.com/trina-app/trina-ax/pull/273

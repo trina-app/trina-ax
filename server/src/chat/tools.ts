@@ -372,11 +372,17 @@ function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
 }
 
 /** B2's note after a policy refusal "Access denied: read-only…" (only that: never another tool's or a connection's
- * text that happens to say so), with the project's creator named only when the person may read that project folder. */
-function readOnlyFor(exec: TurnExec, text: string): string | null {
+ * text that happens to say so). A project's creator is mentioned only when the person may read that project folder, and
+ * named only where everyone who sees the answer may: in a room or a shared chat the answer reaches all of them, so only
+ * when every one of them may read that folder (roomReadable; none known: never), else "the project's creator". */
+export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'room' | 'shared' | 'roomReadable'>, text: string): string | null {
   if (!text.startsWith('Access denied: read-only')) return null
   const rules = exec.rt.files.rules(), me = exec.livePrincipal()
-  return readOnlyNote(exec.rt.db, text, exec.spec.locale, { userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !exec.room && !exec.shared })
+  const group = !!exec.room || !!exec.shared
+  return readOnlyNote(exec.rt.db, text, exec.spec.locale, {
+    userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !group,
+    nameable: (segs) => !group || !!exec.roomReadable?.(segs.join('/')),
+  })
 }
 
 /** The audit line's words for a room card's refusal and a shared chat's read refusal: what happened (a scheduled run

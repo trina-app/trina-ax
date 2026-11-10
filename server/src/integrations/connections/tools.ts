@@ -19,7 +19,7 @@ import { INTEGRATION_TOOLS_OLD_MAX, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
 import { addSources } from '../../chat/read-scope'
-import { adminNames, cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
+import { cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
 import { askConfirm } from '../../tools/url-gate'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
@@ -152,7 +152,7 @@ export function recipientFields(args: unknown): { name: string; value: string }[
 /** Where a connection's settings are changed, by whom (E6, E11): a team connection by an admin, a personal one by its
  * owner. */
 function connectionSettings(row: Pick<Row, 'scope'>, L: Locale): string {
-  return row.scope === 'team' ? `an admin, in ${SCREEN.adminMcp(L)}` : `in ${SCREEN.settingsMcp(L)}`
+  return row.scope === 'team' ? `in ${SCREEN.adminMcp(L)}` : `in ${SCREEN.settingsMcp(L)}`
 }
 
 function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string): boolean {
@@ -170,7 +170,7 @@ async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: Buil
   if (row.write_policy === 'deny') {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`,
-      why: { kind: 'permission', what: `${row.name} is set to refuse changes from the AI`, grant: row.scope === 'team' ? adminNames(ctx.db) : ['the user themselves'], how: connectionSettings(row, tc.locale) },
+      why: { kind: 'permission', what: `${row.name} is set to refuse changes from the AI`, grant: [row.scope === 'team' ? 'an admin' : 'the user themselves'], how: connectionSettings(row, tc.locale) },
       next: 'tell the user; once the setting allows it, ask again', names: [row.name],
     }), 'refused (write policy deny)')
   }
@@ -366,7 +366,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (disabledTools(current).has(t.name)) {
           throw new CallError(refusal({
             done: `${tool.name} of ${current.name} did not run.`,
-            why: { kind: 'permission', what: `${tool.name} was turned off for the AI in the connection's settings`, grant: current.scope === 'team' ? adminNames(ctx.db) : ['the user themselves'], how: connectionSettings(current, tc.locale) },
+            why: { kind: 'permission', what: `${tool.name} was turned off for the AI in the connection's settings`, grant: [current.scope === 'team' ? 'an admin' : 'the user themselves'], how: connectionSettings(current, tc.locale) },
             also: 'Do not try it another way', next: 'tell the user who can turn it on', names: [current.name],
           }), 'tool off')
         }

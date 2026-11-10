@@ -28,7 +28,7 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
-import { adminNames, refusal, SCREEN } from '../policy/refusal'
+import { refusal, SCREEN } from '../policy/refusal'
 import type { TurnExec } from './turn'
 
 /** The connections connect_service checks a new one against, as this person may use them now, and how many count
@@ -184,10 +184,10 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     } else {
       // who can do it instead, by name, and where (docs/DECISIONS.md "Refusals say why, who and what next")
       if (scope === 'team' && !isAdmin(viewer.role)) {
-        return early(`Only an admin can add a team connection, and this person is not one. ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'team connections are added by admins', grant: adminNames(db), how: SCREEN.adminMcp(L) }, next: 'offer a personal connection instead (scope personal), or tell them one of these admins can add it for the team' })}`, 'team needs an admin')
+        return early(`Only an admin can add a team connection, and this person is not one. ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'team connections are added by admins', grant: ['an admin'], how: SCREEN.adminMcp(L) }, next: 'offer a personal connection instead (scope personal), or tell them an admin can add it for the team' })}`, 'team needs an admin')
       }
       if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
-        return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: adminNames(db), how: `an admin turns them on in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask one of these admins, or to ask for a team connection' })}`, 'personal connections off')
+        return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
       }
       const { rows, count } = connectRows(db, viewer.id, scope)
       const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM

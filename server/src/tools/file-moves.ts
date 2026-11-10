@@ -20,7 +20,7 @@ import { teamDefaultLocale } from '../admin/settings'
 import { atLeast } from '../policy/access'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
-import { adminNames, cardNext, cardReason, nameList, readOnlyNote, refusal, SCREEN } from '../policy/refusal'
+import { cardNext, cardReason, readOnlyNote, refusal, SCREEN } from '../policy/refusal'
 import { inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
@@ -69,10 +69,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
    * access (B2). */
   const why = (e: unknown, tc: ToolCtx): string => {
     const L = tc.person?.locale ?? teamDefaultLocale(ctx.db)
-    if (e instanceof FileError && e.key === 'ruleFolder') {
-      const admins = adminNames(ctx.db)
-      return `${e.message} The user is not an admin${admins.length ? `; ${nameList(admins)} can do it on ${SCREEN.files(L)}` : ''}.`
-    }
+    // admins are not named: roles stay hidden (policy/refusal.ts)
+    if (e instanceof FileError && e.key === 'ruleFolder') return `${e.message} The user is not an admin; an admin can do it on ${SCREEN.files(L)}.`
     if (e instanceof Denied) return [e.message, readOnly(e.message, L, tc)].filter(Boolean).join('. ')
     return e instanceof ToolError || e instanceof FileError ? e.message : 'internal error'
   }

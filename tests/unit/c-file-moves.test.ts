@@ -338,11 +338,13 @@ describe('move_files', () => {
     expect(has('skills/copied-glossary.md')).toBe(true)
   })
 
-  test('a group folder moves only for admins and owners, as on the Files screen; the text names them (B14)', async () => {
+  test('a group folder moves only for admins and owners, as on the Files screen; the text says where, naming no admin (B14)', async () => {
     fs.mkdirSync(path.join(A.team, 'shared/elsewhere'), { recursive: true })
     const r = await call('alice', 'move_files', { paths: ['groups/marketing'], to_folder: 'shared/elsewhere' }, { person: ask(true) })
     expect(r.isError).toBe(true)
-    expect(r.text).toContain('can only be moved, renamed or deleted by an admin. The user is not an admin; Dana Choi and Carol Park can do it on the Files screen ("파일").')
+    expect(r.text).toContain('can only be moved, renamed or deleted by an admin. The user is not an admin; an admin can do it on the Files screen ("파일").')
+    // roles stay hidden (the people directory shows none): no admin by name
+    expect(r.text).not.toMatch(/Dana Choi|Carol Park/)
     expect(has('groups/marketing/campaign-brief.md')).toBe(true)
   })
 

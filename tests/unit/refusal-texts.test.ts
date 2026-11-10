@@ -5,8 +5,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { Locale } from '@mycel/shared/api'
 import {
-  adminNames, cardEndShort, cardNext, cardReason, nameList, notFoundNext, readOnlyNote, reasonText, refusal, SCREEN, writeGranters, writeLimitText,
+  cardEndShort, cardNext, cardReason, nameList, notFoundNext, readOnlyNote, reasonText, refusal, SCREEN, writeGranters, writeLimitText,
 } from '../../server/src/policy/refusal'
+import { readOnlyFor } from '../../server/src/chat/tools'
 import { buildTurnContext, buildTurnPrompt, confidentialRule, deleteRule, roomSection, sharedSection, type PromptInput } from '../../server/src/chat/prompt'
 import { scheduledRunBlock } from '../../server/src/chat/schedules'
 import { roomRefsBlock } from '../../server/src/chat/turn'
@@ -84,21 +85,27 @@ describe('who can give access', () => {
     db.run("CREATE TABLE users (id TEXT, name TEXT, role TEXT, status TEXT DEFAULT 'active', deleted_at TEXT)")
     db.run('CREATE TABLE projects (id TEXT, name TEXT, folder_path TEXT, created_by TEXT, trashed_with TEXT)')
     db.run("INSERT INTO users (id, name, role) VALUES ('o', 'Owner Oh', 'owner'), ('a', 'Admin Ahn', 'admin'), ('m', 'Member Moon', 'member'), ('p', 'Pat Creator', 'member')")
-    db.run("INSERT INTO users (id, name, role, status) VALUES ('x', 'Gone Admin', 'admin', 'disabled')")
     db.run("INSERT INTO projects VALUES ('pr', 'Atlas', 'projects/atlas', 'p', NULL)")
   })
   afterAll(() => db.close())
-
-  test('active owners and admins, the owner first', () => {
-    expect(adminNames(db)).toEqual(['Owner Oh', 'Admin Ahn'])
-  })
-
   const all = () => true
   const none = () => false
-  test('a project folder the person sees: its creator and the admins; any other folder: the admins, with the screen', () => {
-    expect(writeGranters(db, 'projects/atlas/plan.md', 'ko', all)).toEqual({ names: ['Pat Creator', 'Owner Oh', 'Admin Ahn'], how: 'the project\'s creator adds people to the project, an admin in Admin › Folder permissions ("관리자 › 폴더 권한")' })
+  const ADMIN_NAMES = /Owner Oh|Admin Ahn/
+
+  // review of #273: the people directory shows no roles, so a refusal that named the admins told members who they are
+  test('admins are never named, only "an admin" and the screen', () => {
+    expect(writeGranters(db, 'shared/회계/2026 예산.xlsx', 'ko', all)).toEqual({ who: 'an admin', how: 'in Admin › Folder permissions ("관리자 › 폴더 권한")' })
     expect(writeGranters(db, 'groups/finance/q.xlsx', 'en', all).how).toContain('Admin › Groups ("Admin › Groups")')
-    expect(writeGranters(db, 'shared/회계/2026 예산.xlsx', 'ko', all)).toEqual({ names: ['Owner Oh', 'Admin Ahn'], how: 'an admin in Admin › Folder permissions ("관리자 › 폴더 권한")' })
+    for (const p of ['shared/a.md', 'groups/finance/q.xlsx', 'projects/atlas/x.md', 'projects/nothing/x.md']) {
+      expect(JSON.stringify(writeGranters(db, p, 'ko', all))).not.toMatch(ADMIN_NAMES)
+      expect(JSON.stringify(writeGranters(db, p, 'ko', none))).not.toMatch(ADMIN_NAMES)
+    }
+  })
+
+  test('a project folder the person sees: its creator by name, or an admin', () => {
+    expect(writeGranters(db, 'projects/atlas/plan.md', 'ko', all)).toEqual({ who: "Pat Creator (the project's creator) or an admin", how: 'the creator adds people to the project; an admin can also change Admin › Folder permissions ("관리자 › 폴더 권한")' })
+    // where the name may not go out (a room or a shared chat some of whose people cannot read the project): no name
+    expect(writeGranters(db, 'projects/atlas/plan.md', 'ko', all, none).who).toBe("the project's creator or an admin")
   })
 
   // independent review: "read-only folder: you cannot create files in 'projects/<x>'" is also what a hidden project
@@ -115,13 +122,35 @@ describe('who can give access', () => {
   test('readOnlyNote: only after a read-only refusal, once', () => {
     const t = "Access denied: read-only: you cannot change 'shared/회계/2026 예산.xlsx'"
     const note = readOnlyNote(db, t, 'ko', { userId: 'm', sees: all, button: true })!
-    expect(note).toBe('Write access to \'shared/회계/2026 예산.xlsx\': Owner Oh and Admin Ahn can give it (an admin in Admin › Folder permissions ("관리자 › 폴더 권한")). Next step: tell the user so; they also get a button under your answer to save it in their own folder (users/m), and you may save it there if they ask.')
-    expect(readOnlyNote(db, "read-only folder: you cannot create files in 'projects/atlas'", 'en', { userId: 'm', sees: all, button: true })).toContain('Pat Creator, Owner Oh and Admin Ahn can give it')
-    expect(readOnlyNote(db, "read-only folder: you cannot create files in 'projects/atlas'", 'en', { userId: 'm', sees: none, button: true })).toContain(': Owner Oh and Admin Ahn can give it')
+    expect(note).toBe('Write access to \'shared/회계/2026 예산.xlsx\': an admin can give it (in Admin › Folder permissions ("관리자 › 폴더 권한")). Next step: tell the user so; they also get a button under your answer to save it in their own folder (users/m), and you may save it there if they ask.')
+    expect(readOnlyNote(db, "read-only folder: you cannot create files in 'projects/atlas'", 'en', { userId: 'm', sees: all, button: true })).toContain("Pat Creator (the project's creator) or an admin can give it")
+    expect(readOnlyNote(db, "read-only folder: you cannot create files in 'projects/atlas'", 'en', { userId: 'm', sees: none, button: true })).toContain(': an admin can give it')
     // a room or a shared chat has no "save in my folder" button under the answer
     expect(readOnlyNote(db, t, 'ko', { userId: 'm', sees: all, button: false })).toContain('Next step: tell the user so; you may save it in their own folder (users/m) if they ask.')
     expect(readOnlyNote(db, `${t}. ${note}`, 'ko', { userId: 'm', sees: all, button: true })).toBeNull()
     expect(readOnlyNote(db, "Access denied: not found or no access: 'groups/finance'", 'ko', { userId: 'm', sees: all, button: true })).toBeNull()
+  })
+
+  // review of #273: in a shared chat the answer reaches everyone who sees it, not only the asker
+  test('a shared chat or a room: the creator is named only when everyone there may read the project folder', () => {
+    const t = "Access denied: read-only folder: you cannot create files in 'projects/atlas'"
+    const exec = (o: { shared?: boolean; room?: boolean; everyone?: boolean | null }) => ({
+      rt: { db, files: { rules: () => ({ access: () => 'read' }) } }, livePrincipal: () => ({ id: 'm', name: 'Member Moon', role: 'member', groups: [] }),
+      spec: { locale: 'en', userId: 'm' }, room: o.room ? { roomId: 'r' } : null, shared: o.shared ? { project: {} } : null,
+      roomReadable: o.everyone === null || o.everyone === undefined ? null : () => o.everyone!,
+    }) as unknown as Parameters<typeof readOnlyFor>[0]
+    expect(readOnlyFor(exec({}), t)).toContain("Pat Creator (the project's creator) or an admin can give it")
+    expect(readOnlyFor(exec({}), t)).toContain('they also get a button under your answer')
+    const hidden = readOnlyFor(exec({ shared: true, everyone: false }), t)!
+    expect(hidden).toContain("the project's creator or an admin can give it")
+    expect(hidden).not.toContain('Pat Creator')
+    expect(hidden).not.toContain('button under your answer')
+    expect(readOnlyFor(exec({ shared: true, everyone: true }), t)).toContain("Pat Creator (the project's creator)")
+    expect(readOnlyFor(exec({ room: true, everyone: false }), t)).not.toContain('Pat Creator')
+    // no reader check known: never named
+    expect(readOnlyFor(exec({ shared: true, everyone: null }), t)).not.toContain('Pat Creator')
+    // only a policy refusal's own text, never a tool's or a connection's that happens to say so
+    expect(readOnlyFor(exec({}), "Error: the service said: read-only: you cannot change 'projects/atlas/x'")).toBeNull()
   })
 })
 
@@ -158,11 +187,12 @@ describe('the instructions say what each kind of chat cannot do, and where to do
   })
 
   test('deleting: the AI cannot, and says where the person can (bug 4)', () => {
-    expect(deleteRule('ko')).toContain('You cannot delete files or folders: there is no delete tool.')
+    expect(deleteRule('ko')).toContain('You cannot delete files or folders here (delete_files is not offered in this chat).')
     expect(deleteRule('ko')).toContain('the Files screen\'s trash ("파일 › 휴지통")')
+    // only where delete_files is not offered (a room, a shared chat, a sub-agent…); with it, its own rule (DELETE_RULE)
     expect(buildTurnPrompt(h.ctx.files, input())).toContain(deleteRule('ko'))
     expect(buildTurnContext(h.ctx.files, input({ locale: 'en' }))).toContain(deleteRule('en'))
-    expect(buildTurnPrompt(h.ctx.files, input())).not.toContain('nothing is deleted unless the user asks')
+    expect(buildTurnPrompt(h.ctx.files, input({ tools: ['move_files', 'copy_files', 'delete_files'] }))).not.toContain('delete_files is not offered')
   })
 
   test('a scheduled run: what cannot happen there is skipped, not refused by the user', () => {
