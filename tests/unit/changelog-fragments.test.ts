@@ -1,10 +1,11 @@
 // Changelog fragments (scripts/changelog.ts, changes/README.md): a PR's notes live in changes/<topic>.md; before a
 // release they are folded into CHANGELOG.md under "## Unreleased". Two PRs then never edit the same lines.
 import { afterEach, describe, expect, test } from 'bun:test'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { foldInto, fragmentNotes, problems, readFragments, unreleasedNotes } from '../../scripts/changelog'
+import { baseChangelog, foldInto, fragmentNotes, newLinesMessage, newUnreleasedLines, problems, readFragments, unreleasedNotes } from '../../scripts/changelog'
 
 const LOG = `# Changelog
 
@@ -70,6 +71,78 @@ describe('the folder and the checks', () => {
     expect(problems(LOG, [{ file: 'changes/x.md', notes: [] }], () => '')).toEqual(['changes/x.md has no note'])
     expect(problems(LOG, [{ file: 'changes/y.md', notes: ['- Y.'] }], () => '<<<<<<< HEAD\n- Y.')).toEqual(['changes/y.md holds a merge marker'])
     expect(problems(LOG, [{ file: 'changes/z.md', notes: ['- Z.'] }], () => '- Z.')).toEqual([])
+  })
+})
+
+describe('new lines under "## Unreleased" (compared with the PR\'s base)', () => {
+  const added = LOG.replace('- Older note A.\n', '- My new note.\n- Older note A.\n')
+  test('a PR that adds a note there fails, and the message says to use changes/<topic>.md', () => {
+    expect(newUnreleasedLines(LOG, added)).toEqual(['- My new note.'])
+    const msg = newLinesMessage(['- My new note.'])
+    expect(msg).toContain('put your entry in changes/<topic>.md')
+    expect(msg).toContain('a new line under "## Unreleased"')
+    expect(msg).toContain('\n  - My new note.')
+  })
+  test('a fix to a note that is there, a note moved to changes/, or no change pass', () => {
+    expect(newUnreleasedLines(LOG, LOG.replace('- Older note A.', '- Older note A, fixed.'))).toEqual([])
+    expect(newUnreleasedLines(added, LOG)).toEqual([])
+    expect(newUnreleasedLines(LOG, LOG)).toEqual([])
+  })
+  test('notes a release moved out of the section meanwhile are not new; only the added one is', () => {
+    const released = LOG.replace('## Unreleased\n\n- Older note A.\n- Older note B.\n', '## Unreleased\n\n## 0.5.0 — 2026-11-11\n\n- Older note A.\n- Older note B.\n')
+    expect(newUnreleasedLines(released, LOG)).toEqual([])
+    expect(newUnreleasedLines(released, added)).toEqual(['- My new note.'])
+  })
+  test('a base without the section counts as an empty one', () => {
+    expect(newUnreleasedLines('# Changelog\n', added)).toEqual(['- My new note.', '- Older note A.', '- Older note B.'])
+  })
+})
+
+describe('the base to compare with', () => {
+  const tmp: string[] = []
+  afterEach(() => { for (const d of tmp.splice(0)) fs.rmSync(d, { recursive: true, force: true }) })
+  const git = (cwd: string, ...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' })
+    if (r.status !== 0) throw new Error(r.stderr)
+  }
+  /** A repository with dev holding LOG, cloned; the clone's CHANGELOG.md has a new note (a PR's checkout). */
+  function pr(): string {
+    const top = fs.mkdtempSync(path.join(os.tmpdir(), 'changelog-base-'))
+    tmp.push(top)
+    const origin = path.join(top, 'origin'), clone = path.join(top, 'clone')
+    fs.mkdirSync(origin)
+    git(origin, 'init', '-q', '-b', 'dev')
+    fs.writeFileSync(path.join(origin, 'CHANGELOG.md'), LOG)
+    git(origin, 'add', 'CHANGELOG.md')
+    git(origin, 'commit', '-q', '-m', 'base')
+    git(top, 'clone', '-q', origin, clone)
+    fs.writeFileSync(path.join(clone, 'CHANGELOG.md'), LOG.replace('- Older note A.\n', '- My new note.\n- Older note A.\n'))
+    return clone
+  }
+  test('no base (a push, a local run): null, quietly', () => {
+    const warned: string[] = []
+    expect(baseChangelog(pr(), {}, (w) => warned.push(w))).toBeNull()
+    expect(warned).toEqual([])
+  })
+  test('on a pull request in GitHub Actions: GITHUB_BASE_REF is fetched from origin', () => {
+    const clone = pr()
+    const base = baseChangelog(clone, { GITHUB_BASE_REF: 'dev' })
+    expect(base).toBe(LOG)
+    expect(newUnreleasedLines(base!, fs.readFileSync(path.join(clone, 'CHANGELOG.md'), 'utf8'))).toEqual(['- My new note.'])
+  })
+  test('CHANGELOG_BASE names a ref for a local check', () => {
+    expect(baseChangelog(pr(), { CHANGELOG_BASE: 'origin/dev' })).toBe(LOG)
+  })
+  test('a base that cannot be read warns and skips; an odd branch name is never passed to git', () => {
+    const warned: string[] = []
+    const clone = pr()
+    expect(baseChangelog(clone, { GITHUB_BASE_REF: 'no-such-branch' }, (w) => warned.push(w))).toBeNull()
+    expect(baseChangelog(clone, { GITHUB_BASE_REF: '--upload-pack=touch x' }, (w) => warned.push(w))).toBeNull()
+    expect(baseChangelog(clone, { CHANGELOG_BASE: '--output=x' }, (w) => warned.push(w))).toBeNull()
+    expect(warned).toHaveLength(3)
+    expect(warned[0]).toContain('could not fetch the base branch no-such-branch')
+    expect(warned[1]).toContain('is not one git can fetch')
+    expect(fs.existsSync(path.join(clone, 'x'))).toBe(false)
   })
 })
 

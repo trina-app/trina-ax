@@ -54,7 +54,7 @@
     "changelog:check": "bun scripts/changelog.ts --check",
     "changelog:fold": "bun scripts/changelog.ts --fold",
     "demo": "bun scripts/demo/start.ts",
-    "check:docs": "bun scripts/check-onboarding-docs.ts && bun run check:tooltips",
+    "check:docs": "bun scripts/check-onboarding-docs.ts && bun run check:tooltips && bun run changelog:check",
     "check:tooltips": "bun web/scripts/check-icon-tooltips.ts",
     "docs:build": "bun scripts/docs/build.ts",
     "docs:api": "bun scripts/docs/api-reference.ts",
