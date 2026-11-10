@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 11:24
 - Branch: `fix/vapid-key-length`
-- Status: in progress
+- Status: done
 - Where: server/src/notifications/push-config.ts and two unit tests. Why: a flaky test that is also a real fault (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. A stored push key that lost a leading zero byte works again; no API, data or text change.
 
@@ -33,4 +33,4 @@ typecheck, push and web-push unit tests, 20 repeats in Linux Docker (oven/bun:1.
 
 ## Result
 
-(filled at the end)
+Padded the key in `readPushConfig` (`padPrivateKey`, push-config.ts); both tests make 32-byte keys; tests loop 2000 keys and load a stored 31-byte key. Measured: 76 of 20000 random keys were 31 bytes (0.38%, about 1 in 256).
