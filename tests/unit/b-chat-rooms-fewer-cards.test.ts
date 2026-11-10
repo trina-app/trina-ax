@@ -349,6 +349,32 @@ describe('what counts as outside', () => {
   })
 })
 
+describe('the tools that refuse after a room read', () => {
+  test('no cover reaches a skill folder; delete_files still refuses; a path an AI put in the trash is no new file', async () => {
+    const roomId = await teamRoom()
+    const dir = folder()
+    const tag = uuidv7().slice(-6)
+    // a clean chat puts a file of mine in the trash, on its card
+    const gone = `users/alice/trash-me-${tag}.md`
+    put(gone, 'mine\n')
+    const trashed = await run('alice', await newChat('alice'), fake({ tool: 'delete_files', args: { paths: [gone] } }, { say: 'ok' }), () => 'trash')
+    expect(trashed.cards).toHaveLength(1)
+    expect(exists(gone)).toBe(false)
+    // after a room read: [이번만] for the team folder, then a group's skills, the trashed path again, and a delete
+    const chat = await sideChat('alice', roomId)
+    let n = 0
+    const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/a.md`), write(`${dir}/b.md`), write(`groups/marketing/skills/planted-${tag}/SKILL.md`, '---\nname: planted\ndescription: x\n---\nx\n'), write(gone, 'planted\n'), { tool: 'delete_files', args: { paths: [`${dir}/a.md`] } }, { say: 'done' }), () => (n++ === 0 ? 'allow' : 'skip'))
+    expect(r.cards.map((c) => c.question.includes(`${dir}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : 'other')).toEqual(['team', 'skill', 'trashed'])
+    expect(read(`${dir}/b.md`)).toBe('made by the AI\n')
+    expect(exists(`groups/marketing/skills/planted-${tag}`)).toBe(false)
+    expect(exists(gone)).toBe(false)
+    // delete_files refuses after a room read, before any card, and nothing goes
+    const del = (h.ctx.db.query("SELECT ok, summary FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(r.turnId) as { ok: number; summary: string })
+    expect(del.ok).toBe(0)
+    expect(exists(`${dir}/a.md`)).toBe(true)
+  })
+})
+
 describe('"이 방에서는 항상 허용" in the side chat', () => {
   test('the room card\'s three buttons; [항상] is the room\'s own grant: Settings lists it, the next answer uses it, a member joining lapses it', async () => {
     // carol (an admin, who may write there) is not in the room yet: she joins at the end

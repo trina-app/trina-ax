@@ -51,7 +51,7 @@ import { SendHere, SendHereNote, type SentHere } from '../rooms/SendHere'
 import { keepThreadRef, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
-import Steps from './Steps'
+import Steps, { StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
 import { WithRoomRefs } from './RoomRefMenu'
@@ -633,7 +633,12 @@ export function AssistantMessage({
             {t('chat.queued', { n: queuePos })} <span className="text-faint">{t('chat.queueHint')}</span>
           </p>
         )}
-        {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />}
+        {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : (
+          // a side chat: a post's 보기 goes the way its sent line's does (the panel's onView)
+          <StepPostView.Provider value={sendHere ? (p) => sendHere.onView({ to: p.threadRootId ? 'thread' : 'room', roomId: p.roomId, rootId: p.threadRootId ?? null, messageId: p.messageId, cut: false }) : null}>
+            <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
+          </StepPostView.Provider>
+        )}
         {thinking && (queuePos === undefined || queuePos === 0) && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
             <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />

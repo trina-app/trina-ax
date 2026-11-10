@@ -533,6 +533,47 @@ function walkSkillRoot(files: FileService, user: Principal, rootRel: string, vis
   return capped
 }
 
+/**
+ * The skill entries of one skills folder on disk, found as walkSkillRoot finds them for the AI (the security review of
+ * skill_files: a list of its own missed a single-file skill in a subfolder): a folder holding SKILL.md below the root is
+ * a skill (and nothing in it is another one); outside a project's skills folder, every .md up to MAX_DEPTH levels down
+ * that loads as a skill is one (a group's and the team's single-file skills, any subfolder); right in the team's
+ * skills/, a .md without a header is a team rule (prompt.ts teamRuleFiles). No dot names, links or hard-linked files,
+ * like the loader. Read by the server, not as a person: what anyone's AI may follow there (the folder rules then say
+ * who). `root`: the team folder on disk, `rootRel`: the skills folder; paths come back below it, sorted. `as`: read it
+ * as the skills folder it is about to become (a folder moved into place: a project's takes SKILL.md folders only).
+ */
+export function skillEntriesOnDisk(root: string, rootRel: string, as = rootRel): { path: string; kind: 'skill' | 'rule'; name: string }[] {
+  const parts = as.split('/')
+  const project = parts.length === 3 && parts[0]!.normalize('NFC').toLowerCase() === PROJECTS
+  const team = parts.length === 1
+  const out: { path: string; kind: 'skill' | 'rule'; name: string }[] = []
+  const walk = (abs: string, rel: string, depth: number) => {
+    let names: string[]
+    try { names = fs.readdirSync(abs).sort() } catch { return }
+    if (depth > 1 && names.includes('SKILL.md')) {
+      const entry = rel ? `${rel}/SKILL.md` : 'SKILL.md'
+      try { const sk = parseSkill(readRegular(path.join(abs, 'SKILL.md'), SKILL_FILE_MAX_BYTES).bytes.toString('utf8'), `${as}/${entry}`); if (sk) out.push({ path: entry, kind: 'skill', name: sk.name }) } catch { /* not a skill that loads */ }
+      return
+    }
+    for (const n of names) {
+      if (n.startsWith('.')) continue
+      const child = path.join(abs, n), childRel = rel ? `${rel}/${n}` : n
+      let st: fs.Stats
+      try { st = fs.lstatSync(child) } catch { continue }
+      if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, childRel, depth + 1); continue }
+      if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md') || project) continue
+      let text: string
+      try { text = readRegular(child, SKILL_FILE_MAX_BYTES).bytes.toString('utf8') } catch { continue }
+      const sk = parseSkill(text, `${as}/${childRel}`)
+      if (sk) out.push({ path: childRel, kind: 'skill', name: sk.name })
+      else if (team && depth === 1 && !isSkillManifest(n) && !hasFrontmatter(text)) out.push({ path: childRel, kind: 'rule', name: n })
+    }
+  }
+  walk(path.join(root, ...rootRel.split('/')), '', 1)
+  return out.sort((a, b) => a.path.localeCompare(b.path))
+}
+
 const nameKey = (s: string) => s.normalize('NFC').toLowerCase()
 
 /** Accessible legacy files and folder entry points of `user`, sorted: the team skills the folder rules let them

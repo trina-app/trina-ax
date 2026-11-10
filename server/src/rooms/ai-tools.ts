@@ -94,14 +94,15 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * "내 AI 채팅에서 대화방 읽기"): the tools that go on without the room card there. The room session's read-only tools, the
  * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
- * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts). Every other
+ * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts), and post_to_room
+ * its own card with the room and all of the text (chat/post-to-room.ts): no room card before either. Every other
  * tool (writes, moves, schedules, connections' tools and call_tool, the browser's clicks and pages, box_shell, forget,
  * connect_service, tools added later) waits for the person's yes on a card for the rest of that chat (fails closed),
  * but a new file in the person's own folder, and a new team file the person allowed for the answer or the room
  * (chat/turn.ts confirmRoomChange; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])

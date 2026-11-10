@@ -70,7 +70,7 @@ import { redactorFor } from '../integrations/connections/redact'
 import { confidentialChat } from '../safe-ops/confidential'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
-import { groupName, messagesOut, MSG_COLS, roomRow, type MessageRow as RoomMessageRow } from '../rooms/store'
+import { groupName, messagesOut, MSG_COLS, roomRow, type MemberRow as RoomMemberRow, type MessageRow as RoomMessageRow, type RoomRow } from '../rooms/store'
 import { historyKinds, openHistories } from '../rooms/history'
 import { DECIDE_HISTORY_MS } from '../rooms/ai'
 import { hashFile } from '../team-files/place'
@@ -170,7 +170,7 @@ interface Row { link: string; rel: string | null; name: string; size: number; un
 
 /** Provenance for one choice of attached files, with what the key binds (`keys`); `hidden`: a member would see a room
  * it read but for old answers hidden from them (never sent); `kept`: what it used, for the message (later members). */
-interface Prov { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; keys: string[]; hidden: boolean; kept: AnswerScopeKept }
+export interface Prov { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; keys: string[]; hidden: boolean; kept: AnswerScopeKept }
 
 /** What a shared answer used, as kept with its message (room_messages.source_scope): the sources checked when it was
  * sent, the files that went with it and the paths it links to (as names), and `unknown` when not all of it is known
@@ -444,7 +444,7 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
   return { audience, rows, offered, provenance, peopleWithout, linkRel }
 }
 
-type Check = Awaited<ReturnType<typeof answerCheck>>
+export type Check = Awaited<ReturnType<typeof answerCheck>>
 
 /** Has this person old answers hidden from them in some room, or a team room's or the everyone room's history not
  * worked out yet (rooms/history.ts)? */
@@ -476,12 +476,38 @@ export interface ShareAnswerInput { roomId: string; note?: string; confirm?: num
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a
  * room's AI session, not deleted) and `message` one of its messages. */
 export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: ChatRow, message: MessageRow, b: ShareAnswerInput, locale: Locale): Promise<ShareAnswerToRoomResult> {
-  const db = ctx.db, rooms = roomsOf(ctx)
   if (message.role !== 'assistant') fail('validation', tr('answerShareNotReady', locale), { fields: { 'params.messageId': 'not an answer' } })
   const content = redactorFor(ctx, userId).hide(message.content ?? '')
   if (message.status !== 'done' || !content.trim()) fail('conflict', tr('answerShareNotReady', locale), { params: { reason: 'answer_not_finished' } })
+  const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, b, locale)
+  return p.status === 'sent' ? p : await sendShare(ctx, userId, p, b, locale)
+}
+
+/** One share, checked up to the question whether it may go: the room and me, the message it becomes (`body`, where the
+ * answer starts and whether it was cut), the check of what it links to and used, and the key of what a "confirm" shows
+ * with the files offered (`key`). `applies`: something is at stake for some member (a "confirm" first). */
+export interface PreparedShare {
+  status: 'prepared'
+  room: RoomRow; me: RoomMemberRow; messageId: string
+  body: string; at: number; cut: boolean
+  check: Check
+  /** the files the switches start as (the ones that may go) and the provenance with them attached */
+  offered: ReadonlySet<string>; shown: Prov
+  applies: boolean; key: string
+}
+
+/**
+ * The checks of "대화방에 보내기" up to the question whether it may go, for an answer of the person's own chat: the button
+ * (a finished answer, shareAnswerToRoom) and the AI's post_to_room (the running answer and the text it wrote,
+ * chat/post-to-room.ts) go through the same. `answer.content` is what goes, already through the sender's redactor. In
+ * order: a confidential conversation; a room I am in (404 like one that does not exist); the same clientMessageId again
+ * (the first message: 'sent', nothing checked or counted again); the thread's first message; the sending budget (and one
+ * more for every LINKS_PER_TOKEN links); the check; an answer that used old answers hidden from some member (never sent).
+ */
+export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId'>, locale: Locale): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
+  const db = ctx.db, rooms = roomsOf(ctx)
   // safe operations' 1A material stays in its conversation (like a team skill made from one, or the room's AI)
-  if (confidentialChat(db, chat.id)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
+  if (confidentialChat(db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
   // a room I am in (not archived): anything else is 404, the same as a room that does not exist
   const { room, me } = rooms.mine(userId, b.roomId)
   // the same request again (a retry after it went): the first message, nothing checked or counted again
@@ -494,27 +520,50 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   if (b.threadRootId !== undefined && !rooms.threadRootOf(room.id, b.threadRootId, me)) fail('conflict', tr('answerShareThreadRoot', locale), { params: { reason: 'thread_root' } })
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
   rooms.takeSendToken(userId)
-  const { body, at, cut } = answerShareBody(b.note, content, answerCutLine(locale))
+  const { body, at, cut } = answerShareBody(b.note, answer.content, answerCutLine(locale))
   // and one more for every LINKS_PER_TOKEN links past the first: a row per file is a count per file, so an answer made to
   // link many paths costs as many sends
   const linkCount = answerFilePaths(body.slice(at), ANSWER_SHARE_FILES_MAX + 1).length
   for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
-  const c = await answerCheck(ctx, userId, room.id, chat.id, message.id, body.slice(at))
+  const c = await answerCheck(ctx, userId, room.id, chatId, answer.messageId, body.slice(at))
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
   if (shown.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
   // (a room with nobody else in it: nobody to miss anything)
   const applies = c.audience.length > 0 && (c.rows.some((r) => r.unable.length > 0) || shown.missing.size > 0 || shown.unknown)
-  const key = confirmKeyOf(ctx, userId, room.id, message.id, c, shown)
+  const key = confirmKeyOf(ctx, userId, room.id, answer.messageId, c, shown)
+  return { status: 'prepared', room, me, messageId: answer.messageId, body, at, cut, check: c, offered, shown, applies, key }
+}
+
+/** What a "confirm" would show for one choice of attached files, and its key: the AI's card (chat/post-to-room.ts) asks
+ * once with both choices, each bound to the key of the line it shows. */
+export async function shareChoice(ctx: AppContext, userId: string, p: PreparedShare, attached: ReadonlySet<string>): Promise<{ key: string; confirm: Extract<ShareAnswerToRoomResult, { status: 'confirm' }>; people: number; unableFiles: number; unableFilePeople: number }> {
+  const prov = await p.check.provenance(attached)
+  const key = confirmKeyOf(ctx, userId, p.room.id, p.messageId, p.check, prov)
+  const confirm = await confirmOf(p.check, prov, key) as Extract<ShareAnswerToRoomResult, { status: 'confirm' }>
+  // the linked files that do not go and some member cannot open, and how many members that is
+  const left = p.check.rows.filter((r) => !(r.rel && attached.has(r.rel)) && r.unable.length > 0)
+  return { key, confirm, people: unablePeople(p.check, attached, prov), unableFiles: left.length, unableFilePeople: new Set(left.flatMap((r) => r.unable)).size }
+}
+
+/**
+ * The rest of "대화방에 보내기" once prepared: when something applies, the key the person said yes to (and the files they
+ * chose) or an older client's number; nothing applies now: it goes at once (also after a "confirm"). Anything changed
+ * since the key was made answers "confirm" again. `via`: 'ai' when the AI's post_to_room sent it (the audit row says so);
+ * `confirmed`: the person said yes on a card that showed it (post_to_room's), confirmed even when nothing applied.
+ */
+export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
+  const rooms = roomsOf(ctx)
+  const { room, check: c, shown, key, body, at, cut } = p
   let attach: string[] = []
   let people = 0
   let confirmed = false
-  if (applies) {
+  if (p.applies) {
     if (b.confirmKey !== undefined) {
       // only files of this answer that may go: nothing else of the team folder rides along
       const may = new Set(c.rows.filter((r) => r.attach === 'yes').map((r) => r.rel!))
       attach = [...new Set(b.attach ?? [])]
-      if (attach.some((p) => !may.has(p))) {
+      if (attach.some((x) => !may.has(x))) {
         if (b.confirmKey === key) fail('validation', undefined, { fields: { 'body.attach': 'not a file of this answer that can be attached' } })
         // a file that could go before and cannot now (I lost access, it grew, it is gone): asked again
         return await confirmOf(c, shown, key, 'changed')
@@ -522,7 +571,7 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
       const chosen = new Set(attach)
       const mine = await c.provenance(chosen)
       if (mine.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
-      const mineKey = confirmKeyOf(ctx, userId, room.id, message.id, c, mine)
+      const mineKey = confirmKeyOf(ctx, userId, room.id, p.messageId, c, mine)
       // the key is for the line as it reads with the files I chose (turning a switch off can bring a file's place into
       // it, an attached AI-made file what made it): the same state with another line is asked again for that choice
       if (b.confirmKey !== mineKey) return b.confirmKey === key ? await confirmOf(c, mine, mineKey, 'choice') : await confirmOf(c, shown, key, 'changed')
@@ -548,7 +597,7 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
     }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
-    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, {}, { at, cut, people, confirmed, scope: JSON.stringify(kept) })
+    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, {}, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind

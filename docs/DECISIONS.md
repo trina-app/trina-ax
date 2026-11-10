@@ -36,7 +36,7 @@
 - **충돌 알림**: 서버 안 이벤트(`FileService.events`의 `'conflict'`)와 `file_events`에 더해, 실시간 `files.conflict {path, copyPath, by}`를 저장한 사람과 먼저 바꾼 사람 두 명에게 보낸다(4번 탭 PUT content "두 사람에게 알린다"). 보내기 직전에 그 사람이 원본과 사본을 둘 다 읽을 수 있는지 다시 확인하고(사본 이름에 저장한 사람 이름이 들어 있다), 내용은 싣지 않는다. 웹은 '사본 열기'가 달린 알림을 띄운다. PUT /api/files/content는 설계의 409 + conflictCopyPath 대신 지금처럼 200 `{conflict:true, path:<사본>}`을 돌려준다(편집기가 저장 결과로 다루기 쉬워서, 보안 검토 r1에서 기록).
 - **턴당 쓰기 한도 50MB·200파일**(디스크 채우기 방지, 7번 탭).
 - **오피스 파일은 `write`로 쓸 수 없다**(`make_file`은 나중). 사람의 파일 화면 저장(`humanSave`)은 같은 규칙(해시 기준 충돌)을 쓴다.
-- **삭제 도구는 AI에게 주지 않았다.** 서버 함수 `deleteFile`/`restoreTrash`만 있고(휴지통 30일, 되돌리기는 원래 경로에 쓰기 권한이 있을 때만) 테스트로 확인했다. AI용 삭제를 줄지는 Stage 2에서 정한다.
+- **AI의 삭제는 `delete_files` 하나, 휴지통으로만**(2026-11-09, 아래 "AI가 휴지통으로 옮기기"). 파일 화면의 삭제와 같은 `TeamFiles.remove`를 부르고(`FileService.deleteFile`은 쓰지 않는다: 30일 고정, 관리 폴더 확인·알림·세션 정리 없음), 사람이 서버 카드에서 "예"를 눌러야 하며 그 "예"는 카드가 보여 준 목록(디스크의 각 항목, 볼 수 있는 사람, 휴지통 보관 일수)에 묶인다. 사람의 개인 채팅에서만, 한 번에 200개(폴더 안까지 센다)까지, 최상위·관리·스킬·남의 폴더와 첨부·플러그인·업로드 링크 대상은 관리자에게도 막는다.
 
 ## grep / glob
 
@@ -12673,6 +12673,9 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
   unable).
 - **Rejected:** posting as the AI (the room AI's share rule decides what the AI says in a room; this is the person
   quoting it), a link back to the chat (nobody else may open it), and naming the people who cannot open the files.
+- **Amended 2026-11-10 ("post_to_room" below):** the AI of the person's own chat may start the same send with its
+  `post_to_room` tool, behind one server card; the checks are the button's (`prepareShare` / `sendShare`, split out of
+  `shareAnswerToRoom`, whose behaviour is unchanged) and the audit row adds `via: 'ai'`.
 ## The installed web app's icon badge (feat/pwa-badge, 2026-11-07)
 
 The owner installed Trina AX as a web app (PWA) on a MacBook: a notification came, but the Dock icon showed no number.
@@ -16555,8 +16558,6 @@ of a web page could not be read. Pictures should open like Slack, across the app
 - **Later:** a large file viewer with page thumbnails on the left and the side chat (or the message's thread) on the
   right, as Slack's file view.
 
-||||||| a5a26059
-
 ## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
@@ -17390,6 +17391,94 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   `c-slack*` test file pass.
 - Version impact: **minor** (optional API fields, one add-only migration).
 
+## Skill folders: the AI's file actions (feat/ai-skill-folder-actions, 2026-11-10)
+
+The refusal audit (2026-11-10, A6, A7 and bug 3) found every AI move, copy or rename into or out of a skill folder
+refused with one text about moving skills, even an admin renaming a project folder that only holds skills. People do
+all of it on the Files screen. The plan ("B1") was narrowed by the security review; this is the narrowed design.
+
+- **A tool of its own, `skill_files`**: one item per call, move, copy or rename. `move_files`, `copy_files` and
+  `rename_file` keep refusing skill folders, with a text that says what to use for each case (skill_files, `move_skill`
+  for a whole skill to another level, write / edit for text, the Files screen for the rest).
+- **Three kinds, everything else refused before any card** (skills/folder-actions.ts):
+  - **N**: a group's or project's folder (`groups/<g>`, `projects/<p>`) that holds skills renamed in place, only when
+    nothing changes for anyone: the same skills, followed by the same people, changed by the same people, the same
+    readers of every file, before and after, judged by the folder rules as they will be (a moved folder's rules go
+    with it; the group or project follows its folder). A plain card. Admin-only rules for managed folders stay. A
+    skill's own folder renamed in its skills folder is the same kind of card with its SKILL.md `name:` line changed
+    with it (else the skill stops loading), the new SKILL.md in full, the name checked at its level.
+  - **O**: files, skills or rules leaving a skill root: moved out, a file copied out, the skills folder itself renamed,
+    or a group's or project's folder moved out of its place (its skills stop). The card names the skills (only those
+    the asker can read; the rest counted) and how many people stop getting them; who stops is named only to the owner,
+    admins and a project's creator for its project (`seesWho`, as `move_skill`), counts for everyone else; who gains or
+    loses the files is counted.
+  - **I**: a SKILL.md folder of text files going into a skill root at an exact target that is not there. It goes
+    right into the skills folder and must load there. The card shows the full text of every file in it (refused above
+    60,000 characters, never cut; a text or a file name with a character a person cannot see there, zero-width,
+    direction or tag characters, is refused: the card shows every word), who newly gets it, who may change it and who
+    of them is new, and the same name elsewhere: for how many of the people who get it a project skill of that name
+    would be hidden, or (into a project) a wider skill of that name runs instead. Those counts look only at skills and
+    projects the asker can read themselves (never someone's own skills), so a count tells no name.
+  - **Cut: nothing that is not text goes in** (product owner, 2026-11-10, after the review). No picture, sound,
+    video, font, Office file, PDF or any other file that is not text goes into a skill folder through the AI, on its
+    own or inside a SKILL.md folder: its content could not be shown on the card, and words drawn into a picture reach
+    the AI when it reads it (vision, OCR). The refusal says why and gives the user the next step in their language
+    ("스킬 폴더에 그림을 넣으려면 파일 화면에서 직접 올려 주세요."): a person uploads it on the Files screen. A thumbnail on the card
+    could bring pictures back later, as a change of its own. Nor does a single file go in: a .md on its own is a team
+    rule or a single-file skill (no team rule is ever made by a file action), and any other text is written with write /
+    edit, where the card shows it. Instruction file names (CLAUDE.md, AGENTS.md, GEMINI.md) are refused anywhere in
+    the folder.
+  - **Refused**: moves within or between skill folders (`skills/hr/x` to `skills/x` is "team to team" but reaches the
+    whole team; a whole skill goes with `move_skill`), the person's own skills folder (`move_skill`), `groups/` and
+    `projects/` themselves, folders that would switch a group's or project's skills on (cut by the review: switching on
+    goes through `move_skill` per skill), deletes, and producers (save_url, generate_video, room files) writing into
+    skill folders.
+- **Which skills a change touches** is listed as the loader finds them (chat/skills.ts `skillEntriesOnDisk`, next to
+  `walkSkillRoot`): SKILL.md folders below the root, single-file skills in any subfolder up to three levels (a team's
+  or a group's), the team's rules right in `skills/`. The card, its token, the rename check and the on/off records all
+  use that one list (the second review found a single-file skill in `skills/sales/` left off the card while it stopped
+  for everyone).
+- **A skill's SKILL.md is not moved out on its own**: the rest of its folder would stay, and a SKILL.md folder or a
+  `.md` skill inside it, hidden while the SKILL.md was there, would start to apply without having been on the card. The
+  refusal says to move the whole skill folder. A copy of it out is fine (nothing changes in place).
+- **One name, several levels**: a skill put into a group's folder says for how many of the people who get it it takes
+  the place of the team's skill of that name; a team skill says for how many a group's skill of that name runs
+  instead. Counted only over skills the asker can read.
+- **The team's `skills/` folder itself** is never moved or renamed by skill_files (it would stop every team skill and
+  rule at once), like `groups/` and `projects/`.
+- **Who may call it**: only the main AI of the person's own chat. Rooms and shared chats do not offer it; a chat others
+  wrote in, a Slack thread's chat (a channel may read its answer), a scheduled run, a template run, a confidential
+  chat, a draft and a sub-agent (`PARENT_ONLY_TOOLS`, and
+  refused on the server too: a call whose agent is not the main AI's) get the reason before any card, never a card that
+  answers itself. A chat that read a team chat room puts nothing into a skill folder.
+- **The card is what runs**: the server's card (origin `server`) for every call, never covered by an earlier answer, a
+  room grant or "always". Full resolved paths, every file. Its yes is bound to a token over every file's path and hash,
+  the target, who follows each skill and who may change it, who can see the files. The file service takes a grant for
+  exactly that operation (person, turn, action, both paths; `onExists: 'fail'`, never a " (2)"), once, and plans the
+  action again right before the rename or copy: a file added or changed after the card refuses it. "I" places the bytes
+  the card showed as new files, so a dev-environment job that kept the old file open cannot change the skill after the
+  yes (for "I", text only); they go into place in the move's own step (the database part and both renames happen together or not at all),
+  and a skill's folder renamed gets its SKILL.md with the new name line the same way, the old text kept as a version.
+  What was moved is then removed only where it is what the card showed; anything else (written after the last check,
+  by a dev-environment job, say) goes to the trash at its old path, never away for good.
+  A script keeps its execute bit. Without such a grant the service refuses every AI turn's move or copy into or out of
+  a skill folder (a copy out too, now), as before.
+- **Audit**: `skills.files` (kind, paths, the skills and counts), `skills.files_refused` for a no or no answer; each
+  skill change as `skills.change` with the usual notices. A folder move that carries skills (an AI's or a person's on
+  the Files screen) records each skill whose place changes, `switchedOff` when it leaves the skill roots (with the
+  group or project it was in), `switchedOn` when it comes into one; a skills folder moved or renamed out of the skill
+  roots records each skill in it too. Before, only a project's switch-on was recorded, without a notice.
+- **Independent review (2026-11-10)** before the PR: hidden characters on the card (fixed), a text named like a picture,
+  a placement that could fail open, a rename that could stop halfway, counts that told names, per-skill records for a
+  skills folder moved out, Slack chats, a cleanup or an undo that could fail open after the move (all fixed). It also
+  found that a picture's own content was not on the card; rather than accept that, pictures and every other non-text
+  file going in were cut (above). Left: an empty skills folder made as a dev-environment mount point counts as a folder
+  holding skills while a run lives, and a person's move into a skill folder on the Files screen is recorded per folder,
+  not per skill.
+- Tests: `tests/unit/skill-files.test.ts` (an attack for each MUST), `dev-env-srt.test.ts` (the no-write list and the
+  mount points), `c-file-moves`, `move-skill`, `project-skills`.
+- Version impact: patch (a new AI tool behind a card, stricter checks; no HTTP API change, no migration).
+
 ## The room file viewer on phones — the file's thread and Trina in a sheet over it (feat/room-viewer-phones, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/components/rooms/ViewerColumn.tsx`,
@@ -17528,6 +17617,253 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   (store/sideChats.ts `goneRoots`, by the root's id): each offers the room; answers about other messages keep theirs.
 - **Not in this version:** "대화방에도 보내기" on a thread send; a file's thread (a file ask goes to the room); the note; a
   toast; a server column for the asked message.
+- **Amended 2026-11-10 ("post_to_room" below):** the AI may post too, after the person's yes on its card. Without a
+  room it posts where the button would send: the nearest quoting question's thread, or the room. The rule moved to
+  shared/src/api/rooms.ts (`quotesRoom`, `nearestThreadOf`) so the app and the server read one copy. The side panel's
+  instructions no longer say "do not say you posted": they say post_to_room raises a card and to say it posted only
+  when its result is "sent" (the old line stays where the turn has no post_to_room).
+
+## AI가 휴지통으로 옮기기 — delete_files behind a server card (feat/ai-delete-files, 2026-11-09, product owner)
+
+- **Why:** asked "다운로드 폴더 임시 파일 지워줘", the AI answered "삭제할 수 없어요" with no reason (refusal audit B8), and
+  the tidy-up rule even read as if it could. The owner approved the direction (refusals to cards, part B2) on the
+  condition of no security problem; the security reviewer amended the design, followed here.
+- **The trash, never a hard delete:** the tool calls `TeamFiles.remove`, the Files screen's own delete (managed-folder
+  checks, the team's `trashRetentionDays`, publishing, `dropSessionsOf`), never `FileService.deleteFile` (30 days fixed,
+  none of those). The person restores on Files › 휴지통 until the purge date; an admin can empty the trash earlier and
+  the card says so.
+- **Never, for any role, admins and the owner included** (`TeamFiles.aiTrashRefusal`, on top of `assertMovable`):
+  the team root and top-level folders; group, project and rule folders and any folder holding one (`managedInside`);
+  skill roots (`skills/`, `groups/*/skills`, `projects/*/skills`, `users/*/skills`), the folders that hold them by path
+  (`groups/<g>`, `projects/<p>`, `users/<id>`) and anything in them; `users/<someone else>`; `.system`; `.attachments`;
+  a plugin's folder or one holding it; the target of an open connector upload link (the only stored link bound to a
+  team path: `share_file` links are checked per viewer and grant nothing). **Stricter than the review asked:** hidden
+  items, instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) and a live project's
+  folder or one holding it, personal projects included (`managedInside` leaves `users/` out) are refused too.
+- **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
+  folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
+  card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
+- **Limits and paths:** at most 200 entries per call, counted inside folders, the listed items included, by a walk that
+  stops at the cap (`ai-trash.ts stampTree`; never `treeSize`, which stops silently at 200,000). Paths resolve like every
+  file tool (`authorize`/`parseInput`: no absolute paths, `~`, URLs, backslashes, `..`, invisible or look-alike
+  characters; the actual letter case and Unicode form on disk); duplicates and items inside a listed folder go once.
+  **Stricter:** one refused path refuses the whole call before any card, with each reason, so the card shows only a call
+  that runs exactly as asked.
+- **The yes is bound to a manifest** (`TeamFiles.planAiTrash`): every entry's path, kind, device, inode, size and
+  modification time (a folder's own times are left out: its move rewrites `..`); a hash of who of the other active people
+  reads and writes each item and their role; the trash setting. After the yes, `trashAiPlan` checks every item again
+  in one synchronous block, so no other call of this server (a `move_files` of the same answer, which needs no card
+  within the same audience) runs between the check and the moves; anything changed stops the whole call. `remove()`
+  checks the item again right before `moveIntoTrash` and where it went, in the same synchronous block; a folder that a
+  writer outside this process changed meanwhile (dev-environment jobs, `devenv/srt/access.ts`) goes back and the call
+  says "changed, ask again". When something took its place meanwhile it cannot go back without replacing that: it stays
+  in the trash with its row (nothing lost, restorable) and the result says so.
+- **Who may use it:** only the person's own chat with the person there. Refused up front with the reason and a next step,
+  before any card: a scheduled run, an approved template run, a room, a shared project chat, a chat other people wrote
+  in (`othersWrote`), a confidential chat, a draft or judge chat, and a sub-agent (`PARENT_ONLY_TOOLS`, and the server
+  refuses a call that comes with a sub-agent's turn state). **Stricter:** also a chat that holds room messages
+  (`rooms_seen`: other people's words; refused before the rooms card, so no earlier answer of that card covers it) and a
+  chat asked from Slack. Not offered at all in rooms, shared, confidential and draft chats (allowlists). Never in
+  `FILE_TOOLS`, which the app connector lists with no card (a test checks the connector).
+- **The card shows exactly what runs:** every path in full in `details` (a folder with its files and folders), the other
+  people whose files these are as the file history shows them to the asker (no new names), "N명이 더 이상 볼 수 없어요"
+  and how many of those cannot restore it (readers without write do not see it in the trash), the purge date from the
+  setting in the team's time zone. No earlier answer, room grant, "always allow" or approval cache covers it.
+- **Card fatigue:** at most 2 delete cards per answer; after a "no" (or no answer) no more deletes in that answer; a
+  delete card opens only when no other card of the turn is open (refused, not queued), and while it is open any other
+  card of the turn (a parallel ask_user, move or skill card) waits and opens after it with its full time
+  (`TurnExec.waitForPerson` `exclusive`). The list on the card is never folded: the AI picks its order.
+- **Audit:** one `files.ai_trash` row per call (refused, invalid input, declined, no answer, trashed, changed, partial,
+  failed) with the card's request id, the turn id, the paths and the trash ids. Once an item is in the trash with its
+  row, a failing follow-up (a listener, the session reset) is logged and the call still reports it as trashed.
+- **Independent review** (before the PR): no bypass found; its should-fix (other cards could open beside a delete card)
+  and nits (post-commit errors, audit rows for every call, the folded list, on-disk names in refusals, personal project
+  folders) are fixed as above. Not offered in an approved template run at all. The file event of each item says `tool: delete_files`.
+- **Room grants:** a path an AI turn put in the trash (still there) is never a "new" file for a room's grant
+  (`roomGrantTarget`); rooms do not get the tool, this keeps it so.
+- **Prompt:** the tidy-up rule says deletes happen only when asked, with `delete_files` where the turn has it and "you
+  cannot delete here; the Files screen" where it does not; `DELETE_RULE` says when to use it.
+- Out of scope: skill folders (a later change with the skill cards), rooms, restore by the AI.
+- Tests: `tests/unit/ai-delete-files.test.ts`, `remote-mcp-tools.test.ts` (the connector), `b-shared-chats.test.ts`,
+  `b-rooms-ai.test.ts`, `i-wiring.test.ts` (tool lists).
+- Version impact: **minor** (a new AI tool and card; no HTTP API, setting or data change).
+
+## delete_files follow-ups — nothing stranded in the trash storage (fix/ai-delete-followups, 2026-11-09)
+
+- **Why:** the security review of #277 found no MUST. Its SHOULD: a double fault in `TeamFiles.remove`. A folder changed
+  by a writer outside the process on its way to the trash, something took its old place so it could not go back, and
+  then its `trash_items` insert failed: it sat in `.system/trash/<month>/<uuid>` with no row, nobody could restore it,
+  and the AI said "Nothing was moved".
+- **Never without a row if one can be written:** when the rows fail and the item cannot go back, the server logs it at
+  error level with the storage path, writes the same rows once more (the file event says `rescued`), and failing that
+  the trash row alone (restore works from it), but only for an item with no folders row and no project at or below it
+  (`holdsFolderRows`, failing closed). A row alone skips `rebaseFolders` and the projects update: a closed folder's rules
+  stayed on the old path, the folder that took its place got them, and it came back from the trash with none, readable
+  by every member (review of #278). Such a folder stays in the trash storage only, logged, for an admin to recover. Only when no row can be written at all does `remove()` throw
+  `TrashStranded` with the storage path; delete_files then reports the item as moved out of its place, not in Files ›
+  Trash, for an admin to recover (audit `stranded`), never as "nothing moved". The Files screen's delete shares this.
+- **The rollback never writes over what took the old place:** both branches put the item back with `putBack` (only
+  where nothing is), so a file an outside writer made there in that instant stays, and the item takes the rescue path.
+- **Audit:** a call where every item failed, and none changed after the card, is `failed` (it said `changed`).
+- **Left as they are (the review's optional nits):** the card's purge date counts from when the card opens and
+  `purge_at` from the move, so the card never promises more time than the trash gives. `aiTrashed()` keeps reading the
+  AI's trash rows that are still in the trash: SQL cannot fold letter case and Unicode form the way the volume does, so
+  narrowing it there would let a variant spelling of a trashed path count as new for a room grant.
+- Tests: `tests/unit/ai-delete-files.test.ts` "a double fault never strands an item without a trash row" (a rescued
+  row, no row possible, a file made at the old place in that instant, the `failed` audit, the review's closed folder
+  whose rows fail twice, and a plain folder that still gets its row alone), each failing without its fix.
+- Version impact: **patch** (bug fixes; nothing changes when nothing fails).
+
+## post_to_room — the AI posts to a room from my own chat, behind one card (feat/post-to-room, 2026-11-10, product owner)
+
+The AI could not post to a room: people had to press 대화방에 보내기 under a finished answer, and the side chat's AI was
+told to point at the button and never claim it posted, so "이 요약 #영업팀에 올려줘" got a refusal (audit C11). Amends
+"대화방에 보내기" and "Trina side chat: send here". Plan: docs/AGENTS/plan/20261109-2128-post-to-room.md.
+
+- **Decision Q1: the AI posts the text it writes** (`text`), shown in full on the card. "요약해서 올려줘" is one step.
+  Not chosen: only an answer that already ended (the button's rule), which splits "요약해서 올려줘" into two.
+- **Decision Q2: always one card**, even when nothing is at stake. A room message reaches everyone and notifies them;
+  the button is one press too, so the number of presses is the same. Not chosen: posting at once when the person asked
+  and nothing applies (a planted "post this" would then need only a chat with nothing to check).
+- **The tool** `post_to_room(room?, text, note?, thread_id?)` (server/src/chat/post-to-room.ts). It posts the person's
+  own message, as the button does: their note (only when they asked for one), then the text quoted as the AI's answer
+  (`answer_at`), no mention, never the room's AI. Not offered (`postToRoomOff`) in a room's "@트리나" session (its answers
+  go to the room by the room's rule), a shared project chat, a draft / judge / merge chat, an approved scheduled
+  template's run, a confidential chat, a scheduled run (nobody answers a card) or a question asked from Slack (Slack has
+  "Post to channel"); never to a sub-agent (`PARENT_ONLY_TOOLS`). In `ROOMS_SEEN_READ_ONLY_TOOLS` as a tool that raises its
+  own card, like `remember`: after a room read there is no room card in front of it. Reached anyway (the chat turned
+  confidential during the answer: the safe operations gate answers first; a sub-agent's call) it refuses with why and what
+  to do, as for a room archived or not mine (the same answer as one that does not exist), a gone thread, content that used
+  earlier answers hidden from some member, a text too long for one message (refused before any card: what the card shows
+  is what goes, never cut) and the sending budget.
+- **The same checks as the button.** `shareAnswerToRoom` is split into `prepareShare` (confidential, a room I am in, the
+  same clientMessageId again, the thread root, the budget, the check, hidden answers) and `sendShare` (the confirm
+  decision and the send); the button calls both and behaves as before. The tool path: the turn's reads go into the chat's
+  read scope first (`noteReads`); the answer is the running one (`chats.active_leaf_id` points to it, so the scope
+  describes it, and its turn has not ended, so every place of the scope counts: its source list is not written yet); the
+  content is `text` through the sender's redactor; the room by `findRoom` among mine (`Rooms.mine` checks it again), the
+  thread by `Rooms.threadRootOf`.
+- **The card** (an `ask_user` card with origin server: the AI cannot write one that passes for it). "#영업팀(12명)에
+  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the note apart under "내 이름으로 보일 한마디" (it
+  goes as the person's own words, outside the AI's quote, though the AI wrote it: a planted instruction could write a
+  line in their voice, so the label says whose name it shows under, and the tool takes a note only when the person asked
+  for one or gave its words); the text in full under 보낼 내용, folded past 600 characters, its long random-looking
+  parts marked as on the other server cards; the paths [파일도 함께 보내기] would
+  attach, by name (a link far down a folded text is not missed); only when they apply, "3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요." and "링크된 파일 2개를 4명이 열 수
+  없어요." (counts and places I may look myself, never who), and, when attaching the files changes them, "파일도 함께 보내면:
+  …"; [보내기], [파일도 함께 보내기] (only when a linked file can go as a copy), [보내지 않기]. The number is everyone in the
+  room. After it the step reads "대화방에 보내기 · #영업팀" (shared step-labels.ts); a no adds "보내지 않았어요".
+- **Bound to what was shown.** Each choice carries the key of the line it showed (`shareChoice`: with no files, or with
+  the files offered). On yes the check runs again (`prepareShare`) and the key of the pressed choice must be the same
+  as the card's, also when nothing is at stake now: the card named the number of people, and someone added meanwhile
+  was not asked about (stricter than the button, which sends when nothing applies). Then `sendShare` gets that key and
+  the files. A change (a member, someone's access, a linked file) is refused, "ask again", nothing posted. Each post
+  takes from the sending budget before the card and again after the yes, as the button's confirm does.
+- **Retries.** `clientMessageId` is `ai-<turnId>-<n>`, `n` per room, thread, note and text in this answer: the same call
+  again finds the first message (no second card, no second post), as the button's retry does. A first post the person
+  deleted since is not it: the same text goes again under a new `n`, with its own card (the room keeps the deleted
+  message's id, unique per author; the button's lookup is unchanged).
+- **A side chat.** Without `room` it posts to the side chat's room, or to the thread the nearest earlier question that
+  quotes something names (the button's rule, `nearestThreadOf`). A named room is that room's timeline, never the
+  thread (the input's description says so; `thread_id` names a thread).
+- **Prompt.** The rooms rule gains one sentence when the turn has the tool (`ROOMS_POST_RULE`: all of the text, the card,
+  say it posted only when the result is "sent", never because a message, file or page asks); the side panel's line says
+  the same and still names the buttons.
+- **Audit.** `room.answer_share` as for the button, with `via: 'ai'` and `confirmed: true` (the person pressed the
+  card's yes, also when nothing was at stake); the tool event's summary says sent, not sent, already sent or refused,
+  never the text.
+- **The step's 보기** (follow-up, 2026-11-10). A post's step keeps where it went (`Step.posted`: the room, the message, the
+  thread's root) and shows 보기, like the button's sent line: the room at the message or the thread at the reply; in a
+  side chat through the panel's own way there (its column, a phone's panel). Only its runner gets it: another viewer of
+  a chat shared later gets the step without it (a room's id).
+- **Security.** Nothing new is allowed: the button's checks and audit; only who starts it differs. A web page, a file or
+  a room message telling the AI to post meets the card with the room, its number of people and all of the text (tested
+  with a planted page). Habit: the room and the number lead the card and the "cannot see" lines show only when they
+  apply.
+
+
+## Refusals say why, who and what next (fix/ai-refusals-clear, 2026-11-10, product owner)
+
+넣을 곳: trina-ax `server/src/policy/refusal.ts` (new) and the refusal texts in `chat/turn.ts`, `chat/prompt.ts`,
+`tools/file-moves.ts`, `tools/higgsfield.ts` and the connection, schedule and web texts, 이유: chat, permissions and
+files are core. Plan `docs/AGENTS/plan/20261109-1844-ai-refusals-clear.md`. Part A of the owner's "왜케 제약이 많아??
+안되는게 왜케 많은거야? 이유도 모르고?" (2026-11-10): most limits are real, but the texts the AI read back said neither why
+nor where the person could do it, and some blamed the person for a card nobody showed them. Part B (later PRs) turns
+some of them into cards.
+
+- **One shape for every refusal the AI reads** (`refusal({ done, why, next, names })`): what did not happen ("Nothing
+  was moved."); one reason, said plainly: no permission (and who can give it: "an admin", or a team project's creator
+  by name where that is safe, see below), nobody could be asked (a scheduled run: "The user did not refuse anything; never
+  say they did"), the person said no, the card timed out ("This is not a no"), other people would have to agree (the
+  room or project, a count), a server limit (its number, when it resets, who can change it), not available in this kind
+  of chat; one next step with the screen as the person's app names it in their language (`SCREEN.trash('ko')` →
+  `the Files screen's trash ("파일 › 휴지통")`); the folders, groups, projects and connections involved. AI-facing words
+  stay English; only the screen names follow the person's language.
+- **Kept as they were:** rooms and shared chats never say who cannot read what (counts only, "Never who" above). "not
+  found or no access" stays one answer, byte for byte, for a missing file and a hidden one (`policy/authorize.ts`); the
+  neutral next step (check the name with the person; whoever manages that folder or an admin can check access) is in
+  the instructions, so no tool text depends on the path. A "no" keeps the words "did not allow", which is what it is.
+- **How a card ended reaches the text.** `TurnExec.askPerson` returns the answer with why there was none:
+  `unattended` (a scheduled run raises no card), `timeout`, `ended` (the answer stopped first); a card closed without a
+  choice is the person's no. `waitForPerson` is unchanged for its other callers. Tools get `TurnPerson.confirmWhy`;
+  `askConfirm()` treats an unattended person as never asked (as `save_url` did with `!person || person.unattended`).
+- **Bug 1, fixed at every card a run reaches:** the wider-audience card, the skill-write card (its reason text only:
+  the skill logic and the "no" texts are as they were), the room card after a room read, move_files and copy_files
+  (they checked `!tc.person` only, and a run's person always exists), generate_video and a connection's write card. The
+  audit summaries say `nobody to ask (scheduled run)` and `no answer in time` instead of `not allowed by the user` where
+  that is what happened. A room card that also asked about a wider audience keeps the room's next step (a run that read
+  a room cannot save anywhere, so "save it in the personal folder" would be refused again).
+- **Bug 8:** a shared chat's read card says the real reason, per place for the rest of the turn: the person's no, no
+  answer in time, a scheduled run, or a check that failed ("Nobody refused it"), never "<name> did not share it" for all
+  of them; the "/name" skill line too. Next step: a chat of their own, where only they see the answer.
+- **Bug 10, mode limits the AI was never told:** the room section lists what a room has not (memories, connected
+  services, Drive, schedules, video, the browser and computer tools, the chat title, moving skills) and sends the person
+  to the room's side panel or their own chat; the shared chat section the same, to their own chat; a confidential chat
+  gets `confidentialRule` in the person lines (also in a resumed session's context), with why (safe operations on the
+  server, or a safe workflow in this chat) and what is off; the scheduled run block says a step that needs a card is
+  skipped, which is not the person refusing, and the summary lists what was skipped. "Rooms cannot be read in this
+  chat" says why (a shared chat, a room session, a confidential chat, a template run) and where to read the room.
+- **Bug 4:** where delete_files (#277) is not offered (a room, a shared chat, a sub-agent, a scheduled run…), the person
+  lines say the AI cannot delete here and name the Files screen's trash in the person's language (30 days); where it
+  is offered, its own rule says how (DELETE_RULE).
+- **Admins are never named** (review of #273): the people directory shows no roles (`shared/src/api/people.ts`, "people
+  directory" above), so a refusal listing the admins would tell a member who they are, and in a room or a shared chat
+  the AI could repeat the names to everyone. The texts say "an admin" and the screen where an admin does it.
+- **Wording:** a read-only refusal in a chat turn gets a note with who can give write access (B2; the tool's own text is
+  unchanged for every other caller, so the remote connector and the security tests see what they saw). A team
+  project's creator is mentioned only when the person may read that exact project folder: a hidden project answers
+  "read-only folder" like a missing one (`hiddenWrite`), and naming its creator would tell them apart (independent
+  review). The creator's name goes in only where everyone who sees the answer may read that folder (in a room or a
+  shared chat, `roomReadable`; else "the project's creator"); otherwise it is "an admin", whatever the path; the per-answer
+  write limits give their numbers and "continue" in the next message (B7); an admin-only folder move says an admin
+  does it on the Files screen (B14); a connection set to refuse changes or a tool turned off says who manages it (an
+  admin, or the person) and where (E6, E11), team and personal connections say an admin and the screen (E1-E3), a
+  template run names its folders (F4), a private address points to the desktop app's browser or an attachment (G1), the
+  daily video limit says when one frees up, as the daily limit set by the server (H2).
+- Not here: the skill texts and move_skill (`skills/guard.ts`, `skills/move.ts`, `skills/text.ts`, the
+  `SKILL_FILES_REFUSAL` call sites), which #269 (fix/ai-skill-move-like-page) changed at the same time; new cards (skill
+  folders, deleting), schedule pre-approval, connections in rooms, post_to_room.
+- Tests: `tests/unit/refusal-texts.test.ts` (the helper, names, screens in five languages, the mode sections, the
+  confidential and delete rules, "#room" without room tools), the text of every bug-1 site
+  (`c-file-moves`, `b-chat-rooms` scheduled runs, `skill-managers` timeout, `higgsfield`), `b-shared-chats` (a no and
+  a timeout), `b-chat-file-placement` (move_files into a new folder, no README).
+- Version impact: **patch** (texts the AI reads and one card line; no API or data change).
+
+## move_files and copy_files make the target folder (fix/ai-refusals-clear, 2026-11-10, product owner)
+
+- **Before:** move_files and copy_files needed a target folder that existed (`audienceChange` and `copy` asked for it
+  with `mustExist`), there is no mkdir tool, and the instructions told the AI to write a README.md into a new folder
+  first. People got a file they never asked for, or "not found: 'shared/계약서/2026'".
+- **Now:** a missing target folder is made by the tool after the card, one folder at a time, under the same checks as a
+  new file's folders (`authorize` with `createDirs`: write access, names, look-alike names), each recorded as a new
+  folder of the turn (`file_events` `create` with `folder: true` and the tool) and published like the Files screen's
+  new folder. Its readers are those of its nearest existing folder (a new folder has no rules), so the audience card is
+  the same card as before; when it shows, it says the folder is new ("AI가 2개 항목을 새로 만들 shared/계약서/2026
+  폴더로 옮기려고 해요.", all five languages). A no makes no folder. With nobody to change (the same people see it) no
+  card, as before. A folder made for a call where nothing went in (a folder given to copy_files, a group folder moved by
+  a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
+  anything).
+- The README instruction is gone; the tools' descriptions say a missing folder is made.
 ## 대화방을 읽은 뒤 카드 줄이기 — fewer cards after a room read (feat/fewer-cards-after-room-read, 2026-11-10, product owner)
 
 Amends "내 AI 채팅에서 대화방 읽기", "대화방에서 새 파일은 미리 허용" and "Trina side chat", and **reverses** one line of
@@ -17550,7 +17886,11 @@ asks.**
   - not inside a project's folder (a personal project, `users/<me>/projects/…`): its dev environment may run a new file
     by its name (conftest.py, a Makefile, a package's scripts) with the person's login, and the dev environment's own
     card only counts other people's changes (`devenv/track.ts changesByOthers`);
+  - not a path an AI turn put in the trash (`aiTrashed`, as delete_files' follow-up does for a room's grant): writing it
+    again without a card would put something the person never saw where they agreed something should go;
   - not a confidential chat.
+  delete_files, skill_files and post_to_room are never covered (they refuse after a room read or raise their own card),
+  and neither cover reaches a skill folder of any level (`inSkills`, `instructionLike`).
   A file that existed before this answer always asks (an overwrite, an edit), and so do edit_files, moves, copies,
   renames and every other tool. **save_url keeps its card:** the name it saves under comes from the download (its
   extension follows the bytes), so "new" cannot be known before it runs. Considered and left for later: cover it when

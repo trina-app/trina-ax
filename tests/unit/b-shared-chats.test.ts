@@ -276,16 +276,26 @@ describe('the read card', () => {
     expect(audits('chat.shared_read', chat.id)).toHaveLength(2)
   })
 
-  test('no: a refusal that names no path, a neutral step, nothing read; a timeout is the same', async () => {
+  test('no: a refusal that names no path, a neutral step, nothing read; a timeout reads the same but says it timed out', async () => {
     const chat = await newShared()
     const r = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), 'skip')
     expect(r.done.content).not.toContain(CANARY)
-    expect(r.done.content).toContain('did not share it here')
+    // the person's no, said as such (docs/DECISIONS.md "Refusals say why, who and what next")
+    expect(r.done.content).toContain('Not read (read): nothing from that place was read. Why: Alice Kim did not allow it: they said no on the confirmation card.')
+    expect(r.done.content).toContain('some of the people of the project "')
+    expect(r.done.content).toContain('a chat of their own (only they see that answer)')
     expect(r.done.content).not.toContain('groups/marketing')
+    expect(r.done.content).not.toMatch(/Bob|bob/)
     const step = r.done.steps.find((s) => s.tool === 'read')!
     expect(step).toMatchObject({ label: 'Not read: not everyone in the project can see that place', status: 'ok' })
+    // bug 8: a card that timed out is not "chose not to share"
     const t = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), null)
     expect(t.done.content).not.toContain(CANARY)
+    expect(t.done.content).toContain('Why: Alice Kim did not answer the confirmation card in time')
+    expect(t.done.content).toContain('This is not a no')
+    expect(t.done.content).not.toContain('did not allow')
+    expect(t.done.content).not.toContain('did not share')
+    expect(t.done.content).not.toContain('groups/marketing')
     expect(audits('chat.shared_read', chat.id).map((x) => JSON.parse(x.detail!).decision)).toEqual(['declined', 'no_answer'])
     // bob sees neither the content nor the place in the answers (alice's own message typed the path: the fake engine's
     // directive)
@@ -643,9 +653,10 @@ describe('project skills in a shared chat', () => {
       // the skill tool for alice: hers too, after the card
       const four = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'brief' }, sayResult: true }), 'share')
       expect(four.done.content).toContain('MARKETING-BRIEF-STEPS')
-      // and move_skill is not offered in a shared chat
+      // and move_skill and delete_files are not offered in a shared chat
       const five = await ask('alice', chat.id, fake({ echo: 'tools' }))
       expect(five.done.content.split(',')).not.toContain('move_skill')
+      expect(five.done.content.split(',')).not.toContain('delete_files')
     } finally {
       fs.rmSync(path.join(h.team, 'groups/marketing/skills'), { recursive: true, force: true })
       fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })

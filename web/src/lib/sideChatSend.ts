@@ -6,13 +6,14 @@
 // questions carry no token (older ones) sends to the room only: nothing is guessed from a quote's text. Read from the
 // messages themselves, so it is the same after a reload, from 🕘, as a full chat (↗) and after regenerate. No React, no
 // requests: test/unit/side-chat-send.test.tsx.
-import { hideThreadRef, threadRefOf, threadRefToken } from '@mycel/shared/api'
+import { hideThreadRef, quotesRoom, threadRefOf, threadRefToken } from '@mycel/shared/api'
 
 /** A thread an answer goes to, and the message asked about as the question quoted it (who · when, its lines) */
 export interface SendTarget { rootId: string; head: string; text: string }
 
-/** Does the question start with a quote (a message or a file of the room asked about)? */
-export const quotes = (content: string) => content.startsWith('> ')
+/** Does the question start with a quote (a message or a file of the room asked about)? One rule with the server's
+ * post_to_room (shared rooms.ts quotesRoom, nearestThreadOf). */
+export const quotes = quotesRoom
 
 /** The quote at the top of a question, as people read it: its header line without the token, then its lines; null when
  * it starts with none. */
