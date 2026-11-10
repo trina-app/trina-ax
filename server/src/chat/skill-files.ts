@@ -3,11 +3,12 @@
 // person's own chat has it: never a team chat room, a shared project chat, a chat someone else wrote in, a scheduled or
 // template run, a confidential chat, a draft or a sub-agent (subagents.ts PARENT_ONLY_TOOLS; a call from one is refused
 // here too). Those are refused before any card, with the reason and where to do it instead: a card nobody can answer
-// is never raised. A chat that read a team chat room puts nothing into a skill folder (other people's words could have
-// asked for it). The card is the server's (origin 'server'), raised for every call: no earlier answer, room grant or
-// "always" covers it. It shows the full paths, who gains or loses each skill (by name only to who may see that:
-// seesWho), every word the AI would follow, and its yes is bound to the plan's token, which the file service checks
-// again right before the change. The result tells the AI counts, and names only where the person may see them.
+// is never raised. A chat that has read rooms (chat/read-rooms.ts: a room read, a ✦ side chat, a quoted message) puts
+// nothing into a skill folder (other people's words could have asked for it). The card is the server's (origin
+// 'server'), raised for every call: no earlier answer, room grant or "always" covers it. It shows the full paths, who
+// gains or loses each skill (by name only to who may see that: seesWho), every word the AI would follow, and its yes
+// is bound to the plan's token, which the file service checks again right before the change. The result tells the AI
+// counts, and names only where the person may see them.
 import { z } from 'zod'
 import { SkillFilesInput, uuidv7 } from '@mycel/shared'
 import type { ConfirmDetail, Locale, TurnRequest } from '@mycel/shared/api'
@@ -22,6 +23,7 @@ import { planFolderAction, runFolderAction, type FolderActionInput, type FolderP
 import { levelFolder, levelLabel, peopleNames, peopleText, seesWho, type Level } from '../skills/move'
 import { st } from '../skills/text'
 import { neutralizeTags } from './prompt'
+import { readRooms } from './read-rooms'
 import type { TurnExec } from './turn'
 
 export const SKILL_FILES_TOOL = 'skill_files'
@@ -33,6 +35,8 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const bad = (t: string, summary: string) => ({ ...text(t, true), summary: `${SKILL_FILES_TOOL} -> ${summary}` })
 const clip = (s: string, n = 120) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t }
 const nothing = (why: string, next: string) => `Nothing was changed. Why: ${why}. Next step: ${next}.`
+/** S7's reason: other people's words came into this chat (chat/read-rooms.ts) */
+const ROOM_READ_WHY = 'this chat read a team chat room or quotes another person\'s message (other people\'s words), so nothing is put into a skill folder from it'
 
 /** Why this chat or this caller gets no skill_files card at all (null: go on). `files`: the calling agent's state (a
  * sub-agent's, or a call whose agent is not known, is not the main AI's). */
@@ -50,8 +54,8 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   if (exec.spec.clientKind === 'slack' || exec.rt.db.query('SELECT 1 FROM slack_threads WHERE chat_id = ? LIMIT 1').get(exec.spec.chatId)) return r('this chat answers in Slack, where a channel may read the answer', 'the user can ask in the app, or do it on the Files screen', 'slack')
   // someone else wrote in this chat (it was shared): their words are in it
   if (exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId)) return r('other people wrote in this chat; skill folders are changed only in a chat of the user\'s own', 'the user can ask in a new chat of their own, or do it on the Files screen', 'others wrote here')
-  // a chat that read a team chat room: nothing goes into a skill folder from here (S7)
-  if (exec.roomsSeen && intoSkills(args)) return r('this chat read a team chat room (other people\'s words), so nothing is put into a skill folder from it', 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
+  // a chat that has read rooms (a room read, a side chat, a quoted message): nothing goes into a skill folder (S7)
+  if (intoSkills(args) && readRooms(exec)) return r(ROOM_READ_WHY, 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
   return null
 }
 
@@ -83,7 +87,7 @@ export function skillFilesTool(exec: TurnExec) {
       const plan = planFolderAction(ctx, user, a)
       // a next step the user hears in their own language: given to the AI as it is to be said
       if ('refused' in plan) return bad(`Not ${verb}. Why: ${neutralizeTags(plan.refused.why)}. Next step: ${neutralizeTags(plan.refused.next)}.${plan.refused.say ? ` Say it as: "${st(plan.refused.say, spec.locale)}"` : ''}`, `refused: ${clip(plan.refused.why, 80)}`)
-      if (plan.kind === 'in' && exec.roomsSeen) return bad(nothing('this chat read a team chat room (other people\'s words), so nothing is put into a skill folder from it', 'the user can ask in a new chat, or do it on the Files screen'), 'refused: into skills after a room read')
+      if (plan.kind === 'in' && readRooms(exec)) return bad(nothing(ROOM_READ_WHY, 'the user can ask in a new chat, or do it on the Files screen'), 'refused: into skills after a room read')
       const L = spec.locale
       // names only now, after every check passed (S3), and only where the person may see who is there (seesWho)
       const names = (ids: readonly string[], l: Level | null) => (l && seesWho(ctx, user, l) ? peopleText(peopleNames(ctx, ids, L, 5), L) : null)
