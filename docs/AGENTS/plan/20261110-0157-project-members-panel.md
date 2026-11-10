@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 01:57
 - Branch: `feat/project-members-panel`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/`, one field in `server/src/routes/chats.ts` and `server/src/chat/project-access.ts`,
   `shared/src/api/`). Why: projects and permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A visible change to where members are changed, two optional response fields; no migration.
@@ -81,4 +81,10 @@ project e2e specs (`project-participants`, `project-list-menu`, `project-page`).
 
 ## Result
 
-Filled in at the end.
+Built as planned (two optional server fields, the members dialog, the 멤버 line and ⋯ 멤버, the reworked picker, the
+confirm with `addsFloor` / `restoresCreator`, five languages, docs). Differences from the plan, from the independent
+review of this branch: Esc from a result closes the results only; the create and share dialogs hold the picker in a
+labelled group instead of a `<label>`; a "no access" rule from Admin is not listed as a member (only in the read-only
+box); the keyboard stays on the row after × and 되돌리기; leaving the picker clears the search; the dialogs close when the
+page moves to another project; an admin on a project whose folder is missing reads that, with the link to Admin; the
+list reads each creator once. The AI's `change_project_members` is the next PR, stacked on this one.
