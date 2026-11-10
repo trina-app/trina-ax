@@ -173,8 +173,10 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await row.click()
       await expect(b.getByTestId('user-message')).toHaveCount(1)
       await expect(b.getByTestId('user-message').getByTestId('message-author')).toHaveText('Olga')
-      // not his to rename, delete, edit or answer again: a plain title, no edit, no "regenerate", no engine
-      await expect(b.getByTestId('chat-menu')).toHaveCount(0)
+      // not his to rename, delete, edit or answer again: the title's menu has 링크 복사 only, no edit, no "regenerate", no engine
+      await b.getByTestId('chat-menu').click()
+      await expect(b.getByRole('menuitem')).toHaveText(['링크 복사'])
+      await b.keyboard.press('Escape')
       await expect(b.getByTestId('chat-title')).toHaveText(/출시 일정/)
       await expect(b.getByTestId('edit-message')).toHaveCount(0)
       await expect(b.getByTestId('regenerate')).toHaveCount(0)
@@ -312,8 +314,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
         await page.keyboard.press('Tab')
         await expect(shared).toBeFocused()
         await expect(page.getByRole('tooltip')).toHaveText('Bob, Olga')
+        // the next stop is the row's "…" (링크 복사): the faces' names go, that button's own tip may show
         await page.keyboard.press('Tab')
-        await expect(page.getByRole('tooltip')).toHaveCount(0)
+        await expect(page.getByRole('tooltip').filter({ hasText: 'Bob, Olga' })).toHaveCount(0)
       }
       await audit(page, 'project page, faces')
 

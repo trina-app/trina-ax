@@ -38,6 +38,7 @@ import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
+import { useChatLinkItem } from '../components/chat/copyChatLink'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
@@ -257,8 +258,12 @@ export function ProjectChatRow({ chat: c }: { chat: Chat }) {
   const locale = useLocale()
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
+  const more = useRef<HTMLButtonElement>(null)
+  // 링크 복사: the chat's address for a teammate ("여기서 작업 중이에요"); the keyboard waits on "…" afterwards
+  const linkItem = useChatLinkItem(c, 'project-chat-copy-link', (fn) => () => (more.current?.focus(), void fn()))
   return (
-    <Link ref={row} to={`/c/${c.id}`} className="group -mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
+    <div className="group relative">
+    <Link ref={row} to={`/c/${c.id}`} className="group -mx-2 flex items-center gap-4 rounded-md py-3 pr-10 pl-2 text-sm hover:bg-hover max-md:pr-12" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
       <span className="flex min-w-0 flex-1 items-center gap-2">
         {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
         {c.shared && <SharedIcon className="text-faint" />}
@@ -274,6 +279,17 @@ export function ProjectChatRow({ chat: c }: { chat: Chat }) {
         <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
       </span>
     </Link>
+    <MenuButton
+      label={t('rooms.menu.rowLabel', { name: c.title || t('chat.untitled') })}
+      tip={t('rooms.menu.label')}
+      items={[linkItem]}
+      sheetTitle={c.title || t('chat.untitled')}
+      className="absolute top-1/2 right-0 -translate-y-1/2"
+      buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+      buttonRef={more}
+      testId="project-chat-menu"
+    />
+    </div>
   )
 }
 
