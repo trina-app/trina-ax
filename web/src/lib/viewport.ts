@@ -30,17 +30,17 @@ export function followVisualViewport() {
 
 /** A field that brings up a phone's keyboard while it has the focus (not a button, a checkbox or a slider). */
 export function isTextField(el: Element | null): el is HTMLElement {
-  if (!el || !(el instanceof HTMLElement)) return false
-  if (el.isContentEditable || el instanceof HTMLTextAreaElement) return true
-  if (!(el instanceof HTMLInputElement)) return false
-  return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(el.type)
+  if (!el) return false
+  if ((el as HTMLElement).isContentEditable || el.tagName === 'TEXTAREA') return true
+  if (el.tagName !== 'INPUT') return false
+  return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(((el as HTMLInputElement).type || 'text').toLowerCase())
 }
 
 /** Before a sheet opens over the page on a phone (a message's long press or ⋯): the text field gives up the focus, so
  * the keyboard goes down and the sheet is in sight. Its text stays; nothing gives the focus back by itself, so the
  * keyboard does not come back until the person taps the field. */
 export function dismissKeyboard() {
-  const el = document.activeElement
-  if (isTextField(el)) el.blur()
+  const el = typeof document === 'undefined' ? null : document.activeElement
+  if (isTextField(el)) el.blur?.()
 }
 
