@@ -794,7 +794,6 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **사진**(png·jpg·heic·tiff·webp 등): read에서만 인식한다. grep 글자 캐시에는 넣지 않는다(사진 폴더 하나에 몇 분). 투명 배경 이미지는 흰 바탕에 그려서 인식(아니면 빈 결과).
 - **격리**: 다른 변환기와 같은 sandbox-exec 프로필. 단 변환기 자기 폴더의 **목록**(literal, 안의 파일 내용 아님)은 읽게 했다: Vision은 실행 파일 옆을 보며, 도우미가 거부된 폴더(홈 아래 저장소 등)에 있으면 오류 없이 빈 결과를 낸다(직접 확인).
 
-
 ## 쉬운 비밀번호: 8자 규칙, 외우기 쉬운 임시 비밀번호, 첫 로그인 한 번 입력 (feat/easy-passwords, 2026-10-21)
 
 소유자 요청(첫 시범 고객의 윈도우 데스크 준비 중): "비밀번호 8자리 이상, 임시 비밀번호는 외울 수 있는 단어로 8자리 정도, 첫 로그인 뒤 바꿀 때 비밀번호를 또 입력하는 게 불편, 직접 추가할 때 임시 비밀번호를 정할 수 있게 기본값 하나 넣어 두고."
@@ -966,7 +965,6 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **색인**: `<data>/semantic.db`(app.db와 따로). 일반 글 파일과 grep 글자 캐시의 문서(office·PDF·한글, OCR 포함)를 약 800자 조각으로, 파일 mtime·크기로 새 것만 다시. 점 폴더(.system: 휴지통·기록·백업)는 넣지 않는다. 질의 직전 3초, 그 밖에는 5분마다 뒤에서(최대 1분) 따라잡는다. 질의는 메모리에 올린 벡터를 전부 비교(작은 팀 기준).
 - **끄기·없는 곳**: `MYCEL_SEMANTIC=off`(2026-11-01부터 기본 꺼짐, 켜려면 `on`: 맨 아래 "Search by meaning off by default"). onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
 - **번들**: 서버 빌드에서 `@huggingface/transformers`는 external(Bun.build가 네이티브 모듈 경로를 이 저장소 절대 경로로 박았다), `scripts/vendor-semantic.ts`가 서버 옆 `node_modules`에 darwin-arm64만 남겨 복사(약 76 MB, onnxruntime-web 제외). 사무실 모드 zip +25 MB. 사무실 모드 갱신 설치에서 Claude로 끝까지 확인.
-
 
 ## 사무실 모드 자동 업데이트 (feat/auto-update, 2026-10-21)
 
@@ -1653,7 +1651,6 @@ file tools only had `write` (text) for putting bytes anywhere.
   `tests/unit/i-wiring.test.ts` (an attached image moved from a real turn after the server's card).
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
 
-
 ## External-service connections: MCP servers and HTTP APIs (feat/integrations-server, 2026-10-28)
 
 The founder gave the AI an API key for AI PM (a REST API with a Bearer token) and asked it to keep using it; it could
@@ -1679,7 +1676,6 @@ not: there was nowhere to keep a person's key and no tool that sends an authenti
 - Tests: `tests/unit/c-integrations-{api,tools,oauth}.test.ts`, `tests/lib/fake-services.ts`, the real turn in
   `tests/unit/i-wiring.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
-
 
 ## Chat titles: a safe placeholder, then the answering AI names the chat (feat/chat-titles, 2026-10-28)
 
@@ -1831,7 +1827,6 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   not copy; `tests/unit/d-web.test.ts` covers how the server sends them.
 - A server picks this up with an ordinary app update (the files are part of `web/`); no reinstall or root step.
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
-
 
 ## 2026-10-29 — Scheduled task dates and one-time task resumption (QA B-W12-1, B-W12-2)
 
@@ -1994,7 +1989,6 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   H.264/AAC MP4 and AAC M4A) and removed after the tests.
 - Needed in the core too (potenlab/team-ax): the same classification change; nothing here is Trina-specific.
 
-
 ## Refresh members after account deletion (QA R2 integration, 2026-10-29)
 
 - A successful DELETE returns 204/undefined, which the old result guard confused with an action failure.
@@ -2033,17 +2027,14 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - A connection version change while a write approval is pending invalidates that approval for both MCP and HTTP. This includes a new deny policy, changed credentials and access rules, even when the URL stays the same. The user must start a new call against the current configuration.
 - Regression tests reproduce both failures before the fixes and assert that refused calls send no request.
 
-
 ## PowerPoint distribution notices (2026-10-29)
 
 The package notice collector now includes subject-prefixed copyright/notice files under `licenses/`, so `@aiden0z/pptx-renderer`'s `licenses/ECMA-text-copyright-notice.txt` is included unchanged in built distribution inventories. Path, symlink and content checks still apply. A fixture verifies byte preservation and inventory validation; the built web artifact verifies the actual dependency notice.
-
 
 ## Immediate identity and audience rechecks (2026-10-29)
 
 - Desktop browser calls require a fresh successful identity check. A five-second cached check let a newly signed-in person use the previous person's cookies and allowed sites; the regression now switches immediately, without its former six-second wait. Offline/invalid identity checks or failed storage clearing refuse the AI browser call, and the owner marker advances only after clearing succeeds. Normal desktop data remains per team; changing people clears that team's embedded browser sessions.
 - AI file moves/copies retain a fingerprint of each item's source and destination reader sets and recheck before each mutation. A change during a confirmation (including account activation with permissions unchanged) refuses that item and requires a new call. Actual source/destination permissions and filesystem chains are still checked per item. New regressions verify both operations and refuse symlink sources/destinations for move/copy/rename.
-
 
 ## File-tool skills aliases (2026-10-29)
 
@@ -3037,14 +3028,12 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
   implementation fails the unchanged team-name assertion; the corrected path reads the current session.
   No longer timeout, retry, altered assertion, or language-dependent workaround. Port to `potenlab/team-ax`.
 
-
 ### Team-first documentation integration (2026-10-30)
 
 - Integrate the reviewed documentation after desktop worker/identity fixes, default-off HWP preview and the five app locales. Preserve those feature decisions and release gates.
 - Add Japanese and Spanish equivalents for the owner checklist, local-login help and provider-authorization notices; retain all existing locale entries and require `check:i18n`. New-team sharing remains ON, and explicit saved choices persist.
 - The local demo is loopback-only and model-free. Role examples use fictional sources; screenshots label prepared results and empty usage. Hosted server location is distinct from external provider processing.
 - Keep HWP preview off, omit its runtime from default releases and disclose Debian 12's preview limitation without changing product-wide Linux support. Current-source features do not imply that existing release artifacts include them.
-
 
 ### Third safe-operations review: empty-ledger search and derived cache provenance (2026-10-30)
 
@@ -3062,7 +3051,6 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
 - Crash leases have no TTL/PID reap. Stop all tenant services and children, clean owned
   snapshots, then delete only search lease rows offline. Never erase artifact identities.
   The default remains off; real CLI/host qualification and customer notice still gate enablement.
-
 
 ## Skills: folder permissions and personal skills (issue #10, 2026-10-30)
 
@@ -3903,7 +3891,6 @@ asks once per domain ("Yes, and don't ask again for this domain").
   confidential chat; DNS stub: no lookup before the decision, office answer refused after it, private literal before
   any card; a sub-agent opening the site without a card), `p0-exfil-server.test.ts` (adjusted to the choice card),
   `web/test/e2e/exfil-followups.spec.ts`.
-
 
 ## Exit address on every install (fix/pre-0212, 2026-10-30)
 
@@ -4755,7 +4742,6 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row (not when the chat
   was locked confidential during the read: nothing more goes to OpenRouter from it). No transcript words. Voice input
   has no audit row and none was added.
-
 
 ## Anthropic-compatible gateway (feat/anthropic-gateway, 2026-11-01)
 
@@ -6186,6 +6172,9 @@ on every call as before.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
 
 ## External services: Connected and Discover (feat/connectors-discover, 2026-11-02)
+
+(The tabs were replaced on 2026-11-10 by one page with Discover under the connections: "Connectors on one page; the
+container says whose a page is".)
 
 The screen was a long card per connection, and the only way in was typing an MCP address. It now follows the Team skills page: a title row with tabs and a search, one line per connection (name, kind or why it failed, its state) with the details a click away, and a Discover tab of services to add by name next to "Add connection" for anything else.
 
@@ -8194,7 +8183,6 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
 
-
 ## 대화방 v1 — team chat rooms, people to people (feat/team-rooms, 2026-11-05)
 
 - **Apart from the AI chats.** Rooms are new tables (migration 240: `rooms`, `room_members`, `room_messages`,
@@ -9448,7 +9436,6 @@ same way"; the brand images folder line follows Q's per-language team folder ("t
 Images"). US spelling as in Q: "Brand colors" on the review, in 회사 소개.md's English words and in the facts line the AI
 reads (both skills name that label), color and center in the English skill. Q's rewrites of the old files step and of
 the ad copy result left with those lines. Korean, Japanese, Indonesian and Spanish are unchanged.
-
 
 ### N, Higgsfield taken out; type-only cards (integration, 2026-11-05)
 
@@ -11935,7 +11922,6 @@ An independent review found one hole and several gaps. What changed, and why:
   saving its token (409) is neither recorded nor told.
 - **No notice for a save that changes nothing** (the same address, model, name, and no new key).
 
-
 ## Push: say why, the desktop app's own row, and the web ask (fix/push-errors, 2026-11-07)
 
 The owner clicked "이 기기에서 알림 받기" and got "푸시 설정을 저장하지 못했어요. 연결 상태를 확인하고 다시 시도해
@@ -12775,7 +12761,6 @@ asked for the mic on the right, as in ChatGPT ("마이크 버튼은 오른쪽에
   the box; on a phone "+" stays inside the box on the left.
 - Only the place changed: the same VoiceMic (size, a 44 px tap area on phones, the admin's hint while voice input is
   off), the same recording bar (VoiceBar) and keys (Space held to talk, Esc to cancel).
-
 
 ## AI 앱에서 대화 읽고 쓰기 — AI apps read and write my conversations (feat/mcp-rooms, 2026-11-07, product owner)
 
@@ -16323,7 +16308,8 @@ boxes); no contract, setting or data change.
   never with a project), `ListChatsQuery.sideRoomId` (the person's own side chats of that room, newest first),
   `Chat.sideRoomId`. No new endpoint.
 - **Web:** the ✦ button in the room header (components/rooms/SideChatPanel.tsx) opens the panel where a thread opens,
-  one of the two at a time. It opens the room's newest side chat; "New chat" starts another with the next question;
+  one of the two at a time. It opens the room's newest side chat (since 2026-11-10 a new chat: "The side chat opens on a
+  new chat" below); "New chat" starts another with the next question;
   "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
   raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
   answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
@@ -17542,7 +17528,9 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   view's reads have their own generation, so a read that comes back after its view closed fills nothing.
 - **One side chat per room on this page** (`store/sideChats.ts`, like `roomDrafts`): the chat shown, the draft and the
   quote, so the page's and the viewer's are one chat. Kept for the page's life (gone at sign-out): closing and opening ✦
-  shows the chat and draft last shown, read again (one deleted meanwhile: the room's newest). An ask (`SideSeed.key`) is
+  shows the chat and draft last shown, read again (one deleted meanwhile: the room's newest). **Changed 2026-11-10** ("The
+  side chat opens on a new chat"): closing and opening ✦ starts a new chat, unless the last one is not done or something
+  typed or attached waits in its box; the draft and quote still stay. An ask (`SideSeed.key`) is
   quoted once (the room keeps its last 20 asks): a panel drawn again with the room page's last ask does not quote it
   again, also after the viewer asked about a file meanwhile. Leaving a room drops its side state. The newest
   side chat is looked for once however many panels open together. `SideChatPanel autoFocus` (default true): the viewer
@@ -18093,7 +18081,6 @@ told to point at the button and never claim it posted, so "이 요약 #영업팀
   a room message telling the AI to post meets the card with the room, its number of people and all of the text (tested
   with a planted page). Habit: the room and the number lead the card and the "cannot see" lines show only when they
   apply.
-
 
 ## Refusals say why, who and what next (fix/ai-refusals-clear, 2026-11-10, product owner)
 
@@ -18708,3 +18695,361 @@ an open chat on a phone, so "is this shared?" had no answer. Plan: `docs/AGENTS/
   line makes it 2, Bob out again from the open chat's line, a chat without a project, a member alone, a member who cannot
   change the members; at 1440 and 390) and `chat-look.spec.ts`.
 - Version impact: **minor** (a visible line on every project chat box and open chat; one optional response field).
+
+## 상태 메시지 — an emoji, a short text and when it clears (feat/custom-status, 2026-11-10, product owner)
+
+넣을 곳: trina-ax core (`server/src/auth/status-messages.ts`, `server/src/auth/status-plan.ts`, `server/src/routes/people.ts`,
+`server/migrations/283_b_user_status_messages.sql`, `shared/src/status-message.ts`, `shared/src/api/status-message.ts`,
+`server/src/rooms/reader.ts`, `server/src/connectors/remote-mcp/groups.ts`, `web/src/components/StatusMessage.tsx`,
+`web/src/store/statusMessages.ts`, `web/src/lib/statusMessage.ts` and the screens that show names), 이유: people,
+profiles and team chat are core. Plan: `docs/AGENTS/plan/20261110-0153-custom-status.md`. The owner asked for it on
+2026-11-10; it replaces "한 줄 상태는 쓰지 않는다" (프로필과 사람 목록): the old `user_profiles.status_text` stays unused
+and is not reused (an older app's profile save sends `status` and would overwrite it). Modelled on the common pattern
+of team chat apps (an emoji, a short text, it clears itself, suggestions, dates for leave), in the app's own dialog,
+sheet and chips. English is the source of the words; ko, id, ja and es translate it.
+
+- **What a person sets.** One emoji (one emoji or one emoji sequence: a ZWJ sequence of at most four, a flag, a
+  keycap, a skin tone, the England, Scotland and Wales flags; invisible tag letters only in those three, nowhere
+  else; no lone skin tone;
+  `shared/src/status-message.ts` `isStatusEmoji`, the same check on the web and the server, `u` regex flag and no
+  lookbehind so an older browser still loads), up to 100 characters of text (trimmed; no control characters, line or
+  paragraph separators, format characters such as direction marks, zero-width spaces or tag letters, nor what draws
+  nothing yet carries something: variation selectors but the emoji's two, the grapheme joiner, Hangul and Braille
+  blanks; the emoji joiner only between pictographs; no run of five combining marks; no lone surrogates), and when it
+  clears. Text without an emoji gets 💬; an emoji alone is fine;
+  neither is refused. `PUT /api/me/status {emoji?, text, clear, from?, to?}` (strict body: only the caller's own; no
+  id anywhere), `DELETE /api/me/status`. Not audited, as the away setting is not: it is no account change.
+- **When it clears, in the team's time zone** (`admin/settings.ts teamTimeZone`, `system/time-zone.ts`), never the
+  server's: `30m`, `1h`, `2h` from now; `today` at the team's next midnight; `week` at the end of the team's Sunday (a
+  Monday-to-Sunday week; on a Sunday that is today); `dates` from the first day's midnight (a later first day: the team
+  sees it only from then) to the end of the last day (on or after the first; at most 366 days ahead; a first day
+  already past is today); `never`. `keep` changes the words and keeps the end it has (the dialog's chip "Until Nov 14");
+  with nothing set it is refused, and nothing is saved already ended. Where a zone's clocks jump over midnight
+  (America/Santiago, America/Havana) a day starts at its first instant. The server works the instants out; the row keeps the choice, the start, the end and,
+  for an end of a day, that last day (`until_day`), so "until Nov 14" is the team's day on every screen.
+- **Who sees it: exactly who sees the online dot** ("접속 상태"): the people directory `GET /api/people` (signed in,
+  an active account, not in a forced password change) and the person's own `/api/me` (`Me.user.statusMessage`, also one
+  that starts later, with `fromDay`). `Person.statusMessage` is `{emoji, text, until?, untilDay?}` and only while it is
+  live (started, not ended), only for active accounts: a disabled account's is never given (it comes back if the
+  account is turned on again), a deleted account's row goes (`admin/users.ts deleteUser`; the users row stays as a
+  tombstone). Turning off, on again or deleting an account with a live status tells the team (`profile_changed`), so
+  its emoji and a DM's line go or come at once. One team per server: a session of another team's server opens nothing here. Nothing else reads the table.
+- **Ends and starts.** Every read compares the start and the end with now, so an ended status is hidden at once. Rows
+  that ended are removed on the next write and by a clock (`StatusClock`) that waits for the next start or end (at
+  least hourly; it counts from its last look, so a write between a start and its look does not push the notice to the
+  hourly one). When it passes one, open windows are told with the existing quiet notices: `profile_changed` to the
+  team (they read the directory again), `my_profile_changed` to the person (their account too). A write tells the
+  team only when what the team sees changed (a status that starts later is the person's alone until its day; the
+  clock tells them then), and the person's own windows always; others' ended statuses a write removes are told too. A
+  directory read asked for while one is on its way is done again after it (the earlier one may predate the change). The page also hides an ended status by its own clock
+  (one timer for the soonest end on screen), so nothing waits for a notice or a socket. At most 20 writes a minute per
+  person (429): each one makes every window of the team read the directory again.
+- **Text only, everywhere.** React writes it as text (never markup or Markdown); the tooltip and the DM line are text.
+  In the AI's lines it is one line in quotes it cannot leave (`status="…"`; `attr` drops quotes and brackets, so a
+  status cannot pose as another member or a "(your user)"), our block tags neutralised, and anything invisible taken
+  out (also from a row written before a rule was tightened).
+- **The dialog "Set your status"** (ko "상태 설정"; the app's `Modal`: a bottom sheet on phones), opened from the
+  account menu right under "Show me as away" (its item says my status, or "Set your status"), by a click on my own
+  emoji in the account row, and on a phone from a row at the bottom of the drawer (the computer's account menu is not
+  on a phone; the drawer is the sidebar there). An emoji button and "What's your status?" (100 characters). The app
+  has no emoji picker (reactions are a fixed strip of 8), so the button shows a fixed grid of 32 status emoji in place
+  of the rest, in the reactions' button style. Empty: five suggestions, "emoji **words** — when it clears": 📅 In a
+  meeting — 1 hour, 🎧 Focusing — 2 hours, 🍽️ At lunch — 1 hour, 🤒 Out sick — Today, 🏖️ On leave — Pick dates. A pick
+  fills the box; typing your own is fine. Filled: "Clears", one row of chips (the radio chips of Settings' language and
+  theme): 30 min · 1 hour · 2 hours · Today · This week · Pick dates · Never, and "Until …" first while editing a status
+  that ends by itself. Pick dates shows First day and Last day (the browser's date fields, from today to a year ahead)
+  and "Your team sees it from Nov 13." for a later first day. ✕ in the box starts over. Footer: "Clear status" (with a
+  status, on the left), Cancel, Save. No heading of suggestions, no link to edit them, no calendar section.
+- **Where it shows: an emoji after the name**, its words on hover ("On leave · until Nov 14"; the shared tooltip),
+  and said after the name for screen readers (", status: …"). Where the emoji is a button of its own (a message's
+  author line in rooms and threads, the member list) a tap or a click shows the words too, for touch screens (Esc
+  closes the words, not the member list). Places:
+  the sidebar's DM rows and unnamed group chats' names (each name with its own emoji; a named group chat or a team room
+  has no person to put it after), the phone's conversation list the same, the member list, the author line, the @
+  list, and my own account row (a click on it opens the dialog). In a DM with someone who has a status: one quiet line
+  above the box, "🏖️ Bob: On leave · until Nov 14" (ko "Bob 님: 휴가 중 · 11월 14일까지"). The AI and the everyone
+  room have none. There is no profile card or popover in the app yet; the member list is its place. Not on message
+  avatars, the DM header (the line says it) or the people picker.
+- **Trina knows it.** `room_read`'s member line (the in-app AI and AI apps) gives each named member's status (`MIA
+  (status="🏖️ On leave until 2026-11-14")`, a time as "until 2026-11-10 15:30" in the team's zone), and after them the
+  statuses of members it does not name (at most 50), so "who is on leave this week?" is answered from the room for
+  everyone; its description says so. The connector's `people_list` (admins) has `status`. Same rule: active accounts,
+  live statuses only. No new tool.
+- **The review of this branch** (an independent deep review that tried to read statuses from outside and to inject
+  through them) found two holes, both fixed: typed words could pose as another member in `room_read`'s member line
+  (now in quotes), and invisible tag letters after any emoji reached the model (now only in the three subdivision
+  flags, and stripped for the AI). Its other findings are in too: the clock's late notice, others' removed statuses, the account
+  notices, the queued directory read, the midnight gap, the stricter text, Esc in the member list. Names in the member
+  line are as before (any member can rename themselves; that line is older than this branch).
+- **Out, for later:** setting the status from a calendar (Google Calendar), suggestions an admin can edit, a status
+  history, a status on message avatars or in a profile card.
+- Tests: `tests/unit/b-status-message.test.ts` (set and clear; every rule of the emoji, the text, the days and stray
+  keys, in the person's language; the write limit; today and this week across midnight in Seoul, UTC, a UTC+14 team and
+  summer time and a midnight gap; never saved already ended; an ended status hidden at once and removed on the next
+  write, which tells the team; a later start hidden from the team and
+  the AI, its first day told by the clock, also after a late look; signed out, a forced password change, a disabled and a deleted account,
+  another team's server; the notices, also for an account turned off, on or deleted; `room_read`'s member line with quotes, tags and a fake "(your user)" in the text, invisible
+  characters from an old row, and members beyond those named; `people_list`), `tests/security/lib/people-cases.ts` (both routes are the caller's own),
+  `web/test/unit/status-message.test.ts` (the grid's and the suggestions' emoji are ones the server takes, the words of
+  an end in the team's zone, what shows now), `web/test/e2e/status-message.spec.ts` (a suggestion, my emoji in the
+  sidebar and on my messages, the hover, cleared; my own words and the grid; someone's status that ends goes by the
+  page's clock; the DM line; the member list's tap and the @ list; leave with a later first day; the phone's drawer
+  row and sheet).
+- Version impact: **minor** (a visible feature, two endpoints, one additive table; older apps ignore the new field).
+## Connectors on one page; the container says whose a page is (feat/connectors-one-page, 2026-11-10, product owner)
+
+Replaces the tabs of "External services: Connected and Discover" (2026-11-02). The owner missed the Discover tab:
+Admin › Connectors with one connection showed one row and blank space. They also could not tell the team's list from
+their own: Admin and Settings use the same names (Providers, Connectors, AI apps), and Admin said "For the whole team"
+only in small grey type beside a "Yours" tab.
+
+- **One page, no tabs.** Settings › Connectors and Admin › Connectors list the connections first, then **Discover**
+  (the same Top connectors grid with Show all) under its own heading, after a hairline. The tab state is gone; nothing
+  else used it. With nothing connected yet there is no empty box and no heading: Discover comes first, in Settings under
+  the one existing empty line ("No MCP connected yet"). Someone who may not add connections sees only their
+  connections and no Discover, as before.
+- **The search filters every section.** A section without a match hides; when nothing on the page matches, one
+  "Nothing matches" line. A service already connected stays one card with its check in Discover and one row above;
+  nothing is listed twice.
+- **Where the keyboard lands.** A connector's page (a card, Drive's +, `?drive=1` from a notice or an old address) still
+  takes the place of the list, as it took the place of the Discover tab; its way back shows the list scrolled to
+  Discover with Discover's heading focused. Adding from Discover (a card's +, a connector page's Connect, "Add by its
+  address", or Add pressed over a connector's page) clears the search and focuses the heading of the list the new row
+  is in. The headings take focus with `tabIndex={-1}` and no ring, like Team settings' sections. Each page makes its own
+  heading ids (`useSectionIds`): Settings opens over the page it came from, which stays mounted under it, so Settings ›
+  Connectors can be on screen over Admin › Connectors (found in review).
+- **The container says the scope, the pages keep the same nouns.** Products that have both a team admin area and
+  personal settings usually name a page the same in both and let the area say whose it is, rather than putting "Team"
+  or "My" in front of each title. So: Admin's menu title is the team's logo and "`<team>` admin", and one line above every
+  Admin page says "Applies to everyone in `<team>`" (`AdminScope`, rendered once in `AdminLayout`), the pair of Settings'
+  "Just for you" in the same size and colour. That covers Providers, Connectors, AI apps, Plugins and every other Admin
+  page at once; the grey "For the whole team" beside each title goes. Page titles are the plain nouns ("Connectors" in
+  both); list headings are plain ("Connected", "Discover"). A first version with "Team connectors" / "My connectors",
+  "Connected for the team" / "Your connections" and a cross-link line under Admin's title was dropped for this.
+- **Settings › Connectors shows what the team provides as one block**, `From <team>`, above the person's own
+  (`FromTeam`, which replaces "Team connections" with its orange Team chip and "From your team"): the team's
+  connections the person may use, read-only, with **Ready** once they work (else the connection's own state, such as a
+  sign-in an admin still has to do); the templates shared with them, with **Connect your account** (once connected,
+  their own connection, **Ready**, with their own key's controls in its details). An admin also sees the team's
+  connections not for them, **Off for you**, from the admin team list they may read anyway, and one **Manage** link to
+  Admin › Connectors; the team's rows there have no manage buttons or tool switches for anyone (`IntegrationRow
+  readOnly`), while a connection made from a template keeps its owner's own controls (their key, disconnect). A
+  member's list has only what they may use, so a member never sees "Off for you" rows: nothing here widens what a
+  member can see.
+- **Who may use each, on the line (Admin).** Each team connection and template has one quiet chip after its name:
+  "Everyone", the first group with how many more groups and people ("Design +2"), one person's name, or "3 people";
+  every name in its tooltip; none while nobody may (the warning chip says so) and none until groups and people have
+  loaded. The full "Used by" line stays in a connection's details. A template's line no longer repeats who it is for.
+- **Strings.** New in all five languages: "Connected", Discover, `From <team>`, Manage, Ready, Connect your account,
+  Off for you, "Applies to everyone in `<team>`", "`<team>` admin", and the chip's "Everyone", "{name} +{n}" and
+  "{n} people". Removed because nothing uses them any more: the tab labels, "For the whole team", the Team chip,
+  "Team connections" and its hint, "From your team" and its hint, Admin's description and empty title and hint,
+  Settings' empty hint, "My connections" and the template's "For {who}" line.
+- Not changed: the dialogs, Drive's own pages, request rows, the Providers and AI apps pages beyond the shell's line,
+  the API and the data. Version impact: patch.
+- Tests: the connector e2e specs (Settings and Admin, Drive, Admin Drive, templates, requests, sticky title rows, the a11y
+  sweep, Settings IA, Admin Home, the quick UX checks) follow the page instead of the tabs, and check the plain titles,
+  the Admin shell's title and line, the "From `<team>`" block for an admin and a member, the chip, the search over both
+  sections and where the keyboard lands (also with Settings over Admin); `audienceOf` has unit tests.
+## The team menu — the team on top of the sidebar, me at the bottom (feat/team-menu, 2026-11-10, product owner)
+
+The owner agreed: "top of the sidebar = the team, bottom = me". The top was a plain link home with a 20 px logo and the
+team name at 15 px, and 관리자 was one more row in the main list, between 팀 스킬 and the rooms. Placement: Team AX core
+(`web/src/components/TeamMenu.tsx`, `Sidebar.tsx`, `SearchDialog.tsx`, `Layout.tsx`); no API, data or permission change.
+Plan: `docs/AGENTS/plan/20261110-0443-team-menu.md`. Amends "Desktop sidebar: rooms first" (no 관리자 row) and the team
+logo's header (28 px).
+
+- **The header (768 px and wider).** The logo at 28 px with rounded corners (the team's, or the product's mark), the
+  team name semibold at 16 px, cut with "…" when long, and a ▾. Measured: the rows are 14 px, section titles 12 px, the
+  profile line 14 px, page titles 20 px (Files 18 px), so the name reads as the top without outshouting a page. The
+  logo's middle is in line with the rows' icons and the ▾ with the profile line's ▾. The button is 44 px high with the
+  rows' hover background, the same while the menu is open, a focus ring, `aria-haspopup="menu"` and `aria-expanded`.
+- **The menu** (under the button, the sidebar's width): the team again with its whole name (the button may cut it) and
+  its address (`GET /api/me` `team.address`, the one Settings › 앱 shows, never the address the page was opened at;
+  none known: no line; the menu's description for a screen reader), then **팀원 초대** / Invite people and **관리자** /
+  Admin. Admin keeps its word: it is the page's
+  own name and the 나 tab's row, and the menu around it already says "team". Nothing personal: Settings, Usage, the
+  away switch and Sign out stay in the profile menu at the bottom. No plan banner, no settings submenu.
+- **Who sees it.** The invite endpoints are admins' only (`/api/admin/invites`, `/api/admin/team-link`), so both items
+  are for owners and admins. A member would get a menu with no item, which ARIA does not allow and which leads nowhere,
+  so for a member the header is the logo and the name, not a button (no ▾, no hover); their team address is in
+  Settings › 앱 with its copy button.
+- **Home.** The header no longer goes home (a click on the logo opening a menu and a click beside it going home would be
+  two meanings in one spot). Home is the first row, 트리나에게 묻기 (it opens `/`), and ⇧⌘O.
+- **팀원 초대** opens the invite dialog Home's goal card opens (`onboarding/InviteStep.tsx` in a dialog titled 팀원 초대:
+  the team invite link's message with its copy button, or the link made in one press; the link's settings under
+  "링크 관리"). While the owner's welcome steps are unfinished it opens the owner's invite step instead, as the goal card
+  does, never a second invite dialog (also when the steps are already on screen: `pages/Welcome.tsx` goes to the invite
+  step on the new entry; the owner's progress is read first when the page has not read it yet). An admin who is not
+  the owner always gets the dialog: the steps are the owner's, and Welcome sends anyone else Home. Home's goal card had
+  the same gap (its [팀원 초대] took such an admin to /welcome and back Home once the team's progress had been read, by
+  the invite dialog's link panel or Files); it now sends the owner only too (`GoalCard.tsx`). One dialog for the window
+  (`Layout.tsx`), so ⌘K opens the same; a page change closes it (its "스킬 넣기" and "팀 파일 넣기" links, ⇧⌘O), as
+  leaving Home closes the goal card's. Closing it gives the keyboard back to the team button when it was opened from
+  the menu, and to where it was before ⌘K when opened from there. The single-use invite links with a role and groups
+  stay on Admin › Members & invites.
+- **Keyboard**, as in the profile menu: Enter or Space opens it on its first item, ↑ ↓ wrap, Home and End, Esc closes it
+  and gives the keyboard back to the button, Tab and a click outside close it.
+- **⌘K** finds 관리자 and 팀원 초대 for owners and admins by their words and their other names (Invite teammates and
+  멤버·초대 / Members & invites for the invite; 멤버·초대 and 팀 설정 / Team settings for Admin), not listed before
+  anything is typed, so the empty palette keeps its six actions. A member finds neither.
+- **Phones keep the AI's drawer.** Below 768 px the ☰ drawer belongs to the 트리나 tab and holds the AI's history only
+  ("Phone navigation: four tabs"): its header names the AI with the product's mark, as the tab does. A team menu there
+  would put team things in the AI's tab and give Admin a second place, so it stays as it was: Admin on the 나 tab, right
+  under 알림함. The phone app is the web app in a web view, so the same holds there; a tablet at 768 px or more gets the
+  computer's sidebar and its team menu.
+- **Not changed:** Admin › Team settings still previews the header with the 20 px logo; another PR is changing the admin
+  pages, and the preview follows after it. The profile menu.
+- Tests: `web/test/unit/sidebar.test.tsx` (a member's header is no button; owners and admins: the menu, its items and
+  address, the keyboard, Esc, Tab, Invite's dialog and the focus after it, the dialog closed by a page change, the
+  owner's unfinished steps and an admin who is not the owner, Admin's link; no Admin row; the logo at 28 px; the phone
+  drawer), e2e `sidebar.spec.ts` (sizes measured, the menu with axe, Admin, the keyboard, Invite's dialog and its link,
+  the owner's invite step from another page and on the steps themselves, ⌘K for an admin and a member, the phone drawer
+  and the 나 tab), `goal-card.test.tsx` (an admin who is not the owner gets the dialog), and the specs that went to Admin
+  through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured the 20 px logo (`team-icon.spec.ts`).
+- Version impact: **minor** (a visible change to the sidebar; no API or data change).
+## 정보가 새는 곳 셋 — a member's dry run, the delete card, the matrix coverage (fix/access-info-leaks, 2026-11-10)
+
+- **Why:** a plan review found three places where a member learns what their permissions do not show them. Each was
+  confirmed by a test that failed before the fix.
+- **A new project's dry run never tells a member who is an admin.** `POST /api/projects/access-preview` without
+  `projectId` counted the owner and admins in: naming an admin left the count as it was and naming a member added one,
+  so anyone who may make team projects could ask, for free and with no trace, whether a person is an admin (members are
+  never told roles: the people directory, rooms). An exact count of everyone who sees it cannot hide that (the overlap
+  of the admins with the names chosen is the leak), so for a caller who is not the owner or an admin the count is of the
+  caller and the people and groups chosen, as if nobody were an admin, and the answer says so (`adminsApart: true`).
+  The share dry run (`POST /api/projects/:id/share` with `dryRun`) uses the same count (`viewersAdded`, `adminsApart`).
+  The line under the picker (`AccessSummary`, also in the members dialog) reads "2명과 팀장·관리자가 봐요" then
+  (`projects.whoCountApart`); the owner and admins read "4명이 봐요 (팀장·관리자 포함)" as before.
+- **Left as it is, an open question for the owner:** every count of who reads a folder whose rules the member sets still
+  counts the owner and admins, and a member sets them on any team project they make (every member, unless only admins
+  may make projects). So making one project (audited, seen by admins) and then naming a person in its dry run
+  (`projectId`: `added` 0 for an admin, 1 for a member) still tells who the admins are; so do `ProjectAccess.people`,
+  the `PUT …/participants` answer, `Project.audience`, a copy dry run into the folder (`viewersAdded`) and the delete
+  card's first number for its files (independent review). This change only removes the free, traceless way. Closing it
+  means counting admins apart in every audience count a member sees (projects, shared chats, the copy and delete cards,
+  the scheduled-task card), a product decision with copy changes in several features, not made here. The count still
+  includes the members of the caller's own groups chosen, as the group's team room shows them.
+- **The delete card's "cannot restore" number only for the owner and admins.** The card said how many of the people who
+  lose the items cannot restore them (readers without write). How many lose them a member already learns (a copy dry
+  run into a folder they can write answers `viewersAdded`); the second number added how many people can write the
+  folder, which only Admin › Folder permissions shows. `AiTrashPlan.writersShown` (the owner and admins) keeps the
+  number; anyone else reads "쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요." whenever someone else loses
+  the items, the same whether one, none or all of them can write. The audit row keeps both numbers. Left: with several
+  items, how many lose them is counted across the items, which says a little about how their audiences overlap.
+- **Every route has a matrix case again, and CI checks it.** 46 routes had none (the dev environment, the team link,
+  the welcome steps and company profile, skill packs and drafts, the AI access request, room search and the room AI's
+  cards, away, demo, after-update). Each case (`tests/security/lib/misc-cases.ts`) is written from what the route is
+  meant to allow and aimed at something the wrong person must not reach; writes are refused after the permission check,
+  and the owner's team start runs last; the draft routes are aimed at the owner's own draft chats, so an admin's 404 is
+  the ownership check (review: an ordinary chat answers 404 to everyone). Two scopes are added, `admins` and
+  `own-owner`. A few cases (the dev environment's stop and remove routes) can only use ids nobody has, since the world
+  has no runs or sites. The matrix still has its two known failures on dev (`driveShareFolders` as owner and admin). `tests/security` is not part of
+  CI, so the coverage half (no server, `tests/security/lib/coverage.ts`) also runs as
+  `tests/unit/security-route-coverage.test.ts`: a new route without a matrix case now fails CI.
+- Tests: `tests/unit/project-preview-roles.test.ts`, `tests/unit/ai-delete-files.test.ts` (the card for a member and an
+  admin), `tests/unit/security-route-coverage.test.ts`, `tests/security/project-participants.test.ts`,
+  `tests/security/r1-copy-share.test.ts` (the share dry run), the permission
+  matrix, `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`.
+- Version impact: **patch** (two answers say less to members; one optional response field; no data change).
+## 폴더를 볼 수 있는 사람, 그 자리에서 — who can see a folder, in place (feat/folder-access-in-place, 2026-11-10, product owner)
+
+The owner: "I can't tell who has permission to what. To find out I have to go into Admin › Folder permissions." The
+Files page said only what *I* can do there (the "Read-only folder" badge, the lock on read-only rows). Plan:
+`docs/AGENTS/plan/20261110-0447-folder-access-in-place.md` (references, a product and a security review).
+
+- **The chip** at the end of the breadcrumbs, for the folder on screen: "나만 봐요" (my own folder and anything in it, by
+  its path), "팀 전체가 봐요", "팀장과 관리자만" (admins only: no rule lets a member in), or "N명이 봐요". The number is
+  every active person who can open the folder, the caller, the owner and admins included: the same number as
+  `Project.audience` and Admin's "Can open". No chip at the team root and on `users/`, `groups/`, `projects/`,
+  `connected/` themselves (each folder inside has rules of its own), in the trash, while rows are selected, while
+  loading or after a failed request.
+- **What a member learns: a count, only where they can write**, plus their own folder and the folders of the team
+  projects they see (`Project.audience`, which they already get). Where they can write, the copy dry run from their
+  own folder already answers that number less one (`viewersAdded`). On a folder they can only read, a count would be
+  new: below a folder they can only pass through it told a group's size (`user:M read` on `groups/finance/public`
+  counted the finance group; security review), so they get no chip there and the "Read-only folder" badge stays.
+  Never names, groups (their own included), roles, how many can write, where a rule is. Comparing counts (a folder
+  against the one above, or over time when someone is switched off) can tell that a rule narrows a folder; the copy
+  dry run and `Project.audience` already allow that, and this adds no folder to it.
+- **`GET /api/files/audience?path=`**: the tree's own check and answers for the path, then a folder the caller can only
+  pass through answers 404 like one they cannot see. `people` and `everyone` only where `authorize(..., 'write')`
+  passes (so not inside a plugin's managed folder, where the copy dry run fails too). One RuleSet for the check and the
+  count; `activePeople`, as `/api/people`. Not an AI tool or a connector tool.
+- **The panel** ("볼 수 있는 사람"; the chip, or a folder row's ⋯ on the rows where the chip would show): the headline
+  ("6명이 봐요 (팀장·관리자 포함)"); a member's team folder adds "볼 수 있는 사람은 관리자가 바꿔요."; their own folder
+  "관리자도 열 수 없어요."; a team project's folder says its people follow the project's members and links to the
+  project. An admin's panel adds the tree row's "where it comes from" (`sourceText`), how many folders inside carry
+  rules of their own, the people by name as Admin lists them (`People`, moved into `pages/admin/FolderPeople.tsx`;
+  each name opens By person) and "폴더 권한에서 보기". Admin's parts come from the admin endpoints only and load only
+  for admins.
+- **No new lock**: on the Files page the lock means "read only for you"; a restricted folder would give one icon two
+  meanings. Admin's tree keeps its own.
+- **규칙 바꾸기 from the panel** (feat/folder-access-change): an admin's panel offers Admin's own edit panel for the
+  folder (`/admin/folders?edit=<path>&from=files`), not a second editor in Files. AccessTree takes `from=files` like
+  By person's `back`: closing or saving goes to `/files?path=<path>&access=1`, which opens the folder's panel again with
+  fresh numbers; the way out says "파일로 돌아가기". `from` is a fixed word (any other value is ignored), never an
+  address, so it redirects nowhere else; `edit=` only chooses the folder (saving still takes a click and the rules hash
+  check). Not on a team project's own folder in `projects/` (its members are changed on its page) and not on a personal
+  folder; a project made before outside `projects/` keeps it.
+- **A team project's folder after #298**: the panel uses #298's fields and words only. With `Project.membersEditable`,
+  [멤버] goes to `/projects/:id?members=1`, where #298 opens its dialog. Without it, the panel says #298's own sentence
+  itself, because `?members=1` opens nothing for that person: "멤버는 {creator}님(만든 사람)이나 관리자가 바꿔요."
+  names the creator only with `creatorChangesMembers`, else "멤버는 관리자가 바꿔요."; an admin on a project made
+  before outside `projects/` reads `projects.legacyNote` (the panel's link goes to Admin).
+- Tests: `tests/security/folder-audience.test.ts` (the tree's answers on one list of paths and pass-through → 404,
+  a case-insensitive volume, the review's attack with the group growing, the count against the copy dry run, Admin's
+  count and `Project.audience`, people switched off, a managed folder), the r3 hidden-vs-missing reads and the matrix
+  case; `web/test/unit/folder-access.test.ts`; e2e `folder-access.spec.ts`.
+- Version impact: **minor** (a new endpoint and a visible new element; no migration, no existing answer changed).
+## The side chat opens on a new chat (fix/side-chat-opens-new, 2026-11-10, product owner)
+
+넣을 곳: trina-ax `web/src/components/rooms/SideChatPanel.tsx`, `web/src/store/sideChats.ts`, `web/src/pages/Room.tsx`,
+`web/src/components/rooms/ViewerColumn.tsx`, 이유: the room side chat is core. Plan
+`docs/AGENTS/plan/20261110-0753-side-chat-opens-new.md`. Amends "The room's right column" ("One side chat per room on
+this page", #263) and "Trina side chat" ("It opens the room's newest side chat").
+
+- **Owner:** "every time I open it I see the previous conversation; the default should be a new chat. There's a history
+  button for finding old ones." Opened, ✦ Trina starts on a new, empty chat: the starters, or the message or file it was
+  opened with, quoted, with its quick questions. The chat itself is still made by the first question (or file), so
+  opening and closing leaves no empty chat behind. Old chats are in 🕘, which with "New chat" works as before. The same
+  on phones and in the phone app (one panel, one rule).
+- **What opens it afresh:** ✦ in the room header, "Ask Trina about this" on a message or a file, ✦ in the file viewer
+  and its phone sheet, after the side chat was closed. Closing is ✕ or ‹ on the room page's panel, ✦ pressed again,
+  leaving the room, the thread that took its place on the room page closing with nothing in its place, or the file
+  viewer closing after it showed the side chat (also when its column is back on the thread), unless the room page has
+  it open under the viewer. The room page's state per room has `open` (`store/sideChats.ts`); a panel that comes on
+  screen while it is false decides once, before its first paint (`sideChatOpening`), which chat it starts on.
+- **What keeps the same chat:** the column switching between a thread and Trina, on the room page (a thread opened in
+  its place, then ✦ or "Ask Trina about this" in the thread) as in the viewer ("스레드로 돌아가기", then ✦); ← → through
+  the files; the room page and the viewer's column showing it together; hiding and showing the viewer's column or
+  closing and opening its phone sheet within one opening of the viewer. 보기 under a sent answer is a hand-off, not a
+  close: the viewer it closes and the thread it opens (closed again, as a phone's back arrow does) leave the side chat
+  open, so ✦ brings it back still saying where the answer went; on a phone 보기 to the room closes the panel the same
+  way.
+- **The last chat comes back when it is not done:** its answer is on its way (sending, running or queued), the AI waits
+  on me (a card), or an answer finished, failed or paused that I have not seen. That is Trina history's own marker
+  (`lib/sessionMarkers.ts markerOf` on the chat row, plus the thread's running answer), not a new store. Shown, the
+  answer is seen (`/seen`), so the next opening is new. The first opening after a reload asks for the room's newest side
+  chat once, as before, and shows it only when the server's row says it is not done.
+- **A draft (decided here, the owner's preference):** what was typed or attached and not sent stays for this page's
+  session with the chat it was going into: opened again, that chat, the draft and its quote. Files were uploaded into
+  that chat and #265 drops them once another chat shows, so an opening never moves away from them; text follows the same
+  rule so the two never part. A failed file chip is not sent and keeps nothing. Emptied, the next opening is new, and a
+  quote left alone goes (the starters show, or what this opening asks about). A chat with nothing in it yet (made for a
+  file whose chip was taken off) is a new chat already and stays, so no empty chat piles up in 🕘. Gone at a reload, as
+  before.
+- **Left out:** remembering the open chat across a reload.
+- **Independent review** (must-fix, fixed): the viewer closed from its thread after showing the side chat left it open,
+  and a quote left from an earlier ask came back over a fresh opening's starters. Also taken: the room page's thread
+  closing closes the side chat it replaced (보기 excepted), a failed chip keeps no chat, an empty chat made for a file is
+  reused, a card counts for a chat opened from 🕘.
+- Tests: `web/test/unit/side-chat.test.tsx` (a new chat with the earlier one in 🕘; after a reload the newest only while
+  not done; the room page: ✦, ask, ✕, ✦ is new, ✦ toggled and leaving the room too; an answer running or unseen comes
+  back, seen it does not; a draft and files keep their chat, an emptied file chat is reused; "Ask Trina about this"
+  after a close: a new chat with the quote, and no quote left over after; a thread in its place: ✦ brings it back, the
+  thread closed closes it; the viewer: ✦ new with the file, the thread and back keep it, closing the viewer, also from
+  the thread, closes it unless the room page has it), `side-chat-send.test.tsx`; e2e `side-chat-send.spec.ts` (✕ then
+  ✦: a new chat, the old one in 🕘; a phone; 보기 and ✦ still bring the chat back), `side-chat-attachments.spec.ts`,
+  `room-file-viewer.spec.ts`, `room-hover-bar.spec.ts`, `room-drop.spec.ts`.
+- Version impact: **patch** (a behaviour change of one panel; no API, data or text change).

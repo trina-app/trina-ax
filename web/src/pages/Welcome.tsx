@@ -62,9 +62,10 @@ function WelcomeSteps() {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
-  // the goal card's [팀원 초대] while the steps are unfinished (GoalCard.tsx INVITE_STEP_STATE): the invite step itself,
-  // not where the steps would resume (it needs no AI)
-  const askedInvite = (useLocation().state as { step?: unknown } | null)?.step === 'invite'
+  // the goal card's [팀원 초대] while the steps are unfinished (GoalCard.tsx INVITE_STEP_STATE), or the team menu's or
+  // ⌘K's "팀원 초대" (TeamMenu.tsx): the invite step itself, not where the steps would resume (it needs no AI)
+  const location = useLocation()
+  const askedInvite = (location.state as { step?: unknown } | null)?.step === 'invite'
   const me = useMeStrict()
   // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (lib/welcome.ts)
   useEffect(() => { markStepsSeen(me.user.id) }, [me.user.id])
@@ -105,6 +106,12 @@ function WelcomeSteps() {
     }
   }
   useEffect(() => { void open() }, []) // once, on arrival
+  // asked again while the steps are on screen (the team menu on this page): a new entry, the same page; go to the
+  // invite step (the steps are unfinished, or the ask would have opened the invite dialog instead)
+  const arrival = useRef(location.key)
+  useEffect(() => {
+    if (location.key !== arrival.current && askedInvite && step && step !== 'done') setStep('invite')
+  }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // a new step (not the first): its region takes the focus, so keyboard and screen-reader users hear where they are
   const first = useRef(true)

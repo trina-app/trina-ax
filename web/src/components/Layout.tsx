@@ -18,6 +18,7 @@ import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
+import { TeamInviteDialog } from './TeamMenu'
 import { BottomTabs } from './BottomTabs'
 import { PhoneTopBar } from './PhoneTopBar'
 import { PhonePushAsk } from './settings/PushNotifications'
@@ -174,6 +175,8 @@ export default function Layout() {
         )}
       </div>
       <SearchDialog />
+      {/* "Invite people" from the team menu or ⌘K (TeamMenu.tsx): one dialog for the window */}
+      <TeamInviteDialog />
       <UpdateWatcher />
       <AttentionTitle />
     </div>

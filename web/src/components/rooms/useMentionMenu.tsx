@@ -20,6 +20,7 @@ import { scrollToShow } from '../chat/SkillMenu'
 import { usePeople } from '../../store/people'
 import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
+import { StatusEmoji } from '../StatusMessage'
 import { Avatar } from '../Avatar'
 import { AiFace } from './AiFace'
 
@@ -179,6 +180,7 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
                 <>
                   <Avatar user={{ ...u, avatarVersion: byId[u.id]?.avatarVersion }} size={22} />
                   <span className="truncate font-medium text-ink">{u.name}</span>
+                  <StatusEmoji userId={u.id} className="-ml-1" />
                   {byId[u.id]?.title && <span className="truncate text-xs text-muted">{byId[u.id]!.title}</span>}
                 </>
               )}

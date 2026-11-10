@@ -16,6 +16,7 @@ import { getTeamSettings } from '../admin/settings'
 import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
 import { audit } from '../admin/audit'
 import { profileOf } from './profiles'
+import { myStatusOf } from './status-messages'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
@@ -252,12 +253,15 @@ export class AuthService implements SessionService {
     const windowsApp = windowsAppSourceOf(this.ctx.config)
     // the team's own address for its members (Settings › 앱): the relay's or the public one, never the request's host
     const address = teamAddressOf(this.ctx)
+    // my status message, also one that starts later (docs/DECISIONS.md "상태 메시지")
+    const status = myStatusOf(this.db, u.id)
     return {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,
         canChooseEngine: choose,
         ...profileOf(this.db, u.id),
+        ...(status ? { statusMessage: status } : {}),
       },
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, projectCreators: settings.projectCreators, ...(address ? { address } : {}) },

@@ -1,16 +1,15 @@
-// What Admin › Connectors and Settings › Connectors share, like Claude's Connectors: the title row (Yours / Discover,
-// search, Add with its ⌄ menu), which stays at the top while the page scrolls; Discover ("Top connectors" with Trina's
-// own Google Drive first, then the MCP services of lib/connectors.ts, the rest behind Show all); and a connector's page
-// (ConnectorDetail: a big logo, the main action, what it does and its tools).
+// What Admin › Connectors and Settings › Connectors share, like Claude's Connectors: the title row (the page's title,
+// the search and Add with its ⌄ menu), which stays at the top while the page scrolls; Discover, the section under the
+// connections on the same page ("Top connectors" with Trina's own Google Drive first, then the MCP services of
+// lib/connectors.ts, the rest behind Show all); and a connector's page (ConnectorDetail: a big logo, the main action,
+// what it does and its tools), which takes the place of both sections until its way back.
 import { ArrowLeft, ArrowRight, BadgeCheck, Check, ChevronDown, Plus, Search } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
-import { Button, EmptyState, IconButton, StickyHeader, Tabs, inputCls } from '../ui'
+import { Button, IconButton, StickyHeader, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
-
-export type ConnectorTab = 'connected' | 'discover'
 
 export interface AddMenuItem {
   label: string
@@ -19,16 +18,10 @@ export interface AddMenuItem {
   testId: string
 }
 
-/** `onAdd`: this person may add connections (without it, no adding and no Discover, and no tabs). `panels`: the ids
- * that tie the tabs to the TabPanel below them (`useId()`). `moreAdd`: other ways to add (Admin: ask a member to
- * connect), in a small menu next to Add connection. */
-export function ConnectorsHeader({ title, scope, tab, onTab, query, onQuery, onAdd, moreAdd, panels }: {
+/** `onAdd`: this person may add connections (without it, no adding and no Discover). `moreAdd`: other ways to add
+ * (Admin: ask a member to connect), in a small menu next to Add connection. */
+export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
   title: string
-  /** next to the title: Admin's "For the whole team" */
-  scope?: ReactNode
-  panels: string
-  tab: ConnectorTab
-  onTab: (t: ConnectorTab) => void
   query: string
   onQuery: (q: string) => void
   onAdd?: () => void
@@ -38,19 +31,6 @@ export function ConnectorsHeader({ title, scope, tab, onTab, query, onQuery, onA
   return (
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
       <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-      {scope}
-      {onAdd && (
-        <div className="contents" data-connector-tabs>
-          <Tabs
-            segmented
-            value={tab}
-            onChange={onTab}
-            label={title}
-            panels={panels}
-            items={[{ id: 'connected', label: t('integrations.tabConnected') }, { id: 'discover', label: t('integrations.tabDiscover') }]}
-          />
-        </div>
-      )}
       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
         <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
@@ -71,6 +51,30 @@ export function ConnectorsHeader({ title, scope, tab, onTab, query, onQuery, onA
       </div>
     </StickyHeader>
   )
+}
+
+/** The ids of the headings of a page's two sections (the connections, Discover), for goToSection and aria-labelledby.
+ * Each page makes its own: Settings opens over the page it came from, which stays mounted under it (App.tsx), so
+ * Settings › Connectors can be on screen over Admin › Connectors. */
+export function useSectionIds() {
+  return { connected: useId(), discover: useId() }
+}
+
+/** A section heading of the page, which takes the keyboard when something leads there (tabIndex -1, no ring: it is not
+ * a control). */
+export const sectionTitleCls = 'text-sm font-semibold focus:outline-none'
+
+/** Show a section of the page and give its heading the keyboard: back from a connector's page (Discover), and after
+ * adding from Discover (the connections, where the new one is). From the next paint on, for a few frames, for a section
+ * that only shows once the page has drawn its new state. The scrolling area keeps the title row's height free at its
+ * top (useStickyHeader), so the heading lands under it. */
+export function goToSection(id: string, frames = 10) {
+  requestAnimationFrame(() => {
+    const h = document.getElementById(id)
+    if (!h) { if (frames > 1) goToSection(id, frames - 1); return }
+    h.scrollIntoView({ block: 'start' })
+    h.focus({ preventScroll: true })
+  })
 }
 
 /** A primary button with a ⌄ menu of other ways to do it (a connector's page: Connect, or as a template). */
@@ -153,14 +157,6 @@ function AddMenu({ items, label = 'integrations.addMore' }: { items: AddMenuItem
   )
 }
 
-/** Back on Connected after adding from Discover: the search is cleared (it was looking for what the new row may not
- * match) and the keyboard stays on the tabs, because the button that opened the dialog is gone. */
-export function afterAdded(setTab: (t: ConnectorTab) => void, setQuery: (q: string) => void) {
-  setTab('connected')
-  setQuery('')
-  requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-connector-tabs] [role="tab"][aria-selected="true"]')?.focus())
-}
-
 /** A connection fits the search box: its name or address. */
 export const matchesQuery = (i: Integration, query: string) => {
   const q = query.trim().toLowerCase()
@@ -174,9 +170,22 @@ export interface BuiltInCard { id: string; name: string; line: string; logo: str
 /** How many cards "Top connectors" shows before "More connectors". */
 export const TOP_CONNECTORS = 8
 
-/** Discover, like Claude's Connectors: "Top connectors" (Trina's own first, then the best-known MCP services) and the rest
- * under "More connectors" behind Show all. A card opens its page (onOpen); its + adds it at once (onAdd / onAddBuiltIn). */
-export function ConnectorDiscover({ connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn }: {
+/** The Discover cards that fit the search (every card without one): Trina's own, then the listed MCP services. A page
+ * hides Discover when nothing fits, and says "nothing matches" once when nothing on the page does. */
+export function discoverHits(t: ReturnType<typeof useT>, query: string, builtIns: BuiltInCard[] = []) {
+  const q = query.trim().toLowerCase()
+  const fits = (text: string) => !q || text.toLowerCase().includes(q)
+  const built = builtIns.filter((b) => fits(`${b.name} ${b.line}`))
+  const listed = CONNECTORS.filter((c) => fits(`${c.name} ${t(`integrations.catalog.${c.id}`)}`))
+  return { built, listed, count: built.length + listed.length }
+}
+
+/** Discover, the section under the connections, like Claude's Connectors: "Top connectors" (Trina's own first, then the
+ * best-known MCP services) and the rest under "More connectors" behind Show all. A card opens its page (onOpen); its +
+ * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. */
+export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
+  /** its heading's id (useSectionIds) */
+  titleId: string
   connected: Pick<Integration, 'url'>[]
   query: string
   onAdd: (c: Connector) => void
@@ -187,51 +196,46 @@ export function ConnectorDiscover({ connected, query, onAdd, onCustom, builtIns 
   /** open a service's page */
   onOpen?: (c: Connector) => void
   onOpenBuiltIn?: (id: string) => void
+  className?: string
 }) {
   const t = useT()
-  const titleId = useId()
   const moreId = useId()
   const [all, setAll] = useState(false)
   const urls = connected.map((i) => i.url)
-  const q = query.trim().toLowerCase()
-  const fits = (text: string) => !q || text.toLowerCase().includes(q)
-  const shownBuilt = builtIns.filter((b) => fits(`${b.name} ${b.line}`))
-  const shown = CONNECTORS.filter((c) => fits(`${c.name} ${t(`integrations.catalog.${c.id}`)}`))
+  const q = query.trim()
+  const hits = discoverHits(t, query, builtIns)
+  if (!hits.count) return null
   const cards = [
-    ...shownBuilt.map((b) => (
+    ...hits.built.map((b) => (
       <DiscoverCard key={b.id} id={b.id} logo={b.logo} name={b.name} line={b.line} by={t('connectors.builtIn')} official state={b.state}
         onOpen={onOpenBuiltIn ? () => onOpenBuiltIn(b.id) : undefined} onAdd={() => onAddBuiltIn?.(b.id)} />
     )),
-    ...shown.map((c) => (
+    ...hits.listed.map((c) => (
       <DiscoverCard key={c.id} id={c.id} logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} by={t('connectors.by', { maker: c.name })} official
         state={isConnected(c, urls) ? 'added' : 'available'} onOpen={onOpen ? () => onOpen(c) : undefined} onAdd={() => onAdd(c)} />
     )),
   ]
-  const total = cards.length
   // a search shows every match in one list; otherwise the best-known first, the rest behind Show all
   const top = q ? cards : cards.slice(0, TOP_CONNECTORS)
   const more = q ? [] : cards.slice(TOP_CONNECTORS)
   return (
-    <section aria-labelledby={titleId} data-testid="connector-discover">
+    <section aria-labelledby={titleId} className={className} data-testid="connector-discover">
+      <h3 id={titleId} tabIndex={-1} className={`mb-3 ${sectionTitleCls}`} data-testid="connector-discover-title">{t('connectors.discover')}</h3>
       <div className="mb-3 flex items-center gap-2">
-        <h3 id={titleId} className="flex items-center gap-2 text-sm font-medium">
+        <h4 className="flex items-center gap-2 text-sm font-medium text-muted">
           {q ? t('connectors.results') : t('connectors.top')}
-          <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="connector-count">{total}</span>
-        </h3>
+          <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="connector-count">{hits.count}</span>
+        </h4>
         {more.length > 0 && (
           <button type="button" className="ml-auto flex items-center gap-1 text-sm text-muted hover:text-ink" aria-expanded={all} aria-controls={moreId} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">
             {all ? t('connectors.showLess') : t('connectors.showAll')} <ArrowRight size={14} aria-hidden className={all ? '-rotate-90' : ''} />
           </button>
         )}
       </div>
-      {total ? (
-        <ul className="grid gap-3 sm:grid-cols-2" data-testid="connector-list">{top}</ul>
-      ) : (
-        <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
-      )}
+      <ul className="grid gap-3 sm:grid-cols-2" data-testid="connector-list">{top}</ul>
       {more.length > 0 && (
         <div id={moreId} hidden={!all} className="mt-6">
-          <h3 className="mb-3 text-sm font-medium">{t('connectors.more')}</h3>
+          <h4 className="mb-3 text-sm font-medium text-muted">{t('connectors.more')}</h4>
           <ul className="grid gap-3 sm:grid-cols-2" data-testid="connector-list-more">{more}</ul>
         </div>
       )}

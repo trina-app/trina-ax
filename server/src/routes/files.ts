@@ -59,6 +59,8 @@ export const filesRoutes: RouteModule = {
     }
 
     kit.handle(API.tree, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.tree(auth.user.id, query.path, query.cursor, query.limit)))
+    // who can see a folder (a count only where the caller can write; team-files/service.ts audience)
+    kit.handle(API.folderAudience, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.audience(auth.user.id, query.path)))
 
     kit.handle(API.content, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
       const r = await svc.content(auth.user.id, query.path, query.maxBytes)

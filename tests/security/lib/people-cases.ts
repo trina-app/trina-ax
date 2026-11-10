@@ -27,4 +27,8 @@ export const PEOPLE_SPECS: Record<string, Spec> = {
     scope: 'self',
   },
   deleteMyAvatar: { build: c => c.del('/api/me/avatar'), scope: 'self' },
+  // a status message (docs/DECISIONS.md "상태 메시지"): only one's own; who sees it is the directory's audience
+  // (tests/unit/b-status-message.test.ts)
+  setMyStatus: { build: c => c.req('PUT', '/api/me/status', undefined, J({ emoji: '📅', text: 'In a meeting', clear: '1h' })), scope: 'self' },
+  clearMyStatus: { build: c => c.del('/api/me/status'), scope: 'self' },
 }
