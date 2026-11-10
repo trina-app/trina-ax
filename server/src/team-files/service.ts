@@ -84,6 +84,10 @@ export interface AiTrashPlan {
   lost: number
   /** of those, the people who cannot write it: they cannot see it in the trash, so cannot restore it */
   noRestore: number
+  /** the person may see who can write it (the owner and admins: Admin › Folder permissions), so the card says how many
+   * of those who lose it cannot restore it; anyone else is told the rule without that number, which would say how many
+   * people can write the folder (delete-files.ts deleteCard). The audit keeps both numbers either way. */
+  writersShown: boolean
   /** other people who made or changed these files, as the file history shows them to this person */
   others: UserRef[]
 }
@@ -1386,6 +1390,7 @@ export class TeamFiles {
     return {
       plan: {
         items, entries: total, retentionDays: getTeamSettings(this.ctx.db).trashRetentionDays, lost: lost.size, noRestore: noRestore.size,
+        writersShown: user.role === 'owner' || user.role === 'admin',
         others: [...others].map((id) => refs.get(id) ?? { id, name: id }).sort((a, b) => coll.compare(a.name, b.name)),
       },
     }
