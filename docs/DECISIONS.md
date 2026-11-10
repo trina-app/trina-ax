@@ -18997,3 +18997,35 @@ this page", #263) and "Trina side chat" ("It opens the room's newest side chat")
   ✦: a new chat, the old one in 🕘; a phone; 보기 and ✦ still bring the chat back), `side-chat-attachments.spec.ts`,
   `room-file-viewer.spec.ts`, `room-hover-bar.spec.ts`, `room-drop.spec.ts`.
 - Version impact: **patch** (a behaviour change of one panel; no API, data or text change).
+
+## 메시지 복사는 메시지만 — copying room messages gives their words, not the buttons (fix/clean-message-copy, 2026-11-10)
+
+The owner copied a few messages from a room and pasted "✅ 👀 👍" under every one, the name and time on separate lines
+and many blank lines. The hover bar is in the page for every message (only its opacity hides it), and the reaction
+chips, "답글 N개", "(수정됨)", a file's size and "미리보기" and the avatar's initial were all selectable text.
+
+- **Decision: only a message's words can be selected.** A message row is `select-none`; its words (the text, an AI
+  answer's Markdown, a shared answer's note and answer, the deleted and hidden placeholders) are `select-text`, still
+  none on touch screens (a long press opens the menu there). The hover bar stays in the page: keyboard access and its
+  tests are unchanged.
+- **Decision: several messages copy as plain text, one block each** (`lib/messageCopy.ts`, a `copy` handler on the
+  message list). "Name  2:57 PM" on one line, once per run of one author as the list shows it; then the text; a file as
+  its name on a line of its own; one blank line between messages. A first or last message only partly selected gives the
+  part selected, under its author line. A selection crossing a day keeps the date line, and an event line is a line of
+  its own (both were in the copy before; the least change). It reads the page (the rows, their `select-text` words, the
+  run's name and `<time>`), so the timeline and a thread's panel (root and replies, two lists) copy the same way. No
+  `text/html`: a paste into Slack, Docs or the room's own box gets the same text. Firefox splits a dragged selection
+  around what cannot be selected into several ranges; they are read as one (first start to last end). The parts are
+  read with one off-screen layout per copy (innerText keeps the line breaks); pictures and diagrams are dropped from
+  the copy first.
+- **A selection inside one message is the browser's own copy**, as before, now without "(수정됨)". The same for a
+  selection that reaches the next message's very start (a triple click).
+- **The AI chat and the ✦ side chat** (they share `chat/Messages.tsx`, not the room list): the rows under a message
+  (copy, send here, regenerate, the model name, the branch switch), the steps toggle and Markdown's code, table and
+  quote copy bars are `select-none`, so a copy over a question and its answer is their words. The answer's own copy
+  button (Markdown and HTML) is unchanged.
+- Not done: a rich (HTML) copy of several messages; the AI chat's own multi-message format.
+- Tests: web unit `message-copy.test.ts`; e2e `room-copy.spec.ts` (three runs with a file, a reaction and an edited
+  message with a thread copied clean; a partial first message; Firefox's several ranges; one message as before; a
+  thread's panel; the side chat; a day line and an AI answer with a code block).
+- Version impact: **patch** (a fix; no API or data change).
