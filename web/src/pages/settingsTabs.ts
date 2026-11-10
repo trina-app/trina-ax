@@ -55,3 +55,12 @@ export function settingsTabs(withBrowser: boolean, withCredentials = false, with
 /** Whether the search box finds a section: by its name or by the words of what is inside it ("비밀번호" finds 보안·기기).
  * `q` is the search text, trimmed and in lower case. */
 export const sectionMatches = (tab: SettingsTab, q: string, t: (key: MessageKey) => string) => !q || `${t(tab.label)} ${t(tab.find)} ${(tab.keywords ?? []).join(' ')}`.toLowerCase().includes(q)
+
+/** The name of a Settings address for the phone's ‹ label (lib/backStack.ts): "Settings" for the list, else the
+ * section's own name (알림 is reached from the 알림함 row on a phone, so it is called that); null for anything else. */
+export function settingsPageName(path: string, t: (key: MessageKey) => string): string | null {
+  if (path === '/settings') return t('settings.title')
+  if (!path.startsWith('/settings/')) return null
+  const tab = TABS.find((x) => x.id === path.slice('/settings/'.length).split('/')[0])
+  return tab ? t(tab.id === 'notifications' ? 'inbox.title' : tab.label) : null
+}

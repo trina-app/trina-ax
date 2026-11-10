@@ -10,7 +10,7 @@ import type { Folder, PreviewResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { isSkillsPath } from '../../lib/access-view'
-import { IconButton, Spinner, TabPanel, Tabs, confirmDialog } from '../../components/ui'
+import { IconButton, Spinner, TabPanel, Tabs, confirmDialog, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, useActionOk, useOneAtATime } from './common'
 import { FolderHeaderSlots } from './folder-slots'
 
@@ -95,6 +95,9 @@ export function RemoveRulesButton({ f, label, checking, onClick, testId }: { f: 
 export default function Folders() {
   const t = useT()
   const [params, setParams] = useSearchParams()
+  // a phone: switching between the two views adds no history (Back leaves the page, docs/DECISIONS.md "Admin and
+  // Settings on phones"); "By folder" from a folder's detail still steps back to the tree as before
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const panels = useId()
   const view = params.get('view') === 'people' ? 'people' : 'folders'
   // a fresh start each way: the person, someone new's choices and the folder narrowed to stay with the person view.
@@ -104,7 +107,7 @@ export default function Folders() {
     const q = new URLSearchParams(window.location.search)
     const now = q.get('view') === 'people' ? 'people' : 'folders'
     // "By folder" again while a folder is chosen: back to the tree (the folder leaves the address)
-    if (v !== now || (v === 'folders' && q.has('folder'))) setParams(v === 'people' ? { view: 'people' } : {})
+    if (v !== now || (v === 'folders' && q.has('folder'))) setParams(v === 'people' ? { view: 'people' } : {}, { replace: phone && v !== now })
   }
   // the header stays at the top (like every admin page); the By folder detail column sticks just under it, so the
   // header's height is passed down as --folders-head

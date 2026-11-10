@@ -19534,3 +19534,56 @@ Save. Amends "The keyboard keeps the newest message in sight (end-to-end run, 20
   the line under it, and the keyboard; the tab bar gone while typing). The "app" runs fail without
   the fix. Checked by hand in the iOS 26.5 simulator: Safari and a WKWebView host (before and after).
 - Version impact: **patch** (web app only; no API, data, setting or text change).
+
+## Admin and Settings on phones: a list you tap into (feat/phone-admin-list, 2026-11-10, product owner)
+
+넣을 곳: Team AX core (`web/src/pages/admin/`, `web/src/components/settings/SettingsDialog.tsx`, `web/src/components/phone/`,
+`web/src/lib/backStack.ts`), 이유: the phone app is the web app in a web view, so its navigation is the web app's.
+
+The owner, with a screenshot of Admin on a phone: "Usually it's like iPhone Settings: a vertical scroll, and you tap
+into pages, no?" Below 768 px Admin was a sideways strip of 13 links (1,634 px wide, most of them off screen) above
+Home's cards; Settings already opened on a list, but its rows replaced the history, so the phone's own Back from a
+section left Settings. Plan: `docs/AGENTS/plan/20261110-1336-phone-admin-list.md` (the audit of every page at 390 px,
+the references, the review). This is the first part (navigation); the page patterns follow in their own PRs.
+
+- **Phones (below 768 px):** `/admin` is a list (`PhoneRoot.tsx`): the team's logo and "<team> admin", the scope line,
+  the "needs attention" rows (Home's), the owner's setup steps folded into one row ("Before you start · 2 left", opens in
+  place), then the menu's groups as rows with an icon, a short value ("2", "Claude Code", "$0.47", "5 min ago") or a
+  "N to fix" badge, and a chevron. Values are what Home reads already (`overview.tsx`, one hook for both; no new
+  request); a badge counts the attention rows that open that page, so the two never disagree; a source that failed
+  shows "—". Removed on phones: the strip, Home's cards and headings, the Home row, "Nothing needs attention".
+- **One phone list and one bar** (`components/phone/PhoneList.tsx`, `PhonePageBar.tsx`): Admin's list and the 나 list
+  (Settings) use the same rows (48 px, chevrons, values on the right, hairlines from the name); every phone page with ‹
+  uses the same bar (Admin's, Settings' sections, the top bar's pages under a tab). The phone top bar steps aside for
+  `/admin`, which draws the bar itself.
+- **‹ and its label.** ‹ is `useGoBack` as everywhere (lib/back.ts: back in history, else the list in place of the
+  entry). Its label names where Back goes: "‹ Admin", "‹ Settings", the admin page that opened this one ("‹ Usage"
+  over Team settings' limits); ‹ alone when Back goes somewhere without a name here (Admin opened from ☰ › Search) or to
+  the same page. It is shown only when it fits beside the centred title.
+- **The list is always under a page** (`lib/backStack.ts`). A page entered from outside its list's area (an Inbox
+  notice, a link in a chat or in Settings, a push opening the phone app, a pasted address) gets its entry replaced by
+  the list and is pushed again, keeping `?query` and `#hash`, so Back goes page → list → where you were (Android's
+  "synthetic back stack"). What is under each entry is noted once, when the app first shows it (App.tsx, before the
+  pages render), and used only for this and for the label: Back itself is still the router's history, as "Phone
+  navigation: four tabs" decided. Never on Back/Forward or a reload (except the document's first entry, which the router
+  also reports as POP), never for a page change inside the area, never on a resize or a computer, and only once the page
+  is final (after the old-address redirects and the owner-only check; a member's `/admin/...` still goes home). It runs
+  after the page shows (the router listens to the history only after its first render), which changes nothing on screen.
+- **Scroll:** a page pushed from the list starts at the top (Admin's layout stays mounted, so it carried the list's
+  place); Back to the list or a page puts its place back; a replace (filters), a `#hash` or a `?query` is left to the
+  page. Admin's overview is kept in memory for the session, so the list draws at once on Back and does not jump; the
+  owner's server checks are not asked again within a minute.
+- **Settings on phones:** the same list (the Inbox count as its row's value; the Connections group shows Providers,
+  Connectors and AI apps instead of a lone "More" row), rows that push (computers keep replacing, so closing the dialog
+  still steps back once), the phone bar ("‹ Settings" and the section's name), the list under a section opened from a
+  link, both kept in place for Back.
+- **Folder permissions:** on a phone, By folder ↔ By person replaces its entry (a view of one page adds no history).
+- **From 768 px** (the owner's decision): Admin is the menu column and a page, so tablets (768 to 1023 px) no longer
+  show the cut-off strip. Between 768 and 1023 px the column is a rail of the pages' icons with their names as tips:
+  beside the app's own 280 px sidebar, a named column left the page 280 to 330 px. From 1024 px it is the named sidebar
+  as before.
+- Tests: `web/test/unit/back-stack.test.tsx` (what is under an entry, when the list goes under a page, the label, the
+  scroll, the hook in a router), `web/test/unit/phone-nav.test.tsx`, `web/test/e2e/phone-admin.spec.ts` (the list, row →
+  page → Back with the place kept, a pasted address, an in-app link, a page opening another, Folder permissions' views,
+  Settings' Back, a member, an admin who is not the owner, 820 and 1440 px).
+- Version impact: **minor** (a visible change on phones and tablets; no API, data or permission change).

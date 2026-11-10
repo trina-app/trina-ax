@@ -127,7 +127,7 @@ get the sidebar too, so the strip is gone everywhere. 1024 px and up does not ch
   iPhone app's edge swipe and the browser's back walk the same history.
 - **The list under a page.** When an Admin page is entered from outside Admin (by a push or a replace whose previous
   path was not under `/admin`), or is the first entry of the document (a pasted address, a push opening the phone app,
-  `history.state.idx` 0), its entry is replaced by the list and the page is pushed again, before paint, keeping `?query`
+  `history.state.idx` 0), its entry is replaced by the list and the page is pushed again (nothing changes on screen), keeping `?query`
   and `#hash` (`/admin/settings#ai-limits`, `/admin/members?member=`). Back then goes page → list → where you were (the
   Android "synthetic back stack"). Never on Back or Forward (POP), except the document's first entry (idx 0, which the
   router also reports as POP, with no insertion marker yet); never on a page change inside Admin, never on a resize,

@@ -85,9 +85,9 @@ describe('Settings on a phone', () => {
       expect(row.getAttribute('href')).toBe('/settings/profile')
       expect(row.textContent).toContain('김민아')
       expect(row.textContent).toContain('재무 매니저')
+      // the phone's list (phone/PhoneList.tsx) has no 프로필 row of its own: the photo row is it
       const own = m.get('settings-menu').querySelectorAll('a[href="/settings/profile"]').filter((a) => a !== row)
-      expect(own.length).toBe(1)
-      expect(own[0]!.getAttribute('class')).toContain('max-md:hidden')
+      expect(own.length).toBe(0)
       // starts on its title, not on a button that would show a focus ring
       expect(heading(m).getAttribute('data-autofocus')).not.toBeNull()
       expect((globalThis.document as unknown as { activeElement: unknown }).activeElement).toBe(heading(m))
@@ -112,7 +112,8 @@ describe('Settings on a phone', () => {
     const m = await dialog('/settings')
     try {
       expect(heading(m).getAttribute('data-autofocus')).toBeNull()
-      expect(m.get('settings-me').getAttribute('class')).toContain('md:hidden')
+      // a computer's list is the sections only (the phone list with the photo row is drawn on a phone only)
+      expect(m.find('settings-me')).toBeNull()
     } finally {
       await m.unmount()
     }
