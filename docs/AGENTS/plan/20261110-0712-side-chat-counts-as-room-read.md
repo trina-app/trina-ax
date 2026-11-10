@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 07:12
 - Branch: `fix/side-chat-counts-as-room-read`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/chat/`. Why: the room-read rule is Team AX core chat permissions (see
   docs/REPOSITORY-RULES.md).
 - Version impact: patch. A security consistency fix; no API, data or migration change.
@@ -59,4 +59,18 @@ switches to the helper when it lands; the PR body says so).
 
 ## Result
 
-Filled in at the end.
+As planned. `server/src/chat/read-rooms.ts` `readRooms(exec)` (`rooms_seen`, then `side_room_id`, then a `>` line in a
+user message on the branch; the side chat and quote part kept per turn in a WeakMap, `rooms_seen` read each time). Used
+in `delete-files.ts` (refusal), `skill-files.ts` (S7, both checks, one reason text), `turn.ts` (`confirmRoomChange`,
+whose read-only set is now checked first; `ownCard`; `syncOutsideMark`) and `tools.ts` (`remember`). Through `ownCard`
+these follow too, unchanged: `TurnPerson.roomsSeen` for moves, connections and the URL gate, and the room line on the
+`connect_service` and `move_skill` cards. Left on `rooms_seen`: the audit's hidden descriptions and URLs,
+`answer-share.ts`, `post-to-room.ts`'s card line. DECISIONS.md entry and CHANGELOG line added.
+
+Checks: `bun run typecheck`, `bun run check:i18n` (0 issues), `bun run check:docs`, `bun run build:native`.
+`b-side-chat` 5 pass, `ai-delete-files` 32 pass, `skill-files` 42 pass, `b-chat-rooms` 35, `b-chat-rooms-save` 9,
+`b-chat-rooms-fewer-cards` 24, `b-post-to-room` 20, `b-rooms-ai-shared-chats` 16, `b-rooms-ai-threads` 17,
+`b-chat-titles` 20, `c-slack` 63, `room-file-pdf` 15, `room-reads-shared-chats` 6, `safe-ops-matrix` 14, all 0 fail.
+`permission-matrix`: 2341 pass, 3 fail, the same 3 on base `dev` without this change (route coverage: 46 routes have no
+case; `driveShareFolders` answers 404 `drive_not_found`). The new side chat and quote tests fail on the old gate code
+and pass with it.

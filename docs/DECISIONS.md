@@ -18535,3 +18535,31 @@ card.
   folder; a clean chat copies it and another moves it; a planted folder name moved by the person keeps its mark and one
   renamed by the person to a name of theirs does not; a walk cut short; each of the five fails on #275's code).
 - Version impact: **patch** (a fix; no API, data or setting change).
+
+## 대화방을 읽은 채팅 — one rule: a side chat and a quoted message count (fix/side-chat-counts-as-room-read, 2026-11-10)
+
+Amends "내 AI 채팅에서 대화방 읽기", "AI가 휴지통으로 옮기기", "Skill folders: the AI's file actions" (S7) and "대화방을 읽은 뒤
+카드 줄이기".
+
+- **Why:** the person's own chat counted as having read rooms only once a room tool ran (`chats.rooms_seen`). In a ✦
+  side chat, "Ask Trina about this" puts another person's message, up to 4,000 characters, into the person's own
+  message as a `>` quote, and no room tool has to run. Planted words in it could reach `delete_files`, a skill folder
+  through `skill_files`, or a team file without the room card. PR #310 (`change_project_members`) already counted a
+  side chat and a quote.
+- **The rule** (`server/src/chat/read-rooms.ts` `readRooms`): `chats.rooms_seen`, or a side chat (`chats.side_room_id`),
+  or a line that starts with `>` (spaces before it allowed) in a user message on this answer's branch. Any quote
+  counts, a pasted one too: its words are not the person's. An edit that takes the quote out leaves it on the old
+  branch only. Read when needed (no new column); the side chat and quote part is kept per turn.
+- **Where it is used:** `delete_files`'s refusal, `skill_files` S7 (both checks), the room card in the person's own
+  chat (`confirmRoomChange`) and the tools whose own card stands in for it (`ownCard`, and so `TurnPerson.roomsSeen`
+  for moves, connections and the URL gate), `remember`'s confirm, and the turn's outside mark (a file the turn writes
+  carries level 2).
+- **Left on `rooms_seen`:** the audit's hidden sub-agent descriptions and URLs (what admins read, not a gate);
+  "대화방에 보내기"'s audience check (who can see what an answer holds, not whether planted words may act); the line on
+  `post_to_room`'s card (that card is asked every time; wording only).
+- **Cost:** an own chat with a `>` line gets the room card before team changes, as after a room read; a side chat gets
+  it before the AI read its room. A new file in the person's own folder still needs none.
+- Tests: `ai-delete-files.test.ts` (a side chat with a quote, a quote in a plain chat, a plain chat with "3 > 2"),
+  `skill-files.test.ts` (S7 in a side chat with a quote; the same copy in a plain chat gets its card),
+  `b-side-chat.test.ts` (the rule's three ways in, an edited branch).
+- Version impact: **patch** (a security consistency fix; no API, data or setting change).
