@@ -18,7 +18,7 @@
 //  - Nothing from these calls is logged; errors become DriveError codes without the answer's body.
 import crypto, { type KeyObject } from 'node:crypto'
 import {
-  DRIVE_BROKER_MAX_BODY_BYTES, DRIVE_BROKER_PATHS, driveBrokerAuthorization, driveBrokerSigningString,
+  DRIVE_BROKER_MAX_BODY_BYTES, DRIVE_BROKER_PATHS, driveBrokerAuthorization, driveBrokerConnectUrl, driveBrokerSigningString,
   type DriveBrokerOp, type DriveBrokerPurpose,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
@@ -92,14 +92,17 @@ export class DriveBroker {
   async ready(signal?: AbortSignal): Promise<boolean> {
     try { return (await this.call('status', { v: 1 }, signal)).ok === true } catch { return false }
   }
-  async start(purpose: DriveBrokerPurpose, returnState: string, codeChallenge: string): Promise<string> {
+  /** Google's sign-in address for this flow, and the hosting service's own start page for it when it sent one
+   * (connectUrl: kept only when it is exactly that page on the configured origin, else dropped). */
+  async start(purpose: DriveBrokerPurpose, returnState: string, codeChallenge: string): Promise<{ authorizationUrl: string; connectUrl?: string }> {
     const j = await this.call('start', { v: 1, purpose, returnState, codeChallenge })
     const url = typeof j.authorizationUrl === 'string' ? j.authorizationUrl : ''
-    // only ever send a person to Google's own sign-in page
+    // only ever send a person to Google's own sign-in page, or to the hosting service's page on the origin set here
     let u: URL
     try { u = new URL(url) } catch { throw new DriveError('broker_unavailable', 503) }
     if (u.protocol !== 'https:' || u.hostname !== 'accounts.google.com') throw new DriveError('broker_unavailable', 503)
-    return u.href
+    const connectUrl = driveBrokerConnectUrl(this.o.origin, j.connectUrl)
+    return connectUrl ? { authorizationUrl: u.href, connectUrl } : { authorizationUrl: u.href }
   }
   /** Google's token answer (access_token, expires_in, scope; refresh_token = the SEALED token). */
   redeem(handoff: string, codeVerifier: string, signal?: AbortSignal) { return this.call('redeem', { v: 1, handoff, codeVerifier }, signal) }

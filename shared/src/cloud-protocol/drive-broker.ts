@@ -18,8 +18,13 @@
 // for a hosted team's primary tenant (enroll); nothing else is trusted, no first use.
 //
 // Flow:
-//   1. POST {api}/start   (signed) { purpose, returnState, codeChallenge }  → { authorizationUrl, expiresAt }
+//   1. POST {api}/start   (signed) { purpose, returnState, codeChallenge }  → { authorizationUrl, connectUrl?, expiresAt }
 //      The team server made `returnState` (its own flow state) and `codeChallenge` = S256(its own verifier).
+//      `connectUrl` (optional, newer control planes): the control plane's own page for this sign-in,
+//      {console origin}DRIVE_BROKER_CONNECT_PATH?state=<the state sent to Google>. It names the team, explains Google's
+//      consent screen and links on to `authorizationUrl`. A team server opens it only when it is exactly that shape on
+//      its configured console origin (driveBrokerConnectUrl); otherwise, and on older team servers, the browser goes to
+//      `authorizationUrl` directly, as before.
 //   2. The browser signs in at Google, which returns to {console origin}DRIVE_BROKER_CALLBACK_PATH?state&code. The
 //      control plane sends the browser ONLY to the address of the team that started (from its own records, never from
 //      the request): https://<team>.<teamDomain>DRIVE_BROKER_TEAM_RETURN_PATH?state=<returnState>&handoff=<code>
@@ -55,6 +60,8 @@ export const DRIVE_BROKER_PATHS = {
 export type DriveBrokerOp = keyof typeof DRIVE_BROKER_PATHS
 /** Google's return address on the console host: the ONE address registered at Google */
 export const DRIVE_BROKER_CALLBACK_PATH = '/drive-broker/google/callback'
+/** the control plane's page that starts a sign-in in the browser (then Google): `connectUrl` of the start answer */
+export const DRIVE_BROKER_CONNECT_PATH = '/drive-broker/connect'
 /** where the control plane sends the browser back on the team's own address (the team server's Drive callback) */
 export const DRIVE_BROKER_TEAM_RETURN_PATH = '/api/integrations/google-drive/callback'
 export const DRIVE_BROKER_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
@@ -70,7 +77,7 @@ export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnSta
 export interface DriveBrokerRedeem { v: 1; handoff: string; codeVerifier: string }
 export interface DriveBrokerRefresh { v: 1; refreshToken: string }
 export interface DriveBrokerStatus { v: 1 }
-export interface DriveBrokerStartAnswer { authorizationUrl: string; expiresAt: string }
+export interface DriveBrokerStartAnswer { authorizationUrl: string; connectUrl?: string; expiresAt: string }
 export interface DriveBrokerTokenAnswer { access_token: string; expires_in: number; scope: string; token_type: string; refresh_token?: string }
 export interface DriveBrokerRevokeAnswer { revocation: 'revoked' | 'unavailable' }
 
@@ -156,6 +163,25 @@ export function parseDriveBrokerAuthorization(header: string | null | undefined)
   if (!m) return null
   const ts = Number(m[2])
   return Number.isSafeInteger(ts) ? { key: m[1]!, ts, nonce: m[3]!, sig: m[4]! } : null
+}
+
+/** The control plane's start page for a sign-in: {origin}DRIVE_BROKER_CONNECT_PATH?state=<state>. */
+export function driveBrokerConnectPage(origin: string, state: string): string {
+  const u = new URL(origin.replace(/\/+$/, '') + DRIVE_BROKER_CONNECT_PATH)
+  u.searchParams.set('state', state)
+  return u.href
+}
+
+/** `url` when it is exactly the control plane's start page on `origin` (same origin, the path, only a 43-character
+ * `state`, no credentials or fragment); otherwise null. A team server checks a start answer's `connectUrl` with it. */
+export function driveBrokerConnectUrl(origin: string, url: unknown): string | null {
+  if (typeof url !== 'string' || url.length > 512) return null
+  let u: URL, o: URL
+  try { u = new URL(url); o = new URL(origin) } catch { return null }
+  if (u.origin !== o.origin || u.username || u.password || u.hash || u.pathname !== DRIVE_BROKER_CONNECT_PATH) return null
+  const keys = [...u.searchParams.keys()]
+  if (keys.length !== 1 || keys[0] !== 'state' || !B64URL43.test(u.searchParams.get('state') ?? '')) return null
+  return u.href
 }
 
 /** The team's return address for a sign-in: only ever built from the team's own address (the control plane's records:
