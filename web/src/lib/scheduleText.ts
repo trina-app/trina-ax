@@ -22,9 +22,17 @@ export const scheduleName = (s: Schedule, t: T) =>
 const weekdayName = (n: number, locale: Locale) =>
   new Intl.DateTimeFormat(TAG[locale] ?? locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
 
+/** A one-time task's day ("2026-10-29") in the person's words ("Oct 29, 2026", "2026. 10. 29."), as the weekday is
+ * (QA TC-073: the card showed the stored form). The day is the team's own date: read and shown in UTC, never shifted. */
+export const onceDate = (date: string | null | undefined, locale: Locale) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? '')
+  if (!m) return date ?? ''
+  return new Intl.DateTimeFormat(TAG[locale] ?? locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!)))
+}
+
 /** "Weekdays (Mon–Fri) at 09:00", in the team's time zone (the times the server keeps). */
 export const repeatText = (s: Schedule, t: T, locale: Locale) =>
-  t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday: weekdayName(s.weekday ?? 0, locale) })
+  t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: onceDate(s.date, locale), day: String(s.day ?? ''), weekday: weekdayName(s.weekday ?? 0, locale) })
 
 /** on · paused · waiting for its owner's check ("다시 확인") · a one-time task that ran or whose time passed */
 export type ScheduleState = 'on' | 'paused' | 'review' | 'completed' | 'expired'
