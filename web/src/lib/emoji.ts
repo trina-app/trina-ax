@@ -43,7 +43,7 @@ export function parseEmoji(en: string, local?: string): Emoji[] {
   return out
 }
 
-const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힯]/
+const HANGUL = /[\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uAC00-\uD7AF]/
 /** Does the search need the Korean names? */
 export const hasHangul = (s: string) => HANGUL.test(s)
 
