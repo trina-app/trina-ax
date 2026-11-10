@@ -241,7 +241,9 @@ export class RoomSound {
 /** Two soft notes up a fourth (G5, C6), each a sine with a quiet octave above it; about 0.7 s, made here at run time
  * (no sound file). */
 export const CHIME_NOTES = [{ hz: 783.99, at: 0 }, { hz: 1046.5, at: 0.12 }] as const
-export const CHIME_VOLUME = 0.12
+/** Master gain. 0.12 was too quiet (owner, 2026-11-10); 0.36 is three times the amplitude (+9.5 dB). The mixed peak of
+ * all four partials is about 0.43 at the output (a test renders it), under the clip limit, so no compressor is needed. */
+export const CHIME_VOLUME = 0.36
 
 type Ctx = Pick<AudioContext, 'state' | 'currentTime' | 'destination' | 'resume' | 'suspend' | 'createGain' | 'createOscillator' | 'createBuffer' | 'createBufferSource'>
 
