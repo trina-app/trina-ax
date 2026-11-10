@@ -1,0 +1,133 @@
+// Settings › Apps: which phone and desktop app rows show on each device and in each build, and what each offers
+// (lib/apps.ts, components/settings/AppList.tsx). Fixture links only: nothing here is fetched.
+import { describe, expect, test } from 'bun:test'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { APP_DOWNLOADS } from '@mycel/shared'
+import { currentLocale, translate } from '../../src/i18n'
+import { computerApps, noComputerApps, phoneApps, type AppClient, type AppRow } from '../../src/lib/apps'
+import { ComputerApps, PhoneApps } from '../../src/components/settings/AppList'
+
+/** an edition like Trina's today: App Store for iPhone and Mac, no Google Play or Microsoft Store yet, a download page */
+const ACME = { page: 'https://acme.example/download', iphone: 'https://apps.example/acme?platform=iphone', android: '', mac: 'https://apps.example/acme?platform=mac', windows: '' }
+const FULL = { ...ACME, android: 'https://play.example/acme', windows: 'https://store.example/acme' }
+/** store listings but no download page: one QR code per phone */
+const NO_PAGE = { ...FULL, page: '' }
+/** a self-hosted build or another edition: nothing */
+const NONE = { page: '', iphone: '', android: '', mac: '', windows: '' }
+const win = { platform: 'windows' as const, file: 'Acme-Setup-0.1.0-x64.exe', version: '0.1.0', size: 1000 }
+const mac = { platform: 'mac' as const, file: 'Acme-0.1.0-mac-universal.dmg', version: '0.1.0' }
+
+const web = (here: AppClient['here']): AppClient => ({ kind: 'web', here, store: false })
+const desktop = (here: AppClient['here'], store = false): AppClient => ({ kind: 'desktop', here, store })
+const phoneApp = (here: 'ios' | 'android'): AppClient => ({ kind: 'mobile', here, store: false })
+/** a row in short: "os:action[:this-app][:this-device]" */
+const short = (rows: AppRow[]) => rows.map((r) => [r.os, r.action?.kind ?? '-', r.thisApp && 'this-app', r.thisDevice && 'this-device'].filter(Boolean).join(':'))
+const l = currentLocale()
+
+describe('phone apps', () => {
+  test('a computer lists iPhone and Android, with one QR code of the download page', () => {
+    for (const c of [web('mac'), web('windows'), web('other'), desktop('windows', true), desktop('mac')]) {
+      const p = phoneApps(ACME, c)
+      expect(short(p.rows), JSON.stringify(c)).toEqual(['iphone:store', 'android:page'])
+      expect(p.qr).toBe(ACME.page)
+    }
+    expect(phoneApps(FULL, web('mac')).rows.map((r) => r.action)).toEqual([{ kind: 'store', href: FULL.iphone }, { kind: 'store', href: FULL.android }])
+  })
+  test('a phone in a browser shows only its own store', () => {
+    expect(short(phoneApps(ACME, web('ios')).rows)).toEqual(['iphone:store:this-device'])
+    expect(short(phoneApps(ACME, web('android')).rows)).toEqual(['android:page:this-device'])
+    expect(short(phoneApps(FULL, web('android')).rows)).toEqual(['android:store:this-device'])
+    expect(phoneApps(FULL, web('ios')).qr).toBeNull()
+  })
+  test('the phone app collapses to "This app", in any build', () => {
+    for (const links of [ACME, NONE]) {
+      expect(short(phoneApps(links, phoneApp('ios')).rows)).toEqual(['iphone:-:this-app:this-device'])
+      expect(short(phoneApps(links, phoneApp('android')).rows)).toEqual(['android:-:this-app:this-device'])
+      expect(phoneApps(links, phoneApp('ios')).qr).toBeNull()
+    }
+  })
+  test('the Mac App Store build names no other mobile platform (App Review 2.3.10): iPhone only, the QR code to the page', () => {
+    const p = phoneApps(FULL, desktop('mac', true))
+    expect(short(p.rows)).toEqual(['iphone:store'])
+    expect(p.qr).toBe(FULL.page)
+    const html = renderToStaticMarkup(createElement('div', null,
+      createElement(PhoneApps, { links: FULL, client: desktop('mac', true) }),
+      createElement(ComputerApps, { links: FULL, client: desktop('mac', true), downloads: [win, mac], owner: true })))
+    expect(html).not.toMatch(/Android|Google Play/)
+  })
+  test('without links: no rows (the section is left out); without a page: no shared QR code', () => {
+    for (const c of [web('mac'), web('ios'), web('android'), desktop('mac', true)]) expect(phoneApps(NONE, c)).toEqual({ rows: [], qr: null })
+    expect(phoneApps(NO_PAGE, web('mac')).qr).toBeNull()
+    expect(short(phoneApps({ ...NONE, page: ACME.page }, web('mac')).rows)).toEqual(['iphone:page', 'android:page'])
+  })
+  test('what it renders: links that open outside, one small QR code on a computer, none on a phone', () => {
+    const qrLabel = translate(l, 'apps.qrLabel')
+    const computer = renderToStaticMarkup(createElement(PhoneApps, { links: ACME, client: web('mac') }))
+    expect(computer).toContain(`href="${ACME.iphone}"`)
+    expect(computer).toContain(`href="${ACME.page}"`)
+    expect(computer.match(/target="_blank" rel="noopener noreferrer"/g)).toHaveLength(2)
+    expect(computer.match(/<svg role="img"/g)).toHaveLength(1)
+    expect(computer).toContain(`aria-label="${qrLabel}"`)
+    expect(computer).toContain('App Store')
+    expect(computer).toContain(translate(l, 'apps.scanQr').replaceAll("'", '&#x27;'))
+    const phone = renderToStaticMarkup(createElement(PhoneApps, { links: ACME, client: web('ios') }))
+    expect(phone).not.toContain('<svg role="img"')
+    expect(phone).not.toContain('app-row-android')
+    expect(phone).toContain(`href="${ACME.iphone}"`)
+    // no page: each phone its own small code
+    expect(renderToStaticMarkup(createElement(PhoneApps, { links: NO_PAGE, client: web('mac') })).match(/<svg role="img"/g)).toHaveLength(2)
+    // the phone app: "This app", no link
+    const app = renderToStaticMarkup(createElement(PhoneApps, { links: ACME, client: phoneApp('ios') }))
+    expect(app).toContain(translate(l, 'apps.thisApp'))
+    expect(app).not.toContain('href=')
+    expect(renderToStaticMarkup(createElement(PhoneApps, { links: NONE, client: web('mac') }))).toBe('')
+  })
+})
+
+describe('desktop apps', () => {
+  test("the team server's installer first, else the store listing, else the download page", () => {
+    expect(short(computerApps(ACME, web('mac'), []))).toEqual(['mac:store:this-device', 'windows:page'])
+    expect(short(computerApps(ACME, web('mac'), [win]))).toEqual(['mac:store:this-device', 'windows:files'])
+    expect(short(computerApps(ACME, web('windows'), [mac, win]))).toEqual(['mac:files', 'windows:files:this-device'])
+    expect(short(computerApps(FULL, web('other'), []))).toEqual(['mac:store', 'windows:store'])
+    expect(short(computerApps(ACME, phoneApp('ios'), [win]))).toEqual(['mac:store', 'windows:files'])
+  })
+  test('a store build: its own row is "This app" with no action, and no installer file anywhere', () => {
+    expect(short(computerApps(ACME, desktop('mac', true), [win, mac]))).toEqual(['mac:-:this-app:this-device', 'windows:page'])
+    expect(short(computerApps(FULL, desktop('windows', true), [win, mac]))).toEqual(['mac:store', 'windows:-:this-app:this-device'])
+    expect(short(computerApps(NONE, desktop('mac', true), [win]))).toEqual(['mac:-:this-app:this-device'])
+    expect(noComputerApps(computerApps(NONE, desktop('mac', true), []))).toBe(false)
+  })
+  test('the desktop app from the team server: "This app" with its installer, and how it updates', () => {
+    expect(short(computerApps(NONE, desktop('windows'), [win]))).toEqual(['windows:files:this-app:this-device'])
+    expect(short(computerApps(ACME, desktop('mac'), []))).toEqual(['mac:store:this-app:this-device', 'windows:page'])
+    const pc = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: desktop('windows'), downloads: [win], owner: false }))
+    expect(pc).toContain(translate(l, 'apps.thisApp'))
+    expect(pc).toContain(translate(l, 'apps.updatesItself'))
+    const dmg = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: desktop('mac'), downloads: [mac], owner: false }))
+    expect(dmg).toContain(translate(l, 'apps.macUpdates'))
+  })
+  test('no links and no installers: nothing to list, the empty state instead', () => {
+    for (const c of [web('mac'), web('windows'), web('other'), web('ios'), phoneApp('android')]) expect(noComputerApps(computerApps(NONE, c, []))).toBe(true)
+    // a Mac in a browser keeps its row only when there is something else to show
+    expect(short(computerApps(NONE, web('mac'), [win]))).toEqual(['mac:-:this-device', 'windows:files'])
+    const html = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: web('mac'), downloads: 'none', owner: false }))
+    expect(html).toBe(`<p class="text-sm text-muted">${translate(l, 'apps.noDownloads')}</p>`)
+  })
+  test('store listings and the download page open outside; installer files download from the team server', () => {
+    const html = renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: [win], owner: false }))
+    expect(html).toContain(`href="${ACME.mac}"`)
+    expect(html).toContain('href="/downloads/Acme-Setup-0.1.0-x64.exe" download=""')
+    expect(html).toContain(translate(l, 'apps.thisComputer'))
+    // a loading list (no store build) is a skeleton, not an empty state
+    expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: null, owner: false }))).toContain('animate-pulse')
+  })
+})
+
+test("the build's own links are https addresses or empty, and none is a file the page would download", () => {
+  for (const [k, v] of Object.entries(APP_DOWNLOADS)) {
+    if (v) expect(v, k).toMatch(/^https:\/\/[^/'"\s]+/)
+    expect(v, k).not.toMatch(/\.(apk|exe|dmg|msix|pkg)$/i)
+  }
+})

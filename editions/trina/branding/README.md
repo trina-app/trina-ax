@@ -20,6 +20,10 @@
 
 [mobile.json](mobile.json)은 휴대폰 앱의 이름, 색, bundle id(`app.trina.ax`), Apple 팀 ID를 정하고, [mobile/](mobile/)에는 웹 마크(`web/public/favicon.svg`)로 만든 앱 아이콘·Android 아이콘 전경·시작 화면 이미지(PNG)와 그 SVG 원본이 있습니다. `mobile/`에서 `MYCEL_MOBILE_EDITION=trina`로 빌드하면 적용되고, 없으면 중립 Team AX 앱입니다. 휴대폰 푸시는 팀 서버 운영자가 푸시 게이트웨이(`MYCEL_PUSH_GATEWAY` 또는 server.json의 `push.gatewayUrl`, 트리나 호스팅: `https://push.trina.app`)를 정해야 켜집니다. 스토어 제출에 필요한 것은 [STORE-SUBMISSION.md](../../../mobile/STORE-SUBMISSION.md)에 있습니다.
 
+## 앱 받는 곳
+
+[apps.json](apps.json)은 설정 › 앱에 보이는 앱 링크입니다. 다운로드 페이지(`page`, 컴퓨터에서는 이 주소의 QR 코드가 나옵니다), App Store의 아이폰·맥 앱(`iphone`, `mac`), Google Play(`android`)와 Microsoft Store(`windows`)이고, 아직 없는 것은 `""`입니다. 버전마다 바뀌는 주소(피드의 APK, 윈도우 설치 파일)는 넣지 않습니다. 안드로이드는 Play가 열릴 때까지 다운로드 페이지로, 윈도우는 팀 서버의 설치 파일로 갑니다. `bun scripts/edition-apps.ts editions/trina/branding/apps.json`으로 검토하고 `--apply`로 `shared/src/app-downloads.ts`에 적용합니다. 웹사이트 다운로드 페이지도 같은 링크를 따로 갖고 있으니 스토어 주소가 바뀌면 둘 다 고칩니다.
+
 ## 서비스 주소
 
 [service.json](service.json)은 팀 도메인과 공식 중계·계정·상태 페이지의 기본 주소를 정합니다. `bun scripts/edition-service.ts editions/trina/branding/service.json`으로 검토하고, `--apply`로 `shared/src/service-hosts.ts`에 적용합니다. 주소 설정 자체는 서비스 가용성이나 무료 등록을 보장하지 않습니다. 공식 중계 등록에는 발급받은 연결 코드가 필요합니다. 기존 LaunchDaemon 이름과 데이터 경로는 호환성을 위해 유지합니다.
