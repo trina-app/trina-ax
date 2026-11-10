@@ -12,12 +12,18 @@ import path from 'node:path'
 import { API, uuidv7, type RoomAiRun, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { makePng } from '../lib/images'
-import { makePdf } from '../lib/pdf'
+import { CCITT_SCAN, makePagesPdf, makePdf } from '../lib/pdf'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOM_TOOLS } from '../../server/src/rooms/ai-tools'
 import { pointsBack } from '../../server/src/rooms/ai'
+import { nativeBinDir, ocrBin, which } from '../../server/src/config'
+import { isolation } from '../../server/src/tools/isolate'
+import { visionTools } from '../../server/src/files/vision'
 
 setDefaultTimeout(60_000)
+// a PDF page drawn and normalized for real (pdftoppm or PDFKit, mycel-safeops, the converter isolation)
+const TOOLS = visionTools({ nativeBin: nativeBinDir(), pdftotext: which('pdftotext'), ocr: ocrBin(), which })
+const pageRenderer = !!TOOLS.normalizer && isolation() !== 'none' && !!(TOOLS.pdfkit || TOOLS.pdftoppm) && !!(TOOLS.pdftotext || TOOLS.pdfkit)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 
@@ -104,6 +110,18 @@ describe("the asking message's own files", () => {
     expect(a.body).toContain('Payment due in 30 days.')
     expect(a.body).toContain('in this room')
     expect(events(run.turnId).filter((e) => e.tool === 'room_file').map((e) => e.ok)).toEqual([1, 1])
+  })
+
+  test.skipIf(!pageRenderer)('a scanned PDF with the question: its page without a text layer comes as an image, the other as text', async () => {
+    const roomId = await teamRoom(['alice', 'erin'])
+    const scan = await upload('alice', roomId, '스캔.pdf', makePagesPdf([{ lines: ['A first page with a real text layer, long enough.'] }, { image: CCITT_SCAN }]))
+    const q = await send('alice', roomId, `@트리나 읽어줘\n${fake({ tool: 'room_file', args: { file: scan.id }, expectImage: true, sayResult: true }, { say: ' | ' }, { tool: 'room_file', args: { file: scan.id, pages: '1' }, sayResult: true })}`, { fileIds: [scan.id] })
+    const run = await done('alice', q)
+    expect(run.state).toBe('done')
+    const a = (await answerTo('alice', roomId, q))!
+    expect(a.body).toContain('IMAGE_BLOCK_OK:image/jpeg')
+    expect(a.body).toContain('A first page with a real text layer')
+    expect(events(run.turnId).filter((e) => e.tool === 'room_file').map((e) => e.summary)).toEqual(['room_file -> PDF pages 1-2 of 2, 1 image', 'room_file -> PDF pages 1 of 2, 0 images'])
   })
 
   test('a question in a thread with a file: listed with it and read', async () => {
