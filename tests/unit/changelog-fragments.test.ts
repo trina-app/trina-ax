@@ -97,6 +97,12 @@ test('check: a new line under ## Unreleased fails and says to use changelog.d/<s
   expect(checkChangelog(repo({}, `# Changelog\n\n${OLDER}`))[0]).toContain('"## Unreleased" heading is missing')
 })
 
+test('collect: carried Unreleased entries go to the front of their own group, paragraph or bullet', () => {
+  const old = `${HEAD}- Old bullet.\n  - its sub-point\n\n**Upgrade note:** old note.\n\n${UNRELEASED_NOTE}\n\n${OLDER}`
+  const r = collect(repo({ 'a.md': '- A\n', 'p.md': '**Also:** a paragraph fragment.\n' }, old), { version: '1.1.0', date: '2026-11-11' })
+  expect(r.section).toBe('## 1.1.0 — 2026-11-11\n\n**Upgrade note:** old note.\n\n**Also:** a paragraph fragment.\n\n- Old bullet.\n  - its sub-point\n- A\n')
+})
+
 test('a merge that kept both sides: copies of fragments are reported once, and collect drops them', () => {
   const both = `${HEAD}- B, a copy.\n- New, written the old way.\n- A, a copy.\n${UNRELEASED_NOTE}\n\n${OLDER}`
   const problems = checkChangelog(repo({ 'a.md': '- A, a copy.\n', 'b.md': '- B, a copy.\n' }, both))
@@ -114,12 +120,18 @@ test('check: headings, rules, open code blocks, conflict markers, bad names and 
   expect(fragmentProblems('f.md', 'Title\n=====\n')[0]).toContain('f.md:2: a heading or a rule line')
   expect(fragmentProblems('f.md', '- x\n```sh\nbun run x\n')).toEqual(['f.md: a code block (```) is not closed; it would swallow the rest of CHANGELOG.md.'])
   expect(fragmentProblems('f.md', '- x\n```md\n# not a heading inside code\n```\n')).toEqual([])
+  expect(fragmentProblems('f.md', '- x\n```\ncode\n```js\n')).toEqual(['f.md: a code block (```) is not closed; it would swallow the rest of CHANGELOG.md.'])
+  expect(fragmentProblems('f.md', '- x <!-- todo\n')).toEqual(['f.md: an HTML comment (<!--) is not closed; it would hide the rest of CHANGELOG.md.'])
+  expect(fragmentProblems('f.md', '- x <!-- fine -->\n')).toEqual([])
+  for (const text of ['Note\n--', 'Note\n=', '- x\n\n* * *']) expect(fragmentProblems('f.md', text)[0]).toContain('a heading or a rule line')
+  expect(fragmentProblems('f.md', '- x - y -- z\n  - a sub-point\n')).toEqual([])
   expect(fragmentProblems('f.md', '- x\n||||||| 878a597a\n')[0]).toContain('f.md:2: a merge-conflict marker')
   expect(fragmentProblems('f.md', '- x\n=======\n')[0]).toContain('merge-conflict marker')
   expect(fragmentProblems('f.md', 'a\u0000b')[0]).toContain('not plain text')
-  const root = repo({ 'Bad Name.md': '- x\n', 'notes.txt': '- x\n', 'bin.md': Buffer.from([0x2d, 0x20, 0xff, 0xfe]) })
+  const root = repo({ 'Bad Name.md': '- x\n', 'notes.txt': '- x\n', 'bin.md': Buffer.from([0x2d, 0x20, 0xff, 0xfe]), '.hidden-fix.md': '- x\n' })
   const problems = checkChangelog(root)
-  expect(problems).toHaveLength(3)
+  expect(problems).toHaveLength(4)
+  expect(problems.join('\n')).toContain('changelog.d/.hidden-fix.md: name it like')
   expect(problems.join('\n')).toContain('changelog.d/Bad Name.md: name it like room-drop-anywhere.md')
   expect(problems.join('\n')).toContain('changelog.d/notes.txt: name it like')
   expect(problems.join('\n')).toContain('changelog.d/bin.md: not UTF-8 text.')

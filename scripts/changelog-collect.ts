@@ -4,9 +4,9 @@
 //   bun run changelog:collect [<version>] [--date YYYY-MM-DD] [--dry-run]
 // <version> defaults to server/package.json's (bump it first); the date defaults to today on this computer. The new
 // "## <version> — <date>" goes right under "## Unreleased" and its note. Paragraph fragments (an upgrade note) come
-// first, then the bullets; within each group the order is the file name (no git history needed). Lines someone still
-// wrote under "## Unreleased" are carried into the new section first, so nothing is lost. The fragments are deleted;
-// README.md stays. Nothing is written or deleted when a fragment breaks a rule below. --dry-run prints the section.
+// first, then the bullets; within each group the order is the file name (no git history needed). Entries someone still
+// wrote under "## Unreleased" are carried in too, each at the front of its group, so nothing is lost; copies of a
+// fragment's lines there are dropped, so nothing shows twice. The fragments are deleted; README.md stays. Nothing is written or deleted when a fragment breaks a rule below. --dry-run prints the section.
 // The CI check (scripts/check-changelog.ts, in `bun run check:docs`) uses the same rules.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,9 +18,10 @@ export const UNRELEASED = '## Unreleased'
 /** The only text under "## Unreleased" in CHANGELOG.md. */
 export const UNRELEASED_NOTE =
   'Changes merged since the last release are in [changelog.d/](changelog.d/), one file per change; the next release moves them here.'
-/** Files in changelog.d/ that are not entries (besides hidden files such as .gitkeep or .DS_Store). */
+/** Files in changelog.d/ that are not entries (besides hidden files such as .gitkeep or .DS_Store; a hidden .md is
+ * an entry with a bad name, so it is not lost silently). */
 const NOT_ENTRIES = new Set(['README.md'])
-const NAME_RE = /^[a-z0-9][a-z0-9._-]*\.md$/
+const NAME_RE = /^[a-z0-9][a-z0-9-]*\.md$/
 const VERSION_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 const WHERE = 'changelog.d/<slug>.md (one new file per change, see changelog.d/README.md)'
 
@@ -37,21 +38,27 @@ export function fragmentProblems(file: string, text: string): string[] {
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) return [`${file}: not plain text (control characters). Write the entry as Markdown text.`]
   const problems: string[] = []
   let fence: string | null = null
-  text.split('\n').forEach((line, i) => {
+  const lines = text.split('\n')
+  lines.forEach((line, i) => {
     const at = `${file}:${i + 1}`
     if (isConflictMarker(line)) { problems.push(`${at}: a merge-conflict marker. Resolve the conflict and delete the marker line.`); return }
-    const f = /^ {0,3}(`{3,}|~{3,})/.exec(line)
-    if (f) {
-      if (!fence) fence = f[1]!
-      else if (f[1]![0] === fence[0] && f[1]!.length >= fence.length) fence = null
+    if (fence) {
+      // only a bare fence of the same kind, at least as long, closes the block (```js does not)
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)
+      if (close && close[1]![0] === fence[0] && close[1]!.length >= fence.length) fence = null
       return
     }
-    if (fence) return
-    if (/^ {0,3}#{1,6}([ \t]|$)/.test(line) || /^ {0,3}(={3,}|-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) {
+    const open = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (open) { fence = open[1]!; return }
+    const heading = /^ {0,3}#{1,6}([ \t]|$)/.test(line)
+    const rule = /^ {0,3}([-*_])([ \t]*\1){2,}[ \t]*$/.test(line)
+    const underline = /^ {0,3}(=+|-+)[ \t]*$/.test(line) && i > 0 && !!lines[i - 1]!.trim() // "Title\n--" is a heading
+    if (heading || rule || underline) {
       problems.push(`${at}: a heading or a rule line. A fragment is one entry (a "- " bullet, or a paragraph); the release writes the version heading.`)
     }
   })
   if (fence) problems.push(`${file}: a code block (${fence}) is not closed; it would swallow the rest of CHANGELOG.md.`)
+  if (text.lastIndexOf('<!--') > text.lastIndexOf('-->')) problems.push(`${file}: an HTML comment (<!--) is not closed; it would hide the rest of CHANGELOG.md.`)
   return problems
 }
 
@@ -63,14 +70,14 @@ export function readFragments(root = ROOT): { fragments: Fragment[]; problems: s
   if (!fs.existsSync(dir)) return { fragments, problems: [`${FRAGMENT_DIR}/ is missing; it holds the changelog entries (keep its README.md).`] }
   const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   for (const e of entries) {
-    if (NOT_ENTRIES.has(e.name) || e.name.startsWith('.')) continue
+    if (NOT_ENTRIES.has(e.name) || (e.name.startsWith('.') && !e.name.endsWith('.md'))) continue
     const file = `${FRAGMENT_DIR}/${e.name}`
     if (!e.isFile()) { problems.push(`${file}: only files belong in ${FRAGMENT_DIR}/. Put the entry in ${WHERE}.`); continue }
-    if (!NAME_RE.test(e.name)) { problems.push(`${file}: name it like room-drop-anywhere.md (lowercase letters, digits, "-", ending in .md).`); continue }
+    if (!NAME_RE.test(e.name)) { problems.push(`${file}: name it like room-drop-anywhere.md (lowercase letters and digits joined by "-", ending in .md).`); continue }
     let text: string
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(path.join(dir, e.name))) }
     catch { problems.push(`${file}: not UTF-8 text.`); continue }
-    text = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
+    text = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
     const found = fragmentProblems(file, text)
     problems.push(...found)
     if (!found.length) fragments.push({ name: e.name, text: text.trim() })
@@ -124,6 +131,21 @@ export function changelogProblems(changelog: string, fragments: readonly Fragmen
 
 const isBullet = (text: string) => /^[-*+] /.test(text)
 
+/** Text split into entries: a bullet with its indented lines, or a paragraph. */
+function entriesOf(text: string): string[] {
+  const out: string[][] = []
+  let blank = false
+  for (const line of text.split('\n')) {
+    if (!line.trim()) { blank = true; continue }
+    const cur = out[out.length - 1]
+    const continues = cur && !isBullet(line) && (blank ? /^\s/.test(line) && isBullet(cur[0]!) : true)
+    if (continues) cur.push(...(blank ? ['', line] : [line]))
+    else out.push([line])
+    blank = false
+  }
+  return out.map((e) => e.join('\n').trim())
+}
+
 /** Today's date on this computer, YYYY-MM-DD (release headings use the day the release is cut). */
 function today(): string {
   const d = new Date()
@@ -154,7 +176,7 @@ export function collect(root = ROOT, opts: { version?: string; date?: string; dr
   // lines (a merge that kept both sides) are dropped, so no entry shows twice
   const copies = new Set(unreleasedEntries(changelog, fragments).filter((e) => e.copy).map((e) => e.line))
   const left = s.body.filter((l, i) => l.trim() !== UNRELEASED_NOTE && !copies.has(s.bodyStart + i)).join('\n').trim()
-  const blocks = [...(left ? [left] : []), ...fragments.map((f) => f.text)]
+  const blocks = [...entriesOf(left), ...fragments.map((f) => f.text)]
   if (!blocks.length) throw new Error(`Nothing to collect: ${FRAGMENT_DIR}/ has no entries and nothing is under ${UNRELEASED}.`)
   const paragraphs = blocks.filter((b) => !isBullet(b))
   const bullets = blocks.filter(isBullet)
@@ -177,7 +199,7 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!
     if (a === '--dry-run') opts.dryRun = true
-    else if (a === '--date') opts.date = args[++i]
+    else if (a === '--date') { opts.date = args[++i]; if (!opts.date) { console.error(`--date needs a value.\n${USAGE}`); process.exit(2) } }
     else if (a.startsWith('--date=')) opts.date = a.slice('--date='.length)
     else if (a === '-h' || a === '--help') { console.log(USAGE); process.exit(0) }
     else if (!a.startsWith('-') && !opts.version) opts.version = a

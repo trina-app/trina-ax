@@ -94,4 +94,9 @@ Built as planned:
   (#295) that kept both sides put all 49 moved lines back under `## Unreleased`: the check now reports such copies
   of fragment lines in one message (and each new line on its own), and collect drops the copies, so no entry shows
   twice in a release.
-- Tests: `tests/unit/changelog-fragments.test.ts` (9 tests). PR: see the branch's pull request into `dev`.
+- From the independent review: a fence with an info string no longer closes a code block, an unclosed `<!--`
+  fails, short setext underlines (`Title` / `--`) and spaced rules (`* * *`) fail, a hidden `.md` file is reported
+  instead of skipped, the name rule is lowercase letters and digits joined by `-` (as the docs say), `--date`
+  needs a value, and entries carried from `## Unreleased` are split per entry and go to the front of their own
+  group. Not changed: a blank line inside one bullet makes the release list loose (looks only).
+- Tests: `tests/unit/changelog-fragments.test.ts` (10 tests). PR: see the branch's pull request into `dev`.

@@ -51,7 +51,7 @@ git tag -a v0.3.0-beta.1 -m "새 기능: …"
 git push origin v0.3.0-beta.1
 ```
 
-- **변경 기록은 릴리스 커밋에서 모은다.** PR은 항목을 `changelog.d/<slug>.md` 한 파일로 남기고 CHANGELOG.md를 고치지 않는다([changelog.d/README.md](../changelog.d/README.md)). `bun run changelog:collect`가 `## Unreleased`와 그 안내 줄 바로 아래에 `## <버전> — <날짜>`를 쓰고, 문단 항목(업그레이드 안내)을 먼저, 그다음 목록 항목을 넣는다. 각각 파일 이름 순이다. 넣은 파일은 지우고 `changelog.d/README.md`는 남긴다. `## Unreleased` 아래에 누가 남긴 줄이 있으면 그것도 새 버전 맨 앞으로 옮기고 알려 준다(`changelog.d/`에 이미 있는 줄의 복사본은 뺀다). 채널 줄(예: "Beta channel only; stable stays on 0.4.0.")과 업그레이드 안내는 새 제목 바로 아래(항목 위)에 손으로 더하고, 맨 앞에 둘 항목을 고르는 것처럼 순서를 다듬는다. 이 단계를 빼먹으면 새 버전 부분이 비고 항목은 다음 릴리스로 넘어간다.
+- **변경 기록은 릴리스 커밋에서 모은다.** PR은 항목을 `changelog.d/<slug>.md` 한 파일로 남기고 CHANGELOG.md를 고치지 않는다([changelog.d/README.md](../changelog.d/README.md)). `bun run changelog:collect`가 `## Unreleased`와 그 안내 줄 바로 아래에 `## <버전> — <날짜>`를 쓰고, 문단 항목(업그레이드 안내)을 먼저, 그다음 목록 항목을 넣는다. 각각 파일 이름 순이다. 넣은 파일은 지우고 `changelog.d/README.md`는 남긴다. `## Unreleased` 아래에 누가 남긴 항목이 있으면 그것도 옮기고(문단이면 문단들 맨 앞, 목록이면 목록 맨 앞) 알려 준다. `changelog.d/`에 이미 있는 줄의 복사본은 뺀다. 채널 줄(예: "Beta channel only; stable stays on 0.4.0.")과 업그레이드 안내는 새 제목 바로 아래(항목 위)에 손으로 더하고, 맨 앞에 둘 항목을 고르는 것처럼 순서를 다듬는다. 이 단계를 빼먹으면 새 버전 부분이 비고 항목은 다음 릴리스로 넘어간다.
 - 태그는 `v` + `server/package.json`의 version과 정확히 같아야 한다. 다르면 아무것도 하지 않고 실패한다.
 - 태그에 `-`가 있으면 beta 채널(`v0.3.0-beta.1`, `v0.3.0-rc.1`), 없으면 stable 채널(`v0.3.0`)이다.
 - stable 릴리스는 사흘에 걸쳐 나간다(아래 "단계적 배포"). 모든 서버에 한 번에 내려면 태그 메시지에 `Rollout: all` 한 줄을 넣는다.
