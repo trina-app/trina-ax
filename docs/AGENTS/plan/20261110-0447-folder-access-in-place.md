@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-10 04:47
 - Branch: `feat/folder-access-in-place`
-- Status: in progress (approved by the manager 2026-11-10)
+- Status: in progress (approved by the manager 2026-11-10; PR 1 #306, PR 2 #307)
 - Where: Team AX core (`server/src/team-files/`, `server/src/routes/files.ts`, `shared/src/api/files.ts`,
   `web/src/pages/Files.tsx`, a new `web/src/components/FolderAccess*.tsx`, one change in
   `web/src/pages/admin/AccessTree.tsx`). Why: files and permissions are core (docs/REPOSITORY-RULES.md).
@@ -370,4 +370,17 @@ missing matrix case goes unnoticed.
 
 ## Result
 
-Filled in at the end.
+Built in two PRs, as planned:
+
+- PR 1 (#306): `GET /api/files/audience`, the chip, the panel (members, own folder, team project folders, the admin's
+  read-only part), the ⋯ entry, five languages, docs.
+- PR 2 (#307, stacked): [규칙 바꾸기] → Admin's editor with `from=files`, and the way back.
+
+What differs from the plan:
+- The chip and headline use own keys (`folderAccess.people`, `folderAccess.peopleAll`) with #298's exact words, because
+  #298 was not on dev and its files are not to be touched.
+- The project folder part has only the project line and "프로젝트 열기" until #298 lands. [Members] and #298's
+  sentences follow then.
+- The independent security review of the built code found no must-fix. Its two should-fix items are fixed:
+  - no endless loading in a plugin's managed folder;
+  - [규칙 바꾸기] judged by the `projects/` path, so a project list that failed to load does not offer it.
