@@ -84,3 +84,5 @@ gave: a part of a name or a look-alike picked by its id would pass otherwise), a
 them; two accounts of one name cannot be told apart on a card, so an admin's card shows the account's username and
 anyone else is sent to the members panel; a step after the save that fails is reported as saved. delete_files's own
 side-chat gap (M1) is left for its own change.
+
+PR: https://github.com/trina-app/trina-ax/pull/310 (stacked on #298)
