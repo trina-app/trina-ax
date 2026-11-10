@@ -281,6 +281,20 @@ export function covers(a: IntegrationAccess | null, person: { id: string; groupI
 
 export const isEmptyAccess = (a: IntegrationAccess) => !a.everyone && !a.groups.length && !a.users.length
 
+/** Who may use a team connection or template, short enough for one chip after its name (Admin › Connectors): everyone;
+ * the first group, with how many more groups and people ("Design +2"); one person by name; or how many people. null
+ * when nobody may (the row warns instead). `all`: every name, for the chip's tip. A group or person not in the lists
+ * (gone since) is "?", as in the details, and is named first only when no other name is known. */
+export type Audience = { kind: 'everyone' } | { kind: 'named'; name: string; more: number; all: string } | { kind: 'people'; n: number; all: string }
+export function audienceOf(a: IntegrationAccess, groups: { id: string; name: string }[], users: { id: string; name: string }[]): Audience | null {
+  if (a.everyone) return { kind: 'everyone' }
+  const names = [...a.groups.map((id) => groups.find((g) => g.id === id)?.name ?? '?'), ...a.users.map((id) => users.find((u) => u.id === id)?.name ?? '?')]
+  const all = names.join(', ')
+  if (a.groups.length || a.users.length === 1) return { kind: 'named', name: names.find((n) => n !== '?') ?? '?', more: names.length - 1, all }
+  if (a.users.length) return { kind: 'people', n: a.users.length, all }
+  return null
+}
+
 /** The sign-in address the server sent, before a window is sent there: https only (never javascript:, data:, http:),
  * no user name or password in it. Throws otherwise. */
 export function authorizationUrl(value: string): string {

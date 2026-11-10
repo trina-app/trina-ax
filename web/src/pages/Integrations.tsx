@@ -1,14 +1,16 @@
-// Settings › Connectors (/settings/connectors; MCP and App connectors were two sections before, their addresses lead
-// here): Yours, then Discover, like Claude's Connectors. Yours: the person's own Google Drive (Trina's own connector,
-// components/integrations/DriveConnector.tsx) and connections to MCP servers and APIs (used only in their own chats),
-// then the team connections an admin lets them use (read-only unless they manage them); above them, services an admin
-// asked them to connect as their own (components/integrations/AnswerDialog.tsx), and the templates an admin shared with
-// them to connect with their own key ("From your team", components/integrations/TemplatesView.tsx). Discover lists Google
-// Drive first, then known MCP services; a card opens its page (ConnectorDetail) and its + adds it at once. "Add" takes
-// any MCP server or API by its address. Not AI apps (pages/AiApps.tsx): that is the other direction, Claude using this
-// server. ?drive=1 (old Drive links, a notice) opens Google Drive's page.
+// Settings › Connectors, titled "My connectors" (/settings/connectors; MCP and App connectors were two sections before,
+// their addresses lead here): one page, like Claude's Connectors, the person's connections first, then Discover under
+// them. The connections: the person's own Google Drive (Trina's own connector, components/integrations/DriveConnector.tsx)
+// and connections to MCP servers and APIs (used only in their own chats), then the team connections an admin lets them
+// use (marked Team; read-only unless they manage them); above them, services an admin asked them to connect as their own
+// (components/integrations/AnswerDialog.tsx), and the templates an admin shared with them to connect with their own key
+// ("From your team", components/integrations/TemplatesView.tsx). Discover lists Google Drive first, then known MCP
+// services; a card opens its page (ConnectorDetail, in the place of the list until its way back) and its + adds it at
+// once. Nothing connected yet: one quiet line, then Discover. The search filters both. "Add" takes any MCP server or API
+// by its address. Without personal connections allowed there is no Add and no Discover. Not AI apps (pages/AiApps.tsx):
+// that is the other direction, Claude using this server. ?drive=1 (old Drive links, a notice) opens Google Drive's page.
 import { Cable } from 'lucide-react'
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -17,8 +19,8 @@ import { canonicalService, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
-import { EmptyState, TabPanel } from '../components/ui'
-import { afterAdded, ConnectorDetail, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../components/integrations/ConnectorsView'
+import { EmptyState } from '../components/ui'
+import { CONNECTED_TITLE, ConnectorDetail, ConnectorDiscover, ConnectorsHeader, discoverHits, DISCOVER_TITLE, goToSection, matchesQuery, sectionTitleCls } from '../components/integrations/ConnectorsView'
 import { DriveCard, DriveDetail, driveLinked, drivePersonalAllowed } from '../components/integrations/DriveConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
 import { SlackAccount } from '../components/settings/SlackAccount'
@@ -33,14 +35,16 @@ export default function Integrations() {
   const t = useT()
   const me = useMe()
   const state = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
-  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
-  const [tab, setTab] = useState<ConnectorTab>('connected')
+  // fromDiscover: opened from a Discover card or a connector's page; once added, the page shows it in the list
+  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector; fromDiscover?: boolean } | null>(null)
   const [query, setQuery] = useState('')
-  // a connector's page, opened from Discover (or ?drive=1)
+  // a connector's page, opened from Discover (or ?drive=1): it takes the place of the list until its way back
   const [open, setOpen] = useState<{ kind: 'drive' } | { kind: 'mcp'; c: Connector } | null>(null)
   const drive = useDriveConnection()
   // the admin's requests load again with the list: a sign-in that finished may have connected one
   const [requests, setRequests] = useState(0)
+  // whether "From your team" shows anything (for the search's "nothing matches" and the empty line)
+  const [templatesShown, setTemplatesShown] = useState(false)
   const reloadList = state.reload
   const reload = useCallback(() => { void reloadList(); setRequests((n) => n + 1) }, [reloadList])
   useEffect(() => reloadAsked.on(reload), [reload])
@@ -59,11 +63,9 @@ export default function Integrations() {
   }, [params, personalAllowed, setParams])
   useEffect(() => {
     if (params.get('drive') !== '1') return
-    setTab('discover')
     setOpen({ kind: 'drive' })
     setParams((p) => { p.delete('drive'); return p }, { replace: true })
   }, [params, setParams])
-  const panels = useId()
   const DRIVE = APP_CONNECTORS[0]
   // members connect their own only while the admin allows it; a Drive the team shares with them needs no Connect. An
   // owner or admin may connect theirs anyway: the confirm turns the switch on (docs/DECISIONS.md "W6")
@@ -72,54 +74,58 @@ export default function Integrations() {
   const driveCard = { id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: teamShares.length && !driveOn ? t('drive.teamShared', { name: teamShares.map((x) => x.name).join(', ') }) : t('drive.cardDesc'),
     state: driveLinked(drive.connection) || (teamShares.length > 0 && !driveOn) ? 'added' as const : driveOn || !drive.connection ? 'available' as const : 'off' as const }
   // "just sign in": Drive's + goes straight to Google, on its page so the person sees it finish
-  const connectDrive = () => { setTab('discover'); setOpen({ kind: 'drive' }); if (!driveLinked(drive.connection) && driveOn) drive.start() }
-  const back = () => setOpen(null)
-  // Drive shows in Yours once it is linked or on its way (the steps of a sign-in in progress), and right after a
-  // disconnect whose revocation at Google could not be done (the row says so)
+  const connectDrive = () => { setOpen({ kind: 'drive' }); if (!driveLinked(drive.connection) && driveOn) drive.start() }
+  // back from a connector's page: where it was opened from
+  const back = () => { setOpen(null); goToSection(DISCOVER_TITLE) }
+  // Drive shows in the connections once it is linked or on its way (the steps of a sign-in in progress), and right
+  // after a disconnect whose revocation at Google could not be done (the row says so)
   const driveInYours = driveLinked(drive.connection) || drive.d.inProgress || drive.revokeWarning || teamShares.length > 0
+  // a connector's page stands alone: what is asked of the person and the team's templates come back with the list
+  const detail = !!open && !!personalAllowed
   return (
     <section data-testid="integrations">
-      <ConnectorsHeader title={t('integrations.title')} tab={tab} onTab={(x) => { setTab(x); setOpen(null) }} query={query} onQuery={setQuery} onAdd={state.data?.personalAllowed ? () => setDialog({}) : undefined} panels={panels} />
-      {/* with tabs (adding allowed), what the chosen one shows */}
-      <TabPanel base={state.data?.personalAllowed ? panels : null} value={tab}>
-      <div className="[&:not(:empty)]:mb-5">
-        <MyRequests
-          version={requests}
-          onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
-        />
-      </div>
-      {(tab === 'connected' || !state.data?.personalAllowed) && (
-        <div className="[&:not(:empty)]:mb-5">
-          <MyTemplates
-            version={requests}
-            query={query}
-            actions={actions}
-            onEdit={(i) => setDialog({ existing: i })}
-            onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
-          />
-        </div>
+      <ConnectorsHeader title={t('integrations.myTitle')} query={query} onQuery={(q) => { setQuery(q); setOpen(null) }} onAdd={personalAllowed ? () => setDialog({}) : undefined} />
+      {!detail && (
+        <>
+          <div className="[&:not(:empty)]:mb-5">
+            <MyRequests
+              version={requests}
+              onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
+            />
+          </div>
+          <div className="[&:not(:empty)]:mb-5">
+            <MyTemplates
+              version={requests}
+              query={query}
+              actions={actions}
+              onEdit={(i) => setDialog({ existing: i })}
+              onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
+              onShown={setTemplatesShown}
+            />
+          </div>
+        </>
       )}
       <Loadable state={state}>
         {(d) => {
           const { mine, team } = splitByScope(d.items)
           // a team connection a member may use is the company's account, so their own stays addable
-          if (tab === 'discover' && d.personalAllowed) {
-            if (open?.kind === 'drive') return <DriveDetail s={drive} onBack={back} />
-            if (open?.kind === 'mcp') {
-              const have = mine.find((i) => canonicalService(i.url) === canonicalService(open.c.url))
-              return (
-                <ConnectorDetail testId="connector-detail" logo={`/icons/connectors/${open.c.logo}`} name={open.c.name} line={t(`integrations.catalog.${open.c.id}`)} official onBack={back}
-                  action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
-                    : <Button variant="primary" onClick={() => setDialog({ connector: open.c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>}
-                  description={t('connectors.mcp.about', { name: open.c.name })} tools={have?.tools.map((x) => x.name)} />
-              )
-            }
-            return <ConnectorDiscover connected={mine} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})}
-              builtIns={[driveCard]} onAddBuiltIn={connectDrive} onOpenBuiltIn={() => setOpen({ kind: 'drive' })} onOpen={(c) => setOpen({ kind: 'mcp', c })} />
+          if (d.personalAllowed && open?.kind === 'drive') return <DriveDetail s={drive} onBack={back} />
+          if (d.personalAllowed && open?.kind === 'mcp') {
+            const have = mine.find((i) => canonicalService(i.url) === canonicalService(open.c.url))
+            return (
+              <ConnectorDetail testId="connector-detail" logo={`/icons/connectors/${open.c.logo}`} name={open.c.name} line={t(`integrations.catalog.${open.c.id}`)} official onBack={back}
+                action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
+                  : <Button variant="primary" onClick={() => setDialog({ connector: open.c, fromDiscover: true })} data-testid="connector-connect">{t('aiApps.connect')}</Button>}
+                description={t('connectors.mcp.about', { name: open.c.name })} tools={have?.tools.map((x) => x.name)} />
+            )
           }
+          const q = query.trim()
           const shownMine = mine.filter((i) => matchesQuery(i, query))
           const shownTeam = team.filter((i) => matchesQuery(i, query))
-          if (query.trim() && !shownMine.length && !shownTeam.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
+          const driveShown = driveInYours && DRIVE.name.toLowerCase().includes(q.toLowerCase())
+          const connections = shownMine.length > 0 || shownTeam.length > 0 || driveShown || templatesShown
+          if (q && !connections && !(d.personalAllowed && discoverHits(t, query, [driveCard]).count)) return <EmptyState title={t('integrations.noMatch', { q })} />
+          const nothingYet = !mine.length && !team.length && !driveInYours && !templatesShown
           return (
             <div className="space-y-5">
               {!d.personalAllowed && mine.length > 0 && (
@@ -127,20 +133,20 @@ export default function Integrations() {
                   {t('integrations.personalOff')}
                 </p>
               )}
-              {driveInYours && DRIVE.name.toLowerCase().includes(query.trim().toLowerCase()) && (
-                <ul className="grid gap-3" data-testid="yours-drive"><DriveCard s={drive} /></ul>
-              )}
+              {driveShown && <ul className="grid gap-3" data-testid="yours-drive"><DriveCard s={drive} /></ul>}
               {/* Slack (main's Slack connector): the person's own Slack link; its sign-in comes back here (?slack=) */}
-              {!query.trim() && <SlackAccount />}
-              {(!query.trim() || shownMine.length > 0) && <section aria-labelledby="integrations-mine">
-                <h3 id="integrations-mine" className="mb-2 text-sm font-semibold">
+              {!q && <SlackAccount />}
+              {/* with adding allowed only when there are some (Discover below adds them); without it, as before, with why
+                  there are none */}
+              {(d.personalAllowed ? shownMine.length > 0 : !q || shownMine.length > 0) && <section aria-labelledby={CONNECTED_TITLE}>
+                <h3 id={CONNECTED_TITLE} tabIndex={-1} className={`mb-2 ${sectionTitleCls}`}>
                   {t('integrations.mine')}
                 </h3>
                 {!mine.length && driveInYours ? null : !mine.length ? (
                   // phones: no frame around the empty state (it is the only thing under its heading)
                   <div className="md:rounded-xl md:border md:border-dashed md:border-line" data-testid="integrations-empty">
-                    <EmptyState icon={<Cable size={26} />} title={d.personalAllowed ? t('integrations.empty') : t('integrations.personalOffTitle')}>
-                      <p>{d.personalAllowed ? t('integrations.emptyHint') : t('integrations.personalOff')}</p>
+                    <EmptyState icon={<Cable size={26} />} title={t('integrations.personalOffTitle')}>
+                      <p>{t('integrations.personalOff')}</p>
                     </EmptyState>
                   </div>
                 ) : (
@@ -164,12 +170,20 @@ export default function Integrations() {
                   </ul>
                 </section>
               )}
+              {d.personalAllowed && (
+                <>
+                  {/* nothing connected yet: no empty box, Discover leads */}
+                  {nothingYet && !q && <p className="text-sm text-muted" data-testid="integrations-empty">{t('integrations.empty')}</p>}
+                  <ConnectorDiscover className={connections ? 'border-t border-line pt-6' : undefined} connected={mine} query={query}
+                    onAdd={(c) => setDialog({ connector: c, fromDiscover: true })} onCustom={() => setDialog({ fromDiscover: true })}
+                    builtIns={[driveCard]} onAddBuiltIn={connectDrive} onOpenBuiltIn={() => setOpen({ kind: 'drive' })} onOpen={(c) => setOpen({ kind: 'mcp', c })} />
+                </>
+              )}
               <p className="text-xs text-faint">{t('integrations.privacy')}</p>
             </div>
           )
         }}
       </Loadable>
-      </TabPanel>
       {dialog && (
         <IntegrationDialog
           scope={dialog.existing?.scope ?? 'personal'}
@@ -179,7 +193,9 @@ export default function Integrations() {
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
-            if (tab === 'discover') { setOpen(null); afterAdded(setTab, setQuery) }
+            // added from Discover: the search is cleared (the new row may not match it) and the keyboard goes to the
+            // list the new row is in, since the button that opened the dialog is gone
+            if (dialog.fromDiscover) { setOpen(null); setQuery(''); goToSection(CONNECTED_TITLE) }
           }}
         />
       )}

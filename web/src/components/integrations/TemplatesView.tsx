@@ -4,7 +4,7 @@
 //   which opens the member's own-key dialog (AnswerDialog.tsx OwnKeyDialog) with the template filled in. Connected: the
 //   member's own connection, like any other (check again, sign in, tools, edit their key, disconnect).
 //   ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's Connect.
-// - Admin › MCP: a template on one line, "Template · N connected", who it is for, edit and delete. "N connected" opens
+// - Admin › Connectors: a template on one line, who it is for (one chip), "Template · N connected", edit and delete. "N connected" opens
 //   who it is for, each with whether they connected it and when, or whether their key stopped working. The admin never
 //   sees a member's key or anything the service returned.
 import { Globe, Pencil, Plug, Trash2, Waypoints } from 'lucide-react'
@@ -20,7 +20,7 @@ import { formatDate } from '../../lib/format'
 import { Badge, Button, IconButton, Modal, Skeleton, confirmDialog } from '../ui'
 import { OwnKeyDialog } from './AnswerDialog'
 import { ConnectorLogo } from './ConnectorsView'
-import { IntegrationRow, type IntegrationActions } from './IntegrationRow'
+import { AudienceChip, IntegrationRow, type IntegrationActions } from './IntegrationRow'
 
 function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) {
   const listed = connectorFor(url)
@@ -32,13 +32,15 @@ function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) 
   )
 }
 
-/** Settings › MCP: the templates shared with this member. `version` changes: load again. `query` filters by name. */
-export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
+/** Settings › Connectors: the templates shared with this member. `version` changes: load again. `query` filters by
+ * name. `onShown` tells the page whether any shows (it says "nothing matches" only when nothing on it does). */
+export function MyTemplates({ version, query, actions, onEdit, onConnected, onShown }: {
   version: number
   query: string
   actions: IntegrationActions
   onEdit: (i: Integration) => void
   onConnected: (i: Integration, signIn: { window: Window | null } | null) => void
+  onShown?: (shown: boolean) => void
 }) {
   const t = useT()
   const [items, setItems] = useState<MyIntegrationTemplate[]>([])
@@ -83,7 +85,9 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
   }, [version])
   const q = query.trim().toLocaleLowerCase()
   const shown = q ? items.filter((x) => x.name.toLocaleLowerCase().includes(q)) : items
-  if (!shown.length) return null
+  const any = shown.length > 0
+  useEffect(() => { onShown?.(any) }, [any, onShown])
+  if (!any) return null
   return (
     <section aria-labelledby="integrations-from-team" data-testid="integrations-from-team">
       <h3 id="integrations-from-team" className="text-sm font-semibold">{t('integrations.template.fromTeam')}</h3>
@@ -161,19 +165,18 @@ function TemplateMembers({ tpl, onClose }: { tpl: IntegrationTemplate; onClose: 
   )
 }
 
-/** Admin › MCP: one template. Who it is for and who made it under the name; edit and delete on the line. */
+/** Admin › Connectors: one template. Who it is for in a chip after the name (AudienceChip, as a team connection), that
+ * each member connects their own under it; edit and delete on the line. `groups` and `users`: null until loaded. */
 export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
   tpl: IntegrationTemplate
-  groups: Group[]
-  users: User[]
+  groups: Group[] | null
+  users: User[] | null
   onEdit: () => void
   onDeleted: () => void
 }) {
   const t = useT()
   const locale = useLocale()
   const a = tpl.access
-  const names = [...a.groups.map((id) => groups.find((g) => g.id === id)?.name ?? '?'), ...a.users.map((id) => users.find((u) => u.id === id)?.name ?? '?')]
-  const who = a.everyone ? t('integrations.access.everyone') : names.join(', ')
   const [members, setMembers] = useState(false)
   const remove = async () => {
     const ok = await confirmDialog({
@@ -198,15 +201,14 @@ export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="max-w-full truncate text-sm font-medium" title={tpl.name}>{tpl.name}</span>
+            <AudienceChip access={a} groups={groups} users={users} />
             <button type="button" className="inline-flex rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" onClick={() => setMembers(true)}
               aria-haspopup="dialog" title={t('integrations.template.membersOpen')} data-testid="template-badge">
               <Badge tone="accent">{t('integrations.template.badge', { n: tpl.connected })}</Badge>
             </button>
             {isEmptyAccess(a) && <Badge tone="warn">{t('integrations.users.nobody')}</Badge>}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">
-            {isEmptyAccess(a) ? t('integrations.template.eachOwn') : t('integrations.template.forWho', { who })}
-          </span>
+          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">{t('integrations.template.eachOwn')}</span>
         </span>
       </div>
       <IconButton label={t('common.edit')} onClick={onEdit} data-testid="template-edit"><Pencil size={15} /></IconButton>

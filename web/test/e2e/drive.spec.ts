@@ -1,7 +1,7 @@
 // Google Drive in Settings › Connectors (components/integrations/DriveConnector.tsx, pages/Integrations.tsx), Trina's own
 // connector next to the MCP services: first in Discover, where its + goes straight to Google and its page (DriveDetail)
-// shows the steps; back from Google one inline line confirms the account (a security step); then it is a row in Yours
-// with the account and ⋯ Reconnect / Disconnect. Also: a server without a Google client, a Drive that needs a new sign-in,
+// shows the steps; back from Google one inline line confirms the account (a security step); then it is a row among the
+// person's connections, above Discover on the same page, with the account and ⋯ Reconnect / Disconnect. Also: a server without a Google client, a Drive that needs a new sign-in,
 // the old /settings/drive and /settings/integrations addresses, phone width and accessibility.
 // Admin › Connectors' Drive page: admin-app-connectors.spec.ts. AI apps: ai-apps.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
@@ -30,18 +30,19 @@ async function fakeDrive(page: Page, start: object = disconnected) {
   return state
 }
 
-const discover = (page: Page) => page.getByTestId('connectors-header').getByRole('tab', { name: '둘러보기' }).click()
+/** Discover is on the page under the connections: its heading is there */
+const discover = (page: Page) => expect(page.getByTestId('connector-discover-title')).toBeVisible()
 const driveCard = (page: Page) => page.locator('[data-testid="connector-card"][data-id="google-drive"]')
 const detail = (page: Page) => page.getByTestId('drive-detail')
 const row = (page: Page) => page.getByTestId('yours-drive').getByTestId('drive-card')
 
-test('Discover lists Google Drive first; its + goes straight to Google, one line confirms the account, then it is in Yours', async ({ page }) => {
+test('Discover lists Google Drive first; its + goes straight to Google, one line confirms the account, then it is among the connections', async ({ page }) => {
   await reset(page)
   const state = await fakeDrive(page)
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/connectors')
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터' })).toBeVisible()
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '내 커넥터' })).toBeVisible()
   await discover(page)
   await expect(page.getByTestId('connector-card').first()).toHaveAttribute('data-id', 'google-drive')
   await expect(driveCard(page)).toContainText('내 Drive 파일을 찾고 읽어요')
@@ -61,8 +62,8 @@ test('Discover lists Google Drive first; its + goes straight to Google, one line
   await expect(detail(page).getByTestId('drive-connected')).toHaveText('연결됨')
   expect(state.completed).toBe(1)
 
-  // Yours: one row with the account and ⋯
-  await page.getByTestId('connectors-header').getByRole('tab', { name: '내 커넥터' }).click()
+  // back on the list: one row with the account and ⋯ above Discover
+  await detail(page).getByTestId('connector-back').click()
   await expect(row(page)).toHaveAttribute('data-state', 'connected')
   await expect(row(page).getByTestId('drive-card-line')).toHaveText('fixture@example.test')
   await row(page).getByTestId('drive-menu').click()
@@ -73,8 +74,7 @@ test('Discover lists Google Drive first; its + goes straight to Google, one line
   await expect(row(page)).toHaveAttribute('data-state', 'disconnected')
   await expect(page.getByTestId('drive-revoke-warning')).toContainText('Google 계정의 연결된 앱에서도')
   expect(state.disconnected).toBe(1)
-  // back in Discover it is + again
-  await discover(page)
+  // in Discover it is + again
   await expect(driveCard(page).getByTestId('connector-add')).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
@@ -100,7 +100,7 @@ test('its page: Connect goes to Google, and Cancel while waiting puts Connect ba
   await detail(page).getByTestId('drive-cancel').click()
   await expect(detail(page).getByTestId('drive-connect')).toBeVisible()
   await detail(page).getByTestId('connector-back').click()
-  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(page.getByTestId('connector-discover-title')).toBeFocused()
 })
 
 test('the old addresses lead to Connectors: /settings/drive opens Drive\'s page, /settings/integrations the list; search finds it', async ({ page }) => {
@@ -135,7 +135,7 @@ test('a server without a Google client: Drive is "not on yet" in Discover and it
   await expect(detail(page).getByTestId('drive-connect')).toBeDisabled()
 })
 
-test('a Drive that needs a new sign-in says so in Yours, with Reconnect', async ({ page }) => {
+test('a Drive that needs a new sign-in says so in the connections, with Reconnect', async ({ page }) => {
   await reset(page)
   const state = await fakeDrive(page, { ...connected, status: 'needs_reconnect' })
   await signIn(page)
@@ -150,7 +150,7 @@ test('a Drive that needs a new sign-in says so in Yours, with Reconnect', async 
   expect(state.completed).toBe(1)
 })
 
-test('phone width: Discover, Drive\'s page and Yours fit without sideways scrolling', async ({ page }) => {
+test('phone width: the connections, Discover and Drive\'s page fit without sideways scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await fakeDrive(page, connected)
@@ -165,7 +165,7 @@ test('phone width: Discover, Drive\'s page and Yours fit without sideways scroll
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`Connectors' Discover, Drive's page with its confirm step and Yours have no serious accessibility problems (${scheme})`, async ({ page }) => {
+  test(`Connectors' Discover, Drive's page with its confirm step and the connections have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await fakeDrive(page)
@@ -184,7 +184,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(detail(page).getByTestId('drive-confirm-step')).toBeVisible()
     expect(await audit()).toEqual([])
     await detail(page).getByRole('button', { name: '이 계정으로 연결 완료' }).click()
-    await page.getByTestId('connectors-header').getByRole('tab', { name: '내 커넥터' }).click()
+    await detail(page).getByTestId('connector-back').click()
     await row(page).getByTestId('drive-menu').click()
     await expect(row(page).getByRole('menu')).toBeVisible()
     expect(await audit()).toEqual([])

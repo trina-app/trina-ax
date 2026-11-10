@@ -32,12 +32,12 @@ Admins manage team connections but do not use them unless a rule names them. Who
 #### Open the MCP screen
 **Settings › MCP** for yourself, or **Admin › MCP** for the team.
 
-![Settings › MCP with the Connected tab: no MCP connected yet, and an Add connection button](../images/mcp/connected.webp "Settings › MCP, Connected")
+![Settings › MCP: no MCP connected yet, with Discover under it on the same page, and an Add connection button](../images/mcp/connected.webp "Settings › MCP")
 
 #### Pick a service or add by address
-**Discover** lists services that support sign-in with Trina AX. **Add connection** takes any MCP server address.
+**Discover**, under your connections on the same page, lists services that support sign-in with Trina AX. **Add connection** takes any MCP server address.
 
-![The Discover tab: MCP servers ready to add, such as Notion, Linear, Atlassian, Canva and Figma, each with a + button](../images/mcp/discover.webp "Discover: services you can add by name")
+![Discover: MCP servers ready to add, such as Notion, Linear, Atlassian, Canva and Figma, each with a + button](../images/mcp/discover.webp "Discover: services you can add by name")
 
 #### Sign in or paste a key
 Keys and sign-ins are stored encrypted on the server and never shown again.

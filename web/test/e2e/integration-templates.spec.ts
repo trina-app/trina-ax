@@ -47,7 +47,9 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await makeTemplate(page)
   const row = page.getByTestId('template-admin-row').filter({ hasText: 'Tasks' })
   await expect(row.getByTestId('template-badge')).toHaveText('Template · 0 connected')
-  await expect(row.getByTestId('template-admin-line')).toContainText('Bob')
+  // who it is for in one chip after the name (every name in its tip); the line says each connects their own
+  await expect(row.getByTestId('integration-audience')).toHaveAttribute('title', /Bob/)
+  await expect(row.getByTestId('template-admin-line')).toHaveText('Each member connects their own key')
 
   // Bob: "From your team" with the template and Connect
   await page.context().clearCookies()

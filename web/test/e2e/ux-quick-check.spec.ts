@@ -71,17 +71,19 @@ test('Admin › System at 1280: the server facts are one row each, every value o
   for (const v of await values.all()) expect(await lines(v)).toBe(1)
 })
 
-test('Admin › MCP: the help line is under the title, before the list', async ({ page }) => {
+test('Admin › Connectors: the line on whose they are is under the title, before the list', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/connectors')
   const note = page.getByTestId('team-integrations-note')
-  await expect(note).toHaveText(t['integrations.admin.desc'])
+  await expect(note).toHaveText(`${t['integrations.admin.note']} ${t['integrations.admin.mineLink']}`)
   const header = await box(page.getByTestId('connectors-header'))
   const n = await box(note)
   expect(n.y).toBeGreaterThanOrEqual(header.y + header.height - 1)
   // nothing between the line and the list: no card for requests (asking a member is in Add connection's menu)
-  await expect(page.getByText(t['integrations.admin.desc'])).toHaveCount(1)
+  await expect(page.getByText(t['integrations.admin.note'])).toHaveCount(1)
+  // the title says whose they are, so no "For the whole team" beside it
+  await expect(page.getByTestId('connectors-header').getByTestId('page-scope')).toHaveCount(0)
 })
 
 test('Admin › Plugins: a long licence list is "Licenses", the list in its tooltip and under the line when pressed', async ({ page }) => {

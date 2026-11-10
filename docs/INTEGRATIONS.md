@@ -558,11 +558,12 @@ connections with their address and the first 1,000 characters of their notes.
 
 ## Discover
 
-Settings and Admin > External services have two tabs: **Connected**, one line per connection with its details a click
-away, and **Discover**, MCP servers to add by name (`web/src/lib/connectors.ts`). An entry is only a name and an address
-for the add dialog: nothing about it is special on the server, the person still chooses what the AI may change, an admin
-still chooses who may use it, and the sign-in, checks and asking are those of any other connection. "Add connection"
-and the link under the list take any MCP server or API by its address.
+Settings › Connectors ("My connectors") and Admin › Connectors ("Team connectors") are one page each: first the
+connections, one line per connection with its details a click away (in Admin with who may use it in a chip after the
+name), then **Discover**, MCP servers to add by name (`web/src/lib/connectors.ts`). The search filters both. An entry is
+only a name and an address for the add dialog: nothing about it is special on the server, the person still chooses what
+the AI may change, an admin still chooses who may use it, and the sign-in, checks and asking are those of any other
+connection. "Add connection" and the link under the list take any MCP server or API by its address.
 
 The services come from the remote servers listed on [mcpservers.org](https://mcpservers.org/remote-mcp-servers), starting
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it

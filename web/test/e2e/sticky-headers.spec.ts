@@ -42,8 +42,8 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
     for (const path of ['/admin/connectors', '/settings/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
-      await expect(header.getByRole('heading', { name: /^(커넥터|Connectors)$/ })).toBeVisible()
-      await header.getByRole('tab', { name: t['integrations.tabDiscover'] }).click()
+      // the title says whose they are; Discover is on the page under the connections
+      await expect(header.getByRole('heading', { name: t[path.startsWith('/admin') ? 'integrations.admin.title' : 'integrations.myTitle'] })).toBeVisible()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
       await staysPut(header)
       await expect(header.getByTestId('connector-search')).toBeInViewport()
@@ -106,7 +106,7 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
     for (const path of ['/admin/settings', '/admin/connectors']) {
       await page.goto(path)
       await expect(page.getByTestId('admin-content')).toBeVisible()
-      if (path === '/admin/connectors') { await page.getByTestId('connectors-header').getByRole('tab').nth(1).click(); await page.getByTestId('connector-show-all').click() }
+      if (path === '/admin/connectors') await page.getByTestId('connector-show-all').click()
       const content = page.getByTestId('admin-content')
       const box = (await content.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)

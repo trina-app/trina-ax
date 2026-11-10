@@ -24,8 +24,11 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/connectors')
-  await expect(page.getByRole('heading', { name: '커넥터', level: 2 })).toBeVisible()
-  await expect(page.getByTestId('integrations-empty')).toContainText('아직 연결한 MCP가 없어요')
+  await expect(page.getByRole('heading', { name: '내 커넥터', level: 2 })).toBeVisible()
+  // nothing connected yet: one quiet line, then Discover (no empty box, no heading for the empty list)
+  await expect(page.getByTestId('integrations-empty')).toHaveText('아직 연결한 MCP가 없어요')
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '내 연결' })).toHaveCount(0)
 
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
@@ -265,7 +268,7 @@ test('the team turns personal connections off: no adding, and the ones there are
   await page.goto('/settings/connectors')
   await expect(page.getByTestId('integrations-personal-off')).toContainText('팀에서 개인 연결을 꺼 두었어요')
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: '둘러보기' })).toHaveCount(0)
+  await expect(page.getByTestId('connector-discover')).toHaveCount(0)
   await expect(row(page, 'AI PM')).toBeVisible()
   // nothing to add, and the empty state says why
   await openRow(row(page, 'AI PM'))
@@ -281,10 +284,13 @@ test('an admin gives a team connection to a group and a person; a member sees it
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/connectors')
-  await expect(page.getByRole('heading', { name: '커넥터' }).first()).toBeVisible()
-  await expect(page.getByText('아직 팀 MCP 연결이 없어요')).toBeVisible()
-  // what the page is for, in one short line
-  await expect(page.getByTestId('team-integrations-note')).toHaveText('회사 계정과 템플릿, 그리고 각각 누가 쓸 수 있는지예요. 멤버 개인 연결은 보이지 않아요.')
+  // the title says whose they are, and one line says they are shared, with the way to the admin's own
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '팀 커넥터', level: 2 })).toBeVisible()
+  await expect(page.getByTestId('team-integrations-note')).toHaveText('여기서 연결한 서비스는 팀과 함께 써요. 내 연결은 내 커넥터에 있어요')
+  await expect(page.getByTestId('team-integrations-mine-link')).toHaveAttribute('href', '/settings/connectors')
+  // nothing connected yet: no empty box and no heading, Discover right under the line
+  await expect(page.getByTestId('team-connected')).toHaveCount(0)
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '팀 커넥터 추가' })).toBeVisible()
@@ -321,7 +327,10 @@ test('an admin gives a team connection to a group and a person; a member sees it
   expect(body).toMatchObject({ kind: 'http', name: 'Company PM', auth: 'header', authHeader: 'X-API-Key', secret: KEY, writePolicy: 'deny', access: { everyone: false, users: ['bob'] } })
   expect(body.access.groups).toHaveLength(1)
   const pm = row(page, 'Company PM')
-  // the admin is in the finance group: nothing to warn about on the line
+  // who may use it, in one chip after the name; the admin is in the finance group: nothing to warn about on the line
+  await expect(page.getByTestId('team-connected').getByRole('heading', { name: '팀에 연결한 서비스' })).toBeVisible()
+  await expect(pm.getByTestId('integration-audience')).toHaveText('재무팀 +1')
+  await expect(pm.getByTestId('integration-audience')).toHaveAttribute('title', '사용할 사람: 재무팀, Bob')
   await expect((await adv(pm, 'integration-access-warning'))).toHaveCount(0)
   await openRow(pm)
   await expect((await adv(pm, 'integration-access-line'))).toContainText('사용할 사람: 재무팀, Bob')
@@ -336,6 +345,7 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await page.getByTestId('integration-save').click()
   expect((await patched).postDataJSON()).toEqual({ access: { everyone: true, groups: [], users: [] } })
   await expect((await adv(pm, 'integration-access-line'))).toContainText('사용할 사람: 팀 전체')
+  await expect(pm.getByTestId('integration-audience')).toHaveText('모두')
   // back to the group and Bob
   await pm.getByTestId('integration-edit').click()
   await (await adv(page, 'integration-access-pick')).check()
@@ -355,6 +365,10 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(warning('Sales MCP')).toHaveText('아직 아무도 못 씀')
   await expect(warning('Bob MCP')).toHaveText('내 대화에서는 못 씀')
   await expect(warning('Design MCP')).toHaveCount(0)
+  // one chip each: one person by name, none for nobody (the warning says it)
+  await expect(row(page, 'Bob MCP').getByTestId('integration-audience')).toHaveText('Bob')
+  await expect(row(page, 'Design MCP').getByTestId('integration-audience')).toHaveText('Olga')
+  await expect(row(page, 'Sales MCP').getByTestId('integration-audience')).toHaveCount(0)
   for (const name of ['Sales MCP', 'Bob MCP']) {
     await expect(row(page, name).getByTestId('integration-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(row(page, name).getByTestId('integration-details')).toHaveCount(0)
@@ -376,8 +390,10 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await openRow(shared)
   await expect(shared).toContainText('쓰기 막기')
   for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
-  // his own list is still empty and he may add one
-  await expect(page.getByTestId('integrations-empty')).toBeVisible()
+  // he has none of his own (no heading, no empty box) and may add one: Discover is under the team's
+  await expect(page.getByTestId('integrations-mine')).toHaveCount(0)
+  await expect(page.getByTestId('integrations-empty')).toHaveCount(0)
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByTestId('integration-add')).toBeVisible()
   // (a 404: Bob's file tree asks for the folder Olga had open, which he cannot see)
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
@@ -448,7 +464,8 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await signInPage(page)
   await signIn(page)
   await page.goto('/admin/connectors')
-  await page.getByRole('tab', { name: '둘러보기' }).click()
+  // on the same page as the connections, under its own heading
+  await expect(page.getByTestId('connector-discover-title')).toHaveText('둘러보기')
   const cards = page.getByTestId('connector-card')
   // Google Drive (Trina's own) first, then the listed MCP services, Notion leading them
   await expect(cards.first()).toHaveAttribute('data-id', 'google-drive')
@@ -503,17 +520,25 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   expect((await sent).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' })
   await popup
 
-  // back on the list with it, which the search box also filters
-  await expect(page.getByRole('tab', { name: '내 커넥터' })).toHaveAttribute('aria-selected', 'true')
+  // in the list above Discover, whose heading has the keyboard; the search box filters both sections
+  const connected = page.getByRole('heading', { name: '팀에 연결한 서비스' })
+  await expect(connected).toBeFocused()
   await expect(row(page, 'Notion')).toBeVisible()
   await expect(row(page, 'Notion').getByTestId('connector-logo')).toBeVisible()
   await search.fill('linear')
+  // the list has no match, so it hides; Discover still has one
   await expect(page.getByTestId('integration-row')).toHaveCount(0)
-  await expect(page.getByText('"linear"에 맞는 항목이 없어요.')).toBeVisible()
+  await expect(page.getByTestId('team-connected')).toHaveCount(0)
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('Linear')
+  await expect(page.getByText('"linear"에 맞는 항목이 없어요.')).toHaveCount(0)
+  // a match in both: both show
+  await search.fill('notion')
+  await expect(row(page, 'Notion')).toBeVisible()
+  await expect(cards).toHaveCount(1)
   await search.fill('')
 
   // it cannot be added twice
-  await page.getByRole('tab', { name: '둘러보기' }).click()
   await expect(notion.getByTestId('connector-added')).toBeVisible()
   await expect(notion.getByTestId('connector-add')).toHaveCount(0)
 
@@ -525,8 +550,7 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await second
   await expect(row(page, 'Atlassian')).toBeVisible()
   await expect(search).toHaveValue('')
-  await expect(page.getByRole('tab', { name: '내 커넥터' })).toBeFocused()
-  await page.getByRole('tab', { name: '둘러보기' }).click()
+  await expect(connected).toBeFocused()
 
   // any other MCP server or API by its address
   await page.getByTestId('connector-custom').click()
@@ -542,7 +566,6 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/settings/connectors')
-  await page.getByRole('tab', { name: '둘러보기' }).click()
   await page.getByRole('button', { name: 'Linear 추가' }).click()
   await expect(dialog.getByRole('heading', { name: 'Linear 추가' })).toBeVisible()
   await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.linear.app/mcp')
@@ -552,7 +575,7 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await page.getByTestId('integration-save').click()
   expect((await own).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', writePolicy: 'ask' })
   await ownSignIn
-  await expect(page.getByRole('tab', { name: '내 커넥터' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: '내 연결' })).toBeFocused()
   const mine = page.getByTestId('integrations-mine').getByTestId('integration-row')
   const shared = page.getByTestId('integrations-team').getByTestId('integration-row')
   await expect(mine).toHaveCount(1)

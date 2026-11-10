@@ -10,11 +10,11 @@
 import clsx from 'clsx'
 import { Check, ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import type { Integration, IntegrationFlow } from '@mycel/shared/api'
+import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
-import { authorizationUrl, canSignIn, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
+import { audienceOf, authorizationUrl, canSignIn, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -195,12 +195,32 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
 
 export type IntegrationActions = ReturnType<typeof useIntegrationActions>
 
-export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: {
+/** Admin › Connectors: who may use a team connection or template, as one quiet chip after its name ("Everyone",
+ * "Design +2", "3 people"), every name in its tip. Nothing when nobody may (the row warns instead), or until the
+ * groups and people have loaded. */
+export function AudienceChip({ access, groups, users }: { access: IntegrationAccess; groups: Group[] | null; users: User[] | null }) {
+  const t = useT()
+  if (!groups || !users) return null
+  const a = audienceOf(access, groups, users)
+  if (!a) return null
+  const label = a.kind === 'everyone' ? t('integrations.audience.everyone')
+    : a.kind === 'people' ? t('integrations.audience.people', { n: a.n })
+    : a.more ? t('integrations.audience.more', { name: a.name, n: a.more }) : a.name
+  return (
+    <span className="inline-flex min-w-0" title={a.kind === 'everyone' ? undefined : t('integrations.users', { who: a.all })} data-testid="integration-audience">
+      <Badge className="max-w-48"><span className="min-w-0 truncate">{label}</span></Badge>
+    </span>
+  )
+}
+
+export function IntegrationRow({ i, actions, onEdit, teamBadge, audience, alert, extra }: {
   i: Integration
   actions: IntegrationActions
   onEdit: () => void
   /** mark team connections (Settings lists them under one's own) */
   teamBadge?: boolean
+  /** right after the name (Admin: who may use it, AudienceChip) */
+  audience?: ReactNode
   /** a warning that stays on the line, not in the details (Admin: nobody may use it, or not the admin looking at it) */
   alert?: ReactNode
   /** more lines under the details (Admin: who may use it) */
@@ -250,6 +270,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
+              {audience}
               {teamBadge && i.scope === 'team' && <Badge tone="accent">{t('integrations.teamBadge')}</Badge>}
               {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
               {alert}

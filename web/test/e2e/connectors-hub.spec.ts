@@ -1,14 +1,16 @@
 // Connectors, like Claude's (pages/Integrations.tsx, pages/admin/Integrations.tsx, components/integrations/ConnectorsView.tsx):
-// MCP and Google Drive in one section with Yours and Discover; "Top connectors" (Drive first) and the rest behind Show
-// all; a card opens the connector's page (big logo, Connect, what it does, its tools); the add dialog is one column, Name
-// and Server URL, with type, sign-in, write rule and (Admin) who connects and who may use it under a collapsed Advanced.
-// Google Drive's own flow: drive.spec.ts and admin-app-connectors.spec.ts.
+// MCP and Google Drive on one page, the connections first and Discover under them; "Top connectors" (Drive first) and
+// the rest behind Show all; a card opens the connector's page (big logo, Connect, what it does, its tools) and its way
+// back returns to Discover; the add dialog is one column, Name and Server URL, with type, sign-in, write rule and (Admin)
+// who connects and who may use it under a collapsed Advanced. Google Drive's own flow: drive.spec.ts and
+// admin-app-connectors.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const header = (page: Page) => page.getByTestId('connectors-header')
-const discover = (page: Page) => header(page).getByRole('tab', { name: '둘러보기' }).click()
+/** Discover is on the page under the connections: its heading is there */
+const discover = (page: Page) => expect(page.getByTestId('connector-discover-title')).toHaveText('둘러보기')
 const card = (page: Page, id: string) => page.locator(`[data-testid="connector-card"][data-id="${id}"]`)
 
 test('Discover: Top connectors with Google Drive first, the rest behind Show all; a card opens its page with Connect', async ({ page }) => {
@@ -16,7 +18,9 @@ test('Discover: Top connectors with Google Drive first, the rest behind Show all
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/connectors')
-  await expect(header(page).getByRole('tab', { name: '내 커넥터' })).toHaveAttribute('aria-selected', 'true')
+  // the title says whose they are; no tabs
+  await expect(header(page).getByRole('heading', { name: '내 커넥터' })).toBeVisible()
+  await expect(header(page).getByRole('tab')).toHaveCount(0)
   await discover(page)
   const top = page.getByTestId('connector-list').getByTestId('connector-card')
   await expect(top).toHaveCount(8)
@@ -41,8 +45,10 @@ test('Discover: Top connectors with Google Drive first, the rest behind Show all
   await expect(dialog.getByTestId('integration-write-ask')).toBeHidden()
   await expect(dialog.getByTestId('integration-advanced-summary')).toContainText('매번 묻기')
   await dialog.getByRole('button', { name: '취소' }).click()
+  // back: the list again, at Discover, whose heading has the keyboard
   await detail.getByTestId('connector-back').click()
-  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(page.getByTestId('connector-discover-title')).toBeFocused()
+  await expect(page.getByTestId('connector-discover-title')).toBeInViewport()
   expect(realErrors(errors)).toEqual([])
 })
 
