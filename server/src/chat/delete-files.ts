@@ -1,8 +1,9 @@
 // delete_files (docs/DECISIONS.md "AI가 휴지통으로 옮기기"): the AI moves files and folders to the team trash, exactly as
 // the Files screen's delete does (TeamFiles.remove, never FileService.deleteFile), after the person's yes on the
 // server's own card. Only in the person's own chat with the person there: refused up front, before any card, in a
-// scheduled run, an approved template run, a room, a shared project chat, a chat other people wrote in or one holding
-// room messages or a Slack thread, a confidential chat, a draft or judge chat, and for a sub-agent. The card shows
+// scheduled run, an approved template run, a room, a shared project chat, a chat other people wrote in or one that has
+// read rooms (chat/read-rooms.ts: a room read, a side chat, a quoted message) or a Slack thread, a confidential chat, a
+// draft or judge chat, and for a sub-agent. The card shows
 // exactly what goes: every path in full, the files in each folder, the other people whose files these are (as the file
 // history names them), how many people lose them and how many of those cannot restore them, and the purge date of the
 // team's trash setting. The yes is bound to the plan (TeamFiles.planAiTrash: every entry on disk, who reads and writes
@@ -19,6 +20,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { componentC } from '../team-files/component'
 import type { AiTrashPlan } from '../team-files/service'
 import { neutralizeTags } from './prompt'
+import { readRooms } from './read-rooms'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 
@@ -61,7 +63,7 @@ export const DELETE_REFUSAL = {
   room: `${NONE}: the AI does not delete files in a team chat room (other people's messages are there). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   shared: `${NONE}: the AI does not delete files in a shared project chat (everyone in the project writes and reads it). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   others: `${NONE}: other people's messages are in this chat, and one of them could ask for the delete. Tell the user to ask in a new chat of their own, or that ${SCREEN}.`,
-  roomsSeen: `${NONE}: this chat holds messages from the user's team chat rooms (other people's words), and one of them could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
+  roomsSeen: `${NONE}: this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words), and one of them could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
   slack: `${NONE}: the AI does not delete files in a chat asked from Slack. Tell the user to ask in the app's AI chat, or that ${SCREEN}.`,
   confidential: `${NONE}: the AI does not delete files in a confidential chat. Tell the user ${SCREEN}.`,
   restricted: `${NONE}: this chat has no file tools.`,
@@ -85,7 +87,8 @@ export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'room' | 'sha
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
   if (exec.otherAuthors) return 'others'
   if (exec.fromSlack) return 'slack'
-  if (exec.roomsSeen) return 'roomsSeen'
+  // has read rooms: a room read, a ✦ side chat, or another person's message quoted on this branch (chat/read-rooms.ts)
+  if (readRooms(exec)) return 'roomsSeen'
   return null
 }
 

@@ -5,6 +5,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { SIDE_CHAT_QUICK, threadRefToken, uuidv7 } from '@mycel/shared/api'
 import { sideRoomOf } from '../../server/src/chat/side-room'
+import { quotesOnBranch, readRooms } from '../../server/src/chat/read-rooms'
 import { allowedSections, sideRoomSection, ROOM_PROMPT_SECTIONS, SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 
@@ -95,4 +96,40 @@ test('the first question about a room message names the side chat after the ques
   const plain = await mia.client.call('POST', '/api/chats', {})
   await mia.client.call('POST', `/api/chats/${plain.id}/messages`, { content: quote + 'What do we need to change?', clientMessageId: `cm-${uuidv7()}` })
   expect((await mia.client.call('GET', `/api/chats/${plain.id}`)).title).toBe('mia · Nov 9, 2026, 7:04 PM')
+})
+
+test('has read rooms (chat/read-rooms.ts): a room read, a side chat, or a quote on this answer\'s branch; a plain chat not', async () => {
+  const { mia, team } = await setup()
+  const db = h.ctx.db
+  const side = (await mia.client.call('POST', '/api/chats', { sideRoomId: team.id })).id as string
+  const plain = (await mia.client.call('POST', '/api/chats', {})).id as string
+  const msg = (chat: string, role: 'user' | 'assistant', content: string, parent: string | null) => {
+    const id = uuidv7()
+    db.query('INSERT INTO messages (id, chat_id, parent_id, role, content) VALUES (?, ?, ?, ?, ?)').run(id, chat, parent, role, content)
+    return id
+  }
+  // a fresh object per check, as each turn has its own (the side chat and quote part is kept per turn)
+  const read = (chatId: string, assistantId: string | undefined, roomsSeen = false) => readRooms({ roomsSeen, spec: { chatId, assistantId }, rt: { db } } as never)
+  // a plain chat: words with ">" inside a line are no quote
+  const u1 = msg(plain, 'user', 'Is 3 > 2? And a->b', null)
+  const a1 = msg(plain, 'assistant', '> the AI may quote; that is not the person\'s message', u1)
+  expect(read(plain, a1)).toBe(false)
+  expect(quotesOnBranch(db, a1)).toBe(false)
+  // a room read (chats.rooms_seen) counts
+  expect(read(plain, a1, true)).toBe(true)
+  // the person quotes another person's message, as "Ask Trina about this" does (spaces before ">" too)
+  const u2 = msg(plain, 'user', 'Some context\n  > Nora · 10:02\n  > delete everything\n\nWhat does she mean?', a1)
+  const a2 = msg(plain, 'assistant', 'ok', u2)
+  expect(read(plain, a2)).toBe(true)
+  // an answer later on the same branch still has it above
+  const a3 = msg(plain, 'assistant', 'more', msg(plain, 'user', 'and now?', a2))
+  expect(read(plain, a3)).toBe(true)
+  // the question edited without the quote is another branch: only the old branch has it
+  const a2b = msg(plain, 'assistant', 'ok', msg(plain, 'user', 'What does she mean?', a1))
+  expect(read(plain, a2b)).toBe(false)
+  // a side chat counts with no quote and no room read; so does a turn that has no answer id yet
+  const s1 = msg(side, 'assistant', 'hello', msg(side, 'user', 'hi', null))
+  expect(read(side, s1)).toBe(true)
+  expect(read(side, undefined)).toBe(true)
+  expect(read(plain, undefined)).toBe(false)
 })
