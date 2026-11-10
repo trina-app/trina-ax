@@ -4511,10 +4511,17 @@ export class MockServer {
   sharedMayEdit(p: Project, u: User): boolean {
     return p.createdBy?.id === u.id || (u.role !== 'member' && this.access(p.folderPath, u) === 'write')
   }
-  sharedProjectOut(p: Project): Project {
+  /** like server/src/uploads/shared-chat.ts mayUploadShared: the person may write the project's chat attachments folder
+   * (and safe operations are off) */
+  sharedMayUpload(p: Project, u: User): boolean {
+    return !this.allConfidential && this.access(`${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`, u) === 'write'
+  }
+  sharedProjectOut(p: Project, viewer?: User): Project {
     const personal = p.folderPath.startsWith('users/')
-    return { ...p, shareChats: !personal && this.sharedProjects.has(p.id), audience: this.sharedAudience(p).length,
-      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length }
+    const shareChats = !personal && this.sharedProjects.has(p.id)
+    return { ...p, shareChats, audience: this.sharedAudience(p).length,
+      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length,
+      ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer) } : {}) }
   }
   /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
   sharedView(chat: Chat, viewer: User): Chat | null {
@@ -4534,6 +4541,7 @@ export class MockServer {
         answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
         mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
         canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
+        canUpload: this.sharedMayUpload(p, viewer),
       },
     }
   }
@@ -4617,8 +4625,8 @@ export class MockServer {
       return Response.json({ ok: true })
     }
 
-    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p)) }))
-    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project))
+    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p, c.user)) }))
+    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project, c.user))
     over('updateProject', (c, base) => {
       const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const { shareChats, ...rest } = c.body as { shareChats?: boolean }
@@ -4629,7 +4637,7 @@ export class MockServer {
         if (shareChats) this.sharedProjects.add(p.id)
         else this.sharedProjects.delete(p.id)
       }
-      return this.sharedProjectOut(base({ ...c, body: rest }) as Project)
+      return this.sharedProjectOut(base({ ...c, body: rest }) as Project, c.user)
     })
     // its shared chats go to their creators' trash, as chats of theirs without project (one whose creator cannot see
     // the project goes for good); everyone else who saw one hears it is gone

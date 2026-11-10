@@ -151,6 +151,10 @@ export const Project = z.object({
   /** how many shared chats it has (not in the trash): the delete dialog says they go to their creators' trash, the
    * repoint dialog who will see them */
   sharedChats: z.number().int().nonnegative().optional(),
+  /** while it shares its chats: the caller may send files from the computer into them (they go into the project's chat
+   * attachments folder, which the caller may write: server/src/uploads/shared-chat.ts). false: the message box offers
+   * team files only. Absent (older server, or not sharing): allowed. */
+  chatUploads: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -207,6 +211,9 @@ export const Chat = z.object({
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */
     canDelete: z.boolean(),
+    /** I may send files from the computer here (they go into the project's chat attachments folder, which I may write:
+     * server/src/uploads/shared-chat.ts). false: the message box offers team files only. Absent (older server): allowed. */
+    canUpload: z.boolean().optional(),
     /** who wrote in it (sent a question there, its creator included), the most recent first, at most
      * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
      * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
