@@ -101,7 +101,8 @@ export const PARALLEL_READ_TOOLS: ReadonlySet<string> = new Set(
 export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'save_as']
 
 /**
- * A person's own AI chat that has read their team chat rooms (chats.rooms_seen, chat/room-tools.ts; docs/DECISIONS.md
+ * A person's own AI chat that has read their team chat rooms (chat/read-rooms.ts: chats.rooms_seen after a room tool,
+ * chat/room-tools.ts; a ✦ side chat; another person's message quoted on the branch; docs/DECISIONS.md
  * "내 AI 채팅에서 대화방 읽기"): the tools that go on without the room card there. The room session's read-only tools, the
  * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the

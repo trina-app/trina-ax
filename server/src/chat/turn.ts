@@ -32,6 +32,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, documentMatches, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
+import { readRooms } from './read-rooms'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
@@ -1537,16 +1538,16 @@ export class TurnExec {
 
   /**
    * What this turn's chat has seen, kept on the turn (turns.outside_content, migration 281): 2 a room's messages (its
-   * own chat after a room read, a room's session) or something from outside the team (chats.room_outside), 1 content
-   * someone else wrote (chats.session_tainted), else 0. Only ever raised. Kept in step at the start, on every mark and
-   * after every tool call, before anything the turn writes next: a file of the person's own folder this turn wrote
-   * carries it when a later chat reads it (fileOutsideLevel).
+   * own chat that has read rooms, chat/read-rooms.ts; a room's session) or something from outside the team
+   * (chats.room_outside), 1 content someone else wrote (chats.session_tainted), else 0. Only ever raised. Kept in step
+   * at the start, on every mark and after every tool call, before anything the turn writes next: a file of the
+   * person's own folder this turn wrote carries it when a later chat reads it (fileOutsideLevel).
    */
   syncOutsideMark() {
     try {
       const c = this.rt.db.query('SELECT session_tainted t, rooms_seen r, room_outside o FROM chats WHERE id = ?').get(this.spec.chatId) as { t: number; r: number; o: number } | null
       // a chat row that is gone: unknown, as outside
-      const level = !c || this.room || c.r || c.o ? 2 : c.t ? 1 : 0
+      const level = !c || this.room || c.r || c.o || readRooms(this) ? 2 : c.t ? 1 : 0
       if (level > this.outsideMark) {
         this.rt.db.query('UPDATE turns SET outside_content = MAX(outside_content, ?) WHERE id = ?').run(level, this.id)
         this.outsideMark = level
@@ -1786,11 +1787,11 @@ export class TurnExec {
     return !!(this.rt.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(this.spec.chatId) as { rooms_seen: number } | null)?.rooms_seen
   }
   /** A tool whose own card is the call's only one (rooms/ai-tools.ts ROOMS_SEEN_OWN_CARD_TOOLS, a connection's tools),
-   * in the person's own chat after a room read with the person there to answer (not a scheduled run or a draft): no
-   * room card (confirmRoomChange); the tool's card asks every time and leads with the room line (TurnPerson.roomsSeen,
-   * chat/tools.ts). */
+   * in the person's own chat that has read rooms (chat/read-rooms.ts) with the person there to answer (not a scheduled
+   * run or a draft): no room card (confirmRoomChange); the tool's card asks every time and leads with the room line
+   * (TurnPerson.roomsSeen, chat/tools.ts). */
   ownCard(tool: string): boolean {
-    return (ROOMS_SEEN_OWN_CARD_TOOLS.has(tool) || !!this.toolSet?.connection(tool)) && !this.room && !this.shared && !this.restricted && this.spec.clientKind !== 'schedule' && this.roomsSeen
+    return (ROOMS_SEEN_OWN_CARD_TOOLS.has(tool) || !!this.toolSet?.connection(tool)) && !this.room && !this.shared && !this.restricted && this.spec.clientKind !== 'schedule' && readRooms(this)
   }
   /** a connection tool's call that only reads (chat/tools.ts ChatToolSet.readsOnly); false for anything else */
   readsOnly(name: string, args: unknown): boolean { return this.toolSet?.readsOnly(name, args) ?? false }
@@ -1929,8 +1930,8 @@ export class TurnExec {
    * connections and later tools included) waits for the person who asked to allow it on a server card, whatever
    * the room's messages said: one of them may be another member telling the AI to write, move or send something. The
    * same call allowed once in this answer goes on without a second card. Returns the refusal for the AI, or null.
-   * The person's own chat after a room read (chats.rooms_seen) the same, for the tools outside
-   * ROOMS_SEEN_READ_ONLY_TOOLS.
+   * The person's own chat that has read rooms (chat/read-rooms.ts: chats.rooms_seen, a ✦ side chat, another person's
+   * message quoted on the branch) the same, for the tools outside ROOMS_SEEN_READ_ONLY_TOOLS.
    *
    * New team files (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"): a call that only makes new files, or changes a file
    * this same answer made (roomGrantTarget), in a folder every member of the room may write, goes on without a card
@@ -1951,10 +1952,10 @@ export class TurnExec {
    * something from outside the team (chats.room_outside, kept until a new session: noteRoomTool, noteOwnReads).
    */
   async confirmRoomChange(tool: string, input: unknown, o: { widen?: WidenOf; main?: boolean; noCover?: boolean; send?: string | null } = {}): Promise<string | null> {
-    // a room's session: always; the person's own chat: once a room's messages came into it (chats.rooms_seen), for
-    // the rest of the chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
+    // a room's session: always; the person's own chat: once a room's messages came into it (chat/read-rooms.ts: a room
+    // read, kept for the rest of the chat; a side chat; a quote on this branch) (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
     const own = !this.room
-    if (own ? !this.roomsSeen || ROOMS_SEEN_READ_ONLY_TOOLS.has(tool) || (this.browser && ROOMS_SEEN_BROWSER_READ_TOOLS.has(tool)) : ROOM_READ_ONLY_TOOLS.has(tool)) return null
+    if (own ? ROOMS_SEEN_READ_ONLY_TOOLS.has(tool) || (this.browser && ROOMS_SEEN_BROWSER_READ_TOOLS.has(tool)) || !readRooms(this) : ROOM_READ_ONLY_TOOLS.has(tool)) return null
     // a connection's read the service marks read-only goes on without a card (ownCard: the person there to answer)
     // unless its arguments carry an address or a random-looking part (tools/url-gate.ts carriesAddress: then this card);
     // its arguments go to the service the person or the team connected. api_request's GET or HEAD asks here (the method
