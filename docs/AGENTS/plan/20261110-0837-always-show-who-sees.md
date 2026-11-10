@@ -29,8 +29,9 @@ In:
 - The line is a button only for a shared chat (or a box whose new chat will be shared) and only when the person may change
   the members (`Project.membersEditable`). It opens `ProjectMembersDialog`. Otherwise it is plain text: a personal project
   is never shared, and in a chat of one person the members do not change who sees it.
-- Server: `Project.alone` (while it shares its chats) and `Chat.shared.alone`, both optional and only `true`. They mean
-  that nobody but the caller sees it by a rule of its folder. The check is role-blind (below).
+- Server: `Project.alone`, optional and only `true`. It means that nobody but the caller sees the project by a rule of
+  its folder. The check is role-blind, and it goes only to who may read the rules (below). The chat page takes it from
+  the chat's project.
 
 Out: the Home box without a project (on a computer its page footer already says "내 채팅은 나만 볼 수 있어요"); the
 trash and safe-operations (1A) lines under a chat (unchanged); the header's shared mark; the edit dialog's sharing switch; a
@@ -50,9 +51,12 @@ hint for people who may not change members (#298's hint stays on the 멤버 line
   - otherwise → "프로젝트 사람 N명이 볼 수 있어요", with N as today (팀장 and admins included).
 - **`alone` is role-blind.** Each other person in the audience is checked as if they were a member (`rules.access` with
   the role member). Someone who sees it through a person, group or everyone rule counts as "by a rule", whatever their
-  role. So an admin who made a project for one member counts as an ordinary member there, and the line never tells anyone
-  who is an admin. The people directory hides roles, and that is #304's concern. The line says only that nobody else has a
-  rule there, which the members dialog already shows its editors.
+  role. So an admin who made a project for one member counts as an ordinary member there. The people directory hides
+  roles, and that is #304's concern.
+- **`alone` only for who may read the rules** (changed after the independent review). It goes to the owner, admins and
+  whoever may change the members (`membersView`); they can read the participants anyway (GET access). To any other member
+  `true` would say that everyone else who sees it is an admin, and with a name beside it (whose question is answered, a
+  creator switched off or whose rule was taken out) who is one. They read the count.
 - **#304.** If members' counts later leave the admins out (#304's `adminsApart` applied to `Project.audience`), `alone`
   stays right. A member's count of 1 would then also need "나와 관리자만". This is noted in DECISIONS.
 - **Clickable only when shared.** In a team project that does not share chats, adding a member does not change "나만
@@ -63,7 +67,7 @@ hint for people who may not change members (#298's hint stays on the 멤버 line
 ## Steps
 
 1. Plan (this file).
-2. Server: `Audiences.alone`, used in `projectShare` and `sharedOf`; `Project.alone` and `Chat.shared.alone` in
+2. Server: `Audiences.alone`, sent as `Project.alone` from `chat/project-access.ts membersView`; the field in
    `shared/src/api/entities.ts`.
 3. Web: `lib/sharedChat.ts whoSees` and `components/chat/WhoSees.tsx`; Composer `who` replaces `phoneFooter`;
    NewChatComposer and the chat page use them; both open the members dialog; the dialog reads the project again after a
@@ -85,7 +89,7 @@ hint for people who may not change members (#298's hint stays on the 멤버 line
 
 - Checks: `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`.
 - Server unit test for `alone`: the owner alone, a member alone, a member with someone else, an admin who made a project
-  for one member (role-blind), and no `alone` while the project does not share chats.
+  for one member (role-blind), and a member who may not read the rules with only admins left.
 - Web unit test `who-sees.test.tsx`: only me vs N people, an admin vs a member caller, and clickable only when editable
   and shared.
 - e2e `shared-project-chats.spec.ts`: a project with only me says "나만 봐요", and adding a member in the dialog changes
@@ -95,14 +99,19 @@ hint for people who may not change members (#298's hint stays on the 멤버 line
 ## Result
 
 Built as planned:
-- Server: `Audiences.alone` in `server/src/chat/shared.ts`, used by `projectShare` (`Project.alone`, only while the
-  project shares its chats) and `sharedOf` (`Chat.shared.alone`). The fields are in `shared/src/api/entities.ts`.
+- Server: `Audiences.alone` in `server/src/chat/shared.ts`, sent as `Project.alone` by `chat/project-access.ts
+  membersView` to the owner, admins and whoever may change the members. The field is in `shared/src/api/entities.ts`.
 - Web: `lib/sharedChat.ts whoSees` and `components/chat/WhoSees.tsx`. Composer `who` replaces `phoneFooter`.
   NewChatComposer and the chat page use the line; it opens the members dialog from the project page and from an open
   shared chat. The dialog reads the project again after a save.
 - Five languages and the mock server.
 
-Differences from the plan:
+Differences from the first draft of this plan:
+- The independent review found that `alone` sent to every viewer could tell a member who is an admin (a name beside it:
+  whose question is answered, a creator switched off). It now goes only to who may read the rules. `Chat.shared.alone`
+  was dropped; the chat page reads it from the chat's project.
+- An open chat shows the line once the chat is loaded, not "나만 봐요" before. The button's tooltip says "멤버 관리".
 - The line under `/?project=` on Home is plain text. The dialog lives on the project page, and Home does not load it.
+- `chat-look.spec.ts`'s "the chat's name opens rename and delete" fails on dev too (focus), unrelated.
 
 The PR link is in the pull request.

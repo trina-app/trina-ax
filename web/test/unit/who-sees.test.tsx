@@ -1,9 +1,9 @@
 // Who sees a chat, always (docs/DECISIONS.md "Who sees it, always"; lib/sharedChat.ts whoSees, components/chat/WhoSees.tsx,
 // NewChatComposer.tsx): the line under the box says "나만 봐요" for a chat of one person and for a shared one nobody else
-// sees, "나와 관리자만 봐요" for a shared one only the owner and admins see besides me (Project.alone / Chat.shared.alone:
-// the server's role-blind check), and otherwise how many people see it, the owner and admins counted. It opens the
-// members dialog only for a shared chat (or a box whose new chat will be shared) whose members the person may change;
-// never for a personal project or a chat of one person.
+// sees, "나와 관리자만 봐요" for a shared one only the owner and admins see besides me (Project.alone: the server's
+// role-blind check, sent only to someone who may read the project's rules), and otherwise how many people see it, the
+// owner and admins counted. It opens the members dialog only for a shared chat (or a box whose new chat will be shared)
+// whose members the person may change, and its tooltip says so; never for a personal project or a chat of one person.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Me, Project } from '@mycel/shared/api'
@@ -75,6 +75,8 @@ describe('the project box', () => {
     const m = await mount(<MemoryRouter><NewChatComposer projectId={p.id} project={p} onMembers={() => { opened++ }} aiLine={false} /></MemoryRouter>)
     const el = m.get('who-sees')
     const out = { text: el.textContent, button: el.tagName === 'BUTTON', inRow: !!m.get('composer-footer').querySelector('[data-testid="who-sees"]') }
+    // a button says what it opens (its tooltip, read as its description)
+    if (out.button) expect(el.getAttribute('title')).toBe(ko('chat.whoOpens'))
     if (out.button) await m.click(el)
     await m.unmount()
     return { ...out, opened }

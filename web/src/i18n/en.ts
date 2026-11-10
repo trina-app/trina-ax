@@ -944,6 +944,7 @@ export const en: Record<MessageKey, string> = {
   'chat.footerAi': "AI can make mistakes. Check important information.",
   'chat.whoMe': "Only you",
   'chat.whoMeAdmins': "You and admins",
+  'chat.whoOpens': "Manage members",
   'chat.linkCopiedShared': "Link copied · {n, plural, one {# person} other {# people}} in the project can open it",
   'chat.linkCopiedPrivate': "Link copied · only you can open it",
   'chat.sharedBusy': "{name}'s question is being answered. You can send yours when it is done.",

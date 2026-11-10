@@ -944,6 +944,7 @@ export const id: Record<MessageKey, string> = {
   'chat.footerAi': "AI bisa salah. Cek lagi informasi penting.",
   'chat.whoMe': "Hanya kamu",
   'chat.whoMeAdmins': "Kamu dan admin",
+  'chat.whoOpens': "Kelola anggota",
   'chat.linkCopiedShared': "Tautan disalin · {n} orang di proyek bisa membukanya",
   'chat.linkCopiedPrivate': "Tautan disalin · hanya kamu yang bisa membukanya",
   'chat.sharedBusy': "Pertanyaan {name} sedang dijawab. Kamu bisa mengirim setelah selesai.",

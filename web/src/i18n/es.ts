@@ -923,6 +923,7 @@ export const es: Record<MessageKey, string> = {
   'chat.footerAi': "La IA puede cometer errores. Verifique la información importante.",
   'chat.whoMe': "Solo usted",
   'chat.whoMeAdmins': "Usted y los administradores",
+  'chat.whoOpens': "Gestionar miembros",
   'chat.linkCopiedShared': "Enlace copiado · {n, plural, one {# persona del proyecto puede} other {# personas del proyecto pueden}} abrirlo",
   'chat.linkCopiedPrivate': "Enlace copiado · solo tú puedes abrirlo",
   'chat.sharedBusy': "Se está respondiendo la pregunta de {name}. Podrá enviar la suya cuando termine.",

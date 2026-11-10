@@ -247,7 +247,7 @@ export function ProjectList() {
         </ul>
       </div>
       {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
-      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, audience: r.audience } : x)))} />}
+      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, audience: r.audience, alone: r.alone } : x)))} />}
     </div>
   )
 }

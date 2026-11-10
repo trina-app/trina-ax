@@ -120,11 +120,12 @@ function ChatView({ chatId }: { chatId: string }) {
   // from the projects store there
   const projectId = chat?.projectId ?? null
   const [movingProject, setMovingProject] = useState(false)
-  // the line under the box: its project's members dialog, for a shared chat whose members I may change (the project as
-  // the header's crumb asked for it, store/projects.ts)
+  // the line under the box, once the chat is here: whether nobody else sees it by a rule (Project.alone) and its
+  // members dialog, for a shared chat whose members I may change, from its project as the header's crumb asked for it
+  // (store/projects.ts)
   const project = useProjects((s) => (projectId ? s.byId[projectId] : undefined))
   const [members, setMembers] = useState(false)
-  const who = <WhoSeesLine shared={shared ?? null} place="chat" onOpen={shared && project?.membersEditable ? () => setMembers(true) : undefined} />
+  const who = chat ? <WhoSeesLine shared={shared ? { audience: shared.audience, alone: project?.alone } : null} place="chat" onOpen={shared && project?.membersEditable ? () => setMembers(true) : undefined} /> : undefined
 
   useEffect(() => {
     if (choose) void loadEngines()

@@ -89,10 +89,11 @@ export class Audiences {
   sees(userId: string, p: ProjectRow): boolean { return this.of(p).includes(userId) }
   /**
    * Nobody but `viewer` sees the project by a rule of its folder (a person, group, role or everyone rule): anyone else of
-   * its audience sees it only as the owner or an admin, who see every project (Project.alone, Chat.shared.alone: the line
-   * under the box says "나와 관리자만 봐요", docs/DECISIONS.md "Who sees it, always"). Role-blind: each of them is judged
-   * as a member would be, so an admin who sees it by a rule (its creator, someone chosen) counts like anyone else, and
-   * the answer never tells whether someone is an admin. While its folder is in the trash nobody sees it by a rule.
+   * its audience sees it only as the owner or an admin, who see every project (Project.alone: the line under the box says
+   * "나와 관리자만 봐요", docs/DECISIONS.md "Who sees it, always"). Role-blind: each of them is judged as a member would
+   * be, so an admin who sees it by a rule (its creator, someone chosen) counts like anyone else. While its folder is in
+   * the trash nobody sees it by a rule. Only for someone who may read its rules anyway (chat/project-access.ts
+   * membersView): to anyone else it would say that the others are admins.
    */
   alone(viewer: string, p: ProjectRow): boolean {
     const ids = this.of(p)
@@ -104,6 +105,7 @@ export class Audiences {
     return ids.every((id) => {
       if (id === viewer) return true
       const x = byId.get(id)
+      // a member of the audience is there by a rule; the owner or an admin only when a member would be too
       return !!x && x.role !== 'member' && !atLeast(rules.access({ ...x, role: 'member' }, segs), 'read')
     })
   }
@@ -277,7 +279,6 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
     mine: r.user_id === viewer || wroteIn(rt.db, r.id, viewer),
     canDelete: r.user_id === viewer || (!!me && !!project && mayEditProject(rt.files, me, project)),
     canUpload: !!project && aud.mayUpload(viewer, project),
-    ...(project && aud.alone(viewer, project) ? { alone: true as const } : {}),
   }
 }
 
@@ -343,16 +344,12 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 }
 
 /** Project.shareChats / audience / sharedChats as the caller sees them. */
-export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean; alone?: true } {
+export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
   const n = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(p.id) as { n: number }).n
   const a = aud ?? new Audiences(db, files)
   const shareChats = projectCanShare(p) && p.share_chats === 1
-  // `viewer`, while it shares them: whether their computer files can go into its shared chats (Project.chatUploads), and
-  // whether nobody else sees it by a rule (Project.alone: "나와 관리자만 봐요" under the box)
-  return {
-    shareChats, audience: a.of(p).length, sharedChats: n,
-    ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p), ...(a.alone(viewer, p) ? { alone: true as const } : {}) } : {}),
-  }
+  // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
+  return { shareChats, audience: a.of(p).length, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
 }
 
 /**

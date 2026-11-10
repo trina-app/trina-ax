@@ -3,13 +3,15 @@
 // open chat's (components/chat/Composer.tsx `who`). Quiet text with a small icon: a lock while only I see it, people
 // otherwise. For a shared chat (or a box whose new chat will be shared) whose members the person may change
 // (Project.membersEditable) it is a button that opens the members dialog (components/ProjectMembersDialog.tsx); anything
-// else has nothing to open. On a phone the button takes taps from a 44 px box without making the line taller.
+// else has nothing to open; its tooltip says what it opens. On a phone the button takes taps from a 44 px box without
+// making the line taller.
 import { Lock, Users } from 'lucide-react'
 import { useT } from '../../i18n'
 import { whoSees } from '../../lib/sharedChat'
 
 export function WhoSeesLine({ shared, place, onOpen }: {
-  /** the shared chat's Chat.shared, or the project whose new chat will be shared; null: a chat of one person */
+  /** a shared chat's count with its project's `alone`, or the project whose new chat will be shared; null: a chat of
+   * one person */
   shared: { audience?: number; alone?: boolean } | null
   /** the box of a chat not made yet ("새 채팅은 …") or an open chat ("… 이 채팅을 …") */
   place: 'new' | 'chat'
@@ -37,6 +39,7 @@ export function WhoSeesLine({ shared, place, onOpen }: {
       type="button"
       onClick={onOpen}
       aria-haspopup="dialog"
+      title={t('chat.whoOpens')}
       className="touch-hit rounded-sm underline decoration-dotted underline-offset-2 hover:text-ink hover:decoration-solid"
       data-testid="who-sees"
       data-who={who.kind}

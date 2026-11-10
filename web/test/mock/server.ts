@@ -4507,8 +4507,8 @@ export class MockServer {
   sharedAudience(p: Project): User[] {
     return this.users.filter((u) => u.status === 'active' && this.access(p.folderPath, u) !== 'none')
   }
-  /** like server/src/chat/shared.ts Audiences.alone (Project.alone, Chat.shared.alone): nobody but `viewer` sees it as a
-   * member would (role-blind), so anyone else is the owner or an admin */
+  /** like server/src/chat/shared.ts Audiences.alone (Project.alone): nobody but `viewer` sees it as a member would
+   * (role-blind), so anyone else is the owner or an admin */
   sharedAlone(p: Project, viewer: User): boolean {
     return this.sharedAudience(p).every((u) => u.id === viewer.id || (u.role !== 'member' && this.access(p.folderPath, { ...u, role: 'member' }) === 'none'))
   }
@@ -4531,7 +4531,9 @@ export class MockServer {
     const members = personal ? {} : { membersEditable: !!pm && !p.inTrash && !!viewer && this.sharedMayEdit(p, viewer), creatorChangesMembers: !!pm && !p.inTrash && !!creator }
     return { ...p, shareChats, audience: this.sharedAudience(p).length,
       sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length,
-      ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer), ...(this.sharedAlone(p, viewer) ? { alone: true as const } : {}) } : {}), ...members }
+      ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer) } : {}), ...members,
+      // only for someone who may read its rules anyway (server/src/chat/project-access.ts membersView)
+      ...(!personal && viewer && (members.membersEditable || viewer.role !== 'member') && this.sharedAlone(p, viewer) ? { alone: true as const } : {}) }
   }
   /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
   sharedView(chat: Chat, viewer: User): Chat | null {
@@ -4552,7 +4554,6 @@ export class MockServer {
         mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
         canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
         canUpload: this.sharedMayUpload(p, viewer),
-        ...(this.sharedAlone(p, viewer) ? { alone: true as const } : {}),
       },
     }
   }

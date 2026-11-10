@@ -943,6 +943,7 @@ export const ko = {
   'chat.footerAi': "AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요.",
   'chat.whoMe': "나만 봐요",
   'chat.whoMeAdmins': "나와 관리자만 봐요",
+  'chat.whoOpens': "멤버 관리",
   'chat.linkCopiedShared': "링크를 복사했어요 · 프로젝트 사람 {n}명이 열 수 있어요",
   'chat.linkCopiedPrivate': "링크를 복사했어요 · 나만 열 수 있어요",
   'chat.sharedBusy': "{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.",

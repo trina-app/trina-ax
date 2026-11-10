@@ -923,6 +923,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.footerAi': "AIは誤ることがあります。重要な情報は確認してください。",
   'chat.whoMe': "自分だけ",
   'chat.whoMeAdmins': "自分と管理者だけ",
+  'chat.whoOpens': "メンバーを管理",
   'chat.linkCopiedShared': "リンクをコピーしました · プロジェクトの{n, plural, one {#人} other {#人}}が開けます",
   'chat.linkCopiedPrivate': "リンクをコピーしました · 自分だけが開けます",
   'chat.sharedBusy': "{name}さんの質問に回答中です。終わったら送信できます。",
