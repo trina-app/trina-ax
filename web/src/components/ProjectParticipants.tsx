@@ -3,16 +3,18 @@
 // people directory (/api/people, every member may read it: a name and a title); groups ("부서" in Korean copy) are a
 // member's own groups (Me.groups) and, for admins, every group (Admin › Groups). The creator, the owner and admins
 // always see the project: the line says so. The count is the server's (POST /api/projects/access-preview), so it
-// matches who really sees it. A member's new project is counted without the owner and admins (`adminsApart`: the count
-// must not tell who is an admin), so the line says "N명과 팀장·관리자가 봐요", the number being me and the people chosen.
+// matches who really sees it. It leads with the project's own people ("멤버 3명") and puts the owner and admins after it:
+// with their number for the owner and admins (`split`), without one for a member's new project (`adminsApart`: the count
+// must not tell who is an admin).
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Search, User, Users, X } from 'lucide-react'
 import clsx from 'clsx'
-import type { Group, ProjectAccessPreview, ProjectParticipant } from '@mycel/shared/api'
+import type { AudienceSplit, Group, ProjectAccessPreview, ProjectParticipant } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { isAdmin, useMe } from '../store/session'
+import { byRoleLine } from '../lib/whoByRole'
 import { IconButton } from './ui'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
@@ -231,23 +233,44 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
 const RowIcon = ({ group }: { group: boolean }) =>
   group ? <Users size={14} className="shrink-0 text-faint" aria-hidden /> : <User size={14} className="shrink-0 text-faint" aria-hidden />
 
-/** "9명이 봐요 (팀장·관리자 포함)": how many people see it (the server's count; the last one stays while it counts
- * again). The names are the list above it. `adminsApart` (a member's new project): "2명과 팀장·관리자가 봐요", the number
- * being the caller and the people chosen. */
+/**
+ * Who would see it (the server's count; the last one stays while it counts again; the names are the list above it),
+ * the project's own people first (docs/DECISIONS.md "Who sees it: the project's own people first"):
+ * - the owner and admins (`split`): "멤버 3명 · 팀장·관리자 2명도 볼 수 있어요", the role part only when there is one;
+ * - a member's new project (`adminsApart`, #304: the count is the caller and the people chosen): "멤버 2명 ·
+ *   팀장·관리자도 볼 수 있어요", the role part without a number;
+ * - a member who manages an existing project gets the total only: "5명이 봐요 (팀장·관리자 포함)" (a split beside it
+ *   would tell them how many see it only by role).
+ * No owner's or admin's name anywhere.
+ */
 export function AccessSummary({ count, testId = 'project-access-summary' }: { count: AccessCount | null; testId?: string }) {
   const t = useT()
   const last = useRef<AccessCount | null>(null)
   if (count !== null) last.current = count
   const c = count ?? last.current
+  const w = c && accessWords(t, c)
   return (
     <p className={clsx('text-xs leading-5 break-keep text-muted', count === null && c !== null && 'opacity-60')} aria-live="polite" data-testid={testId}>
-      {c === null ? t('projects.whoCounting') : t(c.adminsApart ? 'projects.whoCountApart' : 'projects.whoCount', { n: c.n })}
+      {!w ? t('projects.whoCounting') : (
+        <>
+          {w.lead}
+          {w.role && <span className="text-faint" data-testid={`${testId}-role`}>{' · '}{w.role}</span>}
+        </>
+      )}
     </p>
   )
 }
 
-/** The server's count for the line under the picker: `adminsApart` when the owner and admins are left out of it. */
-export interface AccessCount { n: number; adminsApart: boolean }
+/** The count line's two parts: the people there by the project, then (quieter) the owner and admins by role. */
+export function accessWords(t: ReturnType<typeof useT>, c: AccessCount): { lead: string; role: string | null } {
+  if (c.split) return { lead: t('projects.whoMembers', { n: c.split.direct }), role: byRoleLine(t, c.split.byRole, 'project') }
+  if (c.adminsApart) return { lead: t('projects.whoMembers', { n: c.n }), role: byRoleLine(t, 'any', 'project') }
+  return { lead: t('projects.whoCount', { n: c.n }), role: null }
+}
+
+/** The server's count for the line under the picker: `adminsApart` when the owner and admins are left out of it (a
+ * member's new project), `split` the count apart (the owner and admins only). */
+export interface AccessCount { n: number; adminsApart: boolean; split?: AudienceSplit }
 
 /** How many people would see the project with these participants (the server's dry run), asked again 300 ms after the
  * last change; null while asking or when it failed. */
@@ -259,7 +282,7 @@ export function useAccessCount(participants: readonly ProjectParticipant[], o: {
     let live = true
     setN(null)
     const h = setTimeout(() => {
-      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}) } }).then((r) => live && setN({ n: r.people, adminsApart: !!r.adminsApart }), () => {})
+      api.call(API.previewProjectAccess, { body: { participants: [...participants], ...(o.projectId ? { projectId: o.projectId } : {}) } }).then((r) => live && setN({ n: r.people, adminsApart: !!r.adminsApart, ...(r.split ? { split: r.split } : {}) }), () => {})
     }, 300)
     return () => { live = false; clearTimeout(h) }
     // eslint-disable-next-line react-hooks/exhaustive-deps

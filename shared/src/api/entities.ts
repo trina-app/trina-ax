@@ -127,6 +127,15 @@ export const Folder = z.object({
 export type Folder = z.infer<typeof Folder>
 
 // ---------------- projects, chats, messages ----------------
+/**
+ * Who sees a project or a folder, apart (docs/DECISIONS.md "Who sees it: the project's own people first"): `direct` the
+ * people who see it by its own rules (judged as a member would be, so the owner or an admin who is in a rule counts once,
+ * here), `byRole` the owner and admins who see it only by their role. They add up to the total next to it. Sent only to
+ * the owner and admins: next to the total a member already gets, `direct` would tell them how many see it only by role.
+ */
+export const AudienceSplit = z.object({ direct: z.number().int().nonnegative(), byRole: z.number().int().nonnegative() })
+export type AudienceSplit = z.infer<typeof AudienceSplit>
+
 export const Project = z.object({
   id: Uuid7,
   name: z.string(),
@@ -148,6 +157,9 @@ export const Project = z.object({
   /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
    * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
   audience: z.number().int().nonnegative().optional(),
+  /** `audience` apart (AudienceSplit): a team project, for the owner and admins only. Its 멤버 row says "멤버 3명".
+   * While its folder is in the trash nobody sees it by a rule. Absent: anyone else, a personal project, an older server */
+  audienceSplit: AudienceSplit.optional(),
   /** how many shared chats it has (not in the trash): the delete dialog says they go to their creators' trash, the
    * repoint dialog who will see them */
   sharedChats: z.number().int().nonnegative().optional(),

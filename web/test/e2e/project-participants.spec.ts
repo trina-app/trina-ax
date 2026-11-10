@@ -26,6 +26,48 @@ async function asBob(browser: Browser): Promise<Page> {
   return b
 }
 
+test('the owner\'s case: an admin reads the members first and the owner and admins apart; a member the total, as before', async ({ page, browser }) => {
+  // the owner, another admin (Eve) and Dana, who makes the project with a group of three she is in
+  await reset(page, { withAdmin: true })
+  await signIn(page)
+  await seed(page)
+  const g = await page.request.post('/api/admin/groups', { headers: H, data: { name: '리드', memberIds: ['dana', 'bob', 'sora'] } })
+  const lead = ((await g.json()) as { id: string }).id
+  for (const id of ['dana', 'bob', 'sora']) expect((await page.request.patch(`/api/admin/users/${id}`, { headers: H, data: { groupIds: [lead] } })).ok()).toBeTruthy()
+  const ctx = await browser.newContext({ locale: 'ko-KR', viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' })
+  const d = await ctx.newPage()
+  await signIn(d, { username: 'dana', password: 'dana password 1' })
+  await d.goto('/projects')
+  await d.getByTestId('project-new').click()
+  await d.getByTestId('project-name').fill('견적서 제작')
+  // only Dana yet: the owner and Eve see it by role
+  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 1명 · 팀장·관리자 2명도 볼 수 있어요')
+  await d.getByTestId('project-participants-search').fill('리드')
+  await d.getByTestId(`participant-add-group-${lead}`).click()
+  // Dana, who is in the group too, counts once: 3 members, and the owner and Eve apart
+  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명 · 팀장·관리자 2명도 볼 수 있어요')
+  await d.getByTestId('project-save').click()
+  await expect(d.getByRole('heading', { level: 1, name: '견적서 제작' })).toBeVisible()
+  const id = d.url().split('/').pop()!
+  // the 멤버 row: the members only ("멤버 3명"), not the 5 who can see it
+  await expect(d.getByTestId('project-members')).toContainText('멤버3명')
+  await expect(d.getByTestId('project-members')).not.toContainText('5')
+  // the dialog: both parts, no names of the owner or admins
+  await d.getByTestId('project-members-manage').click()
+  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명 · 팀장·관리자 2명도 볼 수 있어요')
+  for (const name of ['Olga', 'Eve']) await expect(d.getByTestId('project-access-summary')).not.toContainText(name)
+  await ctx.close()
+
+  // Bob, a member in the group (not its creator): the row says the total, as before, and nothing apart
+  const b = await asBob(browser)
+  await b.goto(`/projects/${id}`)
+  await expect(b.getByTestId('project-members')).toContainText('5명이 봐요')
+  const seen = (await (await b.request.get(`/api/projects/${id}`)).json()) as Record<string, unknown>
+  expect(seen.audience).toBe(5)
+  expect(seen).not.toHaveProperty('audienceSplit')
+  await b.context().close()
+})
+
 test('a member makes a team project with a person, then adds one more: the confirm says what they will see', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
@@ -38,8 +80,9 @@ test('a member makes a team project with a person, then adds one more: the confi
   // a team project by default, no folder to choose; how many see it is always said
   await expect(b.getByTestId('project-kind-team')).toBeChecked()
   await expect(dialog.getByTestId('project-folder')).toHaveCount(0)
-  // a member's new project: the count is me and the people I choose, never who the admins are (they are named apart)
-  await expect(b.getByTestId('project-access-summary')).toHaveText('1명과 팀장·관리자가 봐요')
+  // a member's new project: the count is me and the people I choose, then the owner and admins without a number (it
+  // would say who the admins are)
+  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 1명 · 팀장·관리자도 볼 수 있어요')
   // I am always in it (no × to take me out)
   await expect(b.getByTestId('participant-user-bob')).toContainText('나')
   await expect(b.getByTestId('participant-remove-user-bob')).toHaveCount(0)
@@ -51,7 +94,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   await expect(b.getByTestId('participant-add-user-jiwoo')).toHaveCount(0)
   await b.getByTestId('participant-add-user-sora').click()
   await expect(b.getByTestId('participant-user-sora')).toBeVisible()
-  await expect(b.getByTestId('project-access-summary')).toHaveText('2명과 팀장·관리자가 봐요')
+  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 2명 · 팀장·관리자도 볼 수 있어요')
   await b.getByTestId('project-save').click()
   await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
   const id = b.url().split('/').pop()!

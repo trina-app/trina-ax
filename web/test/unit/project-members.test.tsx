@@ -110,6 +110,27 @@ describe('the members now', () => {
     await m.unmount()
   })
 
+  test('an admin (the owner\'s case): the members first, then how many more see it as the owner and admins, no names', async () => {
+    signedIn('admin')
+    // the creator and a group of three she is in: 3 members; the owner and another admin see it only by role
+    let split = { direct: 3, byRole: 2 }
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      'GET /api/admin/groups': () => json(200, { items: [] }),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access({ people: 5 })),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: split.direct + split.byRole, split })),
+    }
+    const m = await dialog()
+    await m.until(() => m.find('project-access-summary')?.textContent === `${en('projects.whoMembers', { n: 3 })} · ${en('projects.whoByRole', { n: 2 })}`, 'the count apart', 2000)
+    expect(m.get('project-access-summary-role').textContent).toBe(` · ${en('projects.whoByRole', { n: 2 })}`)
+    // an admin added counts once, with the members
+    split = { direct: 4, byRole: 1 }
+    await addBob(m)
+    await m.until(() => m.get('project-access-summary').textContent === `${en('projects.whoMembers', { n: 4 })} · ${en('projects.whoByRole', { n: 1 })}`, 'the new count', 2000)
+    for (const name of ['Mia', 'Bob', 'Sora', 'Jiwoo']) expect(m.get('project-access-summary').textContent).not.toContain(name)
+    await m.unmount()
+  })
+
   test('the count line only: how many see it, the owner and admins included', async () => {
     signedIn('member')
     let n = 3
@@ -124,6 +145,8 @@ describe('the members now', () => {
     await addBob(m)
     await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCount', { n: 4 }), 'the new count', 2000)
     expect(m.get('project-access-summary').textContent).not.toContain('Sora')
+    // a member who manages the project gets no split: no number for the owner and admins
+    expect(m.find('project-access-summary-role')).toBeNull()
     await m.unmount()
   })
 })

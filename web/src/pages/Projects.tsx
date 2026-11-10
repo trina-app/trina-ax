@@ -41,6 +41,7 @@ import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
 import { whoSeesText } from '../components/chat/WhoSees'
+import { whoSees } from '../lib/sharedChat'
 import { useChatLinkItem } from '../components/chat/copyChatLink'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
@@ -248,7 +249,7 @@ export function ProjectList() {
         </ul>
       </div>
       {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
-      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, audience: r.audience, alone: r.alone } : x)))} />}
+      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, audience: r.audience, alone: r.alone, audienceSplit: r.audienceSplit } : x)))} />}
     </div>
   )
 }
@@ -501,7 +502,9 @@ export function ProjectHome() {
 /** The 멤버 line of a team project's page: who sees it, in the words and by the rule of the line under the box
  * (components/chat/WhoSees.tsx whoSeesText, docs/DECISIONS.md "Who sees it, always"): "나만 봐요" when the count (the owner
  * and admins included) is 1, "나와 관리자만 봐요" when nobody else sees it by a rule (Project.alone, which only someone
- * who may read its rules gets), else how many ("9명이 봐요"). Whoever may change its members gets
+ * who may read its rules gets), else how many: for the owner and admins its people by its rules ("멤버 3명", the owner
+ * and admins apart: Project.audienceSplit, docs/DECISIONS.md "Who sees it: the project's own people first"), for anyone
+ * else the total ("9명이 봐요"). Whoever may change its members gets
  * 관리 (the members dialog) and nothing to open; anyone else opens the line to read who changes them: the creator by
  * name only while they can (Project.creatorChangesMembers: their account active, the folder theirs), else 관리자 (never
  * an admin's name). An admin on a project made before on another folder reads where to change it instead. */
@@ -509,7 +512,8 @@ export function MembersRow({ project: p, sideAction, onManage }: { project: Proj
   const t = useT()
   const me = useMe()
   const words = useFolderWords()
-  const meta = p.audience !== undefined ? whoSeesText(t, { audience: p.audience, alone: p.alone }, 'project') : undefined
+  const shared = p.audience !== undefined ? { audience: p.audience, alone: p.alone } : null
+  const meta = !shared ? undefined : whoSees(shared).kind === 'people' && p.audienceSplit ? t('projects.membersN', { n: p.audienceSplit.direct }) : whoSeesText(t, shared, 'project')
   if (p.membersEditable)
     return (
       <DisclosureRow

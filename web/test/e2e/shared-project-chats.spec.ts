@@ -690,7 +690,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('dialog-confirm').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
-      await expect(page.getByTestId('project-members')).toContainText('2명이 봐요')
+      // the 멤버 line, to the owner: its members (Olga and Bob), the owner and admins apart (docs/DECISIONS.md "Who sees
+      // it: the project's own people first")
+      await expect(page.getByTestId('project-members')).toContainText('멤버2명')
 
       // the open chat says it in the same place, and its line opens the same dialog: Bob out again, only me
       await page.getByTestId('composer-input').fill('주간 보고 정리해 줘')

@@ -5,7 +5,7 @@ import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
-import { Attachment, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
+import { Attachment, AudienceSplit, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
 
@@ -282,12 +282,15 @@ export const FolderAudience = z.object({
   access: Access,
   people: z.number().int().positive().optional(),
   everyone: z.boolean().optional(),
+  /** `people` apart (AudienceSplit): with `people`, for the owner and admins only (never a member: next to `people` it
+   * would tell how many see it only by role) */
+  split: AudienceSplit.optional(),
 })
 export type FolderAudience = z.infer<typeof FolderAudience>
 
 export const FILES = {
   tree: endpoint({ method: 'GET', path: '/api/files/tree', auth: 'user', owner: 'C', query: TreeQuery, response: TreeResponse, summary: 'List a folder (only what the caller may see; ancestors of visible folders shown for navigation).' }),
-  folderAudience: endpoint({ method: 'GET', path: '/api/files/audience', auth: 'user', owner: 'C', query: PathQuery, response: FolderAudience, summary: 'Who can see a folder the caller can open: their access, and where they can write, how many active people can open it (owner and admins included) and whether that is everyone. Counted, never named.' }),
+  folderAudience: endpoint({ method: 'GET', path: '/api/files/audience', auth: 'user', owner: 'C', query: PathQuery, response: FolderAudience, summary: 'Who can see a folder the caller can open: their access, and where they can write, how many active people can open it (owner and admins included) and whether that is everyone; for the owner and admins also that count apart (by its rules, by role only). Counted, never named.' }),
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
   saveContent: endpoint({ method: 'PUT', path: '/api/files/content', auth: 'user', owner: 'C', body: SaveContentBody, response: SaveResult, summary: 'Save a text file from the file screen (hash-based conflict copy, version history).' }),
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),

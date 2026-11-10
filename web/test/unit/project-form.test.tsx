@@ -49,6 +49,9 @@ function signedIn(role: 'member' | 'admin', projectCreators: 'members' | 'admins
 }
 const calls = (key: string) => sent.filter((x) => x.key === key)
 const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('en', key, vars)
+/** the count line: the project's people, then the owner and admins apart (docs/DECISIONS.md "Who sees it: the project's
+ * own people first") */
+const apart = (lead: string, role?: string) => (role ? `${lead} · ${role}` : lead)
 
 describe('a new project', () => {
   test('a member makes a team project with the people chosen and reads how many will see it', async () => {
@@ -69,7 +72,10 @@ describe('a new project', () => {
     expect(m.get('participant-user-mia').getAttribute('data-state')).toBe('fixed')
     expect(m.get('participant-user-mia').textContent).toContain(en('projects.whoMe'))
     expect(m.find('participant-remove-user-mia')).toBeNull()
-    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCountApart', { n: 1 }), 'the line with the count', 2000)
+    // "1 member · The owner and admins can see it too": no number for the owner and admins (the count never says who
+    // is an admin), and no name
+    await m.until(() => m.get('project-access-summary').textContent === apart(en('projects.whoMembers', { n: 1 }), en('projects.whoByRoleAny')), 'the line with the count', 2000)
+    expect(m.get('project-access-summary-role').textContent).not.toMatch(/\d/)
     // the search lists everyone who can be added (my group and the people, not me); typing narrows it, titles too
     await m.click('project-participants-search')
     await m.until(() => m.find('participant-add-user-bob'), 'the people to add', 2000)
@@ -90,7 +96,7 @@ describe('a new project', () => {
     await m.type('project-participants-search', 'sal')
     await m.click(`participant-add-group-${SALES}`)
     await m.until(() => m.find(`participant-group-${SALES}`), 'the group in the list', 2000)
-    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoCountApart', { n: 5 }), 'the new count', 2000)
+    await m.until(() => m.get('project-access-summary').textContent === apart(en('projects.whoMembers', { n: 5 }), en('projects.whoByRoleAny')), 'the new count', 2000)
     // × takes one out again (nothing saved yet: the row goes)
     await m.type('project-participants-search', 'so')
     await m.click('participant-add-user-sora')
@@ -103,7 +109,25 @@ describe('a new project', () => {
     await m.unmount()
   })
 
-  test('an admin\'s new project: the count of everyone who sees it, the owner and admins included, as before', async () => {
+  test('an admin\'s new project: the people chosen first, then how many more see it as the owner and admins', async () => {
+    signedIn('admin')
+    let split = { direct: 1, byRole: 2 }
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      'POST /api/projects/access-preview': () => json(200, { people: split.direct + split.byRole, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, split }),
+    }
+    const m = await mount(<MemoryRouter><ProjectForm onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.until(() => m.find('project-access-summary')?.textContent === apart(en('projects.whoMembers', { n: 1 }), en('projects.whoByRole', { n: 2 })), 'the line with the count', 2000)
+    // every admin chosen: nobody is left by role, and the line says only the members
+    split = { direct: 3, byRole: 0 }
+    await m.click('project-participants-search')
+    await m.click('participant-add-user-bob')
+    await m.until(() => m.get('project-access-summary').textContent === en('projects.whoMembers', { n: 3 }), 'the members alone', 2000)
+    expect(m.find('project-access-summary-role')).toBeNull()
+    await m.unmount()
+  })
+
+  test('an older server without the split: the total, the owner and admins included', async () => {
     signedIn('admin')
     routes = {
       'GET /api/people': () => json(200, PEOPLE),
@@ -147,5 +171,18 @@ describe('editing a project', () => {
     expect(sent.map((x) => x.key).filter((k) => k !== 'GET /api/people')).toEqual([`PATCH /api/projects/${P1}`])
     expect(calls(`PATCH /api/projects/${P1}`)[0]!.body).toEqual({ name: 'Acme 2027', instructions: '' })
     await m.unmount()
+  })
+
+  test('the sharing switch: an admin reads the members and the owner and admins apart; a member the total', async () => {
+    signedIn('admin')
+    const m = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { audience: 5, audienceSplit: { direct: 3, byRole: 2 } })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.settle(20)
+    expect(m.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOffApart', { n: 3, m: 2 }))
+    await m.unmount()
+    signedIn('member')
+    const b = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { audience: 5 })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await b.settle(20)
+    expect(b.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOff', { n: 5 }))
+    await b.unmount()
   })
 })
