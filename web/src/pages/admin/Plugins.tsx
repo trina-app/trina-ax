@@ -2,7 +2,11 @@
 // always goes through the permission prompt: the server checks the package first (official pin or signature, files,
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
-import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
+// A phone (below 768 px): the sections without frames, one line per plugin (its name, its state and its main button),
+// and what it does, who made it and its permissions open when the name is tapped; the install prompt shows the
+// permissions again before anything is installed (docs/DECISIONS.md "Admin and Settings on phones").
+import clsx from 'clsx'
+import { AlertTriangle, Check, ChevronRight, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
@@ -12,7 +16,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, EmptyState, Modal, confirmDialog } from '../../components/ui'
+import { Badge, Button, EmptyState, Modal, confirmDialog, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Card, Loadable, useLoad } from './common'
 
 type T = ReturnType<typeof useT>
@@ -141,7 +145,19 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
   )
 }
 
-function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void }) {
+/** A plugin's name on a phone: it opens and closes the rest of the row (what it does, who made it, its permissions). */
+function PluginName({ name, open, onToggle, controls }: { name: string; open: boolean; onToggle: () => void; controls: string }) {
+  return (
+    <button type="button" aria-expanded={open} aria-controls={open ? controls : undefined} onClick={onToggle} className="-ml-1 flex min-h-11 min-w-0 items-center gap-1.5 rounded-md px-1 text-left font-medium hover:bg-hover" data-testid="plugin-open">
+      <ChevronRight size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-90')} aria-hidden />
+      <span className="truncate">{name}</span>
+    </button>
+  )
+}
+
+const PHONE = '(max-width: 767.98px)'
+
+function InstalledRow({ p, reload, initiallyOpen }: { p: InstalledPlugin; reload: () => void; initiallyOpen: boolean }) {
   const t = useT()
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
@@ -149,9 +165,71 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
     setBusy(true)
     try { await fn(); toast({ level: 'success', text: ok }); reload() } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) } finally { setBusy(false) }
   }
+  const phone = useMediaQuery(PHONE)
+  const [open, setOpen] = useState(initiallyOpen)
+  const detailsId = useId()
   const status = p.status === 'enabled' ? <Badge tone="ok">{t('plugins.status.enabled')}</Badge>
     : p.status === 'disabled' ? <Badge>{t('plugins.status.disabled')}</Badge>
     : <Badge tone="warn">{p.enabled ? t('plugins.status.enabled') + ' · ' : ''}{t('plugins.status.unsupported')}</Badge>
+  const onOff = p.enabled
+    ? <Button size="sm" className="max-md:h-11" busy={busy} onClick={() => void run(() => api.call(API.disablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.disabled', { name: p.name }))} data-testid="plugin-disable">{t('plugins.disable')}</Button>
+    : <Button size="sm" className="max-md:h-11" variant="primary" busy={busy} disabled={p.status === 'unsupported'} onClick={() => void run(() => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.enabled', { name: p.name }))} data-testid="plugin-enable">{t('plugins.enable')}</Button>
+  const about = (
+    <>
+      <p className="text-sm text-muted">{p.description}</p>
+      <HwpWriting id={p.id} />
+      <p className="text-xs text-faint">
+        {t('plugins.publisher', { name: p.publisher.name })} · {p.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · {t('plugins.platforms', { list: platformText(t, p.platforms) })}
+      </p>
+    </>
+  )
+  const unsupported = p.unsupported && <p className="text-sm text-warn" data-testid="plugin-unsupported">{t(`plugins.unsupported.${p.unsupported}` as MessageKey)}</p>
+  const access = (
+    <>
+      <Permissions items={p.permissions} showGrant />
+      {p.skills.length > 0 && <p className="text-xs text-muted">{t('plugins.skills', { list: p.skills.map((s) => s.split('/').slice(-2, -1)[0]).join(', ') })}</p>}
+    </>
+  )
+  const others = (
+    <>
+      {p.previousVersion && (
+        <Button size="sm" className="max-md:h-11" busy={busy} onClick={() => void run(() => api.call(API.rollbackPlugin, { params: { id: p.id }, body: {} }), t('plugins.done.rolledBack', { name: p.name, version: p.previousVersion! }))} data-testid="plugin-rollback">
+          <RotateCcw size={14} aria-hidden /> {t('plugins.rollback', { version: p.previousVersion })}
+        </Button>
+      )}
+      <Button size="sm" className="max-md:h-11" variant="ghost" busy={busy} data-testid="plugin-remove" onClick={async () => {
+        if (!(await confirmDialog({ title: t('plugins.removeTitle', { name: p.name }), body: t('plugins.removeBody'), confirm: t('plugins.remove'), danger: true }))) return
+        await run(() => api.call(API.uninstallPlugin, { params: { id: p.id } }), t('plugins.done.removed', { name: p.name }))
+      }}>
+        <Trash2 size={14} aria-hidden /> {t('plugins.remove')}
+      </Button>
+    </>
+  )
+  // a phone: the name (it opens the rest), its state and turn on / off on one line; a trust warning or why it cannot
+  // run stays in sight; the rest, with roll back and remove, opens under it
+  if (phone)
+    return (
+      <li className="py-1.5" data-testid="plugin-installed" data-plugin={p.id}>
+        <div className="flex items-center gap-2">
+          <PluginName name={p.name} open={open} onToggle={() => setOpen(!open)} controls={detailsId} />
+          <span className="flex shrink-0 items-center">{status}</span>
+          <span className="ml-auto flex shrink-0">{onOff}</span>
+        </div>
+        {p.trust !== 'official' && <p className="pb-1 pl-5"><TrustBadge trust={p.trust} verifiedBy={p.verifiedBy} /></p>}
+        {unsupported && <div className="pb-1 pl-5">{unsupported}</div>}
+        {open && (
+          <div id={detailsId} className="space-y-2 pb-2 pl-5" data-testid="plugin-details">
+            <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+              {t('plugins.version', { version: p.version })}
+              {p.trust === 'official' && <TrustBadge trust={p.trust} verifiedBy={p.verifiedBy} />}
+            </p>
+            {about}
+            {access}
+            <div className="flex flex-wrap gap-2 pt-1">{others}</div>
+          </div>
+        )}
+      </li>
+    )
   return (
     <li className="space-y-2 px-4 py-3" data-testid="plugin-installed" data-plugin={p.id}>
       <div className="flex flex-wrap items-center gap-2">
@@ -160,29 +238,12 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
         <TrustBadge trust={p.trust} verifiedBy={p.verifiedBy} />
         {status}
       </div>
-      <p className="text-sm text-muted">{p.description}</p>
-      <HwpWriting id={p.id} />
-      <p className="text-xs text-faint">
-        {t('plugins.publisher', { name: p.publisher.name })} · {p.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · {t('plugins.platforms', { list: platformText(t, p.platforms) })}
-      </p>
-      {p.unsupported && <p className="text-sm text-warn" data-testid="plugin-unsupported">{t(`plugins.unsupported.${p.unsupported}` as MessageKey)}</p>}
-      <Permissions items={p.permissions} showGrant />
-      {p.skills.length > 0 && <p className="text-xs text-muted">{t('plugins.skills', { list: p.skills.map((s) => s.split('/').slice(-2, -1)[0]).join(', ') })}</p>}
+      {about}
+      {unsupported}
+      {access}
       <div className="flex flex-wrap gap-2 pt-1">
-        {p.enabled
-          ? <Button size="sm" busy={busy} onClick={() => void run(() => api.call(API.disablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.disabled', { name: p.name }))} data-testid="plugin-disable">{t('plugins.disable')}</Button>
-          : <Button size="sm" variant="primary" busy={busy} disabled={p.status === 'unsupported'} onClick={() => void run(() => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.enabled', { name: p.name }))} data-testid="plugin-enable">{t('plugins.enable')}</Button>}
-        {p.previousVersion && (
-          <Button size="sm" busy={busy} onClick={() => void run(() => api.call(API.rollbackPlugin, { params: { id: p.id }, body: {} }), t('plugins.done.rolledBack', { name: p.name, version: p.previousVersion! }))} data-testid="plugin-rollback">
-            <RotateCcw size={14} aria-hidden /> {t('plugins.rollback', { version: p.previousVersion })}
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" busy={busy} data-testid="plugin-remove" onClick={async () => {
-          if (!(await confirmDialog({ title: t('plugins.removeTitle', { name: p.name }), body: t('plugins.removeBody'), confirm: t('plugins.remove'), danger: true }))) return
-          await run(() => api.call(API.uninstallPlugin, { params: { id: p.id } }), t('plugins.done.removed', { name: p.name }))
-        }}>
-          <Trash2 size={14} aria-hidden /> {t('plugins.remove')}
-        </Button>
+        {onOff}
+        {others}
       </div>
     </li>
   )
@@ -211,19 +272,22 @@ export function PluginMeta({ text, license }: { text: string; license: string })
   )
 }
 
-function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => Promise<void>; fileInstall: boolean }) {
+function CatalogRow({ c, review, fileInstall, initiallyOpen }: { c: CatalogPlugin; review: (id: string) => Promise<void>; fileInstall: boolean; initiallyOpen: boolean }) {
   const t = useT()
+  const phone = useMediaQuery(PHONE)
+  const [open, setOpen] = useState(initiallyOpen)
+  const detailsId = useId()
   // the server may first download the package from the release feed
   const [busy, setBusy] = useState(false)
   // installed and up to date: the full text is already in "Installed" above, so here one line and a link to it
   if (c.installedVersion && !c.updateAvailable) {
     return (
-      <li className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm" data-testid="plugin-catalog" data-plugin={c.id} data-compact>
+      <li className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm max-md:px-0" data-testid="plugin-catalog" data-plugin={c.id} data-compact>
         <span className="font-medium">{c.name}</span>
         <Badge tone="ok">{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>
         <button
           type="button"
-          className="ml-auto text-xs font-medium text-accent-text underline-offset-2 hover:underline"
+          className="ml-auto text-xs font-medium text-accent-text underline-offset-2 hover:underline max-md:min-h-11"
           onClick={() => {
             const el = [...document.querySelectorAll<HTMLElement>('[data-testid="plugin-installed"]')].find((x) => x.dataset.plugin === c.id)
             if (!el) return
@@ -240,22 +304,22 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
       </li>
     )
   }
-  return (
-    <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{c.name}</span>
-        <span className="text-xs text-muted">{t('plugins.version', { version: c.version })}</span>
-        {c.recommended && <span data-testid="plugin-recommended"><Badge tone="accent">{t('plugins.recommended')}</Badge></span>}
-        {c.installedVersion && <Badge>{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>}
-      </div>
+  const recommended = c.recommended && <span data-testid="plugin-recommended"><Badge tone="accent">{t('plugins.recommended')}</Badge></span>
+  const installed = c.installedVersion && <Badge>{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>
+  const about = (
+    <>
       <p className="text-sm text-muted">{c.description}</p>
       <HwpWriting id={c.id} />
       <PluginMeta text={`${t('plugins.publisher', { name: c.publisher.name })} · ${t('plugins.platforms', { list: platformText(t, c.platforms) })}`} license={c.license} />
       {c.recommended && <p className="text-xs text-muted">{t('plugins.recommendedHint')}</p>}
       <Permissions items={c.permissions} />
-      {c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (
-        <Button size="sm" variant="primary" busy={busy} disabled={busy} onClick={async () => { setBusy(true); try { await review(c.id) } finally { setBusy(false) } }} data-testid="plugin-catalog-install">{c.installedVersion ? t('plugins.update', { version: c.version }) : t('plugins.install')}</Button>
-      )}
+    </>
+  )
+  const install = c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (
+    <Button size="sm" className="max-md:h-11" variant="primary" busy={busy} disabled={busy} onClick={async () => { setBusy(true); try { await review(c.id) } finally { setBusy(false) } }} data-testid="plugin-catalog-install">{c.installedVersion ? t('plugins.update', { version: c.version }) : t('plugins.install')}</Button>
+  )
+  const availability = (
+    <>
       {c.availability === 'file' && (!c.installedVersion || c.updateAvailable) && (
         <p className="text-sm text-muted" data-testid="plugin-from-file">{t(fileInstall ? 'plugins.availability.file' : 'plugins.availability.fileHosted')}</p>
       )}
@@ -263,6 +327,38 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
       {c.availability === 'unsupported' && (
         <p className="text-sm text-warn" data-testid="plugin-not-supported">{t('plugins.availability.unsupported')} {c.unsupported ? t(`plugins.unsupported.${c.unsupported}` as MessageKey) : ''}</p>
       )}
+    </>
+  )
+  // a phone: the name (it opens the rest), Recommended and Install on one line; why it cannot be installed stays in
+  // sight; the rest opens under it
+  if (phone)
+    return (
+      <li className="py-1.5" data-testid="plugin-catalog" data-plugin={c.id}>
+        <div className="flex items-center gap-2">
+          <PluginName name={c.name} open={open} onToggle={() => setOpen(!open)} controls={detailsId} />
+          {(recommended || installed) && <span className="flex shrink-0 items-center gap-1.5">{recommended}{installed}</span>}
+          {install && <span className="ml-auto flex shrink-0">{install}</span>}
+        </div>
+        <div className="space-y-2 pl-5 empty:hidden">{availability}</div>
+        {open && (
+          <div id={detailsId} className="space-y-2 pt-1 pb-2 pl-5" data-testid="plugin-details">
+            <p className="text-xs text-muted">{t('plugins.version', { version: c.version })}</p>
+            {about}
+          </div>
+        )}
+      </li>
+    )
+  return (
+    <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{c.name}</span>
+        <span className="text-xs text-muted">{t('plugins.version', { version: c.version })}</span>
+        {recommended}
+        {installed}
+      </div>
+      {about}
+      {install}
+      {availability}
     </li>
   )
 }
@@ -270,6 +366,7 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
 export default function Plugins() {
   const t = useT()
   const locale = useLocale()
+  const phone = useMediaQuery(PHONE)
   const state = useLoad(() => api.call(API.listPlugins))
   const [plan, setPlan] = useState<PluginPlan | null>(null)
   const file = useRef<HTMLInputElement>(null)
@@ -300,33 +397,34 @@ export default function Plugins() {
               {t('plugins.devTrust', { list: d.trustWarnings.map((w) => t(`plugins.devTrust.${w}`)).join(', ') })}
             </p>
           )}
-          <Card title={t('plugins.installed')} desc={d.trust.hosted ? t('plugins.hosted') : t('plugins.desc')} actions={d.fileInstall && (
+          <Card flat title={t('plugins.installed')} desc={d.trust.hosted ? t('plugins.hosted') : t('plugins.desc')} actions={d.fileInstall && (
             <>
               <input ref={file} type="file" accept=".trinaplugin" className="hidden" data-testid="plugin-file-input" onChange={(e) => {
                 const f = e.target.files?.[0]
                 e.target.value = ''
                 if (f) void inspect(() => api.call(API.inspectPluginFile, { body: { fields: {}, file: f, filename: f.name } }))
               }} />
-              <Button size="sm" onClick={() => file.current?.click()} data-testid="plugin-install-file"><FileUp size={14} aria-hidden /> {t('plugins.installFile')}</Button>
+              <Button size="sm" className="max-md:h-11" onClick={() => file.current?.click()} data-testid="plugin-install-file"><FileUp size={14} aria-hidden /> {t('plugins.installFile')}</Button>
             </>
           )}>
             {d.installed.length
-              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-installed">{d.installed.map((p) => <InstalledRow key={p.id} p={p} reload={reload} />)}</ul>
-              : <EmptyState icon={<Puzzle size={26} />} title={t('plugins.installedEmpty')} />}
+              ? <ul className="-m-4 divide-y divide-line max-md:m-0" data-testid="plugins-installed">{d.installed.map((p) => <InstalledRow key={p.id} p={p} reload={reload} initiallyOpen={focus === p.id} />)}</ul>
+              // a phone: one line, not a block of its own above the plugins to install
+              : phone ? <p className="text-sm text-faint" data-testid="plugins-installed-empty">{t('plugins.installedEmpty')}</p> : <EmptyState icon={<Puzzle size={26} />} title={t('plugins.installedEmpty')} />}
           </Card>
-          <Card title={t('plugins.catalog')} desc={t(`plugins.catalog.${d.catalogSource}` as MessageKey)}>
+          <Card flat title={t('plugins.catalog')} desc={t(`plugins.catalog.${d.catalogSource}` as MessageKey)}>
             {d.catalog.length
-              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-catalog">{d.catalog.map((c) => <CatalogRow key={c.id} c={c} fileInstall={d.fileInstall} review={(id) => inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))} />)}</ul>
+              ? <ul className="-m-4 divide-y divide-line max-md:m-0" data-testid="plugins-catalog">{d.catalog.map((c) => <CatalogRow key={c.id} c={c} fileInstall={d.fileInstall} initiallyOpen={focus === c.id} review={(id) => inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))} />)}</ul>
               : <p className="text-sm text-muted">{t('plugins.catalog.none')}</p>}
           </Card>
           {d.imports.length > 0 && (
-            <Card title={t('plugins.imports')} desc={t('plugins.importsDesc')}>
-              <ul className="-m-4 divide-y divide-line">
+            <Card flat title={t('plugins.imports')} desc={t('plugins.importsDesc')}>
+              <ul className="-m-4 divide-y divide-line max-md:m-0">
                 {d.imports.map((f) => (
-                  <li key={f.name} className="flex items-center gap-2 px-4 py-2 text-sm">
+                  <li key={f.name} className="flex items-center gap-2 px-4 py-2 text-sm max-md:px-0">
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{f.name}</span>
                     <span className="text-xs text-faint">{formatSize(f.size, locale)}</span>
-                    <Button size="sm" onClick={() => void inspect(() => api.call(API.inspectPluginSource, { body: { source: 'import', name: f.name } }))}>{t('plugins.review')}</Button>
+                    <Button size="sm" className="max-md:h-11" onClick={() => void inspect(() => api.call(API.inspectPluginSource, { body: { source: 'import', name: f.name } }))}>{t('plugins.review')}</Button>
                   </li>
                 ))}
               </ul>

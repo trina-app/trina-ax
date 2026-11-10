@@ -19,6 +19,7 @@ import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
+import { CREDENTIAL_PROBLEMS } from './overview'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -119,6 +120,11 @@ export type TeamCredentials = ReturnType<typeof useTeamCredentials>
 
 /** One provider's accounts inside its row in Admin › AI providers, in the order they are used, with Add account
  * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them. */
+/** Whether an account of this provider needs a look (a phone keeps the accounts shown under a closed row then). */
+export function accountsNeedLook(tc: TeamCredentials, fam: Family): boolean {
+  return !!tc.state.data?.items.some((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind) && !x.disabled && CREDENTIAL_PROBLEMS.includes(x.state))
+}
+
 export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family }) {
   const t = useT()
   const d = tc.state.data
@@ -640,7 +646,8 @@ export function MyCredentials() {
   return (
     <Loadable state={state}>
       {(d) => (
-        <Card title={t('settings.providers')} desc={t('settings.credentials.desc')}>
+        // a phone: Settings' bar says "Providers", so the card has no frame and its title is for screen readers
+        <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t('settings.credentials.desc')}>
           <div className="space-y-5" data-testid="my-providers">
             {(['claude', 'codex'] as const).map((fam) => {
               const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))

@@ -63,7 +63,7 @@ export function AiAppRows({ on, onConnect, connected = [] }: { on: boolean; onCo
               <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
             </span>
           )}
-          {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
+          {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0 max-md:h-11" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
         </li>
         )
       })}

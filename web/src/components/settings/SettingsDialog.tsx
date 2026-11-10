@@ -36,9 +36,6 @@ import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { PhonePageBar } from '../phone/PhonePageBar'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
-/** sections whose page starts with its own title row that stays (AI providers' card): the phone's bar keeps "설정"
- * there instead of saying the name twice */
-const OWN_TITLE = new Set(['providers'])
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) and 알림 (알림함) */
 const PHONE_TOP = new Set(['profile', 'notifications'])
 
@@ -112,7 +109,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const current = tab ?? 'profile'
   // phones: the open section's name in the bar (not for a page under a section: that page has its own title); 알림 is
   // reached from the 알림함 row there, so it keeps that name
-  const section = tab && !page && !OWN_TITLE.has(tab) ? tabs.find((x) => x.id === tab) : undefined
+  const section = tab && !page ? tabs.find((x) => x.id === tab) : undefined
   const sectionName = section ? t(section.id === 'notifications' ? 'inbox.title' : section.label) : ''
 
   return (

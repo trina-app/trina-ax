@@ -6,6 +6,8 @@
 // rest: the longer explanation, the version and every model, and the API engine form (owner and admins) (address, model, key;
 // ?engine=api opens that row). The team's AI settings (defaults, who picks the engine, members' own accounts, usage
 // limits) are in Team settings (TeamAiSettings.tsx); the old ?tab=team address opens them there (AdminLayout.tsx).
+// A phone (below 768 px): an engine is one compact row, and its accounts with Add account open with the rest when the
+// name is tapped; an account that needs a look stays in sight (docs/DECISIONS.md "Admin and Settings on phones").
 import clsx from 'clsx'
 import { ChevronRight, RefreshCw } from 'lucide-react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
@@ -15,9 +17,9 @@ import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
-import { Badge, Button, Field, IconButton, Switch, inputCls } from '../../components/ui'
+import { Badge, Button, Field, IconButton, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common'
-import { ENGINE_FAMILY, ProviderAccounts, useTeamCredentials } from './Credentials'
+import { ENGINE_FAMILY, ProviderAccounts, accountsNeedLook, useTeamCredentials } from './Credentials'
 import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
 
@@ -29,6 +31,7 @@ export default function Engines() {
   const state = useLoad(() => api.call(API.engines))
   const tc = useTeamCredentials()
   const [checking, setChecking] = useState<EngineId | null>(null)
+  const phone = useMediaQuery('(max-width: 767.98px)')
 
   const check = async (id: EngineId) => {
     setChecking(id)
@@ -54,6 +57,7 @@ export default function Engines() {
                   key={e.id}
                   e={e}
                   accounts={ENGINE_FAMILY[e.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[e.id]!} />}
+                  accountsShown={!phone || (!!ENGINE_FAMILY[e.id] && accountsNeedLook(tc, ENGINE_FAMILY[e.id]!))}
                   owner={isAdmin(me)}
                   initiallyOpen={params.get('engine') === e.id}
                   checking={checking === e.id}
@@ -76,8 +80,9 @@ export default function Engines() {
 }
 
 /** One engine: name and state on the first line, one dim line under it, what is missing in one line (it opens with
- * "More"); check again and the switch on the right. The name opens the rest in place. */
-function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
+ * "More"); check again and the switch on the right. The name opens the rest in place. `accountsShown`: the accounts
+ * show under the closed row too (a phone: only when one needs a look; they open with the rest). */
+function EngineRow({ e, accounts, accountsShown, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; accountsShown: boolean; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(initiallyOpen)
@@ -147,7 +152,7 @@ function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onTog
           <Switch checked={e.enabled} onChange={onToggle} label={t('engines.enableNamed', { name: e.label })} hideLabel testId={`engine-switch-${e.id}`} />
         </div>
       </div>
-      {accounts}
+      {(accountsShown || open) && accounts}
       {open && (
         <div id={details} className="mt-3 space-y-3 pl-5" data-testid="engine-details">
           {hint && <p className="text-xs leading-relaxed text-muted" data-testid={e.beta ? 'engine-beta' : undefined}>{hint}</p>}

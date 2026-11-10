@@ -1,7 +1,9 @@
 // Settings > Usage: the person's own usage (GET /api/me/usage), like Claude's Settings > Usage. First how full the
 // usage limits that apply to them are (Admin budgets: theirs, their groups', the team's) with when each resets, then
 // their answers per engine and model in the chosen period, then the totals. Only their own: everyone's usage is
-// Admin > Usage (pages/admin/Usage.tsx).
+// Admin > Usage (pages/admin/Usage.tsx). A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): the
+// bar says "Usage", so the title is for screen readers; the period and Refresh go under the line instead of squeezing it
+// to four lines; the three numbers share one row; nothing is framed.
 import { RefreshCw } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -52,18 +54,18 @@ export default function MyUsage() {
     <section aria-labelledby={`${ids}-h`} data-testid="my-usage">
       {/* like the Console: the title, one dim line, and the period pill with refresh on the right */}
       <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-1">
-          <h2 id={`${ids}-h`} className="text-base font-semibold">
+        <div className="min-w-0 flex-1 max-md:basis-full">
+          <h2 id={`${ids}-h`} className="text-base font-semibold max-md:sr-only">
             {t('myUsage.title')}
           </h2>
-          <p className="mt-1 text-xs text-muted" data-testid="my-usage-desc">
+          <p className="mt-1 text-xs text-muted max-md:mt-0" data-testid="my-usage-desc">
             {t('myUsage.console.desc', { tz: tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone, at: state.at ? formatDateTime(new Date(state.at).toISOString(), locale, tz) : '…' })}
           </p>
         </div>
         <div className="flex items-center gap-1">
           <FilterPill neutral label={t('myUsage.period')} value={period} onChange={setPeriod} testId="my-usage-period"
             options={PERIODS.map((p) => ({ value: p, label: t(`myUsage.period.${p}` as MessageKey) }))} />
-          <IconButton label={t('myUsage.refresh')} onClick={() => setTick((n) => n + 1)} data-testid="my-usage-refresh">
+          <IconButton label={t('myUsage.refresh')} className="max-md:size-11" onClick={() => setTick((n) => n + 1)} data-testid="my-usage-refresh">
             <RefreshCw size={14} aria-hidden />
           </IconButton>
         </div>
@@ -77,7 +79,7 @@ export default function MyUsage() {
       {d && (
         <>
           {/* how full the limits are, like Claude's "This week ... N% used" */}
-          <div className="mt-4 rounded-xl border border-line bg-surface p-5" data-testid="my-usage-limits">
+          <div className="mt-4 rounded-xl border border-line bg-surface p-5 max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent max-md:px-0 max-md:pt-0 max-md:pb-4" data-testid="my-usage-limits">
             {top ? (
               <p className="text-sm font-medium" data-testid="my-usage-headline">
                 {top.exceeded
@@ -116,7 +118,7 @@ export default function MyUsage() {
           </div>
 
           {/* the person's own answers in the chosen period, by engine and model */}
-          <section className="mt-4 rounded-xl border border-line bg-surface p-5" aria-labelledby={`${ids}-models`}>
+          <section className="mt-4 rounded-xl border border-line bg-surface p-5 max-md:mt-6 max-md:rounded-none max-md:border-x-0 max-md:border-b-0 max-md:bg-transparent max-md:px-0 max-md:pb-0" aria-labelledby={`${ids}-models`}>
             <h3 id={`${ids}-models`} className="text-base font-medium">{t('myUsage.byModel')}</h3>
             {!d.byModel.length ? (
               <p className="mt-3 text-sm text-muted" data-testid="my-usage-none">

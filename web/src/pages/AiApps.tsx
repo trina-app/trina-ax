@@ -74,7 +74,7 @@ export default function AiApps() {
               {!item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-rooms">{t(isAdmin && !item.scopes.includes('mcp:admin') ? 'aiApps.reconnectForRoomsAndGroups' : 'aiApps.reconnectForRooms')}</p>}
               {isAdmin && !item.scopes.includes('mcp:admin') && item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</p>}
             </div>
-            <Button variant="danger" size="sm" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
+            <Button variant="danger" size="sm" className="max-md:h-11" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
           </li>)}</ul>
         </div>
       )}
@@ -98,7 +98,7 @@ export function ConnectorAddress({ resource }: { resource: string }) {
         <span className="block text-xs text-muted">{t('connectors.address')}</span>
         <code className="block text-sm break-all">{resource}</code>
       </span>
-      <IconButton label={copied ? t('common.copied') : t('common.copy')} className="shrink-0" onClick={() => void copy()} data-testid="connector-address-copy">
+      <IconButton label={copied ? t('common.copied') : t('common.copy')} className="shrink-0 max-md:size-11" onClick={() => void copy()} data-testid="connector-address-copy">
         {copied ? <Check size={15} aria-hidden /> : <Copy size={15} aria-hidden />}
       </IconButton>
     </div>

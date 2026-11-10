@@ -211,6 +211,9 @@ PR 1b (`feat/phone-page-patterns`): the phone header rule (with Connectors' and 
 PR 2 (`feat/phone-admin-lists`), list pages: Groups, Folder permissions, Providers (both), Connectors (both, rows),
 AI apps (both), Usage (both, with `StatGrid`), Activity log.
 
+PR 2 was built on `feat/phone-list-pages` with Plugins and Slack in it (their flat cards and 44 px targets need no new
+part); PR 3 keeps the rest of its list.
+
 PR 3 (`feat/phone-admin-forms`), document pages: `SettingRow`, `InfoRow`, flat cards, kept drafts; Team settings
 (split into pages on phones, 7 above), System, Plugins, Slack, Profile, Apps.
 
