@@ -6,7 +6,7 @@ import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
+import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls, useMediaQuery } from '../../components/ui'
 
 /** Team settings, scrolled to Usage limits (TeamAiSettings.tsx reads #ai-limits). */
 export const USAGE_LIMITS_LINK = '/admin/settings#ai-limits'
@@ -140,6 +140,32 @@ export function AdminScope() {
 }
 
 export function AdminPageHeader({ title, desc, actions, children, controls, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; controls?: ReactNode; testId?: string; className?: string; still?: boolean }) {
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (phone) {
+    // A phone (docs/DECISIONS.md "Admin and Settings on phones"): the bar above says the page's name (AdminLayout's
+    // PhonePageBar), so the title is for screen readers only; the line keeps one line (More) with the page's buttons at
+    // its end (PageActions: one, the rest under its ⌄); only the search and filters row stays at the top while the page
+    // scrolls (the whole header stuck took a third of the screen)
+    return (
+      <>
+        <div className={clsx('mb-3', className)} data-testid={testId}>
+          <h2 className="sr-only">{title}</h2>
+          {children && <div className="mb-2 flex flex-wrap items-center gap-2">{children}</div>}
+          {(desc || actions) && (
+            <div className="flex items-center gap-3">
+              {desc ? <OneLine className="min-w-0 flex-1 text-xs text-muted">{desc}</OneLine> : <span className="flex-1" />}
+              {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+            </div>
+          )}
+        </div>
+        {controls && (
+          <StickyHeader className="mb-3 flex flex-wrap items-center gap-2 py-2" testId={testId ? `${testId}-controls` : undefined}>
+            {controls}
+          </StickyHeader>
+        )}
+      </>
+    )
+  }
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -170,7 +196,7 @@ export function CountBadge({ n, testId }: { n: number | null | undefined; testId
 /** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. */
 export function SearchBox({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
   return (
-    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-sm:min-h-10 max-sm:w-full', className)}>
+    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-10 max-md:flex-1', className)}>
       <Search size={15} className="shrink-0 text-faint" aria-hidden />
       <input
         type="search"

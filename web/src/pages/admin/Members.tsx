@@ -33,6 +33,9 @@ import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { PageActions } from '../../components/PageActions'
+import { PhoneFilters } from '../../components/PhoneFilters'
+import { CompactRow } from '../../components/CompactRow'
 import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, ReauthDialog, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
@@ -177,11 +180,12 @@ export default function Members() {
       if (u.role === 'admin' && r.role === 'member') toast({ level: 'info', text: t('teamLink.adminHint') })
       await users.reload()
     })
-  const roleCell = (u: User) =>
+  /** `compact`: a phone's row, where the role sits on the right as plain words (a choice for the owner) */
+  const roleCell = (u: User, compact = false) =>
     roleEditable(u) ? (
-      <InlineRole user={u} busy={roleBusy.busy === u.id} onChange={(r) => void changeRole(u, r)} />
+      <InlineRole user={u} busy={roleBusy.busy === u.id} onChange={(r) => void changeRole(u, r)} compact={compact} />
     ) : (
-      <span className="text-sm text-ink" data-testid={`member-role-${u.username}`}>
+      <span className={compact ? 'px-2 text-sm text-muted' : 'text-sm text-ink'} data-testid={`member-role-${u.username}`}>
         {t(`role.${u.role}`)}
       </span>
     )
@@ -208,34 +212,35 @@ export default function Members() {
         }
         desc={t('members.pageDesc')}
         testId="members-header"
+        // one main button (a phone: the other ways to add under its ⌄; components/PageActions.tsx)
         actions={
-          <>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              <UserPlus size={14} aria-hidden /> {t('members.add')}
-            </Button>
-            <Button size="sm" onClick={() => setTeamLinkOpen(true)} data-testid="team-link-open">
-              <Link2 size={14} aria-hidden /> {t('teamLink.title')}
-            </Button>
-            <Button size="sm" variant="primary" onClick={() => setInviteOpen(true)} data-testid="invite-new">
-              <Plus size={14} aria-hidden /> {t('members.inviteToTeam')}
-            </Button>
-          </>
+          <PageActions
+            menuLabel={t('members.inviteMore')}
+            primary={{ label: t('members.inviteToTeam'), icon: <Plus size={14} aria-hidden />, onSelect: () => setInviteOpen(true), testId: 'invite-new' }}
+            more={[
+              { label: t('members.add'), icon: <UserPlus size={14} aria-hidden />, onSelect: () => setAddOpen(true), testId: 'member-add' },
+              { label: t('teamLink.title'), icon: <Link2 size={14} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-open' },
+            ]}
+          />
         }
+        // a phone: the search and a Filters button share one row (components/PhoneFilters.tsx)
         controls={
           <>
             <SearchBox value={query} onChange={setQuery} label={t('members.search')} testId="member-search" className="sm:w-80" />
-            <FilterPill
-              label={t('members.role')}
-              value={roleFilter}
-              onChange={setRoleFilter}
-              options={[
-                { value: 'all', label: t('members.roleAll') },
-                { value: 'owner', label: t('role.owner') },
-                { value: 'admin', label: t('role.admin') },
-                { value: 'member', label: t('role.member') },
-              ]}
-              testId="member-role-filter"
-            />
+            <PhoneFilters active={roleFilter === 'all' ? 0 : 1} testId="member-filters">
+              <FilterPill
+                label={t('members.role')}
+                value={roleFilter}
+                onChange={setRoleFilter}
+                options={[
+                  { value: 'all', label: t('members.roleAll') },
+                  { value: 'owner', label: t('role.owner') },
+                  { value: 'admin', label: t('role.admin') },
+                  { value: 'member', label: t('role.member') },
+                ]}
+                testId="member-role-filter"
+              />
+            </PhoneFilters>
           </>
         }
       />
@@ -249,25 +254,35 @@ export default function Members() {
                   {t('members.noMatch')}
                 </p>
               )
-            // a phone: one stacked row per member instead of a squeezed table
+            // a phone: one compact row per member (components/CompactRow.tsx): the name, the role on the right (the
+            // owner's choice of member ↔ admin stays right there) and "…"; a second line only for what it adds: the
+            // username when it is not the name, the email the search found, what needs a look
             return phone ? (
               <ul className="divide-y divide-line border-y border-line" data-testid="members-list">
-                {list.map((u) => (
-                  <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('flex items-start gap-2 py-3.5 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{u.name}</p>
-                      <p className="truncate text-xs text-faint">
-                        {u.username}
-                        {u.email ? ` · ${u.email}` : ''}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        {roleCell(u)}
-                        <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
-                      </div>
-                    </div>
-                    <MemberMenu name={u.name} items={menuItems(u)} />
-                  </li>
-                ))}
+                {list.map((u) => {
+                  const lower = (x: string) => x.toLocaleLowerCase(locale)
+                  const username = lower(u.username) !== lower(u.name)
+                  const byEmail = !!q && !!u.email && matches(q, locale, u.email) && !matches(q, locale, u.name, u.username)
+                  const flagged = u.status === 'disabled' || requested(u) || u.mustChangePassword || !!noAi?.includes(u.id)
+                  return (
+                    <CompactRow
+                      key={u.id}
+                      rowRef={u.id === focusId ? focusRow : undefined}
+                      className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}
+                      testId={`member-card-${u.username}`}
+                      title={u.name}
+                      chip={roleCell(u, true)}
+                      second={(username || byEmail || flagged) && (
+                        <>
+                          {username && <span className="truncate">{u.username}</span>}
+                          {byEmail && <span className="truncate" data-testid={`member-email-${u.username}`}>{u.email}</span>}
+                          <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
+                        </>
+                      )}
+                      menu={<MemberMenu name={u.name} items={menuItems(u)} />}
+                    />
+                  )
+                })}
               </ul>
             ) : (
               <div className="overflow-x-auto">
@@ -470,7 +485,7 @@ function AttentionBadges({ user: u, noAi, noAiUntil, requested = false }: { user
 
 /** The role as a small select in the row (the owner's view): member ↔ admin. A change is saved at once; while it is
  * saved a second choice waits (aria-busy, not disabled, so the keyboard focus stays on it). */
-function InlineRole({ user, busy, onChange }: { user: User; busy: boolean; onChange: (r: MemberRole) => void }) {
+function InlineRole({ user, busy, onChange, compact }: { user: User; busy: boolean; onChange: (r: MemberRole) => void; compact?: boolean }) {
   const t = useT()
   // the arrow is every select's own (index.css), so none is drawn here
   return (
@@ -481,7 +496,8 @@ function InlineRole({ user, busy, onChange }: { user: User; busy: boolean; onCha
       onChange={(e) => {
         if (!busy) onChange(e.target.value as MemberRole)
       }}
-      className="h-8 cursor-pointer rounded-md border border-line bg-surface pl-2.5 text-sm text-ink hover:bg-hover focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none aria-busy:opacity-60"
+      // compact (a phone's row): the words and the arrow only, 44 px tall to tap, like a phone's settings value
+      className={clsx('cursor-pointer rounded-md text-sm focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none aria-busy:opacity-60', compact ? 'h-11 border border-transparent bg-transparent pl-2 text-muted hover:text-ink' : 'h-8 border border-line bg-surface pl-2.5 text-ink hover:bg-hover')}
       data-testid={`member-role-${user.username}`}
     >
       <option value="member">{t('role.member')}</option>
