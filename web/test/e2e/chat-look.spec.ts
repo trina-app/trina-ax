@@ -87,7 +87,7 @@ test('answers have nothing beside them, and only the newest keeps its actions in
   await expect(page.getByTestId('composer-input')).toHaveAttribute('placeholder', '무엇이든 물어보세요')
 })
 
-test("the chat's name opens rename and delete, after the project it is in", async ({ page }) => {
+test("the chat's name opens its link, rename and delete, after the project it is in", async ({ page }) => {
   await reset(page)
   await signIn(page)
   const projectId = await newProject(page)
@@ -99,6 +99,9 @@ test("the chat's name opens rename and delete, after the project it is in", asyn
   await expect(page.getByRole('heading', { level: 1, name: 'Launch plan' })).toBeVisible()
   const name = page.getByTestId('chat-menu')
   await name.click()
+  // "링크 복사" first (every made chat has it), then Rename
+  await expect(page.getByTestId('chat-copy-link')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-rename')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   // the chat is in a project: "Change project…" sits between Rename and Delete
