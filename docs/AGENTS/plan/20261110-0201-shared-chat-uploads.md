@@ -78,5 +78,5 @@ its start for the reference limits and the download-only list too. The independe
 should-fix items are in: ✕ leaves a file another reference points to, a chip taken out while its file was still being
 placed is taken out by the session's cancel (or by the server for a dropped small upload), no second read of the file.
 Left: someone who only reads the project folder is still offered "내 컴퓨터에서 올리기" and gets the refusal. The
-send guard's refusal (an upload of the person's own folder from before the chat was shared) has new words. PR: see the
-next commit.
+send guard's refusal (an upload of the person's own folder from before the chat was shared) has new words. PR:
+https://github.com/trina-app/trina-ax/pull/296.
