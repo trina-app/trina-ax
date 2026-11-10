@@ -2472,6 +2472,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.check': 'Check again',
   'credentials.checked': 'Checked.',
   'credentials.connected': 'Connected.',
+  'credentials.added': 'Account added. Accounts are used in list order.',
   'credentials.unverifiedSaved': 'Saved. It is checked on the first question.',
   'credentials.replace': 'Replace token or key',
   'credentials.reconnect': 'Reconnect',
