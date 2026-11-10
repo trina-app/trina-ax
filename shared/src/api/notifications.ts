@@ -109,6 +109,10 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
    * access was taken away, or it is in the trash); older servers omit it */
   projectGone: z.literal(true).optional(),
+  /** 'schedule.failure' only: the task's save folder lapsed (moved, renamed, deleted, its permissions changed, or the
+   * person's write access gone); its runs save in the person's own folder until they check it again on the Scheduled
+   * page; older servers omit it */
+  saveLapsed: z.literal(true).optional(),
   /** 'room.dm' and 'room.mention' only, while the person is still in the room and may read the message: the room (link
    * 'room' opens /rooms/<id>), who wrote it, by name, and for a reply in a thread the thread's root (/rooms/<id>/t/<thread>);
    * older servers omit it. The rest says where and why (docs/DECISIONS.md "알림함의 대화 알림"; older servers omit each,

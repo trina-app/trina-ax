@@ -128,8 +128,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/schedules/:id/edit` | Signed in | Check an edit of an own free-text task and show its schedule card (nothing changes yet). |
 | `PUT` | `/api/schedules/:id` | Signed in | Save an edit: a free-text task with the answer to its card, a template with its time and folders. |
 | `DELETE` | `/api/schedules/:id` | Signed in | Delete one of the own scheduled tasks. |
-| `GET` | `/api/schedules/:id/review` | Signed in | The schedule card of an own task nobody confirmed (needsReview), to check it again. |
-| `POST` | `/api/schedules/:id/review` | Signed in | Answer that card with one of its options: resume (confirmed, runs again with the addresses and connections it showed) or keep it paused. |
+| `GET` | `/api/schedules/:id/review` | Signed in | The schedule card of an own task nobody confirmed (needsReview), or whose save folder lapsed (saveLapsed), to check it again. |
+| `POST` | `/api/schedules/:id/review` | Signed in | Answer that card with one of its options: resume (confirmed, runs again with the addresses, connections and save folder it showed) or keep it paused; for a lapsed save folder, resave (allowed again as it is now) or keep. |
 | `GET` | `/api/admin/schedule-reviews` | Admin | Scheduled tasks paused until their owners confirm them again (metadata only). |
 
 ## Connected folders
