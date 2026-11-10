@@ -436,6 +436,13 @@ export const SPECS: Record<string, Spec> = {
   // are refused with the plain 404). find / recent list only readable files: the canary check covers every name.
   attachTeamFile: { build: async (c, w) => { const own = await c.post('/api/chats', { title: 'attach probe' }); return c.post('/api/attachments/team-file', { chatId: own.json?.id ?? w.ids.chatA, path: `users/alice/${C.aliceFileName}.md` }) }, scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} attached a file from users/alice`) } },
+  // a chip taken out before sending (uploads/team-refs.ts discard): the reference's own person only; for anyone else
+  // alice's reference is the plain 404, and her file stays where it is
+  discardAttachment: { build: (c, w) => c.del(`/api/attachments/${w.ids.aliceRef}`), scope: 'own-alice',
+    check: (r, w, who) => {
+      if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} took alice's attachment out of her chat`)
+      if (!fs.existsSync(path.join(w.inst.team, 'users', 'alice', `${C.aliceFileName}.md`))) throw new Error(`alice's file is gone after ${who}'s request`)
+    } },
   findFiles: { build: (c) => c.get('/api/files/find?q=SEC&limit=100'), scope: 'self' },
   // the line matches by the canaries; the document rows (knowledge graph) by a stand-in lookup that answers everything
   searchFileContents: { build: (c) => c.get('/api/files/search?q=SEC&limit=100'), scope: 'self', check: searchDocumentsCheck },

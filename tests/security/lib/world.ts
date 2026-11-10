@@ -85,7 +85,10 @@ export interface World {
     chatA: string; chatB: string; userMsg: string; assistantMsg: string; turnB: string; requestB: string
     /** an open connect_service card of alice (buildWorld's connectCard option; '' without it) */
     turnConnect: string; requestConnect: string
-    artifact: string; memory: string; attachment: string; projAlice: string; projFalcon: string; projMkt: string; projShared: string; projTeam: string
+    artifact: string; memory: string; attachment: string
+    /** alice's team-file reference (users/alice/<name>.md) in chatA, never sent */
+    aliceRef: string
+    projAlice: string; projFalcon: string; projMkt: string; projShared: string; projTeam: string
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
     budget: string; bobChat: string; suggestion: string
@@ -209,6 +212,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const projTeam = (await alice.ok('POST', '/api/projects', { name: 'Team plan', participants: [{ subjectType: 'user', subjectId: 'erin' }], instructions: '' })).id
   const chatA = (await alice.ok('POST', '/api/chats', { title: C.aliceChatTitle, projectId: projAlice })).id
   const att = await alice.ok('POST', '/api/uploads', undefined, { form: pngForm({ chatId: chatA, name: `${C.aliceAttName}.png` }, `${C.aliceAttName}.png`) })
+  const aliceRef = (await alice.ok('POST', '/api/attachments/team-file', { chatId: chatA, path: `users/alice/${C.aliceFileName}.md` })).id
   const sent = await alice.ok('POST', `/api/chats/${chatA}/messages`, {
     clientMessageId: cm(), attachmentIds: [att.id], content: `${C.aliceMsg}\n` + fake(
       { tool: 'artifact', args: { action: 'create', key: 'k1', type: 'html', title: 'secret artifact', content: `<p>${C.aliceArtifact}</p>` } },
@@ -280,7 +284,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
     groups: { marketing: mk.id, finance: fin.id, mktFolder, finFolder },
     ids: {
       chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId, turnConnect, requestConnect,
-      artifact, memory, attachment: att.id, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
+      artifact, memory, attachment: att.id, aliceRef, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
       dmAiTurn: dmAiRun.data.run.turnId, dmAiPreview, groupRoom, groupLeaveRoom,
