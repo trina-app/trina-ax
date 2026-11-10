@@ -383,6 +383,15 @@ jobs:
         with: { bun-version: "${{ env.BUN_VERSION }}" }
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with: { go-version: "${{ env.GO_VERSION }}", cache-dependency-path: native/go.sum }
+      # the pinned downloads of the bundle (bun, ripgrep, pandoc, typst, the Noto CJK fonts ...; scripts/linux/downloads.ts)
+      # kept between runs. A cached file is checked against its SHA-256 every time; a miss downloads as before. Without
+      # it every run fetched them from GitHub, and a GitHub outage (HTTP 504 three times on NotoSansCJK-Regular.ttc,
+      # 2026-11-10) failed the job.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: dist/cache
+          key: linux-downloads-${{ matrix.arch }}-${{ hashFiles('scripts/linux/downloads.ts', 'versions.json') }}
+          restore-keys: linux-downloads-${{ matrix.arch }}-
       - name: whisper-cli (static, this arch)
         run: bash scripts/linux/build-whisper.sh --arch ${{ matrix.arch }} --out dist/whisper
       - run: bun install --frozen-lockfile
