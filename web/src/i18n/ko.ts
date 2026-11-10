@@ -3468,7 +3468,7 @@ export const ko = {
   "rooms.alsoSent": "대화방에도 보냄",
   "rooms.threadReplyMark": "스레드 답글",
   "rooms.closeThread": "스레드 닫기",
-  "sideChat.open": "{name}에게 따로 묻기",
+  "sideChat.open": "{name}에게 묻기",
   "sideChat.title": "{name}",
   "sideChat.close": "닫기",
   "sideChat.new": "새 대화",

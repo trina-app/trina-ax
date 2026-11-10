@@ -3469,7 +3469,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.alsoSent": "Juga dikirim ke ruang obrolan",
   "rooms.threadReplyMark": "Balasan di utas",
   "rooms.closeThread": "Tutup utas",
-  "sideChat.open": "Tanya {name} secara pribadi",
+  "sideChat.open": "Tanya {name}",
   "sideChat.title": "{name}",
   "sideChat.close": "Tutup",
   "sideChat.new": "Chat baru",
