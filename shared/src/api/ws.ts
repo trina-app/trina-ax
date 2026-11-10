@@ -119,6 +119,9 @@ export const ConfirmDetail = z.object({
   collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
+  /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
+   * (QA TC-091: "23 characters" counted the letters of a path) */
+  noSize: z.boolean().optional(),
   /** whole lines of `text` to show in red with a short note after them (the AI's members card: a name that is not in
    * the person's own messages, "내 메시지에 없는 이름이에요"). `text` holds them too, so a client that does not know this
    * still shows every line. */

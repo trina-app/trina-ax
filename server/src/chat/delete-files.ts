@@ -103,7 +103,7 @@ const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-
 const result = (text: string, summary: string, isError = true) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}), summary: `${DELETE_FILES_TOOL} -> ${summary}` })
 
 /** The card: what goes (every path in full, what each folder holds), whose files they are, who loses them, until when. */
-export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now = Date.now()): { question: string; details: { label: string; text: string; collapsedAt?: number }[] } {
+export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now = Date.now()): { question: string; details: { label: string; text: string; collapsedAt?: number; noSize?: boolean }[] } {
   const count = plan.items.length
   const files = plan.items.reduce((n, i) => n + (i.kind === 'folder' ? i.files : 1), 0)
   const date = new Intl.DateTimeFormat(L, { dateStyle: 'long', timeZone }).format(new Date(now + plan.retentionDays * DAY))
@@ -126,8 +126,8 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
     question,
     details: [
       // never folded: the AI picks the order, so nothing it lists may sit behind "전체 보기"
-      { label: DELETE_TEXT.items[L], text: list },
-      ...(plan.others.length ? [{ label: DELETE_TEXT.othersLabel[L], text: plan.others.map((o) => o.name).join('\n') }] : []),
+      { label: DELETE_TEXT.items[L], text: list, noSize: true },
+      ...(plan.others.length ? [{ label: DELETE_TEXT.othersLabel[L], text: plan.others.map((o) => o.name).join('\n'), noSize: true }] : []),
     ],
   }
 }
