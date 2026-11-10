@@ -22,15 +22,16 @@
 // A shared project chat (docs/DECISIONS.md "Shared project chats"): nothing waits to be sent while an answer runs
 // (`queueing` off), someone else's turn holds the send with a line above the text (`hold`, the text stays), a file from
 // this computer is saved in the project folder and a line under the chips says so (`sharedUploads`; offered only to
-// someone who may write that folder, else team files only: no computer or camera, no pasted or dropped files), and a phone keeps
-// the line about who sees the chat under the box (`phoneFooter`).
+// someone who may write that folder, else team files only: no computer or camera, no pasted or dropped files).
+// Every chat's box says who sees the chat (`who`, components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always"):
+// on a computer after the note in the row under the box, on a phone as the one line under it.
 // Text put in the box for the person (a chosen suggestion, 자연스러운 글's request, a recovery draft) is focused with the
 // caret at its end, so what they type or paste next follows it (a caret left at the start put a pasted text before
 // "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
 // alone: send waits and a quiet line under the box says what to add.
 import clsx from 'clsx'
 import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown } from 'lucide-react'
-import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
@@ -78,7 +79,7 @@ export default function Composer({
   autoFocus,
   placeholder,
   footer,
-  phoneFooter,
+  who,
   skill,
   hold,
   queueing = true,
@@ -112,8 +113,9 @@ export default function Composer({
   placeholder?: string
   /** a short note in the row under the box (the chat's "AI can make mistakes"); computers only */
   footer?: string
-  /** a phone's own short note under the box (a shared chat: who sees it) */
-  phoneFooter?: string
+  /** who sees the chat (components/chat/WhoSees.tsx): after `footer` in the row under the box on a computer, the one line
+   * under the box on a phone */
+  who?: ReactNode
   /** a skill chosen for the message (a member's first question from a team link): shown as a chip by its title, the
    * box holding only the question; sending puts "/<name> " in front, so the skill runs as from the "/" menu */
   skill?: { name: string; title: string } | null
@@ -613,7 +615,13 @@ export default function Composer({
         {/* the note under the box: computers only (a phone keeps the bottom for the box and the keyboard) */}
         {waiting ? (
           <p role="status" className="hidden min-w-0 text-center text-micro break-keep text-muted md:block" data-testid="composer-waits">{waitsFor?.hint}</p>
-        ) : footer && <p className="hidden min-w-0 text-center text-micro break-keep text-faint md:block" data-testid="composer-footer">{footer}</p>}
+        ) : (footer || who) && (
+          <p className="hidden min-w-0 text-center text-micro break-keep text-faint md:block" data-testid="composer-footer">
+            {footer}
+            {footer && who ? ' ' : null}
+            {who}
+          </p>
+        )}
         <div className="flex flex-1 basis-0 items-center justify-end">
           {onEngine && (
             <div className="relative">
@@ -638,14 +646,14 @@ export default function Composer({
         </div>
       </div>
       )}
-      {/* phones: the note a computer has in the row above, when it matters there (who sees a shared chat) */}
+      {/* phones: of the note a computer has in the row above, who sees the chat (one line; the bottom is for the box) */}
       {phone && waiting ? (
         <p role="status" className="px-2 pt-1.5 text-center text-micro break-keep text-muted" data-testid="composer-waits">
           {waitsFor?.hint}
         </p>
-      ) : phone && phoneFooter && (
+      ) : phone && who && (
         <p className="px-2 pt-1.5 text-center text-micro break-keep text-faint" data-testid="composer-phone-footer">
-          {phoneFooter}
+          {who}
         </p>
       )}
       {error && (

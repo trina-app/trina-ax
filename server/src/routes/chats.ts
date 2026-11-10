@@ -167,7 +167,10 @@ export const chatsRoutes: RouteModule = {
     const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
     /** a project as the API shows it to `p`, with its shared chats (chat/shared.ts projectShare, `viewer`'s upload right)
      * and who changes its members (chat/project-access.ts membersView) */
-    const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string) => ({ ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, undefined, viewer)), ...membersView(ctx, r, p, canEdit) })
+    const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string) => {
+      const aud = new Audiences(ctx.db, ctx.files)
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), ...membersView(ctx, r, p, canEdit, undefined, aud) }
+    }
     kit.handle(API.frequentQuestions, ({ auth }) => frequentQuestions(ctx.db, auth.user.id))
 
     // ---------------- chats ----------------
@@ -557,7 +560,7 @@ export const chatsRoutes: RouteModule = {
       const creators = new Map<string, Principal | null>()
       return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => {
         const canEdit = mayEdit(ctx, p, r)
-        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, auth.user.id)), ...membersView(ctx, r, p, canEdit, creators) }
+        return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, auth.user.id)), ...membersView(ctx, r, p, canEdit, creators, aud) }
       }) }
     })
 

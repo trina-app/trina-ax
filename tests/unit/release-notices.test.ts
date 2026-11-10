@@ -269,6 +269,28 @@ test('this repository: the server and office notice bundles carry the Public Suf
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
+test('this repository: the web notice bundle carries the Unicode CLDR notice and the Unicode License v3 for the emoji picker\'s names', async () => {
+  const { writeReleaseNotices, EMBEDDED_DATA } = await api()
+  const repo = path.resolve(import.meta.dir, '../..')
+  const entry = EMBEDDED_DATA.find(e => e.id === 'unicode-emoji')!
+  expect(entry).toMatchObject({ package: 'emojibase-data', license: 'Unicode-3.0' })
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-notices-web-'))
+  try {
+    const m = writeReleaseNotices({ repoRoot: repo, artifactDir: root, version: '0.0.0-test', target: 'browser', arch: 'any', kind: 'web', includeNative: false, roots: [{ directory: 'web' }] })
+    const data = m.embeddedData.find(e => e.id === 'unicode-emoji')
+    expect(data?.carriedBy.some(c => c.startsWith('emojibase-data@'))).toBe(true)
+    // the package's own MIT licence too
+    expect(m.packages.find(p => p.name === 'emojibase-data')!.documents.some(d => d.endsWith('/LICENSE'))).toBe(true)
+    const notice = fs.readFileSync(path.join(root, 'licenses/unicode-emoji/NOTICE.txt'), 'utf8')
+    expect(notice).toContain('https://github.com/unicode-org/cldr')
+    expect(notice).toContain('Unicode-3.0')
+    const licence = fs.readFileSync(path.join(root, 'licenses/unicode-emoji/Unicode-3.0.txt'))
+    expect(licence.toString('utf8').startsWith('UNICODE LICENSE V3\n')).toBe(true)
+    // the text as Unicode publishes it (https://www.unicode.org/license.txt, as served on 2026-11-10, line ends as \n)
+    expect(sha(licence)).toBe('e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('third-party data in the project source (the intro deck\'s Lucide icons in the server) gets the project notice, or the release fails', async () => {
   const { writeReleaseNotices, verifyReleaseNotices, SOURCE_DATA, RELEASE_NOTICE_FILES } = await api(); const f = fixture()
   try {

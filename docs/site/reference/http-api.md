@@ -502,7 +502,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/rooms/:id/messages` | Signed in | Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify. |
 | `GET` | `/api/rooms/:id/messages/:messageId/thread` | Signed in | A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root). |
 | `POST` | `/api/rooms/:id/messages/:messageId/thread/read` | Signed in | Move my read position in a thread I follow forward to seq; its notices count as read. |
-| `PUT` | `/api/rooms/:id/messages/:messageId/reactions` | Signed in | Put one of the fixed reactions on a message I can see, or take mine off. Never notifies. |
+| `PUT` | `/api/rooms/:id/messages/:messageId/reactions` | Signed in | Put a reaction (any one emoji) on a message I can see, or take mine off. A message carries at most 20 different emoji: a new one past that is refused (409, reason reactions_full). Never notifies. |
 | `PATCH` | `/api/rooms/:id/messages/:messageId` | Signed in | Edit my own message. |
 | `DELETE` | `/api/rooms/:id/messages/:messageId` | Signed in | Delete my own message (its text and files are removed; "deleted" stays in its place). |
 | `POST` | `/api/rooms/:id/read` | Signed in | Move my read position forward to seq (never back); nobody else is told. |

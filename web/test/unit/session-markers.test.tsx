@@ -571,6 +571,32 @@ describe('this window: /seen, notifications and toasts', () => {
       expect(notified).toEqual([{ title: 'acme-design', body: '나를 언급한 메시지가 있어요', tag: `room-${team.id}`, open: `/rooms/${team.id}`, read: at(team.id) }])
     })
 
+    test('the desktop app: its window\'s focus is the window\'s, not the page\'s own; the room open is not told while it is focused, another room is once it is in the back', async () => {
+      const listeners = new Set<(f: boolean) => void>()
+      stopSessionMarkers()
+      stub('document', { visibilityState: 'visible', hidden: false, hasFocus: () => false, addEventListener: () => {}, removeEventListener: () => {} })
+      stub('mycelDesktop', {
+        bridgeVersion: 1,
+        notify: (n: { title: string; body: string; tag?: string; open?: string; read?: string }) => notified.push(n),
+        focus: { get: async () => true, onChange: (cb: (f: boolean) => void) => { listeners.add(cb); return () => listeners.delete(cb) } },
+      })
+      startSessionMarkers()
+      await wait(1)
+      expect(useSessionMarkers.getState().visible).toBe(true)
+      const dm = room({ kind: 'dm', name: null, groupId: null, peers: [BEN] })
+      const other = room({ kind: 'dm', name: null, groupId: null, peers: [{ id: 'zoe', name: 'Zoe' }], unreadCount: 1 })
+      useRooms.setState({ rooms: [dm, other], openRoomId: dm.id })
+      dispatch(msg(dm.id, 'room.dm'))
+      await wait(80)
+      expect(notified).toEqual([])
+      // another app in front: not visible any more, and another room's message is told
+      for (const l of listeners) l(false)
+      expect(useSessionMarkers.getState().visible).toBe(false)
+      dispatch(msg(other.id, 'room.dm'))
+      await wait(80)
+      expect(notified).toEqual([{ title: 'Zoe', body: '새 메시지가 왔어요', tag: `room-${other.id}`, open: `/rooms/${other.id}`, read: at(other.id) }])
+    })
+
     test('the room\'s AI waits on me (room.updated with aiWaits): told like a card, toast on a phone; not while I look at it', async () => {
       narrow = true
       const team = room({ kind: 'team', name: 'acme-design' })

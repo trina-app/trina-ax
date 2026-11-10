@@ -162,6 +162,12 @@ export const Project = z.object({
    * attachments folder, which the caller may write: server/src/uploads/shared-chat.ts). false: the message box offers
    * team files only. Absent (older server, or not sharing): allowed. */
   chatUploads: z.boolean().optional(),
+  /** a team project: nobody but the caller sees it by a rule of its folder (a person, group, role or everyone rule), so
+   * anyone else of `audience` is the owner or an admin, who see every project ("나와 관리자만 봐요" under a chat's box,
+   * docs/DECISIONS.md "Who sees it, always"). Judged role-blind, and only for a caller who may read its rules anyway (an
+   * owner or admin, or whoever may change its members): to anyone else it would tell that the others are admins.
+   * Absent: someone else sees it by a rule, the caller may not read its rules, a personal project, or an older server. */
+  alone: z.literal(true).optional(),
 })
 export type Project = z.infer<typeof Project>
 

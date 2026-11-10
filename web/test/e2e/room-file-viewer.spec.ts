@@ -457,6 +457,39 @@ test("the file's thread is beside it; a reply from the viewer is in the room's t
   await expect(pageThread.getByTestId('room-input')).toHaveValue('acme 초안 답글')
 })
 
+test("More emoji in the column's thread opens the picker over the viewer, with the keyboard in it; Esc closes only the picker", async ({ page }) => {
+  const { room } = await openRoom(page)
+  await openChip(timeline(page), 'acme-handbook.pdf')
+  const msg = column(page).getByTestId('room-message').first()
+  await msg.hover()
+  await msg.getByTestId('message-react').click()
+  await msg.getByTestId('reaction-more').click()
+  // inside the viewer's dialog (its focus trap keeps the keyboard there), over everything at its middle
+  const pop = viewer(page).getByTestId('emoji-popover')
+  await expect(pop).toBeVisible()
+  const b = (await pop.boundingBox())!
+  expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('[data-testid="emoji-popover"]'), [b.x + b.width / 2, b.y + b.height / 2])).toBe(true)
+  await expect(pop.getByTestId('emoji-search')).toBeFocused()
+  await page.keyboard.type('cry')
+  await expect(pop.getByTestId('emoji-search')).toHaveValue('cry')
+  // ← → in the picker are not the viewer's steps
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('image-viewer-count')).toHaveText('1 / 5')
+  await pop.getByTestId('emoji-results').locator('[data-emoji="😭"]').click()
+  await expect(pop).toHaveCount(0)
+  await expect(viewer(page)).toBeVisible()
+  expect(room.reacted).toEqual([{ messageId: id(1), emoji: '😭', on: true }])
+  // Esc: the picker goes, the viewer stays
+  await msg.hover()
+  await msg.getByTestId('message-react').click()
+  await msg.getByTestId('reaction-more').click()
+  await expect(pop.getByTestId('emoji-search')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(pop).toHaveCount(0)
+  await expect(viewer(page)).toBeVisible()
+})
+
 test('a step to another message moves the thread with it: a reply marked in its thread, a message without replies alone with the box', async ({ page }) => {
   await openRoom(page, { at: `/rooms/${ROOM_ID}/t/${id(1)}` })
   // the reply's notes, from the page's thread: its root's thread, the reply marked

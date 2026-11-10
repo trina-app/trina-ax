@@ -56,6 +56,26 @@ test('in order: the team, one labeled row each, the rooms, then the AI chats', a
   ])
   await expect(s.getByTestId('nav-admin')).toHaveCount(0)
   for (const id of ROWS) expect(Math.round((await s.getByTestId(id).boundingBox())!.height)).toBe(36)
+  // 트리나에게 묻기's icon is the ✦ that asks the AI (the room header's, rooms/AiFace.tsx AiMark), not the orange speech
+  // bubble: Trina's star drawn 18 (the sparkle 16) in the 16 px slot of the icons below it, on the same middle, so its
+  // words start where theirs do
+  const mark = s.getByTestId('new-chat').locator('svg')
+  await expect(mark).toHaveCount(1)
+  expect(await mark.evaluate((e, named) => (named ? e.hasAttribute('data-trina-star') : e.classList.contains('lucide-sparkles')), PRODUCT_NAMED_AFTER_AI)).toBe(true)
+  const icon = async (id: string) => (await s.getByTestId(id).locator('svg').first().boundingBox())!
+  const [star, search] = [await icon('new-chat'), await icon('nav-search')]
+  expect(star.width).toBe(PRODUCT_NAMED_AFTER_AI ? 18 : 16)
+  expect(search.width).toBe(16)
+  expect(star.x + star.width / 2).toBeCloseTo(search.x + search.width / 2, 0)
+  const row = (await s.getByTestId('new-chat').boundingBox())!
+  expect(star.y + star.height / 2).toBeCloseTo(row.y + row.height / 2, 0)
+  const wordsAt = (id: string) => s.getByTestId(id).evaluate((e) => {
+    const text = [...e.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.trim()) ?? e.querySelector('span')!.firstChild!
+    const r = document.createRange()
+    r.selectNodeContents(text)
+    return Math.round([...r.getClientRects()].find((x) => x.width > 0)!.x)
+  })
+  expect(await wordsAt('new-chat')).toBe(await wordsAt('nav-projects'))
   await expect(s.getByRole('link', { name: t['sidebar.projects'], exact: true })).toHaveAttribute('href', '/projects')
   await expect(s.getByTestId('nav-icons')).toHaveCount(0)
 })

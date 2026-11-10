@@ -168,6 +168,13 @@ describe('a computer', () => {
         const rows = m.get('nav-rows')
         expect(rows.querySelectorAll('button').map((b) => b.getAttribute('data-testid'))).toEqual(['new-chat', 'nav-search'])
         expect(m.get('new-chat').querySelector('span')?.textContent).toBe(ko('sidebar.askAi', { name: aiName }))
+        // its icon is the mark that asks the AI (the room header's ✦, rooms/AiFace.tsx AiMark): Trina's star drawn 18 in
+        // the 16 px slot where the product is named after its AI, else the sparkle at 16; never the orange speech bubble
+        const mark = m.get('new-chat').querySelector('svg')!
+        expect(mark.hasAttribute('data-trina-star')).toBe(PRODUCT_NAMED_AFTER_AI)
+        expect(mark.getAttribute('width')).toBe(PRODUCT_NAMED_AFTER_AI ? '18' : '16')
+        expect(mark.className).toBe(PRODUCT_NAMED_AFTER_AI ? 'shrink-0 -m-px' : 'lucide lucide-sparkles shrink-0')
+        expect(m.get('new-chat').outerHTML).not.toMatch(/message-square-plus|text-accent-text/)
         expect(m.get('new-chat').querySelector('kbd')?.textContent).toMatch(/^(⇧⌘O|Ctrl\+Shift\+O)$/)
         expect(m.get('nav-search').textContent?.trim()).toStartWith(ko('sidebar.search'))
         expect(m.get('nav-search').querySelector('kbd')?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/)
