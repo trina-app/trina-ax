@@ -19250,3 +19250,48 @@ script) and the Trina edition's links in `editions/trina/branding/apps.json`.
   at 1440, a Windows PC, an iPhone at 390, the Mac App Store build, the iPhone app; with this build's edition links and
   a fixture installer list; a build without links is covered by the unit tests).
 - Version impact: **patch** (a settings page shows more; no API, data or setting change).
+
+## 창으로 돌아오면 키보드는 보던 곳으로 — the keyboard goes back where it was when the desktop window gets the focus (fix/desktop-page-focus, 2026-11-10)
+
+- **Why:** coming back to the desktop app (Cmd-Tab, a dock click, a notification's click, a start or the relaunch after
+  an update), typing did nothing until a click into the team page. The window is a `BaseWindow` holding several views
+  (the team page, the in-app browser's toolbar and tab, the host strip, the app's own welcome / team list / offline
+  screen); unlike a `BrowserWindow`, nothing gives one of them the keyboard. Checked in the desktop e2e (Electron 44,
+  macOS): after a start with a team, a minimize and a restore, or the team list and [돌아가기], the window was focused
+  and no view had the keyboard. After the window was ordered out and back in (Cmd-H and a dock click) the window's first
+  view, the team page, had it even when the person had been in the in-app browser, and Chromium had moved the page's
+  focus to its first focusable element: the message box lost it. PR #317 worked around it for the room sound only.
+- **The rule** (`desktop/src/common/keyboard-focus.ts`, `main/app-window.ts`): when the window gets the focus back on
+  macOS, the view that had the keyboard when it lost it gets it again, at once (a click that brought the window back is
+  handled after that and wins; Windows and Linux keep the window's focused view themselves). A notification's click
+  gives it to the team page, where the notification opens its conversation. Any other time the views change while the window has the focus (a team page loaded, back from
+  the team list or the offline screen, the in-app browser closed), and no view has the keyboard: the view that had it
+  last if it is still on screen, else the in-app browser's tab when the keyboard was last in the pane, else the team
+  page, else the app's own screen. Focusing the view keeps the page's own element (the message box, its draft and
+  caret). Never while the window is in the back (focusing a view brings it forward on macOS), while one of the app's
+  dialogs (Allow all websites, the file chooser) or right-click menus is open, or over a view that has the keyboard.
+- **The page's own element:** the team page's preload remembers the element that had the focus when the page lost it
+  (the view lost the keyboard; not a frame inside the page, such as an artifact, taking it) and, when the page gets it
+  back with another element focused, focuses that element again if it is still in the page. The page's own moves win
+  where they can be told apart: a notification's click that opens another conversation drops it, and a dialog the page
+  opened meanwhile keeps the focus. Events the page dispatches itself do nothing.
+- **A page load in the in-app browser does not take the keyboard** (`keyboardTaken`): Chromium focuses a page as it
+  loads, so the AI's `navigate`, a site's own redirect or a new tab took the keyboard from the person typing in the team
+  page's message box (checked on dev). A tab that gets the keyboard while its page loads keeps it only when the
+  person's last action was in the in-app browser (a key or a mouse press in its tab or toolbar, its address bar,
+  opening it from the team page's Browser entry or the menu) or the app gave it; else the keyboard goes straight back to
+  the view that had it, else the team page. Key and mouse presses are the views' own input events; the AI's clicks in a
+  tab reach it as mouse presses too and do not count while it drives. A click into a tab while its page loads gives the
+  tab the keyboard on the click's mouse press.
+- **Also:** the app's own screen (the team list, the offline screen) takes the keyboard only in a focused window: a
+  network drop while the person is in another app no longer brings the app in front.
+- **Left as before:** a reload of the team page takes the keyboard from the pane's toolbar (Chromium; the person's own
+  Cmd-R, or the app moving the page between the office and the team address). A site's own element in the in-app
+  browser after Cmd-H is not restored (the tab gets the keyboard; the site's first element may have it). Opening the
+  in-app browser does not move the keyboard there by itself. Phones and the web app: no change.
+- Tests: `tests/unit/e-keyboard-focus.test.ts` (the decisions, the page's element, the wiring),
+  `desktop/e2e/keyboard-focus.spec.ts` (a start, the message box across another window, an order-out and a minimize,
+  the team list and back, the in-app browser in front, a layout not taking it from the toolbar, a page load while away,
+  typing into the message box while the AI, the site and the app load pages in the pane, the address bar's page taking
+  it).
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
