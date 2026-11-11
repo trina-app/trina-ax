@@ -1,5 +1,6 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
 import fs from 'node:fs'
+import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
@@ -15,7 +16,7 @@ import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
-import { createDefaultFolders } from '../admin/folders'
+import { captureState, createDefaultFolders } from '../admin/folders'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
@@ -359,6 +360,8 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   }
   if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
+  if (groups.length) projectJoinsOfNewAccount(ctx, id, id, captureState(ctx.db))
   notifyTemplateOffers(ctx, { userId: id })
   // a lead invite: the owner who flagged it gets the card's notice (only a hint: the role stays member)
   afterLeadJoin(ctx, r!.id)

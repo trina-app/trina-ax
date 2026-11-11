@@ -2,7 +2,7 @@
 // order of rows, pages, counts and "visible for navigation". No database, no disk: the web mock server
 // (web/test/mock/server.ts) answers with the same functions, so the screen is tested against the same shapes and order.
 import { PRODUCT } from '@mycel/shared'
-import type { Access, AccessReason, Navigation } from '../policy/access'
+import { inProjectZone, type Access, type AccessReason, type Navigation } from '../policy/access'
 import { badSegment, foldKey, hiddenEntry } from '../policy/names'
 import { parseInput } from '../policy/resolve'
 
@@ -14,17 +14,22 @@ export const MAX_VIA = 20
 
 const USERS = foldKey('users')
 const SYSTEM = foldKey(PRODUCT.systemDir)
+const PROJECTS = foldKey('projects')
 export const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
 /** byte order, the same everywhere (SQLite's ORDER BY, the mock, the cursor) */
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 const TEMP = foldKey(PRODUCT.tmpPrefix)
-/** Segments of a team path that may be shown, or null: anything under users/ or .system/ (any case or width), a
+/** Segments of a team path that may be shown, or null: anything under users/ or .system/ (any case or width), anything
+ * inside a team project's folder projects/<name>/ (any case), a
  * server temp name anywhere (any case: `.MYCEL-TMP-…` too), a name the team folder does not accept. Display only: what
  * the permission function answers for such a path does not change. */
 export function shownSegs(p: string): string[] | null {
   const segs = segsOf(p)
   if (segs.length && (foldKey(segs[0]!) === USERS || foldKey(segs[0]!) === SYSTEM)) return null
+  // nothing inside a team project (docs/DECISIONS.md "Project contents only for members"): its folder projects/<name>
+  // is one row; what is in it is its members' to know, the owner's and admins' only as members (on the project's page)
+  if (segs.length >= 3 && foldKey(segs[0]!) === PROJECTS) return null
   if (segs.some((s, i) => badSegment(s) !== null || hiddenEntry(s, i) || foldKey(s).startsWith(TEMP))) return null
   return segs
 }
@@ -46,13 +51,16 @@ export function folderInput(rel: string | undefined): { segs: string[] } | { ref
 
 /** The nearest folder at or above `segs` that carries rules ('' when only the root does, null when none does). Below
  * it nothing carries rules, so every person's answer at `segs` is their answer there: callers compute once per such
- * folder. */
+ * folder. A team project's folder is a boundary too (docs/DECISIONS.md "Project contents only for members"): inside
+ * it the owner and admins are judged by the rules at or below `projects/<name>` only, so the walk never goes above it
+ * (a project folder without rules of its own answers there, not as `projects/` or the root would). */
 export function ruleFolderOf(ruleFolders: ReadonlySet<string>, segs: readonly string[]): string | null {
-  for (let len = segs.length; len >= 0; len--) {
+  const floor = inProjectZone(segs) ? 2 : 0
+  for (let len = segs.length; len >= floor; len--) {
     const k = segs.slice(0, len).join('/')
     if (ruleFolders.has(k)) return k
   }
-  return null
+  return floor ? segs.slice(0, floor).join('/') : null
 }
 
 /** people by name, then id (byte order) */

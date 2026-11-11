@@ -10,7 +10,8 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { Locale, type Page, type SkillChange } from '@mycel/shared/api'
 import type { AppContext } from '../context'
-import { audit, redactPersonal } from '../admin/audit'
+import { audit, redactPersonal, redactProjects, type ProjectSight } from '../admin/audit'
+import { inZone } from '../policy/zone'
 import { teamDefaultLocale } from '../admin/settings'
 import { onFileEvent, readRegular, type FileEventInput } from '../files/store'
 import { groupOfFolder, projectOfFolder, skillFileKind, SKILL_FILE_MAX_BYTES } from '../chat/skills'
@@ -105,7 +106,12 @@ function record(ctx: AppContext, actor: string, at: string, d: Omit<ChangeDetail
   audit(ctx.db, { actor, action: SKILL_CHANGE_ACTION, target: at, detail: { ...detail, ...extra } as unknown as Record<string, unknown> })
   const who = (ctx.db.query('SELECT name FROM users WHERE id = ?').get(actor) as { name: string } | null)?.name ?? actor
   const link = historyLink(at, d.change, d.kind)
-  const people = watchers(ctx, actor, live ? { createdBy: live.createdBy, folder: live.folder } : undefined)
+  // a skill inside a team project: told only to who reads it (the owner and admins only as members; docs/DECISIONS.md
+  // "Project contents only for members")
+  const people = watchers(ctx, actor, live ? { createdBy: live.createdBy, folder: live.folder } : undefined).filter((u) => {
+    if (!inZone(at)) return true
+    try { return atLeast(ctx.files.rules().access(ctx.files.principal(u.id), at.split('/')), 'read') } catch { return false }
+  })
   // after the change is committed (fileEvent can run inside a transaction)
   queueMicrotask(() => {
     for (const u of people) {
@@ -160,15 +166,21 @@ export function trackSkillChanges(ctx: AppContext): void {
 
 /** Admin > 팀 스킬: the changes, newest first. Paths inside someone else's personal folder (a file moved in from
  * there) show only as users/<id>/…, like the audit list. */
-export function listSkillChanges(db: Database, viewer: string, o: { cursor?: string; limit?: number }): Page<SkillChange> {
+export function listSkillChanges(db: Database, viewer: string, o: { cursor?: string; limit?: number }, sight?: ProjectSight): Page<SkillChange> {
   const limit = Math.min(Math.max(o.limit ?? 50, 1), 200)
   const before = o.cursor && /^\d+$/.test(o.cursor) ? Number(o.cursor) : null
   const rows = db.query(`SELECT a.id, a.at, a.actor_id, u.name AS actor_name, a.target, a.detail FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id
     WHERE a.action = ? ${before !== null ? 'AND a.id < ?' : ''} ORDER BY a.id DESC LIMIT ?`)
     .all(...(before !== null ? [SKILL_CHANGE_ACTION, before, limit + 1] : [SKILL_CHANGE_ACTION, limit + 1])) as { id: number; at: string; actor_id: string | null; actor_name: string | null; target: string; detail: string | null }[]
   const page = rows.slice(0, limit)
+  // a change inside a team project the viewer does not read is left out (its skill's name is its members')
+  const hidden = (p: string | null | undefined) => !!p && !!sight && redactProjects(p, sight) !== p
   return {
-    items: page.map((r) => {
+    items: page.filter((r) => {
+      let d: Partial<ChangeDetail> = {}
+      try { d = JSON.parse(r.detail ?? '{}') } catch {}
+      return !hidden(r.target) && !hidden(d.from ?? null)
+    }).map((r) => {
       let d: Partial<ChangeDetail> = {}
       try { d = JSON.parse(r.detail ?? '{}') } catch {}
       return {

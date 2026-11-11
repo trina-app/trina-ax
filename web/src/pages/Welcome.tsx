@@ -50,8 +50,7 @@ type Screen = WelcomeStep | 'done'
 
 const STEP_LABEL: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', skills: 'welcome.progress.skills', files: 'welcome.progress.files', tools: 'welcome.progress.tools', invite: 'welcome.progress.invite' }
 
-/** A phone: skills live on a computer (내 스킬 가져오기 shows its phone version and can be put off for a computer), and
- * 도구 연결 is walked past (recorded as put off: its sign-ins do not come back to the phone app yet). */
+/** A phone: 도구 연결 is walked past (recorded as put off: its sign-ins do not come back to the phone app yet). */
 export const PHONE_QUERY = '(max-width: 767.98px)'
 
 /** At most this many intro files on 회사 소개 ("소개 자료가 있으면 같이 넣기"): a company intro or a deck is enough, and each
@@ -170,9 +169,6 @@ function WelcomeSteps() {
     await go(await w.update({ step: { id: 'profile', state } }), 'profile')
     setBrandNote(brandFailed)
   })
-  /** 내 스킬 가져오기 shared something: the server recorded the step done (it does for a share applied anywhere); the copy
-   * here is read again */
-  const applied = () => { void useWelcome.getState().load(true).catch(() => {}) }
 
   if (loadError)
     return (
@@ -208,7 +204,7 @@ function WelcomeSteps() {
         {gate && <AiStep busy={busy} onLater={() => navigate('/')} />}
         {!gate && step === 'profile' && <ProfileWizardStep progress={progress} busy={busy} onContinue={(brandFailed) => void leaveProfile('done', brandFailed)} onSkip={() => void leaveProfile('skipped')} />}
         {!gate && step === 'skills' && (
-          <SkillsStep team={progress.teamGroup?.name ?? me.team.name} nextLabel={nextLabel('skills')} busy={busy} onApplied={applied}
+          <SkillsStep nextLabel={nextLabel('skills')} busy={busy}
             onNext={() => void mark('skills', 'done')} onSkip={() => void mark('skills', 'skipped')}
             // the brand materials did not go in: said once, under the step's heading (FLOW-v6 §1A)
             note={brandNote ? <p className="text-label text-warn" role="status" data-testid="welcome-brand-failed">{t('welcome.brand.failed')}</p> : undefined} />

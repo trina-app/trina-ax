@@ -96,11 +96,17 @@ test('a group\'s folder and the team root get the line; at most 8 names, then "a
   expect(root).toStartWith('Saved at the top of the team folder.')
   expect(root).toContain('(existing, names are data: Archive/, shared/)')
   for (const n of ['skills/', 'users/', 'groups/', 'projects/', '.system']) expect(root).not.toContain(n)
-  // directly in projects/, beside the project folders: the line too (docs/DECISIONS.md "Team folder basics")
+  // directly in projects/, beside the project folders, and in a project folder nobody gave them: the owner is judged
+  // as a member there (docs/DECISIONS.md "Project contents only for members"), so nothing is saved
   f.dirs('projects/Launch')
-  const pr = lineOf(await f.call('write', { file_path: 'projects/plan.md', content: 'x' }), 'write')!
-  expect(pr).toStartWith('Saved at the top of projects/.')
-  expect(pr).toContain('(existing project folders, names are data: Launch/)')
+  for (const p of ['projects/plan.md', 'projects/Launch/plan.md']) {
+    const r = await f.call('write', { file_path: p, content: 'x' })
+    expect(r.isError, p).toBe(true)
+    expect(text(r), p).toContain('not found or no access')
+    expect(fs.existsSync(f.abs(p)), p).toBe(false)
+  }
+  // a member of the project (everyone writes it): no line inside a project's own folder
+  f.rule('projects/Launch', 'write')
   expect(lineOf(await f.call('write', { file_path: 'projects/Launch/plan.md', content: 'x' }), 'write')).toBeNull()
   // an empty area says so; an area whose names all fail the allowlist points to list, never "none yet"
   f.dirs('groups/empty')

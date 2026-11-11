@@ -18,8 +18,9 @@ export type PluginTrust = z.infer<typeof PluginTrust>
 export const PluginVerifiedBy = z.enum(['release', 'key']).nullable()
 export type PluginVerifiedBy = z.infer<typeof PluginVerifiedBy>
 /** Why a package cannot run here. damaged: the stored files no longer match the verified package; revoked: the official
- * list of this release withdrew this exact build (it was turned off). */
-export const PluginUnsupported = z.enum(['os', 'arch', 'libc', 'product', 'api', 'kind', 'driver', 'damaged', 'revoked'])
+ * list of this release withdrew this exact build (it was turned off); untrusted: this server's trust settings no longer
+ * vouch for it (a test key or unsigned packages no longer allowed, or its key dropped from the trust list; turned off). */
+export const PluginUnsupported = z.enum(['os', 'arch', 'libc', 'product', 'api', 'kind', 'driver', 'damaged', 'revoked', 'untrusted'])
 export type PluginUnsupported = z.infer<typeof PluginUnsupported>
 /** Why an install / enable request was refused (error params.reason). */
 export const PluginRefusal = z.enum([

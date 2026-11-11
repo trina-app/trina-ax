@@ -211,7 +211,7 @@ for (const width of [1440, 390] as const) {
   })
 }
 
-test('the invite step of an empty team: one line, the way to 내 스킬 and back to 초대; hidden while the lead box is ticked; gone with a skill', async ({ page }) => {
+test('the invite step of an empty team: one line, the way to 내 스킬 and back to 초대; no owner flag; gone with a skill', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -237,11 +237,8 @@ test('the invite step of an empty team: one line, the way to 내 스킬 and back
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
-  // the lead will set up: no line while the box is ticked
-  await page.getByTestId('lead-flag-check').check()
-  await expect(line).toHaveCount(0)
-  await page.getByTestId('lead-flag-check').uncheck()
-  await expect(line).toBeVisible()
+  // no "이 사람이 팀장이에요" on this step (owner 2026-11-11)
+  await expect(page.getByTestId('lead-flag')).toHaveCount(0)
   // a skill in the team: no line
   await call(page, 'POST', '/api/onboarding/packs/work/install', { skills: ['humanizer'] })
   await page.reload()
