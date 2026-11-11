@@ -3014,6 +3014,8 @@ export const es: Record<MessageKey, string> = {
   'integrations.error.notes': "Las notas son demasiado largas. Máximo 4.000 caracteres.",
   'integrations.error.field': "Revise este valor.",
   'admin.integrations': "Apps conectadas",
+  'admin.onComputer': "Configúralo en una computadora",
+  'admin.onComputerEngine': "Esta IA inicia sesión en el servidor. Configúrala en una computadora: abre Administración allí.",
   'integrations.users': "Usada por: {who}",
   'integrations.users.nobody': "Aún nadie puede usarla",
   'integrations.users.notMe': "No disponible en sus chats",

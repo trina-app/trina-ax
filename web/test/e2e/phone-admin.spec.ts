@@ -82,13 +82,18 @@ test('row → page under "‹ Admin" → ‹ and the browser\'s back return to t
   await expect(page).toHaveURL(/\/settings$/)
 })
 
-test('a pasted address: the page with the list under it, its query still doing its job; Back → the list → out', async ({ page }) => {
+test('a pasted address: the page with the lists under it, its query still doing its job; Back → the lists → out', async ({ page }) => {
   await page.goto('/admin/connectors?drive=1')
+  // ?drive=1 opens Google Drive's page, which has its own address (pages/admin/adminScreens.ts): Connectors and the
+  // Admin list go under it
+  await expect(page).toHaveURL(/\/admin\/connectors\/google-drive$/)
+  await expect(page.getByTestId('drive-admin-detail')).toBeVisible()
+  await expect(page.getByTestId('admin-bar-title')).toHaveText('Google Drive')
+  await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.integrations'])
+  await page.goBack()
+  await expect(page).toHaveURL(/\/admin\/connectors$/)
   await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.integrations'])
   await expect(page.getByTestId('admin-back-label')).toHaveText(t['admin.title'])
-  // ?drive=1 opened Google Drive's page (pushed again over the list with its query, the page reads it again)
-  await expect(page.getByTestId('drive-admin-detail')).toBeVisible()
-  await expect(page).toHaveURL(/\/admin\/connectors/)
   await page.goBack()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()

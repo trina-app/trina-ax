@@ -3058,6 +3058,8 @@ export const en: Record<MessageKey, string> = {
   'integrations.error.notes': 'The notes are too long. Up to 4,000 characters.',
   'integrations.error.field': 'Check this value.',
   'admin.integrations': "Connected apps",
+  'admin.onComputer': "Set this up on a computer",
+  'admin.onComputerEngine': "This engine signs in on the server. Set it up on a computer: open Admin there.",
   'integrations.users': 'Used by: {who}',
   'integrations.users.nobody': 'Nobody can use it yet',
   'integrations.users.notMe': 'Not in your chats',

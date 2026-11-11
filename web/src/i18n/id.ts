@@ -3058,6 +3058,8 @@ export const id: Record<MessageKey, string> = {
   'integrations.error.notes': 'Catatan terlalu panjang. Maksimal 4.000 karakter.',
   'integrations.error.field': 'Periksa nilai ini.',
   'admin.integrations': "Aplikasi terhubung",
+  'admin.onComputer': "Atur ini di komputer",
+  'admin.onComputerEngine': "AI ini masuk di server. Atur di komputer: buka Admin di sana.",
   'integrations.users': 'Dipakai oleh: {who}',
   'integrations.users.nobody': 'Belum ada yang bisa memakai',
   'integrations.users.notMe': 'Tidak di obrolan Anda',

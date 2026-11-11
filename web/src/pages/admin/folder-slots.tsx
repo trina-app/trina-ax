@@ -4,10 +4,13 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
-export const FolderHeaderSlots = createContext<{ actions: HTMLElement | null; filter: HTMLElement | null }>({ actions: null, filter: null })
+/** `off`: the header is not shown (a phone's folder, editor or person page): what goes in it is not shown either. */
+export const FolderHeaderSlots = createContext<{ actions: HTMLElement | null; filter: HTMLElement | null; off?: boolean }>({ actions: null, filter: null })
 
 /** `children` in the header's `slot`; where there is no header (a view shown on its own, a test), in place. */
 export function InFolderHeader({ slot, children }: { slot: 'actions' | 'filter'; children: ReactNode }) {
-  const el = useContext(FolderHeaderSlots)[slot]
+  const slots = useContext(FolderHeaderSlots)
+  const el = slots[slot]
+  if (slots.off) return null
   return el ? createPortal(children, el) : <>{children}</>
 }

@@ -3057,6 +3057,8 @@ export const ko = {
   'integrations.error.notes': '메모가 너무 길어요. 4,000자까지 쓸 수 있어요.',
   'integrations.error.field': '이 값을 확인해 주세요.',
   'admin.integrations': "연결한 서비스",
+  'admin.onComputer': "컴퓨터에서 설정해요",
+  'admin.onComputerEngine': "이 AI는 서버에서 로그인해요. 컴퓨터에서 관리자 화면을 열어 설정해요.",
   'integrations.users': '사용할 사람: {who}',
   'integrations.users.nobody': '아직 아무도 못 씀',
   'integrations.users.notMe': '내 대화에서는 못 씀',

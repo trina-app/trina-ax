@@ -3014,6 +3014,8 @@ export const ja: Record<MessageKey, string> = {
   'integrations.error.notes': "注意事項が長すぎます。4,000文字以内にしてください。",
   'integrations.error.field': "この値を確認してください。",
   'admin.integrations': "連携サービス",
+  'admin.onComputer': "パソコンで設定します",
+  'admin.onComputerEngine': "このAIはサーバーでサインインします。パソコンで管理画面を開いて設定します。",
   'integrations.users': "利用者：{who}",
   'integrations.users.nobody': "まだ誰も利用できません",
   'integrations.users.notMe': "自分のチャットでは利用不可",

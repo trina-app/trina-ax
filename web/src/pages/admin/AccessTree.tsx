@@ -35,6 +35,11 @@ import { useFocusAfterRemove, useLoad } from './common'
 import { InFolderHeader } from './folder-slots'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { Tooltip } from '../../components/Tooltip'
+import { useMediaQuery } from '../../components/ui'
+import { folderName } from '../../lib/access-view'
+import { hasAppHistory } from '../../lib/back'
+import { FOLDER_Q } from './adminScreens'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
@@ -397,6 +402,12 @@ export default function AccessTree() {
   const rootName = t('accessView.rootFolder')
   const removal = useRemoveRules(rootName)
   const wanted = params.get('folder')
+  // a phone (below 768 px): a folder and its rule editor are pages of their own, each a history entry pushed over the
+  // one before (`?folder=<path>`, then `&rules=<path>`), so ‹ and the swipe go editor → folder → tree
+  // (adminScreens.ts); the bar names them. Computers keep one address that is replaced
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const upTo = useUpTo()
+  const rulesWanted = phone ? params.get(FOLDER_Q.rules) : null
 
   // the first answer opens the way down to rule, group, project and connected folders
   useEffect(() => {
@@ -408,31 +419,49 @@ export default function AccessTree() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** the address names the chosen folder (replaced, not pushed: moving through the tree is no history of pages) */
-  const address = (path: string | null) => {
+  /** the address names the chosen folder (replaced, not pushed: moving through the tree is no history of pages; a
+   * phone's tap on a folder pushes it, `push`) */
+  const address = (path: string | null, push = false) => {
     const q = new URLSearchParams(window.location.search)
     if (path === null) q.delete('folder')
     else q.set('folder', path)
-    setParams(q, { replace: true })
+    setParams(q, { replace: !push || q.toString() === new URLSearchParams(window.location.search).toString() })
   }
-  const choose = (path: string) => {
+  const choose = (path: string, push = false) => {
     // a folder picked with "Add folder" whose rules were to open once found: another one chosen meanwhile drops it
     if (pendingEdit.current !== path) pendingEdit.current = null
     lookupGen.current++
     setLookup(null)
     setSelected(path)
     setShowDetail(true)
-    address(path)
+    address(path, push)
   }
-  /** Open the edit panel for a folder (its row, if any, comes from the list of rule rows). */
+  /** Open the edit panel for a folder (its row, if any, comes from the list of rule rows). A phone: its own entry over
+   * the folder's (`&rules=`), or in place of it when it was opened from By person or Files (closing goes back there). */
   const startEdit = (path: string, back?: string) => {
     editReturn.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setEditing({ path, back })
+    if (!phone) return
+    const q = new URLSearchParams(window.location.search)
+    if (q.get(FOLDER_Q.rules) === path) return
+    q.set(FOLDER_Q.rules, path)
+    setParams(q, { replace: back !== undefined })
+  }
+  /** a phone: the editor closed from inside (Cancel, Save): its entry goes, back to the folder under it */
+  const closedRules = useRef<string | null>(null)
+  const popRules = () => {
+    const q = new URLSearchParams(window.location.search)
+    if (!phone || !q.has(FOLDER_Q.rules)) return
+    closedRules.current = q.get(FOLDER_Q.rules)
+    q.delete(FOLDER_Q.rules)
+    upTo(`/admin/folders${q.size ? `?${q}` : ''}`)
   }
   /** back to By person after its panel (pushed: Back returns to the folder here); the focus goes to that folder's row;
    * or, opened from the Files page (FROM_FILES), back to that folder there with its "Who can see it" panel */
   const toPerson = (back: string, path: string) =>
-    back === FROM_FILES ? navigate(`/files?path=${encodeURIComponent(path)}&access=1`) : setParams(new URLSearchParams(back), { state: { refocus: path } })
+    // a phone: the editor took the place of the entry that opened it, so Back is the way there
+    phone && hasAppHistory() ? navigate(-1)
+      : back === FROM_FILES ? navigate(`/files?path=${encodeURIComponent(path)}&access=1`, { replace: phone }) : setParams(new URLSearchParams(back), { state: { refocus: path }, replace: phone })
   /** the words of the way back: to By person, or to Files */
   const backLabel = (back: string) => t(back === FROM_FILES ? 'accessEdit.backToFiles' : 'accessEdit.backToPeople')
   /** Leave the edit panel, asking first when something was changed there: false when the admin stays. */
@@ -447,7 +476,7 @@ export default function AccessTree() {
   const chooseFromTree = async (path: string) => {
     if (editing?.path === path) return
     if (!(await leaveEdit())) return
-    choose(path)
+    choose(path, phone && wanted !== path)
   }
   /** back to the tree with nothing chosen */
   const clear = () => {
@@ -560,7 +589,8 @@ export default function AccessTree() {
     row.scrollIntoView({ block: 'nearest' })
   })
   const backButton = (
-    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
+    // a phone: the bar's ‹ is the way back (the folder is a page of its own), so not a second one here
+    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 max-md:hidden @2xl:hidden" data-testid="folder-detail-back">
       <ArrowLeft size={15} aria-hidden /> {t('accessTree.back')}
     </button>
   )
@@ -662,11 +692,13 @@ export default function AccessTree() {
         groups={groups.data ?? []}
         guard={editGuard}
         returnLabel={back !== undefined ? backLabel(back) : undefined}
+        inPage={phone}
         onClose={() => {
           if (editingPath.current !== path) return
           if (back !== undefined) return toPerson(back, path)
           setEditing(null)
           focusAfterEdit.current = true
+          popRules()
         }}
         onSaved={async (saved) => {
           // the row as saved at once (opening the panel again before the list comes starts from it), then the tree row,
@@ -676,6 +708,7 @@ export default function AccessTree() {
           if (editingPath.current === path) {
             setEditing(null)
             focusAfterEdit.current = true
+            popRules()
           }
           await changed(path)
         }}
@@ -705,6 +738,32 @@ export default function AccessTree() {
     if (editing) setEditing(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted])
+  // a phone: the editor's entry is the address (`&rules=<path>`): Back from it closes the editor (the browser gives no
+  // way to ask first; ‹ in the bar asks, below), Forward or a reload on it opens it again once the lists are in
+  // (the router shows an address in a transition, after the editor's own state: only a change of the address counts,
+  // and an editor closed from inside is not opened again before its entry has gone)
+  const listsIn = !!folders.data && !!users.data && !!groups.data
+  const lastRules = useRef<string | null>(null)
+  useEffect(() => {
+    if (!phone || !ready) return
+    const before = lastRules.current
+    lastRules.current = rulesWanted
+    if (rulesWanted === null) {
+      closedRules.current = null
+      if (before !== null && editing && editing.back === undefined) setEditing(null)
+      return
+    }
+    if (editing?.path === rulesWanted || !listsIn || closedRules.current === rulesWanted) return
+    editReturn.current = null
+    setEditing({ path: rulesWanted })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone, ready, rulesWanted, listsIn])
+  // the phone's bar: the editor's name, else the folder's, else the page's; ‹ asks first when the rules were changed
+  const barTitle = !phone ? null
+    : editing ? t(rowOf(editing.path)?.rules.length ? 'accessEdit.title' : 'accessTree.addRules')
+      : wanted !== null ? (wanted === '' ? rootName : folderName(t, wanted))
+        : null
+  useAdminBar(barTitle, phone && editing ? () => editGuard.current() : undefined)
   // "Add folder": once the folder is found and chosen in the tree, its rules open (a folder that is not there says so)
   useEffect(() => {
     const p = pendingEdit.current
@@ -889,7 +948,7 @@ export default function AccessTree() {
           // the folder is opened to and chosen in the tree (also past the first page of its level), then its rules open
           // there; inside users/ its one row says why rules do not apply
           if (isPersonalPath(path)) {
-            address(path)
+            address(path, phone)
             return
           }
           if (selected === path && node && !lookup) {
@@ -900,7 +959,7 @@ export default function AccessTree() {
           pendingBack.current = undefined
           // the address names it already (it was not found, or its lookup failed): looked up again
           if (new URLSearchParams(window.location.search).get('folder') === path) void reveal(path)
-          else address(path)
+          else address(path, phone)
         }}
       />
     </>

@@ -12,11 +12,12 @@ import type { Group, PersonAccessResponse, PersonFolderAccess, User } from '@myc
 import { api, API } from '../../lib/api'
 import { cleanPrefix, type Names, type Who } from '../../lib/access-view'
 import { useLocale, useT } from '../../i18n'
-import { Badge, EmptyState, ErrorNote, Field, Skeleton, inputCls } from '../../components/ui'
+import { Badge, EmptyState, ErrorNote, Field, Skeleton, inputCls, useMediaQuery } from '../../components/ui'
 import { AccessResults, PrefixForm } from './AccessResults'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { useLoad } from './common'
 import { InFolderHeader } from './folder-slots'
+import { useAdminBar } from './phoneBar'
 
 /** the "someone new" option of the list (not a person id: those are [a-z0-9_-]) */
 const NEW = '+new'
@@ -71,10 +72,13 @@ export default function AccessPeople() {
     if (p) q.set('prefix', p)
     setParams(q, { replace })
   }
+  // a phone (below 768 px): the list alone, and a person (or someone new) a page of their own over it, pushed, under
+  // the bar with their name (adminScreens.ts); the two never share the screen
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const pick = (id: string, pointer: boolean) => {
     if (id !== selected) go(id === NEW ? { isNew: true } : { isNew: false, person: id })
-    // a tap on a phone: the list sits above the answer, so bring the answer up (keys stay in the list)
-    if (pointer) {
+    // a tap on a narrow screen: the list sits above the answer, so bring the answer up (keys stay in the list)
+    if (pointer && !phone) {
       requestAnimationFrame(() => {
         const a = picker.current?.getBoundingClientRect()
         const b = results.current?.getBoundingClientRect()
@@ -88,6 +92,8 @@ export default function AccessPeople() {
   const ruleFolders = useMemo(() => (folders.data ? new Set(folders.data.filter((f) => f.rules.length).map((f) => f.path)) : undefined), [folders.data])
   const names: Names = { group: groupName, person: (id) => users.data?.find((u) => u.id === id)?.name, ruleFolders }
   const user = person ? users.data?.find((u) => u.id === person) : undefined
+  useAdminBar(phone ? (isNew ? t('accessView.newPerson') : user?.name ?? null) : null)
+  const onPage = phone && selected !== null
   // the folder's edit panel, in By folder (it knows the folder's row and the tree); this address to come back to
   const onEdit = (f: PersonFolderAccess) => setParams(new URLSearchParams({ edit: f.path, back: params.toString() }))
   /** the folder whose rules were just changed in By folder (the panel comes back here with it): its row may have moved
@@ -203,14 +209,14 @@ export default function AccessPeople() {
       <h3 id="access-people-title" className="sr-only">
         {t('accessView.title')}
       </h3>
-      <p className="mb-3 text-xs text-muted">{t('accessView.desc')}</p>
+      <p className="mb-3 text-xs text-muted" hidden={onPage}>{t('accessView.desc')}</p>
       {/* side by side when the page is wide enough, else the list above the answer */}
       <div className="@container">
         <div className="flex flex-col gap-4 @2xl:flex-row @2xl:gap-0">
-          <div ref={picker} className="border-b border-line pb-4 @2xl:w-64 @2xl:shrink-0 @2xl:border-r @2xl:border-b-0 @2xl:pr-4 @2xl:pb-0">
+          <div ref={picker} hidden={onPage} className="border-b border-line pb-4 @2xl:w-64 @2xl:shrink-0 @2xl:border-r @2xl:border-b-0 @2xl:pr-4 @2xl:pb-0 max-md:border-b-0">
             <PersonPicker users={users.data} groups={groups.data ?? []} value={selected} onPick={pick} />
           </div>
-          <div ref={results} className="min-w-0 flex-1 scroll-mt-4 @2xl:pl-5" data-testid="access-answer">
+          <div ref={results} hidden={phone && selected === null} className="min-w-0 flex-1 scroll-mt-4 @2xl:pl-5" data-testid="access-answer">
             {body}
           </div>
         </div>

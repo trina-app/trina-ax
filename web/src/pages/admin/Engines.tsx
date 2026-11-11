@@ -6,14 +6,14 @@
 // rest: the longer explanation, the version and every model, and the API engine form (owner and admins) (address, model, key;
 // ?engine=api opens that row). The team's AI settings (defaults, who picks the engine, members' own accounts, usage
 // limits) are in Team settings (TeamAiSettings.tsx); the old ?tab=team address opens them there (AdminLayout.tsx).
-// A phone (below 768 px): an engine is one compact row (its name, a 44 px target, the state, check again and the switch;
-// under it only what is missing), and its accounts with Add account, how it signs in, its models and when it was
-// checked open with the rest when the name is tapped; an account that needs a look stays in sight (docs/DECISIONS.md
-// "Admin and Settings on phones").
+// A phone (below 768 px): an engine is one row (its name, its state, a chevron) that opens its own page,
+// /admin/providers/<engine> (adminScreens.ts; ?engine= leads there): the state, check again and the switch, what is
+// missing, its accounts with Add account, how it signs in, its models and when it was checked (docs/DECISIONS.md "Admin
+// and Settings on phones"). A fix that is a command on the server says to do it on a computer there.
 import clsx from 'clsx'
 import { ChevronRight, RefreshCw } from 'lucide-react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -24,6 +24,7 @@ import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common
 import { ENGINE_FAMILY, ProviderAccounts, accountsNeedLook, useTeamCredentials } from './Credentials'
 import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
+import { useAdminBar } from './phoneBar'
 
 export default function Engines() {
   const t = useT()
@@ -45,6 +46,34 @@ export default function Engines() {
     const r = await act(() => api.call(API.updateEngines, { body: { enabled: { [id]: enabled } } }))
     if (r) state.setData(r)
   }
+  // a phone: the engine whose page this is (/admin/providers/<id>); an id this server does not have: the list
+  const sub = useParams().sub
+  const navigate = useNavigate()
+  const engine = phone && sub ? state.data?.engines.find((e) => e.id === sub) : undefined
+  const unknown = phone && !!sub && !!state.data && !engine
+  useEffect(() => { if (unknown) navigate('/admin/providers', { replace: true }) }, [unknown, navigate])
+  useAdminBar(engine?.label ?? null)
+  const apiSaved = () => {
+    void check('api')
+    void useEngines.getState().load(true) // the composer's list
+  }
+  if (phone && sub) return (
+    <>
+      <Loadable state={state}>
+        {() => engine ? (
+          <section aria-labelledby="engine-page-title" data-testid="engine-page" data-engine={engine.id}>
+            <h2 id="engine-page-title" className="sr-only">{engine.label}</h2>
+            <ul>
+              <EngineRow e={engine} page phone accounts={ENGINE_FAMILY[engine.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[engine.id]!} />} accountsShown owner={isAdmin(me)}
+                initiallyOpen checking={checking === engine.id} onCheck={() => void check(engine.id)} onToggle={(v) => void toggle(engine.id, v)} onApiSaved={apiSaved} />
+            </ul>
+            {tc.state.data && ENGINE_FAMILY[engine.id] && <p className="mt-3 text-xs text-faint">{t('credentials.order')}</p>}
+          </section>
+        ) : null}
+      </Loadable>
+      {tc.dialogs}
+    </>
+  )
 
   return (
     <>
@@ -53,7 +82,12 @@ export default function Engines() {
         {(d) => (
           <>
             {tc.trial.data?.credit && <TrialCreditBar credit={tc.trial.data.credit} timeZone={me.server.timeZone} className="mb-4" />}
-            <ul className="divide-y divide-line" data-testid="engine-list">
+            {phone ? (
+              // a phone: one row per engine, each opening its own page
+              <ul className="divide-y divide-line border-y border-line" data-testid="engine-list">
+                {d.engines.map((e) => <EngineLink key={e.id} e={e} look={!!ENGINE_FAMILY[e.id] && accountsNeedLook(tc, ENGINE_FAMILY[e.id]!)} />)}
+              </ul>
+            ) : <ul className="divide-y divide-line" data-testid="engine-list">
               {d.engines.map((e) => (
                 <EngineRow
                   key={e.id}
@@ -66,13 +100,10 @@ export default function Engines() {
                   checking={checking === e.id}
                   onCheck={() => void check(e.id)}
                   onToggle={(v) => void toggle(e.id, v)}
-                  onApiSaved={() => {
-                    void check('api')
-                    void useEngines.getState().load(true) // the composer's list
-                  }}
+                  onApiSaved={apiSaved}
                 />
               ))}
-            </ul>
+            </ul>}
             {tc.state.data && <p className="mt-3 text-xs text-faint">{t('credentials.order')} {t('credentials.costNote', { date: tc.state.data.pricesAsOf })}</p>}
           </>
         )}
@@ -82,14 +113,37 @@ export default function Engines() {
   )
 }
 
+/** The state word of an engine's row and page: an API engine without its settings is "Not set up". */
+function engineState(t: ReturnType<typeof useT>, e: EngineStatus): { ok: boolean; text: string } {
+  if (e.id === 'api' && e.status === 'not_installed') return { ok: false, text: t('adminux.engines.apiNotSet') }
+  return { ok: e.status === 'ok', text: t(`engines.status.${e.status}`) }
+}
+
+/** A phone's row of the list: the name, the state (or Off), a chevron; it opens the engine's page. `look`: one of its
+ * accounts needs a look (said on the row, the page shows which). */
+function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
+  const t = useT()
+  const st = engineState(t, e)
+  return (
+    <li>
+      <Link to={`/admin/providers/${e.id}`} className="flex min-h-12 items-center gap-2 py-2 text-sm -outline-offset-2 hover:bg-hover" data-testid="engine-row" data-engine={e.id}>
+        <span className="min-w-0 flex-1 truncate font-medium text-ink">{e.label}</span>
+        {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}
+        <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+      </Link>
+    </li>
+  )
+}
+
 /** One engine: name and state on the first line, one dim line under it, what is missing in one line (it opens with
  * "More"); check again and the switch on the right. The name opens the rest in place. `accountsShown`: the accounts
- * show under the closed row too (a phone: only when one needs a look; they open with the rest). `phone`: the dim line
- * is in the opened part only (it says the same as the details there). */
-function EngineRow({ e, accounts, accountsShown, phone, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; accountsShown: boolean; phone: boolean; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
+ * show under the closed row too. `phone`: the dim line is in the opened part only (it says the same as the details
+ * there), and a fix that is a command on the server says to do it on a computer. `page`: the engine's own page on a
+ * phone, everything open, its name in the bar (the page's own heading is for screen readers). */
+function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; accountsShown: boolean; phone: boolean; page?: boolean; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
   const t = useT()
   const locale = useLocale()
-  const [open, setOpen] = useState(initiallyOpen)
+  const [open, setOpen] = useState(initiallyOpen || !!page)
   const details = useId()
   const accountsId = useId()
   const ok = e.status === 'ok'
@@ -99,7 +153,7 @@ function EngineRow({ e, accounts, accountsShown, phone, owner, initiallyOpen, ch
   // the dim line under the name: how it signs in · its models · when it was checked
   const meta = [mode, models, checked].filter(Boolean).join(' · ')
   // what to know about this engine; the row shows it when opened
-  const hint = [e.authMode === 'local-login' && t('engines.localHelp'), e.beta && t('engines.betaHint'), e.id === 'api' && t('engines.experimentalHint')].filter(Boolean).join(' ')
+  const hint = [e.authMode === 'local-login' && (phone ? t('admin.onComputerEngine') : t('engines.localHelp')), e.beta && t('engines.betaHint'), e.id === 'api' && t('engines.experimentalHint')].filter(Boolean).join(' ')
   // the API engine is not "installed": it has an address, a model and a key, or not yet. Its form is in the opened row,
   // so the row says "Not set up" and offers to open it (the server's text points "below", where nothing is yet)
   const apiNotSet = e.id === 'api' && e.status === 'not_installed'
@@ -108,7 +162,7 @@ function EngineRow({ e, accounts, accountsShown, phone, owner, initiallyOpen, ch
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <h3 className="text-sm font-semibold">
+            <h3 className="text-sm font-semibold" hidden={page}>
               <button
                 type="button"
                 aria-expanded={open}
@@ -145,7 +199,7 @@ function EngineRow({ e, accounts, accountsShown, phone, owner, initiallyOpen, ch
               {ok ? (
                 <OneLine className="min-w-0 flex-1 text-xs text-muted" testId="engine-detail">{e.detail}</OneLine>
               ) : (
-                <p className="min-w-0 flex-1 text-xs break-words text-warn" data-testid="engine-detail"><CodeText text={e.detail} /></p>
+                <p className="min-w-0 flex-1 text-xs break-words text-warn" data-testid="engine-detail">{phone && /`[^`]+`/.test(e.detail) ? <span data-testid="engine-on-computer">{t('admin.onComputer')}</span> : <CodeText text={e.detail} />}</p>
               )}
             </div>
           )}

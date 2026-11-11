@@ -128,8 +128,9 @@ test('the old Admin addresses lead to Connectors', async ({ page }) => {
   await signIn(page)
   await page.goto('/admin/integrations')
   await expect(page).toHaveURL(/\/admin\/connectors$/)
+  // App connectors' old address opens Google Drive's page, which has an address of its own
   await page.goto('/admin/app-connectors')
-  await expect(page).toHaveURL(/\/admin\/connectors$/)
+  await expect(page).toHaveURL(/\/admin\/connectors\/google-drive$/)
   await expect(page.getByTestId('drive-admin-detail')).toBeVisible()
 })
 

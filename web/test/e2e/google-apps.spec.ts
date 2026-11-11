@@ -190,7 +190,8 @@ test('not available: the reason in plain words, Connect off; an admin gets the w
   await signIn(page)
   await page.goto('/connectors/calendar')
   await page.getByTestId('gapp-admin-link').click()
-  await expect(page).toHaveURL(/\/admin\/connectors$/)
+  // the app's page in Admin › Connectors has an address of its own
+  await expect(page).toHaveURL(/\/admin\/connectors\/calendar$/)
   await expect(page.getByTestId('gapp-admin-detail')).toContainText('Google Calendar')
 })
 
