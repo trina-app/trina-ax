@@ -21,7 +21,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { folderGeneration } from '../lib/folderRuns'
 import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
@@ -326,6 +326,8 @@ export default function Files() {
   }, [order])
   const chosen = useMemo(() => tree?.entries.filter((e) => checked.has(e.path)) ?? [], [tree, checked])
   const movable = chosen.filter(canChange)
+  /** selected folders the person may write but not move or trash (a group's folder for a member, QA TC-224) */
+  const fixedChosen = chosen.filter(isFixed).length
   const shareable = chosen.filter(canShare)
   const allState = selectionState(checked, order)
   useEffect(() => {
@@ -383,7 +385,9 @@ export default function Files() {
    * people; one toast. `select`: as reportBatch. */
   const moveItems = async (items: readonly FileEntry[], folder: string, select = true) => {
     const ok = items.filter(canChange)
-    const skipped = items.length - ok.length
+    const fixed = items.filter(isFixed).length
+    const skipped = items.length - ok.length - fixed
+    const skipWords = [skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null, fixed ? t('files.bulk.skipFixed', { n: fixed }) : null].filter(Boolean).join(' ')
     setRunning('move')
     try {
       const r = await moveMany(ok, folder, {
@@ -397,7 +401,7 @@ export default function Files() {
         {
           done: (n) => t('files.bulk.moved', { n, path: words.path(folder) || t('files.root') }),
           failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
-          skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
+          skipped: skipWords || null,
         },
         undefined,
         select,
@@ -439,8 +443,8 @@ export default function Files() {
   const bulkDelete = async () => {
     const items = movable
     if (!items.length) return
-    const skipped = chosen.length - items.length
-    const body = skipped ? `${t('files.deleteBody')} ${t('files.bulk.readOnlyLeft', { n: skipped })}` : t('files.deleteBody')
+    const skipped = chosen.length - items.length - fixedChosen
+    const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
     if (!(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
     setRunning('delete')
     try {
@@ -849,7 +853,8 @@ export default function Files() {
           {anyChecked && !dragging ? (
             <BulkBar
               count={chosen.length}
-              readOnly={chosen.length - movable.length}
+              readOnly={chosen.length - movable.length - fixedChosen}
+              fixed={fixedChosen}
               canMove={movable.length > 0}
               canShare={shareable.length > 0}
               running={running}
@@ -1024,7 +1029,7 @@ export default function Files() {
 }
 
 /** The selection's actions, in place of the breadcrumbs while something is selected. */
-function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare, onDelete, onClear }: { count: number; readOnly: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void }) {
+function BulkBar({ count, readOnly, fixed, canMove, canShare, running, onMove, onShare, onDelete, onClear }: { count: number; readOnly: number; fixed: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void }) {
   const t = useT()
   return (
     // a narrow page (a phone, or a desktop with the file panel open): line 1 has the count, the read-only badge and ×,
@@ -1037,6 +1042,12 @@ function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare,
       {readOnly > 0 && (
         <Badge tone="warn">
           <Lock size={11} aria-hidden /> {t('files.bulk.readOnlyIn', { n: readOnly })}
+        </Badge>
+      )}
+      {/* writable folders that only an admin (or nobody) may move: a group's or a project's folder (QA TC-224) */}
+      {fixed > 0 && (
+        <Badge tone="warn">
+          <Lock size={11} aria-hidden /> {t('files.bulk.fixedIn', { n: fixed })}
         </Badge>
       )}
       <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 @max-2xl:order-last @max-2xl:ml-0 @max-2xl:basis-full @max-2xl:justify-start">
@@ -1099,6 +1110,9 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   // through
   const dimTitle = membersOnly ? t('projects.membersOnly') : t('files.navigationOnly')
   const writable = e.access === 'write'
+  // rename, move and trash: off on a folder the server marks fixed, with the reason under them (QA TC-224: a member
+  // pressed them on their group's folder only to read "only an admin can")
+  const changeable = writable && !e.fixed
   const menuId = useId()
   // phones (`pressSelect`): a long press selects the row (or takes it out of the selection), and the click that ends it
   // does not open it; while something is selected (`selecting`) a tap does the same instead of opening
@@ -1286,15 +1300,16 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
                 <Copy size={14} aria-hidden /> {t('files.share')}
               </button>
             )}
-            <button role="menuitem" type="button" className={item} disabled={!writable} onClick={onRename}>
+            <button role="menuitem" type="button" className={item} disabled={!changeable} onClick={onRename} aria-describedby={writable && e.fixed ? `${menuId}-fixed` : undefined} data-testid="file-rename">
               <Pencil size={14} aria-hidden /> {t('files.rename')}
             </button>
-            <button role="menuitem" type="button" className={item} disabled={!writable} onClick={onMove}>
+            <button role="menuitem" type="button" className={item} disabled={!changeable} onClick={onMove} aria-describedby={writable && e.fixed ? `${menuId}-fixed` : undefined} data-testid="file-move">
               <FolderInput size={14} aria-hidden /> {t('files.move')}
             </button>
-            <button role="menuitem" type="button" className={clsx(item, 'text-danger')} disabled={!writable} onClick={onDelete}>
+            <button role="menuitem" type="button" className={clsx(item, 'text-danger')} disabled={!changeable} onClick={onDelete} aria-describedby={writable && e.fixed ? `${menuId}-fixed` : undefined} data-testid="file-trash">
               <Trash2 size={14} aria-hidden /> {t('files.moveToTrash')}
             </button>
+            {writable && e.fixed && <p id={`${menuId}-fixed`} className="px-2 pb-1.5 text-xs text-muted" data-testid="file-fixed-reason">{t(e.fixed === 'admin' ? 'files.fixedAdmin' : 'files.fixedAlways')}</p>}
           </div>
         )}
       </td>
