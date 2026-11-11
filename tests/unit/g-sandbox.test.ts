@@ -152,11 +152,12 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
   // must match every spelling
   test('Codex: the lockdown files cannot be written under another spelling of their names', () => {
     const cx = path.join(CHAT, '.codex')
-    for (const d of ['skills/x', 'plugins']) fs.mkdirSync(path.join(cx, d), { recursive: true })
-    const ci = fs.existsSync(path.join(CHAT, '.CODEX')) // a case-sensitive disk: the other spellings are other files
+    for (const d of ['skills/x', 'plugins', 'rules', 'prompts']) fs.mkdirSync(path.join(cx, d), { recursive: true })
+    const ci = fs.existsSync(path.join(CHAT, '.CODEX')) // true: the disk ignores case (on a case-sensitive disk the other spellings are other files)
     for (const ll of [false, true]) {
       for (const f of ['.Codex/hooks.json', '.codex/HOOKS.json', '.CODEX/Models_Cache.json', '.codex/Config.TOML', '.codex/Catalog.json', '.codex/agents.md',
-        '.Codex/Skills/x/SKILL.md', '.codex/PLUGINS/p.json']) expect(probe(ll, 'write', path.join(CHAT, f)), f).toBe(false)
+        '.Codex/Skills/x/SKILL.md', '.codex/PLUGINS/p.json',
+        '.codex/.ENV', '.codex/agents.OVERRIDE.md', '.codex/Rules/x.rules', '.CODEX/Prompts/p.md']) expect(probe(ll, 'write', path.join(CHAT, f)), f).toBe(false)
       if (ci) expect(probe(ll, 'write', path.join(CHAT, '.Codex', 'logs_2.sqlite'))).toBe(true)
     }
   })
