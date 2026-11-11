@@ -7,9 +7,9 @@ import type { MessageKey } from '../i18n'
 import { noAiErrorKey } from './aiAccess'
 
 type Role = 'owner' | 'admin' | 'member' | undefined
-/** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), or the server's health (Admin › System ›
- * Health, the owner's page only) */
-type Where = 'providers' | 'health'
+/** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), the server's health (Admin › System ›
+ * Health, the owner's page only), or the server page with its storage card (Admin › System, which admins see too) */
+type Where = 'providers' | 'health' | 'system'
 
 const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   auth: 'providers',
@@ -23,11 +23,13 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   trial_ended: 'providers',
   engine_missing: 'health',
   proxy_down: 'health',
+  // the server's disk is full: the storage card shows what uses the space
+  storage_full: 'system',
 }
 
 /** The admin menu's words for a place, in the language on screen: "관리자 › AI 계정". */
 export function adminPath(t: (key: MessageKey) => string, where: Where): string {
-  return (where === 'providers' ? [t('admin.title'), t('admin.providers')] : [t('admin.title'), t('admin.system'), t('system.health')]).join(' › ')
+  return (where === 'providers' ? [t('admin.title'), t('admin.providers')] : where === 'system' ? [t('admin.title'), t('admin.system')] : [t('admin.title'), t('admin.system'), t('system.health')]).join(' › ')
 }
 
 /**

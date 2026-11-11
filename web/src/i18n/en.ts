@@ -354,6 +354,7 @@ export const en: Record<MessageKey, string> = {
   "chat.error.admin.trial_ended": "The trial AI credit can't be used any more (the trial ended or was switched off). Connect the team's own AI in {path} to go on.",
   "chat.error.admin.engine_missing": "The AI can't answer right now. {path} shows why.",
   "chat.error.admin.proxy_down": "The AI is still getting ready. Try again in a moment; if it keeps happening, {path} shows why.",
+  "chat.error.admin.storage_full": "The server's storage is full, so the AI couldn't answer. {path} shows what uses the space; free some up.",
 
   'chat.untitled': "Untitled",
   'chat.title': 'Title',
@@ -2310,6 +2311,7 @@ export const en: Record<MessageKey, string> = {
   'chat.error.trial_ended': CHAT_ERROR_MESSAGES.trial_ended.en,
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.en,
+  'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.en,
   'audit.act.ai.hosted_trial_key': "Changed the hosted trial AI key",
   'trialCredit.active': "Trial credit: {used} of {cap} used · until {date} · An AI you connect is used first",
   'trialCredit.used': "The trial credit is used up ({used} of {cap}) · Connect your own AI to go on",

@@ -748,6 +748,14 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   through the relay: the desktop and phone apps' address check only parse the shape, the bootstrap, installers,
   `mycel-ctl` and the Docker health check ask `127.0.0.1`, and the sign-in page's source-code link then names no version
   (as on the office internet address).
+- **A full disk is said as one (2026-11-11, QA TC-209).** Where the Mac's absolute floor (max(10 GB, 5%), not a Linux
+  production install) decides the disk check, the storage card's level is `full` under it too, so the card and the
+  check never disagree on a small disk. A backup refused for room (`disk_space`, `plan_space`) is told in the person's
+  language. Any request that fails on a full disk (ENOSPC / EDQUOT, SQLite "database or disk is full", also as a cause)
+  answers 507 `storage_full` with `SERVER_DISK_FULL` ("서버 저장 공간이 가득 차서 지금은 할 수 없어요. 관리자가 공간을 비워야 해요.",
+  `params.reason: server_disk_full`) instead of 500, and a chat turn that failed on one (the error, the engine's or the
+  launcher's "no space left on device", or under 64 MiB left on the data or team disk when it stopped) ends with the
+  chat reason `storage_full`; the owner and admins read where to look (Admin › System).
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 

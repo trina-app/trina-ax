@@ -353,6 +353,7 @@ export const ko = {
   "chat.error.admin.trial_ended": "체험 AI 크레딧을 더 쓸 수 없어요(체험 기간이 끝났거나 꺼졌어요). {path}에서 팀의 AI를 연결하면 이어서 쓸 수 있어요.",
   "chat.error.admin.engine_missing": "지금은 AI가 답할 수 없어요. {path}에서 원인을 볼 수 있어요.",
   "chat.error.admin.proxy_down": "AI가 아직 준비 중이에요. 잠시 뒤 다시 해 보고, 계속되면 {path}에서 원인을 볼 수 있어요.",
+  "chat.error.admin.storage_full": "서버 저장 공간이 가득 차서 답하지 못했어요. {path}에서 무엇이 공간을 쓰는지 보고 비워 주세요.",
 
   'chat.untitled': "제목 없음",
   'chat.title': '제목',
@@ -2309,6 +2310,7 @@ export const ko = {
   'chat.error.trial_ended': CHAT_ERROR_MESSAGES.trial_ended.ko,
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.ko,
+  'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.ko,
   'audit.act.ai.hosted_trial_key': "호스팅 체험 AI 키 변경",
   'trialCredit.active': "체험 크레딧: {used} / {cap} 사용 · {date}까지 · 내 AI를 연결하면 그걸 먼저 써요",
   'trialCredit.used': "체험 크레딧을 다 썼어요({used} / {cap}) · 내 AI를 연결하면 이어서 쓸 수 있어요",
