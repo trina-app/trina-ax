@@ -1062,6 +1062,8 @@ export const es: Record<MessageKey, string> = {
   'chat.linkCopiedShared': "Enlace copiado · {n, plural, one {# miembro puede} other {# miembros pueden}} abrirlo",
   'chat.linkCopiedPrivate': "Enlace copiado · solo tú puedes abrirlo",
   'chat.sharedBusy': "Se está respondiendo la pregunta de {name}. Podrá enviar la suya cuando termine.",
+  'chat.endingEarlier': "Esperando a que termine la respuesta anterior. Los demás chats funcionan con normalidad.",
+  'chat.waitingForPlace': "Esperando un lugar libre. Su respuesta sigue en cuanto haya uno.",
   'chat.sharedWaiting': "Esperando la confirmación de {name}.",
   "chat.sharedSafeOps": "La configuración de seguridad de su equipo no permite continuar chats compartidos. Pregunte en un chat propio.",
   'chat.sharedUploadLine': "Se guarda en la carpeta del proyecto ({folder}) · lo pueden ver {n, plural, one {# miembro} other {# miembros}}",

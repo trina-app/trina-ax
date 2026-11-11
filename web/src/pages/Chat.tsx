@@ -429,6 +429,8 @@ function ChatView({ chatId }: { chatId: string }) {
           <SharedReadOnly />
         ) : (
           <>
+          {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
+          {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
@@ -449,7 +451,8 @@ function ChatView({ chatId }: { chatId: string }) {
             placeholder={t('chat.reply')}
             footer={t('chat.footerAi')}
             who={who}
-            hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
+            hold={chat?.ending ? t('chat.endingEarlier') : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
             projectId={chat?.projectId ?? null}

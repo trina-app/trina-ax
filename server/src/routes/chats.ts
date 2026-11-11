@@ -151,6 +151,8 @@ function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
  * (the composer keeps the text; Chat.shared.answering shows the same line). */
 function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
   if (!rt.activeTurn(a.row.id)) return
+  // the earlier answer ended, but the end of its engine is not confirmed yet (Chat.ending): say so, plainly
+  if (rt.endingUnconfirmed(a.row.id)) fail('conflict', tr('earlierAnswerEnding', locale), { params: { reason: 'earlier_answer_ending' } })
   const runner = rt.activeTurnUser(a.row.id)
   if (a.shared && runner && runner !== me) fail('conflict', tr('sharedChatBusy', locale, { name: rt.store.userRef(runner)?.name ?? '' }), { params: { reason: 'shared_chat_busy' } })
   fail('conflict', tr('turnInProgress', locale))
