@@ -652,8 +652,66 @@ function AccountMenu() {
  * opens a menu of four rows (Status, Last activity | Group by, Sort by), each with its current value and a submenu of
  * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
  * menus sit in <body> (the Recents list scrolls and would clip them); on a narrow screen a submenu takes the menu's
- * place with a way back. */
-function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+ * place with a way back. A phone (below 768px, the drawer): bottom sheets instead (RecentsSheet). */
+function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  return phone ? <RecentsSheet {...props} /> : <RecentsDropdown {...props} />
+}
+
+/** The phone's drawer: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
+ * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
+function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+  const t = useT()
+  const [sub, setSub] = useState<ViewKey | null>(null)
+  const [ask, setAsk] = useState(0)
+  const button = useRef<HTMLButtonElement>(null)
+  const value = (k: ViewKey) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])
+  return (
+    <div className="ml-auto">
+      <MenuButton
+        label={t('sidebar.filter')}
+        heading={t('sidebar.filter')}
+        icon={
+          <span className="relative">
+            <ListFilter size={18} aria-hidden />
+            {changed && <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent" data-testid="recents-filter-dot" />}
+          </span>
+        }
+        buttonClassName="touch-hit"
+        buttonRef={button}
+        testId="recents-filter"
+        items={(Object.keys(VIEW) as ViewKey[]).map((k) => ({
+          label: t(VIEW[k].label),
+          hint: `· ${value(k)}`,
+          onSelect: () => {
+            setSub(k)
+            setAsk((n) => n + 1)
+          },
+          testId: `recents-view-${k}`,
+        }))}
+      />
+      {sub && (
+        <MenuButton
+          key={sub}
+          label={t(VIEW[sub].label)}
+          heading={t(VIEW[sub].label)}
+          className="contents"
+          buttonClassName="hidden!"
+          openRequest={ask}
+          focusBack={() => button.current?.focus()}
+          items={Object.entries(VIEW[sub].options as Record<string, MessageKey>).map(([id, label]) => ({
+            label: t(label),
+            checked: view[sub] === id,
+            onSelect: () => onChange({ ...view, [sub]: id }),
+            testId: `recents-${sub}-${id}`,
+          }))}
+        />
+      )}
+    </div>
+  )
+}
+
+function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)
