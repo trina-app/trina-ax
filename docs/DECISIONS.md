@@ -8755,8 +8755,13 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
   re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
   cannot misread it as Web Push). `POST /api/push/devices` / `DELETE /api/push/devices/:id`; `GET /api/push` adds
-  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
-  also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
+  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it
+  when that is the same person, or when the session that had it is over (expired, the account removed or switched
+  off). Another person's live session keeps it: registration answers 409 "another account gets this phone's
+  notifications; sign out there first" (QA TC-201, fix/push-token-takeover, 2026-11-11). A phone that changes hands
+  loses its row first: logout removes it with the session, a team switch with the removal key, and after a reinstall
+  the iPhone app signs the kept session out (Android gets a new FCM token), so the old "another account replaces it"
+  only let a member who knew a colleague's token take over their notifications.
 - **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
   hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
   store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
