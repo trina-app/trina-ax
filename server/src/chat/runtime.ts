@@ -632,7 +632,7 @@ export class ChatRuntime {
   private runExec(exec: TurnExec) {
     exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id }))
   }
-  /** A turn stopped before its engine launched (Stop, shutdown, a budget stop): it leaves the gate and runs now, which
+  /** A turn stopped before its engine launched (Stop, a deleted chat, shutdown): it leaves the gate and runs now, which
    * only ends it (TurnExec.run skips the engine once stopReason is set), so its slot comes back at once. After the
    * stop's own code (a microtask), never inside it. */
   private ungate(exec: TurnExec) {

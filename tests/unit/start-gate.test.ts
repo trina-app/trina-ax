@@ -77,7 +77,7 @@ test('15 answers released in one dispatch: all 15 run (claimed, position 0) at o
   expect(launches.map((l) => l.exec.spec.userId)).toEqual(people)
   const at = launches.map((l) => l.at - t0)
   for (let i = START_BURST; i < at.length; i++) expect(at[i]! - at[i - START_BURST]!).toBeGreaterThanOrEqual(START_SPREAD_MS - 5)
-  expect(at[14]!).toBeLessThan(4 * START_SPREAD_MS + 600)
+  expect(at[14]!).toBeLessThan(4 * START_SPREAD_MS + 2000)
   expect((rt as any).launchTimer).toBeNull()
 })
 

@@ -33,7 +33,11 @@ Out: no web change (the #463 `useQueueShown` delay is not needed: nothing new sh
 ## Risks
 
 A turn in the gate is "running" without an engine for up to ~1 s in a burst of 15; every stop path goes through
-`turnEngineEnding`, which ungates it. Permission checks for find are the same function, rules and principal.
+`turnEngineEnding`, which ungates it. Turns in the gate count in \`running\` for the memory check before their engine
+uses memory (on dev the same window exists while engines start; the gate widens it by up to ~1 s in a burst).
+Permission checks for find are the same function, rules and principal. Find keeps the first 2,000 matching names and
+then checks them: where name rules or links hide most of those, a broad search can return fewer than \`limit\` hits
+(flagged \`truncated\`) although more readable ones exist further on; a narrower search finds them.
 
 ## Tests
 
