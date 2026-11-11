@@ -55,7 +55,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * handover's (docs/DECISIONS.md "W6"; handover_notices): owner.lead_joined to the owner when someone joins with their
  * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
  * when a password re-check of theirs locked after too many wrong tries. */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -72,6 +72,12 @@ export const InboxNotification = z.object({
   request: z.object({ name: z.string(), host: z.string() }).optional(),
   /** 'onboarding.ai_request' only (owners): the member who asks for an AI connection, by display name; older servers omit it */
   requester: z.object({ name: z.string() }).optional(),
+  /** 'project.joined' only (docs/DECISIONS.md "Project contents only for members"): who started to see the project (a
+   * name while the account is there) and the project while the reader of the notice still sees it (link 'project') */
+  projectJoined: z.object({ name: z.string().nullable(), project: z.object({ id: z.string(), name: z.string() }).nullable() }).optional(),
+  /** 'onboarding.ai_request' only: true when the member tried to use Trina but it is not set up yet (the AI could not
+   * start, POST /api/me/ai-not-ready/tell), not a wait for an AI connection; older servers omit it */
+  notReady: z.literal(true).optional(),
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it */
   joined: z.object({ name: z.string() }).optional(),

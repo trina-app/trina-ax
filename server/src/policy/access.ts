@@ -5,7 +5,28 @@ import { PRODUCT } from '@mycel/shared'
 
 export type Access = 'none' | 'read' | 'write'
 export type Role = 'owner' | 'admin' | 'member'
-export interface Principal { id: string; name: string; role: Role; groups: string[] }
+/** `system`: the server's own principal (admin/folders.ts resolveFolderPath): write everywhere outside users/ and
+ * .system/, never inferred from a role (docs/DECISIONS.md "Project contents only for members"). */
+export interface Principal { id: string; name: string; role: Role; groups: string[]; system?: true }
+
+/**
+ * The members-only zone (docs/DECISIONS.md "Project contents only for members"): every path at or below
+ * projects/<name>/. Decided by the path alone, `projects` compared after NFC and lower-casing (fails closed on a
+ * case-sensitive volume too), so every RuleSet, wherever it is built, has it. projects/ itself is outside.
+ */
+export const inProjectZone = (segs: readonly string[]): boolean => segs.length >= 2 && segs[0]!.normalize('NFC').toLowerCase() === 'projects'
+/** The server's own principal: the system flag, not the role, gives it write (decide()). */
+export const SYSTEM_PRINCIPAL: Principal = Object.freeze({ id: '\u0000system', name: 'system', role: 'owner' as const, groups: [] as string[], system: true as const })
+/** The top folder of the zone (projects/ itself, any letter case or Unicode form). */
+export const isProjectsTop = (segs: readonly string[]): boolean => segs.length === 1 && segs[0]!.normalize('NFC').toLowerCase() === 'projects'
+/** The owner or an admin (never the system principal). */
+export const isStaff = (p: Pick<Principal, 'role'> & { system?: true }): boolean => !p.system && (p.role === 'owner' || p.role === 'admin')
+/** Rules inside the zone start at projects/<name> for the owner and admins: rules on projects/ or the root never reach
+ * in for them (an admin's own rule up there would open every project without a floor of its own). */
+const ZONE_FLOOR = 2
+/** How the owner or an admin is judged inside the zone: as a member with the same groups (a role rule for admins or
+ * the owner never applies there). Everyone else, and anyone outside the zone, as they are. */
+const zoneSubject = (p: Principal): Principal => ({ id: p.id, name: p.name, role: 'member', groups: p.groups })
 export type SubjectType = 'everyone' | 'role' | 'group' | 'user'
 
 interface Rule { subject_type: SubjectType; subject_id: string | null; access: Access }
@@ -35,10 +56,12 @@ const NO_TIER = TIERS.length
  * - system: `.system/` (nobody, owner included) · temp: a server temp name in the path (nobody)
  * - own-personal: `users/<me>/…` (write) · other-personal: `users/<someone else>/…` (nobody, owner and admin
  *   included) · users-root: `users/` itself (read, nobody writes there)
- * - owner-admin: the owner or an admin (write everywhere else)
+ * - owner-admin: the owner or an admin (write everywhere else but the members-only zone projects/<name>/, where they
+ *   are judged as a member by the rules at or below projects/<name>), or the system principal (write everywhere else)
  * - rule: the deepest folder on the way up that has a rule for the person (`folder`, '' = team root), the step that
  *   decided there (`tier`) and that step's rules for the person (`rules`; the widest access among them wins)
- * - no-rule: no folder on the way up has a rule for the person (only the owner and admins)
+ * - no-rule: no folder on the way up has a rule for the person (for the owner and admins inside the zone: none at or
+ *   below projects/<name>)
  */
 export type AccessReasonKind = 'system' | 'temp' | 'own-personal' | 'other-personal' | 'users-root' | 'owner-admin' | 'rule' | 'no-rule'
 export interface DecidingRule { subjectType: SubjectType; subjectId: string | null; access: Access }
@@ -48,7 +71,7 @@ export type AccessReason =
 export interface Explained { access: Access; reason: AccessReason }
 
 /** Where decide() leaves why it answered. access() passes none, so the hot path allocates nothing for it. */
-interface Why { kind: AccessReasonKind; folderLen: number; tier: number; rules: readonly Rule[] | null }
+interface Why { kind: AccessReasonKind; folderLen: number; tier: number; rules: readonly Rule[] | null; who?: Principal }
 
 export function loadPrincipal(db: Database, userId: string): Principal | null {
   const u = db.query("SELECT id, name, role, status FROM users WHERE id = ?").get(userId) as any
@@ -84,7 +107,8 @@ export class RuleSet {
     const access = this.decide(p, segs, why)
     if (why.kind !== 'rule') return { access, reason: { kind: why.kind } }
     const tier = TIERS[why.tier]!
-    const rules = why.rules!.filter((r) => r.subject_type === tier && applies(r, p))
+    const who = why.who ?? p
+    const rules = why.rules!.filter((r) => r.subject_type === tier && applies(r, who))
       .map((r) => ({ subjectType: r.subject_type, subjectId: r.subject_id, access: r.access }))
       .sort((a, b) => (RANK[b.access] - RANK[a.access]) || String(a.subjectId ?? '').localeCompare(String(b.subjectId ?? '')))
     return { access, reason: { kind: 'rule', folder: segs.slice(0, why.folderLen).join('/'), tier, rules } }
@@ -105,17 +129,30 @@ export class RuleSet {
     // users/ itself only holds the personal folders: nobody writes there directly (no files beside the folders, no
     // folder for a person who does not exist yet, no renaming or trashing the whole tree)
     if (segs.length === 1 && segs[0] === 'users') { if (why) why.kind = 'users-root'; return 'read' }
-    if (p.role === 'owner' || p.role === 'admin') { if (why) why.kind = 'owner-admin'; return 'write' } // everything else
+    if (p.system) { if (why) why.kind = 'owner-admin'; return 'write' }
+    // the owner and admins: everything outside the members-only zone; inside it they are judged as a member, by the
+    // rules at or below projects/<name> only (docs/DECISIONS.md "Project contents only for members")
+    const staff = p.role === 'owner' || p.role === 'admin'
+    if (staff && !inProjectZone(segs)) { if (why) why.kind = 'owner-admin'; return 'write' }
+    // and inside a project only once they read the project's own folder (are its members): a rule on a folder inside it
+    // never lets them in alone, so nobody reads part of a project without showing in its members (security review M2)
+    if (staff && segs.length > ZONE_FLOOR && !atLeast(this.decide(p, segs.slice(0, ZONE_FLOOR), null), 'read')) {
+      if (why) this.decide(p, segs.slice(0, ZONE_FLOOR), why)
+      return 'none'
+    }
+    const q = staff ? zoneSubject(p) : p
+    const floor = staff ? ZONE_FLOOR : 0
+    if (why) why.who = q
     // the deepest folder with a rule that applies to the person decides; the key of each level is the joined path cut
     // after its first `len` names (by their lengths), not joined again per level: the same string as
     // segs.slice(0, len).join('/')
     const full = segs.join('/')
     let end = full.length
-    for (let len = segs.length; len >= 0; len--) {
+    for (let len = segs.length; len >= floor; len--) {
       if (len < segs.length) end -= segs[len]!.length + (len > 0 ? 1 : 0)
       const rules = this.byPath.get(end === full.length ? full : full.slice(0, end))
       if (!rules) continue
-      const d = decideIn(rules, p)
+      const d = decideIn(rules, q)
       if (d < 0) continue
       if (why) { why.kind = 'rule'; why.folderLen = len; why.tier = d >> 2; why.rules = rules }
       return BY_RANK[d & 3]!
@@ -131,7 +168,7 @@ export class RuleSet {
       if (segs.length === 1) return true // own personal folder below
       return segs[1] === p.id
     }
-    if (p.role === 'owner' || p.role === 'admin') return true
+    if (p.system || (isStaff(p) && !inProjectZone(segs))) return true
     const cands = [...this.ruleFolders().map((f) => (f === '' ? [] : f.split('/'))).filter((c) => c[0] !== 'users'), ['users', p.id]]
     for (const c of cands) {
       if (c.length > segs.length && segs.every((s, i) => s === c[i]) && atLeast(this.access(p, c), 'read')) return true
@@ -168,7 +205,7 @@ export class RuleSet {
       if (atLeast(this.access(p, segs), 'read')) return true
       if (segs.length && segs[0] === PRODUCT.systemDir) return false
       if (segs[0] === 'users') return segs.length === 1 || segs[1] === p.id
-      if (p.role === 'owner' || p.role === 'admin') return true
+      if (p.system || (isStaff(p) && !inProjectZone(segs))) return true
       return below.has(segs.join('/'))
     }
     const ownPath = own.join('/')
@@ -200,20 +237,24 @@ export class RuleSet {
       return -1
     })
     // the rule lists from the folder up to the root (null: .system/ or a temp name, readable by nobody)
-    const chains = items.map((it) => {
+    const chainsFrom = (floor: number) => items.map((it) => {
       if (it.segs[0] === PRODUCT.systemDir || it.segs.some((s) => s.startsWith(PRODUCT.tmpPrefix))) return null
       const out: Rule[][] = []
-      for (let len = it.segs.length; len >= 0; len--) { const r = this.byPath.get(it.segs.slice(0, len).join('/')); if (r) out.push(r) }
+      for (let len = it.segs.length; len >= floor; len--) { const r = this.byPath.get(it.segs.slice(0, len).join('/')); if (r) out.push(r) }
       return out
     })
+    const chains = chainsFrom(0)
+    // the owner and admins inside the members-only zone: only the rules at or below projects/<name> (decide())
+    let zoneChains: ReturnType<typeof chainsFrom> | null = null
     const named = new Set<string>()
     for (const list of this.byPath.values()) for (const r of list) if (r.subject_type === 'user' && r.subject_id !== null) named.add(r.subject_id)
     const shown_ = items.map((it) => shown(it.path))
     const shared = new Map<string, { any: boolean; top: string[] }>()
-    const scan = (p: Principal) => {
-      const key = `${p.role}\u0000${[...new Set(p.groups)].sort().join('\u0001')}${named.has(p.id) ? `\u0000${p.id}` : ''}`
+    const scan = (p: Principal, zone: boolean) => {
+      const key = `${zone ? 'zone\u0000' : ''}${p.role}\u0000${[...new Set(p.groups)].sort().join('\u0001')}${named.has(p.id) ? `\u0000${p.id}` : ''}`
       const known = shared.get(key)
       if (known) return known
+      const ch = zone ? (zoneChains ??= chainsFrom(ZONE_FLOOR)) : chains
       const top: string[] = []
       let any = false
       const readable = new Uint8Array(items.length)
@@ -221,7 +262,7 @@ export class RuleSet {
         let a = parent[i]!, covered = false
         while (a >= 0) { if (readable[a]) { covered = true; break } a = parent[a]! }
         if (covered) continue
-        const chain = chains[i]
+        const chain = ch[i]
         if (!chain) continue
         let rank = 0
         for (const rules of chain) { const d = decideIn(rules, p); if (d >= 0) { rank = d & 3; break } }
@@ -235,8 +276,12 @@ export class RuleSet {
       if (atLeast(this.access(p, within), 'read')) return { listable: true, via: [], more: false }
       if (within.length && within[0] === PRODUCT.systemDir) return { listable: false, via: [], more: false }
       if (within[0] === 'users') return within.length === 1 ? { listable: true, via: [`users/${p.id}`], more: false } : { listable: within[1] === p.id, via: [], more: false }
-      if (p.role === 'owner' || p.role === 'admin') return { listable: true, via: [], more: false }
-      const found = scan(p)
+      if (p.system) return { listable: true, via: [], more: false }
+      const zone = isStaff(p) && inProjectZone(within)
+      if (isStaff(p) && !zone) return { listable: true, via: [], more: false }
+      // (inside a project they do not read, nothing is readable for them: decide())
+      if (zone && !atLeast(this.access(p, within.slice(0, ZONE_FLOOR)), 'read')) return { listable: false, via: [], more: false }
+      const found = scan(zone ? zoneSubject(p) : p, zone)
       const top = [...found.top]
       // the person's own users/<id> is below the team root, readable and topmost (nothing above it is a candidate)
       if (within.length === 0) {

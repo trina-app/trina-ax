@@ -109,8 +109,9 @@ export function People({ answer, path, names, linkPeople = false }: { answer: Re
                     )}
                     <span className="shrink-0 text-xs text-faint">· {t(`role.${p.role}`)}</span>
                   </div>
-                  {/* the reason in one dim line; all of it in the tooltip and for screen readers */}
-                  <p className="truncate text-xs text-faint" title={reasonText(t, asRow(p), p.role, names).join(' · ')}>
+                  {/* the reason in one dim line; all of it in the tooltip and for screen readers. On a team project's
+                      folder: "Member" or "Not a member" (lib/access-view.ts), never the setting that decided */}
+                  <p className="truncate text-xs text-faint" title={reasonText(t, asRow(p), p.role, names).join(' · ')} data-testid="folder-person-reason">
                     {reasonText(t, asRow(p), p.role, names).join(' · ')}
                   </p>
                 </div>

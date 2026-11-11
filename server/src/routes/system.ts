@@ -2,6 +2,7 @@
 // Implements: SYSTEM (health, diagnostics, update, backups, restore, export, connection, storage, plan, notices).
 // Contract: shared/src/api/system.ts. Health is implemented by the foundation (the dev server, CI smoke test and
 // the menubar app need it from day one); G implements the rest. The work itself is in server/src/system/*.
+import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { visibleSharedChat } from '../chat/shared'
 import { withheldFrom } from '../chat/shared-answers'
 import { API, type Health, type Locale } from '@mycel/shared/api'
@@ -30,6 +31,20 @@ import { setApiEnginePublicOnly } from '../system/egress'
 
 const opsByCtx = new WeakMap<AppContext, OpsService>()
 /** The ops service of a running server (tests, CLI). */
+/** The owner's export: a path inside a team project only while they read it (the Files tree's check, the rules read
+ * once per export; docs/DECISIONS.md "Project contents only for members"). */
+function exportReadable(ctx: AppContext, userId: string): (rel: string) => boolean {
+  let rules: RuleSet | null = null
+  let me: Principal | null = null
+  return (rel) => {
+    try {
+      rules ??= ctx.files.rules()
+      me ??= ctx.files.principal(userId)
+      return atLeast(rules.access(me, rel.split('/')), 'read')
+    } catch { return false }
+  }
+}
+
 export const getOps = (ctx: AppContext) => opsByCtx.get(ctx) ?? null
 
 /** Test hook: options for the next OpsService (layout, fake engines, restart). */
@@ -214,7 +229,7 @@ export const systemRoutes: RouteModule = {
       const jobId = exclusive('export', locale, () => jobs().start({
         kind: 'export', userId: auth.user.id,
         run: async (h) => {
-          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password, hide: redactorFor(ctx, auth.user.id).hide, sharedVisible: (id) => !!visibleSharedChat(ctx.db, ctx.files, auth.user.id, id), sharedWithheld: (id) => withheldFrom(ctx.db, ctx.files.rules(), id, auth.user.id) }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
+          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password, hide: redactorFor(ctx, auth.user.id).hide, readable: exportReadable(ctx, auth.user.id), sharedVisible: (id) => !!visibleSharedChat(ctx.db, ctx.files, auth.user.id, id), sharedWithheld: (id) => withheldFrom(ctx.db, ctx.files.rules(), id, auth.user.id) }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
         },
       }))
       return { jobId }

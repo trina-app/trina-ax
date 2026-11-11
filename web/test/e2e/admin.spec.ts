@@ -113,8 +113,8 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
   await panel.getByTestId('edit-save').click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 읽기')
-  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
+  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 볼 수 있음')
+  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 볼 수 있음')
 
   // engines: what is missing, in plain words
   await page.getByTestId('admin-menu').getByRole('link', { name: 'AI 계정', exact: true }).click()
@@ -879,7 +879,8 @@ test('the focus ring of the admin and settings menus is not cut off by the scrol
   }
   for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 780 }]) {
     await page.setViewportSize(size)
-    await page.goto('/admin/folders')
+    // a phone: Admin's list (its rows are the menu there)
+    await page.goto(size.width < 768 ? '/admin' : '/admin/folders')
     await inside('폴더 권한')
     await page.screenshot({ path: process.env.RING_SHOTS ? `${process.env.RING_SHOTS}/admin-${size.width}.png` : undefined })
     // Settings is a dialog: its list is beside the section on a wide screen, on its own on a phone (/settings)

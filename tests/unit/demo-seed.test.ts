@@ -59,17 +59,18 @@ describe('demo seed', () => {
     // payroll: hidden from the 재무 group, visible to the admin
     expect(await canSee(bob, 'groups/재무/급여', '2026-10-급여대장.xlsx')).toBe('none')
     expect(await canSee(admin, 'groups/재무/급여', '2026-10-급여대장.xlsx')).toBe('write')
-    // project folder: 마케팅 writes, 재무 reads
+    // project folder: its members (마케팅) only; 재무 and the admin who is not a member see nothing in it
     expect(await canSee(alice, 'projects/신제품-출시', '출시-일정.md')).toBe('write')
-    expect(await canSee(bob, 'projects/신제품-출시', '출시-일정.md')).toBe('read')
+    expect(await canSee(bob, 'projects/신제품-출시', '출시-일정.md')).toBe('none')
     // shared files and the PDF are there for everyone
     expect(await canSee(bob, 'shared', '회사소개서.pdf')).toBe('write')
     const pdf = await bob.call(API.download, { query: { path: 'shared/회사소개서.pdf', disposition: 'inline' } })
     expect(new TextDecoder().decode((await pdf.arrayBuffer()).slice(0, 5))).toBe('%PDF-')
     const notes = await alice.call(API.content, { query: { path: 'shared/회의록/2026-10-20-주간-전체회의.md' } })
     expect(notes.content).toContain('주간 전체회의')
-    // the project is listed for both (bob can read its folder)
-    expect((await bob.call(API.listProjects)).items.map((p) => p.name)).toContain('신제품 출시')
+    // the project is listed for its members, not for bob
+    expect((await alice.call(API.listProjects)).items.map((p) => p.name)).toContain('신제품 출시')
+    expect((await bob.call(API.listProjects)).items.map((p) => p.name)).not.toContain('신제품 출시')
   }, 60_000)
 
   test('a second run only fills in what is missing', async () => {

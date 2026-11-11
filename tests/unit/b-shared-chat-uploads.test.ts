@@ -265,6 +265,6 @@ describe('around it', () => {
     let e: ApiError | null = null
     try { await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'send it', clientMessageId: cm(), attachmentIds: [r.body.id] } }) } catch (x) { e = x as ApiError }
     expect([e?.status, e?.body.params?.reason, e?.body.message]).toEqual([409, 'shared_chat_upload', CHAT_TEXT.sharedChatUpload.en])
-    expect(CHAT_TEXT.sharedChatUpload.ko).toBe('이 채팅이 공유되기 전에 올린 파일은 내 폴더에 있어서 프로젝트 사람들이 볼 수 없어요. 그래서 보내지 않았어요. 첨부를 빼고 다시 붙이면 프로젝트 폴더에 저장돼요.')
+    expect(CHAT_TEXT.sharedChatUpload.ko).toBe('이 채팅이 공유되기 전에 올린 파일은 내 폴더에 있어서 프로젝트 멤버가 볼 수 없어요. 그래서 보내지 않았어요. 첨부를 빼고 다시 붙이면 프로젝트 폴더에 저장돼요.')
   })
 })

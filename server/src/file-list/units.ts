@@ -4,8 +4,9 @@
 // its files, which keeps the lists small and puts each where its readers look:
 //
 // RuleSet.decide() (policy/access.ts) answers for a path by: `.system/` and server temp names (nobody); `users/<id>/…`
-// (that person only, rules there ignored); owner and admins (everything else); for members, the deepest prefix of the
-// path — the path itself included — that has rules applying to them. Only prefixes that carry rule rows are ever looked
+// (that person only, rules there ignored); owner and admins (everything else, except inside a team project in
+// projects/, where they are judged by its own rules as a member: docs/DECISIONS.md "Project contents only for members");
+// for members, the deepest prefix of the path — the path itself included — that has rules applying to them. Only prefixes that carry rule rows are ever looked
 // at, deepest first, and which prefixes carry rules does not depend on who asks. So two paths outside users/ with the
 // same rule-bearing prefixes (their rule chain) give every person the same access.
 //

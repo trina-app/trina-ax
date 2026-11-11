@@ -100,21 +100,30 @@ export const MISC_SPECS: Record<string, Spec> = {
     } },
   devEnvActivity: { build: (c, w) => devEnvOn('box', () => c.get(`/api/projects/${w.ids.projFalcon}/dev-env/activity`)), scope: 'falcon-read' },
   // the project's settings: admins only (a member 403); the body names an unknown group, so nothing is saved
-  updateDevEnv: { build: (c, w) => devEnvOn('box', () => c.put(`/api/projects/${w.ids.projFalcon}/dev-env`, { enabled: false, scope: badScope })), scope: 'byLevel',
+  // (on the older project on shared/, an ordinary team folder the owner and admins read; a project in projects/ they
+  // are not members of is not theirs to set: docs/DECISIONS.md "Project contents only for members")
+  updateDevEnv: { build: (c, w) => devEnvOn('box', () => c.put(`/api/projects/${w.ids.projShared}/dev-env`, { enabled: false, scope: badScope })), scope: 'byLevel',
     check: async (r, w, who) => {
       bodyCheck('body.scope.groupIds', 'a project dev environment change')(r, w, who)
-      // an admin does not reach alice's personal project either
+      // an admin does not reach alice's personal project, nor projects/falcon, whose member they are not
       if (admin(who)) {
         const own = await devEnvOn('box', () => w.as[who].put(`/api/projects/${w.ids.projAlice}/dev-env`, { enabled: false, scope: badScope }))
         if (own.status !== 404) throw new Error(`${who}: alice's personal project's dev environment answered ${own.status}`)
+        const falcon = await devEnvOn('box', () => w.as[who].put(`/api/projects/${w.ids.projFalcon}/dev-env`, { enabled: false, scope: badScope }))
+        if (falcon.status !== 404) throw new Error(`${who}: a project they are not a member of answered ${falcon.status} for its dev environment`)
       }
     } },
   // stop / restart the box: people who may use it, and admins. It is off here, so nobody may use it: alice and bob see
   // the project and are refused (403), erin does not see it (404); the owner and the admin pass and meet no helper (409)
-  devEnvBox: { build: (c, w) => devEnvOn('box', () => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/box`, { action: 'stop' })), scope: 'admins',
-    check: (r, _w, who) => {
-      const want: Partial<Record<Who, number>> = { owner: 409, admin: 409, memberIn: 403, memberOut: 403, other: 404 }
+  // (on the older project on shared/, which everyone reads; on projects/falcon the owner and admins are not members: 404)
+  devEnvBox: { build: (c, w) => devEnvOn('box', () => c.post(`/api/projects/${w.ids.projShared}/dev-env/box`, { action: 'stop' })), scope: 'admins',
+    check: async (r, w, who) => {
+      const want: Partial<Record<Who, number>> = { owner: 409, admin: 409, memberIn: 403, memberOut: 403, other: 403 }
       if (want[who] !== undefined && r.status !== want[who]) throw new Error(`${who}: stopping the box answered ${r.status}, not ${want[who]}`)
+      if (admin(who)) {
+        const falcon = await devEnvOn('box', () => w.as[who].post(`/api/projects/${w.ids.projFalcon}/dev-env/box`, { action: 'stop' }))
+        if (falcon.status !== 404) throw new Error(`${who}: stopping the box of a project they are not a member of answered ${falcon.status}`)
+      }
     } },
   // a preview link: who can read the folder, while the project's dev environment is on (off here: 409 after the check)
   devEnvPreview: { build: (c, w) => devEnvOn('box', () => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/preview`, { port: 3000 })), scope: 'falcon-read',
@@ -209,6 +218,10 @@ export const MISC_SPECS: Record<string, Spec> = {
       if (usable && r.status !== 403) throw new Error(`${who} can use AI and still asked the owner: ${r.status}`)
       if (!usable && r.status !== 200) throw new Error(`${who} cannot use AI and could not ask: ${r.status}`)
     } },
+  // "Trina isn't ready yet": a member tells the owner(s) and admins (one notice an hour, server-side); never the owner or
+  // an admin (403: they connect the AI themselves)
+  tellAiNotReady: { build: (c) => c.post('/api/me/ai-not-ready/tell'), scope: 'members',
+    check: (r, _w, who) => { if (admin(who) && r.status !== 403) throw new Error(`${who}: telling an admin answered ${r.status}, not 403`) } },
   // the hosting service's trial credit (owners and admins; none on a self-hosted server), never its key
   trialCredit: { build: (c) => c.get('/api/admin/trial-credit'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the trial credit shows a key') } },
 

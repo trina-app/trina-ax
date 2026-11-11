@@ -58,9 +58,14 @@ describe('folder rows that stay', () => {
   test('the list says which rows stay and why', async () => {
     const by = Object.fromEntries((await listed()).map((f) => [f.path, f.keep]))
     expect(by).toMatchObject({ shared: 'team', skills: 'team', 'groups/Sales': 'group' })
-    const p = await admin.call('POST', '/api/admin/folders', { path: 'projects/plain', rules: [everyone('read')] })
+    const p = await admin.call('POST', '/api/admin/folders', { path: 'teams/plain', rules: [everyone('read')] })
     expect(p.keep).toBeNull()
     expect((await admin.try('DELETE', `/api/admin/folders/${p.id}`)).status).toBe(204)
+    // a folder in projects/ is not this screen's (docs/DECISIONS.md "Project contents only for members")
+    const pr = await admin.try('POST', '/api/admin/folders', { path: 'projects/plain', rules: [everyone('read')] })
+    expect(pr.status).toBe(409)
+    expect(pr.body.error.params.reason).toBe('project_members_only')
+    expect(rowId('projects/plain')).toBeNull()
   })
 
   test('shared/ and skills/: removing the row or all its rules is refused, and the message says how to keep them to admins', async () => {
@@ -73,7 +78,7 @@ describe('folder rows that stay', () => {
       const d = await admin.try('DELETE', `/api/admin/folders/${id}`)
       expect(d.status, p).toBe(409)
       expect(d.body.error.message).toBe(msg('teamFolderKeepsRules', 'ko'))
-      expect(d.body.error.message).toContain('"모두: 권한 없음"')
+      expect(d.body.error.message).toContain('"모두: 열 수 없음"')
       const put = await owner.try('PUT', `/api/admin/folders/${id}/rules`, { rules: [] })
       expect(put.status, p).toBe(400)
       expect(put.body.error.message).toBe(msg('teamFolderKeepsRules', 'ko'))
@@ -199,9 +204,9 @@ describe('folder rows that stay', () => {
   })
 
   test('a row parked with a trashed folder: not listed, not edited, not removed; it comes back with the folder', async () => {
-    const f = await admin.call('POST', '/api/admin/folders', { path: 'projects/vault', create: true, rules: [{ subjectType: 'user', subjectId: alice.id, access: 'write' }] })
-    await alice.client.call('PUT', '/api/files/content', { path: 'projects/vault/plan.md', content: 'plan\n', baseSha256: null })
-    const { trashId } = await owner.call('DELETE', '/api/files?path=projects%2Fvault')
+    const f = await admin.call('POST', '/api/admin/folders', { path: 'teams/vault', create: true, rules: [{ subjectType: 'user', subjectId: alice.id, access: 'write' }] })
+    await alice.client.call('PUT', '/api/files/content', { path: 'teams/vault/plan.md', content: 'plan\n', baseSha256: null })
+    const { trashId } = await owner.call('DELETE', '/api/files?path=teams%2Fvault')
     const parked = h.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(f.id) as { path: string }
     expect(parked.path.startsWith('.system/trash/')).toBe(true)
     expect((await listed()).some((x) => x.id === f.id || x.path.startsWith('.system'))).toBe(false)
@@ -211,11 +216,11 @@ describe('folder rows that stay', () => {
     }
     expect(rulesOf(h.ctx.db, f.id)).toEqual([{ subjectType: 'user', subjectId: alice.id, access: 'write' }])
     // the trash restores it with its rules, and it is an ordinary row again
-    expect((await owner.call('POST', `/api/files/trash/${trashId}/restore`)).entry.path).toBe('projects/vault')
+    expect((await owner.call('POST', `/api/files/trash/${trashId}/restore`)).entry.path).toBe('teams/vault')
     const back = (await listed()).find((x) => x.id === f.id)!
-    expect(back.path).toBe('projects/vault')
-    expect(access(alice.id, 'projects/vault/plan.md')).toBe('write')
-    expect(access(bob.id, 'projects/vault/plan.md')).toBe('none')
+    expect(back.path).toBe('teams/vault')
+    expect(access(alice.id, 'teams/vault/plan.md')).toBe('write')
+    expect(access(bob.id, 'teams/vault/plan.md')).toBe('none')
     expect((await admin.try('DELETE', `/api/admin/folders/${f.id}`)).status).toBe(204)
   })
 

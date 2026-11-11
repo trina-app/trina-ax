@@ -2,7 +2,8 @@
 // our manifest, install it, make the app-level token and copy the app's credentials, paste them: the tokens and the
 // client secret sealed in this browser for 'slack.token', never shown again, then turned on). Without the team's https
 // address one line says "Sign in with Slack" needs it. Set up: one status line with one button (turn on / off); a problem says the one
-// place to fix it. Replacing the tokens, and removing it, are behind "Replace tokens".
+// place to fix it. Replacing the tokens, and removing it, are behind "Replace tokens". A phone (below 768 px): the
+// cards without frames and 44 px targets (docs/DECISIONS.md "Admin and Settings on phones").
 import { useState, type ReactNode } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
@@ -87,13 +88,13 @@ export default function AdminSlack() {
           return (
             <>
               {s.tokens && (
-                <Card>
+                <Card flat>
                   <div className="flex items-center gap-3" data-testid="slack-status">
                     <p className="flex min-w-0 flex-1 items-center gap-2 text-sm">
                       <Badge tone={STATE[s.state].tone}>{t(STATE[s.state].key)}</Badge>
                       <span className="truncate">{[s.workspace?.name, s.botName ? `@${s.botName}` : null].filter(Boolean).join(' · ')}</span>
                     </p>
-                    <Button variant={s.enabled ? 'secondary' : 'primary'} data-testid="slack-toggle"
+                    <Button variant={s.enabled ? 'secondary' : 'primary'} className="max-md:h-11" data-testid="slack-toggle"
                       onClick={async () => set(await act(() => api.call(SLACK.setSlackEnabled, { body: { enabled: !s.enabled } }), t(s.enabled ? 'slack.admin.turnedOff' : 'slack.admin.turnedOn')))}>
                       {t(s.enabled ? 'slack.admin.turnOff' : 'slack.admin.turnOn')}
                     </Button>
@@ -106,15 +107,15 @@ export default function AdminSlack() {
                     <p className="mt-2 text-sm text-muted" data-testid="slack-invite"><CodeText text={t('slack.admin.invite', { bot: s.botName })} /></p>
                   ) : null}
                   {!s.redirectUrl && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
-                  <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+                  <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted max-md:items-center">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
-                    <button type="button" className="underline underline-offset-2" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>
+                    <button type="button" className="underline underline-offset-2 max-md:min-h-11" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>
                   </p>
                 </Card>
               )}
               {(!s.tokens || replacing) && (
-                <Card title={t('slack.admin.setupTitle')} testId="slack-setup">
+                <Card flat title={t('slack.admin.setupTitle')} testId="slack-setup">
                   <ol className="space-y-4 text-sm">
                     <Step n={1} title={t('slack.admin.create')} href={s.createUrl} testId="slack-create">{t('slack.admin.createHint')}</Step>
                     <Step n={2} title={t('slack.admin.install')} href={slackPage(s.appId, 'install')}>{t('slack.admin.installHint')}</Step>
@@ -125,7 +126,7 @@ export default function AdminSlack() {
                     </Step>
                   </ol>
                   {s.tokens && (
-                    <button type="button" className="mt-5 text-xs text-danger underline underline-offset-2" data-testid="slack-remove"
+                    <button type="button" className="mt-5 text-xs text-danger underline underline-offset-2 max-md:min-h-11" data-testid="slack-remove"
                       onClick={async () => {
                         if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t('slack.admin.removeBody'), confirm: t('slack.admin.remove'), danger: true }))) return
                         const v = await act(() => api.call(SLACK.removeSlack))
@@ -211,7 +212,7 @@ function TokenForm({ appId, enabled, onSaved }: { appId: string | null; enabled:
       </div>
       {!secure && <p className="text-sm text-warn">{t('credentials.httpsOnly')}</p>}
       {error && !error.field && <p role="alert" className="text-sm text-danger" data-testid="slack-save-error">{error.text}</p>}
-      <Button variant="primary" busy={busy} disabled={!ready || !secure || busy} onClick={() => void save()} data-testid="slack-save">{t('slack.admin.save')}</Button>
+      <Button variant="primary" className="max-md:h-11" busy={busy} disabled={!ready || !secure || busy} onClick={() => void save()} data-testid="slack-save">{t('slack.admin.save')}</Button>
     </div>
   )
 }

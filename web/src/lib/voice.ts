@@ -1,18 +1,18 @@
 // Whether the composer shows the mic (docs/DECISIONS.md "Voice input through OpenRouter"): voice input is off until an
-// admin picks OpenRouter (with a key) or this server in Admin > Team settings. The server says so in
+// admin picks OpenRouter (with a key) or this server in Admin > Team settings; while it is off nobody sees a mic. The server says so in
 // Me.team.voiceInput; an older server leaves it out, which means on (it always had whisper.cpp). In a confidential chat a
 // recording never goes to OpenRouter (voiceBlockedHere; the server is the gate). Rooms and threads take voice input too
 // (lib/useVoiceInput.ts), under the same switch; a room names no chat, so it is blocked while every chat is confidential
 // (voiceBlockedInRoom).
 import type { Me } from '@mycel/shared/api'
 
-export type MicState = 'on' | 'adminHint' | 'hidden'
-/** where the admin hint leads */
-export const SPEECH_SETTINGS_PATH = '/admin/settings#speech'
+export type MicState = 'on' | 'hidden'
 
-export function micState(me: Pick<Me, 'team'> & { user: Pick<Me['user'], 'role'> } | null | undefined): MicState {
-  if (!me?.team || me.team.voiceInput !== false) return 'on'
-  return me.user.role === 'owner' || me.user.role === 'admin' ? 'adminHint' : 'hidden'
+/** Voice input can't be used on this server (off, or "this server" without what it needs): no mic for anyone, owners
+ * and admins included (owner 2026-11-11: a crossed-out mic in the box is noise; the switch is in Admin › Team
+ * settings). */
+export function micState(me: Pick<Me, 'team'> | null | undefined): MicState {
+  return me?.team?.voiceInput === false ? 'hidden' : 'on'
 }
 
 /** Voice input is not used in this chat: it is confidential (Chat.confidential, or every chat while 1A is on) and the

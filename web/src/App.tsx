@@ -31,6 +31,7 @@ import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
+import { noteLocation } from './lib/backStack'
 import { safeNext } from './lib/nav'
 import { afterJoinTarget, clearAfterJoin, readJoinToken } from './lib/team-link'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
@@ -80,6 +81,9 @@ function useSettingsOverlay() {
   const page = useRef<Location | null>(null)
   const depth = useRef(0)
   const open = isSettings(location.pathname)
+  // the phone's back stack notes what is under each entry the first time it shows, before any page renders and reads
+  // it (lib/backStack.ts: the list under a page opened from a link, and the ‹ button's label)
+  noteLocation(location, navType)
   useEffect(() => {
     if (!open) {
       page.current = location
@@ -248,6 +252,8 @@ function Gate() {
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="admin" element={<AdminLayout />} />
           <Route path="admin/:section" element={<AdminLayout />} />
+          {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
+          <Route path="admin/:section/:sub" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
           <Route path="skills" element={<Skills />} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}

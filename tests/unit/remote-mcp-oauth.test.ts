@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from 'bun:test'
-import { RemoteOAuth, connectorOrigin, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
+import { OAUTH_LIMITS, RemoteOAuth, connectorOrigin, ipKey, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
 import { challenge, hash } from '../../server/src/connectors/remote-mcp/policy'
 import { harness, withOwner, type Harness } from './a-lib'
 
 const running: Harness[] = []
-afterEach(async () => { for (const h of running.splice(0)) await h.close() })
+const limits = structuredClone(OAUTH_LIMITS)
+afterEach(async () => { Object.assign(OAUTH_LIMITS, structuredClone(limits)); for (const h of running.splice(0)) await h.close() })
 const origin = 'https://team.example', redirect = 'https://claude.ai/api/mcp/auth_callback', verifier = 'a'.repeat(43)
 async function fixture(name: string) {
   const h = await harness('remote-' + name); running.push(h)
@@ -146,4 +147,88 @@ test('remoteOAuthOf takes the origin from server.json appConnectors + tunnel.hos
     expect(remoteOAuthOf(h.ctx, {}).origin).toBe('https://team.example.com')
     expect(remoteOAuthOf(h.ctx, { origin: 'https://explicit.example.com' }).origin).toBe('https://explicit.example.com')
   } finally { if (saved !== undefined) process.env.MYCEL_REMOTE_MCP_ORIGIN = saved }
+})
+
+test('registered apps without a connection or a sign-in in progress are removed after a week; connected ones stay', async () => {
+  const f = await fixture('idle-clients'), start = Date.now()
+  const connected = f.client.client_id
+  f.exchange(f.code())
+  const idle = f.svc.register({ redirect_uris: [redirect] }).client_id
+  const signingIn = f.svc.register({ redirect_uris: [redirect] }).client_id
+  f.svc.now = () => start + 7 * 24 * 3600_000 - 5 * 60_000
+  f.svc.authorize({ client_id: signingIn, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })
+  f.svc.now = () => start + 7 * 24 * 3600_000 + 60_000
+  f.svc.ingress('metadata', '192.0.2.1')
+  const ids = () => (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
+  expect(ids()).toContain(connected)
+  expect(ids()).toContain(signingIn)
+  expect(ids()).not.toContain(idle)
+  // the sign-in expired unused (10 minutes): a week after its last use the app goes too
+  f.svc.now = () => start + 7 * 24 * 3600_000 + 2 * 3600_000
+  f.svc.ingress('metadata', '192.0.2.1')
+  expect(ids()).not.toContain(signingIn)
+  expect(ids()).toContain(connected)
+})
+
+test('a full client table makes room from the longest-idle unused apps instead of refusing every new app', async () => {
+  const f = await fixture('client-cap'), start = Date.now()
+  OAUTH_LIMITS.clients = 5
+  f.exchange(f.code()) // the fixture's app is connected: never evicted
+  const junk: string[] = []
+  for (let i = 0; i < 4; i++) { f.svc.now = () => start + i * 1000; junk.push(f.svc.register({ redirect_uris: [redirect] }).client_id) }
+  // a sign-in nobody opened does not keep an app (anyone can start one); one a person opened does
+  const ask = (client: string) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
+  ask(junk[0]!)
+  f.svc.consent(ask(junk[1]!), f.auth)
+  f.svc.now = () => start + 10_000
+  const fresh = f.svc.register({ redirect_uris: [redirect] }).client_id
+  const ids = (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
+  expect(ids).toHaveLength(5)
+  expect(ids).toContain(f.client.client_id)
+  expect(ids).toContain(fresh)
+  expect(ids).not.toContain(junk[0])
+  expect(ids).toContain(junk[1])
+  f.svc.now = () => start + 11_000
+  f.svc.register({ redirect_uris: [redirect] })
+  const after = (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
+  expect(after).toContain(junk[1])
+  expect(after).not.toContain(junk[2])
+  // nothing left to evict: then, and only then, 503
+  f.h.ctx.db.query('DELETE FROM remote_mcp_clients WHERE id<>?').run(f.client.client_id)
+  OAUTH_LIMITS.clients = 1
+  expect(() => f.svc.register({ redirect_uris: [redirect] })).toThrow('temporarily_unavailable')
+})
+
+test('pending sign-ins: at most 50 per app from one address, and a full table makes room from the oldest unopened ones', async () => {
+  const f = await fixture('pending'), start = Date.now()
+  const ask = (client = f.client.client_id) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
+  const from = (ip: string) => f.svc.authorize({ client_id: f.client.client_id, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' }, ip)
+  f.svc.now = () => Math.floor(start / 600_000) * 600_000 + 600_000 // one fixed 10-minute window
+  for (let i = 0; i < 50; i++) from('192.0.2.7')
+  expect(() => from('192.0.2.7')).toThrow('slow_down')
+  // the app's id is public: another address still signs in with it
+  expect(from('198.51.100.7')).toStartWith(origin + '/connectors/authorize?id=')
+  f.h.ctx.db.query('DELETE FROM remote_mcp_requests').run()
+  OAUTH_LIMITS.pending = 3
+  const other = f.svc.register({ redirect_uris: [redirect] }).client_id
+  f.svc.now = () => start; const opened = ask(); f.svc.consent(opened, f.auth)
+  f.svc.now = () => start + 1000; const oldest = ask(other)
+  f.svc.now = () => start + 2000; ask(other)
+  f.svc.now = () => start + 3000; const real = ask()
+  const ids = (f.h.ctx.db.query('SELECT id FROM remote_mcp_requests').all() as { id: string }[]).map(r => r.id)
+  expect(ids).toHaveLength(3)
+  expect(ids).toContain(opened) // a person has it open: kept
+  expect(ids).toContain(real)
+  expect(ids).not.toContain(oldest)
+})
+
+test('rate keys: IPv4 as is, IPv4-mapped as IPv4, IPv6 by its /64', () => {
+  expect(ipKey(null)).toBe('unknown')
+  expect(ipKey('203.0.113.9')).toBe('203.0.113.9')
+  expect(ipKey('::ffff:203.0.113.9')).toBe('203.0.113.9')
+  expect(ipKey('2001:db8:1:2::1')).toBe('2001:db8:1:2::/64')
+  expect(ipKey('2001:DB8:1:2:aaaa:bbbb:cccc:dddd')).toBe('2001:db8:1:2::/64')
+  expect(ipKey('2001:db8::1')).toBe('2001:db8:0:0::/64')
+  expect(ipKey('fe80::1%en0')).toBe('fe80:0:0:0::/64')
+  expect(ipKey('::1')).toBe('0:0:0:0::/64')
 })

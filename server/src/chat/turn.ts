@@ -38,8 +38,9 @@ import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
+import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
@@ -708,6 +709,8 @@ export class TurnExec {
     }
     if (this.stopReason) return
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
+    // a chat started from a skill is called by the skill's name people read, not "/card-news" (title.ts)
+    if (invoked && skillPlaceholderTitle(rt.db, spec.chatId, invoked.skill, skillAlias(invoked.skill.path))) rt.publishChat(spec.userId, spec.chatId, 'updated')
     // a project's skill: anyone who writes the project's folder may have written it (outside content, as project
     // instructions are: chat/runtime.ts projectTaints)
     if (invoked?.skill.project) this.taint()
@@ -2052,9 +2055,12 @@ export class TurnExec {
     const always = coverOnce && !!grantRoom
     // anyone who joins the room from now on lapses a grant this card makes (rooms/ai-grants.ts members_since)
     const askedAt = new Date().toISOString()
-    // the person's own chat: why it asks first (the room card's words after it for a new team file)
+    // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
+    // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
+    const reads = mine && this.readsOnly(tool, input)
     const question = target
       ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
+      : reads ? tr(own ? 'roomsSeenConfirmRead' : 'roomAiConfirmRead', L, { what, ai: aiCalled(L) })
       : own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
       : tr('roomAiConfirm', L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({

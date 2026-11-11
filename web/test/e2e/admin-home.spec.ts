@@ -100,9 +100,28 @@ test('an engine nobody set up is no problem while another answers; the default o
   await expect(page.getByTestId('admin-home-providers')).toContainText('1 to fix')
 
   // a broken engine is listed even when it is not the default
-  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'codex' ? { ...e, status: 'version_unsupported' } : e)) })
+  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'codex' ? { ...e, status: 'error' } : e)) })
   await page.reload()
-  await expect(attention.getByRole('link', { name: `Codex: ${t['engines.status.version_unsupported']}` })).toBeVisible()
+  await expect(attention.getByRole('link', { name: `Codex: ${t['engines.status.error']}` })).toBeVisible()
+
+  // an untested version still answers: not on Home (no line, nothing to fix), and Claude alone on it is no "No AI";
+  // Diagnostics (Admin › System) names it with its detail, and Providers says Connected without the version text
+  const pinned = 'This version has not been tested (pinned: 2.1.300; lockdown-tested: 2.1.300).'
+  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'claude-code' ? { ...e, status: 'version_unsupported', detail: pinned } : e)) })
+  await page.reload()
+  await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
+  await expect(page.getByTestId('admin-home-providers')).not.toContainText('to fix')
+  await expect(page.getByText(t['engines.status.version_unsupported'])).toHaveCount(0)
+  await expect(page.getByTestId('attention-no-engine')).toHaveCount(0)
+  await page.goto('/admin/system')
+  const check = page.getByTestId('diagnostics').locator('li', { hasText: `Claude Code: ${t['engines.status.version_unsupported']}` })
+  await expect(check).toContainText(pinned)
+  await page.goto('/admin/providers')
+  const claude = page.locator('[data-engine="claude-code"]')
+  await expect(claude).toContainText(t['engines.status.ok'])
+  await expect(claude).not.toContainText(t['engines.status.version_unsupported'])
+  await expect(claude).not.toContainText('pinned')
+  await page.goto('/admin')
 
   // a set-up API engine whose key is refused is broken, not unused: listed
   engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'api' ? { ...e, enabled: true, installed: true, status: 'not_logged_in' } : e)) })
@@ -188,6 +207,26 @@ test('nothing to fix: Home says so in one line; an unknown admin page goes to Ho
   await expect(page.getByTestId('admin-home-system')).toContainText(t['adminHome.checksOk'])
 })
 
+test('a failed server check an admin can act on is on Home; the server\'s internals (socket paths) are in Diagnostics only', async ({ page }) => {
+  await start(page)
+  await dismissHwp(page)
+  await page.route('**/api/admin/diagnostics', async (r) => {
+    const res = await r.fetch()
+    const body = await res.json()
+    await r.fulfill({ response: res, json: { ...body, checks: [...body.checks.map((c: object) => ({ ...c, status: 'ok' })),
+      { id: 'sockets', group: 'engines', label: 'AI engine socket paths', status: 'fail', detail: '/tmp/x.sock (120)' },
+      { id: 'backups', group: 'backups', label: 'Backups', status: 'fail', detail: 'The last backup failed.' }] } })
+  })
+  await page.goto('/admin')
+  const attention = page.getByTestId('admin-attention')
+  await expect(attention.getByTestId('attention-check-backups')).toHaveText('Backups')
+  await expect(attention.getByTestId('attention-check-sockets')).toHaveCount(0)
+  await expect(page.getByText('AI engine socket paths')).toHaveCount(0)
+  await expect(page.getByTestId('admin-home-system')).toContainText('Backups')
+  await page.goto('/admin/system')
+  await expect(page.getByTestId('diagnostics')).toContainText('AI engine socket paths')
+})
+
 test('people who cannot use AI are named first, and the AI connections card counts them', async ({ page }) => {
   await start(page)
   await page.route('**/api/admin/users?noAi=1', async (r) => {
@@ -211,20 +250,27 @@ test('an area that cannot be read says so on its card; the others still show', a
   await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
 })
 
-test('the admin menu stays where it is while the page scrolls, on a wide screen and on a phone', async ({ page }) => {
+test('the admin menu stays where it is while the page scrolls on a wide screen; on a phone the page\'s bar does', async ({ page }) => {
   await start(page)
   for (const size of [{ width: 1360, height: 640 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    // Team settings, with the team's AI settings at its end: the longest admin page
-    await page.goto('/admin/settings')
+    const phone = size.width < 768
+    // Team settings, with the team's AI settings at its end: the longest admin page (a phone: its AI engine group, one
+    // page of its own there, pages/admin/teamSettingsGroups.ts)
+    await page.goto(phone ? '/admin/settings/ai' : '/admin/settings')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
-    const menu = page.getByTestId('admin-menu')
+    const menu = page.getByTestId(phone ? 'phone-page-bar' : 'admin-menu')
     const before = (await menu.boundingBox())!
     const content = page.getByTestId('admin-content')
     expect(await content.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
     await content.evaluate((el) => el.scrollTo(0, el.scrollHeight))
     await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
     expect((await menu.boundingBox())!.y).toBe(before.y)
+    if (phone) {
+      await expect(page.getByTestId('admin-bar-title')).toHaveText(t['teamSettings.group.engine'])
+      await expect(page.getByTestId('admin-back')).toBeInViewport()
+      continue
+    }
     await expect(menu.getByRole('link', { name: t['admin.settings'], exact: true })).toBeInViewport()
     await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toBeAttached()
   }

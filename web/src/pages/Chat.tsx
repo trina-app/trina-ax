@@ -18,7 +18,7 @@ import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -36,7 +36,7 @@ import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
-import { canChooseEngine, useMeStrict } from '../store/session'
+import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
 import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
@@ -58,6 +58,9 @@ import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
 import { AiMark } from '../components/rooms/AiFace'
 import { useFolderWords } from '../lib/folderLabels'
+
+/** Where a link goes inside a translated sentence ({projects} in chat.notFoundManage): split there. */
+const SLOT = '\u0000'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -334,6 +337,24 @@ function ChatView({ chatId }: { chatId: string }) {
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState title={t('chat.notFound')}>
+          {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
+              docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
+              nothing about this one */}
+          {isAdmin(me) && (
+            <p className="mb-1" data-testid="chat-not-found-manage">
+              {/* "Projects" is the way there (a phone has no back button here) */}
+              {t('chat.notFoundManage', { projects: SLOT }).split(SLOT).map((part, i) => (
+                <Fragment key={i}>
+                  {i > 0 && (
+                    <Link to="/projects" className="font-medium text-accent-text underline" data-testid="chat-not-found-projects">
+                      {t('projects.title')}
+                    </Link>
+                  )}
+                  {part}
+                </Fragment>
+              ))}
+            </p>
+          )}
           <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
             {t('sidebar.askAi', { name: aiName(t) })}
           </Link>

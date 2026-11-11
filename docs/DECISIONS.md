@@ -20958,3 +20958,452 @@ universal links / app links); without it, the phone's browser lands on the join 
 - **When a limit is free again, in 24-hour time.** A day's or a month's limit ends at the team's midnight, and
   "오전 12:00" / "12:00 AM" can read as noon. `limitResetText` (shared) says "11월 12일 0시", "Nov 12 at 00:00",
   "11月12日 00:00", in the team's time zone, for the refusal (`budgetBlock`) and for Settings › 사용량.
+
+
+## Project contents only for members — 프로젝트 내용은 멤버만 (feat/project-members-only, 2026-11-11, product owner)
+
+넣을 곳: trina-ax core (`server/src/policy/access.ts`, `policy/zone.ts`, `chat/projects.ts`, `chat/shared.ts`,
+`chat/project-access.ts`, `chat/project-members.ts`, `chat/project-joins.ts`, `chat/members-only-once.ts`,
+`routes/chats.ts`, `routes/admin.ts`, `admin/*`, `team-files/service.ts`, `files/search.ts`, `devenv/srt/access.ts`,
+`chat/read-scope.ts`, `skills/changes.ts`, `system/export.ts`, migration 284, the
+project, files and admin screens), 이유: permissions, files, projects and chats are core. Plan:
+`docs/AGENTS/plan/20261110-1648-project-members-only.md` (a security and a product review before building).
+
+The owner chose option B (2026-11-10): **a project's contents are visible only to its members.** A project shared
+only with the group "leads" (3 people) said "5 people see it": the owner and an admin were counted by role, because
+`RuleSet.decide()` gave them write on every path outside `users/`. Ordinary team folders do not change.
+
+- **The rule.** Every path at or below `projects/<name>/` (`projects` compared after NFC and lower-casing) is the
+  members-only zone. Inside it the owner and admins are judged as a member with the same groups, by the rules at or
+  below `projects/<name>` only: a role rule for admins never applies there, and rules on `projects/` or the root never
+  reach in for them (else an admin's own rule on the root would open every project without a floor of its own).
+  Members are judged as before. The server's own principal carries `system: true`; nothing is inferred from a role.
+  `hasVisibleDescendant`, `listing()` and `navigator()` follow the same rule. Code that assumed access changes only at
+  a rule folder (search roots, the srt sandbox's lists, read sources) treats every `projects/<name>` as a boundary.
+- **Two checks.** `canSeeProject` means "reads its contents" (instructions, chats, files, skills, dev environment);
+  while its folder is in the trash or purged nobody reads them, admins included. `mayManageProject` (the owner and
+  admins for any team project; the creator while they may edit it) covers what admins keep: the project in the list
+  (`GET /api/projects?manage=1`: `member: false`, no instructions), its members (also adding themselves), rename,
+  delete, restore (`POST /api/projects/:id/restore`). Without `manage` the lists are "projects I read", so pickers and
+  older apps are unchanged. Instructions and chat sharing need membership; repointing a detached project needs an
+  admin who reads what it held.
+- **No way in that does not show.** Admin › Folder permissions never writes, previews or answers at or under
+  `projects/<name>` (409 `project_members_only`, one answer for present and missing paths) and shows a project folder
+  as one row, "Members only". `projects/` itself never moves, is never renamed or trashed, and a project's folder never
+  leaves it. Whoever starts to read a project by any path (Add me, the members dialog, the AI's card, a group they were
+  added to, a new account in one of its groups) leaves a `project.member_gained` audit row (`self` when they did it)
+  and its members a quiet inbox notice ("{who} joined '{name}'", migration 284 `project_notices`).
+- **What admins no longer see:** paths inside a project they do not read are cut to `projects/<name>/…` in the
+  activity log (also tool summaries, instructions changes and dev environment commands), skill changes and their
+  notices and every admin answer that names folders; the owner's export leaves them out.
+  Version history, timelines, the trash and the #278 rescue have no owner/admin fallback inside the zone.
+- **Once, at the first start** (`chat/members-only-once.ts`): owner and admin ids leave the stored audiences of shared
+  answers; role rules for admins inside the zone go; schedules with a save folder or source under `projects/` lapse
+  once and ask again; owner and admin AI sessions start fresh. (Folders without a project: when an admin opens
+  Projects, below.)
+- **Counts.** Project counts, the members dialog and the dry runs count members only; a new project's dry run never
+  counts admins unless chosen (no `adminsApart`). #341's split keeps its folder chip; for projects its role part is 0.
+- **Defaults, owner may change** (recommended in the plan's review; the coordinator applied them):
+  1. Deleting a team project always moves it to the trash with its folder; Restore brings both back, "Delete for good"
+     removes them. The "also move the folder" checkbox is gone.
+  2. Projects made before 2026-11-09 outside `projects/` stay visible to the owner and admins, with a line saying so.
+     (Not counted on the team servers: no read-only way from the code or fixtures.)
+  3. No "transfer project" when a creator leaves: admins manage its members without joining.
+  4. No notice at the upgrade, only the changelog.
+- **The deep review of the built code** (it tried every path as a non-member owner and admin) found three ways in, all
+  closed and tested in `tests/security/project-members-only.test.ts`: (1) trash the project, join one of its groups,
+  restore it: joins are now judged against a trashed project's own rules too, so they are recorded when they happen;
+  (2) a rule on a folder inside a project (an older build's, or a group folder moved in) gave an admin part of it with
+  no trace: the owner and admins now read anything inside a project only once they read its folder (are members),
+  while members of the team keep such partial access as before; (3) the activity log missed names with `'` or `` ` ``:
+  file rows are judged by their path, and text by every `projects/<name>/` in it. Also taken: the connector's group
+  answers name only project folders; a moved or copied project skill's name is left out of the log for non-members;
+  `projects` in any letter case is the project folder everywhere; a folder in `projects/` that no project uses becomes
+  a project of its own (named after the folder, no creator, audited `project.adopted`) when the owner or an admin opens
+  the projects they manage, so they can manage or delete it (not at start: a new team may make its folders before
+  their projects); a member who made an older project on an admin's folder cannot delete it (it would trash the
+  admin's folder): an admin does. Files and the AI's `skill_files` can no longer rename or move a project's folder
+  (rename the project on its page); a new entry directly in `projects/` is refused with one plain sentence, the same
+  whether the name is there or not. The dev environment's "a folder of its own" for a project on the team root makes
+  `projects/<name>` as the system, with the admin who turns it on as a member by name.
+- **Screen review** (a non-developer's read of every new screen): Admin › Folder permissions said the owner and admins
+  see every folder; its notes and reasons now leave out projects they are not in, and a person's reason on a project
+  folder is "Member" or "Not a member". Its answers for an older project folder with no settings of its own came from
+  `projects/` or the root, where the owner and admins read everything: the deciding folder never goes above
+  `projects/<name>` now (`ruleFolderOf`), as in the permission function. Also: the trash confirm says what members
+  lose, a missing folder's line no longer points at Folder permissions, the members dialog's other settings are
+  "Others who can see it", a project row in Files says "Members only" to a non-member admin, and the chat-not-found
+  line links to Projects.
+- **Adversarial review of the built PR** (read paths clean; three ways around the trail):
+  (1) an account enabled again never ran the join check (captureState counts active accounts only), so a person or an
+  admin disabled, put in a project's group meanwhile and enabled with `{status: 'active'}` read the project with no
+  `project.member_gained` row and no notice: enabling an account now runs afterAccessChange (via `account`), and a
+  disabled account joins no new group (`checkMembers` and a person's own groups refuse it, 400 `account_disabled`; a
+  group keeps one already in it; enabling it in the same change may), as `checkParticipants` already did for a project's
+  people; Admin › Groups offers disabled people only to take them out. (2) Taking an other setting out of a project
+  (the members dialog's ×) is refused when it would let anyone open or change the project or a folder inside it with
+  settings of its own (409 `remove_widens`, the dry run and the save), compared with the same change keeping it, so a
+  "no access" taken out for someone named as a member in the same change is that choice: the code now does what the
+  plan said. (3) Saved versions of a project deleted for good stay under its old path, and a new project on that path
+  would let its members read them: a new project's folder never takes a `projects/<name>` that saved versions name
+  (`takenProjectPaths`; it gets "Name-2"), the smaller change than purging versions with every way a folder can go.
+  Known limit, unchanged: a dev environment job running when a project is made treats the new project's folder like
+  its parent for up to 10 seconds, until it reads its folder lists again (`devenv/srt/runner.ts` `personView`).
+- **Not closed by this:** the server's backups and disk hold everything; an admin who resets a member's password or
+  makes an account can sign in as them (noisy and recorded). Past room posts and exports stay.
+- **Plain words** (owner, 2026-11-11): no "role", "rule" or paths in the new screens. "Only members can open this
+  project. Add yourself to see its files." / "Members will see that you joined" / "Members only".
+- Tests: `tests/security/project-members-only.test.ts` (every checklist path as a non-member owner and admin, then what
+  they keep and the ways in that show), the permission matrix with "Team plan" canaries (the owner and admin must see
+  none of them on any route) and `projects/falcon` no longer theirs, the matrix case for restore; the unit suites of the
+  touched areas; web unit and e2e of the project, files, admin and shared-chat screens.
+- Version impact: **minor** (the owner and admins lose a kind of access; delete changes; new optional fields, a route
+  and migration 284 add-only).
+
+## Home: what my group often asks — 우리 부서에서 자주 묻는 질문 (feat/group-often-asks, 2026-11-11, product owner)
+
+넣을 곳: trina-ax `server/src/chat/often-asked*.ts`, `server/src/file-list/` (the reader takes other instructions),
+`shared/src/api`, `web/src` (Home, TeamPrepared, Admin › Team settings), 이유: chat, the AI and Home are core. Plan:
+`docs/AGENTS/plan/20261111-0950-group-often-asks.md`. Amends "New-chat home shows frequently used skills (B-W7-7)" and
+W6.3's note on 「자주 쓰는 스킬」.
+
+The owner on the new chat screen (2026-11-11): the framed "Frequently used skills" card showed skill slugs, AI-facing
+descriptions and "3 uses · 2 people". "Just show simply what prompts the team types, and More shows more. Can an admin
+turn it off?" and "Especially what people in the same group type!" The owner then took every recommendation of the
+reviewed plan ("끝까지 ㄱ"), with the floor at 5.
+
+- **Home.** "Frequently used skills" and "My frequent questions" leave Home (one list; skills stay in the `+` menu and
+  on the Skills page, which still reads `GET /api/skills/popular`; `GET /api/questions/frequent` stays, unread, for a
+  later cleanup). Under the box, no frame: a small heading and 3 one-line questions; "Show more" opens up to 10 in
+  place, "Show less" closes them; a click fills the box and never sends. One block at a time in one place: "팀에 준비된
+  것" while it shows anything, else this list. W6.3 changes: its skill rows end once the person ran a team skill **or has
+  5 chats** (a member who never runs one would never see the list). Phones: 44px rows, the slot after the recent chats.
+- **Headings** (English first): "People in {group} often ask" (one group with a list), "People in your groups often ask"
+  (several, taking turns, the same sentence once), "Your team often asks" (no group of mine has one). Nothing at all
+  when there is nothing: no heading, no empty state.
+- **What counts.** Only what a person typed in the app (every turn of the message from the web, desktop or phone app)
+  in their own AI chat, on its active branch, in the last 30 days, **and only since the switch was turned on** (this
+  build's first start; turning it on again starts again). Never: project chats (own or shared; #355 makes their contents
+  members-only; a chat moved out of a project, or freed when its project was deleted, counts only what came after:
+  `chat_project_left`, kept by a trigger), room AI sessions, side chats (they quote other people's room messages), Slack threads, confidential
+  chats (and nothing while safe operations are on), scheduled runs and server-made requests (a skill merge), auto-sent
+  messages, skill runs ("/name …"), the app's own prompts (one list of templates in five languages, checked against
+  web/src/i18n), a sentence already on a list, deleted chats, disabled accounts. Only the first line that is not a quote,
+  at most 200 characters (longer: pasted text). Masked before the AI sees it: links, emails, digit runs, secrets, `@`
+  mentions, people's names (full and written together, "이서연" for "이 서연"; every part of 2+ letters, so a Korean or
+  Japanese given name or surname alone, "민수", "田中"; Latin parts as whole words, 2-letter ones as written, accents
+  ignored; a one-letter surname with a title, "김 과장"), project names, group chat names. A name part that is also a
+  plain verb or function word (a given name 수정; Will, Dan, Al) is not masked everywhere, or every "수정해 줘" would be
+  dropped: only where it stands for a person (followed by 한테, 에게, 께, 랑, a title, さん; in Latin script capitalized
+  past the start of a sentence: "email to Dan"), and such a sentence is rejected, also before 의, 과, 와, 하고 or 도
+  ("수정과 회의"); as a sentence word it is always a topic, so 3 people must have typed it. Project and group chat
+  names are masked whole, plain word or not. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
+  line, at most 40 a person and 600 in all (taken in turns), in random order with meaningless ids; never who wrote it.
+- **The AI.** Once a day (from 05:00 team time, 20 h after the last; 28 h after it at any hour; a try waits 3 h), one
+  call of the file list's reader (file-list/engine-reader.ts, `ReadOptions`): no tools, Haiku or Codex's nano/mini, a
+  **team-wide AI account only** (never a person's own or assigned one, never the hosted trial), a turn of the owner
+  (`turns.chat_id = 'often-asked'`: Admin › Usage, budgets). **No chat is made**: no message, no realtime event, nothing a
+  route can open. A failed call logs its kind only. It groups the lines and writes one sentence per group in the team's
+  language, reusing a sentence shown now when it still fits; the answer is read defensively (known ids, strings).
+- **The server's checks** decide everything else, per audience (the team, each group), and drop a sentence rather than
+  repair it: (1) one line, at most 80 characters, letters, spaces and plain punctuation only (no digit, link, email,
+  `@`, `#`, path, file name, bracket, symbol, emoji or invisible character) and none of the masked names; (2) it has at
+  least one topic word: every word that is not a function word or a plain verb or manner word (fixed lists in five
+  languages, never a noun: "report", "resume", "회의록" are topics); (3) **3 or more different people** of the audience
+  typed **every** topic word of it in their own lines of the item (Korean and Japanese: the word, or without a known
+  ending, as it stands in their line; other languages: the word, its plural, or a longer word of theirs that starts
+  with it, never a shorter one: "Williams" never comes from "will", "Salesforce" never from "sales"), so a name one or
+  two people typed, a transliteration, a translation or a longer form never passes, and people who only share a verb
+  never back someone else's topic; (4) those people are not all inside **one circle that leaves someone of the
+  audience out** (a group, a team project's people by rule, a group chat of 3+): three people of Sales make no item for
+  the whole team. The AI's grouping is a candidate only; it is told to use only nouns every grouped line has.
+- **Enough people.** A group or the team has a list only when **5 or more of its members asked something** in the
+  window (the review proposed 10; the owner chose 5); a list shows only with 3 or more items. A group counts a person's
+  questions only from the day they joined (`group_member_since`, kept by triggers on `group_members`; one edit of a
+  group, which deletes and adds everyone at once, keeps the dates; someone added back later starts again), and nothing
+  from before its last real change of people (`group_count_from`): someone added (not one edit's delete-and-add-back
+  within 10 seconds), disabled, enabled again or deleted (a trigger on `users`), or taken out. Growing, shrinking or
+  disabling a group around one person cannot single out what they asked before. The price: after such a change a
+  group's list goes quiet (past the 3-day hold) until 5 of its people asked something again.
+- **Lists change slowly.** An item that stops passing stays 3 days, then goes; that is also the longest a deleted chat
+  or a person who left stays behind, and a list no run renewed for 3 days is gone. Order: the item's place on the day
+  it last passed (most people first), a held item keeping its own, so the order does not show which ones are fading.
+  Switched off and on while the AI wrote: nothing is stored from that call. Stored: the sentence, its audience, its place and when it last passed; never a person, a
+  count or the material.
+- **Who sees which.** Read at request time: only a group's current members get its list; owners and admins get what
+  they would get as members; no admin view of the lists or the lines. Not on a project's new chat, the demo screen or
+  while no AI answers the person.
+- **The switch.** Admin › Team settings › Members and AI, "Show what the team often asks" (ko "팀이 자주 묻는 질문 보여
+  주기"), on by default. Off: every list deleted at once, the route answers nothing, no call, and what is sent while
+  off never counts. **No personal switch**: nothing anyone typed is shown, and a switch on every person's screen would
+  suggest it is.
+- **Known limits.** People who agree to ask the same thing can still learn about the others. In a group of exactly 5
+  askers, 4 who agree can learn **exactly** what the fifth asks from then on (two of them type a question and watch
+  whether it shows); with more people it is only "someone else". Any "3 or more" rule allows this; the floor, the hold,
+  join dates and a group's count restarting on every change of its people stop it from reaching back, and group
+  changes are in the activity log. Given names that are everyday words other than verbs (지원, 하늘) are masked
+  everywhere, so a team with such a name gets fewer suggestions with that word. The checks cannot read
+  meaning: a sentence of words 3+ people share can still name a shared topic, and personal topics are left out by the
+  instructions, not by a check. People who share something outside any group, project or group chat are not a circle.
+  Everyone sees the sentences in the team's language.
+- **Compared:** ChatGPT, Gemini and Claude.ai show the same starters to everyone; Notion AI and Slack a short
+  "suggested" list with a small heading, which the look follows. None mines co-workers' prompts (Microsoft 365 Copilot
+  shares a prompt only when someone shares it), hence the stricter rules.
+- Tests: `tests/unit/b-often-asked.test.ts` (what counts, the masks, every check, circles, the floor, join dates, the
+  hold, who gets which, the switch, and every attack of the security review: longer words, one person's topic with
+  others' verbs, given names and names written together, invisible characters, chats that left a project, a shrunk
+  group, the switch flipped mid-call), `b-often-asked-run.test.ts` (what the call is given, the answer, no chat, the
+  route, the admin switch), `b-often-asked-words.test.ts` (the app's prompts against web/src/i18n, how words are read);
+  the route in the P4 matrix; web unit `home-no-ai`, `often-asked`, `team-prepared`; e2e `often-asked.spec.ts`.
+- Version impact: **minor** (a Home section, a team setting on by default, migration 285, two Home sections removed).
+
+## Admin and Settings on phones: a list you tap into (feat/phone-admin-list, 2026-11-10, product owner)
+
+넣을 곳: Team AX core (`web/src/pages/admin/`, `web/src/components/settings/SettingsDialog.tsx`, `web/src/components/phone/`,
+`web/src/lib/backStack.ts`), 이유: the phone app is the web app in a web view, so its navigation is the web app's.
+
+The owner, with a screenshot of Admin on a phone: "Usually it's like iPhone Settings: a vertical scroll, and you tap
+into pages, no?" Below 768 px Admin was a sideways strip of 13 links (1,634 px wide, most of them off screen) above
+Home's cards; Settings already opened on a list, but its rows replaced the history, so the phone's own Back from a
+section left Settings. Plan: `docs/AGENTS/plan/20261110-1336-phone-admin-list.md` (the audit of every page at 390 px,
+the references, the review). This is the first part (navigation); the page patterns follow in their own PRs.
+
+- **Phones (below 768 px):** `/admin` is a list (`PhoneRoot.tsx`): the team's logo and "<team> admin", the scope line,
+  the "needs attention" rows (Home's), the owner's setup steps folded into one row ("Before you start · 2 left", opens in
+  place), then the menu's groups as rows with an icon, a short value ("2", "Claude Code", "$0.47", "5 min ago") or a
+  "N to fix" badge, and a chevron. Values are what Home reads already (`overview.tsx`, one hook for both; no new
+  request); a badge counts the attention rows that open that page, so the two never disagree; a source that failed
+  shows "—". Removed on phones: the strip, Home's cards and headings, the Home row, "Nothing needs attention".
+- **One phone list and one bar** (`components/phone/PhoneList.tsx`, `PhonePageBar.tsx`): Admin's list and the 나 list
+  (Settings) use the same rows (48 px, chevrons, values on the right, hairlines from the name); every phone page with ‹
+  uses the same bar (Admin's, Settings' sections, the top bar's pages under a tab). The phone top bar steps aside for
+  `/admin`, which draws the bar itself.
+- **‹ and its label.** ‹ is `useGoBack` as everywhere (lib/back.ts: back in history, else the list in place of the
+  entry). Its label names where Back goes: "‹ Admin", "‹ Settings", the admin page that opened this one ("‹ Usage"
+  over Team settings' limits); ‹ alone when Back goes somewhere without a name here (Admin opened from ☰ › Search) or to
+  the same page. It is shown only when it fits beside the centred title.
+- **The list is always under a page** (`lib/backStack.ts`). A page entered from outside its list's area (an Inbox
+  notice, a link in a chat or in Settings, a push opening the phone app, a pasted address) gets its entry replaced by
+  the list and is pushed again, keeping `?query` and `#hash`, so Back goes page → list → where you were (Android's
+  "synthetic back stack"). What is under each entry is noted once, when the app first shows it (App.tsx, before the
+  pages render), and used only for this and for the label: Back itself is still the router's history, as "Phone
+  navigation: four tabs" decided. Never on Back/Forward or a reload (except the document's first entry, which the router
+  also reports as POP), never for a page change inside the area, never on a resize or a computer, and only once the page
+  is final (after the old-address redirects and the owner-only check; a member's `/admin/...` still goes home). It runs
+  after the page shows (the router listens to the history only after its first render), which changes nothing on screen.
+- **Scroll:** a page pushed from the list starts at the top (Admin's layout stays mounted, so it carried the list's
+  place); Back to the list or a page puts its place back (trying for up to 2 s while the page reads its data again,
+  until the person scrolls); a replace (filters), a `#hash` or a query the page scrolls to itself (`?member=`,
+  `?focus=`, `?folder=`) is left to the page. Admin's overview is kept in memory for the session, so the list draws at
+  once on Back and does not jump; on Back the owner's server checks are not asked again within a minute (any other
+  opening, Home on a computer included, asks; Admin › System's own read forgets the kept ones).
+- **Settings on phones:** the same list (the Inbox count as a badge on its row; the Connections group shows Providers,
+  Connectors and AI apps instead of a lone "More" row), rows that push (computers keep replacing, so closing the dialog
+  still steps back once), the phone bar ("‹ Settings" and the section's name), the list under a section opened from a
+  link, both kept in place for Back. Since #364 (the Inbox as its own Activity page) the Inbox row opens `/activity`
+  and 알림 (the notification settings) is a row in its group like the others (batch PR "phone settings").
+- **Folder permissions:** on a phone, By folder ↔ By person replaces its entry (a view of one page adds no history).
+- **From 768 px** (the owner's decision): Admin is the menu column and a page, so tablets (768 to 1023 px) no longer
+  show the cut-off strip. Between 768 and 1023 px the column is a narrow rail, each page's name small under its icon
+  (not in a tip: a finger has no hover): beside the app's own 280 px sidebar, a column of the full width left the page
+  280 to 330 px. From 1024 px it is the named sidebar as before.
+- **Not checked yet:** the iPhone app's edge swipe over a page whose list was put under it (the list entry was never
+  drawn, so the swipe's preview may show the page itself). It needs a device; if it looks wrong, the list draws once
+  before the page is pushed again.
+- Tests: `web/test/unit/back-stack.test.tsx` (what is under an entry, when the list goes under a page, Back to a first
+  entry, the label, the scroll, the list's values and badges, the hook in a router, a resize), `phone-nav.test.tsx`,
+  `phone-me-files.test.tsx` (a phone's row pushes, a computer's replaces), `web/test/e2e/phone-admin.spec.ts` (the
+  list, row → page → Back with the place kept, a pasted address with its query used once, an in-app link, a page
+  opening another, Folder permissions' views, Settings' Back, a member, an admin who is not the owner, no page wider than
+  the screen in English and Spanish, 820 and 1440 px).
+- Version impact: **minor** (a visible change on phones and tablets; no API, data or permission change).
+
+### The page patterns (feat/phone-page-patterns, 2026-11-10)
+
+The owner, with Admin › Members & invites at 390 px: "All of the mobile settings are a problem": three buttons on two
+rows, the line under them, a search on its own row and "Role All" on another, rows of three lines, a 266 px header that
+stayed on screen. Shared parts, so every page gets them (the remaining pages move onto them in their own PRs):
+
+- **The page header** (`admin/common.tsx` `AdminPageHeader`, and the pages that draw their own: Connectors in Admin and
+  Settings, Settings › AI apps): below 768 px the bar says the page's name, so the title is for screen readers only;
+  the line keeps one line (More) with the page's buttons at its end (the plan put them at the end of the search row;
+  the line has more room for them, and a page without a search has them there too); only the search and filters row
+  stays at the top (one row of 44 px controls; Connectors' about 64 px). Computers and tablets: as before.
+- **`PageActions`** (`components/PageActions.tsx`): one main button; on a phone the other ways go under its ⌄ (the
+  split button Connectors had, moved here as `SplitAction` / `ActionMenu`). Members: "Invite to team" ⌄ "Add
+  directly", "Team invite link". Computers: every button, the main one last.
+- **`PhoneFilters`** (`components/PhoneFilters.tsx`): on a phone a "Filters" button with the number turned on sits at
+  the end of the search row and opens the filters under it (Activity log's way). A view choice (Group by) is not a
+  filter and is not passed to it.
+- **`CompactRow`** (`components/CompactRow.tsx`): the name, its chip on the right and ⋯ on one line; a second line only
+  when it adds something. Members: the role on the right (the owner's member ↔ admin stays a select there, drawn as
+  words and an arrow, 44 px tall); the username only when it is not the name; the email when the search matched it
+  only; the badges that need a look. The first member now shows about 280 px down a 844 px screen (about 450 before).
+- Removed on phones: the visible page title and its count (the bar says the name; the title, count included, stays
+  for screen readers), the secondary buttons (under ⌄), the filter's own row, the role's own line.
+- Folder permissions' detail column sticks under the part of the header that sticks (its controls row on a phone),
+  measured again when the width crosses 768 px.
+- Tests: `web/test/e2e/phone-page-patterns.spec.ts` (the bar's name and the hidden title, the ⌄ menu, search and
+  Filters on one row with the count, compact rows (one line, the username line, the email line, an admin's read-only
+  roles), only the search row sticky while the list scrolls, the other pages' buttons still there, Connectors and AI
+  apps named once, 768 and 1440 px unchanged), `people-console.spec.ts`.
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).
+
+### The list pages (feat/phone-list-pages, 2026-11-10)
+
+PR 2 of the plan: the list-style Admin and Settings pages on the shared parts above, from the audit's fix for each.
+Below 768 px only; computers and tablets are unchanged (the 1440 px screenshots match the ones before, clock times
+aside).
+
+- **Groups:** one `CompactRow` per group: the name, "N members" on the right and ⋯, the description under it only when
+  there is one. Removed on phones: the faces and the members' names (they are in the group's dialog). The row's ⋯
+  (`RowMenu`, Members' too) is 44 px on a phone: it is the only way to Edit and Delete.
+- **Folder permissions:** By folder / By person stays a segmented control; "Only folders with rules" goes under a
+  `PhoneFilters` button on the same row.
+- **Providers (Admin):** one row per engine: its name (a 44 px target), its state, check again (44 px) and the switch,
+  and under it only what is missing (a problem's fix, "Not set up"). Its accounts with Add account, and the dim line (how
+  it signs in, its models, when it was checked; the details say the same) open with the rest when the name is tapped. An
+  account that needs a look (`CREDENTIAL_PROBLEMS`, Home's own list) keeps the accounts in sight.
+- **Connectors (Admin and Settings):** Discover's tiles are rows with hairlines, the line cut to one, no "by <maker>"
+  (the service's page says it), and a 44 px +. Since #366 Settings › Connectors leads to the Connectors page
+  (`/connectors`, its own design), so this and the header above hold for Admin › Connectors only (batch PR "phone
+  settings").
+- **AI apps (Admin and Settings):** Copy, Connect, Disconnect, Setup guide and Manage are 44 px tall.
+- **Plugins:** the sections without frames (`Card flat`); one line per plugin: its name (it opens what it does, who made
+  it and its permissions), its state and its main button (Install, Turn on / off). A trust warning and why it cannot be
+  installed stay in sight; the install prompt shows the permissions again before anything is installed. "No plugins
+  are installed yet" is one line, not a block. Replaced before it shipped: #388 made Admin › Plugins cards and a page
+  per plugin, like Connectors, and the batch PR "phone settings" keeps #388's page (this part and its tests dropped).
+- **Slack:** the cards without frames; Turn on / off, Replace tokens and Remove are 44 px tall.
+- **Usage (Admin):** "Usage limits" with Download CSV under its ⌄ (`PageActions`; a menu item can now be `disabled`,
+  CSV until the report is in); the range stays beside one Filters button with Group, Person, Engine, Model, AI connection
+  and Clear; Group by is a view choice and sits beside the breakdown's heading ("Breakdown", so it is not said twice).
+  The numbers, the chart and the breakdown stand without frames: `StatCards` is the plan's stat grid (no frames on a
+  phone, three to a row when there are three, one size down so a nine-digit total keeps one line), not a second
+  component. With Group by on Skill, its note sits under the breakdown's heading too.
+- **Activity log:** the title is for screen readers (the bar says it); the search and one Filters button are the only
+  part that stays at the top (60 px, was 145); the kind, the person, the time and Clear open under it. The kinds wrap
+  there, so Spanish no longer needs 550 px. Activity log's own phone filters are gone.
+- **Settings › Providers:** the bar says "Providers" (it said "Settings"), and the card has no frame and no second title.
+- **Settings › Usage:** the title is for screen readers; the period and Refresh (44 px) go under the line, which was
+  squeezed to four lines; the numbers share one row (answers and the estimate since #347 left out the tokens; three
+  before); the limits and the by-model list have no frames.
+- `Card flat` has no hairline after the page's last card. `SplitAction`'s main button is 44 px on a phone like its ⌄ (a
+  height: its max-md min-height lost to the Button's own max-sm one, so Usage limits stood 40 px beside a 44 px ⌄).
+- New strings: `common.moreActions` ("More actions", Usage's ⌄) and `usage.breakdownTitle` ("Breakdown").
+- Tests: `web/test/e2e/phone-list-pages.spec.ts` (every page in English and Spanish: nothing wider than the screen, the
+  main button on the first screen, the Filters open; then each page's own fix; a computer unchanged);
+  `activity-log.spec.ts`'s phone case follows the new filters.
+
+### The form pages, and Team settings in groups (feat/phone-form-pages, 2026-11-10)
+
+Admin › Team settings was one page of about 6,700 px at 390 px, each of ~25 switches under its text, and a save bar that
+Back could leave behind; System put every value under its label; buttons on these pages were 32 to 36 px. The owner
+decided that Team settings splits into pages on phones and stays one page on computers.
+
+- **Team settings on a phone** (`pages/admin/teamSettingsGroups.ts`): `/admin/settings` is a list of its groups, each a
+  page at `/admin/settings/<group>` under "‹ Team settings" (the same `PhoneList`, bar and Back as Admin's list). The
+  groups are the page's own sections in the page's order, small ones together: General (name, language, logo, time zone,
+  update window), Keeping data, Members and AI, Voice input, AI engine (AI defaults, who picks the engine, members' own
+  accounts; one new name, "AI engine"), Usage limits, File list (#391's, saves on its own like the AI groups), Company
+  profile, and Dev environment where the server has it. 8 or 9 rows, all on the first screen. (A Knowledge graph group
+  went with the knowledge graph itself, "Knowledge graph removed" above; batch PR "phone settings".)
+- **Links into it.** On a phone a `#part` of the page opens its group in place of the link (`#ai-limits` → Usage limits,
+  `#speech` → Voice input, `#ai`, `#ts-time`, the old Providers tab's addresses), keeping the
+  `#hash`. Entered from outside Admin (an Inbox notice, a pasted address), both lists go under it, so Back walks group →
+  Team settings → Admin → where you were (`useListUnderPage` takes the lists outermost first); from inside Admin (Usage's
+  "Usage limits") nothing goes under it and "‹ Usage" goes back to Usage, as for Admin's own pages. A computer opening
+  `/admin/settings/<group>` gets the one page at that group (`#anchor`), and the page now scrolls to any of its parts'
+  `#hash` (only `#ai` and `#ai-limits` did), again while the parts above it load, for up to 2 s, until the person
+  scrolls. A window resized across 768 px moves between the two (the redirect says what is under the entry, so a resize
+  never builds a back stack).
+- **One form, kept.** The groups are drawn by the one Team settings page, which stays while the list and its groups
+  change, so a change in General is still there on the list and in Keeping data; the save bar shows on the list and on
+  the groups whose fields it saves (not on the ones that save on their own), sticky at the bottom. Leaving Team settings
+  with unsaved changes on a phone keeps the changed fields in memory (`lib/keptDraft.ts`, for the same person and
+  session, until the app reloads): put back over what is saved when it opens again, so nobody else's later change is
+  undone. The parts that save with their own button (AI defaults, who picks the engine, the dev environment) keep
+  their drafts the same way when their group is left, put back only while what is saved is still what they were
+  edited from. ‹ does not ask first, since nothing is lost. "Go to the field" from the list opens General at that field.
+  Computers: as before (nothing kept).
+- **Rows** (`admin/common.tsx`): `SettingRow` `inline` keeps a switch or a short number on the right of its name below
+  768 px, the line under the name (as Settings › Notifications' `PrefRow`); a select or a text field still goes under
+  the line, full width. A section or card whose name the phone bar shows keeps it for screen readers only
+  (`BarTitleProvider`). System's rows put the value on the right of the label (`text-right`), and a long one (the
+  connection, an address, the update state) under the label. Settings › Profile: username and role on the right.
+  The rows that switched at 640 px (`SettingRow`, Settings' `Row`, System's `Row`) switch at 768 px.
+- **44 px buttons** (`components/ui.tsx` `PhoneTargets`): inside it, below 768 px, `Button` and `IconButton` are at
+  least 44 px and a `Switch` takes taps from a 44 px box (`touch-hit`). Team settings, System and Settings' own sections
+  (Profile, Security & devices, Browser, Memory, Allowed for the AI, Notifications, About) use it; other pages keep their
+  sizes. Language and theme choices and System's "Show details" are 44 px; small icon buttons inside a line keep their
+  look with a 44 px box (`touch-hit`).
+- Removed on phones: Team settings' 6,700 px page (its groups' pages instead), a group's name repeated under the bar
+  (Dev environment keeps its title, which carries the Experiment badge), the frames around the lists in Memory, Allowed
+  for the AI and Browser (plain rows, as Security's devices).
+- Not changed: the keyboard's sheets (#336), the list pages (Groups, Folder permissions, Providers, Connectors, AI apps,
+  Plugins, Slack, Usage, Activity log: their own PR; the account menu of "Members' own accounts" is Providers' and keeps
+  its rows), Settings › Apps (its QR code shows only on a computer's browser already: a phone's browser and the phone
+  app know they are one).
+- Tests: `web/test/e2e/phone-form-pages.spec.ts` (list → group → ‹ and Back; the save bar on the list, kept after
+  leaving, saved; AI defaults' draft kept; "Go to the field" from the list; `#ai-limits`, `#speech`, `#ts-time` and the
+  old Providers address open their group, Back walks the lists; the dev environment's group only where the server has
+  it; switches on the right with the line under the name; System's values on the right and 44 px buttons; Profile's
+  44 px choices; no page wider than the screen in English and Spanish; a computer's one page and a group's address
+  there), `phone-admin.spec.ts` (Usage → Usage limits under "‹ Usage"), web unit `kept-draft.test.ts` (kept once, for
+  the same person and session, never over a newer saved value) and `back-stack.test.tsx` (two lists under a group).
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).
+
+## Follow-ups 11-12 — 한 가지 말로 "볼 수 있음 / 고칠 수 있음", Mac App Store 먼저, 읽기 카드는 읽는다고 (fix/followups-1112, 2026-11-12, QA TC-281..TC-285, TC-287)
+
+- **Shared chats say "멤버"** (TC-281, after "Project contents only for members"). Sharing a chat, the shared chat's
+  lines, the copied link, a file saved into the project folder from a shared chat, the read and skill cards of a shared
+  chat and the server's refusals said "프로젝트 사람" ("people in the project") where the project's own screens say
+  "멤버": now "멤버 3명이 볼 수 있어요", "프로젝트 멤버와 공유", "Share with project members" in all five languages.
+  The count is the same number as before (who can see the chat); for a project made outside Projects that number also
+  holds the owner and admins, who see it there.
+- **`GET /api/questions/frequent` is removed** with `chat/frequent-questions.ts` and its schema: "My frequent
+  questions" left Home in "Home: what my group often asks" and nothing read it. The route coverage lists and the API
+  reference no longer name it; a request now gets 404 like any unknown address.
+
+- **Admin › Folder permissions speaks the panel's words** (TC-282). The access levels are "볼 수 있음 / 고칠 수 있음 /
+  열 수 없음" ("Can view / Can edit / No access"), as in the Files page's "Who can open it" (#346), wherever Admin shows a
+  level: the tree's "who sees it", the rules and the person-by-person reasons, the edit panel's choices and its before →
+  after lines, the remove preview, By person and the project members dialog (`access.*`, five languages); someone who
+  cannot open a folder reads "열 수 없음" ("Cannot open", as the counts line), not "못 봄". The basic
+  access choices say "모두 볼 수 있음 / 모두 고칠 수 있음", the counts line "열 수 있음 · 고칠 수 있음 · 열 수 없음", the
+  sentences that said "write" say "edit" ("그중 2개를 고칠 수 있어요"), and the server's "keep a rule" message quotes the
+  new "모두: 열 수 없음". Only words change: the page, its sections and what each choice saves are the same. The user
+  guide's folder permission and team skill parts and the docs site use the same words.
+- **The user guide's Mac install: the Mac App Store first** (TC-283, `docs/guide/guide.html`), as Settings › Apps does
+  since #343: the store link (`editions/trina/branding/apps.json`), open the app, paste the invite link or team address,
+  "들어가기"; it updates there and shows no warning. The operator's .dmg is the second way, with its Gatekeeper steps and
+  the "damaged" warning box. The two are different apps, so switching signs in again.
+- **Who gains later, group by group** (TC-284). `FolderEditPreview.latent.groups[].edit` (optional): whether whoever
+  joins that group gets edit, from the same before/after permission checks. Someone who joins two groups counts for
+  them only when that gains more than either group gives alone (then it is said of both, as the most they get: the
+  confirm says more, never less); before, a pair named both groups for one group's gain, and one group's edit made the
+  line say "열거나 고칠 수" for all of them. The confirm says the groups whose new people can edit in one line ("열거나
+  고칠 수 있게 돼요") and the ones whose new people only open it in another ("열 수 있게 돼요"). An answer without the field
+  (an older server) is said as before. `latentMore` and when Save asks are unchanged.
+- **The ask-first card for a read says it reads** (TC-285, `roomsSeenConfirmRead`, `roomAiConfirmRead`, `readsLabel`).
+  After the AI read a conversation, a read from a connected service that asks first (an HTTP API's GET or HEAD, or a
+  read whose words carry an address) says "여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 다른 서비스에서 읽어 오기
+  전에도 먼저 물어봐요. 트리나가 무언가를 읽어 오려고 해요: AI PM에서 읽어 오기. 허용할까요?", and its request is
+  "읽어 올 내용", not "보낼 내용". Writes keep "무언가를 바꾸기 전에 먼저 물어봐요" and "보낼 내용". Words only: when the
+  card is asked and what yes allows are unchanged.
+- **Save after Cancel › Discard** (TC-287, `FolderSharing.tsx`). Discard marked the panel as left, which stops a Save on
+  its way, so every later Save stopped too until the panel was opened again. Now a discard is counted (`dropped`): the
+  Save that began before it stops at its next step, a later one saves, and the dropped Save's answer from the server is
+  not kept for the list on screen (it could leave the list greyed). Leaving the panel (close, another folder, a link)
+  still stops a Save for good. A Save whose answer comes while the leave question is open stops too: its "Give access?"
+  would have taken that question's place without answering it, which also left every later Save stopped (found in
+  review). Cancel is off while the save is being written; that save lands.
+- **The panel's list is busy until its first answer** (`aria-busy`), so the rows from the folders above, which come with
+  the answer, are not missing from a "done loading" list. The `folder-sharing-panel` web unit test waited on that
+  attribute and went on early under load (it failed in about 3 of 5 full runs); it also read the panel with `get` while a
+  new folder's panel was still loading, and a failed test left its panel mounted into the next one.
+- Tests: unit `access-edit-everyone-above` (per-group edit, a pair), `b-chat-rooms` and `c-integrations-tools` (the read
+  card), `a-folders-keep`; web unit `folder-sharing` (group lines), `folder-sharing-panel` (Discard then Save, a Discard
+  during Save's ask, Cancel during Save's ask then kept), `access-view`; e2e `folder-access` (two groups, Discard then Save) and the specs that read the
+  access words.
+- Version impact: **patch** (words, a fix, one optional field in the admin edit preview; no data change).

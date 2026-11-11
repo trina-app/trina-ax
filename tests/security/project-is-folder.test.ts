@@ -6,6 +6,8 @@
 // - No project is made on an existing team folder any more (tests/security/r1-project-create.test.ts); projects older
 //   builds made there keep working and are made here as those builds made them (tests/lib/legacy-project.ts).
 // - Moving a chat into a project still needs read access to the project's folder.
+// - Inside projects/<name> the owner and admins act only as members (docs/DECISIONS.md "Project contents only for
+//   members"): an admin repoints only a project whose contents she read, at a folder she writes.
 // Fixture: alice, erin = marketing (groups/marketing write); bob = finance; carol = admin; dana = owner;
 // shared/ everyone write; projects/falcon: alice write, finance read (projects/ itself: no rule for members).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -29,6 +31,12 @@ const countOn = (p: string) => (A.ctx.db.query('SELECT COUNT(*) AS n FROM projec
 const staleProject = (id: string, name: string, folder: string) =>
   A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by) VALUES (?, ?, ?, '', 'carol')").run(id, name, folder)
 const ok = async (r: Promise<{ status: number; body: any }>, status = 201) => { const x = await r; expect(x.status).toBe(status); return x.body }
+/** a rule for one person on a folder (a folders row, also for a folder that is not on disk, as older builds left them) */
+const ruleFor = (who: Who, folder: string) => {
+  let row = A.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(folder) as { id: string } | null
+  if (!row) { row = { id: crypto.randomUUID() }; A.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(row.id, folder) }
+  A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', ?, 'write')").run(crypto.randomUUID(), row.id, who)
+}
 
 describe('one project per folder', () => {
   test('an older row that names a personal folder in another case is the same folder (case-insensitive volume)', async () => {
@@ -64,24 +72,35 @@ describe('one project per folder', () => {
   })
 
   test('an admin repoint onto a folder another project uses is 409; nothing is made for it', async () => {
-    const a = await ok(create('alice', { name: 'Alpha' }))
-    // b's folder is gone (only such a project is pointed again)
+    // carol is one of Alpha's people (she writes its folder, so she may point at it at all)
+    const a = await ok(create('alice', { name: 'Alpha', participants: [{ subjectType: 'user', subjectId: 'carol' }] }))
+    // b's folder is gone (only such a project is pointed again); carol was a member of it
     const b = '01900000-0000-7000-8000-00000000a00b'
     staleProject(b, 'Beta', 'projects/beta-gone')
+    ruleFor('carol', 'projects/beta-gone')
     const r = await patch('carol', b, { folderPath: a.folderPath })
     expect(r.status).toBe(409)
     expect(r.body.error.message).toContain('Alpha')
     expect(folderOf(b)).toBe('projects/beta-gone')
+    // the owner, no member of what it held, may not repoint it at all (it was hers to by her role): before any folder
+    // is looked at
     staleProject('01900000-0000-7000-8000-00000000a003', 'Ghost', 'projects/ghost')
-    const g = await patch('dana', b, { folderPath: 'projects/ghost' })
+    const d = await patch('dana', b, { folderPath: 'projects/ghost' })
+    expect([d.status, d.body.error.params.reason]).toEqual([403, 'project_not_member'])
+    ruleFor('carol', 'projects/ghost')
+    const g = await patch('carol', b, { folderPath: 'projects/ghost' })
     expect([g.status, g.body.error.params.reason]).toEqual([409, 'project_folder_missing'])
     expect(exists(A.team, 'projects/ghost')).toBe(false)
     fs.mkdirSync(path.join(A.team, 'projects/ghost'))
-    const taken = await patch('dana', b, { folderPath: 'projects/ghost' })
+    const taken = await patch('carol', b, { folderPath: 'projects/ghost' })
     expect([taken.status, taken.body.error.message.includes('Ghost')]).toEqual([409, true])
     expect(folderOf(b)).toBe('projects/beta-gone')
-    // the repoint itself still works
+    // not at a projects/<name> she does not write (no role there now)
     fs.mkdirSync(path.join(A.team, 'projects/beta-new'))
+    expect((await patch('carol', b, { folderPath: 'projects/beta-new' })).status).toBe(403)
+    expect(folderOf(b)).toBe('projects/beta-gone')
+    // the repoint itself still works
+    ruleFor('carol', 'projects/beta-new')
     expect((await patch('carol', b, { folderPath: 'projects/beta-new' })).status).toBe(200)
     expect(folderOf(b)).toBe('projects/beta-new')
   })
