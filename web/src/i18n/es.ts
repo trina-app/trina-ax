@@ -684,6 +684,7 @@ export const es: Record<MessageKey, string> = {
   'hwp.engine': "La vista previa de documentos Hangul no está disponible en este servidor. Descargue el original.",
   'hwp.isolation': "Este servidor no puede renderizar documentos de forma segura. Descargue el original.",
   'hwp.changed': "El documento ha cambiado. Vuelva a abrir la vista previa.",
+  'hwp.replaced': "El documento cambió, así que la vista previa empieza de nuevo desde la página 1.",
   'hwp.loss': "El motor de renderizado detectó que podría faltar parte del contenido. Descargue el original para comprobarlo.",
   'files.title': "Archivos",
   'files.all': "Carpeta del equipo",
