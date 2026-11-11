@@ -30,7 +30,7 @@ describe('job service', () => {
   test('runs in the background, reports progress (throttled) and the result', async () => {
     A.hub.clear()
     const id = C().jobs.start({ kind: 'export', userId: 'alice', run: async (h) => {
-      for (let i = 1; i <= 5; i++) { h.progress(i / 5, `step ${i}`); await Bun.sleep(130) }
+      for (let i = 1; i <= 5; i++) { h.progress(i / 5, 'packing'); await Bun.sleep(130) } // one step: throttled (a new step label is not)
       return { path: 'shared/export.zip', size: 10 }
     } })
     expect(C().jobs.get(id)!.status).toBe('queued')

@@ -36,8 +36,9 @@
 // (the team's speech provider and whether an OpenRouter key is set; chosen false: not chosen, read from the key),
 // GET-or-POST /__test/transcribe-chats (the chat id each voice input named, null for a new chat; a confidential chat's
 // recording with OpenRouter is refused, 403), POST
-// /__test/transcribe-progress {message, progress, ms} (the next transcription jobs say that label first, as a server that
-// downloads its speech model does, and end after `ms`; until the next reset).
+// /__test/transcribe-progress {message, progress, ms, queuedMs?} (the next transcription jobs say that label first, as a
+// server that downloads its speech model does, and end after `ms`; until the next reset). queuedMs: each waits that long
+// for its turn first (another voice input holds the one transcription slot), saying nothing until it starts.
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
@@ -404,7 +405,7 @@ export class MockServer {
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
-  transcribeProgress: { message: string; progress: number | null; ms: number } | null = null
+  transcribeProgress: { message: string; progress: number | null; ms: number; queuedMs: number } | null = null
   /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
    * ffmpeg (localMissing: the tools 'local' lacks) */
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
@@ -4632,10 +4633,18 @@ export class MockServer {
 
   transcribeJob(user: User): string {
     const id = uuidv7()
-    const job: Job = { id, kind: 'transcribe', status: 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
-    this.jobs.set(id, job)
     const slow = this.transcribeProgress
-    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), 50)
+    const wait = slow?.queuedMs ?? 0
+    const job: Job = { id, kind: 'transcribe', status: wait ? 'queued' : 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
+    this.jobs.set(id, job)
+    // like the server: a job says when it starts (until then the box says it waits for its turn)
+    const started = () => {
+      job.status = 'running'
+      this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: null, message: null } })
+    }
+    if (wait) setTimeout(started, wait)
+    else started()
+    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), wait + 50)
     setTimeout(() => {
       Object.assign(job, { status: 'done', progress: 1, result: { text: '받아쓴 문장입니다', language: 'ko', durationSec: 2 }, finishedAt: now() })
       this.publish({ type: 'job.done', data: { job } })
@@ -4821,7 +4830,7 @@ export class MockServer {
       this.speechChosen = body.chosen !== false
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
-    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000) }
+    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)
