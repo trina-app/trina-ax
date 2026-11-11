@@ -24,11 +24,14 @@ describe('asked for an existing file', () => {
     expect(r).toContain('Asked for a file, even by name only, find the existing one first:')
     // names and contents in other words, both languages and the usual version words, folders too (cr06's file has an
     // English name and text in a folder named 외주); then open what looks right
-    expect(r).toContain('glob file and folder names, grep contents, using other words, both languages and variants (최종, v2, old, copy)')
-    expect(r).toContain('open likely files, images and PDFs too')
-    // not instead of it, and not next to it either (cr12 found the draft, then wrote another)
-    expect(r).toContain('Never write, copy, draw or generate a file unless asked to.')
-    expect(r).toContain('If nothing matches, say so and list the closest files with paths; only then ask where it is.')
+    expect(r).toContain('glob file and folder names, grep contents, with other words, both languages and variants (최종, v2, old, copy)')
+    expect(r).toContain('open likely ones, images and PDFs too')
+    // never a new file instead of the one asked for, found or not (ms04 made a Japanese deck because there was none);
+    // scoped to that ("instead"): the rule is in every turn, and a request whose result is a new file ("회의록 정리해줘",
+    // a skill or a scheduled run that saves its output) still makes one
+    expect(r).toContain('Found or not, never make or copy one instead unless asked to.')
+    expect(r).not.toMatch(/never (write|make|create)[^.]*file unless asked/i)
+    expect(r).toContain('If nothing matches, say so and list the closest with paths; only then ask where it is.')
     expect(r).toContain('Never search the web for team files.')
     // about 120 tokens on Claude's tokenizer (Korean words cost more): it goes into every new session's instructions
     expect(r.length).toBeLessThanOrEqual(420)

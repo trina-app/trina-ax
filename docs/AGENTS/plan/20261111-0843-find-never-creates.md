@@ -60,20 +60,35 @@ before/after runs with the real AI above. No web change, so no web tests.
 
 Built as planned: `FIND_FILE_RULE` in `server/src/chat/prompt.ts`, one line after "To create a new file, call write
 directly" in the tool rules, so every chat with those rules gets it (Claude Code, Codex, the API engine, rooms, shared
-and confidential chats). It is 123 tokens on Claude's tokenizer (a one-message call with and without it). Tests:
+and confidential chats). It is 122 tokens on Claude's tokenizer (a one-message call with and without it). Tests:
 `tests/unit/b-prompt-find-file.test.ts` (its words, every kind of chat, once and after the create line) and a Claude and
 Codex case in `tests/unit/b-chat.test.ts` "instructions". Not in the sub-agents' instructions (they cannot ask the
 person and save only what their task says), and a Claude session started before the update keeps its first
 instructions until a new session starts, like every other line of the tool rules.
 
-The wording changed twice during the runs. The first said "in its place": the AI found the draft and still wrote
-another next to it, and for a bare name ("트리나 일본어 소개서") it made a deck. The final one says a file asked for,
-even by name only, is the existing one, and applies other words, both languages and folder names to names and
-contents.
+The wording changed during the runs. The first said "in its place": the AI found the draft and still wrote another
+next to it, and for a bare name ("트리나 일본어 소개서") it made a deck. The next said a file asked for, even by name
+only, is the existing one, applied other words, both languages and folder names to names and contents, and said
+"Never write, copy, draw or generate a file unless asked to". The review found that sentence too wide: it is in every
+turn, and read alone it also covers "회의록 정리해줘", a skill or a scheduled run whose result is a new file. The final
+one keeps it to the file asked for: "Found or not, never make or copy one instead unless asked to" ("in its place"
+alone let ms04 make a Japanese deck because none was found).
 
 Measured with the real AI (Claude Code, knowledge graph off in Admin on both servers, the 2,238-file test folder, one
 new chat per question, files the AI wrote deleted after every question), before = origin/dev c11f0c89d, after = this
-branch. The ten ids that failed, three times each (mp02 six times): right 15/33 before, 27/33 after; a new file,
+branch.
+
+Creation check of the final wording, 8 requests that should still write (2 runs each, a server's own confirmation
+cards answered yes on both sides): a meeting-notes template, an English proposal docx, "지난 회의 내용 정리해줘",
+"이번 달 비용 표로 만들어줘", a summary of a named contract, a reply email to save, a made-up team skill
+(`/meeting-digest`, the test team has none built in) and "매주 월요일 보고서를 shared/보고서에 저장해". Files written:
+10 of 16 before and 10 of 16 after, the same requests on both sides. The three that wrote nothing asked first on both
+sides: the folder has no costs for this month, no client email, and no report described.
+
+Find runs of the middle wording (the per-id numbers below), then the ten ids once more with the final one: 9 of 10
+right (cr06 asked back; cr12 again wrote a Korean draft beside the English one it found), no web search.
+
+The ten ids that failed, three times each (mp02 six times): right 15/33 before, 27/33 after; a new file,
 draft, deck or copy made 16 times before, 2 after (both cr12: it named the existing English draft first, then wrote a
 Korean one in the person's own folder); asked back without the file 7 before, 5 after; web search 2 before, 0 after.
 Median time 56 s before, 39 s after; median input tokens 270k before, 192k after. Fifteen other ids once each: 15/15

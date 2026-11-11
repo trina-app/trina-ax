@@ -469,10 +469,12 @@ export const BULK_REPORT_RULE = 'After changing many files or items, also list i
 /** A file the person asks for (docs/AGENTS/plan/20261111-0843-find-never-creates.md): in a find-files test the AI wrote
  * a new contract, template or storyboard instead of finding the one there (7 of 159 answers), asked where a file was
  * before it had looked, or searched the web for a team file. Named only ("외주 개발 용역 계약서"), a file is asked for,
- * not to be made; and no new file next to it either (it found a draft, then wrote another). Folder names too, and the
+ * not to be made, also when none is found ("일본어 소개서가 없어서 새로 만들었습니다"). "Instead" keeps that to the file
+ * asked for: the rule is in every turn's instructions, and a request whose natural result is a new file ("회의록
+ * 정리해줘", a skill or a scheduled run that saves its output) must still make one. Folder names too, and the
  * other language in contents: an English file in a folder named 외주. About 120 tokens on Claude's tokenizer: keep it
  * that short. */
-export const FIND_FILE_RULE = 'Asked for a file, even by name only, find the existing one first: glob file and folder names, grep contents, using other words, both languages and variants (최종, v2, old, copy); open likely files, images and PDFs too. Never write, copy, draw or generate a file unless asked to. If nothing matches, say so and list the closest files with paths; only then ask where it is. Never search the web for team files.'
+export const FIND_FILE_RULE = 'Asked for a file, even by name only, find the existing one first: glob file and folder names, grep contents, with other words, both languages and variants (최종, v2, old, copy); open likely ones, images and PDFs too. Found or not, never make or copy one instead unless asked to. If nothing matches, say so and list the closest with paths; only then ask where it is. Never search the web for team files.'
 
 /** After the answer-language line: the short text between tool calls is in the answer too (docs/DECISIONS.md "One
  * language in the answer"; A9 S17: Korean answers began with "Verify:" or "Let me check…"). What the person asks for in
