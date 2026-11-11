@@ -20690,12 +20690,13 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   (`LaunchRequest.timeoutMs`) and, while it lives, ends its groups when the connection closes, so this is a bounded
   wait. The answer is already saved as failed (`error`) by then; the release is logged at error level. A turn
   quarantined before it ended (the launcher stays connected but never confirms the end) stops reading the launcher at
-  that same time (`TurnExec.abandonOverdue`), ends as failed, and its slot follows the same rules.
+  that same time (`TurnExec.abandonOverdue`, on the next probe; it drops the launcher connection, which the launcher
+  takes as a kill), ends as failed, and its slot follows the same rules.
 - `liveTurns: 0` from a launcher that restarted says nothing about engines its earlier process left behind (on macOS
   nothing kills them when the launcher dies; on Linux `Pdeathsig` does). It is trusted only when no process group was
   reported, i.e. the engine most likely never started.
 - **A dispatch failure fails one turn.** A throw from `QueueStore.claim` rolled its transaction back, so the turn stays
-  queued and is claimed again on the next try (`CLAIM_TRIES`, 3); after that, or for a throw after a committed claim
+  queued and is claimed again after a pause of `MEMORY_RECHECK_MS` (`CLAIM_TRIES`, 3 in all); after that, or for a throw after a committed claim
   (the `TurnExec` constructor), that turn ends with the crash error (turn and answer `error`, its queue ticket settled,
   `message.done`), is never claimed again, and the loop goes on. A throw elsewhere in `schedule()` is logged and the capacity watcher tries
   again; it no longer latches `closing` (every later send was 503 `draining` until a restart).

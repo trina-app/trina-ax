@@ -201,7 +201,7 @@ export class ChatRuntime {
   /** the last dispatch failed outside one turn: the capacity watcher runs schedule() again */
   private dispatchRetry = false
   /** failed claims by turn (a claim's own transaction rolled back: safe to try again, CLAIM_TRIES times) */
-  private claimFailures = new Map<string, number>()
+  private claimFailures = new Map<string, { n: number; at: number }>()
   private recovering = false
   private recoveryTask: Promise<void> | null = null
   private recoveryRetry: ReturnType<typeof setTimeout> | null = null
@@ -424,11 +424,14 @@ export class ChatRuntime {
       const spec = this.queued[i]!
       let exec: TurnExec
       let timing: ReturnType<QueueStore['claim']>
+      // a claim that failed is tried again only after MEMORY_RECHECK_MS (a busy database gets time to settle)
+      const failed = this.claimFailures.get(spec.turnId)
+      if (failed && Date.now() - failed.at < MEMORY_RECHECK_MS) { this.dispatchRetry = true; break }
       try { timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs) } catch (err) {
         // the claim's transaction rolled back: nothing committed, so the turn may be claimed again a little later
-        const n = (this.claimFailures.get(spec.turnId) ?? 0) + 1
+        const n = (failed?.n ?? 0) + 1
         if (n < CLAIM_TRIES) {
-          this.claimFailures.set(spec.turnId, n)
+          this.claimFailures.set(spec.turnId, { n, at: Date.now() })
           this.log.warn('claiming a queued turn failed; trying again', { err, turn: spec.turnId, tries: n })
           this.dispatchRetry = true
           break
@@ -473,6 +476,7 @@ export class ChatRuntime {
     this.log.error('turn dispatch failed; the answer ends with an error', { err, turn: spec.turnId })
     const i = this.queued.findIndex(s => s.turnId === spec.turnId)
     if (i >= 0) this.queued.splice(i, 1)
+    this.claimFailures.delete(spec.turnId)
     this.positions.delete(spec.turnId)
     this.queueRevision++
     try {
@@ -588,6 +592,7 @@ export class ChatRuntime {
       this.queueStore.settle(spec.userId)
     })()
     this.queued.splice(i, 1)
+    this.claimFailures.delete(spec.turnId)
     this.positions.delete(spec.turnId)
     this.queueRevision++
     const row = this.store.messageRow(spec.assistantId)

@@ -149,8 +149,11 @@ test('a throw while claiming a turn is tried again; one that keeps failing ends 
   const always = spyOn(rt.queueStore, 'claim').mockImplementation(() => { throw new Error('injected claim failure') })
   spies.push(always)
   const second = send(b)
-  for (let i = 1; i < CLAIM_TRIES; i++) rt.schedule()
-  expect(turnStatus(second.turnId)).toBe('error')
+  // tried again only after a pause, CLAIM_TRIES times in all
+  rt.schedule()
+  expect(always).toHaveBeenCalledTimes(1)
+  expect(await waitFor(() => turnStatus(second.turnId) === 'error', { timeoutMs: 15_000 })).toBe(true)
+  expect(always).toHaveBeenCalledTimes(CLAIM_TRIES)
   expect(messageStatus(second.assistantMessage.id)).toBe('error')
   expect(rt.runningCount() + rt.queuedCount()).toBe(0)
   always.mockRestore()
