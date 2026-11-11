@@ -20228,3 +20228,89 @@ users are office workers, not developers; the panel must make sense in a few sec
   project folder read only, members, phones), `access-edit.spec.ts`.
 - Version impact: **minor** (admins change who can open a folder in the Files page; one optional field on an admin
   answer; no migration).
+
+## AI가 브라우저를 쓰는 동안 — the AI-control signal in the in-app browser, calm but unmistakable (fix/desktop-browser-pane, 2026-11-11, product owner)
+
+- **Why:** the owner: "the orange is really bad". While the AI ran a browser call, the desktop app's browser toolbar
+  showed a full-width orange bar ("● AI가 브라우저를 사용 중" + 멈추기) and the toolbar view painted its whole body in the accent
+  colour, which showed as a 3 px orange frame around the page (the tab view was inset by 3 px for it) and, before the
+  first tab was on screen (the site question of a turn's first page, the moment the tab was being made), as a pane of
+  solid orange. This is a safety indicator ("the AI is in control of this browser right now"), so its look is recorded
+  here.
+- **The signal now** (`desktop/src/ui/pane.ts`, `ui.css`): one row in the toolbar on the toolbar's own surface (light or
+  dark): a small accent dot that pulses (a ring that grows and fades, 1.6 s), the words "트리나가 브라우저를 쓰는 중" / "Trina is
+  using the browser" (id, ja, es likewise; the AI by its name, as the web app's "트리나가 답하는 중"), the AI's latest action in
+  this call in muted text as before, and **멈추기** as a solid ink pill with a stop square: it stands out by its shape and
+  contrast, not by a colour wash. A **2 px accent line** runs along the top of the page (inside the toolbar's bottom
+  edge, so the page's size does not change). No frame: the page keeps its full width while the AI drives.
+- **Same rules as before for when it shows:** while a browser call runs (`driving`), in the desktop's own toolbar (a
+  page cannot draw, hide or fake it); gone when the call ends or the person presses 멈추기 (stop cancels every running call
+  and denies open questions). The row still takes its place in the toolbar while it shows (the page moves down by it),
+  as the site question and the notice line do.
+- **Kept unmistakable:** text that names who is in control, motion (the pulsing dot; static under "reduce motion"), an
+  accent line across the whole top of the page (the only one there; the edge handle's accent line shows only under the
+  pointer or the keyboard), and the strongest button in the pane. The site question card keeps its accent border: it is
+  a question to the person, not this signal.
+- **No solid colour before the first paint:** the toolbar view's body is never the accent colour. Under the toolbar,
+  where the page goes, it shows the theme's canvas (`--bg`); while the tab's page loads, one quiet line "페이지를 여는 중…"
+  with a small spinner; with no tab and the AI not at work, the old one-line hint. A tab is put on screen (`setVisible`)
+  only once its first real page commits (`did-navigate` to anything but about:blank) or fails with an error page: an
+  empty tab (about:blank, white in dark mode too) is never shown, and its tab is called "새 탭", not "about:blank". Left
+  as is: from the commit to the site's first paint the tab shows its own white base for a moment, as any browser does
+  (showing it later, at its first paint, is not possible while it is hidden: a hidden page does not paint). It stays
+  attached with its size, so the AI's page reads and clicks see the same viewport as before; a screenshot of a
+  still-empty tab draws it first. The window's own colour (behind the views before they draw) follows the system's light
+  or dark look (`nativeTheme`), in place of a fixed light grey.
+- **Rejected:** keeping the orange bar in a softer tint (still a wash of colour on every call); a coloured frame of 1 px
+  (it narrowed the page and every call resized it); moving the signal into the team page (a page served through the
+  relay must not be able to fake or hide it, see "사이트 허용·사내망 확인 창, "AI가 사용 중" 표시는 데스크톱 자체 화면").
+- Tests: `tests/unit/e-pane-width.test.ts` ("wiring": no accent body or bar, no inset, the 2 px line, tabs drawn on
+  their first page, the words in five languages, the window's colour), e2e `desktop/e2e/pane-look.spec.ts` (the signal
+  shows with its words and Stop, the computed colours and a pixel of the pane before the first page draws are the
+  canvas, not the accent; the tab hidden while its first page loads and shown after; the page's width unchanged while
+  the AI drives; Stop and a call's own end take the signal away; the window's colour in dark; with `SHOTS_DIR`, the
+  whole window in light and dark, asking, loading, the AI in control, idle, dragged narrow and wide).
+- Version impact: **minor** (a visible change in the desktop app; no API, bridge or data change). Ships with the next
+  desktop release.
+
+## 브라우저 너비는 끌어서 — the in-app browser's width is set by dragging its edge (fix/desktop-browser-pane, 2026-11-11, product owner)
+
+- **Why:** the owner: "it'd be nice to make the browser wider and narrower", as the thread panel and the file view can
+  be (`web/src/components/PanelDivider.tsx`). The desktop had a splitter, but it was only the toolbar's left 6 px (the
+  tab view covered the rest), not reachable by keyboard, and the width was only written when the window closed.
+- **The edge** (`desktop/src/common/pane-width.ts`, `main/app-window.ts`, `main/pane/pane.ts`, `ui/pane.ts`): the
+  browser toolbar's view reaches 6 px to the left over the team page's right edge; that strip is transparent (the view's
+  own background is `#00000000`, its page paints only the pane) and is the handle, full height: a 1 px line, the
+  `col-resize` cursor, a 2 px accent line on hover, focus and while dragging, as `PanelDivider`. The toolbar view is
+  kept above the team page and the host strip for it. Cost, accepted: the team page's last 6 px take no clicks or wheel
+  of their own (a scrollbar shown all the time there is 6 px narrower to grab), as the web's divider takes 5 px of its
+  panel; the strip cannot sit over the browser's page instead, because the page's view is above the toolbar's. Drag it;
+  double-click for the default width (45% of the window, forgotten); focus it (Tab in the toolbar) and use ←/→ (24 px,
+  Shift 96 px), Home and End. It is a `separator` with its width and limits as aria values.
+- **Limits and memory, as the web's panels:** the team page keeps 360 px and the browser 400 px (the window's minimum
+  width, 900 px, leaves room for both; where a window is narrower the browser's minimum wins). The width is kept as a
+  share of the window in `window.json` (`paneFraction`; absent: the default), written when a drag ends, a moment after
+  the keys stop and on a double-click as well as when the window closes, so a window resize keeps the share within the
+  limits and a restart brings it back. A press without a 3 px move changes nothing.
+- **Layout:** the edge's page sends the edge's screen position once per animation frame while dragging (the views move
+  under the pointer, so not its own coordinates); the main process lays out the team page, the host strip, the toolbar
+  and the tab in the same turn.
+- **Focus (#327, "창으로 돌아오면 키보드는 보던 곳으로"):** a press on the edge lands in the toolbar's view, and the system gives that
+  view the keyboard; the press does not move the focus inside the toolbar (the address bar keeps it). When the drag ends
+  (or a click without a drag), the keyboard goes back to the view that had it before the press, if the toolbar still has
+  it, that view is still on screen and no dialog or menu of the app is open; the team page's own element (the message
+  box, its draft and caret) is kept by focusing the view. The press does not count as "the person's last action was in
+  the in-app browser" (that is set back when the drag starts), so a page load there during or after the drag does not
+  keep the keyboard (`keyboardTaken`: a load there gives it straight back to the toolbar, and the release then to the
+  view before the press). Giving it back during the drag was rejected: the pointer capture of a drag in a view that lost
+  the focus is not something to rely on across systems.
+- **Rejected:** a gutter of a few px between the two pages (always visible, narrows the browser); a separate view for
+  the handle (not reachable by Tab from the toolbar); remembering px (overflows a smaller window).
+- Tests: `tests/unit/e-pane-width.test.ts` (limits, the default, a window resize, reading `window.json`, settling a
+  width, the edge from screen coordinates, keys, the grab strip; the channels answer only the toolbar), e2e
+  `desktop/e2e/pane-resize.spec.ts` (a drag moves both views' bounds; the limits; a press without a move; a smaller and
+  a bigger window; the width after a restart; keys, Shift, Home, End and their aria values; a double-click; the message
+  box keeps the keyboard, its draft and caret across a drag, typing goes on there, also when the AI loads a page in the
+  browser during the drag; the address bar keeps it).
+- Version impact: **minor** (new desktop behaviour; no API, bridge or data change; `window.json` keeps its field). Ships
+  with the next desktop release.
