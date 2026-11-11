@@ -3,6 +3,7 @@
 //   own address, pushed over the page they come from: ‹ and the browser's (the iPhone's swipe) Back go one level up, and
 //   the bar names the page; no second "← back" link under the bar.
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { DICTS } from '../../src/i18n'
 
@@ -177,4 +178,83 @@ test('Providers: an engine is a row that opens its own page; a server command is
   await page.goto('/admin/providers?engine=claude-code')
   await expect(page).toHaveURL(/\/admin\/providers\/claude-code$/)
   await expect(bar(page)).toHaveText('Claude Code')
+})
+
+// - TC-268: a person's and a group's row opens their page; row ⋯ and a page button's ⌄ are bottom sheets (48 px rows,
+//   delete last); a member never reaches them.
+const H = { [CSRF_HEADER]: '1' }
+
+test('Members: a row opens the person\'s page (role, groups, folders, actions with delete last); Back to the list', async ({ page }) => {
+  await openAdminPage(page, 'members', /\/admin\/members$/)
+  await page.getByTestId('member-card-bob').getByTestId('row-open').click()
+  await expect(page).toHaveURL(/\/admin\/members\/bob$/)
+  const person = page.getByTestId('member-page')
+  await expect(person).toBeVisible()
+  await expect(bar(page)).toHaveText('Bob')
+  await expect(backLabel(page)).toHaveText(t['admin.members'])
+  await expect(page.getByTestId('members-list')).toBeHidden()
+  await expect(person.getByTestId('member-page-role')).toContainText(t['members.role'])
+  await expect(person.getByTestId('member-page-folders')).toHaveAttribute('href', /view=people&person=bob/)
+  const actions = person.getByTestId('member-page-actions').getByRole('button')
+  await expect(actions.last()).toHaveAttribute('data-testid', 'delete-member-bob')
+  for (const b of await actions.all()) expect(Math.round((await b.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/admin\/members$/)
+  await expect(page.getByTestId('members-list')).toBeVisible()
+})
+
+test('Members: ⋯ and Invite ⌄ are bottom sheets with 48 px rows, delete last', async ({ page }) => {
+  await openAdminPage(page, 'members', /\/admin\/members$/)
+  await page.getByTestId('member-card-bob').getByTestId('member-more').click()
+  const sheet = page.getByRole('menu')
+  await expect(sheet).toBeVisible()
+  // the sheet sits on the bottom of the screen, as wide as it
+  const box = (await sheet.boundingBox())!
+  expect(Math.round(box.x)).toBe(0)
+  expect(Math.round(box.y + box.height)).toBeGreaterThan(800)
+  await expect(page.getByTestId('menu-sheet-title')).toHaveText('Bob')
+  const items = sheet.getByRole('menuitem')
+  for (const it of await items.all()) expect(Math.round((await it.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  await expect(items.last()).toHaveAttribute('data-testid', 'delete-member-bob')
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  // the page's ⌄: the other ways to invite
+  await page.getByTestId('invite-new-more').click()
+  await expect(sheet).toBeVisible()
+  expect(Math.round((await sheet.boundingBox())!.x)).toBe(0)
+  await expect(sheet.getByTestId('member-add')).toBeVisible()
+  expect(Math.round((await sheet.getByTestId('member-add').boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  await sheet.getByTestId('member-add').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
+test('Groups: a row opens the group\'s page with its members, Edit and Delete', async ({ page }) => {
+  expect((await page.request.post('/api/admin/groups', { headers: H, data: { name: 'Sales', description: 'The sales team', memberIds: ['bob'] } })).ok()).toBeTruthy()
+  await openAdminPage(page, 'groups', /\/admin\/groups$/)
+  await page.getByTestId('group-row').filter({ hasText: 'Sales' }).getByTestId('row-open').click()
+  await expect(page).toHaveURL(/\/admin\/groups\/[^/]+$/)
+  const group = page.getByTestId('group-page')
+  await expect(group).toContainText('The sales team')
+  await expect(group.getByTestId('group-page-members')).toContainText('Bob')
+  await expect(bar(page)).toHaveText('Sales')
+  await group.getByTestId('group-edit').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.getByTestId('admin-back').click()
+  await expect(page).toHaveURL(/\/admin\/groups$/)
+})
+
+test('an admin gets the same pages; a member opening one lands at home', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  await signIn(page, { username: 'dana', password: 'dana password 1' })
+  await page.goto('/admin/members/bob')
+  await expect(page.getByTestId('member-page')).toBeVisible()
+  await page.goBack()
+  await expect(page).toHaveURL(/\/admin\/members$/)
+  await page.goto('/admin/connectors/notion')
+  await expect(page.getByTestId('connector-detail')).toBeVisible()
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await page.goto('/admin/members/olga')
+  await expect(page).not.toHaveURL(/\/admin/)
 })
