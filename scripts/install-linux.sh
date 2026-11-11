@@ -225,6 +225,11 @@ kill_accounts() {  # every process of both accounts (repair runs; nothing may ra
     ! pgrep -u "$uid" >/dev/null 2>&1 || die "processes of $u keep running; stop them and run the installer again"
   done
 }
+drop_spent_setup_code() {  # the team has its owner: the server deleted data/setup-token, so root's copy is spent too
+  # (11-11 code audit, row 120: setup/code stayed after setup and after an uninstall without --purge). Before the
+  # owner exists (no database yet, or the token still there) it stays: it is the way to set the team up.
+  if [ -f "$BASE/data/app.db" ] && [ ! -e "$BASE/data/setup-token" ]; then rm -f "$BASE/setup/code"; fi
+}
 
 # =====================================================================================================================
 # uninstall
@@ -254,6 +259,7 @@ if [ "$CMD" = uninstall ]; then
   if [ "$PURGE" = 1 ]; then
     rm -rf "$BASE"
   elif [ -d "$BASE" ]; then
+    drop_spent_setup_code
     # folders and single-link files only: a hard link the server account made to some other file must not be chowned
     for d in data team config secrets setup; do
       [ -d "$BASE/$d" ] && [ ! -L "$BASE/$d" ] && find "$BASE/$d" \( -type d -o \( -type f -links 1 \) \) -exec chown -h root:root {} +
@@ -1147,6 +1153,7 @@ if [ "$IMAGE_MODE" = 0 ] && [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/
   rm -f "$ITMP/code"
   unset CODE
 fi
+drop_spent_setup_code
 
 # root/install.json: the arguments of this install (repair / update / uninstall read them)
 ENG_JSON=""

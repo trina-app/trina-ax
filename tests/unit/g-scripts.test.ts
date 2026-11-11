@@ -5,6 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { WORK } from '../lib/env'
 
 const REPO = path.resolve(import.meta.dir, '..', '..')
@@ -255,6 +256,33 @@ describe('Linux root scripts: syntax and rules', () => {
     expect(s).toMatch(/if \[ "\$IMAGE_MODE" = 1 \]; then\n\s+say "image mode: engine firewall not loaded/)
     // an engine version it cannot read only warns for a file that matched the pinned SHA-256 (no --engine NAME=FILE)
     expect(s).toContain('if [ "$IMAGE_MODE" = 1 ] && [ -z "$got" ] && [ -z "$src" ]; then')
+  })
+
+  test('setup/code goes once the team has its owner: at a repair or update, and at an uninstall that keeps the data', () => {
+    // 11-11 code audit, row 120: the code stayed after the owner was made (the server deletes only data/setup-token)
+    const s = read('scripts/install-linux.sh')
+    const fn = s.match(/^drop_spent_setup_code\(\) \{[\s\S]*?^\}$/m)?.[0]
+    expect(fn).toBeDefined()
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-code-'))
+    try {
+      const run = (o: { db: boolean; token: boolean }) => {
+        const base = fs.mkdtempSync(path.join(work, 'base-'))
+        fs.mkdirSync(path.join(base, 'setup')); fs.mkdirSync(path.join(base, 'data'))
+        fs.writeFileSync(path.join(base, 'setup', 'code'), 'code\n')
+        if (o.db) fs.writeFileSync(path.join(base, 'data', 'app.db'), '')
+        if (o.token) fs.writeFileSync(path.join(base, 'data', 'setup-token'), 'code\n')
+        const p = Bun.spawnSync(['/bin/bash', '-c', `set -euo pipefail\n${fn}\ndrop_spent_setup_code`], { env: { PATH: '/usr/bin:/bin', BASE: base }, stderr: 'pipe' })
+        expect(p.exitCode).toBe(0)
+        return fs.existsSync(path.join(base, 'setup', 'code'))
+      }
+      expect(run({ db: true, token: false })).toBe(false) // set up: spent
+      expect(run({ db: true, token: true })).toBe(true) // the database is there, nobody set the team up yet
+      expect(run({ db: false, token: false })).toBe(true) // a new install before its first start
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+    // called after step 11 (install, repair, update) and by an uninstall that keeps the data
+    const step11 = s.indexOf('# ---- 11) one-time setup code')
+    expect(s.indexOf('\ndrop_spent_setup_code\n', step11)).toBeGreaterThan(step11)
+    expect(s).toMatch(/elif \[ -d "\$BASE" \]; then\n\s+drop_spent_setup_code\n/)
   })
 
   test('unit templates: the spec\'s hardening, the launcher\'s sandbox flags, only known placeholders', () => {
