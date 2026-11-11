@@ -1,13 +1,15 @@
-// The file list's reader on the team's own AI (docs/AGENTS/plan/20261111-0630-file-list.md "Scope" 4): the engine a
-// chat turn runs, launched the same way (the launcher, its sandbox, the model proxy with the team's AI connection, the
-// office tunnel) but with no tools and one answer (engine/claude.ts buildClaudeReaderLaunch, engine/codex.ts
+// The file list's reader on the team's own AI (docs/AGENTS/plan/20261111-0630-file-list.md "Scope" 2): the engine a
+// chat turn runs, launched the same way (the launcher, its sandbox, the model proxy with an AI connection, the office
+// tunnel) but with no tools and one answer (engine/claude.ts buildClaudeReaderLaunch, engine/codex.ts
 // buildCodexReaderLaunch). Each call is a turn of the team's owner in the turns table (chat id READER_CHAT): the proxy
 // needs one to check its token and caller and to count the usage, and Admin › Usage then shows it like any other use.
 //
-// Which engine: Claude Code when the team can use it (on in Admin, installed, and in managed mode a usable connection),
-// on Haiku, the cheapest Claude model (Claude Code's alias; a gateway's own small model). Else Codex on its catalog's
-// cheapest model when the names tell (nano, mini), else its default; Codex reads text only here. Which connection: a
-// team-wide one first (not assigned to anyone), else the one the owner's own chats would use.
+// Which connection: a team-wide AI account only (credentials/resolve.ts tier "team": not anyone's own, not assigned to a
+// person or a group); never a person's own account and never the hosted trial credit. On a development or office server
+// (local-login) the engine's own sign-in on that computer.
+// Which engine: Claude Code when the team can use it (on in Admin, installed, and in managed mode a team account), on
+// Haiku (Claude Code's alias; with a gateway its haiku model, and without one nothing runs). Else Codex on its catalog's
+// nano or mini model (nothing runs without one), text only (policy.ts CODEX_IMAGES).
 import path from 'node:path'
 import type { CredentialKind, FileListSignIn } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -23,6 +25,7 @@ import { CodexEventParser } from '../engine/codex-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { LocalEngines, type EngineConfs } from '../chat/engines'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
+import { CODEX_IMAGES } from './policy'
 import { blocksAsText, ReaderLimit, ReaderUnavailable, SYSTEM_PROMPT, type Block, type Reader, type ReaderAnswer } from './reader'
 
 /** turns.chat_id of the reader's calls (no chat has this id) */
@@ -48,36 +51,44 @@ function engineConfs(ctx: AppContext): EngineConfs {
   return e.get()
 }
 
-/** A connection for the reader: team-wide first, then what the owner's chats use. null: none usable now. */
+/** A team-wide AI account for the reader (not anyone's own, not assigned), usable now; null: none. */
 export function readerCredential(ctx: AppContext, engine: CredEngine, exclude: ReadonlySet<string> = new Set()): { credentialId: string; kind: CredentialKind } | null {
   const owner = ownerId(ctx)
   if (!owner) return null
   const allowed = credentialsOf(ctx).allowedKinds
-  const list = candidates(ctx.db, owner, engine, exclude)
   const now = new Date()
-  for (const { row } of [...list.filter((c) => c.tier === 'team'), ...list.filter((c) => c.tier !== 'team')]) {
+  for (const { row, tier } of candidates(ctx.db, owner, engine, exclude)) {
+    if (tier !== 'team' || row.owner_user_id !== null) continue
     if (!unusable(ctx.db, row, now, allowed)) return { credentialId: row.id, kind: row.kind }
   }
   return null
 }
 
-export type ReaderPick = { ok: true; reader: Reader } | { ok: false; problem: 'no_engine' }
+export type ReaderPick = { ok: true; reader: Reader } | { ok: false; problem: 'no_ai' | 'no_cheap_model' }
 
 /** The reader this team can use now, or why none. */
 export function pickReader(ctx: AppContext): ReaderPick {
   const owner = ownerId(ctx)
-  if (!owner) return { ok: false, problem: 'no_engine' }
+  if (!owner) return { ok: false, problem: 'no_ai' }
   const confs = engineConfs(ctx)
   const on = enginesEnabled(ctx.db)
   const usable = (engine: CredEngine, managed: boolean) => !managed || !!readerCredential(ctx, engine)
-  if (confs.claude && on['claude-code'] && usable('claude-code', confs.claude.authMode === 'managed')) return { ok: true, reader: new EngineReader(ctx, { engine: 'claude-code', conf: confs.claude }) }
-  if (confs.codex && on.codex && usable('codex', confs.codex.auth === 'managed')) {
-    return { ok: true, reader: new EngineReader(ctx, { engine: 'codex', conf: confs.codex, model: cheapestCodexModel(confs.codexModels) }) }
+  let cheap = true
+  if (confs.claude && on['claude-code'] && usable('claude-code', confs.claude.authMode === 'managed')) {
+    // a gateway without a small model: nothing is read rather than spend its default (big) model's limit
+    const gw = confs.claude.authMode !== 'local-login' ? confs.claude.gatewayModels : undefined
+    if (!gw || gw.haiku) return { ok: true, reader: new EngineReader(ctx, { engine: 'claude-code', conf: confs.claude }) }
+    cheap = false
   }
-  return { ok: false, problem: 'no_engine' }
+  if (confs.codex && on.codex && usable('codex', confs.codex.auth === 'managed')) {
+    const model = cheapestCodexModel(confs.codexModels)
+    if (model) return { ok: true, reader: new EngineReader(ctx, { engine: 'codex', conf: confs.codex, model }) }
+    cheap = false
+  }
+  return { ok: false, problem: cheap ? 'no_ai' : 'no_cheap_model' }
 }
 
-type Pick = { engine: 'claude-code'; conf: ClaudeConf } | { engine: 'codex'; conf: CodexConf; model: string | null }
+type Pick = { engine: 'claude-code'; conf: ClaudeConf } | { engine: 'codex'; conf: CodexConf; model: string }
 
 export class EngineReader implements Reader {
   readonly engine: 'claude-code' | 'codex'
@@ -85,8 +96,8 @@ export class EngineReader implements Reader {
   readonly images: boolean
   constructor(private ctx: AppContext, private pick: Pick) {
     this.engine = pick.engine
-    this.model = pick.engine === 'claude-code' ? (pick.conf.authMode !== 'local-login' && pick.conf.gatewayModels ? pick.conf.gatewayModels.haiku ?? pick.conf.gatewayModels.default : CLAUDE_READER_MODEL) : pick.model ?? pick.conf.model
-    this.images = pick.engine === 'claude-code'
+    this.model = pick.engine === 'claude-code' ? (pick.conf.authMode !== 'local-login' && pick.conf.gatewayModels ? pick.conf.gatewayModels.haiku ?? pick.conf.gatewayModels.default : CLAUDE_READER_MODEL) : pick.model
+    this.images = pick.engine === 'claude-code' || CODEX_IMAGES
   }
 
   /** Whose sign-in a call would use now: the AI account the proxy would put on it (managed), else the engine's own
@@ -98,9 +109,8 @@ export class EngineReader implements Reader {
     const c = readerCredential(this.ctx, this.engine)
     const row = c ? getRow(this.ctx.db, c.credentialId) : null
     if (!row) return { ...base, kind: 'team', label: null, by: null }
-    const who = row.owner_user_id ?? row.created_by
-    const by = who ? (this.ctx.db.query('SELECT name FROM users WHERE id = ?').get(who) as { name: string } | null)?.name ?? null : null
-    return { ...base, kind: row.owner_user_id ? 'person' : 'team', label: row.label || null, by }
+    const by = row.created_by ? (this.ctx.db.query('SELECT name FROM users WHERE id = ?').get(row.created_by) as { name: string } | null)?.name ?? null : null
+    return { ...base, kind: 'team', label: row.label || null, by }
   }
 
   async read(blocks: Block[], signal: AbortSignal): Promise<ReaderAnswer> {
@@ -163,7 +173,7 @@ export class EngineReader implements Reader {
           unsubscribe = core.proxy.subscribe(turn.id, onProxy)
         }
         prepareCodexTurn(conf, chatDir)
-        lr = buildCodexReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt: SYSTEM_PROMPT, message: blocksAsText(blocks), timeoutMs: READER_TIMEOUT_MS, ...(this.pick.model ? { model: this.pick.model } : {}), ...(proxy ? { proxy } : {}), ...(managed ? { managed } : {}) }, conf)
+        lr = buildCodexReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt: SYSTEM_PROMPT, message: blocksAsText(blocks), timeoutMs: READER_TIMEOUT_MS, model: this.pick.model, ...(proxy ? { proxy } : {}), ...(managed ? { managed } : {}) }, conf)
       }
       const parser = this.engine === 'claude-code' ? new ClaudeStreamParser() : new CodexEventParser()
       const usage = { input: 0, output: 0, costUsd: 0 }

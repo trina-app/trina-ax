@@ -1,22 +1,23 @@
-// Which `_FILES.md` a file's line goes into (docs/AGENTS/plan/20261111-0630-file-list.md "The access unit").
+// Where a file's line shows: the `_FILES.md` of its access unit (docs/AGENTS/plan/20261111-0630-file-list.md
+// "Design"). The lists are virtual: view.ts renders one for the person asking, line by line through visiblePath, so
+// this decides where a line goes, not who sees it. It is still chosen so that a list's own path has the same access as
+// its files, which keeps the lists small and puts each where its readers look:
 //
 // RuleSet.decide() (policy/access.ts) answers for a path by: `.system/` and server temp names (nobody); `users/<id>/…`
 // (that person only, rules there ignored); owner and admins (everything else); for members, the deepest prefix of the
 // path — the path itself included — that has rules applying to them. Only prefixes that carry rule rows are ever looked
 // at, deepest first, and which prefixes carry rules does not depend on who asks. So two paths outside users/ with the
-// same rule-bearing prefixes (their rule chain) give every person the same access, and a list placed where its own rule
-// chain equals its files' chain can be read by exactly the people who can read every file it names.
+// same rule-bearing prefixes (their rule chain) give every person the same access.
 //
 // - unit key: users/<id> for a personal file; else the deepest parent folder of the file with rule rows ('' = the
 //   team root without a rule). A file whose own path carries rule rows is not listed.
 // - list folder: the deeper of the key and the file's top folder (shared, <top>, projects|groups|connected/<name>):
-//   nothing between them has rules, so the chain is the same; a big list splits into sub-folders inside it, which have
-//   no rules either (render.ts).
-// - sameAccess() is checked again for every line before a list is written (render.ts): a line whose file's chain differs
-//   from the list's own is left out.
+//   nothing between them has rules, so the chain is the same.
+// - a model call holds files of one unit (one chain) only (service.ts).
 import { PRODUCT } from '@mycel/shared'
 import { FILE_LIST_NAME, isFileListName } from '@mycel/shared/api'
 import { badSegment } from '../policy/names'
+import { READ_PERSONAL } from './policy'
 
 /** top folders whose sub-folders are each a unit of their own (users/ is handled apart) */
 export const CONTAINERS: ReadonlySet<string> = new Set(['projects', 'groups', 'connected'])
@@ -52,7 +53,7 @@ export class Units {
   listable(segs: readonly string[]): boolean {
     if (segs.length < 2) return false // loose files at the team root
     if (NOT_LISTED_TOP.has(segs[0]!) || segs[0] === PRODUCT.systemDir) return false
-    if (segs[0] === 'users' && segs.length < 3) return false
+    if (segs[0] === 'users' && (segs.length < 3 || !READ_PERSONAL)) return false
     for (const s of segs) if (s.startsWith('.') || badSegment(s) !== null) return false
     if (isFileListName(segs[segs.length - 1]!)) return false
     // a rule row on the file's own path: its access differs from every folder's

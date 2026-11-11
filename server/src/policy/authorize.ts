@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { atLeast, type Principal, type RuleSet } from './access'
 import { Denied, ToolError } from './errors'
-import { FILE_LIST_NAME, isFileListName } from '@mycel/shared/api'
 import { badSegment, foldKey, hiddenEntry } from './names'
 import { parseInput, realpathCheck, walk } from './resolve'
 
@@ -34,9 +33,6 @@ export interface Authorized {
   st?: fs.Stats
 }
 
-/** The refusal of any write to a `_FILES.md` (create, save, edit, upload, move, rename, delete, restore, mkdir). */
-export const FILE_LIST_RESERVED = `'${FILE_LIST_NAME}' is the file list the server writes every night: nobody can create, change, move or delete it (read it like any file)`
-
 const hidden = (input: unknown) => `not found or no access: '${typeof input === 'string' ? input : ''}'`
 
 export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unknown, op: Op,
@@ -62,9 +58,6 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
     const by = fx.managed.managerOf(full)
     if (by) throw new Denied(`managed by the plugin '${by}': change it with an update in Admin > Plugins, or copy it to another folder to edit the copy`)
   }
-  // the file list's name (server/src/file-list/): only the server writes it, for everyone, owner included; reading it
-  // is like reading any file. After the access check, so a place the caller may not see is still answered as hidden.
-  if (op === 'write' && full.length && isFileListName(full[full.length - 1]!)) throw new Denied(FILE_LIST_RESERVED)
 
   const exists = w.missing.length === 0
   if (!exists) {

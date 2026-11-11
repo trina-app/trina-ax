@@ -1,7 +1,7 @@
 // The file list's sidecar: what the server knows about each listed file, in the server's data folder (never the team
-// folder): <data>/file-list/state.db. Size, mtime and content hash per file decide what a run reads again; the
-// validated fields are what lines are rendered from, so a rule change or a move rewrites the lists without reading
-// anything. Kept when the feature is turned off, so turning it on again is cheap.
+// folder): <data>/file-list/state.db. Size, mtime and content hash per file decide what a run reads again, and which
+// lines the AI's tools may show (view.ts: the file must still have that size and mtime); the validated fields are what
+// the lines are rendered from. Nothing of it is ever written into the team folder.
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -41,13 +41,14 @@ export class Sidecar {
     this.db.exec(`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime REAL NOT NULL, sha TEXT, kind TEXT,
       real TEXT, fields TEXT, via TEXT, read_at TEXT, tries INTEGER NOT NULL DEFAULT 0)`)
     this.db.exec('CREATE INDEX IF NOT EXISTS files_sha ON files(sha)')
-    this.db.exec('CREATE TABLE IF NOT EXISTS lists (path TEXT PRIMARY KEY, sha TEXT NOT NULL, lines INTEGER NOT NULL)')
     this.db.exec(`CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT NOT NULL, ended_at TEXT, trigger TEXT NOT NULL,
       engine TEXT, model TEXT, read INTEGER NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0, stopped_by TEXT)`)
     this.db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
   }
   close() { try { this.db.close() } catch {} }
+  /** bumped on every change of the files table (the per-person view caches by it) */
+  version = 0
 
   private entry(r: Row): Entry {
     let fields: Fields | null = null
@@ -70,20 +71,29 @@ export class Sidecar {
       ON CONFLICT(path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, sha=excluded.sha, kind=excluded.kind, real=excluded.real,
       fields=excluded.fields, via=excluded.via, read_at=excluded.read_at, tries=excluded.tries`)
       .run(e.path, e.size, e.mtimeMs, e.sha, e.kind, e.real, e.fields ? JSON.stringify(e.fields) : null, e.via, e.readAt, e.tries)
+    this.version++
   }
-  delete(p: string) { this.db.query('DELETE FROM files WHERE path = ?').run(p) }
+  delete(p: string) { this.db.query('DELETE FROM files WHERE path = ?').run(p); this.version++ }
+  /** every stored line (the switch went off, policy.ts FORGET_ON_OFF) */
+  clear() { this.db.query('DELETE FROM files').run(); this.version++ }
   tx<T>(f: () => T): T { return this.db.transaction(f)() }
   counts(): { listed: number; waiting: number } {
     const r = this.db.query('SELECT SUM(fields IS NOT NULL) AS listed, SUM(fields IS NULL) AS waiting FROM files').get() as { listed: number | null; waiting: number | null }
     return { listed: r.listed ?? 0, waiting: r.waiting ?? 0 }
   }
 
-  // ---------------- the lists the server wrote
-  lists(): Map<string, string> {
-    return new Map((this.db.query('SELECT path, sha FROM lists').all() as { path: string; sha: string }[]).map((r) => [r.path, r.sha]))
+  // ---------------- the run lease: one run at a time, also across a restart or a second process
+  /** take the lease when it is free or its holder has not renewed it for `staleMs` */
+  takeLease(holder: string, staleMs: number, now = Date.now()): boolean {
+    return this.db.transaction(() => {
+      const cur = this.meta('lease')
+      if (cur) { try { const l = JSON.parse(cur) as { holder: string; at: number }; if (l.holder !== holder && now - l.at < staleMs) return false } catch {} }
+      this.setMeta('lease', JSON.stringify({ holder, at: now }))
+      return true
+    })()
   }
-  setList(p: string, sha: string, lines: number) { this.db.query('INSERT INTO lists (path, sha, lines) VALUES (?,?,?) ON CONFLICT(path) DO UPDATE SET sha=excluded.sha, lines=excluded.lines').run(p, sha, lines) }
-  dropList(p: string) { this.db.query('DELETE FROM lists WHERE path = ?').run(p) }
+  renewLease(holder: string, now = Date.now()) { const cur = this.meta('lease'); if (cur?.includes(JSON.stringify(holder))) this.setMeta('lease', JSON.stringify({ holder, at: now })) }
+  dropLease(holder: string) { const cur = this.meta('lease'); if (cur?.includes(JSON.stringify(holder))) this.setMeta('lease', null) }
 
   // ---------------- runs
   startRun(trigger: FileListRun['trigger'], engine: string | null, model: string | null): number {

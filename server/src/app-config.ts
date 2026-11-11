@@ -205,7 +205,12 @@ export const AppConfigFile = z.object({
   /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
    * whatever the team's admin chooses (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's
    * instructions). Absent: the team's switch in Admin › Team settings decides (on by default). */
-  fileList: z.object({ enabled: z.boolean().optional() }).strict().optional(),
+  fileList: z.object({
+    enabled: z.boolean().optional(),
+    /** files the model reads per run, and tokens it may use per run (default: file-list/policy.ts RUN_FILES, RUN_TOKENS) */
+    maxFilesPerRun: z.number().int().min(0).max(1_000_000).optional(),
+    maxTokensPerRun: z.number().int().min(0).max(1_000_000_000).optional(),
+  }).strict().optional(),
   /** obsolete: the knowledge graph was removed (docs/DECISIONS.md, 2026-11-11). Accepted with any value and ignored,
    * so a file written for an older version still loads; the start logs it once (OBSOLETE_KEYS). */
   knowledgeGraph: z.unknown().optional(),
@@ -259,7 +264,7 @@ export interface AppConfig {
   /** see AppConfigFile.roomAiMentions; absent = off */
   roomAiMentions?: boolean
   /** see AppConfigFile.fileList; absent = the team's switch decides */
-  fileList?: { enabled?: boolean }
+  fileList?: { enabled?: boolean; maxFilesPerRun?: number; maxTokensPerRun?: number }
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development

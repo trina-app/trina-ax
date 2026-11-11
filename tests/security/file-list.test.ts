@@ -1,12 +1,13 @@
 // Security: the file list never tells anyone about a file they cannot open (server/src/file-list/;
-// docs/AGENTS/plan/20261111-0630-file-list.md "The access unit"). Every `_FILES.md` a person can read names only files
-// that person can read, and holds no text of another file: checked for every person through the permission function,
-// the AI's own tools (read, grep) and the download route, after a first run, after rule changes (a narrower sub-folder,
-// a rule taken away, a person rule), group changes and moves, at once (before the change's request returns).
-// A fake reader puts every CANARY token of a file's text into that file's line, so a line in the wrong list shows.
+// docs/AGENTS/plan/20261111-0630-file-list.md "Design"). The lists are virtual: the AI's file tools render each
+// `_FILES.md` for the person asking, line by line through visiblePath. Every list a person gets names only files that
+// person can read now and holds no text of another file: checked for every person through the permission function and
+// the AI's own tools (list, glob, grep, read; the chat engines and the remote connector both use them), after a first
+// run, after rule changes (a narrower sub-folder, a person added, a rule taken away), a group change and a move.
+// A fake reader puts every CANARY token of a file's text into that file's line, so a line in the wrong place shows.
 // Fixture (tests/lib/fixtures.ts): shared/ everyone write; groups/marketing (alice, erin) with salaries/ none for them;
 // groups/finance (bob); projects/falcon alice + finance read, its public/ everyone read; projects/atlas finance; carol
-// admin, dana owner; users/<id> only that person.
+// admin, dana owner; users/<id> only that person (and not read by the file list for now).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -15,6 +16,7 @@ import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { FakeReader } from '../lib/file-list-fake'
 import { fileListOf, type FileList } from '../../server/src/file-list/service'
 import { atLeast, RuleSet } from '../../server/src/policy/access'
+import { HEADER } from '../../server/src/file-list/view'
 
 setDefaultTimeout(180_000)
 
@@ -40,24 +42,32 @@ function canaries(): Map<string, string[]> {
   walk(A.team, '')
   return out
 }
-function listsOnDisk(): string[] {
-  const out: string[] = []
-  const walk = (d: string, rel: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const r = rel ? `${rel}/${e.name}` : e.name; if (e.isDirectory()) walk(path.join(d, e.name), r); else if (e.name === FILE_LIST_NAME) out.push(r) } }
-  walk(A.team, '')
+/** Every list this person gets from the AI's tools: the paths glob finds, each read with read. */
+async function listsOf(u: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const g = await A.ctx.files.call('glob', { pattern: '**/_FILES.md' }, A.toolCtx(u as 'alice'))
+  for (const p of g.text === 'No files found' ? [] : g.text.split('\n')) {
+    const r = await A.ctx.files.call('read', { file_path: p }, A.toolCtx(u as 'alice'))
+    out.set(p, r.text.split('\n').map((l) => l.replace(/^\s*\d+\t/, '')).join('\n'))
+  }
   return out
 }
 
-/** For every person: each list they can read names only files they can read and holds only canaries of such files. */
-function checkEveryone(when: string): number {
+/** For every person: each list they get names only files they can read and holds only canaries of such files. */
+async function checkEveryone(when: string): Promise<number> {
   const rules = RuleSet.load(A.ctx.db)
   const where = canaries()
   let checked = 0
   for (const u of PEOPLE) {
     const p = A.ctx.files.principal(u)
     const can = (rel: string) => atLeast(rules.access(p, rel.split('/')), 'read')
-    for (const list of listsOnDisk()) {
-      if (!can(list)) continue
-      const text = fs.readFileSync(path.join(A.team, ...list.split('/')), 'utf8')
+    // the provider directly (every folder) and through the tools must agree
+    const direct = fl.under(p, rules, [])
+    const viaTools = await listsOf(u)
+    expect({ when, u, lists: [...viaTools.keys()].sort() }).toEqual({ when, u, lists: [...direct.keys()].sort() })
+    for (const [list, text] of viaTools) {
+      expect({ when, u, list, readable: can(list) }).toEqual({ when, u, list, readable: true })
+      expect(text.startsWith(HEADER)).toBe(true)
       for (const line of text.split('\n')) {
         if (line.startsWith('#') || !line.includes(' — ')) continue
         const f = line.slice(0, line.indexOf(' — '))
@@ -69,27 +79,17 @@ function checkEveryone(when: string): number {
         expect({ when, u, list, canary: m[0], fromReadable: from.some(can) }).toEqual({ when, u, list, canary: m[0], fromReadable: true })
       }
     }
-  }
-  return checked
-}
-
-/** The AI's tools as each person: grep and read of every list find nothing they may not see. */
-async function checkTools(when: string) {
-  const rules = RuleSet.load(A.ctx.db)
-  const where = canaries()
-  for (const u of PEOPLE) {
-    const p = A.ctx.files.principal(u)
-    const can = (rel: string) => atLeast(rules.access(p, rel.split('/')), 'read')
-    const g = JSON.stringify(await A.ctx.files.call('grep', { pattern: 'CANARY-[A-Z]+-[0-9]+', path: '', output_mode: 'content', glob: '**/_FILES.md', head_limit: 5000 }, A.toolCtx(u)))
+    // grep over everything (content), with the list's lines first: no canary of a file this person cannot read
+    const g = (await A.ctx.files.call('grep', { pattern: 'CANARY-[A-Z]+-[0-9]+', path: '', output_mode: 'content', glob: '**/_FILES.md', head_limit: 5000 }, A.toolCtx(u as 'alice'))).text
     for (const m of g.matchAll(/CANARY-[A-Z]+-\d+/g)) expect({ when, u, canary: m[0], ok: (where.get(m[0]) ?? []).some(can) }).toEqual({ when, u, canary: m[0], ok: true })
-    for (const list of listsOnDisk()) {
-      const r = JSON.stringify(await A.ctx.files.call('read', { file_path: list }, A.toolCtx(u)))
-      const d = await A.req(`/api/files/download?path=${encodeURIComponent(list)}`, { as: u })
-      if (can(list)) { expect(r).toContain(' — '); expect(d.status).toBe(200) }
-      else { expect({ when, u, list, leaked: r.includes(' — ') }).toEqual({ when, u, list, leaked: false }); expect(d.status).toBe(404) }
-      await d.body?.cancel()
+    // a list of a folder they cannot read, named directly: not found, like any hidden file
+    for (const hidden of ['groups/finance/_FILES.md', 'groups/marketing/salaries/_FILES.md', 'projects/falcon/_FILES.md', 'users/bob/_FILES.md']) {
+      if (can(hidden)) continue
+      const r = await A.ctx.files.call('read', { file_path: hidden }, A.toolCtx(u as 'alice'))
+      expect({ when, u, hidden, leaked: r.text.includes(' — ') }).toEqual({ when, u, hidden, leaked: false })
     }
   }
+  return checked
 }
 
 beforeAll(async () => {
@@ -106,13 +106,11 @@ beforeAll(async () => {
 afterAll(async () => { await A.close() })
 
 describe('nobody sees a file name or text they cannot open through any list', () => {
-  test('after the first run: every person, every list (permission function)', () => {
-    expect(listsOnDisk().length).toBeGreaterThan(6)
-    expect(checkEveryone('first run')).toBeGreaterThan(50)
-  })
-
-  test('after the first run: the AI tools and the download route as every person', async () => {
-    await checkTools('first run')
+  test('after the first run: every person, every list, every tool', async () => {
+    expect(await checkEveryone('first run')).toBeGreaterThan(50)
+    // nothing was written into the team folder, and personal folders were not read
+    expect(canaries().has('CANARY-BOB-12')).toBe(true)
+    expect(JSON.stringify([...fl.store.all().keys()])).not.toContain('users/')
   })
 
   let policies = ''
@@ -120,48 +118,45 @@ describe('nobody sees a file name or text they cannot open through any list', ()
     const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', rules: [{ subjectType: 'user', subjectId: 'carol', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
     expect(r.status).toBe(201)
     policies = r.body.id
-    const shared = fs.readFileSync(path.join(A.team, 'shared', FILE_LIST_NAME), 'utf8')
-    expect(shared).not.toContain('CANARY-HR-15')
-    checkEveryone('narrowed shared/policies')
-    await checkTools('narrowed shared/policies')
+    expect((await listsOf('bob')).get('shared/_FILES.md') ?? '').not.toContain('CANARY-HR-15')
+    await checkEveryone('narrowed shared/policies')
   })
 
   test('the rules of that folder changed (a person added): only they gain its lines', async () => {
     const r = await A.json(`/api/admin/folders/${policies}/rules`, { as: 'dana', ...jsonBody({ rules: [{ subjectType: 'user', subjectId: 'carol', access: 'write' }, { subjectType: 'user', subjectId: 'bob', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }, 'PUT') })
     expect(r.status).toBe(200)
-    checkEveryone('policies for carol and bob')
-    await checkTools('policies for carol and bob')
+    expect((await listsOf('bob')).get('shared/policies/_FILES.md') ?? '').toContain('CANARY-HR-15')
+    expect((await listsOf('alice')).has('shared/policies/_FILES.md')).toBe(false)
+    await checkEveryone('policies for carol and bob')
   })
 
   test('the rule taken away: its lines move back to the wider list, still only to readers', async () => {
     const r = await A.json(`/api/admin/folders/${policies}`, { as: 'dana', method: 'DELETE' })
     expect(r.status).toBe(204)
-    expect(fs.existsSync(path.join(A.team, 'shared', 'policies', FILE_LIST_NAME))).toBe(false)
-    expect(fs.readFileSync(path.join(A.team, 'shared', FILE_LIST_NAME), 'utf8')).toContain('CANARY-HR-15')
-    checkEveryone('policies rule removed')
+    expect((await listsOf('alice')).get('shared/_FILES.md') ?? '').toContain('CANARY-HR-15')
+    await checkEveryone('policies rule removed')
   })
 
   test('a group change (erin leaves marketing): she can no longer read its list or its files', async () => {
     const before = A.ctx.files.principal('erin')
     expect(before.groups).toContain('marketing')
     A.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'erin'").run()
-    checkEveryone('erin left marketing')
-    await checkTools('erin left marketing')
+    expect([...(await listsOf('erin')).keys()].some((l) => l.startsWith('groups/marketing/'))).toBe(false)
+    await checkEveryone('erin left marketing')
   })
 
   test('a file moved from a wide folder into a personal one: gone from the wide list at once', async () => {
     write('shared/to-move-CANARY-MOVE-17.md', '# moving CANARY-MOVE-18\n')
     expect(await fl.start('now')).toBe('done')
-    expect(fs.readFileSync(path.join(A.team, 'shared', FILE_LIST_NAME), 'utf8')).toContain('CANARY-MOVE-18')
+    expect((await listsOf('alice')).get('shared/_FILES.md') ?? '').toContain('CANARY-MOVE-18')
     const r = await A.json('/api/files/move', { as: 'bob', ...jsonBody({ from: 'shared/to-move-CANARY-MOVE-17.md', to: 'users/bob/to-move-CANARY-MOVE-17.md', confirm: true }) })
     expect(r.status).toBe(200)
-    expect(fs.readFileSync(path.join(A.team, 'shared', FILE_LIST_NAME), 'utf8')).not.toContain('CANARY-MOVE-18')
-    checkEveryone('moved into users/bob')
+    for (const u of PEOPLE) expect(JSON.stringify([...(await listsOf(u)).values()])).not.toContain('CANARY-MOVE-18')
+    await checkEveryone('moved into users/bob')
   })
 
   test('the next run after all that: still nobody sees more than they may', async () => {
     expect(await fl.start('now')).toBe('done')
-    checkEveryone('after the next run')
-    await checkTools('after the next run')
+    await checkEveryone('after the next run')
   })
 })

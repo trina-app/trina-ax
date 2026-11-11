@@ -193,7 +193,7 @@ export function buildClaudeLaunch(i: {
  * server's own instructions (they replace Claude Code's: --system-prompt-file) and one stream-json user message of text
  * and image blocks the server made from team files. Same binary, lock environment, launcher and model proxy as a chat
  * turn; no MCP server (--strict-mcp-config without a config), no built-in tool (--tools '' and every built-in denied),
- * no web search, no sub-agents, one round (--max-turns 1), no session kept, prompt caching off (one-shot calls).
+ * no web search, no sub-agents, one round (--max-turns 1), no session kept.
  */
 export function buildClaudeReaderLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; model: string; timeoutMs: number
@@ -217,7 +217,7 @@ export function buildClaudeReaderLaunch(i: {
     '--model', gw ? (gw.haiku ?? gw.default) : i.model,
   ]
   const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
-  const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', TMPDIR: tmp, CLAUDE_CODE_TMPDIR: tmp, ...CLAUDE_LOCK_ENV, DISABLE_PROMPT_CACHING: '1' }
+  const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', TMPDIR: tmp, CLAUDE_CODE_TMPDIR: tmp, ...CLAUDE_LOCK_ENV }
   const tz = engineTimeZone()
   if (tz) env.TZ = tz
   if (conf.authMode === 'local-login') {

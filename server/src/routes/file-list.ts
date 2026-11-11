@@ -1,5 +1,5 @@
 // Admin › Team settings › File list (shared/src/api/file-list.ts; server/src/file-list/). Registered by the files module
-// (component C). Admins see counts and times, never a file; personal folders are counted like the rest.
+// (component C). Admins see counts, times and whose team AI account the runs use, never a file.
 import { API } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
@@ -23,10 +23,7 @@ export function registerFileListRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.runFileList, ({ auth }) => {
     const f = fl()
     if (!f.on()) fail('conflict', undefined, { params: { reason: f.forcedOff() ? 'forced_off' : 'off' } })
-    if (!f.status().running) {
-      void f.start('now')
-      audit(ctx.db, { actor: auth.user.id, action: 'file_list.run' })
-    }
+    if (f.start('now')) audit(ctx.db, { actor: auth.user.id, action: 'file_list.run' })
     return f.status()
   })
 }

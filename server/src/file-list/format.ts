@@ -1,11 +1,14 @@
-// The line of one file and what is allowed in it (docs/AGENTS/plan/20261111-0630-file-list.md "Scope" 3).
+// The line of one file and what is allowed in it (docs/AGENTS/plan/20261111-0630-file-list.md "Scope" 1).
 //
 //   relative/path — <type>; <names as written>; <date or period>; <what it is>
 //
-// English only. The model's answer is data from the file (it can carry anything the file says): every field is
-// validated and scrubbed here, in code, before it is kept, and again when a line is rendered. No amounts, ID, account,
-// phone or card numbers, emails, passwords or keys; a personal record (checkups, reviews, payslips, discipline) keeps its
-// type, names and date only. A line is one line: no line breaks, no field separators inside a field.
+// English only. The model's answer is data from the file (it can carry anything the file says), and grep-first puts a
+// line into every search for a file: every field is validated here, in code, before it is kept, and again when a line
+// is rendered. One line; no control characters, `#`, `<>`, backticks, addresses, `@` or paths; `what` at most
+// WHAT_MAX characters; a name of a text file must be in its text word for word. The scrubber removes amounts, ID,
+// account, phone and card numbers, emails, passwords, keys and runs of 6+ digits outside the date field: a cleanup,
+// not a security boundary (the reader is told the same, and only the file's own readers ever see its line). A personal
+// record (checkups, reviews, payslips, discipline) keeps its type, names and date only.
 import { maskSecrets } from '@mycel/shared'
 
 export interface Fields {
@@ -24,7 +27,7 @@ export interface Fields {
 export const TYPE_MAX = 60
 export const NAME_MAX = 60
 export const NAMES_MAX = 4
-export const WHAT_MAX = 140
+export const WHAT_MAX = 120
 
 /** What a line says for a file nobody could identify. */
 export const unknownFields = (what: string): Fields => ({ type: 'unknown', names: [], date: '', what, lang: 'none' })
@@ -36,7 +39,8 @@ const DATE_RE = /^(19|20)\d{2}([-./](0?[1-9]|1[0-2])([-./](0?[1-9]|[12]\d|3[01])
 const KRW = '(?:\\uB9CC\\s*\\uC6D0|\\uC5B5\\s*\\uC6D0|\\uCC9C\\s*\\uC6D0|\\uC6D0|\\uB9CC|\\uC5B5)'
 const SENSITIVE: RegExp[] = [
   /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, // email
-  /\b(?:https?|ftp):\/\/\S+/gi, // addresses
+  /\b(?:https?|ftp|file):\/\/\S+|\bwww\.\S+/gi, // addresses
+  /\S*[\/\\]\S*[\/\\]\S*|\S+[\/\\]\S+\.[A-Za-z0-9]{1,5}\b/g, // paths (two slashes, or a file name after one)
   /\b\d{6}\s*-\s*[1-8]\d{6}\b/g, // resident registration number
   /\b\d{3}-\d{2}-\d{5}\b/g, // business registration number
   /\b\d{3}-\d{2}-\d{4}\b/g, // social security number
@@ -56,13 +60,14 @@ export function scrub(s: unknown): string {
   let t = String(s ?? '').normalize('NFC').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
   t = maskSecrets(t, '…')
   for (const r of SENSITIVE) t = t.replace(r, '…')
+  // runs of 6+ digits (account, card, ID numbers; a date written without separators too: the date has its own field);
+  // a date with separators (2025-03-14) and a span of years stay
   t = t.replace(LONG_DIGITS, (m) => {
-    const c = m.replace(/ /g, '')
-    const keep = DATE_RE.test(c) || /^(19|20)\d{2}\s*[-~]\s*(19|20)\d{2}$/.test(m) || /^(19|20)\d{2}(0[1-9]|1[0-2])([0-2]\d|3[01])$/.test(c)
+    const keep = (DATE_RE.test(m) && /[-./]/.test(m)) || /^(19|20)\d{2}\s*[-~]\s*(19|20)\d{2}$/.test(m)
     return keep ? m : '…'
-  })
-  // the line's own separators and anything a Markdown viewer would draw
-  t = t.replace(/\s+—\s+/g, ' - ').replace(/[|<>`]/g, ' ').replace(/\[([^\]]*)\]\(([^)]*)\)/g, '$1')
+  }).replace(/\d{6,}/g, '…')
+  // the line's own separators, anything a Markdown viewer would draw, and mentions
+  t = t.replace(/\[([^\]]*)\]\(([^)]*)\)/g, '$1').replace(/\s+—\s+/g, ' - ').replace(/[|<>`#@\\]/g, ' ')
   t = t.replace(/(?:…\s*){2,}/g, '… ')
   return t.replace(/\s+/g, ' ').trim().replace(/^[\s;:,#*>-]+/, '').replace(/[\s;:,]+$/, '')
 }
@@ -126,6 +131,8 @@ const PERSONAL = /health|medical|diagnos|check-?up|clinic|hospital|prescription|
 export const isPersonal = (f: Pick<Fields, 'type'>) => PERSONAL.test(f.type)
 
 const SEP = /[;]/g
+/** text compared word for word: NFC, any letter case, white space as one space */
+const fold = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, ' ')
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
 /**
@@ -137,11 +144,15 @@ export function cleanFields(raw: unknown, rel: string, text = ''): Fields | null
   if (!isObj(raw)) return null
   const type = cut(scrub(raw.type).replace(SEP, ',').toLowerCase(), TYPE_MAX)
   if (!type || type === '…') return null
+  // a name of a text file is in its text word for word (an injected "name" is not); a picture's names cannot be
+  // checked, so they keep letters, digits and a few joining marks only
+  const haystack = fold(text)
   const names: string[] = []
   for (const n of Array.isArray(raw.names) ? raw.names.slice(0, 10) : []) {
     if (typeof n !== 'string') continue
     const c = cut(scrub(n).replace(/[;,]/g, ' ').replace(/\s+/g, ' ').trim(), NAME_MAX)
-    if (!c || c === '…' || /^[\d\s….-]+$/.test(c) || names.some((x) => x.toLowerCase() === c.toLowerCase())) continue
+    if (!c || c.includes('…') || /^[\d\s.-]+$/.test(c) || names.some((x) => x.toLowerCase() === c.toLowerCase())) continue
+    if (text ? !haystack.includes(fold(c)) : !/^[\p{L}\p{N}][\p{L}\p{N}\p{M} .&'()-]*$/u.test(c)) continue
     names.push(c)
     if (names.length >= NAMES_MAX) break
   }
