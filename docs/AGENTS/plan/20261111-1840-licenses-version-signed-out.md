@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 18:40
 - Branch: `fix/licenses-version-signed-out`
-- Status: in progress
+- Status: done
 - Where: `server/src/routes/web.ts`, `server/src/routes/web-static.ts`. Why: the team server's static route is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix (a leak closed); no API, setting or file format changes
 
@@ -15,17 +15,18 @@ and the bun.lock hash: the build fingerprint #369 hides.
 
 ## Scope
 
-In: the server answers 404 for the notice manifest to a signed-out caller that came through the relay or the office
+In: the server answers 404 for the notice index (the manifest, and licenses/README.txt, which lists pending items with
+package versions) to a signed-out caller that came through the relay or the office
 internet address (same rule as /api/health). Signed-in people, this server and the office LAN keep it. Matched on the
-file served (any URL spelling). The manifest is never stored by a cache (`private, no-store`), so a shared cache cannot
+file served (device and inode: any URL spelling, case folding on the office Mac, hard links). The manifest is never stored by a cache (`private, no-store`), so a shared cache cannot
 hand a signed-in copy to a signed-out visitor.
 Out: the file itself is unchanged (the verifier checks the web copy byte for byte against the canonical manifest; a
-bundle's own `licenses/manifest.json` is not served). LICENSE, NOTICE, licenses/README.txt and the package notice files
+bundle's own `licenses/manifest.json` is not served). LICENSE, NOTICE and the package notice files
 stay public; the source-code offer (sign-in page, Settings › About) is unchanged.
 
 ## Steps
 
-1. `isNoticeManifest(dist, path)` in web-static.ts (resolved file, case-insensitive) and the check in web.ts.
+1. `isNoticeIndex(dist, path)` in web-static.ts (the served file's device and inode) and the check in web.ts.
 2. Unit tests in tests/unit/d-web.test.ts (relay / tunnel / LAN / local, signed in and out, path spellings, public texts).
 3. docs/RELEASE-NOTICES.md: who gets the manifest.
 4. Live check through a local relay (QA's TC-160 steps).
@@ -34,4 +35,11 @@ stay public; the source-code offer (sign-in page, Settings › About) is unchang
 
 AGPL: the source offer is the sign-in page's "Request source code" link (works signed out, from /api/health's
 version-less answer, as since #369) and the licence texts stay reachable. The notice files' own paths carry the
-package version and a hash, so they are not a guessable version oracle without the manifest. No migration, no UI text.
+package version and a hash, so they are not a guessable version oracle without the manifest; but without the manifest a
+signed-out internet visitor has no index of them either (an owner decision, in the PR). No migration, no UI text.
+
+## Result
+
+Done. Unit tests (tests/unit/d-web.test.ts): 404 for every spelling (GET and HEAD) via relay and the office internet
+address signed out; served to signed-in people, the server and the LAN, `private, no-store`; licence texts public.
+Live through a local relay: see the PR.
