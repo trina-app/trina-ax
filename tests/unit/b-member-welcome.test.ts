@@ -5,7 +5,7 @@
 // connection template notice at join; the welcome card's state, for the caller only.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
-import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 import { ALL_SET_MS } from '../../server/src/onboarding/member-welcome'
 
 const PW = 'tulip meadow 2026'
@@ -120,6 +120,26 @@ describe('every way of joining', () => {
     notificationsOf(h.ctx).reconcile()
     expect(((await m.client.call('GET', '/api/notifications')).items as any[]).filter((x) => x.code === 'integration.template')).toEqual([])
   })
+
+  test('Add directly, first sign-in weeks later: the 14 days start then (the card shows, template notices still held)', async () => {
+    const { notificationsOf } = await import('../../server/src/notifications/service')
+    await owner.call('POST', '/api/admin/integration-templates', { kind: 'mcp', name: 'Team Desk', url: 'https://desk.example.com/mcp', auth: 'bearer', access: { everyone: true, groups: [], users: [] } })
+    const created = await owner.call('POST', '/api/admin/users', { username: 'lars', name: 'LARS', role: 'member', groupIds: [] })
+    const id = created.user.id
+    // made 20 days ago, never signed in
+    h.ctx.db.query("UPDATE member_welcome SET joined_at = ? WHERE user_id = ?").run(new Date(Date.now() - 20 * 86_400_000).toISOString(), id)
+    const c = guest()
+    await c.login('lars', created.temporaryPassword)
+    await c.call('POST', '/api/auth/password', { currentPassword: created.temporaryPassword, newPassword: PW })
+    expect(await welcome(c)).not.toBeNull()
+    const notices = async () => ((await c.call('GET', '/api/notifications')).items as any[]).filter((x) => x.code === 'integration.template')
+    notificationsOf(h.ctx).reconcile()
+    expect(await notices()).toEqual([])
+    // 14 days after the sign-in (not after the account was made) they are told
+    h.ctx.db.query("UPDATE member_welcome SET joined_at = ? WHERE user_id = ?").run(new Date(Date.now() - 15 * 86_400_000).toISOString(), id)
+    notificationsOf(h.ctx).reconcile()
+    expect((await notices()).length).toBeGreaterThan(0)
+  })
 })
 
 describe('the card', () => {
@@ -163,5 +183,22 @@ describe('the card', () => {
     expect((await h.client().try('GET', '/api/me/welcome')).status).toBe(401)
     h.ctx.db.query("UPDATE member_welcome SET joined_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?").run(b.id)
     expect(await welcome(b.client)).toBeNull()
+  })
+})
+
+describe('a new owner', () => {
+  test('an invited person handed the team: no welcome card any more, the row is hidden for good', async () => {
+    const inv = await owner.call('POST', '/api/admin/invites', {})
+    const c = guest()
+    const r = await c.call('POST', `/api/invites/${inv.token}/accept`, { username: 'leah', name: 'Leah Lead', password: PW })
+    const id = r.me.user.id
+    expect(await welcome(c)).not.toBeNull()
+    await c.call('GET', '/api/me')
+    await owner.call('POST', '/api/admin/transfer-ownership', { userId: id, password: OWNER_PW })
+    expect(await welcome(c)).toBeNull()
+    expect((h.ctx.db.query('SELECT hidden_at FROM member_welcome WHERE user_id = ?').get(id) as { hidden_at: string | null }).hidden_at).not.toBeNull()
+    // an owner never gets the card, even with a row that is not hidden
+    h.ctx.db.query('UPDATE member_welcome SET hidden_at = NULL WHERE user_id = ?').run(id)
+    expect(await welcome(c)).toBeNull()
   })
 })

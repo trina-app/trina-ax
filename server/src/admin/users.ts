@@ -452,6 +452,8 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     // commit cannot leave the old owner's tokens serving the team unnoticed (retried at the server's start; the new
     // owner sees what is left and can end it from the Inbox)
     toEnd = b.end?.length ? toEndOf(ctx, me, b.end) : []
+    // the new owner's welcome card is over for good (onboarding/member-welcome.ts): Home shows the owner's own start
+    ctx.db.query('UPDATE member_welcome SET hidden_at = COALESCE(hidden_at, ?) WHERE user_id = ?').run(at, b.userId)
     ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at, to_end) VALUES (?, ?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at, JSON.stringify(toEnd))
     const locked = setRecoveryLockIn(ctx, transferId, at)
     audit(ctx.db, { actor: me, action: 'owner.transfer', target: b.userId, detail: { from: me, to: b.userId, via, ...(revoked ? { adminInvitesRevoked: revoked } : {}), ...(unflagged ? { leadHintsCleared: unflagged } : {}), ...(leadsStopped ? { leadInvitesRevoked: leadsStopped } : {}), ...(cliLinks ? { recoveryLinksStopped: cliLinks } : {}), ...(locked ? { recoveryLocked: true } : {}) } })

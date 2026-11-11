@@ -150,6 +150,8 @@ function HiRow({ welcome, name }: { welcome: Welcome; name: string }) {
     try {
       await api.call(API.sendRoomMessage, { params: { id: everyone.id }, body: { body: text, mentions: [], clientMessageId: uuidv7() } })
       mark('hi')
+      // the server says whether that was the last row ("You're all set" without opening Home again)
+      void useMemberWelcome.getState().load()
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {

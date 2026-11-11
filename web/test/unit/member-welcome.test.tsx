@@ -48,7 +48,11 @@ const routes: Record<string, (body: any) => Response> = {
   },
   'GET /api/me/ai-access': () => json(200, access),
   'POST /api/me/ai-access/request': () => json(200, { requested: true, already: false }),
-  [`POST /api/rooms/${EVERYONE}/messages`]: (b: any) => json(201, message({ roomId: EVERYONE, seq: 3, body: b.body, author: { id: 'mina', name: 'Mina Park' } })),
+  [`POST /api/rooms/${EVERYONE}/messages`]: (b: any) => {
+    // the server counts it: "Say hi" done, and all set when "asked" was done already
+    if (welcome) { const steps = { ...welcome.steps, hi: true }; welcome = { ...welcome, steps, allSet: steps.hi && steps.asked } }
+    return json(201, message({ roomId: EVERYONE, seq: 3, body: b.body, author: { id: 'mina', name: 'Mina Park' } }))
+  },
   'GET /api/onboarding/goal': () => json(200, { goal: null }),
   'GET /api/questions/frequent': () => json(200, { items: [] }),
   'GET /api/skills/popular': () => json(200, { items: [], days: 30 }),
@@ -142,6 +146,18 @@ describe('the card on Home', () => {
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBe('true')
       expect(text(m, 'member-welcome-progress')).toBe('Get started · 2 of 3')
       expect(m.get('member-welcome-hi-open').getAttribute('href')).toBe(`/rooms/${EVERYONE}`)
+    } finally { m.unmount() }
+  })
+
+  test('say hi as the last row: the card reads the server again and says "You\'re all set" without reopening Home', async () => {
+    signIn()
+    welcome = card({ steps: { rooms: true, hi: false, photo: false, asked: true } })
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-hi-button'), 'the button')
+      await m.click('member-welcome-hi-button')
+      await m.until(() => m.get('member-welcome').getAttribute('data-state') === 'all-set' || null, 'all set')
+      expect(called('GET /api/me/welcome').length).toBeGreaterThanOrEqual(2)
     } finally { m.unmount() }
   })
 
@@ -289,6 +305,7 @@ describe('the ✦ line in a room', () => {
     routes['PATCH /api/me'] = (b: any) => json(200, meOf(b.prefs))
     const m = await mount(<Hint />)
     try {
+      await m.until(() => m.find('room-ask-hint'), 'the line')
       expect(text(m, 'room-ask-hint')).toContain('✦ Ask Trina about this room. Only you see it.')
       await m.click('room-ask-hint-close')
       expect(m.find('room-ask-hint')).toBeNull()
@@ -304,8 +321,25 @@ describe('the ✦ line in a room', () => {
     signIn()
     const m = await mount(<Hint />)
     try {
+      await m.until(() => m.find('room-ask-hint'), 'the line')
       await m.click('room-ask-hint-open')
       expect(m.find('room-ask-hint')).toBeNull()
     } finally { m.unmount() }
+  })
+  test('for an owner too, but not while the AI cannot answer them (and it is not used up)', async () => {
+    signIn()
+    access = { usable: false, action: 'connect_own', requested: false }
+    const m = await mount(<Hint />)
+    try {
+      await m.until(() => useAiAccess.getState().loaded || null, 'AI access read')
+      await new Promise((r) => setTimeout(r, 20))
+      expect(m.find('room-ask-hint')).toBeNull()
+      expect(called('PATCH /api/me')).toHaveLength(0)
+    } finally { m.unmount() }
+    useAiAccess.getState().reset()
+    useSession.setState({ status: { kind: 'signed-in', me: { ...meOf(), user: { ...meOf().user, role: 'owner' } } } } as never)
+    access = { usable: true, action: 'ask_owner', requested: false }
+    const n = await mount(<Hint />)
+    try { await n.until(() => n.find('room-ask-hint'), 'the line for an owner') } finally { n.unmount() }
   })
 })

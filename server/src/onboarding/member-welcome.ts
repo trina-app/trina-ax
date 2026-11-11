@@ -7,7 +7,7 @@
 // team.joined notice are dev's (rooms/service.ts memberJoined, notifications/service.ts notifyTeamJoined; docs/DECISIONS.md
 // "A new member is told to the team"): an invite and the team link send them at the join. For "Add directly" they wait
 // for the person's first successful sign-in (firstSignIn, from auth/service.ts signIn), once: an account made by an
-// admin has not joined until its person is here, and one deleted or disabled before that is never announced. The
+// admin has not joined until its person is here, and one deleted or disabled before that is never announced. Its welcome days count from that sign-in. The
 // team's creator never gets a row: their start is the welcome steps.
 //
 // welcomeOf is the card on Home, for the caller only: who invited them, how many people are here, their rooms and four
@@ -56,9 +56,11 @@ export function recordJoin(ctx: AppContext, o: { userId: string; via: JoinVia; i
  */
 export function firstSignIn(ctx: AppContext, userId: string) {
   try {
-    const claimed = ctx.db.query(`UPDATE member_welcome SET announced_at = ? WHERE user_id = ? AND via = 'admin' AND announced_at IS NULL
+    // their 14 days (the card, the held template notices) start now, not when the account was made
+    const at = new Date().toISOString()
+    const claimed = ctx.db.query(`UPDATE member_welcome SET announced_at = ?, joined_at = ? WHERE user_id = ? AND via = 'admin' AND announced_at IS NULL
       AND EXISTS (SELECT 1 FROM users u WHERE u.id = member_welcome.user_id AND u.status = 'active' AND u.deleted_at IS NULL) RETURNING added_by`)
-      .get(new Date().toISOString(), userId) as { added_by: string | null } | null
+      .get(at, at, userId) as { added_by: string | null } | null
     if (!claimed) return
     const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
     notifyTeamJoined(ctx, owners.filter((o) => o !== claimed.added_by && o !== userId), userId)
@@ -80,11 +82,14 @@ function saidHi(db: Database, userId: string): boolean {
     AND x.seq > m.visible_from_seq AND x.author_id = m.user_id AND x.author_kind = 'user' AND x.event IS NULL) LIMIT 1`).get(userId)
 }
 
-/** The caller's card, or null when it does not show (not invited, hidden, done a while ago, the days are over). */
+/** The caller's card, or null when it does not show (not invited, an owner now, hidden, done a while ago, the days are over). */
 export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): MemberWelcome | null {
   const db = ctx.db
   const r = rowOf(db, userId)
   if (!r || r.hidden_at || r.joined_at < welcomeSince(now)) return null
+  // an owner has the owner's own start on Home (a lead who joined with a lead invite and was handed the team)
+  const me = db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null
+  if (!me || me.role === 'owner') return null
   if (r.done_at && Date.parse(r.done_at) + ALL_SET_MS < now) return null
   const steps = { rooms: true as const, hi: saidHi(db, userId), photo: !!profileOf(db, userId).avatarVersion, asked: !!r.asked_at }
   const allSet = steps.hi && steps.asked

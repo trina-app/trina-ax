@@ -21391,7 +21391,9 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   (`member_welcome`, migration 342: invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at, added_by,
   announced_at), written at
   the join (`onboarding/member-welcome.ts recordJoin`). Admins who were invited get it too: they are new people as well.
-  Never the team's creator (their start is the welcome steps) and nobody who joined before this release. It shows for
+  Never the team's creator (their start is the welcome steps) and nobody who joined before this release. Never an
+  owner: someone invited who is handed the team (a lead invite, then the handover) gets the owner's own Home again;
+  `transferOwnership` hides the new owner's row for good, and `welcomeOf` answers null for any owner. It shows for
   14 days after joining (`MEMBER_WELCOME_DAYS`), until hidden or done; an add-directly account that first signs in
   later has the rest of its days.
 - **The card** (web/src/components/onboarding/MemberWelcome.tsx; `GET`/`PATCH /api/me/welcome`, `auth: 'user'`, the
@@ -21427,7 +21429,8 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   owners, except the owner who added them) run at their **first successful sign-in**, once
   (`onboarding/member-welcome.ts firstSignIn`, called from `auth/service.ts signIn`; `announced_at` is claimed in the
   same statement). A second sign-in, or the password change after the temporary one, says nothing again. An account
-  disabled or deleted before its first sign-in is never announced.
+  disabled or deleted before its first sign-in is never announced. Its 14 days (the card and the held template
+  notices) count from that first sign-in (`joined_at` is set then), not from when the account was made.
   The line is an event, not a message: it does not mark "Say hi" (row b) done; only a message the person writes does.
 - **The join pages name the inviter**: "{inviter} invited you to {team}" (`inviterName` on both info answers, only while
   the link or invite works), else "Join {team}" as before.
@@ -21436,9 +21439,11 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   that were there when they joined. Opening Connected apps (`GET /api/integration-templates`) records those as offered
   without a notice (they are listed there). A template made after they joined is news and is told as before; one never
   opened is told when the 14 days are over.
-- **The ✦ line in rooms**: the first time a person opens a room, one line under the header: "✦ Ask Trina about this
-  room. Only you see it." The line opens the side chat; ✕ closes it. Closed or ✦ used: never again, on any device
-  (`prefs.roomAskHint: 'seen'` through `PATCH /api/me`; no migration). Not a tour: one line, once.
+- **The ✦ line in rooms** (for everyone, owners and long-time members too: ✦ is hard to find for all; only while the AI
+  can answer the person, `aiAccess` usable, so it waits while they have no AI): the first time a person opens a room,
+  one line under the header: "✦ Ask Trina about this room. Only you see it." The line opens the side chat; ✕ closes it.
+  Closed or ✦ used: never again, on any device (`prefs.roomAskHint: 'seen'` through `PATCH /api/me`; no migration). Not
+  a tour: one line, once.
 - **Small fixes.** A team link opened while signed in: Home with "You're already in {team}" (the single-use invite has
   its own page since #387). Files › Personal (users/, where a member sees only their own folder): "Your own folder is
   inside" instead of "Read-only folder", and no lock on its row. Greyed New folder / Upload on a computer get one line:
