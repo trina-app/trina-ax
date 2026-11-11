@@ -62,7 +62,7 @@ test('while a switch saves, both are off; the screen ends on what the server kep
     await m.click('member-own-switch')
     await m.until(() => patches.length === 1, 'the save')
     expect(patches).toEqual([{ memberOwn: true }])
-    // both switches are off until its answer: a second click sends nothing
+    // both switches are off until its answer
     expect(own().disabled).toBe(true)
     expect(shared().disabled).toBe(true)
     answers[0]!()
@@ -70,5 +70,27 @@ test('while a switch saves, both are off; the screen ends on what the server kep
     expect(own().checked).toBe(true)
     expect(shared().disabled).toBe(false)
     expect(patches).toHaveLength(1)
+  } finally { answers.forEach((a) => a()); await m.unmount() }
+})
+
+test('turning team sharing off: both off while it saves, then the list read again shows it off', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  settings = { memberOwn: true, sharedSubscriptions: true }
+  const m = await mount(<MemoryRouter><Page /></MemoryRouter>)
+  try {
+    const own = () => m.get('member-own-switch') as unknown as { checked: boolean; disabled: boolean }
+    const shared = () => m.get('shared-subscriptions-switch') as unknown as { checked: boolean; disabled: boolean }
+    await m.until(() => m.find('shared-subscriptions-switch'), 'the switch')
+    expect(shared().checked).toBe(true)
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(shared()), 'checked')!.set!.call(shared(), false)
+    await m.click('shared-subscriptions-switch')
+    await m.until(() => patches.length === 1, 'the save')
+    expect(patches).toEqual([{ sharedSubscriptions: false }])
+    expect(shared().disabled).toBe(true)
+    expect(own().disabled).toBe(true)
+    answers[0]!()
+    await m.until(() => !shared().disabled, 'the switch back on')
+    expect(shared().checked).toBe(false)
+    expect(own().checked).toBe(true)
   } finally { answers.forEach((a) => a()); await m.unmount() }
 })
