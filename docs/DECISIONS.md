@@ -20393,7 +20393,8 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   "signed in" → "signed out" emptied them. Now `useSession.signedIn()` (web/src/store/session.ts), when the person
   changes, first does what a sign-out does in this window, before the new status is shown: it forgets what the tab kept
   (`forgetPersonInTab`, as `signedOut`) and runs the hook App.tsx sets (`setBeforePersonSwitch`): close the live
-  connection, empty every per-person store (also the AI picker's list), and remove this browser's drafts, send queue and
+  connection, empty every per-person store (also the AI picker's list, the unread Inbox count, job cards and the chat counted as
+  on screen, emptied at a plain sign-out too), and remove this browser's drafts, send queue and
   uploads as the account menu's sign-out does (`clearLocalData`). Done there and not in an effect so that no screen of
   the new person mounts on the last person's data (child effects run before Gate's). `useSessionLifecycle` then opens
   the new person's connection and loads the page again; the screens are also keyed by the person.

@@ -16,6 +16,9 @@ import { useRooms } from './store/rooms'
 import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
 import { useEngines } from './store/engines'
+import { resetInbox } from './store/inbox'
+import { useJobs } from './store/jobs'
+import { useSessionMarkers } from './store/sessionMarkers'
 import { setBeforePersonSwitch, useSession } from './store/session'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
@@ -95,7 +98,8 @@ function useSettingsOverlay() {
 }
 
 /** Everything one person's window keeps in memory of their own: chats, the messages waiting to be sent, the projects
- * seen, rooms (and their side chats), people, the AI engine picker's list. */
+ * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards and the
+ * chat counted as on screen. */
 function dropPersonStores() {
   useChats.getState().reset()
   useDeckBuilds.getState().reset()
@@ -107,6 +111,9 @@ function dropPersonStores() {
   useRooms.getState().reset()
   usePeople.getState().reset()
   useEngines.getState().reset()
+  resetInbox()
+  useJobs.getState().reset()
+  useSessionMarkers.getState().reset()
 }
 
 // Another person signing in over a signed-in one in this window (a password reset link on a shared computer,

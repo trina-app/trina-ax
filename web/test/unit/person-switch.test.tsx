@@ -9,6 +9,9 @@ import { personSwitch, useSessionLifecycle } from '../../src/App'
 import { ResetPassword } from '../../src/pages/Auth'
 import { useChats } from '../../src/store/chats'
 import { useEngines } from '../../src/store/engines'
+import { useInbox } from '../../src/store/inbox'
+import { useJobs } from '../../src/store/jobs'
+import { useSessionMarkers } from '../../src/store/sessionMarkers'
 import { usePeople } from '../../src/store/people'
 import { useProjects } from '../../src/store/projects'
 import { useRooms } from '../../src/store/rooms'
@@ -90,6 +93,9 @@ function anaWorked() {
   useSideChats.setState({ byRoom: { r1: [ANA_CHAT] } as never })
   usePeople.setState({ people: [{ id: ANA.user.id, name: 'Ana' }] as never, loaded: true })
   useEngines.setState({ loaded: true, canChoose: true, engines: ['claude-code'], models: { 'claude-code': [{ id: 'acme-model', label: 'Acme model' }] } })
+  useInbox.setState({ unread: 3 })
+  useJobs.setState({ jobs: { j1: { id: 'j1', kind: null, status: 'running', progress: 0.5, message: 'Ana: payroll export', job: null } } })
+  useSessionMarkers.setState({ onScreen: ANA_CHAT.id })
 }
 
 function nothingOfAna() {
@@ -99,6 +105,9 @@ function nothingOfAna() {
   expect(useSideChats.getState().byRoom).toEqual({})
   expect(usePeople.getState().people).toBeNull()
   expect(useEngines.getState()).toMatchObject({ loaded: false, canChoose: false, engines: [], models: {} })
+  expect(useInbox.getState().unread).toBe(0)
+  expect(useJobs.getState().jobs).toEqual({})
+  expect(useSessionMarkers.getState().onScreen).toBeNull()
 }
 
 describe('another person signs in over a signed-in one', () => {
