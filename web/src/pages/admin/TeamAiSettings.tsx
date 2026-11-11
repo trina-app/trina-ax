@@ -144,10 +144,13 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
   const [choice, setChoice] = useState<MemberEngineChoice>(data.memberChoice)
   const [fallback, setFallback] = useState(data.limitFallback)
   const [busy, setBusy] = useState(false)
+  // back to the saved choice only when it really changed: saving the AI defaults above replaces `data` with a new
+  // object holding the same choice, and keying on the object threw away ticks not saved yet (QA TC-217)
+  const savedChoice = JSON.stringify(data.memberChoice)
   useEffect(() => {
-    setChoice(data.memberChoice)
+    setChoice(JSON.parse(savedChoice) as MemberEngineChoice)
     setFallback(data.limitFallback)
-  }, [data.memberChoice, data.limitFallback])
+  }, [savedChoice, data.limitFallback])
   useKeptDraft('ai-choice', { choice: data.memberChoice, fallback: data.limitFallback }, { choice, fallback }, (d) => { setChoice(d.choice); setFallback(d.fallback) })
   const toggleIn = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id))
   // owner and admins always pick: only members are listed

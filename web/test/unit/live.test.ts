@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import type { Me, ServerEvent } from '@mycel/shared/api'
 import { t } from '../../src/i18n'
 import { setNavigator } from '../../src/lib/nav'
-import { dispatch } from '../../src/store/live'
+import { dispatch, serverHello } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
 import { usePeople } from '../../src/store/people'
 import { useUi } from '../../src/store/ui'
@@ -63,5 +63,22 @@ describe('skill_changed', () => {
       actions[0]!.run()
       expect(went).toEqual(['/files?view=trash'])
     } finally { setNavigator(null); useUi.setState({ toasts: [] }) }
+  })
+})
+
+describe('server hello', () => {
+  test('a newer server version says "a new version is ready" once, however often the socket reconnects (QA TC-273)', () => {
+    useUi.setState({ toasts: [], updateReady: false })
+    const notices = () => useUi.getState().toasts.filter((x) => x.text === t('update.ready')).length
+    serverHello('1.0.0')
+    expect(notices()).toBe(0)
+    serverHello('1.0.0')
+    expect(notices()).toBe(0)
+    serverHello('1.1.0')
+    serverHello('1.1.0')
+    serverHello('1.1.0')
+    serverHello('1.2.0')
+    expect(notices()).toBe(1)
+    expect(useUi.getState().updateReady).toBe(true)
   })
 })

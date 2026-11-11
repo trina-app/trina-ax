@@ -73,8 +73,13 @@ jobs:
           restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
+          # GitHub's runners sometimes cannot resolve the Ubuntu mirrors for a while ("Temporary failure resolving
+          # 'azure.archive.ubuntu.com'", 2026-11-11): try the package step again before failing the job
+          for try in 1 2 3 4 5; do
+            sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1 && break
+            [ "$try" = 5 ] && exit 1
+            echo "::warning::apt failed (try $try of 5); trying again in $((try * 20)) s"; sleep $((try * 20))
+          done
           deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
           if [ ! -s "$deb" ]; then
             mkdir -p "$(dirname "$deb")"
@@ -89,7 +94,7 @@ jobs:
           # Probe network isolation too: --unshare-user alone can miss loopback failures.
           if ! bwrap --unshare-all --ro-bind / / true &&
              [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
-            sudo apt-get install -y --no-install-recommends apparmor
+            for try in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends apparmor && break; [ "$try" = 5 ] && exit 1; sleep $((try * 20)); done
             sed 's/@ID@/mycel-ci/g' scripts/linux/apparmor-bwrap.in | sudo tee /etc/apparmor.d/mycel-ci-bwrap > /dev/null
             sudo apparmor_parser -r /etc/apparmor.d/mycel-ci-bwrap
           fi
@@ -151,8 +156,13 @@ jobs:
           restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
+          # GitHub's runners sometimes cannot resolve the Ubuntu mirrors for a while ("Temporary failure resolving
+          # 'azure.archive.ubuntu.com'", 2026-11-11): try the package step again before failing the job
+          for try in 1 2 3 4 5; do
+            sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1 && break
+            [ "$try" = 5 ] && exit 1
+            echo "::warning::apt failed (try $try of 5); trying again in $((try * 20)) s"; sleep $((try * 20))
+          done
           deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
           if [ ! -s "$deb" ]; then
             mkdir -p "$(dirname "$deb")"
@@ -167,7 +177,7 @@ jobs:
           # Probe network isolation too: --unshare-user alone can miss loopback failures.
           if ! bwrap --unshare-all --ro-bind / / true &&
              [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
-            sudo apt-get install -y --no-install-recommends apparmor
+            for try in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends apparmor && break; [ "$try" = 5 ] && exit 1; sleep $((try * 20)); done
             sed 's/@ID@/mycel-ci/g' scripts/linux/apparmor-bwrap.in | sudo tee /etc/apparmor.d/mycel-ci-bwrap > /dev/null
             sudo apparmor_parser -r /etc/apparmor.d/mycel-ci-bwrap
           fi
@@ -215,8 +225,13 @@ jobs:
           restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
+          # GitHub's runners sometimes cannot resolve the Ubuntu mirrors for a while ("Temporary failure resolving
+          # 'azure.archive.ubuntu.com'", 2026-11-11): try the package step again before failing the job
+          for try in 1 2 3 4 5; do
+            sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1 && break
+            [ "$try" = 5 ] && exit 1
+            echo "::warning::apt failed (try $try of 5); trying again in $((try * 20)) s"; sleep $((try * 20))
+          done
           deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
           if [ ! -s "$deb" ]; then
             mkdir -p "$(dirname "$deb")"
@@ -231,7 +246,7 @@ jobs:
           # Probe network isolation too: --unshare-user alone can miss loopback failures.
           if ! bwrap --unshare-all --ro-bind / / true &&
              [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
-            sudo apt-get install -y --no-install-recommends apparmor
+            for try in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends apparmor && break; [ "$try" = 5 ] && exit 1; sleep $((try * 20)); done
             sed 's/@ID@/mycel-ci/g' scripts/linux/apparmor-bwrap.in | sudo tee /etc/apparmor.d/mycel-ci-bwrap > /dev/null
             sudo apparmor_parser -r /etc/apparmor.d/mycel-ci-bwrap
           fi

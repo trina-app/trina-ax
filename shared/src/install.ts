@@ -97,6 +97,8 @@ export const RestorePending = z.object({
   backupId: z.string(),
   requestedAt: z.string(),
   requestedBy: z.string().nullable(),
+  /** when the backup was made (what Admin › System and the activity log say after the restore); older files have none */
+  backupCreatedAt: z.string().nullable().optional(),
 })
 export type RestorePending = z.infer<typeof RestorePending>
 

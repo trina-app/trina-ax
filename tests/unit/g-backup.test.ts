@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { AppConfig } from '../../server/src/app-config'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
-import { applyPendingRestore, BackupManager } from '../../server/src/system/backup'
+import { applyPendingRestore, BackupManager, lastRestore, recordRestore } from '../../server/src/system/backup'
 import { chatMarkdown, chatPath, memoriesCsv, runExport } from '../../server/src/system/export'
 import { resolveLayout } from '../../server/src/system/layout'
 import { diffManifest, toManifest, walkTree } from '../../server/src/system/manifest'
@@ -259,6 +259,33 @@ describe('DB restore (staged, applied at the next start)', () => {
     expect(fs.readdirSync(e.layout.dbBackupsDir).some((n) => n.startsWith('before-restore-'))).toBe(true)
     expect(fs.existsSync(path.join(e.cfg.dataDir, 'restore-pending.json'))).toBe(false)
     expect(applyPendingRestore(e.cfg.dataDir, silentLogger).applied).toBe(false)
+  })
+
+  test('the start logs which backup was put back, made when, asked by whom; Admin reads it back (QA TC-208)', async () => {
+    const e = setup('restore-logged')
+    const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
+    e.setClock(new Date('2026-10-01T05:00:00Z'))
+    await e.mgr.stageDbRestore(m.id, 'olga')
+    e.db.close()
+    const r = applyPendingRestore(e.cfg.dataDir, silentLogger)
+    expect(r).toMatchObject({ applied: true, backupId: m.id, requestedBy: 'olga', requestedAt: '2026-10-01T05:00:00.000Z', backupCreatedAt: m.createdAt })
+    const db = openDb(e.dbFile)
+    expect(lastRestore(db)).toBeNull()
+    recordRestore(db, r)
+    const row = db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'backup.restore'").get() as { actor_id: string; target: string; detail: string }
+    expect(row.actor_id).toBe('olga')
+    expect(row.target).toBe(m.id)
+    expect(JSON.parse(row.detail)).toEqual({ ok: true, backupCreatedAt: m.createdAt, requestedAt: '2026-10-01T05:00:00.000Z' })
+    expect(lastRestore(db)).toMatchObject({ backupId: m.id, backupCreatedAt: m.createdAt, by: { id: 'olga', name: 'Olga' }, ok: true })
+    // a failed one: said as failed, with the reason in the row; a start without a restore writes nothing
+    recordRestore(db, { applied: false, backupId: m.id, error: 'staged copy missing', requestedBy: 'olga', requestedAt: '2026-10-01T05:00:00.000Z', backupCreatedAt: m.createdAt })
+    expect(lastRestore(db)).toMatchObject({ backupId: m.id, ok: false })
+    recordRestore(db, { applied: false })
+    expect(db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'backup.restore'").get()).toEqual({ n: 2 })
+    // a person the restored database does not know: the row has no actor
+    recordRestore(db, { ...r, requestedBy: 'gone' })
+    expect(lastRestore(db)?.by).toBeNull()
+    db.close()
   })
 
   test('a damaged staged copy is refused and the live DB stays', async () => {

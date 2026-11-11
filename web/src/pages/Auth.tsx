@@ -16,7 +16,7 @@ import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
+import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
 import { platform } from '../lib/pwa'
 import { copyInTap } from '../lib/copy-in-tap'
@@ -541,25 +541,34 @@ function HaveAccount() {
  * phone app already on this team): say who is signed in and offer to sign out to accept it, or to keep the account.
  * Before, the link opened Home without a word and the invite was lost (QA TC-134, TC-174). Signing out shows the
  * invite page at the same address (the signed-out routes in App.tsx).
+ * The team link (/join#t=…, no `:token`: App.tsx AfterJoin) the same way (QA TC-200): its token is after # and kept here
+ * only, taken out of the address bar as the join page does; signing out opens the join page with it.
  */
 export function InviteWhileSignedIn() {
   const t = useT()
   const me = useMe()
   const { token } = useParams()
+  const [join] = useState(() => (token ? null : readJoinToken(window.location)))
   const signedOut = useSession((s) => s.signedOut)
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (join?.cleanUrl) window.history.replaceState(window.history.state, '', join.cleanUrl)
+  }, [join])
   const leave = async () => {
     setBusy(true)
+    // the address first: the signed-out page reads it as it opens, and it can open before the logout answers (the live
+    // connection hears the session end: store/live.ts). The team link's token goes back in it; a damaged team link
+    // opens the join page without one, which says the link does not work
+    navigate(join ? `/join${join.token ? `#t=${join.token}` : ''}` : `/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
     await api.call(API.logout).catch(() => {})
     clearLocalData()
     signedOut()
-    navigate(`/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
   }
   return (
-    <AuthFrame title={t('invite.signedInTitle')} sub={t('invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
+    <AuthFrame title={t('invite.signedInTitle')} sub={t(join ? 'teamLink.signedInBody' : 'invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
       <div className="flex flex-col gap-2" data-testid="invite-signed-in">
-        <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t('invite.signOutAccept')}</Button>
+        <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t(join ? 'teamLink.signOutJoin' : 'invite.signOutAccept')}</Button>
         <Button disabled={busy} onClick={() => navigate('/', { replace: true })} data-testid="invite-keep">{t('invite.keepAccount')}</Button>
       </div>
     </AuthFrame>

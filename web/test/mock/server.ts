@@ -367,6 +367,8 @@ export class MockServer {
   connection: ConnectionStatus = defaultConnection()
   /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
   teamAddress: string | null = null
+  /** GET /api/admin/backups' lastRestore (POST /__test/last-restore): none until a test sets it */
+  lastRestore: import('@mycel/shared/api').LastRestore | null = null
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
@@ -621,6 +623,7 @@ export class MockServer {
     this.pluginManaged.clear()
     this.connection = defaultConnection()
     this.teamAddress = null
+    this.lastRestore = null
     if (!this.setupNeeded) this.seed()
     // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
     if (o.withAdmin && !this.setupNeeded) {
@@ -2714,7 +2717,9 @@ export class MockServer {
       const base = String(c.query.path ?? '')
       const items = [...this.files.entries()]
         // like the server (policy/authorize.ts visiblePath): download-only files are not search hits
-        .filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        // folders too when asked (⌘K: folders=1), first, like the server
+        .filter(([p, n]) => (n.type === 'file' || (c.query.folders === '1' && n.type === 'folder')) && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        .sort(([, a], [, b]) => (a.type === b.type ? 0 : a.type === 'folder' ? -1 : 1))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
     },
@@ -3413,6 +3418,7 @@ export class MockServer {
     engines: () => this.enginesResponse(),
     updateEngines: (c) => {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
+      if (c.body.defaultModel !== undefined) this.settings.defaultModel = c.body.defaultModel
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
       if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
@@ -3551,7 +3557,7 @@ export class MockServer {
         { id: 'maint-1', level: 'info' as const, text: '오늘 밤 2시에 점검이 있어요', link: 'https://status.teamax.example', until: null, dismissible: true },
       ],
     }),
-    listBackups: () => ({ items: [{ id: 'b1', kind: 'daily', createdAt: now(), size: 123456, scope: 'full' }] }),
+    listBackups: () => ({ items: [{ id: 'b1', kind: 'daily', createdAt: now(), size: 123456, scope: 'full' }], lastRestore: this.lastRestore }),
     startBackup: (c) => {
       const id = uuidv7()
       const job: Job = { id, kind: 'backup', status: 'running', progress: 0, message: 'Backing up', result: null, error: null, createdAt: now(), finishedAt: null }
@@ -3562,6 +3568,19 @@ export class MockServer {
         this.publish({ type: 'job.done', data: { job } })
       }, 200)
       void c
+      return { status: 202, body: { jobId: id } }
+    },
+    // the restore: owner-reauth like the server (a wrong password is 403 with fields['body.password']); the job only
+    // stages it (the server applies it at its next start)
+    startRestore: (c) => {
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.', { 'body.password': 'wrong password' })
+      const id = uuidv7()
+      const job: Job = { id, kind: 'restore', status: 'running', progress: 0, message: 'Checking the backup', result: null, error: null, createdAt: now(), finishedAt: null }
+      this.jobs.set(id, job)
+      setTimeout(() => {
+        Object.assign(job, { status: 'done', progress: 1, result: { backupId: c.body.backupId, restoredAt: now(), lostSince: now() }, finishedAt: now() })
+        this.publish({ type: 'job.done', data: { job } })
+      }, 200)
       return { status: 202, body: { jobId: id } }
     },
     connection: () => this.connection,
@@ -4667,6 +4686,7 @@ export class MockServer {
     else if (p === '/__test/pack-install-fail') this.packInstallFails = Number(body.times ?? 1)
     else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
+    else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }

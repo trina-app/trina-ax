@@ -58,6 +58,29 @@ test('the owner picks: composer picker, "retry with another model", own default 
   await expect(page.getByTestId('my-model-select')).toHaveCount(0)
 })
 
+test('saving the AI defaults keeps ticks not saved yet under who picks the engine (QA TC-217)', async ({ page }) => {
+  await reset(page)
+  await signIn(page, OWNER)
+  await page.goto('/admin/settings#ai')
+  const card = page.getByTestId('engine-choice')
+  await page.getByTestId('engine-choice-selected').click()
+  await card.getByLabel('Bob').check()
+  await expect(page.getByTestId('engine-choice-save-bar')).toBeVisible()
+  // the defaults group saves on its own
+  await page.locator('#ai-model').selectOption({ label: 'Opus' })
+  await page.getByTestId('engine-defaults-save').click()
+  await expect(page.getByTestId('engine-defaults-save-bar')).toHaveCount(0)
+  await expect(page.locator('#ai-model')).toHaveValue('claude-opus')
+  // the member choice is still as the admin left it, with its own Save
+  await expect(page.getByTestId('engine-choice-selected')).toHaveAttribute('aria-checked', 'true')
+  await expect(card.getByLabel('Bob')).toBeChecked()
+  await expect(page.getByTestId('engine-choice-save-bar')).toBeVisible()
+  await page.getByTestId('engine-choice-save').click()
+  await expect(page.getByTestId('engine-choice-save-bar')).toHaveCount(0)
+  await page.reload()
+  await expect(card.getByLabel('Bob')).toBeChecked()
+})
+
 test('the admin lets a member pick; the member sees the picker without reloading; the fallback warns about OpenAI', async ({ page, browser }) => {
   await reset(page)
   await signIn(page, OWNER)

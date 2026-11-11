@@ -310,7 +310,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     const ctrl = new AbortController()
     const asked = namesKey
     const timer = setTimeout(() => {
-      api.call(API.findFiles, { query: { q: q.trim(), path: '', limit: 30 }, signal: ctrl.signal }).then(
+      api.call(API.findFiles, { query: { q: q.trim(), path: '', limit: 30, folders: '1' }, signal: ctrl.signal }).then(
         (r) => live && setNames({ q: asked, items: r.items, failed: false }),
         () => live && !ctrl.signal.aborted && setNames({ q: asked, items: [], failed: true }),
       )

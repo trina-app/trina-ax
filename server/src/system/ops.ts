@@ -31,7 +31,7 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
-import { cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
+import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
 import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, updateWindowAnswer } from './update-job'
@@ -104,6 +104,7 @@ export class OpsService {
     })
     this.storage = new StorageMonitor({
       db: ctx.db, teamRoot: this.layout.teamRoot, dataDir: this.layout.dataDir, appDir: this.layout.appDir, now: o.now ? () => this.now().getTime() : undefined,
+      absoluteRule: () => !(this.platform() === 'linux' && ctx.config.mode === 'prod'),
       audit: (detail, action = 'storage.warn') => audit(ctx.db, { actor: null, action, target: null, detail }),
       notify: (m) => {
         try {
@@ -433,7 +434,7 @@ export class OpsService {
     const team = diskSpace(L.teamRoot), data = diskSpace(L.dataDir)
     const diskCheck = (id: string, label: string, d: { free: number; total: number }) => {
       const pct = d.total ? Math.round((d.free / d.total) * 100) : 0
-      const ro = Math.max(10 * 1024 ** 3, d.total * 0.05)
+      const ro = absoluteFloor(d.total)
       if (d.free < ro) add(id, 'disk', label, 'fail', t(M.diskReadOnly(d.free)))
       else if (pct < 15) add(id, 'disk', label, 'warn', t(M.diskLow(d.free, pct)))
       else add(id, 'disk', label, 'ok', t(M.diskOk(d.free, pct)))
@@ -551,7 +552,9 @@ export class OpsService {
     const lastB = this.backups.latest()
     const err = this.backups.lastError()
     // no room under the plan's limit is a state of the team: `fail` makes the control plane roll updates back
-    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), err.reason === 'plan_space' ? 'warn' : 'fail', t(M.backupFailed(err.message)))
+    // a refusal for room says so in the person's language (QA TC-209: the English reason sat inside the Korean line)
+    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), err.reason === 'plan_space' ? 'warn' : 'fail',
+      t(err.reason === 'disk_space' ? M.backupFailedNoSpace : err.reason === 'plan_space' ? M.backupFailedPlanSpace : M.backupFailed(err.message)))
     else if (!lastB) add('backups', 'backups', t(M.backups), 'warn', t(M.backupNone))
     else {
       const h = Math.floor((this.now().getTime() - Date.parse(lastB.createdAt)) / 3600_000)
