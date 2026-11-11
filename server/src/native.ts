@@ -62,6 +62,9 @@ export interface Launcher {
 export interface LaunchHandle {
   events: AsyncIterable<LaunchEvent>
   kill(): void
+  /** drop the connection without waiting for the launcher (a turn that gave up on it); the launcher ends a turn whose
+   * connection closes before its exit */
+  close?(): void
 }
 
 export class SocketLauncher implements Launcher {
@@ -109,6 +112,7 @@ export class SocketLauncher implements Launcher {
     })
     return {
       kill: () => { if (!c) { killed = true; return } try { c.write(killLine) } catch {} },
+      close: () => { killed = true; try { (c as net.Socket | null)?.destroy() } catch {} end() },
       events: {
         async *[Symbol.asyncIterator]() {
           while (true) {

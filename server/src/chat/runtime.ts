@@ -45,6 +45,21 @@ export const QUEUE_PER_USER = 3
 export const QUEUE_RETRY_AFTER_S = 30
 /** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
 export const MEMORY_RECHECK_MS = 2000
+/** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
+export const QUARANTINE_PROBE_MS = 2000
+/** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
+export const CLAIM_TRIES = 3
+/** a quarantined slot whose engine was never confirmed gone is released this long after the turn's own wall deadline:
+ * the launcher was told to end the engine by then (LaunchRequest.timeoutMs), so it is a bounded wait, never forever */
+export const QUARANTINE_RELEASE_GRACE_MS = 5 * 60_000
+
+/** Is the engine's process group gone? Only "no such process" counts; EPERM (another account's engine, the normal
+ * case) and any other answer mean it may still run. The launcher reports the group in the same pid namespace (the
+ * bridge's peer check relies on the same, server.ts). */
+export function processGroupGone(pgid: number): boolean {
+  if (!Number.isSafeInteger(pgid) || pgid <= 1) return false
+  try { process.kill(-pgid, 0); return false } catch (e) { return (e as NodeJS.ErrnoException).code === 'ESRCH' }
+}
 /** an answer that ran at least this long is worth telling the person about when it ends (chat.updated notify 'answer';
  * docs/DECISIONS.md "Session markers"): a shorter one gets its row's marker only */
 export const LONG_ANSWER_MS = 60_000
@@ -176,7 +191,17 @@ export class ChatRuntime {
   readonly queueEpoch = newId()
   private queueRevision = 0
   private quarantined = new Set<string>()
+  private probing = false
+  private probedAt = 0
+  /** a quarantined slot whose engine was never confirmed gone waits this long past the turn's wall deadline (tests) */
+  quarantineReleaseGraceMs = QUARANTINE_RELEASE_GRACE_MS
+  /** how often the capacity watcher probes quarantined slots (tests) */
+  quarantineProbeMs = QUARANTINE_PROBE_MS
   private dispatching = false
+  /** the last dispatch failed outside one turn: the capacity watcher runs schedule() again */
+  private dispatchRetry = false
+  /** failed claims by turn (a claim's own transaction rolled back: safe to try again, CLAIM_TRIES times) */
+  private claimFailures = new Map<string, { n: number; at: number }>()
   private recovering = false
   private recoveryTask: Promise<void> | null = null
   private recoveryRetry: ReturnType<typeof setTimeout> | null = null
@@ -227,7 +252,8 @@ export class ChatRuntime {
     this.capacityWatcher = setInterval(() => {
       try {
         if (this.concurrency() !== this.lastConcurrency) this.schedule()
-        else if (this.memoryHeld && Date.now() - this.memoryCheckedAt >= MEMORY_RECHECK_MS) this.schedule()
+        else if ((this.memoryHeld || this.dispatchRetry) && Date.now() - this.memoryCheckedAt >= MEMORY_RECHECK_MS) this.schedule()
+        if (this.quarantined.size && Date.now() - this.probedAt >= this.quarantineProbeMs) void this.probeQuarantined()
       }
       catch (err) { this.log.error('queue capacity refresh failed', { err }) }
     }, 250)
@@ -389,20 +415,46 @@ export class ChatRuntime {
     // short of memory: the rest wait in the queue and the capacity watcher looks again (system/limits.ts)
     const room = this.queued.length && this.running.size < limit ? memoryAdmission(this.running.size, limit) : limit
     this.memoryCheckedAt = Date.now()
+    this.dispatchRetry = false
     while (this.running.size < room && this.queued.length) {
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
       const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
       if (!head) break
       const i = this.queued.findIndex(s => s.turnId === head.turnId)
-      const timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs)
-      const spec = this.queued.splice(i, 1)[0]!
-      this.queueRevision++
-      if (!timing) { this.queueStore.settle(spec.userId); continue }
-      Object.assign(spec, timing)
-      const exec = new TurnExec(this, spec)
+      const spec = this.queued[i]!
+      let exec: TurnExec
+      let timing: ReturnType<QueueStore['claim']>
+      // a claim that failed is tried again only after MEMORY_RECHECK_MS (a busy database gets time to settle)
+      const failed = this.claimFailures.get(spec.turnId)
+      if (failed && Date.now() - failed.at < MEMORY_RECHECK_MS) { this.dispatchRetry = true; break }
+      try { timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs) } catch (err) {
+        // the claim's transaction rolled back: nothing committed, so the turn may be claimed again a little later
+        const n = (failed?.n ?? 0) + 1
+        if (n < CLAIM_TRIES) {
+          this.claimFailures.set(spec.turnId, { n, at: Date.now() })
+          this.log.warn('claiming a queued turn failed; trying again', { err, turn: spec.turnId, tries: n })
+          this.dispatchRetry = true
+          break
+        }
+        this.claimFailures.delete(spec.turnId)
+        this.dispatchFailed(spec, err)
+        continue
+      }
+      this.claimFailures.delete(spec.turnId)
+      try {
+        this.queued.splice(i, 1)
+        this.queueRevision++
+        if (!timing) { this.queueStore.settle(spec.userId); continue }
+        Object.assign(spec, timing)
+        exec = new TurnExec(this, spec)
+      } catch (err) {
+        // After a committed claim only this turn fails: it is never claimed again (not replayed), the queue goes on.
+        this.dispatchFailed(spec, err)
+        continue
+      }
       this.running.set(spec.turnId, exec)
-      this.publishChat(spec.userId, spec.chatId, 'updated')
-      void exec.run()
+      try { this.publishChat(spec.userId, spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after dispatch failed', { err, turn: spec.turnId }) }
+      exec.run().catch((err) => this.log.error('turn run failed', { err, turn: spec.turnId }))
     }
     const held = this.queued.length > 0 && this.running.size < limit && this.running.size >= room
     if (held !== this.memoryHeld) {
@@ -412,11 +464,39 @@ export class ChatRuntime {
     }
     this.publishPositions()
     } catch (err) {
-      // A committed claim is never automatically replayed after a failed in-memory transition.
-      this.closing = true
-      this.log.error('queue dispatch halted; recovery required', { err })
-      throw err
+      // Never a latched stop: the queue tries again shortly (capacity watcher). A turn whose own dispatch failed
+      // ended with an error above; a committed claim is never replayed.
+      this.dispatchRetry = true
+      this.log.error('queue dispatch failed; trying again', { err })
     } finally { this.dispatching = false }
+  }
+
+  /** The dispatch of one queued turn threw (claim, the turn's start): that turn ends with an error, nothing else. */
+  private dispatchFailed(spec: TurnSpec & QueueTiming, err: unknown) {
+    this.log.error('turn dispatch failed; the answer ends with an error', { err, turn: spec.turnId })
+    const i = this.queued.findIndex(s => s.turnId === spec.turnId)
+    if (i >= 0) this.queued.splice(i, 1)
+    this.claimFailures.delete(spec.turnId)
+    this.positions.delete(spec.turnId)
+    this.queueRevision++
+    try {
+      const now = new Date().toISOString()
+      this.db.transaction(() => {
+        this.db.query("UPDATE turns SET status='error', ended_at=?, error='dispatch failed' WHERE id=? AND status IN ('queued','running')").run(now, spec.turnId)
+        this.db.query("UPDATE messages SET status='error', error=?, updated_at=? WHERE id=? AND status='streaming'")
+          .run(JSON.stringify(engineError('crash', spec.locale)), now, spec.assistantId)
+        this.queueStore.settle(spec.userId)
+      })()
+      if (this.isRoomChat(spec.chatId)) this.roomEnded(spec.turnId)
+      else {
+        const row = this.store.messageRow(spec.assistantId), chatRow = this.store.chatRow(spec.chatId)
+        if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId: spec.chatId, messageId: spec.assistantId, status: 'error', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
+      }
+      this.publishChat(spec.userId, spec.chatId, 'updated')
+    } catch (e) {
+      // the rows stay as they are (a restart's recovery ends them); the turn is out of the queue either way
+      this.log.error('ending a turn whose dispatch failed failed', { err: e, turn: spec.turnId })
+    }
   }
 
   private publishPositions() {
@@ -442,16 +522,66 @@ export class ChatRuntime {
     this.positions.delete(exec.id)
     this.schedule()
   }
-  /** An engine whose termination is unproven still owns its slot until turnFinished confirms it. */
+  /** An engine whose termination is unproven still owns its slot (and its chat) until turnFinished confirms it, or
+   * probeQuarantined finds the engine gone or the bounded wait over. */
   turnQuarantined(exec: TurnExec) {
     if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id)) return
     this.quarantined.add(exec.id)
     this.log.error('turn slot quarantined: termination unconfirmed', { turn: exec.id })
   }
 
+  /** The launcher's count of live engines; null: no answer (unreachable, an older launcher). */
+  async launcherLiveTurns(): Promise<number | null> {
+    const sock = this.ctx.config.engine.launcherSock ?? path.join(this.ctx.engineConfig.runDir, 'launcher.sock')
+    return (await launcherStatus(sock, 1000, this.recoveryAbort.signal))?.liveTurns ?? null
+  }
+
+  /** Each quarantined turn that already ended: its slot is given back once its engine is confirmed gone (its process
+   * group no longer exists; with no group known, the launcher reports no live engine at all), or, unconfirmed, after
+   * the bounded wait past the turn's wall deadline (the answer is already saved as failed). Until then it holds the
+   * slot and its chat, so nothing new runs beside an engine that may still write (docs/DECISIONS.md). */
+  async probeQuarantined(): Promise<void> {
+    if (this.probing) return
+    this.probing = true
+    this.probedAt = Date.now()
+    try {
+      let live: number | null | undefined
+      for (const id of [...this.quarantined]) {
+        const exec = this.running.get(id)
+        if (!exec) { this.quarantined.delete(id); continue }
+        const q = exec.quarantineState()
+        if (!q) {
+          // still ending: its own finish releases or keeps the slot; one stuck on a launcher that never confirms the
+          // end is made to end at the release time (the next probe then decides on its slot)
+          if (exec.abandonOverdue()) this.log.error('quarantined turn never ended; stopped waiting for its launcher', { turn: id })
+          continue
+        }
+        let reason: 'engine_gone' | 'launcher_idle' | 'deadline' | null = null
+        if (q.pgid !== null) { if (processGroupGone(q.pgid)) reason = 'engine_gone' }
+        else {
+          if (live === undefined) live = await this.launcherLiveTurns().catch(() => null)
+          if (live === 0) reason = 'launcher_idle'
+        }
+        if (!reason && performance.now() >= q.releaseAt) reason = 'deadline'
+        if (!reason || this.running.get(id) !== exec || !this.quarantined.has(id)) continue
+        if (reason === 'deadline') this.log.error('quarantined turn slot released at its deadline; engine end unconfirmed', { turn: id, pgid: q.pgid })
+        else this.log.warn('quarantined turn slot released: engine gone', { turn: id, reason })
+        this.turnFinished(exec)
+        try { this.publishChat(exec.spec.userId, exec.spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after a released slot failed', { err, turn: id }) }
+      }
+    } catch (err) {
+      this.log.error('quarantine probe failed', { err })
+    } finally { this.probing = false }
+  }
+
   /** Stop the running or queued turn of a chat. */
   stopChat(chatId: string): string | null {
-    for (const e of this.running.values()) if (e.spec.chatId === chatId) { e.stop('stopped'); return e.id }
+    for (const e of this.running.values()) if (e.spec.chatId === chatId) {
+      // an answer that already ended but whose engine end is unconfirmed: look again now (Stop cannot do more)
+      if (e.quarantineState()) void this.probeQuarantined()
+      else e.stop('stopped')
+      return e.id
+    }
     const i = this.queued.findIndex((s) => s.chatId === chatId)
     if (i < 0) return null
     const spec = this.queued[i]!
@@ -462,6 +592,7 @@ export class ChatRuntime {
       this.queueStore.settle(spec.userId)
     })()
     this.queued.splice(i, 1)
+    this.claimFailures.delete(spec.turnId)
     this.positions.delete(spec.turnId)
     this.queueRevision++
     const row = this.store.messageRow(spec.assistantId)
