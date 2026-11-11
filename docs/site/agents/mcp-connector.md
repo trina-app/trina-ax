@@ -26,7 +26,7 @@ The connector is off until the server has a public HTTPS address for it. Use one
 Open **Settings › AI apps**. It shows the connector address, which ends in `/mcp`.
 
 #### Add it to Claude
-Choose **Connect** next to Claude, Claude Code or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex, run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`). Leave Codex's `oauth_resource` setting unset: the server takes one `resource` only.
+Choose **Connect** next to Claude, Claude Code, Codex or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex (the CLI, the IDE extension and the Codex app use the same setup), run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`). Leave Codex's `oauth_resource` setting unset: the server takes one `resource` only.
 
 #### Sign in and allow
 Claude opens a Trina AX sign-in. Check the request, tick what else Claude may do, and choose **Allow**.

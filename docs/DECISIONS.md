@@ -19786,3 +19786,72 @@ between them. Decided after two product reviews.
   clicked DM row do not move, the headings in order and their look in both themes, "접기" stays; with `SHOTS_DIR`, the
   screenshots at 1440×900 and 1280×800, light and dark).
 - Version impact: **patch** (the order of an opened list and three words; no API or data change).
+
+## A scheduled task's instruction names rooms by their names — 예약 작업 지시문의 대화방은 이름으로 (fix/schedule-room-name-last-run, 2026-11-11)
+
+QA on dev (e2d645ff): a scheduled task the AI made from a chat showed its instruction as "… room_id 01a1ba5f-…" on the
+task page and in each run's question; and the task page's run block said "Last run" three times and did not change
+after **Run now** until a reload.
+
+- **Why the id is in the text, and stays there.** The AI is given a room the person picked as its id
+  (`chat/turn.ts roomRefsBlock`, `[#room room_id=…]` for earlier messages), `room_read` reads a room by its id ("never a
+  room found by its name instead"), and `schedule_create` asks for an instruction that "works without this conversation".
+  So the AI writes the id into the instruction, and a run needs it: a name is ambiguous, can change, and is set by the
+  room's members. The stored instruction is not changed; only what people read is.
+- **Decision: the creation path does not store a "#" token (`#[name](room:<id>)`) instead.** A token puts the room's
+  name into the stored text, and that text is copied into every run's question (`messages.content`): the name would
+  freeze at the time of creation (a renamed room shows the old name), and it would travel to wherever that text goes
+  (the API sends a message's content as stored, so hiding it in the app is not enough). The bare id carries no name and
+  is resolved for each viewer when it is shown. A token is still read the same way when one is there.
+- **Shown as the name, for a viewer in the room** (`web/src/lib/roomNames.ts`, `components/RoomNames.tsx`): on the task
+  page's instruction, the list card's preview and in a chat's question bubble (a run's question is its instruction),
+  `room_id <id>`, `room_id=<id>`, `room id: <id>`, `room:<id>`, `[#room room_id=<id>]` and a token read as `#<name>`
+  (a 1:1 chat: the other person's name, as the app names it everywhere: `roomTitle`). A bare id reads as a name only when
+  it is one of the viewer's rooms; any other bare id stays as written (it may be a file's or a thread's), and so does an
+  id in a web address, a path, a query, a Markdown link (`[label](room:<id>)`), code (a backtick span or a fenced block)
+  or a quoted value (`"roomId":"<id>"`): data someone pasted. The matching is linear in the text (one run of spaces
+  before an id; the places an id stays as written walked with one pointer): two review rounds found a long run of spaces,
+  and many links with many ids, costing seconds in every bubble. The component reads only the rooms the text names from
+  the room list and keeps its parts until the text or those rooms change (a message in another room draws nothing).
+- **A copy gives the ids.** A selection of the instruction or of a question copies each room as it is written
+  (`copyRoomIds`, the span's `data-raw`), so a copied instruction still names the room a run reads; a token of a room the
+  viewer is not in copies as `room:<id>`, never its title.
+- **Access rule.** The names come only from the viewer's own room list (`GET /api/rooms`, the rooms they are in now,
+  not archived; the store keeps it current with room events). A room the viewer is not in reads "a conversation you're
+  not in" (ko "참여하지 않은 대화방"), never its name. On the Scheduled pages that holds for a token too (the text is
+  the AI's). Until the list is loaded (or when it could not be), an id stays as written and a token there shows "#…": no
+  claim either way, and no name. Runs and their chats are never shared (`share-chat.ts scheduled_run`), so today the
+  viewer is the task's owner, who may have left the room since; the rule holds for any viewer.
+- **One exception, kept: a token in a chat bubble.** The bubble cannot tell a run's question from a message the person
+  typed, and a "#" chip the person picked keeps the title it was picked by, as before (`tokenTitles`). So a token in a
+  run's question would show its stored title. That is unlikely: the AI never sees tokens (they reach it as `[#room N]`
+  and `[#room room_id=…]`); only `schedule_create`'s `reads` description shows the form. The task page itself never
+  shows a token's title to someone outside the room.
+- **Left as they are:** the schedule card (create, edit, check again) shows the instruction exactly as it runs, ids
+  included: it is the confirmation of what runs, and a room's name is set by its members (any member of a group chat),
+  so it must not change how the instruction reads at the moment of the yes (the card names the rooms of `reads` by name
+  already). The edit dialog's text box keeps the stored text, so an edit keeps the id. A message waiting in the send
+  queue shows its text as typed.
+- **The "Last run" block: one heading, then the state and when.** "Succeeded · 2 minutes ago" (the time on hover in
+  full), "Running" while a run is queued or running (linked to its chat with "Open chat"), a failure in its colour with
+  the reason under it, an occurrence that did not run in its own words ("Usage limit prevented the run"). The list card
+  and the line under the title keep "Last run failed": they have no heading. The details' "Last run" time is the same
+  run's.
+- **Run now is that run.** `runNow` moves only `last_chat_id` (not `last_run_at`, "Scheduled tasks: run now, edit,
+  pause"), so the block took the time of the last run at its time and the result of the run before it. `Schedule` now
+  has `lastOutcomeAt` (when the last result came: the run's end, or when an occurrence was skipped;
+  `Schedules.lastResult`) and `running` (a run of it is queued or running; its chat is `lastChatId`:
+  `Schedules.isRunning`). Both optional: an older server's block uses `lastRunAt`.
+- **Refresh:** the page reads the list again right after Run now's answer; when the chat of a task's last run changes
+  (`chat.updated`: that run starting or ending; a few events of one run are read once; other chats never); when a task
+  is due (`nextDueRead`: its time plus 10 s for the server's tick, again every 10 s for up to 3 minutes while it is due
+  and not started, so a run at its time is known and its end followed); and after a reset connection (`reloadAsked`), as
+  other pages do. No polling while nothing is due, no new box.
+- Tests: `web/test/unit/room-names.test.tsx` (every form, a 1:1 chat, the access rule with and without a token, a viewer
+  who left or was taken out (the room event), the list not loaded, ids in links, paths, code and quoted values, long
+  runs of spaces, many links with many ids, what a copy gives, the bubble of a room the viewer is not in),
+  `web/test/unit/scheduled-view.test.tsx` (one heading, "Succeeded · 2 minutes ago", running, a failure, an older
+  server, when a due run is looked for), `tests/unit/schedule-edit.test.ts` (run now: `running`, then `lastOutcomeAt` =
+  the turn's end, `lastRunAt` untouched), e2e `web/test/e2e/schedules.spec.ts` (the room names, a copy of the
+  instruction, Run now followed to its result without a reload).
+- Version impact: **patch** (two optional response fields; corrected words; no data change).
