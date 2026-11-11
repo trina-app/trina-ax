@@ -232,6 +232,26 @@ test('while the job runs its own label shows (a first recording downloads the sp
   await expect(page.getByTestId('voice-progress')).toHaveCount(0)
 })
 
+test('a recording that waits for its turn says it waits, then the job\'s own label once it starts (TC-154 F1)', async ({ page }) => {
+  await reset(page)
+  // another voice input holds the one transcription slot for 1.5 s
+  await page.request.post('/__test/transcribe-progress', { data: { message: '받아쓰는 중', progress: null, ms: 3500, queuedMs: 1500 } })
+  await signIn(page)
+  const box = page.getByTestId('composer-input')
+  await box.click()
+  await holdSpace(page)
+  await expect(box).toHaveAttribute('placeholder', '다른 받아쓰기가 끝나길 기다리는 중…')
+  await expect(box).toHaveAttribute('aria-busy', 'true')
+  await expect(box).toHaveAttribute('placeholder', '받아쓰는 중')
+  await expect(box).toHaveValue('받아쓴 문장입니다')
+  // a box with text: the waiting shows over it too
+  await box.fill('회의 메모')
+  await holdSpace(page)
+  await expect(page.getByTestId('voice-progress')).toHaveText('다른 받아쓰기가 끝나길 기다리는 중…')
+  await expect(page.getByTestId('voice-progress')).toHaveText('받아쓰는 중')
+  await expect(box).toHaveValue('회의 메모 받아쓴 문장입니다')
+})
+
 test.describe('rooms', () => {
   // the room's answers come through page.route, which does not see what the app's service worker fetches
   test.use({ serviceWorkers: 'block' })

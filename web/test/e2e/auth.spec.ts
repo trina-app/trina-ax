@@ -28,7 +28,7 @@ test.describe('first-run setup in an English browser', () => {
     const account = page.getByRole('group', { name: '내 계정 · 팀장' })
     await expect(account.getByLabel('비밀번호 확인')).toHaveCount(0)
     await expect(page.getByTestId('setup-section-team').getByLabel('팀 이름')).toBeVisible()
-    await page.getByLabel('설치 토큰').fill('setup-token-0123456789')
+    await page.getByLabel('설정 코드').fill('setup-token-0123456789')
     await page.getByTestId('setup-team').fill('Acme Korea')
     await account.getByLabel('내 이름').fill('Kim Owner')
     await account.getByLabel('아이디').fill('kim')
@@ -73,7 +73,7 @@ test.describe('first-run setup in an English browser', () => {
   test('first-run setup left in English makes an English team', async ({ page }) => {
     await reset(page, { setup: true, teamLocale: 'en' })
     await page.goto('/')
-    await page.getByLabel('Setup token').fill('setup-token-0123456789')
+    await page.getByLabel('Setup code').fill('setup-token-0123456789')
     await page.getByTestId('setup-team').fill('Acme')
     await page.getByLabel('Your name').fill('Kim Owner')
     await page.getByLabel('Username').fill('kim')
@@ -93,7 +93,7 @@ test.describe('first-run setup in an English browser', () => {
 test('the owner who left the steps lands on them when signing in again (a phone too); 나중에 하기 stays Home; a link elsewhere is kept', async ({ page, browser }) => {
   await reset(page, { setup: true })
   await page.goto('/')
-  await page.getByLabel('설치 토큰').fill('setup-token-0123456789')
+  await page.getByLabel('설정 코드').fill('setup-token-0123456789')
   await page.getByTestId('setup-team').fill('Acme')
   await page.getByTestId('setup-name').fill('Kim Owner')
   await page.getByTestId('setup-username').fill('kim')
@@ -150,7 +150,7 @@ test.describe('first-run setup in a browser in Jakarta', () => {
   test('the team\'s time zone starts as the browser\'s', async ({ page }) => {
     await reset(page, { setup: true, teamLocale: 'en' })
     await page.goto('/')
-    await page.getByLabel('Setup token').fill('setup-token-0123456789')
+    await page.getByLabel('Setup code').fill('setup-token-0123456789')
     await page.getByTestId('setup-team').fill('Acme')
     await page.getByLabel('Your name').fill('Kim Owner')
     await page.getByLabel('Username').fill('kim')

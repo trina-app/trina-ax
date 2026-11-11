@@ -248,7 +248,7 @@ test('Groups: a row opens the group\'s page with its members, Edit and Delete', 
   await expect(page).toHaveURL(/\/admin\/groups$/)
 })
 
-test('an admin gets the same pages; a member opening one lands at home', async ({ page }) => {
+test('an admin gets the same pages; a member opening one is told it is for admins', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
   await signIn(page, { username: 'dana', password: 'dana password 1' })
   await page.goto('/admin/members/bob')
@@ -260,7 +260,9 @@ test('an admin gets the same pages; a member opening one lands at home', async (
   await page.context().clearCookies()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/members/olga')
-  await expect(page).not.toHaveURL(/\/admin/)
+  // TC-272's notice: the page is for admins, with a way Home; nothing of the person's page
+  await expect(page.getByTestId('admin-only')).toBeVisible()
+  await expect(page.getByTestId('member-page')).toHaveCount(0)
 })
 
 test('Groups: ⋯ is a bottom sheet, delete last; Usage limits ⌄ is a sheet too; By person\'s segments are 44 px', async ({ page }) => {
