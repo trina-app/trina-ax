@@ -3349,8 +3349,9 @@ type Saved = FileChangeSummary['saved'][number]
 /**
  * An answer's file summary from its file_events, in order: the files it made, changed or moved here (QA TC-018: a
  * folder a move made counted as a file, and moved files read "Created"), its conflict copies and its refused writes.
- * Files only: a folder made or moved is left out. A moved file is `moved`, unless this answer made it (then it is new
- * where it is now); its old place leaves the list.
+ * A folder made empty (move_files / copy_files making their target, ensureFolder) is not a file and is left out; a
+ * folder that came with its files (moved, or copied like a skill) stays one row, as before. A moved item is `moved`,
+ * unless this answer made it (then it is new where it is now); its old place leaves the list.
  */
 export function fileSummaryOf(rows: readonly FileEventRow[]): FileChangeSummary | null {
   if (!rows.length) return null
@@ -3362,7 +3363,8 @@ export function fileSummaryOf(rows: readonly FileEventRow[]): FileChangeSummary 
   for (const r of rows) {
     const d = parseJson(r.detail)
     if (r.path.includes('/.attachments/')) continue // screenshots the AI shared, attachments: not "changed files"
-    if (d.folder === true) continue
+    // an empty folder made here: not a file (one moved or copied here brings its files)
+    if (d.folder === true && r.action === 'create' && typeof d.movedFrom !== 'string' && typeof d.copiedFrom !== 'string' && !Array.isArray(d.sourcePaths)) continue
     if (r.action === 'delete' && typeof d.movedTo === 'string') {
       // its old place is not a file of this answer any more
       const was = saved.get(r.path)

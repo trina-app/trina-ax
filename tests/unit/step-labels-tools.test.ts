@@ -134,8 +134,9 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     // with edit_files' "+N", in the person's own folder; a path not in words keeps its line (the why in the screen's language)
     expect(shown('edit_files', `Edit files · users/0192f/a.md +2 · ${STEP_TEXT.ownFolderStep.en}`, 'ko').label).toBe(`여러 파일 수정 · 내 폴더 › a.md +2 · ${STEP_TEXT.ownFolderStep.ko}`)
     expect(shown('write', `Save · projects/acme/a.md · ${STEP_TEXT.roomGrantStep.en}`, 'ko')).toEqual({ label: `파일 저장 · projects/acme/a.md · ${STEP_TEXT.roomGrantStep.ko}` })
-    // a file whose own name looks like the why is still a path
+    // a file whose own name looks like the why is still a path; a memory's own words are not the why
     expect(shown('write', 'Save · shared/allowed once in this answer', 'en').label).toBe('Save · Company-wide › allowed once in this answer')
+    expect(localizeStep({ kind: 'tool', tool: 'remember', label: `Remembered: lunch · ${STEP_TEXT.roomOnceStep.en}` }, 'ko').label).toBe(`기억함: lunch · ${STEP_TEXT.roomOnceStep.en}`)
   })
 
   test('anything else stays as it is, without a path', () => {

@@ -200,11 +200,11 @@ describe('move_files', () => {
     // the turn made two folders and moved two files: two files, both moved ("3 files saved · Created" before)
     expect(rows.filter((x) => x.action === 'create').length).toBe(4)
     expect(fileSummaryOf(rows)).toEqual({ saved: [{ path: 'shared/tc018/2026/a.md', action: 'create', moved: true }, { path: 'shared/tc018/2026/b.md', action: 'create', moved: true }], conflicts: [], rejected: [] })
-    // only a folder made: nothing to show
+    // only folders made (empty): nothing to show
     expect(fileSummaryOf(rows.filter((x) => JSON.parse(x.detail ?? '{}').folder))).toBeNull()
   })
 
-  test('the file summary of moves within one answer: a file it made and then moved is new where it is now; a changed one moved says moved', () => {
+  test('the file summary of moves within one answer: a file it made and then moved is new where it is now; a changed one moved says moved; a folder that came with its files stays a row', () => {
     const ev = (path: string, action: string, detail: Record<string, unknown> = {}) => ({ path, action, detail: JSON.stringify(detail) })
     const rows = [
       ev('shared/drafts', 'create', { folder: true, tool: 'make_folder' }),
@@ -214,14 +214,17 @@ describe('move_files', () => {
       ev('shared/final/new.md', 'create', { movedFrom: 'shared/drafts/new.md', folder: false, tool: 'move_files' }),
       ev('shared/old.md', 'delete', { movedTo: 'shared/final/old.md', folder: false, tool: 'move_files' }),
       ev('shared/final/old.md', 'create', { movedFrom: 'shared/old.md', folder: false, tool: 'move_files' }),
-      // a folder moved: not a file
+      // a folder moved with its files, and a skill copied whole (one event for the folder): each still one row
       ev('shared/box', 'delete', { movedTo: 'shared/final/box', folder: true, tool: 'move_files' }),
       ev('shared/final/box', 'create', { movedFrom: 'shared/box', folder: true, tool: 'move_files' }),
+      ev('skills/brief', 'create', { folder: true, copiedFrom: 'users/alice/skills/brief', sourcePaths: ['users/alice/skills/brief'], files: 2, tool: 'skill_files' }),
       ev('shared/final/copy.md', 'create', { copiedFrom: 'shared/x.md', tool: 'copy_files' }),
     ]
     expect(fileSummaryOf(rows)?.saved).toEqual([
       { path: 'shared/final/new.md', action: 'create' },
       { path: 'shared/final/old.md', action: 'create', moved: true },
+      { path: 'shared/final/box', action: 'create', moved: true },
+      { path: 'skills/brief', action: 'create' },
       { path: 'shared/final/copy.md', action: 'create' },
     ])
   })

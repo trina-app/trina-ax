@@ -95,17 +95,20 @@ export interface AiTrashPlan {
  * something in one, or a folder with one in it now: the other folders that hold a skill root by their path get the
  * reason of what they are (AI_TRASH_FOLDER_REFUSAL). */
 export const AI_SKILL_TRASH_REFUSAL = 'a skill folder (skills/, a group\'s, a project\'s or a person\'s own skills: what people\'s AI follows), something in one, or a folder that holds one: skills are not deleted from a chat. The user deletes it on the Files screen or the Skills page'
+/** Who deletes it where a reason says so: the asker when they may (the owner or an admin; a project's creator for the
+ * project), else in general words ("an admin"). Never a person's name (docs/DECISIONS.md "Admins are never named"). */
+const deletes = (mayDelete: boolean, others = 'An admin') => (mayDelete ? 'The user deletes' : `${others} deletes`)
 /** delete_files' refusals for the other folders that never go to the trash from a chat, each by what the folder is
  * (TeamFiles.aiFolderRefusal; QA TC-016: a project's folder got the skill reason, and the AI sent an admin to the Skills
- * page). Each says where it is done, never who does it. */
+ * page). Each says where it is done and who may do it: `may` is whether the asker may (see `deletes`). */
 export const AI_TRASH_FOLDER_REFUSAL = {
-  project: 'a project\'s folder, or a folder that holds one: it does not go to the trash from a chat. The user deletes the project on the Projects screen, where a team project\'s own folder can go to the trash with it',
-  group: 'a group\'s folder, or a folder that holds one (what the group\'s members share): it does not go to the trash from a chat. The user deletes it on the Files screen; deleting the group itself keeps its folder',
+  project: (may: boolean) => `a project's folder, or a folder that holds one: it does not go to the trash from a chat. ${deletes(may, 'Its creator or an admin')} the project on the Projects screen, where a team project's own folder can go to the trash with it`,
+  group: (may: boolean) => `a group's folder, or a folder that holds one (what the group's members share): it does not go to the trash from a chat. ${deletes(may)} it on the Files screen; deleting the group itself keeps its folder`,
   own: 'the user\'s own personal folder: it never goes to the trash, from a chat or on the Files screen. The files and folders in it can',
-  rule: 'a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. The user deletes it on the Files screen',
-  projectsPlace: 'a folder right in projects/, where a team project keeps its folder and skills: it does not go to the trash from a chat. The user deletes it on the Files screen',
-  groupsPlace: 'a folder right in groups/, where a group keeps its folder and skills: it does not go to the trash from a chat. The user deletes it on the Files screen',
-} as const
+  rule: (may: boolean) => `a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+  projectsPlace: (may: boolean) => `a folder right in projects/, where a team project keeps its folder and skills: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+  groupsPlace: (may: boolean) => `a folder right in groups/, where a group keeps its folder and skills: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+}
 
 export class TeamFiles {
   /** sha256 by (path, inode, size, mtime) so repeated previews of big files don't re-hash */
@@ -1160,7 +1163,7 @@ export class TeamFiles {
     if (turnId !== null) {
       if (aiSkillPath(r.rel)) throw new Denied(AI_SKILL_TRASH_REFUSAL)
       // a folder that holds a skill root by its path, whatever it holds now; the reason says what it is
-      if (r.st!.isDirectory() && holdsSkillRoot(r.segs)) throw new Denied(this.aiFolderRefusal(rules, r.segs) ?? AI_SKILL_TRASH_REFUSAL)
+      if (r.st!.isDirectory() && holdsSkillRoot(r.segs)) throw new Denied(this.aiFolderRefusal(user, rules, r.segs) ?? AI_SKILL_TRASH_REFUSAL)
       if (!o.ai) throw new Denied('an AI turn puts things in the trash only with delete_files, after the user\'s yes on its card')
     }
     // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only. Not
@@ -1292,24 +1295,25 @@ export class TeamFiles {
    * root, something in one or a folder that holds one, an instruction file, a group / project / rule folder or a
    * folder that holds one (managedInside), a plugin's folder or one that holds it, or the target of an open upload
    * link. The Files screen keeps its own rules (assertMovable, assertMayChangeManaged): this is on top of them. A
-   * reason says where the person does it, never who (no "an admin": the asker may be one).
+   * reason says where it is done and who may do it, never a person's name (AI_TRASH_FOLDER_REFUSAL).
    */
   private aiTrashRefusal(user: Principal, rules: RuleSet, segs: string[], isDir: boolean): string | null {
     const rel = segs.join('/')
     const fold = (x: string) => x.normalize('NFC').toLowerCase()
+    const manager = user.role === 'owner' || user.role === 'admin'
     if (segs.length === 0 || fold(segs[0]!) === fold(PRODUCT.systemDir)) return 'the team root and the system folder never go to the trash'
     if (segs.some((x) => fold(x) === '.attachments')) return 'chat attachments (.attachments) go with their chats, not to the trash'
     if (fold(segs[0]!) === 'users' && segs.length >= 2 && segs[1] !== user.id) return 'another person\'s folder'
-    if (isDir && segs.length === 1) return 'a top-level folder never goes to the trash from a chat; the user deletes it on the Files screen'
+    if (isDir && segs.length === 1) return `a top-level folder never goes to the trash from a chat; ${manager ? 'the user deletes' : 'an admin deletes'} it on the Files screen`
     if (aiSkillPath(rel)) return AI_SKILL_TRASH_REFUSAL
     // a folder by what it is: a project's, a group's, the person's own, a rule folder, one that holds a skill root
-    const folder = isDir ? this.aiFolderRefusal(rules, segs) : null
+    const folder = isDir ? this.aiFolderRefusal(user, rules, segs) : null
     if (folder) return folder
     if (segs.some((x) => x.startsWith('.'))) return 'a hidden item; the user deletes it on the Files screen'
     if (instructionFile(rel)) return 'an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md: what an AI follows); the user deletes it on the Files screen'
     // a file is never a rule folder; asked as before all the same
-    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule
-    if (this.fx.managed?.managerOf(segs) || this.fx.managed?.heldBelow(segs)) return 'a plugin\'s folder, or one that holds it: the plugin is turned off first, in Admin > Plugins'
+    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule(manager)
+    if (this.fx.managed?.managerOf(segs) || this.fx.managed?.heldBelow(segs)) return 'a plugin\'s folder, or one that holds it: an admin turns the plugin off in Admin > Plugins'
     if (this.linkTarget(rel, isDir)) return 'an open upload link points here; it can go to the trash once the link is used or expires'
     return null
   }
@@ -1322,20 +1326,24 @@ export class TeamFiles {
    * or one that holds one (managedInside). What the folder is comes before what it holds; the skill reason only when a
    * skills folder is in it now. Another person's folder never reaches here (aiTrashRefusal).
    */
-  private aiFolderRefusal(rules: RuleSet, segs: string[]): string | null {
+  private aiFolderRefusal(user: Principal, rules: RuleSet, segs: string[]): string | null {
     const rel = segs.join('/')
     const top = segs[0]!.normalize('NFC').toLowerCase()
+    const manager = user.role === 'owner' || user.role === 'admin'
     if (top === 'users' && segs.length === 2) return AI_TRASH_FOLDER_REFUSAL.own
-    const project = this.placeAmong(rel, this.liveProjectFolders())
+    const projects = this.liveProjects()
+    const project = this.placeAmong(rel, projects.map((p) => p.folder_path))
     const group = this.placeAmong(rel, this.groupFolders())
-    if (project === 'at') return AI_TRASH_FOLDER_REFUSAL.project
-    if (group === 'at') return AI_TRASH_FOLDER_REFUSAL.group
+    // the project's creator deletes it too (routes/chats.ts deleteProject): every project there is the asker's
+    const mine = () => manager || projects.filter((p) => this.placeAmong(rel, [p.folder_path])).every((p) => p.created_by === user.id)
+    if (project === 'at') return AI_TRASH_FOLDER_REFUSAL.project(mine())
+    if (group === 'at') return AI_TRASH_FOLDER_REFUSAL.group(manager)
     const holder = holdsSkillRoot(segs)
     if (holder && this.skillsFolderIn(segs)) return AI_SKILL_TRASH_REFUSAL
-    if (project) return AI_TRASH_FOLDER_REFUSAL.project
-    if (group) return AI_TRASH_FOLDER_REFUSAL.group
-    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule
-    if (holder) return top === 'groups' ? AI_TRASH_FOLDER_REFUSAL.groupsPlace : AI_TRASH_FOLDER_REFUSAL.projectsPlace
+    if (project) return AI_TRASH_FOLDER_REFUSAL.project(mine())
+    if (group) return AI_TRASH_FOLDER_REFUSAL.group(manager)
+    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule(manager)
+    if (holder) return top === 'groups' ? AI_TRASH_FOLDER_REFUSAL.groupsPlace(manager) : AI_TRASH_FOLDER_REFUSAL.projectsPlace(manager)
     return null
   }
 
@@ -1352,9 +1360,9 @@ export class TeamFiles {
     }
     return above ? 'above' : null
   }
-  /** The folders of the live projects (not in the trash), personal projects included. */
-  private liveProjectFolders(): string[] {
-    return (this.ctx.db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]).map((x) => x.folder_path)
+  /** The live projects (not in the trash), personal projects included: their folders and who made them. */
+  private liveProjects(): { folder_path: string; created_by: string }[] {
+    return this.ctx.db.query('SELECT folder_path, created_by FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string; created_by: string }[]
   }
   /** The groups' folders. */
   private groupFolders(): string[] {

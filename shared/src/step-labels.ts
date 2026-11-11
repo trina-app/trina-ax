@@ -168,6 +168,9 @@ export const STEP_TEXT = {
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
+/** Steps whose line is someone's own words after a template (a question, a memory, a sub-task) or the server's notice. */
+const TEXT_STEP_TOOLS = new Set(['ask_user', 'remember', 'forget', 'agent', 'refusal', 'demo_replay', 'engine', 'attachment'])
+
 /** The words that may end any step's line after " · ": why the call went on without a card (STEP_TEXT above). */
 export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep'] as const satisfies readonly StepTextKey[]
 
@@ -426,9 +429,10 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale)
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
   const detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
-  // why a call went on without a card, at the end of its line: in the screen's language too
+  // why a call went on without a card, at the end of a tool's line: in the screen's language too (not in the words of
+  // a question, a memory or a sub-task, which are the AI's or the person's)
   let out = label ?? step.label
-  const why = coverWhy(out)
+  const why = step.kind === 'tool' && !TEXT_STEP_TOOLS.has(tool) ? coverWhy(out) : null
   if (why) out = `${out.slice(0, -why.end.length)} · ${STEP_TEXT[why.key][locale] ?? STEP_TEXT[why.key].en}`
   return { label: out, ...(detail !== undefined ? { detail } : {}) }
 }

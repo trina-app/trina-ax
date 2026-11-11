@@ -17972,7 +17972,9 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   the Files screen; a folder right in `projects/` or `groups/` that is none of these → its place and the Files screen.
   The skill reason only for a skill folder, something in one, or a folder with a `skills` entry in it now. What a folder
   is comes before what it holds. The same folders are refused as before, by `remove()`'s guard too; only the words
-  changed. A reason says where it is done, never who: no reason says "an admin" (the asker may be one).
+  changed. Who does it, in general words: "the user" when they may (the owner and admins; a project's creator for the
+  project), else "an admin" or "its creator or an admin" (the top-level reason too), never a person's name ("Admins are
+  never named"): an admin is not told that an admin does it, a member is not sent to a delete that fails.
 - **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
   folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
   card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
@@ -18197,10 +18199,11 @@ some of them into cards.
   anything).
 - The README instruction is gone; the tools' descriptions say a missing folder is made.
 - **The answer's file summary** (QA TC-018, 2026-11-11, `fix/qa-11-11-followups`): two files moved into a new folder
-  read "파일 3개 저장" with every row "새로 만듦". It counts files only now (a folder made or moved is not one), and a
-  file the answer moved is `moved` ("옮김"; an optional field next to `action: 'create'`, so an older app still shows
-  "새로 만듦"). A file the answer made and then moved is new where it is now; its old place leaves the list
-  (`chat/turn.ts fileSummaryOf`).
+  read "파일 3개 저장" with every row "새로 만듦". An empty folder the tool made is not a file and is left out; a file the
+  answer moved is `moved` ("옮김"; an optional field next to `action: 'create'`, so an older app still shows "새로 만듦").
+  A folder that came with its files (moved whole, a skill copied whole: one event for the folder) stays one row as
+  before, moved or new, so such an answer still shows its chip. A file the answer made and then moved is new where it
+  is now; its old place leaves the list (`chat/turn.ts fileSummaryOf`).
 
 ## Scheduled tasks: saving and sending allowed on the card (feat/schedule-save-scope, 2026-11-10, product owner)
 
