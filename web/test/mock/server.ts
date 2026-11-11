@@ -2066,6 +2066,14 @@ export class MockServer {
         rooms, nextCursor: null,
       }
     },
+    // and the files sent with them, by name (every word), newest first, like the server's
+    searchRoomFiles: (c) => {
+      const words = String(c.query.q ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean)
+      const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event).flatMap((m) => m.files.filter((f) => words.every((w) => f.name.toLowerCase().includes(w))).map((file) => ({ m, room, file }))))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt)).slice(0, Number(c.query.limit ?? 20))
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), rooms, nextCursor: null }
+    },
     listRoomMembers: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }

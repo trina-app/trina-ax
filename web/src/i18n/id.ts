@@ -3477,6 +3477,7 @@ export const id: Record<MessageKey, string> = {
   "search.messagesFailed": "Tidak bisa mencari pesan.",
   "search.inThread": "utas",
   "search.dm": "Pesan langsung",
+  "search.roomsPeople": "Percakapan & orang",
   "rooms.toNewest": "Ke pesan terbaru",
   "chatux.waitingForYou": "Menunggu Anda. Lihat kartu di bawah.",
   "files.passThroughShort": "Hanya dilewati",

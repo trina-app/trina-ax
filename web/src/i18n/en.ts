@@ -3477,6 +3477,7 @@ export const en: Record<MessageKey, string> = {
   "search.messagesFailed": "Couldn't search the messages.",
   "search.inThread": "thread",
   "search.dm": "Direct message",
+  "search.roomsPeople": "Rooms & people",
   "rooms.toNewest": "Jump to recent",
   "chatux.waitingForYou": "Waiting for you. See the card below.",
   "files.passThroughShort": "Pass-through only",
