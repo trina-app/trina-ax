@@ -1590,6 +1590,8 @@ export const id: Record<MessageKey, string> = {
   'memory.added': "Memori ditambahkan.",
   'memory.updated': "Memori diperbarui.",
   'memory.editLabel': "Ubah memori ini",
+  'memory.notUsed': "AI hanya memakai {used} memori terbaru Anda. {count, plural, one {# memori} other {# memori}} yang lebih lama tidak dipakai sekarang (ditandai 'Tidak dipakai'). Agar dipakai lagi, hapus memori yang tidak Anda perlukan.",
+  'memory.unused': "Tidak dipakai",
 
   'apps.teamAddress': "Alamat tim",
   'apps.teamAddressHint': "Buka aplikasi di perangkat baru dan masukkan alamat ini.",

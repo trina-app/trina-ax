@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 19:03
 - Branch: `fix/memories-in-use`
-- Status: in progress
+- Status: done
 - Where: `server/src/chat/prompt.ts`, `server/src/routes/memories.ts`, `shared/src/api/memories.ts` /
   `entities.ts`, `web/src/pages/Settings.tsx` (Memories), the five locales, a short `docs/DECISIONS.md` section.
   Why: memories are core (see docs/REPOSITORY-RULES.md)
@@ -50,4 +50,12 @@ memories tests; a local dev server check with 110 memories.
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the `docs/DECISIONS.md` section "Memories the AI does not get now are marked". One thing the
+row's numbers showed: the 4,096-character block ends before the 100 the turn reads even for short memories (about 85
+for "사실 001"; 65 for QA-like "사실 001: 이건 테스트용 사실이에요"), so the cut is worked out from the block, never assumed
+to be 100.
+
+Checked on a local dev server: 110 memories added through the API; `GET /api/memories` said `inUse` 65 of `total` 110
+and marked from "사실 045" down; Settings › 메모리 showed "AI는 최근 메모리 65개만 써요. 그보다 오래된 45개는 지금 쓰지
+않아요('쓰지 않음' 표시). 다시 쓰게 하려면 필요 없는 메모리를 지우세요." above the list and "쓰지 않음" on the 35 such rows
+of the first page.

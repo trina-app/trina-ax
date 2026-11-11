@@ -1562,6 +1562,8 @@ export const es: Record<MessageKey, string> = {
   'memory.added': "Memoria añadida.",
   'memory.updated': "Memoria actualizada.",
   'memory.editLabel': "Editar esta memoria",
+  'memory.notUsed': "La IA solo usa sus {used} memorias más recientes. {count, plural, one {# memoria más antigua no se usa} other {# memorias más antiguas no se usan}} ahora (marcadas «Sin usar»). Para que se vuelvan a usar, elimine las memorias que ya no necesite.",
+  'memory.unused': "Sin usar",
   'apps.teamAddress': "Dirección del equipo",
   'apps.teamAddressHint': "Abra la aplicación en un dispositivo nuevo e introduzca esta dirección.",
   'apps.installTitle': "Instalar como aplicación",

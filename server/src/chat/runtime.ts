@@ -30,6 +30,7 @@ import { MCP_TOOL_TIMEOUT_MS } from '../engine/claude'
 import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import type { RoomPrompt } from './prompt'
+import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
 import { Audiences, chatView, isSharedRow, labelledTranscript, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { newAnswerRecord } from './shared-answers'
@@ -44,6 +45,9 @@ export const DEFAULT_MAX_ENGINE_TURNS = DEFAULT_ANSWER_STEP_LIMIT
 export const QUEUE_TEAM_MIN = 10
 export const QUEUE_PER_USER = 3
 export const QUEUE_RETRY_AFTER_S = 30
+/** how many of the person's newest memories a turn reads (then cut to what fits in the memory block, prompt.ts) */
+export const MEMORIES_FOR_PROMPT = 100
+
 /** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
 export const MEMORY_RECHECK_MS = 2000
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
@@ -876,7 +880,13 @@ export class ChatRuntime {
     return (this.db.query(`SELECT name FROM groups WHERE id IN (${p.groups.map(() => '?').join(',')}) ORDER BY name`).all(...p.groups) as { name: string }[]).map((r) => r.name)
   }
   memoriesForPrompt(userId: string): { id: string; text: string }[] {
-    return this.db.query('SELECT id, text FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100').all(userId) as { id: string; text: string }[]
+    return this.db.query(`SELECT id, text FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ${MEMORIES_FOR_PROMPT}`).all(userId) as { id: string; text: string }[]
+  }
+  /** The ids of the person's memories the AI gets now: the newest MEMORIES_FOR_PROMPT that fit in the memory block
+   * (prompt.ts memoryLines). The others are kept and listed, not given to the AI (Settings › 메모리 says so). */
+  memoriesInUse(userId: string): Set<string> {
+    const rows = this.memoriesForPrompt(userId)
+    return new Set(rows.slice(0, memoryLines(rows).length).map((r) => r.id))
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
    * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and
