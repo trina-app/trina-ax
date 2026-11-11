@@ -311,7 +311,7 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
 
 /** A connector's page inside the same window, like Claude's: back to the list, a big logo, the name and one line with the
  * main action on the right, a short description, and the tools the AI gets from it. */
-export function ConnectorDetail({ logo, name, line, official, action, description, tools, toolsNote, onBack, children, testId }: {
+export function ConnectorDetail({ logo, name, line, official, action, description, tools, toolsNote, noTools, onBack, children, testId }: {
   logo: string
   name: string
   line: string
@@ -322,6 +322,8 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
   tools?: string[]
   /** instead of tools: why there are none to show yet */
   toolsNote?: string
+  /** no tools section: the connection's own row (children) lists them with their switches */
+  noTools?: boolean
   onBack: () => void
   children?: ReactNode
   testId: string
@@ -351,7 +353,7 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
         {children && <div className="mt-4">{children}</div>}
       </div>
       <p className="max-w-3xl text-sm leading-relaxed text-ink/90">{description}</p>
-      <div>
+      {!noTools && <div>
         <h4 className="mb-3 text-base font-semibold">{t('connectors.tools')}</h4>
         {tools?.length ? (
           <ul className="flex flex-wrap gap-2" data-testid="connector-tools">
@@ -360,7 +362,7 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
         ) : (
           <p className="text-sm text-muted" data-testid="connector-tools-note">{toolsNote ?? t('connectors.toolsAfter')}</p>
         )}
-      </div>
+      </div>}
     </section>
   )
 }

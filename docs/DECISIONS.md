@@ -19903,6 +19903,100 @@ Replaces "K — Knowledge graph" (2026-11-06), "지식 그래프로 더 빠른 �
   until 0.5.0-beta.1), whose removal note was one of those lines, and its model, which that note said would stay.
 - Version impact: **minor** (0.x): a feature and an admin API are removed; nothing an installed team set up stops
   loading.
+
+## Gmail, Google Calendar, Google Docs and Google Sheets as built-in connectors — the server side (feat/google-workspace-connectors, 2026-11-11, product owner)
+
+Plan: `docs/AGENTS/plan/20261111-0346-google-workspace-connectors.md` (the owner's decisions 1–13). How it works:
+[GOOGLE-APPS.md](GOOGLE-APPS.md).
+
+- **A person's connection is a personal `integrations` row with a `google_app` column, not a new `kind`.** The plan
+  asked for a new connection kind; `integrations.kind` has a CHECK of `('mcp','http')` and a table is never rebuilt
+  (server/src/db.ts), so migration 341 adds `google_app` (CHECK of the four apps, unique per person and app) and the
+  row is `kind = 'mcp'`. Every rule of a member's own MCP connection then applies without a second code path: sealed
+  tokens and refresh, the write card, per-tool switches, scheduled-run rules, audit, secrets hidden in answers. It is
+  hidden from the generic list and the generic manage APIs; its `url` is a placeholder under the reserved `.invalid`
+  name, so an older build that lists it as an ordinary connection never sends its token anywhere. The safe-operations
+  policy trigger of `integrations` is made again with the column.
+- **Always allow is the person's own for a Google app** — an exception to "Run without asking is for team connections
+  only" (migration 322, "Connected-service writes" above), for `google_app` rows only (owner decision 3). The confirm
+  card for such a connection offers Send, **Always allow**, Don't send; Always allow sets the connection's write policy
+  to `allow` (audited `google_app.write_policy`, `via: card`), and the page's Settings turns it back. Kept from the rule
+  it bends: after the person's chat read their rooms, and in a room's session, every change asks again and the card does
+  not offer Always allow (other people's words could have asked for it); a scheduled run follows the personal rules
+  unchanged (only pinned recipients, else nothing is sent), never `allow`.
+- **The calls go only to the library on 127.0.0.1**, at exactly the address it was started on, over `node:http` (no
+  environment proxy sees the token). The connection's own address is never used, and the generic rules for connection
+  addresses (https, public addresses only, `net.ts`) are unchanged: nothing a person types can name the library.
+- **The refresh uses the card's client as set up now**, never a client stored with the tokens: the client secret stays
+  in its private file, and a new client (or "same as Drive" after Drive's changed) ends the old sign-in, as a new Drive
+  client does for Drive.
+- **Sign-in flows have a table of their own** (`google_app_flows`), not `drive_oauth_flows` (its `purpose` CHECK) nor
+  `integration_oauth_flows` (no `ready` state for the account to confirm, and its row must name an existing connection):
+  the connection is made only when the person confirms the account.
+- **Revoke only the last Google sign-in.** Google revokes a whole grant, so disconnecting one app (or Google Drive)
+  revokes at Google only when none of the person's other Google sign-ins here is left; otherwise `not_needed`. Google
+  Drive's Disconnect follows the same rule now.
+- **Google Drive's members switch is on for new teams.** No stored value means on; migration 341 writes "off" for every
+  team that existed then (it has people) and had no value, so a team made earlier keeps exactly what it had. Chosen over
+  "on when the team was made after a date" because nothing else has to remember a date, and over flipping every team,
+  which would let members connect where an admin had not chosen it.
+- **Rooms use the asker's own Google apps only.** The integrations provider gets `room: true` in a room's session and
+  offers only the caller's `google_app` rows; their reads need no room card, their changes ask on the connection's card
+  with the room line; their answers add the connection to the read scope as `integration` (besides the person), and
+  the tool is outside the team-file tools, so `rooms/ai.ts` decide() keeps the answer private to the asker. No new card.
+- **Gmail attachments by address are refused** before anything is sent (`url` or `path` in `send_gmail_message` /
+  `draft_gmail_message` attachments): the library would fetch the address or read a file on the server. The attachment
+  tool is called with `return_base64` and its bytes are read by the existing readers (files/extract.ts, the vision
+  converter); the model gets text or a picture, never base64. A PDF or picture is kept for the chat (connections/
+  media.ts) for `save_url`; other kinds are saved from their text with the file tools, only when the person asks.
+- **The hosting service's sign-in** is the Drive broker with the `app` field; an older control plane answers
+  `invalid_request`, which the card shows as "not available yet" (`service_limited`) for ten minutes.
+- **Merged with "Plain words for members" (2026-11-11).** The sidebar item, the page's title and Settings use that
+  entry's name, **Connected apps** (`integrations.title`), not "Connectors"; the AI's pointers say "Connected apps ›
+  Gmail (Reconnect)" for a Google app and "Settings › Connected apps" for the rest. Adding a service by its address
+  stays with owners and admins on the new page too: a member reads "Not listed? Ask an admin to add it."
+- Version impact: **minor** (new connectors, API and an add-only migration).
+- Tests: `tests/unit/c-google-apps-signin.test.ts`, `c-google-apps-tools.test.ts` (fake Google, a fake library on
+  127.0.0.1, the fake broker with the `app` field; token and client-secret canaries).
+
+## A Python program in the one list of packages (feat/google-workspace-connectors, 2026-11-11)
+
+Input: the Gmail, Calendar, Docs and Sheets connectors run the Google Workspace MCP library, a Python program with about
+90 dependencies, on every Linux server ([GOOGLE-APPS-RUNTIME.md](GOOGLE-APPS-RUNTIME.md)). "One list of system packages"
+above pins downloads by sha256 and lets no script keep a list of its own; a Python program had no place in it.
+
+- **A third kind in `scripts/system/packages.json`: `python`.** Per program: its version, the Python it needs (`>=3.N`),
+  the program in the venv's `bin/`, and every wheel as `name==version` with the sha256 of each file pip may take for it.
+  A group names its programs (`"python": [...]`) and must bring `python3` and `python3-venv` itself. The validator
+  (`packages.ts`) refuses a range, a missing hash, a version that moved without its wheels and a program no group
+  installs.
+- **The pins are in the list, not in a requirements file next to it.** `mycel-ctl update` copies only `packages.json`,
+  its flat copy and `packages.sh` from `root/` before a sync, and the bundle signs `root/` as a whole: inside the list,
+  the wheels are signed, shipped and compared (a changed wheel is a changed list, so a root update) with no new root
+  file and no change to `mycel-ctl`. `packages.sh` writes pip's requirements file from the list's flat lines (`W`).
+- **Generated from the project's own `uv.lock`** by `scripts/system/python-lock.ts`, for CPython 3.11 to 3.13 (the
+  Pythons of the list's systems), amd64 and arm64, glibc wheels or pure Python. It stops when a dependency has no wheel
+  for one of them (`--only-binary` would fail), or when the dependency set differs between them (it writes no
+  environment markers; workspace-mcp 2.4.1 has one set), or when a pin is below the release's own requirement. Checked
+  on 2026-11-11: `pip download --require-hashes --only-binary=:all: --no-deps` of the 90 lines for each of the six
+  systems finds every wheel.
+- **pip with nothing of the machine's:** `--require-hashes --only-binary=:all: --no-deps --isolated --no-cache-dir
+  --index-url=https://pypi.org/simple`, an empty environment but the proxy variables, bounded like a download
+  (`PK_FETCH_BUDGET`).
+- **A venv cannot be moved**, so it is built in its final folder, `/opt/trina/python/<name>/<version>-<sha12>` (sha12 of
+  the requirements text), and is finished only when its `.sha256` is written; a folder without it is built again.
+  `current` moves to it only when its program starts (`--help`); the one before stays until the next switch, like the
+  browser.
+- **Default group, also in Docker.** `google-apps` is `install: default` (every install without `--minimal`, the hosted
+  image through the installer) and the Docker image adds it by default (a kit whose list has the group), because the
+  connectors are core. A failure only warns: the server runs, the cards say the apps are not reachable.
+- **The server finds it at a fixed path** (`/opt/trina/python/workspace-mcp/current/bin/workspace-mcp`), not through
+  `/etc/default/<id>` as the browser: the Docker image installs it at build time, before any install id exists, and
+  nothing has to change when the venv does.
+- Version impact: part of the feature's **minor**; the changed list is a root update.
+- Tests: `tests/unit/system-packages.test.ts` (the validator cases, both readers, the requirements pip gets, a fake
+  `python3` and pip: the folder, the flags, the switch, failures that leave `current`), `c-google-apps-library.test.ts`.
+
 ## Plain words for members — 멤버 화면은 쉬운 말로 (fix/plain-words-member-screens, 2026-11-11, product owner)
 
 Trina AX is used by ordinary office workers, almost never developers (owner rule, 2026-11-11). A read-only audit of

@@ -103,7 +103,7 @@ test('R3: every actual policy column changes and restores its epoch; bookkeeping
     users:'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
     groups:'id folder_id',group_members:'group_id user_id',folders:'id path',
     folder_rules:'id folder_id subject_type subject_id access',
-    integrations:'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version',
+    integrations:'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version google_app',
     integration_access:'integration_id subject_type subject_id',connected_folders:'id name source',
   }
   const epoch=()=> (db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation
@@ -118,7 +118,7 @@ test('R3: every actual policy column changes and restores its epoch; bookkeeping
       for(const column of columns) {
         const before=epoch(),old=row[column],bearing=fields.split(' ').includes(column)
         let value:any=typeof old==='number'?old+1:old===null?'r3-value':old+'-r3'
-        const alternatives:Record<string,string[]>={role:['member','admin'],status:table==='users'?['active','disabled']:['connected','error'],kind:['mcp','http'],auth:['none','bearer'],write_policy:['ask','deny'],subject_type:['user','group'],access:['none','write'],scope:['personal','team']}
+        const alternatives:Record<string,string[]>={role:['member','admin'],status:table==='users'?['active','disabled']:['connected','error'],kind:['mcp','http'],auth:['none','bearer'],write_policy:['ask','deny'],subject_type:['user','group'],access:['none','write'],scope:['personal','team'],google_app:['gmail','calendar']}
         if(alternatives[column])value=alternatives[column].find(v=>v!==old)
         const scope=table==='integrations' && column==='scope'
         db.exec('BEGIN')

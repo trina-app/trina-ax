@@ -168,7 +168,9 @@ export interface TurnTool {
  */
 export interface TurnToolProvider {
   name: string
-  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean }): { tools: TurnTool[]; prompt?: string | null; context?: string | null }
+  /** `room`: a team chat room's AI session (rooms/ai.ts): a provider offers only what may be used there (the asker's own
+   * Google apps, integrations/connections/tools.ts), or nothing */
+  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean; room?: boolean }): { tools: TurnTool[]; prompt?: string | null; context?: string | null }
 }
 
 export interface JobHandle {
