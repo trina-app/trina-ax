@@ -13,7 +13,7 @@ import { confirmDialog, promptDialog } from '../ui'
 /** "Undo" on the deleted toast: the chat comes back, or a failure says so (it stays in the trash, where it can still be
  * restored) */
 export const undoDelete = (chatId: string, failText: string): Promise<void> =>
-  api.call(API.restoreChat, { params: { id: chatId } }).then(useChats.getState().upsertChat, () => toast({ level: 'error', text: failText }))
+  api.call(API.restoreChat, { params: { id: chatId } }).then(useChats.getState().upsertChat, () => void toast({ level: 'error', text: failText }))
 
 export function useChatActions() {
   const t = useT()

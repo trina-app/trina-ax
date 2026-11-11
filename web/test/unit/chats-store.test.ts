@@ -126,7 +126,7 @@ describe('sending', () => {
   })
 
   test('Stop while a send fails: the stop still goes (nothing waits forever) and nothing else is sent', async () => {
-    route = (m, p) => (p.endsWith('/stop') ? json({ stopped: false, turnId: null }) : json({ error: { code: 'limit', message: 'limit' } }, 429))
+    route = (_m, p) => (p.endsWith('/stop') ? json({ stopped: false, turnId: null }) : json({ error: { code: 'limit', message: 'limit' } }, 429))
     useChats.setState({ threads: { [CHAT]: { messages: [], nextCursor: null, stale: false } } })
     const { sent } = await useChats.getState().send({ chatId: CHAT, content: 'hi', attachments: [], author: me })
     await useChats.getState().stop(CHAT)
