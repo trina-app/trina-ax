@@ -15,7 +15,7 @@ apps this server's AI uses with a person's own account (`web/src/lib/connectors.
 Admin › App connectors shows whether the server has a Google client and how many members are connected, and an admin
 can set the client up there. These connections are the other direction from the "connectors" of
 `server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › AI
-apps and Admin › AI apps.
+apps and Admin › Use from other AI apps.
 
 Gmail, Google Calendar, Google Docs and Google Sheets are built-in connectors too
 ([GOOGLE-APPS.md](GOOGLE-APPS.md)): a card each, one Google sign-in per app, the tools of the Google Workspace MCP
@@ -46,7 +46,7 @@ team app changes them only after its own confirmation, which an outside model ca
   (`mcp:rooms.write`) unticked and only with reading (a page without these boxes grants neither); `mcp:admin` comes
   with every new connection of an active owner or admin (no
   box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
-  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › AI apps says so).
+  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › Use from other AI apps says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
@@ -97,7 +97,7 @@ back), `server/src/routes/integrations.ts`, migration
 
 A template is a service an admin registers once for the team, without a key; each member it is for connects it with
 their own key or sign-in. One shared team key would let everyone's AI act with the key owner's rights, and the service
-would log every call under that one person; a template keeps each call under its member's own rights. In Admin › MCP,
+would log every call under that one person; a template keeps each call under its member's own rights. In Admin › Connected apps,
 "Add connection" (and a Discover card's +) asks who connects: **For the team (one key)**, a team connection as above,
 the default; or **Template: each member connects their own**, which takes the kind, name, address, sign-in method (an
 API key with its header, or OAuth), who it is for (everyone, groups, people; admins only when named) and an optional
@@ -106,7 +106,7 @@ member's key, so a key there would reach every member and the service would log 
 name reaches every member's AI, so it may not hold hidden or direction-changing characters, a double quote or control
 characters (and the note no hidden characters).
 
-- The members it is for see it in Settings › Connectors under `From <team>`. **Connect your account** opens the same
+- The members it is for see it in Settings › Connected apps under `From <team>`. **Connect your account** opens the same
   dialog as an admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and
   the write rule (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
   refused (409, "This template changed") and shown again as it is now. It becomes their own (personal) connection, made through the same create path as one they add
@@ -129,7 +129,7 @@ characters (and the note no hidden characters).
   Its maker is not told about their own template, someone who connected it already is not told, and
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
-  (`integration.template_reconnect`, one per change). Both open Settings › MCP with the template's Connect
+  (`integration.template_reconnect`, one per change). Both open Settings › Connected apps with the template's Connect
   (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
 - In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
   offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
@@ -565,7 +565,7 @@ connections with their address and the first 1,000 characters of their notes.
 
 ## Discover
 
-Settings › Connectors and Admin › Connectors are one page each, with the same title (the Admin shell says `Applies to
+Settings › Connected apps and Admin › Connected apps are one page each, with the same title (the Admin shell says `Applies to
 everyone in <team>`, Settings "Just for you"): first the connections, one line per connection with its details a click
 away (in Admin with who may use it in a chip after the name; in Settings what the team provides under `From <team>`,
 read-only, then the person's own under "Connected"), then **Discover**, MCP servers to add by name

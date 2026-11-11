@@ -32,7 +32,7 @@
   "groups": {
     "core": {
       "install": "always",
-      "for": "the sandbox (bwrap), the engine firewall (nft), downloads and unpacking. Floors: Debian 12, the oldest release",
+      "for": "the sandbox (bwrap), the engine firewall (nft), sysctl (procps), downloads and unpacking. Floors: Debian 12, the oldest release",
       "packages": {
         "bubblewrap": ">=0.8.0",
         "nftables": ">=1.0.6",
@@ -42,6 +42,7 @@
         "file": ">=1:5.44",
         "zstd": ">=1.5.4",
         "util-linux": ">=2.38.1",
+        "procps": ">=2:4.0.2",
         "apparmor": { "when": "userns-restricted" }
       }
     },

@@ -98,7 +98,7 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
   }
   // the search narrows the list by name; a section opens on the right and the address follows
   await dialog.getByTestId('settings-search').fill('mc')
-  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([/커넥터|Connectors/])
+  await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([/연결한 서비스|Connected apps/])
   // (Connectors itself is a page of the sidebar now: its section here leads there, connectors-hub.spec.ts)
   await dialog.getByTestId('settings-search').fill('zzz')
   await expect(dialog.getByTestId('settings-no-match')).toBeVisible()

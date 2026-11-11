@@ -9,7 +9,8 @@ import { InboxNotification, uuidv7, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { Notifications, noticeLink, noticeText } from '../../src/components/settings/Notifications'
+import { noticeLink, noticeText } from '../../src/components/settings/Notifications'
+import Activity from '../../src/pages/Activity'
 import { installDom, mount, removeDom } from './dom-host'
 import { ME } from './rooms-fixtures'
 
@@ -91,7 +92,7 @@ test('the Inbox: a run is one link with its task, time and dot that reads it; no
   const still = notice({ link: null, chatId: null })
   const job = notice({ eventType: 'dev_env.job', code: 'dev_env.job', outcome: null, devEnv: { projectId: 'p1', projectName: 'Site', job: { name: 'build', exitCode: 1, note: '', tail: 'npm ERR! missing script' } } })
   items = [run, read, still, job]
-  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  const m = await mount(<MemoryRouter><Activity /></MemoryRouter>)
   try {
     await m.until(() => m.find('notification-chat-link'), 'the rows')
     const rows = m.container.ownerDocument!.body.querySelectorAll('[data-testid="notification-item"]')

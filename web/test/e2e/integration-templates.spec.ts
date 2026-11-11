@@ -305,7 +305,7 @@ test('R2 and R7: an inbox notice and a scheduled task that needed the key open t
     { id: 'n1', eventType: 'integration.template', code: 'integration.template', sourceId: tid, createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: null, template: { id: tid, name: 'Tasks' } },
     { id: 'n2', eventType: 'schedule.failure', code: 'schedule.failure', sourceId: 's1', createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: tid, name: 'Tasks' } },
   ] } }))
-  await page.goto('/settings/notifications')
+  await page.goto('/activity')
   const items = page.getByTestId('notification-item')
   await expect(items.filter({ hasText: 'Tasks is ready: connect it with your own key.' })).toBeVisible()
   await expect(items.filter({ hasText: 'A scheduled task did not run: it needs your own key for Tasks.' })).toBeVisible()

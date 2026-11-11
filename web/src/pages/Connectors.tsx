@@ -5,10 +5,11 @@
 // connections), each opening its page; then **Popular**: Trina's built-in cards first (Google Drive, Gmail, Google
 // Calendar, Google Docs, Google Sheets), then the listed MCP services (lib/connectors.ts), with a + that connects at once
 // (a Google card opens Google during the click), a ✓ once connected, or why not now. "Add custom connector" in the title
-// row takes any MCP server or API by its address. A card opens its page, /connectors/<id>: a built-in's (AppDetail.tsx:
+// row takes any MCP server or API by its address: owners and admins only; a member reads "Not listed? Ask an admin to
+// add it." under Popular instead (docs/DECISIONS.md "Plain words for members"). A card opens its page, /connectors/<id>: a built-in's (AppDetail.tsx:
 // Connect, things to try, About, what the AI can do, Information, the tools), a listed service's (ConnectorDetail), or
 // /connectors/mcp/<connection id> for a connection of the person's own (its row, with everything it had before).
-// Settings › Connectors leads here (SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1 (old Drive
+// Settings › Connected apps leads here (SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1 (old Drive
 // links: Google Drive's page). The state (the lists, Drive's and the Google apps' sign-ins, the add dialog) lives in
 // ConnectorsLayout, so a + can open Google during the click and its page shows the same sign-in.
 import clsx from 'clsx'
@@ -115,13 +116,13 @@ export function ConnectorsHome() {
   const [fromTeamShown, setFromTeamShown] = useState<boolean | null>(null)
   const [params, setParams] = useSearchParams()
   const personalAllowed = list.data?.personalAllowed
-  // ?add=1 (Search's "Add MCP") opens the add dialog once the list says members may add their own; ?drive=1 (old Drive
-  // links, a notice) opens Google Drive's page
+  // ?add=1 (Search's "Connect an app") opens the add dialog once the list says members may add their own, for owners
+  // and admins (a member's Search comes here without it); ?drive=1 (old Drive links, a notice) opens Google Drive's page
   useEffect(() => {
     if (params.get('add') !== '1' || personalAllowed === undefined) return
-    if (personalAllowed) setDialog({})
+    if (personalAllowed && admin) setDialog({})
     setParams((p) => { p.delete('add'); return p }, { replace: true })
-  }, [params, personalAllowed, setParams, setDialog])
+  }, [params, personalAllowed, admin, setParams, setDialog])
   if (params.get('drive') === '1') return <Navigate to="/connectors/google-drive" replace />
 
   const mine = list.data ? splitByScope(list.data.items).mine : []
@@ -176,7 +177,7 @@ export function ConnectorsHome() {
             <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
             <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
           </div>
-          {personalAllowed && (
+          {personalAllowed && admin && (
             <Button onClick={() => setDialog({})} data-testid="integration-add">
               <Plus size={15} aria-hidden /> {t('connectorsPage.addCustom')}
             </Button>
@@ -192,7 +193,12 @@ export function ConnectorsHome() {
             onShown={setFromTeamShown} />
         </div>
         {list.error && <ErrorNote onRetry={() => void list.reload()}>{list.error}</ErrorNote>}
-        {loading ? <Skeleton lines={4} /> : nothing ? <EmptyState title={t('integrations.noMatch', { q })} /> : (
+        {/* a service a member looked for and did not find: where to go next (an owner or admin has Add above) */}
+        {loading ? <Skeleton lines={4} /> : nothing ? (
+          <EmptyState title={t('integrations.noMatch', { q })}>
+            {personalAllowed && !admin && <p data-testid="connector-ask-admin">{t('integrations.discover.customHint')} {t('integrations.discover.askAdmin')}</p>}
+          </EmptyState>
+        ) : (
           <>
             {personalAllowed === false && mine.length > 0 && (
               <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">{t('integrations.personalOff')}</p>
@@ -230,6 +236,12 @@ export function ConnectorsHome() {
                 <ul className="grid gap-x-6 sm:grid-cols-2" data-testid="connector-list">
                   {shownCards.map((c) => <PopularCard key={c.id} c={c} />)}
                 </ul>
+                {/* members: the address form (kind, sign-in method, headers, scopes) is an admin's job */}
+                {personalAllowed && !admin && (
+                  <p className="mt-5 text-sm text-muted" data-testid="connector-not-listed">
+                    {t('integrations.discover.customHint')} <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
+                  </p>
+                )}
               </section>
             )}
             <p className="text-xs text-faint">{t('integrations.privacy')}</p>

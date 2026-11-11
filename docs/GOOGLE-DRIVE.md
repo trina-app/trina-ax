@@ -14,9 +14,9 @@ The page does not change: a hosted server (the hosting service owns its setup), 
 
 ## What is on: the members' switch and team shares
 
-A Google client only makes Drive available: Admin › Connectors › Google Drive says **Ready to set up** until an admin turns something on, and **On** once members may connect their own Drive or a Drive is shared with the team (`GET /api/admin/google-drive`: `membersCanConnect`, `sharesOn`).
+A Google client only makes Drive available: Admin › Connected apps › Google Drive says **Ready to set up** until an admin turns something on, and **On** once members may connect their own Drive or a Drive is shared with the team (`GET /api/admin/google-drive`: `membersCanConnect`, `sharesOn`).
 
-- **Members can connect their own Google Drive** (`PUT /api/admin/google-drive/members`, settings `integrations.driveMembers`, audited `drive.members_switch`). On for a new team (no stored value means on). Migration 340 wrote the explicit value "off" for every team that existed before it and had none, so a team made earlier keeps what it had; migration 337 sets it on for a team whose members had already connected their own Drive, so nothing they use stops working. Off: Connect is turned off in Settings › Connectors, `authorize` and `complete` answer `drive_members_off`, and a connection made before is kept but not used (its row says the admin turned it off, Disconnect still works). The switch is for everyone's own Drive, admins included.
+- **Members can connect their own Google Drive** (`PUT /api/admin/google-drive/members`, settings `integrations.driveMembers`, audited `drive.members_switch`). On for a new team (no stored value means on). Migration 340 wrote the explicit value "off" for every team that existed before it and had none, so a team made earlier keeps what it had; migration 337 sets it on for a team whose members had already connected their own Drive, so nothing they use stops working. Off: Connect is turned off on the Connectors page, `authorize` and `complete` answer `drive_members_off`, and a connection made before is kept but not used (its row says the admin turned it off, Disconnect still works). The switch is for everyone's own Drive, admins included.
 
 ## Sharing a Drive with the team
 
@@ -72,7 +72,7 @@ wire contract `shared/src/cloud-protocol/drive-broker.ts`, MIT; control plane: t
 Google client of its own (no `client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`). Without the variable nothing changes:
 the server makes no call to the hosting service. A server with its own client keeps the direct flow above, unchanged.
 Even with the variable, Drive turns on only after the control plane answers that it serves this team (a signed
-`/status`, at start, then every 10 minutes, every minute while it says no). Admin › Connectors › Google Drive then shows
+`/status`, at start, then every 10 minutes, every minute while it says no). Admin › Connected apps › Google Drive then shows
 `source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."), and the members'
 switch and team shares work as described above.
 

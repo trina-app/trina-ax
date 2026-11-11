@@ -50,6 +50,7 @@ const SlackDone = lazy(() => import('./pages/SlackSignIn').then((m) => ({ defaul
 const Welcome = lazy(() => import('./pages/Welcome'))
 const Rooms = lazy(() => import('./pages/Rooms'))
 const RoomPage = lazy(() => import('./pages/Room'))
+const Activity = lazy(() => import('./pages/Activity'))
 
 function Splash() {
   const t = useT()
@@ -197,6 +198,7 @@ function Gate() {
           <Route path="rooms/:roomId" element={<RoomPage />} />
           {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
           <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
+          <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
           <Route path="files" element={<Files />} />
           <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />

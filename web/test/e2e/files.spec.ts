@@ -105,7 +105,7 @@ test('browse, previews (CSV, Markdown, HTML in the sandbox), conflict copies, re
   await page.goto('/files')
   await row(page, 'marketing').getByRole('button').first().click()
   await expect(page).toHaveURL(/path=marketing/)
-  await expect(row(page, 'plan (충돌 사본')).toContainText('충돌 사본')
+  await expect(row(page, 'plan (충돌 사본')).toContainText('따로 저장한 사본')
   await row(page, 'data.csv').getByRole('button').first().click()
   await expect(page.getByTestId('file-panel').locator('table')).toContainText('beta')
   await row(page, 'plan.md').getByRole('button').first().click()
@@ -540,7 +540,7 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
   // this window still has the old text: its save keeps the other version and goes to a conflict copy
   await editor.fill('# Plan\n\nsecond change\n')
   await panel.getByTestId('file-save').click()
-  await expect(page.getByText(/충돌 사본\(marketing\/plan \(충돌 사본/)).toBeVisible()
+  await expect(page.getByText(/옆에 marketing\/plan \(충돌 사본/)).toBeVisible()
   await expect(panel.getByRole('heading', { level: 2 })).toContainText('plan (충돌 사본')
   await expect(panel).toContainText('second change')
   await page.getByRole('button', { name: '새로 고침' }).click()

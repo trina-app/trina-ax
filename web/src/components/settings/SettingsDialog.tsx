@@ -34,8 +34,8 @@ const ADVANCED = new Set(['connectors', 'ai-apps', 'providers'])
 /** sections whose page starts with its own title row that stays (AI providers' card): the phone's bar keeps "설정"
  * there instead of saying the name twice */
 const OWN_TITLE = new Set(['providers'])
-/** sections a phone's list shows on top instead of in their group: the profile (the photo row) and 알림 (알림함) */
-const PHONE_TOP = new Set(['profile', 'notifications'])
+/** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
+const PHONE_TOP = new Set(['profile'])
 /** a row of the phone's list */
 const phoneRow = 'flex h-11 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2'
 
@@ -105,10 +105,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'
-  // phones: the open section's name in the bar (not for a page under a section: that page has its own title); 알림 is
-  // reached from the 알림함 row there, so it keeps that name
+  // phones: the open section's name in the bar (not for a page under a section: that page has its own title)
   const section = tab && !page && !OWN_TITLE.has(tab) ? tabs.find((x) => x.id === tab) : undefined
-  const sectionName = section ? t(section.id === 'notifications' ? 'inbox.title' : section.label) : ''
+  const sectionName = section ? t(section.label) : ''
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
@@ -169,7 +168,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
               </Link>
               {/* phones: what needs me, first: the Inbox with its count (the same count as on the 나 tab) and Admin */}
               <div className="mb-3 space-y-0.5 md:hidden" data-testid="settings-phone-top">
-                <NavLink to="/settings/notifications" replace className={({ isActive }) => clsx(phoneRow, isActive && 'bg-hover font-medium')} data-testid="settings-inbox">
+                <Link to="/activity" className={phoneRow} data-testid="settings-inbox">
                   <Bell size={16} className="shrink-0 text-muted" aria-hidden /> {t('inbox.title')}
                   {inbox > 0 && (
                     <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="settings-inbox-unread">
@@ -177,7 +176,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                       <span className="sr-only">{t('notifications.unread', { count: inbox })}</span>
                     </span>
                   )}
-                </NavLink>
+                </Link>
                 {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
                 <PhonePushLine />
                 {isAdmin(me) && (

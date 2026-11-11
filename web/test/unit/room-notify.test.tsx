@@ -152,8 +152,8 @@ test('Settings › Notifications: 대화 → 작업·연결 알림 → 이 기�
     await m.until(() => m.find('notifications-rooms'), 'the 대화 section')
     const body = m.container.ownerDocument!.body
     // the order, and no frames
-    const ids = body.querySelectorAll('[data-testid]').map((e) => e.getAttribute('data-testid')).filter((x) => ['notifications-inbox', 'notifications-rooms', 'notifications-work', 'notifications-device'].includes(x!))
-    expect(ids).toEqual(['notifications-inbox', 'notifications-rooms', 'notifications-work', 'notifications-device'])
+    const ids = body.querySelectorAll('[data-testid]').map((e) => e.getAttribute('data-testid')).filter((x) => ['notifications-activity', 'notifications-rooms', 'notifications-work', 'notifications-device'].includes(x!))
+    expect(ids).toEqual(['notifications-activity', 'notifications-rooms', 'notifications-work', 'notifications-device'])
     expect(m.html()).not.toContain('<fieldset class="space-y-3 md:rounded-xl')
     expect(m.html()).not.toContain('md:rounded-xl md:border')
     expect(m.get('notifications-rooms').textContent).toContain(ko('notifications.section.rooms'))

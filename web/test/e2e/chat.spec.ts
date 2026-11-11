@@ -135,7 +135,7 @@ test('edit the question makes a new branch; files changed in the turn are summar
   await ask(page, 'write the files please')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   const summary = lastAnswer(page).getByTestId('file-summary')
-  await expect(summary).toContainText('파일 1개 저장 · 1개 충돌 사본 · 1개 권한 없음')
+  await expect(summary).toContainText('파일 1개 저장 · 1개는 사본으로 저장 · 1개 권한 없음')
   await summary.getByRole('button').first().click()
   await expect(summary).toContainText('marketing/report.md')
   await summary.getByRole('button', { name: 'marketing/report.md' }).click()

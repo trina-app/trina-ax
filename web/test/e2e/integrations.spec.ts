@@ -33,7 +33,7 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/connectors')
-  await expect(page.getByRole('heading', { name: '커넥터', level: 1, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '연결한 서비스', level: 1, exact: true })).toBeVisible()
   // nothing connected yet: Popular right under the title (no empty box, no heading for the empty list)
   await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
@@ -41,7 +41,7 @@ test('a personal API connection with a key: sent once, never shown again; edit s
 
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
-  await expect(dialog.getByRole('heading', { name: '직접 커넥터 추가' })).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: '주소로 서비스 추가' })).toBeVisible()
   await (await adv(page, 'integration-kind-http')).check()
   // an API starts with a key; signing in there needs your own app (its fields show only then)
   await expect((await adv(page, 'integration-auth-key'))).toBeChecked()
@@ -304,14 +304,14 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await signIn(page)
   await page.goto('/admin/connectors')
   // the same noun as Settings'; the Admin shell says it applies to everyone in the team
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', level: 2, exact: true })).toBeVisible()
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '연결한 서비스', level: 2, exact: true })).toBeVisible()
   await expect(page.getByTestId('admin-content').getByTestId('page-scope')).toHaveText('Acme 전체에 적용돼요')
   // nothing connected yet: no empty box and no heading, Discover right under the title
   await expect(page.getByTestId('team-connected')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
-  await expect(dialog.getByRole('heading', { name: '팀 커넥터 추가' })).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: '팀 서비스 추가' })).toBeVisible()
   const access = (await adv(page, 'integration-access'))
   await expect(access).toContainText('관리자도 여기에 들어 있어야')
   // the admin starts chosen; without them the dialog says they cannot use it
@@ -429,10 +429,22 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await openRow(shared)
   await expect(shared).toContainText('쓰기 막기')
   for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
-  // he has none of his own (no heading, no empty box) and may add one: Discover is under the team's
+  // he has none of his own (no heading, no empty box) and may add one: Discover is under the team's. Not by its address:
+  // no Add, and "Not listed?" says to ask an admin (docs/DECISIONS.md "Plain words for members")
   await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
-  await expect(page.getByTestId('integration-add')).toBeVisible()
+  await expect(page.getByTestId('integration-add')).toHaveCount(0)
+  await expect(page.getByTestId('connector-custom')).toHaveCount(0)
+  await expect(page.getByTestId('connector-not-listed')).toHaveText('목록에 없나요? 관리자에게 추가해 달라고 해 주세요.')
+  // a search for a service that is not listed says the same
+  await page.getByTestId('connector-search').fill('zzz-nothing')
+  await expect(page.getByTestId('connector-ask-admin')).toHaveText('목록에 없나요? 관리자에게 추가해 달라고 해 주세요.')
+  await page.getByTestId('connector-search').fill('')
+  // nor from an old link to the form
+  await page.goto('/settings/connectors?add=1')
+  await expect(page).toHaveURL(/\/connectors$/)
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(page.getByTestId('integration-url')).toHaveCount(0)
   // (a 404: Bob's file tree asks for the folder Olga had open, which he cannot see)
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })

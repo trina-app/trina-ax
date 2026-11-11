@@ -43,7 +43,7 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
       // the same noun in Admin and on its own page (a phone's top bar says it there); the cards are under it
-      await expect(header.getByRole('heading', { name: /^(커넥터|Connectors)$/ })).toBeAttached()
+      await expect(header.getByRole('heading', { name: /^(연결한 서비스|Connected apps)$/ })).toBeAttached()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
       // Admin's title row gets its hairline once scrolled; the page's own full-width bar has its line all along
       await staysPut(header, path.startsWith('/admin'))
