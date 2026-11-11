@@ -484,6 +484,7 @@ export const es: Record<MessageKey, string> = {
   'voice.done': "Finalizar grabación",
   'voice.recording': "Grabando",
   'voice.transcribing': "Transcribiendo…",
+  'voice.waiting': "Esperando a que termine otra entrada de voz…",
   'voice.denied': "El acceso al micrófono está bloqueado. Permítalo en la configuración del navegador.",
   'voice.unsupported': "Este navegador no puede grabar audio.",
   'voice.tooLong': "La grabación es demasiado larga. Debe ocupar menos de 50 MB.",

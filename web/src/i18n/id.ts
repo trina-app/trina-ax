@@ -501,6 +501,7 @@ export const id: Record<MessageKey, string> = {
   'voice.done': 'Selesai merekam',
   'voice.recording': 'Merekam',
   'voice.transcribing': 'Mentranskripsi…',
+  'voice.waiting': 'Menunggu input suara lain selesai…',
   'voice.denied': 'Akses mikrofon diblokir. Izinkan mikrofon di pengaturan browser.',
   'voice.unsupported': 'Browser ini tidak bisa merekam suara.',
   'voice.tooLong': 'Rekaman terlalu panjang. Buat rekaman di bawah 50 MB.',
