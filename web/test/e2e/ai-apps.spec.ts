@@ -149,7 +149,7 @@ test('connector off: a member sees one line and no Connect; an owner gets the se
   await expect(page.getByTestId('ai-app-connect-claude')).toHaveCount(0)
 })
 
-test('Admin › AI apps: in the Admin menu, the same three apps with Connect when on, the setup when off', async ({ page }) => {
+test('Admin › AI apps: in the Admin menu, the same four apps with Connect when on, the setup when off', async ({ page }) => {
   await reset(page)
   await page.route('**/api/integrations/google-drive', (r) => r.fulfill({ json: { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null } }))
   let on = true
