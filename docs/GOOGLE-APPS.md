@@ -103,12 +103,19 @@ is refused, and connections made before are kept but not used (`PUT /api/admin/g
 
 ## Hosted servers
 
-A hosted team without its own client signs in through the hosting service's Google app: the Drive broker
+A hosted team without its own client, and a self-installed server the hosting service registered (the broker URL set,
+no Google Drive client of its own; [GOOGLE-DRIVE.md](GOOGLE-DRIVE.md) "Hosted teams (and registered servers)"), signs
+in through the hosting service's Google app: the Drive broker
 (`shared/src/cloud-protocol/drive-broker.ts`) with the `app` field and that app's fixed scopes
 (`GOOGLE_APP_BROKER_SCOPES`), the browser coming back to `/api/integrations/google-apps/callback`. Refresh and revoke go
 through the hosting service too (`app` in refresh). Until Google has reviewed the hosting service's app, only its test
 users can sign in; a hosting service that does not offer an app yet (an older one answers `invalid_request`) makes that
 card say "Not available yet" (`reason: "service_limited"`) for ten minutes before it is tried again.
+
+On a registered self-installed server the cards look as on a hosted team: "Set up by the hosting service"
+(`blocked: "hosted"`, no redirect address shown), also before the hosting service answers. A card that already has a
+client of its own (written on this page, or the operator's `MYCEL_GOOGLE_<APP>_CLIENT_FILE`) keeps signing in with it
+and never calls the hosting service.
 
 ## Disconnecting
 

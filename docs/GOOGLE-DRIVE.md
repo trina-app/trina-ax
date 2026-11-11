@@ -60,7 +60,7 @@ On Linux, the installer does this: `sudo ./install-linux.sh repair --public-host
 
 The redirect URI must be HTTPS with exactly that callback path and no credentials, query, or fragment. Register the exact URI with the organization's Google OAuth web client. The requested scope is only `https://www.googleapis.com/auth/drive.readonly`; it is a restricted scope. Deployment needs its own consent-screen, test-user/production, Workspace administrator, and any applicable Google verification decisions. “Internal” is an organization-owned Google project/app setting, not a blanket exception for all company software. See Google's [OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server), [Drive authorization scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth), and [OAuth policies](https://developers.google.com/identity/protocols/oauth2/policies).
 
-## Hosted teams: sign-in through the hosting service
+## Hosted teams (and registered servers): sign-in through the hosting service
 
 A hosted team gets its address (`<team>.<team domain>`) automatically, and Google accepts only exact return addresses, so
 a Google client per team does not scale. Instead the hosting service's control plane holds ONE Google client with ONE
@@ -68,13 +68,33 @@ return address on its console host and signs in for every hosted team (`server/s
 wire contract `shared/src/cloud-protocol/drive-broker.ts`, MIT; control plane: trina-cloud `docs/drive-broker.md`).
 
 **When.** Only when the operator sets `MYCEL_GOOGLE_DRIVE_BROKER_URL` (the control plane's console origin, for example
-`https://account.trina.app`; https, or http to this machine) on a hosted server (`deployment: "hosted"`) that has NO
-Google client of its own (no `client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`). Without the variable nothing changes:
-the server makes no call to the hosting service. A server with its own client keeps the direct flow above, unchanged.
-Even with the variable, Drive turns on only after the control plane answers that it serves this team (a signed
-`/status`, at start, then every 10 minutes, every minute while it says no). Admin › Connected apps › Google Drive then shows
-`source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."), and the members'
-switch and team shares work as described above.
+`https://account.trina.app`; https, or http to this machine) on a server that has NO Google client of its own (no
+`client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`): a hosted server, or a self-installed one the hosting service
+registered (below). Without the variable nothing changes: the server makes no call to the hosting service. A server
+with its own client keeps the direct flow above, unchanged, even with the variable. Even with the variable, Drive turns
+on only after the control plane answers that it serves this server (a signed `/status`, at start, then every 10
+minutes, every minute while it says no); until then the card says "Not available yet". Admin › Connected apps › Google
+Drive then shows `source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."),
+and the members' switch and team shares work as described above. The Set up dialog is the hosting service's on such a
+server from the start (`blocked: "hosted"`, no upload form, no redirect address shown), before and after the answer.
+
+**A self-installed server through the hosting service.** A self-installed server would otherwise need its own Google
+client, its own return address at Google and Google's review. Instead its operator can ask the hosting service to
+register it; for its people it then looks exactly like a hosted team (the same Google app, the same start page, the
+same admin page).
+
+1. On the server, as the server account: `admin.js google-broker-key` prints the relay public key (base64 SPKI, the
+   key every broker call is signed with; made on first use, also when the relay is off) and the server's public
+   address (`https://<tunnel.host>`, or "not set": set the public address first). `--json` prints
+   `{ publicKey, address }`. The private key is never printed.
+2. The hosting service's operator registers that key with that **exact** address (its ops CLI or ops API; audited).
+   The browser only ever comes back to the recorded address, never to one from a request.
+3. Set `MYCEL_GOOGLE_DRIVE_BROKER_URL` in the server's environment, and remove the server's own Google client (move
+   `client.json` away and unset `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`; keep a copy to switch back). Restart the server.
+   People connect Google again: connections made with the old client do not carry over.
+
+An unregistered server, or one the hosting service removed, stays at "Not available yet"; removing it stops its
+sign-ins and refreshes at once. To go back, put the client back and unset the variable.
 
 **Flow.** `POST /api/integrations/google-drive/authorize` (and the share authorize) asks the control plane to start
 (`begin()`): the same flow row, state and PKCE verifier as the direct flow, but the control plane makes the Google
@@ -93,8 +113,10 @@ Google, as before.
 
 **Trust boundaries.**
 - Every call to the control plane is signed with this server's relay team key (`<data>/relay/team-key.pem`, Ed25519,
-  with a timestamp and a nonce). The control plane serves only the key it recorded for a hosted team at enroll.
-- The control plane sends the browser only to this team's own address (its records, never a request field).
+  with a timestamp and a nonce). The control plane serves only the key it recorded for a hosted team at enroll, or the
+  key an operator registered for a self-installed server.
+- The control plane sends the browser only to this team's own address, or the registered server's recorded address
+  (its records, never a request field).
 - The refresh token this server keeps is sealed by the control plane with this team's id as associated data: useless to
   Google without the control plane's client secret, and refused for any other team. It is sealed again here like a
   direct token. A start answer that is not `https://accounts.google.com/...` is refused.
