@@ -51,7 +51,7 @@ Role-account Mac uses the same `admin.js` commands as `_axserver`, with `MYCEL_C
 
 Before any replacement, make a current backup, pause team use and preserve the current version/configuration.
 
-- DB only: use Admin → System → Backups → Restore (password confirmation), or `trina_admin stage-restore --backup ID`. Restart the server (`sudo systemctl restart mycel-server` on default Linux). The old DB is retained under `data/backups/before-restore-*` for the same period as backups (the newest one is always kept). Everyone signs in again. Team files remain current.
+- DB only: use Admin → System → Backups → Restore (password confirmation), or `trina_admin stage-restore --backup ID`. Restart the server (`sudo systemctl restart mycel-server` on default Linux). After the restart, Admin → System → Backups and the activity log ("Restored a backup") say which backup was put back, when it was made, when and by whom it was restored, and whether it worked. The old DB is retained under `data/backups/before-restore-*` for the same period as backups (the newest one is always kept). Everyone signs in again. Team files remain current.
 - File recovery: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. The target must be new. Compare files, then restore only selected files through the app with appropriate permissions. This avoids replacing unrelated work.
 - Encrypted archive drill: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. Verify the resulting DB and team tree; extraction alone does not start a server.
 

@@ -12,7 +12,7 @@ import { createContext, SERVER_VERSION, socketPathProblems, type AppContext } fr
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
-import { applyPendingRestore } from './system/backup'
+import { applyPendingRestore, recordRestore } from './system/backup'
 import { ensureLanCert } from './system/lan-cert'
 import { resolveLayout } from './system/layout'
 import { reloadManagedFiles } from './system/managed'
@@ -161,7 +161,7 @@ export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   setupServerCgroups({ log, mode: cfg.mode }) // Linux production: S/main + S/conv before any child process (no-op elsewhere)
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
-  applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
+  const restored = applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
   removeOldSemanticIndex(cfg.dataDir, log)
   void removeKnowledgeGraphData(cfg.dataDir, log)
   // a config file written for an older version: what this one ignores, said once
@@ -172,6 +172,8 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   await migrateBeforeStart({ cfg, file: dbFile, version: SERVER_VERSION, log, entry: import.meta.path, peerIp })
   const db = openDb(dbFile, { log }) // log: a warning per migration renamed after this DB ran it
   syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
+  // which backup was put back, when and by whom: in the activity log and Admin › System (QA TC-208)
+  try { recordRestore(db, restored) } catch (e) { log.error('could not log the restore', { err: e }) }
   // the hosting service's speech key belongs to its hosted servers only (a hosted team's backup restored here keeps none)
   if (!isHosted(cfg) && dropHostedSpeechKey(db)) log.info('removed the hosting service\'s speech-to-text key: this server is not hosted')
   // the same for its trial AI credit

@@ -20,6 +20,7 @@ import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
+import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { Button, confirmDialog, IconButton } from './ui'
 import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
@@ -100,16 +101,20 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     if (!editing || file.source !== 'team') return
     setSaving(true)
     try {
+      savingHere(file.path)
       const r = await api.call(API.saveContent, { body: { path: file.path, content: editing.draft, baseSha256: editing.base } })
       setEditing(null)
       if (r.conflict) {
-        toast({ level: 'warn', text: t('preview.savedConflict', { path: r.path }) })
+        // one notice (the live event for this save is not shown again): my content is in the copy, opened now
+        toast({ level: 'warn', text: conflictText(file.path, me ? { id: me.user.id, name: me.user.name } : null) })
         openTeamFile(r.path)
       } else {
+        savedHere(file.path)
         toast({ level: 'success', text: t('preview.saved') })
         setRev((v) => v + 1)
       }
     } catch (e) {
+      savedHere(file.path)
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
       setSaving(false)

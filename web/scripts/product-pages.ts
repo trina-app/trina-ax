@@ -56,7 +56,8 @@ export function pwaFile(name: keyof typeof PWA_FILES, build = 'dev'): string {
     }]))
     const script = `(() => {
       const read = key => { try { return (${asLocale.toString()})(localStorage.getItem(key)) } catch { return null } };
-      const locale = (${recoveryLocale.toString()})(read(${JSON.stringify(RECENT_LOCALE_KEY)}), read(${JSON.stringify(SIGN_IN_LOCALE_KEY)}));
+      const device = (() => { try { for (const l of navigator.languages || [navigator.language]) { const x = (${asLocale.toString()})(l); if (x) return x } } catch {} return null })();
+      const locale = (${recoveryLocale.toString()})(read(${JSON.stringify(RECENT_LOCALE_KEY)}), read(${JSON.stringify(SIGN_IN_LOCALE_KEY)}), device);
       const messages = ${JSON.stringify(messages).replace(/</g, '\\u003c')};
       document.documentElement.lang = locale;
       for (const key of ['title', 'hint', 'retry']) document.getElementById(key).textContent = messages[locale][key];

@@ -261,7 +261,7 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
           // (zoomed in) to the side
           <div ref={bar} role="toolbar" aria-label={t('pdfView.toolbar')} style={{ width }} className="sticky top-0 left-0 z-10 flex items-center justify-center gap-1 border-b border-line bg-surface px-2 py-1" data-testid="pdf-toolbar">
             {rail && (
-              <span className="mr-2 min-w-14 border-r border-line pr-3 text-center text-xs text-muted tabular-nums" data-testid="pdf-page-info">
+              <span className="mr-2 min-w-14 shrink-0 border-r border-line pr-3 text-center text-xs whitespace-nowrap text-muted tabular-nums" data-testid="pdf-page-info">
                 {t('pdfView.pageOf', { n: shown.current + 1, total: pages })}
               </span>
             )}

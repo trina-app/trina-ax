@@ -15,6 +15,8 @@ export const TEXT = {
   scheduleReview: t('이 예약 작업은 확인 카드 없이 만들어져서 멈춰 뒀어요. "다시 확인"을 눌러 지시문과 주소를 확인하면 다시 켤 수 있어요.', 'This scheduled task was made without its confirmation card, so it is paused. Choose "Check again" to review its instruction and addresses and resume it.', 'Tugas terjadwal ini dibuat tanpa kartu konfirmasi, jadi dijeda. Pilih "Periksa lagi" untuk meninjau instruksi dan alamatnya lalu melanjutkannya.', "この定期タスクは確認カードなしで作成されたため一時停止しています。「再確認」を選び、指示とアドレスを確認すると再開できます。", "Esta tarea programada se creó sin su tarjeta de confirmación, así que está en pausa. Elija «Revisar de nuevo» para comprobar la instrucción y sus direcciones y reanudarla."),
   scheduleCardChanged: t('예약 작업이나 연결 서비스가 그 사이에 바뀌었어요. 카드를 다시 확인해 주세요.', 'The scheduled task or its connected services changed in the meantime. Check the card again.', 'Tugas terjadwal atau layanan terhubungnya berubah sementara itu. Periksa kartunya lagi.', "その間に定期タスクまたは接続サービスが変更されました。カードをもう一度確認してください。", "La tarea programada o sus servicios conectados cambiaron mientras tanto. Revise la tarjeta de nuevo."),
   scheduleInvalid: t('예약 작업을 확인해 주세요. 제목은 1–80자, 지시문은 3–4,000자로 쓰고 일정(시각, 요일, 날짜)을 골라 주세요.', 'Check the scheduled task: a title of 1–80 characters, an instruction of 3–4,000 characters, and a complete schedule (time, weekday, date).', 'Periksa tugas terjadwal: judul 1–80 karakter, instruksi 3–4.000 karakter, dan jadwal yang lengkap (waktu, hari, tanggal).', "定期タスクを確認してください。タイトルは1〜80文字、指示は3〜4,000文字で、予定（時刻・曜日・日付）を選んでください。", "Revise la tarea programada: un título de 1 a 80 caracteres, una instrucción de 3 a 4.000 caracteres y un horario completo (hora, día, fecha)."),
+  /** a send to a chat whose earlier answer ended but whose engine's end is not confirmed yet (Chat.ending) */
+  earlierAnswerEnding: t('앞의 답이 끝나기를 기다리는 중이에요. 다른 채팅은 평소처럼 쓸 수 있어요.', 'Waiting for the earlier answer to finish. Other chats work as usual.', 'Menunggu jawaban sebelumnya selesai. Obrolan lain berjalan seperti biasa.', "前の回答が終わるのを待っています。ほかのチャットは通常どおり使えます。", "Esperando a que termine la respuesta anterior. Los demás chats funcionan con normalidad."),
   scheduleField: t('이 칸을 확인해 주세요.', 'Check this field.', 'Periksa kolom ini.', "この項目を確認してください。", "Revise este campo."),
   /** the edit's save folder cannot be one (chat/schedule-scope.ts): gone, no write access, a top, own, hidden or skills folder */
   scheduleSaveFolder: t('이 폴더에는 예약 작업이 저장할 수 없어요. 쓸 수 있는 팀 폴더 안의 폴더를 고르거나 저장 폴더를 빼 주세요.', 'A scheduled task cannot save in this folder. Pick a folder inside a team folder you can write, or remove the save folder.', 'Tugas terjadwal tidak bisa menyimpan di folder ini. Pilih folder di dalam folder tim yang bisa Anda tulisi, atau hapus folder simpan.', "このフォルダーには定期タスクが保存できません。書き込めるチームフォルダー内のフォルダーを選ぶか、保存先フォルダーを外してください。", "Una tarea programada no puede guardar en esta carpeta. Elija una carpeta dentro de una carpeta del equipo en la que pueda escribir, o quite la carpeta de guardado."),
@@ -130,6 +132,7 @@ export const TEXT = {
   no: t('기억하지 않기', 'Don’t remember', 'Jangan ingat', "記憶しない", "No recordar"),
   remembered: STEP_TEXT.remembered,
   notRemembered: STEP_TEXT.notRemembered,
+  rememberAsking: STEP_TEXT.rememberAsking,
   forgot: STEP_TEXT.forgot,
   asked: STEP_TEXT.asked,
   notAnswered: STEP_TEXT.notAnswered,

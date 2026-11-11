@@ -222,3 +222,16 @@ export async function restrictedFolderAction(d: RestrictedFolder, allowedOrigins
   if (!roots.some((r) => r && folderKey(r, platform) === path)) return 'deny'
   return (await opensHome(d.path, sys, platform)) ? 'deny' : 'allow'
 }
+
+/**
+ * Why a folder restrictedFolderAction refused was refused, for the message the app shows (main/app-window.ts): the
+ * page only gets an AbortError, the same as Cancel, so it said nothing and the person did not know why (QA TC-219).
+ * 'home': the home folder or a folder that holds it (or one whose place cannot be told: opensHome counts it as home);
+ * 'blocked': anything else Chromium blocks (~/Library, system folders). null: no message, the refusal stays silent:
+ * not a folder picked by the team page's top frame at an allowed origin (another page never raises the app's dialogs).
+ */
+export async function refusedFolderReason(d: RestrictedFolder, allowedOrigins: readonly string[], platform: string, sys: FolderSystem): Promise<'home' | 'blocked' | null> {
+  const origin = originOf(d.origin)
+  if (!d.isTopFrame || !d.isDirectory || !d.path || !origin || !allowedOrigins.includes(origin)) return null
+  return (await opensHome(d.path, sys, platform)) ? 'home' : 'blocked'
+}
