@@ -6,7 +6,8 @@
 //   bun scripts/changelog.ts --fold   before a release: put the fragments under "## Unreleased" and delete them
 //   bun scripts/changelog.ts --check  fail when CHANGELOG.md or a fragment holds a merge marker or a fragment is empty,
 //                                     and when a PR adds notes under "## Unreleased" instead of a file in changes/
-//                                     (compared with the PR's base; see baseChangelog. Without a base it is skipped.)
+//                                     (compared with the PR's base, dev for the dev -> main PR; see baseChangelog.
+//                                     Without a base it is skipped.)
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -93,16 +94,26 @@ export function newLinesMessage(lines: readonly string[]): string {
 
 const BRANCH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/
 
+/** The release PR (head dev, base main) is compared with dev, not main: dev's "## Unreleased" holds every note merged
+ * since the last release, and each was checked when its PR went into dev. Compared with main, all of them read as new
+ * and the release PR could never pass. Any other PR into main (a hotfix branch, a release branch) still compares with
+ * main. */
+export const RELEASE_BRANCH = 'main'
+export const INTEGRATION_BRANCH = 'dev'
+
 /** The CHANGELOG.md of the PR's base, or null when there is none to compare with (a push, a local run):
  * `CHANGELOG_BASE` (a git ref, read as it is, e.g. `origin/dev` for a local check), else on a pull request in GitHub
- * Actions `GITHUB_BASE_REF`, fetched from `origin` (the public repository, no credentials needed). `warn` says why a
- * base that should be there could not be read; the comparison is then skipped, not failed. */
+ * Actions `GITHUB_BASE_REF` (dev instead for the release PR, see RELEASE_BRANCH), fetched from `origin` (the public
+ * repository, no credentials needed). `warn` says why a base that should be there could not be read; the comparison
+ * is then skipped, not failed. */
 export function baseChangelog(root: string, env: Record<string, string | undefined> = process.env, warn: (why: string) => void = () => {}): string | null {
   const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' })
   let ref = env.CHANGELOG_BASE ?? ''
   if (!ref) {
-    const branch = env.GITHUB_BASE_REF ?? ''
-    if (!branch) return null
+    const target = env.GITHUB_BASE_REF ?? ''
+    if (!target) return null
+    const release = target === RELEASE_BRANCH && env.GITHUB_HEAD_REF === INTEGRATION_BRANCH
+    const branch = release ? INTEGRATION_BRANCH : target
     if (!BRANCH.test(branch)) { warn(`the base branch name "${branch}" is not one git can fetch`); return null }
     const shallow = git('rev-parse', '--is-shallow-repository').stdout.trim() === 'true'
     const fetched = git('fetch', '--quiet', '--no-tags', ...(shallow ? ['--depth=1'] : []), 'origin', `refs/heads/${branch}`)
