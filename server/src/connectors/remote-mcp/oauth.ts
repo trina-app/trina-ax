@@ -19,8 +19,8 @@ const iso = (v: number) => new Date(v).toISOString()
 /**
  * Limits of the connector's own OAuth server (mutable for tests). perAddress: [window ms, requests] per client
  * address (an IPv6 address counts by its /64) for each anonymous area. Registration comes from the apps' servers
- * (Claude, ChatGPT), so one of their addresses carries many people's: 60 an hour is room for a team connecting at
- * once. One authorize makes at most one pending request, so 60 per 10 minutes is also the pending requests per address;
+ * (Claude, ChatGPT), so one of their addresses carries many people's (and anyone can make them register): 240 an
+ * hour, while a full table makes room anyway (register()). One authorize makes at most one pending request, so 60 per 10 minutes is also the pending requests per address;
  * pendingPerClient counts one app's sign-ins per address (an app's id is public, so it is not counted per app alone).
  * token and upload are not in the shared bucket: a refresh or a one-time upload link must work during a flood.
  */
@@ -28,7 +28,7 @@ export const OAUTH_LIMITS: {
   perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; mcpPerGrantPerMinute: number
   clients: number; idleClientMs: number; pending: number; pendingPerClient: number
 } = {
-  perAddress: { register: [[60_000, 12], [3600_000, 60]], authorize: [[60_000, 180], [600_000, 60]], default: [[60_000, 180]] },
+  perAddress: { register: [[60_000, 12], [3600_000, 240]], authorize: [[60_000, 180], [600_000, 60]], default: [[60_000, 180]] },
   anonymousPerMinute: 2400, mcpPerGrantPerMinute: 300,
   clients: 2000, idleClientMs: 24 * 3600_000, pending: 2000, pendingPerClient: 10,
 }
@@ -121,14 +121,18 @@ export class RemoteOAuth {
     if (shared) this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
     this.housekeep()
   }
-  /** A token request that carries an unused, unexpired code or refresh token (only the hash is looked up): it is
-   * not counted in the shared anonymous bucket, so a flood cannot stop a connected app's refresh. */
+  /** A token request that carries an unused, unexpired code or refresh token of a live grant of the app it names (a
+   * hash lookup): it is not counted in the shared anonymous bucket nor in the app's token bucket, so a flood cannot
+   * stop a connected app's refresh. A request that then fails is charged to the shared bucket (the route). */
   liveCredential(body: Record<string, unknown>): boolean {
     const code = body.grant_type === 'authorization_code' ? body.code : body.grant_type === 'refresh_token' ? body.refresh_token : null
-    if (typeof code !== 'string' || !code || code.length > 128) return false
-    const sql = body.grant_type === 'authorization_code' ? 'SELECT 1 FROM remote_mcp_codes WHERE hash=? AND used_at IS NULL AND expires_at>?' : "SELECT 1 FROM remote_mcp_tokens WHERE hash=? AND kind='refresh' AND used_at IS NULL AND expires_at>?"
-    return !!this.db.query(sql).get(hash(code), this.now())
+    if (typeof code !== 'string' || !code || code.length > 128 || typeof body.client_id !== 'string') return false
+    const table = body.grant_type === 'authorization_code' ? 'remote_mcp_codes' : "remote_mcp_tokens"
+    return !!this.db.query(`SELECT 1 FROM ${table} t JOIN remote_mcp_grants g ON g.id=t.grant_id WHERE t.hash=? AND t.used_at IS NULL AND t.expires_at>?
+      ${table === 'remote_mcp_tokens' ? "AND t.kind='refresh'" : ''} AND g.client_id=? AND g.revoked_at IS NULL AND g.expires_at>?`).get(hash(code), this.now(), body.client_id, this.now())
   }
+  /** Charge a request to the shared anonymous bucket after the fact (an exempt request that failed); never throws. */
+  chargeShared() { try { this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute) } catch { /* already full */ } }
   /** An /mcp call with a live access token: its grant's own bucket, never the anonymous ones, so unauthenticated
    * traffic cannot stop a connected person's tool calls. */
   granted(g: Grant) {
@@ -179,7 +183,6 @@ export class RemoteOAuth {
     if (body.response_type !== 'code' || body.code_challenge_method !== 'S256' || typeof body.code_challenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.code_challenge)) throw new OAuthError('invalid_request')
     if (!resourceMatches(origin, body.resource)) throw new OAuthError('invalid_target')
     if (body.state !== undefined && (typeof body.state !== 'string' || body.state.length > 1024)) throw new OAuthError('invalid_request')
-    this.rate('authorize-client', c.id, 60)
     this.rate('authorize-client-address', c.id + '\0' + ipKey(ip), OAUTH_LIMITS.pendingPerClient, REQUEST_MS)
     // Full: the oldest requests nobody has opened yet make room (one a person opened is kept until it expires).
     const pending = (this.db.query('SELECT count(*) AS n FROM remote_mcp_requests').get() as { n: number }).n
@@ -271,9 +274,10 @@ export class RemoteOAuth {
     this.db.query('UPDATE remote_mcp_clients SET last_used_at=? WHERE id=?').run(this.now(), g.client_id)
     return { access_token: access, token_type: 'Bearer', expires_in: Math.floor((end - this.now()) / 1000), scope: selected.join(' '), ...(refresh ? { refresh_token: refresh } : {}) }
   }
-  token(body: Record<string, unknown>) {
+  /** `live`: liveCredential(body) was true (the app's token bucket is skipped). */
+  token(body: Record<string, unknown>, live = false) {
     const origin = this.enabled(), c = this.client(body.client_id)
-    this.rate('token-client', c.id, 180)
+    if (!live) this.rate('token-client', c.id, 180)
     if (!resourceMatches(origin, body.resource)) throw new OAuthError('invalid_target')
     // Return an error value from the transaction: replay revocation must COMMIT even though exchange fails.
     const result = this.db.transaction(() => {

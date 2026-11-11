@@ -203,6 +203,7 @@ test('pending sign-ins: at most 10 per app from one address, and a full table ma
   const f = await fixture('pending'), start = Date.now()
   const ask = (client = f.client.client_id) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
   const from = (ip: string) => f.svc.authorize({ client_id: f.client.client_id, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' }, ip)
+  f.svc.now = () => Math.floor(start / 600_000) * 600_000 + 600_000 // one fixed 10-minute window
   for (let i = 0; i < 10; i++) from('192.0.2.7')
   expect(() => from('192.0.2.7')).toThrow('slow_down')
   // the app's id is public: another address still signs in with it

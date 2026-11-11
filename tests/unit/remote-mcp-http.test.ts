@@ -204,12 +204,12 @@ test('registration flood from one address: it is slowed down, an app from anothe
   const f = await fixture('register-flood'), start = Math.floor(Date.now() / 3600_000) * 3600_000 + 3600_000 // a whole hour
   const register = (ip: string, headers: Record<string, string> = {}) => f.from(ip, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ redirect_uris: [redirect] }) })
   let ok = 0
-  // 12 a minute and 60 an hour per address; a client-sent X-Forwarded-For changes nothing
-  for (let minute = 0; minute < 8; minute++) {
+  // 12 a minute and 240 an hour per address; a client-sent X-Forwarded-For changes nothing
+  for (let minute = 0; minute < 21; minute++) {
     f.oauth.now = () => start + minute * 60_000
     for (let i = 0; i < 14; i++) if ((await register('203.0.113.9', { 'x-forwarded-for': `198.51.100.${i}` })).status === 201) ok++
   }
-  expect(ok).toBe(60)
+  expect(ok).toBe(240)
   expect((await register('203.0.113.9')).status).toBe(429)
   // another address in the same /64 is the same sender; a different one is not
   for (let i = 0; i < 12; i++) expect((await register(`2001:db8:1:2::${i + 1}`)).status).toBe(201)
@@ -254,4 +254,14 @@ test('an address over its own limit does not spend the shared bucket', async () 
   // 50 requests, 5 of them within the address's own limit: only those 5 count in the shared 20
   for (let i = 0; i < 50; i++) await f.from('203.0.113.51', '/.well-known/oauth-authorization-server')
   expect((await f.from('203.0.113.52', '/.well-known/oauth-authorization-server')).status).toBe(200)
+})
+
+test('junk token requests naming a known app do not stop that app\'s live refresh', async () => {
+  const f = await fixture('token-client-flood'), { refresh_token: refresh } = await f.issue()
+  const minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000; f.oauth.now = () => minute + 1000
+  const token = (ip: string, refreshToken: string) => f.from(ip, '/oauth/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refreshToken, resource: base + '/mcp' }) })
+  // 200 junk requests from two addresses fill the app's token bucket (180 a minute)
+  for (let i = 0; i < 200; i++) await token(i % 2 ? '192.0.2.10' : '192.0.2.11', 'tax_mcp_r_' + 'q'.repeat(43))
+  expect((await token('192.0.2.12', 'tax_mcp_r_' + 'q'.repeat(43))).status).toBe(429)
+  expect((await token('192.0.2.12', refresh)).status).toBe(200)
 })

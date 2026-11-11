@@ -98,7 +98,7 @@ export async function linkUpload(ctx: AppContext, request: Request, token: strin
   let tmp: string | null = null
   try {
     // a live one-time link is the auth: it is not counted with anonymous traffic, so a flood cannot stop it
-    const liveLink = TOKEN.test(token) && !!ctx.db.query('SELECT 1 FROM remote_mcp_upload_links WHERE hash=? AND used_at IS NULL AND expires_at>?').get(hash(token), oauth.now())
+    const liveLink = TOKEN.test(token) && (request.headers.get('origin') ?? oauth.origin) === oauth.origin && !!ctx.db.query('SELECT 1 FROM remote_mcp_upload_links WHERE hash=? AND used_at IS NULL AND expires_at>?').get(hash(token), oauth.now())
     oauth.ingress('upload', ip, { shared: !liveLink })
     const origin = request.headers.get('origin')
     // curl sends no Origin. A browser page on another site must not use a link it saw.

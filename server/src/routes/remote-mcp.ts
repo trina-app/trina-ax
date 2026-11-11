@@ -46,8 +46,9 @@ export const remoteMcpRoutes: RouteModule = {
       try {
         // the body (16 KiB at most) first: a live code or refresh token is not counted with anonymous traffic
         const body = await oauthBody(c.req.raw)
-        oauth().ingress('token', ip(c), { shared: !oauth().liveCredential(body) })
-        return json(oauth().token(body))
+        const live = oauth().liveCredential(body)
+        oauth().ingress('token', ip(c), { shared: !live })
+        try { return json(oauth().token(body, live)) } catch (e) { if (live) oauth().chargeShared(); throw e }
       } catch (e) { return oauthError(e) }
     })
     kit.raw('POST', '/oauth/revoke', async c => {
