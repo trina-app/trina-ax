@@ -7,7 +7,7 @@ import path from 'node:path'
 import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { LANGUAGE_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
+import { FIND_FILE_RULE, LANGUAGE_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
 import { FILE_TOOLS } from '../../shared/src/tools'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
 
@@ -561,6 +561,17 @@ describe('instructions', () => {
     // what the person asks for in another language (an English email in a Korean chat), code, file names and quotes
     // are content, not narration
     expect(LANGUAGE_RULE).toContain('Content the user asks for in another language (an email, a translation), code, file names and quotes stay as they are.')
+  })
+
+  // asked for a file that is there, the AI wrote a new one or asked where it was (docs/AGENTS/plan/20261111-0843-find-
+  // never-creates.md); the rule's own words: tests/unit/b-prompt-find-file.test.ts
+  test('asked for an existing file: search first, never a new file in its place: Claude and Codex', async () => {
+    const claude = await newChat()
+    expect((await ask(h, alice, 'alice', claude.id, fake({ echo: 'system' }))).done.content).toContain(FIND_FILE_RULE)
+    const codex = await newChat('alice', { engine: 'codex' })
+    const c = await ask(h, alice, 'alice', codex.id, fake({ echo: 'system' }))
+    expect(c.done.engine).toBe('codex')
+    expect(c.done.content).toContain(FIND_FILE_RULE)
   })
 })
 
