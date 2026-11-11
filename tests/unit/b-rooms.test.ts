@@ -221,6 +221,23 @@ test('realtime: room events reach the room\'s members only, and a read goes to t
   expect(hub.to('room.message.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
 })
 
+test('my own messages carry the id my app sent them with (a send whose answer was lost is matched to its message); nobody else gets it', async () => {
+  const { mia, nora, hub } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  hub.clear()
+  const id = cm()
+  const msg = await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: 'on the train', clientMessageId: id })
+  expect(msg.clientMessageId).toBe(id)
+  // the live event: the author's copy has it, the other member's does not
+  const live = new Map(hub.to('room.message').map((e) => [e.target, (e.data as any).data.message]))
+  expect(live.get(mia.id).clientMessageId).toBe(id)
+  expect(live.get(nora.id)).not.toHaveProperty('clientMessageId')
+  // a page read, and the same send again (a retry after the reconnect)
+  expect((await mia.client.call('GET', `/api/rooms/${dm.id}/messages`)).items[0].clientMessageId).toBe(id)
+  expect((await nora.client.call('GET', `/api/rooms/${dm.id}/messages`)).items[0]).not.toHaveProperty('clientMessageId')
+  expect(await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: 'on the train', clientMessageId: id })).toMatchObject({ id: msg.id, clientMessageId: id })
+})
+
 test('session markers: each room.message says the notice its recipient got, as the Inbox and push decided it (docs/DECISIONS.md "Session markers")', async () => {
   const { mia, nora, otto, teamRoom, send, hub } = await setup()
   const n = notificationsOf(h.ctx)
