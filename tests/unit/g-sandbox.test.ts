@@ -140,11 +140,46 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
   // "another turn cannot learn a chat folder from any argv" below and docs/DECISIONS.md.)
   test('Codex: files that change what the engine may do cannot be written in CODEX_HOME; its state files can (design tab 2)', () => {
     const cx = path.join(CHAT, '.codex')
-    fs.mkdirSync(path.join(cx, 'sessions'), { recursive: true })
+    for (const d of ['sessions', 'rules', 'prompts']) fs.mkdirSync(path.join(cx, d), { recursive: true })
     for (const ll of [false, true]) {
-      for (const f of ['config.toml', 'models_cache.json', 'catalog.json', 'AGENTS.md', 'hooks.json', 'skills/x/SKILL.md', 'skills/.system/marker', 'plugins/p.json']) expect(probe(ll, 'write', path.join(cx, f)), f).toBe(false)
+      for (const f of ['config.toml', 'models_cache.json', 'catalog.json', 'AGENTS.md', 'hooks.json', 'skills/x/SKILL.md', 'skills/.system/marker', 'plugins/p.json',
+        '.env', 'AGENTS.override.md', 'rules/default.rules', 'prompts/p.md']) expect(probe(ll, 'write', path.join(cx, f)), f).toBe(false)
       for (const f of ['auth.json', 'logs_2.sqlite', 'state_5.sqlite', 'sessions/rollout.jsonl', 'installation_id']) expect(probe(ll, 'write', path.join(cx, f)), f).toBe(true)
     }
+  })
+
+  // audit row 37: the Mac disk ignores case, so .Codex/Hooks.json is the same file as .codex/hooks.json; the denies
+  // must match every spelling
+  test('Codex: the lockdown files cannot be written under another spelling of their names', () => {
+    const cx = path.join(CHAT, '.codex')
+    for (const d of ['skills/x', 'plugins', 'rules', 'prompts']) fs.mkdirSync(path.join(cx, d), { recursive: true })
+    const ci = fs.existsSync(path.join(CHAT, '.CODEX')) // true: the disk ignores case (on a case-sensitive disk the other spellings are other files)
+    for (const ll of [false, true]) {
+      for (const f of ['.Codex/hooks.json', '.codex/HOOKS.json', '.CODEX/Models_Cache.json', '.codex/Config.TOML', '.codex/Catalog.json', '.codex/agents.md',
+        '.Codex/Skills/x/SKILL.md', '.codex/PLUGINS/p.json',
+        '.codex/.ENV', '.codex/agents.OVERRIDE.md', '.codex/Rules/x.rules', '.CODEX/Prompts/p.md']) expect(probe(ll, 'write', path.join(CHAT, f)), f).toBe(false)
+      if (ci) expect(probe(ll, 'write', path.join(CHAT, '.Codex', 'logs_2.sqlite'))).toBe(true)
+    }
+  })
+
+  // audit row 37: renaming the folder away, writing hooks.json into it under its new name and renaming it back
+  test('Codex: CODEX_HOME itself cannot be renamed, replaced or removed', () => {
+    const cx = path.join(CHAT, '.codex')
+    fs.mkdirSync(cx, { recursive: true })
+    const ci = fs.existsSync(path.join(CHAT, '.CODEX'))
+    const empty = path.join(CHAT, '.cx-empty')
+    for (const ll of [false, true]) {
+      expect(probe(ll, 'rename', cx, path.join(CHAT, '.cx'))).toBe(false)
+      if (ci) expect(probe(ll, 'rename', path.join(CHAT, '.CODEX'), path.join(CHAT, '.cx'))).toBe(false)
+      // replaced by a folder the turn made (and could have filled first): onto an empty .codex the OS would allow it
+      fs.rmSync(empty, { recursive: true, force: true }); fs.mkdirSync(empty)
+      const saved = path.join(W, 'codex-saved'); fs.rmSync(saved, { recursive: true, force: true }); fs.renameSync(cx, saved); fs.mkdirSync(cx)
+      expect(probe(ll, 'rename', empty, cx)).toBe(false)
+      fs.rmdirSync(cx); fs.renameSync(saved, cx); fs.rmSync(empty, { recursive: true, force: true })
+      expect(probe(ll, 'write', path.join(cx, 'logs_2.sqlite'))).toBe(true)
+    }
+    expect(fs.lstatSync(cx).isDirectory()).toBe(true)
+    expect(fs.existsSync(path.join(CHAT, '.cx'))).toBe(false)
   })
 
   test('no process list', () => {
