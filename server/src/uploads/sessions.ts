@@ -182,7 +182,8 @@ export class UploadSessions {
     let result: UploadComplete
     if (target.kind === 'path') {
       const slash = target.path.lastIndexOf('/')
-      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha)
+      // the same file at that name already (picked again after its first upload ended): kept, no "(2)"
+      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha, undefined, { keepSame: true })
       result = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }

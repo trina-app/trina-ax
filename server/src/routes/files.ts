@@ -159,7 +159,8 @@ export const filesRoutes: RouteModule = {
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try {
-        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha)
+        // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
+        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha, undefined, { keepSame: true })
       } finally { fs.rmSync(p, { force: true }) }
     }, 'name'))
 

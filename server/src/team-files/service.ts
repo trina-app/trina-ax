@@ -2042,9 +2042,11 @@ export class TeamFiles {
    * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from), or what
    * an upload's event carries (a computer file attached in a shared chat: its attachment and chat, uploads/shared-chat.ts).
    * `taken` (with rename): names that count as taken though nothing has them (an instruction file's name), so the next
-   * free one is used.
+   * free one is used. `keepSame` (with rename; the file screen's uploads): when the name holds this very file already
+   * (same size and sha256), that file is kept and answered, with no "(2)" copy: a retry whose first answer was lost on
+   * the way, or the same photos picked again after a dropped connection (QA TC-223).
    */
-  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create' | 'upload'; detail: Record<string, unknown> }, o: { taken?: (name: string) => boolean } = {}): Promise<FileEntry> {
+  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create' | 'upload'; detail: Record<string, unknown> }, o: { taken?: (name: string) => boolean; keepSame?: boolean } = {}): Promise<FileEntry> {
     const user = this.principal(userId)
     const rules = this.rules()
     const bad = name.includes('/') ? 'names cannot contain "/"' : badSegment(name.normalize('NFC'))
@@ -2052,6 +2054,10 @@ export class TeamFiles {
     const fr = authorize(this.fx, rules, user, folder, 'write', { mustExist: true })
     if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let finalName = name.normalize('NFC')
+    if (onExists === 'rename' && o.keepSame) {
+      const same = await this.sameFileAt(user, rules, fr.segs, finalName, fs.statSync(src).size, sha)
+      if (same) return same
+    }
     if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
     const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
     let action: FileChange['action'] = 'create'
@@ -2068,6 +2074,20 @@ export class TeamFiles {
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])
     return this.entry(user, rules, r.segs)
+  }
+
+  /** The entry of `folder/name` when it is this very file (a regular file of `size` bytes with this sha256) and the
+   * person can see and read it; null otherwise (missing, another file, a folder, a link, or hidden: then it is treated
+   * as before, and nothing about it shows). */
+  private async sameFileAt(user: Principal, rules: RuleSet, folder: string[], name: string, size: number, sha: string): Promise<FileEntry | null> {
+    const segs = [...folder, name]
+    if (!siblingVisible(this.fx, rules, user, folder, name) || !atLeast(rules.access(user, segs), 'read')) return null
+    const abs = path.join(this.root, ...segs)
+    let st: fs.Stats
+    try { st = fs.lstatSync(abs) } catch { return null }
+    if (!st.isFile() || st.nlink !== 1 || st.size !== size) return null
+    if ((await this.sha(abs, st)) !== sha) return null
+    return this.entry(user, rules, segs, st)
   }
 
   // ---------------- retention ----------------
