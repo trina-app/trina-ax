@@ -701,7 +701,6 @@ export const ko = {
   'preview.pdfOpen': '열기',
   'preview.pdfBlocked': '웹 주소나 이 페이지를 보는 사람 모두가 볼 수는 없는 파일 {count}개는 넣지 않았어요.',
   'preview.pdfScripts': '페이지의 스크립트는 실행하지 않았어요.',
-  'preview.savedConflict': "그사이 다른 사람이 이 파일을 바꿨어요. 그 내용은 그대로 두고, 내 내용은 옆에 {path}(으)로 따로 저장했어요.",
 
   'browser.title': '브라우저',
   'browser.desktopOnly': '앱 안 브라우저는 {product} 데스크톱 앱에서만 쓸 수 있어요.',
@@ -850,7 +849,8 @@ export const ko = {
   'files.byAi': 'AI',
   'files.byAiTurn': 'AI 답변 중 저장',
   'files.conflictSaved': "따로 저장한 사본: {path}",
-  'files.conflictNotice': "{path}이(가) 동시에 바뀌어 {by} 님의 내용을 사본({copy})으로 따로 저장했어요.",
+  'files.conflictNoticeMine': "{name}이(가) 그사이 바뀌어서 내 내용은 사본으로 따로 저장했어요. ({place})",
+  'files.conflictNoticeOther': "{name}이(가) 동시에 바뀌어서 {by} 님의 내용은 사본으로 따로 저장했어요. ({place})",
   'files.openCopy': '사본 열기',
   'files.restoredVersion': '이전 버전으로 되돌림',
   'files.restoreTitle': 'v{version}(으)로 되돌릴까요?',

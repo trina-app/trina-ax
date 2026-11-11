@@ -540,7 +540,8 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
   // this window still has the old text: its save keeps the other version and goes to a conflict copy
   await editor.fill('# Plan\n\nsecond change\n')
   await panel.getByTestId('file-save').click()
-  await expect(page.getByText(/옆에 marketing\/plan \(충돌 사본/)).toBeVisible()
+  // one notice, in the first person, the folder in on-screen words, no disk path (QA TC-230)
+  await expect(page.getByText('plan.md이(가) 그사이 바뀌어서 내 내용은 사본으로 따로 저장했어요. (marketing)')).toHaveCount(1)
   await expect(panel.getByRole('heading', { level: 2 })).toContainText('plan (충돌 사본')
   await expect(panel).toContainText('second change')
   await page.getByRole('button', { name: '새로 고침' }).click()
@@ -938,4 +939,17 @@ test('content search on a phone: line matches fit the width, no sideways scroll'
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(390)
   }
+})
+
+test('⌘K finds a folder by its name and opens it (QA TC-230)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.keyboard.press('ControlOrMeta+k')
+  const palette = page.getByTestId('search-palette')
+  await palette.getByRole('combobox').fill('market')
+  const folder = palette.getByRole('option', { name: 'marketing', exact: true })
+  await expect(folder).toBeVisible()
+  await folder.click()
+  await expect(page).toHaveURL(/\/files\?path=marketing$/)
+  await expect(row(page, 'plan.md')).toBeVisible()
 })

@@ -702,7 +702,6 @@ export const en: Record<MessageKey, string> = {
   'preview.pdfOpen': 'Open',
   'preview.pdfBlocked': '{count} web addresses or files that not everyone who sees this page can see were left out.',
   'preview.pdfScripts': 'The page\'s scripts did not run.',
-  'preview.savedConflict': "Someone changed this file in the meantime. Their version stays; yours was saved next to it as {path}.",
 
   'browser.title': 'Browser',
   'browser.desktopOnly': 'The in-app browser is only available in the {product} desktop app.',
@@ -851,7 +850,8 @@ export const en: Record<MessageKey, string> = {
   'files.byAi': 'AI',
   'files.byAiTurn': 'saved during an AI answer',
   'files.conflictSaved': "Separate copy: {path}",
-  'files.conflictNotice': "{path} changed at the same time, so the version by {by} was saved as a separate copy ({copy}).",
+  'files.conflictNoticeMine': "{name} changed in the meantime, so your version was saved as a separate copy. ({place})",
+  'files.conflictNoticeOther': "{name} changed at the same time, so the version by {by} was saved as a separate copy. ({place})",
   'files.openCopy': 'Open the copy',
   'files.restoredVersion': 'Restored an earlier version',
   'files.restoreTitle': 'Restore v{version}?',

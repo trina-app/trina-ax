@@ -702,7 +702,6 @@ export const id: Record<MessageKey, string> = {
   'preview.pdfOpen': 'Buka',
   'preview.pdfBlocked': '{count} alamat web atau berkas yang tidak bisa dilihat semua orang yang melihat halaman ini tidak dimasukkan.',
   'preview.pdfScripts': 'Skrip halaman tidak dijalankan.',
-  'preview.savedConflict': "Orang lain mengubah file ini sementara itu. Versi mereka tetap; versi Anda disimpan di sebelahnya sebagai {path}.",
 
   'browser.title': 'Browser',
   'browser.desktopOnly': 'Browser aplikasi hanya ada di aplikasi desktop {product}.',
@@ -851,7 +850,8 @@ export const id: Record<MessageKey, string> = {
   'files.byAi': 'AI',
   'files.byAiTurn': 'disimpan saat AI menjawab',
   'files.conflictSaved': "Salinan terpisah: {path}",
-  'files.conflictNotice': "{path} berubah bersamaan, jadi versi dari {by} disimpan sebagai salinan terpisah ({copy}).",
+  'files.conflictNoticeMine': "{name} berubah sementara itu, jadi versi Anda disimpan sebagai salinan terpisah. ({place})",
+  'files.conflictNoticeOther': "{name} berubah bersamaan, jadi versi dari {by} disimpan sebagai salinan terpisah. ({place})",
   'files.openCopy': 'Buka salinan',
   'files.restoredVersion': 'Dipulihkan dari versi lama',
   'files.restoreTitle': 'Pulihkan v{version}?',
