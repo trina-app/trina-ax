@@ -80,7 +80,7 @@ export function LanguageSwitcher() {
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}
-      <select className="rounded border border-field-border bg-surface px-1.5 py-1 text-xs text-ink" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
+      <select className="rounded border border-field-border bg-surface px-1.5 py-1 text-xs text-ink max-md:min-h-11" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
         {LOCALES.map((l) => (
           <option key={l.id} value={l.id} lang={l.id}>
             {l.label}
@@ -493,7 +493,7 @@ function OpenInApp({ path }: { path: string }) {
   if (!openInAppShown(clientKind(), href)) return null
   return (
     <p className="mt-2 text-center text-sm">
-      <a href={href} className="text-accent-text underline" data-testid="open-in-app">
+      <a href={href} className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="open-in-app">
         {t('auth.openInApp')}
       </a>
     </p>
@@ -606,7 +606,7 @@ function HaveAccount() {
   return (
     <p className="mt-4 text-center text-sm text-muted" data-testid="join-have-account">
       {t('auth.haveAccount')}{' '}
-      <Link to="/login" className="text-accent-text underline" data-testid="join-signin">
+      <Link to="/login" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="join-signin">
         {t('auth.signIn')}
       </Link>
     </p>

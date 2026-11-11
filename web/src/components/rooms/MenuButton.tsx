@@ -200,7 +200,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={toggle}
-          className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', muted ? 'text-muted' : 'text-faint', buttonClassName)}
+          className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2 max-md:min-h-11 max-md:min-w-11', muted ? 'text-muted' : 'text-faint', buttonClassName)}
           data-testid={testId}
         >
           {icon ?? <MoreHorizontal size={16} aria-hidden />}

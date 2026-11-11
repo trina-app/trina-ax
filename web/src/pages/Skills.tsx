@@ -152,7 +152,7 @@ export default function Skills() {
           )}
         </StickyHeader>
         {/* the owner and admins: who can change the team skills, one line (members and other skill managers do not see it) */}
-        {isAdmin(me) && <SkillEditorsLine key={`editors-${me.user.id}`} className="mb-4" />}
+        {isAdmin(me) && <SkillEditorsLine key={`editors-${me.user.id}`} className="mb-4 max-md:pt-1" />}
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
         <SkillListNote list={overview?.aiList} className="mb-5" />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}

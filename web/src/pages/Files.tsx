@@ -770,7 +770,7 @@ export default function Files() {
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
           // only their icons, and the search box takes the width they leave
           <div className="ml-auto flex items-center gap-1 @max-2xl:w-full">
-            <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg @max-2xl:flex-1 border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
+            <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg @max-2xl:flex-1 max-md:h-11 border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
               <Search size={14} className="shrink-0 text-faint" aria-hidden />
               <span className="sr-only">{t('files.search.label')}</span>
               <input
@@ -791,7 +791,7 @@ export default function Files() {
               />
               {q && (
                 <Tooltip label={t('files.search.clear')}>
-                  <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
+                  <button type="button" className="touch-hit text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
                     <X size={14} aria-hidden />
                   </button>
                 </Tooltip>
@@ -873,14 +873,14 @@ export default function Files() {
             />
           ) : (
             // phones at the top folder: no lone "팀 폴더" under the tab of the same name (only a read-only note, if any)
-            <nav aria-label={t('files.breadcrumb')} className={clsx('flex flex-wrap items-center gap-1 px-4 py-2 text-sm sm:px-6', !path && (!tree || tree.access === 'write') && 'max-md:hidden')}>
-              <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover', !path && 'max-md:hidden', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
+            <nav aria-label={t('files.breadcrumb')} className={clsx('flex flex-wrap items-center gap-1 px-4 py-2 text-sm max-md:gap-y-2.5 max-md:pt-0 max-md:pb-2.5 sm:px-6', !path && (!tree || tree.access === 'write') && 'max-md:hidden')}>
+              <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', !path && 'max-md:hidden', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
                 <Home size={14} aria-hidden /> {t('files.root')}
               </button>
               {crumbs(path).map((c) => (
                 <span key={c.path} className="inline-flex items-center gap-1">
                   <ChevronRight size={13} className="text-faint" aria-hidden />
-                  <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
+                  <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
                     {words.name(c.path, c.name)}
                   </button>
                 </span>
