@@ -347,8 +347,9 @@ describe('the attacks the security review tried (each one must fail)', () => {
     expect(mask('수정한테 메일 써 줘')).toBe('(person)한테 메일 써 줘')
     expect(mask('Draft an email to Dan about the budget')).toBe('Draft an email to (person) about the budget')
     expect(mask('Write the budget email for Al')).toBe('Write the budget email for (person)')
-    for (const text of ['수정한테 메일 써 줘', 'Draft an email to Dan about the budget', 'Write the budget email for Al', 'Send it to Will today'])
+    for (const text of ['수정한테 메일 써 줘', '수정과 회의 일정 정리해 줘', '수정의 보고서 확인해 줘', 'Draft an email to Dan about the budget', 'Write the budget email for Al', 'Send it to Will today'])
       expect({ text, ok: genericShape(text, n) }).toEqual({ text, ok: false })
+    expect(genericShape('보고서 수정해 줘', n)).toBe(true)
     // and as a sentence word it is a topic: one person typing it is never enough
     for (const p of ['p1', 'p2', 'p3', 'p4', 'p5']) ask(p, 'check the budget email')
     ask('p1', 'will check the budget email')

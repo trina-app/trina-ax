@@ -20913,8 +20913,9 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   ignored; a one-letter surname with a title, "김 과장"), project names, group chat names. A name part that is also a
   plain verb or function word (a given name 수정; Will, Dan, Al) is not masked everywhere, or every "수정해 줘" would be
   dropped: only where it stands for a person (followed by 한테, 에게, 께, 랑, a title, さん; in Latin script capitalized
-  past the start of a sentence: "email to Dan"), and such a sentence is rejected; as a sentence word it is always a
-  topic, so 3 people must have typed it. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
+  past the start of a sentence: "email to Dan"), and such a sentence is rejected, also before 의, 과, 와, 하고 or 도
+  ("수정과 회의"); as a sentence word it is always a topic, so 3 people must have typed it. Project and group chat
+  names are masked whole, plain word or not. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
   line, at most 40 a person and 600 in all (taken in turns), in random order with meaningless ids; never who wrote it.
 - **The AI.** Once a day (from 05:00 team time, 20 h after the last; 28 h after it at any hour; a try waits 3 h), one
   call of the file list's reader (file-list/engine-reader.ts, `ReadOptions`): no tools, Haiku or Codex's nano/mini, a

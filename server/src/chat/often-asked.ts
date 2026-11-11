@@ -170,7 +170,8 @@ export function teamNames(db: Database): TeamNames {
   const projects = (db.query('SELECT name FROM projects').all() as { name: string }[]).map((r) => nameOf(r.name))
   const rooms = hasTable(db, 'rooms') ? (db.query("SELECT name FROM rooms WHERE kind = 'group' AND name IS NOT NULL").all() as { name: string }[]).map((r) => nameOf(r.name)) : []
   const all = names(people)
-  return { people: all.filter((x) => !x.plain), titled: [...titled], projects: names(projects).filter((x) => !x.plain), rooms: names(rooms).filter((x) => !x.plain), plain: all.filter((x) => x.plain) }
+  // projects and group chats are masked by their whole name, plain word or not (fail closed)
+  return { people: all.filter((x) => !x.plain), titled: [...titled], projects: names(projects).map(({ plain: _, ...x }) => x), rooms: names(rooms).map(({ plain: _, ...x }) => x), plain: all.filter((x) => x.plain) }
 }
 
 /** A name as a pattern: Latin whole words, other scripts anywhere. */
@@ -286,6 +287,10 @@ export function genericShape(text: string, n: TeamNames): boolean {
   const t = plainLatin(text.normalize('NFKC'))
   const standsFor = asPerson(n)
   if (standsFor && standsFor.test(t)) return false
+  // and in a sentence, before a noun particle too ("수정과 회의", "수정의 보고서"): a sentence like "수정과 검토" is
+  // dropped rather than risk naming someone
+  const cjkPlain = n.plain.filter((x) => !x.latin).map((x) => escape(x.s))
+  if (cjkPlain.length && new RegExp(`(?:${cjkPlain.join('|')})(?=\\s?(?:의|과|와|하고|도))`, 'u').test(t)) return false
   return ![n.people, n.projects, n.rooms].some((xs) => nameFinder(xs).test(t))
 }
 
