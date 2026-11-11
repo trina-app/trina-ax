@@ -4,7 +4,7 @@
 // otherwise "succeeded". The result is stored on the run, shown in the schedule list, and the inbox text follows it.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
-import { outcomeEvent, scheduleRunOutcome, storedRunOutcome } from '../../server/src/chat/schedule-outcome'
+import { isLookUpTool, outcomeEvent, scheduleRunOutcome, storedRunOutcome } from '../../server/src/chat/schedule-outcome'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { TEXT as PUSH_TEXT } from '../../server/src/notifications/text'
 import { startHarness, type Harness } from '../lib/b-harness'
@@ -22,6 +22,10 @@ describe('outcome rules', () => {
     expect(scheduleRunOutcome({ status: 'done', content: 'Half of it', failedTools: 0, limited: true })).toBe('problems')
     expect(scheduleRunOutcome({ status: 'done', content: '  \n', failedTools: 0 })).toBe('failed')
     for (const status of ['error', 'stopped', 'interrupted']) expect(scheduleRunOutcome({ status, content: 'x', failedTools: 0 })).toBe('failed')
+  })
+  test('look-ups are reads and searches; saves, sends, posts, memories and sub-tasks are not', () => {
+    for (const t of ['web_fetch', 'read', 'grep', 'glob', 'list', 'drive_read', 'WebSearch', 'web_search', 'room_read', 'get_page_text']) expect(isLookUpTool(t)).toBe(true)
+    for (const t of ['write', 'edit', 'make_file', 'save_url', 'remember', 'post_to_room', 'share_file', 'agent', 'move_files', 'my_notes__create_task', '', null]) expect(isLookUpTool(t)).toBe(false)
   })
   test('rows without a stored outcome (older builds, interrupted recovery) fall back to the status', () => {
     expect(storedRunOutcome({ status: 'done', run_outcome: null })).toBe('succeeded')
@@ -94,6 +98,44 @@ describe('scheduled runs through the chat runtime', () => {
     const res = await h.req('carol', `/api/schedules/${r.made.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) })
     expect(res.status).toBe(409)
     expect((await res.json()).error).toMatchObject({ code: 'conflict', params: { reason: 'schedule_completed' } })
+  })
+
+  test('a briefing whose page reads failed but whose answer is complete succeeded (look-ups need nobody)', async () => {
+    // a web search, then pages it could not open: an address the chat never showed (its card cannot be shown in a
+    // scheduled run, so it is refused), a file that is not there; the AI answers from what it found
+    const r = await run('alice', 'News briefing', fake(
+      { webSearch: { query: 'today news', hits: [{ title: 'A', url: 'https://news.example/a' }] } },
+      { tool: 'web_fetch', args: { url: 'https://unseen.example/today' } },
+      { tool: 'read', args: { file_path: 'users/alice/not-there.md' } },
+      { tool: 'grep', args: { pattern: '(' } },
+      { say: '오늘의 뉴스 브리핑: 세계 3건, 한국 3건, 인도네시아 2건.' },
+    ))
+    expect(r.turn.status).toBe('done')
+    const refused = h.ctx.db.query("SELECT tool FROM tool_events WHERE turn_id = ? AND ok = 0 ORDER BY id").all(r.turn.id) as { tool: string }[]
+    expect(refused.map((x) => x.tool)).toContain('web_fetch')
+    expect(refused.map((x) => x.tool)).toContain('read')
+    expect(r.turn.run_outcome).toBe('succeeded')
+    expect(r.inbox[0]).toMatchObject({ eventType: 'schedule.success', outcome: 'succeeded' })
+    expect(r.listed.lastOutcome).toBe('done')
+  })
+
+  test('a refused save still makes the run "with problems", also after failed reads (TC-019)', async () => {
+    const r = await run('carol', 'Save after reads', fake(
+      { tool: 'web_fetch', args: { url: 'https://unseen.example/b' } },
+      { tool: 'write', args: { file_path: 'skills/브리핑.md', content: '# 브리핑\n' } },
+      { say: 'Done.' },
+    ))
+    expect(h.ctx.db.query("SELECT ok FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turn.id)).toEqual({ ok: 0 })
+    expect(r.turn).toMatchObject({ status: 'done', run_outcome: 'problems' })
+    expect(r.listed.lastOutcome).toBe('problems')
+  })
+
+  test('an empty answer after failed reads failed; a run cut off by an engine error failed', async () => {
+    const empty = await run('alice', 'Empty', fake({ tool: 'web_fetch', args: { url: 'https://unseen.example/c' } }))
+    expect(empty.turn.run_outcome).toBe('failed')
+    expect(empty.listed.lastOutcome).toBe('error')
+    const broken = await run('alice', 'Cut off', fake({ say: 'Part one.' }, { fail: 'overloaded' }))
+    expect(broken.turn).toMatchObject({ status: 'error', run_outcome: 'failed' })
   })
 
   test('the list keeps a problems result even after an older inbox build would call it success', () => {

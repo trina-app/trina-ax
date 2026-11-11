@@ -131,3 +131,36 @@ describe('REST reloads', () => {
     expect(runningMessage([msg({ role: 'assistant' })])).toBeUndefined()
   })
 })
+
+describe('reload and own messages', () => {
+  test('a reload keeps a step the socket already saw end, and steps the save does not have yet', () => {
+    const done = step({ id: 's1', status: 'ok' })
+    const later = step({ id: 's2' })
+    const live = msg({ role: 'assistant', status: 'streaming', content: 'abc', steps: [done, later] })
+    const saved = { ...live, content: 'ab', steps: [step({ id: 's1' })] }
+    const r = mergeFresh([live], [saved])
+    expect(r[0]!.steps.map((s) => [s.id, s.status])).toEqual([['s1', 'ok'], ['s2', 'running']])
+    expect(r[0]!.content).toBe('abc')
+  })
+  test('my question saved by the server takes the place of its "sending" copy', () => {
+    const a = msg({ role: 'assistant', content: 'one' })
+    const local = optimisticUserMessage({ id: uuidv7(), chatId: CHAT, parentId: a.id, content: 'two', author: { id: 'olga', name: 'Olga' }, attachments: [], clientMessageId: 'cm-12345678', now: new Date().toISOString() })
+    const saved = msg({ role: 'user', parentId: a.id, content: 'two', author: { id: 'olga', name: 'Olga' } })
+    expect(applyCreated([a, local], saved)).toEqual([a, saved])
+    // someone else's question with the same words is not mine
+    const theirs = msg({ role: 'user', parentId: a.id, content: 'two', author: { id: 'pat', name: 'Pat' } })
+    expect(applyCreated([a, local], theirs)).toEqual([a, theirs, local])
+  })
+  test('a reload whose page has my question already does not show its "sending" copy as well', () => {
+    const a = msg({ role: 'assistant', content: 'one' })
+    const local = optimisticUserMessage({ id: uuidv7(), chatId: CHAT, parentId: a.id, content: 'two', author: { id: 'olga', name: 'Olga' }, attachments: [], clientMessageId: 'cm-12345678', now: new Date().toISOString() })
+    const saved = msg({ role: 'user', parentId: a.id, content: 'two', author: { id: 'olga', name: 'Olga' } })
+    const answer = msg({ role: 'assistant', parentId: saved.id, status: 'streaming' })
+    expect(mergeFresh([a, local], [a, saved, answer]).map((m) => m.id)).toEqual([a.id, saved.id, answer.id])
+    expect(mergeFresh([a, local], [a]).map((m) => m.id)).toEqual([a.id, local.id])
+    // sent before anything was loaded (no parent): an older question with the same words is not taken for it
+    const first = optimisticUserMessage({ id: uuidv7(), chatId: CHAT, parentId: null, content: 'hi', author: { id: 'olga', name: 'Olga' }, attachments: [], clientMessageId: 'cm-87654321', now: new Date().toISOString() })
+    const old = msg({ role: 'user', parentId: null, content: 'hi', author: { id: 'olga', name: 'Olga' } })
+    expect(mergeFresh([first], [old]).map((m) => m.id)).toEqual([old.id, first.id])
+  })
+})

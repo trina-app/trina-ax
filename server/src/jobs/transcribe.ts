@@ -16,6 +16,7 @@ import { JobFailure } from './service'
 import { whisperThreads } from '../system/limits'
 import { dictationTurn } from './whisper-turns'
 import type { SpeechMeter } from '../credentials/hosted-speech'
+import { DOWNLOAD_IDLE_MS, downloadDeadline, downloadTotalMs, type DownloadDeadline } from '../http/download-deadline'
 
 export const WHISPER_MODELS = {
   tiny: { file: 'ggml-tiny.bin', size: 77_691_713, sha256: 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21' },
@@ -48,6 +49,9 @@ export interface TranscribeConfig {
   ffmpegBin: string | null
   /** where models come from (tests point this at a local server) */
   baseUrl: string
+  /** tests: shorter model download deadlines (default http/download-deadline.ts: 120 s without data, 10 min + 250 KB/s) */
+  downloadIdleMs?: number
+  downloadTotalMs?: number
   /** scratch folder parent for the converter work folders */
   workBase: string
   threads: number
@@ -141,9 +145,19 @@ async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 
   const part = file + '.part'
   const label = LABELS.model[locale](Math.round(spec.size / 1e6))
   h?.progress(0, label)
+  // a connection that stops sending would hold the one transcription slot of the server forever: give up after
+  // DOWNLOAD_IDLE_MS without data or downloadTotalMs in all
+  const dl = downloadDeadline({ signal: h?.signal, idleMs: cfg.downloadIdleMs ?? DOWNLOAD_IDLE_MS, totalMs: cfg.downloadTotalMs ?? downloadTotalMs(spec.size) })
+  try { return await downloadTo(cfg, spec, file, part, label, dl, h) } finally { dl.done() }
+}
+
+const STALLED = () => fail('음성 인식 모델 내려받기가 멈췄거나 너무 느려서 중단했어요(인터넷 연결 확인). 다시 시도해 주세요.', 'The speech model download stopped or was too slow, so it was cancelled (check the internet connection). Please try again.', 'Unduhan model suara berhenti atau terlalu lambat sehingga dibatalkan (periksa koneksi internet). Coba lagi.', "音声認識モデルのダウンロードが止まったか遅すぎたため中止しました（インターネット接続を確認してください）。再試行してください。", "La descarga del modelo de voz se detuvo o era demasiado lenta y se canceló (revise la conexión a internet). Vuelva a intentarlo.", 'unavailable', 'stalled')
+
+async function downloadTo(cfg: TranscribeConfig, spec: ModelSpec, file: string, part: string, label: string, dl: DownloadDeadline, h: Pick<JobHandle, 'progress' | 'signal'> | undefined): Promise<string> {
   let res: Response
-  try { res = await fetch(cfg.baseUrl + spec.file, { signal: h?.signal, redirect: 'follow' }) } catch (e) {
+  try { res = await fetch(cfg.baseUrl + spec.file, { signal: dl.signal, redirect: 'follow' }) } catch (e) {
     if (h?.signal.aborted) throw e
+    if (dl.stalled()) throw STALLED()
     throw fail('음성 인식 모델을 내려받지 못했어요(인터넷 연결 확인).', 'Could not download the speech model (check the internet connection).', 'Gagal mengunduh model suara (periksa koneksi internet).', "音声認識モデルをダウンロードできませんでした。インターネット接続を確認してください。", "No se pudo descargar el modelo de voz. Revise la conexión a internet.")
   }
   if (!res.ok || !res.body) throw fail(`음성 인식 모델을 내려받지 못했어요(HTTP ${res.status}).`, `Could not download the speech model (HTTP ${res.status}).`, `Gagal mengunduh model suara (HTTP ${res.status}).`, `音声認識モデルをダウンロードできませんでした（HTTP ${res.status}）。`, `No se pudo descargar el modelo de voz (HTTP ${res.status}).`)
@@ -155,6 +169,7 @@ async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 
     for (;;) {
       const { value, done } = await reader.read()
       if (done) break
+      dl.tick()
       got += value.byteLength
       if (got > spec.size) break
       hash.update(value)
@@ -164,6 +179,7 @@ async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 
   } catch (e) {
     fs.rmSync(part, { force: true })
     if (h?.signal.aborted) throw e
+    if (dl.stalled()) throw STALLED()
     throw fail('음성 인식 모델을 내려받는 중 연결이 끊겼어요. 다시 시도해 주세요.', 'The speech model download was interrupted. Please try again.', 'Unduhan model suara terputus. Coba lagi.', "音声認識モデルのダウンロードが中断されました。再試行してください。", "La descarga del modelo de voz se interrumpió. Vuelva a intentarlo.")
   } finally { try { reader.releaseLock() } catch {} await fh.close() }
   if (got !== spec.size || hash.digest('hex') !== spec.sha256) {

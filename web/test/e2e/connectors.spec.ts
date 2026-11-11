@@ -122,7 +122,7 @@ test('own connector settings show the address and revoke the selected connection
   await page.route('**/api/connectors/remote/synthetic-grant', route => { expect(route.request().method()).toBe('DELETE'); revoked = true; return route.fulfill({ status: 204 }) })
   await signIn(page)
   // the team uses Slack (the mock's /api/slack/me): its line is in Connectors, with the connections (pages/Integrations.tsx)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await expect(page.getByTestId('integrations').getByTestId('slack-account')).toContainText('Slack')
   await page.goto('/settings/ai-apps')
   const pane = page.getByTestId('ai-apps')

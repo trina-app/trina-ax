@@ -17,7 +17,7 @@ const policy: Record<string, string> = {
   users: 'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
   groups: 'id folder_id', group_members: 'group_id user_id', folders: 'id path',
   folder_rules: 'id folder_id subject_type subject_id access',
-  integrations: 'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version',
+  integrations: 'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version google_app',
   integration_access: 'integration_id subject_type subject_id', connected_folders: 'id name source',
   // connection templates (336): where a member's key goes, and who the template is for
   integration_templates: 'id kind url auth auth_header version oauth_client oauth_client_enc oauth_client_key_version', integration_template_access: 'template_id subject_type subject_id',

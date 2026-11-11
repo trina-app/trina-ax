@@ -9,6 +9,7 @@ import { PRODUCT, sourceCodeOffer } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { SCHEMA_READER_LEVEL, schemaInfo } from '../db'
 import { fail } from '../http/errors'
+import { DownloadStalled } from '../http/download-deadline'
 import { JobFailure } from '../jobs/service'
 import type { JobService } from '../services'
 import { BackupError } from '../system/backup'
@@ -154,6 +155,9 @@ export const systemRoutes: RouteModule = {
           try {
             return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m) },
               target!, { staged, rollback: !!body.rollback })
+          } catch (e) {
+            if (e instanceof DownloadStalled) throw new JobFailure('unavailable', M.updateStalled)
+            throw e
           } finally { release() }
         },
       }))

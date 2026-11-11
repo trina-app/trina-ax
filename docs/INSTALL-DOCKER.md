@@ -4,14 +4,15 @@
 
 Run the team server with `docker compose up` on a Linux server or on a Mac with Docker (Docker Desktop, OrbStack, Colima). The image holds a signed release kit. At each start the container runs the same Linux installer (`install-linux.sh`) into a named volume, and then `mycel-ctl supervise` starts the engine firewall, the launcher and the server. There is no systemd in the container. The image carries the system packages every server needs (the always groups of the one list, `scripts/system/packages.json`, read from the kit), and the installer runs with `--minimal --skip-apt`: no CJK fonts, dev environment tools or headless browser for HTML to PDF in the image. For HTML to PDF, build the image with `--build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser"`: it adds the CJK fonts, the browser's libraries and the pinned `chrome-headless-shell` in `/opt/trina/chrome-headless-shell` (about 400 MB more).
 
-**Status: new and less tested than the Linux install.** Tested on 2026-11-04 with release 0.3.0 and 0.4.0-beta.2 on OrbStack (Docker 29.4, Linux 7.0, arm64). Not tested yet: an Ubuntu 24.04 or Debian host, amd64. For a production team, the [Linux install](INSTALL-LINUX.en.md) on a dedicated VM is still the reference: it has per-turn cgroup limits and root updates that this setup does not have (see [Differences](#differences-from-the-linux-install)).
+**Status: new and less tested than the Linux install.** Tested on 2026-11-04 on OrbStack (Docker 29.4, Linux 7.0, arm64), and on 2026-11-11 on Ubuntu 24.04 hosts (GitHub runners, amd64 and arm64, kernel 7.0) with release 0.5.0-beta.1 and a kit from `dev`, with the [Ubuntu host setting](#ubuntu-2404-hosts). These tests do not run a real AI turn. Not tested yet: a Debian 13 host. For a production team, the [Linux install](INSTALL-LINUX.en.md) on a dedicated VM is still the reference: it has per-turn cgroup limits and root updates that this setup does not have (see [Differences](#differences-from-the-linux-install)).
 
 ## Requirements
 
 | Item | Requirement |
 |---|---|
+| Release | 0.5.0-beta.1 or later. The image reads the package list from the kit; older kits do not have it, and the build stops |
 | Docker | Docker Engine with Compose v2 (`docker compose`), or Docker Desktop / OrbStack on a Mac. Tested with Docker 29.4 |
-| Host kernel | Landlock, cgroup v2, nftables, unprivileged user namespaces. 6.12+ recommended, as for the Linux install. Debian 13 and Ubuntu 24.04 kernels have Landlock. Checked on OrbStack only; Docker Desktop and Colima are not checked |
+| Host kernel | Landlock, cgroup v2, nftables, unprivileged user namespaces. 6.12+ recommended, as for the Linux install. Debian 13 and Ubuntu 24.04 kernels have Landlock. Checked on OrbStack and on Ubuntu 24.04 (with the [host setting](#ubuntu-2404-hosts)); Docker Desktop and Colima are not checked |
 | CPU | amd64 with SSE4.2, or arm64 |
 | RAM / disk | 4 GB for the container (2 GB: one concurrent run); 20 GB for the volume plus space for files, history and backups |
 | Network | Outbound https for the image build (GitHub releases), the first start (the AI engine download) and AI providers |
@@ -23,7 +24,7 @@ You need only the `docker/` folder of this repository: `Dockerfile`, `docker-com
 
 ```sh
 git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
-cp env.example .env           # set TRINA_AX_VERSION to the release you want
+cp env.example .env           # set TRINA_AX_VERSION to the release you want (0.5.0-beta.1 or later)
 docker compose up -d --build
 docker compose logs -f trina-ax
 ```
@@ -114,7 +115,16 @@ Not changed from the Linux install: engine turns run as `axagent` in bubblewrap 
 
 ### Ubuntu 24.04 hosts
 
-Ubuntu 24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`. This probably also applies to unconfined containers: then bubblewrap cannot create a user namespace and the container stops at the first check. A container cannot load the AppArmor profile that the Linux installer uses. Options, on the host: load an AppArmor profile for the container that allows `userns`, or set `kernel.apparmor_restrict_unprivileged_userns=0`. **Not tested yet.** Use Debian 13 hosts until this is tested.
+Ubuntu 24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`. This also applies to the unconfined container: bubblewrap cannot create a user namespace, the container restarts with `the engine sandbox (bubblewrap) cannot start here` and is never healthy. A container cannot load the AppArmor profile that the Linux installer uses.
+
+On the host, before `docker compose up`:
+
+```sh
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/60-trina-ax-userns.conf
+```
+
+Tested on 2026-11-11 (amd64 and arm64): with this setting all checks of `docker/test.sh` pass. Trade-off: every program on the host can then create user namespaces, as on Debian. On a host that also runs other workloads, an AppArmor profile for the container that allows `userns` is the narrower option (not tested yet).
 
 ## Limits
 
@@ -190,7 +200,7 @@ A volume copy holds secrets (AI connections, keys): keep it encrypted and off th
 `docker/test.sh` builds the image, starts it with a separate project name and port, and checks: health, the setup page, the setup link, first-run setup through the published port, the engine firewall (`axagent` reaches only the model proxy), bubblewrap + Landlock + seccomp as `axagent`, the launcher's own status (bwrap, Landlock required, firewall loaded), and a new container on the same volume. It does not run a real AI turn (that needs an AI account). Then it removes the container, the volume and the network.
 
 ```sh
-TRINA_AX_VERSION=0.3.0 bash docker/test.sh
+TRINA_AX_VERSION=0.5.0-beta.1 bash docker/test.sh
 TRINA_AX_KIT=local bash docker/test.sh      # an unpacked kit in docker/kit-local/ (unsigned is accepted)
 ```
 
@@ -205,6 +215,7 @@ docker compose down -v     # also deletes the volume: all team data. Only after 
 
 | Message | Fix |
 |---|---|
+| `this Dockerfile needs a kit of release 0.5.0-beta.1 or later` | `TRINA_AX_VERSION` in `.env` is an older release. Set 0.5.0-beta.1 or later |
 | `nftables does not work here` | `cap_add: NET_ADMIN` is missing |
 | `the engine sandbox (bubblewrap) cannot start here` | A `security_opt` line is missing, or an Ubuntu 24.04 host ([Ubuntu hosts](#ubuntu-2404-hosts)) |
 | `... has no setgid bit` | `cap_add: FSETID` is missing. Add it, start once with `TRINA_AX_REINSTALL=1` |

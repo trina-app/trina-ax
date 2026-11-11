@@ -15,6 +15,7 @@ import { RELEASE_PUBLIC_KEYS, UpdateManager, inRollout, releaseNeedsRoot, type R
 import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, inWindow, updateWindowAnswer } from '../../server/src/system/update-job'
 import { resolveLayout } from '../../server/src/system/layout'
 import { getOps, systemTestHooks } from '../../server/src/routes/system'
+import { M } from '../../server/src/system/messages'
 import { OWNER_PW, addMember, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
@@ -328,6 +329,42 @@ describe('through the app', () => {
       expect(ops.busyWith).toBeNull()
     } finally {
       if (was !== undefined) process.env.MYCEL_INSTALL_ID = was
+      fs.rmSync(path.join(h.ctx.config.dataDir, 'update-check.json'), { force: true })
+    }
+  })
+  test('an update download that stalls mid-body fails within the idle window, removes the partial file and frees the operations lock', async () => {
+    // a fake release server that sends the first 64 KB of the bundle and then nothing, without closing the connection
+    const size = 1024 * 1024
+    const srv = Bun.serve({ port: 0, hostname: '127.0.0.1', idleTimeout: 0, fetch: () => new Response(new ReadableStream({
+      async pull(c) { c.enqueue(new Uint8Array(64 * 1024)); await new Promise(() => {}) },
+    }), { headers: { 'content-length': String(size) } }) })
+    const ops = getOps(h.ctx)!
+    const u = ops.updates
+    const o = (u as unknown as { o: Record<string, unknown> }).o
+    const os = process.platform === 'darwin' ? 'darwin' : process.platform
+    const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
+    const f = feed({ version: '99.0.0', bundles: [{ os, arch, url: 'https://releases.test/99.0.0.tar.zst', sha256: '0'.repeat(64), size }] } as Partial<ReleaseFeed>)
+    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: f }))
+    u.checkFeed = async () => f
+    o.fetch = ((_u: string, init?: RequestInit) => fetch(`http://127.0.0.1:${srv.port}/bundle`, init)) as typeof fetch
+    o.downloadIdleMs = 300
+    try {
+      const r = await owner.try('POST', '/api/admin/update', { password: OWNER_PW, version: '99.0.0' })
+      expect(r.status).toBe(202)
+      let job: { status: string; error?: { code: string; message: string } } = { status: 'queued' }
+      for (let i = 0; i < 100 && (job.status === 'queued' || job.status === 'running'); i++) {
+        await new Promise((x) => setTimeout(x, 100))
+        job = await owner.call('GET', `/api/jobs/${r.body.jobId}`)
+      }
+      expect(job.status).toBe('failed')
+      expect(Object.values(M.updateStalled)).toContain(job.error!.message)
+      expect(ops.busyWith).toBeNull()
+      expect(fs.readdirSync(path.join(h.ctx.config.dataDir, 'updates'))).toEqual([]) // no partial bundle left
+    } finally {
+      srv.stop(true)
+      delete (u as unknown as Record<string, unknown>).checkFeed
+      delete o.fetch
+      delete o.downloadIdleMs
       fs.rmSync(path.join(h.ctx.config.dataDir, 'update-check.json'), { force: true })
     }
   })

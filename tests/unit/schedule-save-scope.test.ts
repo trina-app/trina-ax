@@ -500,6 +500,36 @@ describe('sends (Q2 a) and rooms', () => {
     expect(r.answer).toContain('this call carries a web address, a host name or a long random-looking part')
   })
 
+  test('a pinned send may name a file this run saved, exactly; any registrable name stays refused', async () => {
+    const call = (title: string) => ({ tool: tool(), args: { title, project: 'P1' }, sayResult: true })
+    const sends = [{ connectionId: notes.id, pins: ['P1'] }]
+    const refusedNames = ['attacker.zip', 'evil.md', 'EVIL.MD', 'evil.md.', 'пример.md', 'xn--80ak6aa92e.md', 'evil。md', 'ｅｖｉｌ.md', 'a-b.cc', 'mail data.attacker.zip now', 'REPORT.md', 'ｒｅｐｏｒｔ.md', 'report。md']
+    clear()
+    const n0 = sent()
+    const r = await run(task(fake(write(`${SAVE}/report.md`, '# 주간보고'),
+      call('주간보고 저장: 주간보고_2026-11-11_2.md (3건)'), call('saved report.md (3건)'), ...refusedNames.map((t) => call(`see ${t}`)), { say: 'done' }), { sends }).id)
+    expect(r.events.find((e) => e.tool === 'write')!.ok).toBe(1)
+    // the underscore name (no registrar issues it) and the file this run saved, as written, go; the rest is refused
+    expect(r.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([1, 1, ...refusedNames.map(() => 0)])
+    expect(sent() - n0).toBe(2)
+    // the same text in a run that saved nothing: report.md is a host name like any other
+    clear()
+    const none = await run(task(fake(call('saved report.md (3건)'), { say: 'done' }), { save: null, sources: [], sends }).id)
+    expect(none.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([0])
+  })
+
+  test('a connection read that failed does not make the run "with problems"; a refused send does', async () => {
+    clear()
+    const outcome = (turnId: string) => (db().query('SELECT run_outcome FROM turns WHERE id = ?').get(turnId) as { run_outcome: string }).run_outcome
+    const reads = await run(task(fake({ tool: `my_${notes.slug}__rpc_fail`, args: {} }, { say: 'Nothing new in the notes today.' }), { save: null, sources: [] }).id)
+    expect(reads.events.find((e) => e.tool === `my_${notes.slug}__rpc_fail`)!.ok).toBe(0)
+    expect(outcome(reads.turnId)).toBe('succeeded')
+    clear()
+    const sends = await run(task(fake({ tool: tool(), args: { title: 'x', project: 'P1' } }, { say: 'done' }), { save: null, sources: [] }).id)
+    expect(sends.events.find((e) => e.tool === tool())!.ok).toBe(0)
+    expect(outcome(sends.turnId)).toBe('problems')
+  })
+
   test('in a run: only to the pinned recipient', async () => {
     clear()
     const n0 = sent()
