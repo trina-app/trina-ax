@@ -189,7 +189,7 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
       const r = refusedOf(who, [rel])
       expect({ who, rel, error: r?.[0]?.error }).toEqual({ who, rel, error: why })
       expect(why).not.toMatch(/admin/i)
-      if (o.guard) expect(() => svc().remove(who, rel, TURN, fakeItem(rel))).toThrow(why)
+      if (o.guard) expect(() => svc().remove(who, rel, TURN, { ai: fakeItem(rel) })).toThrow(why)
       expect(() => svc().remove(who, rel, TURN)).toThrow(Denied)
     }
     expect(has(rel)).toBe(true)
