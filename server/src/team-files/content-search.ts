@@ -7,9 +7,11 @@
 // counted in `notQueued`. Thus a person's search never takes the extraction slots that the AI grep of another person
 // needs, and one person's files do not delay the files of other people. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
 // bad regular expression. Limits: results (FileContentHits.items), lines per file, time (office extraction included),
-// file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person.
+// file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person. A line of an HTML file is shown
+// as its text, not its markup (QA TC-260); the screen finds files by name with GET /api/files/find (team-files/find.ts).
 import type { FileContentHits } from '@mycel/shared/api'
 import { grepFiles } from '../files/search'
+import { htmlToText } from '../tools/web-fetch'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
@@ -82,6 +84,20 @@ export function snippetOf(line: string, q: string): string {
   return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
 }
 
+/** files whose lines are shown as their readable text, not their markup (QA TC-260) */
+const HTML_FILE = /\.(?:html?|xhtml)$/i
+const NO_BASE = new URL('file:///')
+const folded = (s: string) => s.normalize('NFC').toLowerCase()
+
+/** The text of one line of an HTML file as a reader sees it: tags, scripts and styles out, entities decoded, white
+ * space as one space (web_fetch's htmlToText: one forward pass, no backtracking). Null when the query is only in the
+ * markup (a tag name, an attribute): that line has nothing to show. */
+export function htmlLineText(line: string, q: string): string | null {
+  // a link is its label here (htmlToText writes a web link as [label](address))
+  const text = htmlToText(line, NO_BASE).text.replace(/\[([^\]]*)\]\(https?:[^)\s]*\)/g, '$1').replace(/\s+/g, ' ').trim()
+  return folded(text).includes(folded(q)) ? text : null
+}
+
 export async function searchFileContents(files: TeamFiles, userId: string, q: string, base: string, limit: number, clientSignal?: AbortSignal): Promise<FileContentHits> {
   const user = files.principal(userId)
   const rules = files.rules()
@@ -104,7 +120,11 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
     // (a client that still waits, e.g. in a second tab, tries again after retryAfter)
     if (mine.aborted) throw new HttpError('rate_limited', undefined, { retryAfter: 1 })
     const items = res.hits
-      .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
+      .flatMap((h) => {
+        const name = h.path.slice(h.path.lastIndexOf('/') + 1)
+        const text = HTML_FILE.test(name) ? htmlLineText(h.text, query) : h.text
+        return text === null ? [] : [{ path: h.path, name, line: h.line, snippet: snippetOf(text, query) }]
+      })
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
     return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, retryLater: res.stats.officeRetryLater, longSkipped: res.stats.longSkipped }
   } finally { done() }

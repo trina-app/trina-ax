@@ -2763,12 +2763,13 @@ export class MockServer {
       return { trashed: true }
     },
     findFiles: (c) => {
-      const q = String(c.query.q ?? '').toLowerCase()
+      // names and the query in NFC, like the server (team-files/find.ts): a name saved by a Mac (NFD) matches too
+      const q = String(c.query.q ?? '').normalize('NFC').toLowerCase()
       const base = String(c.query.path ?? '')
       const items = [...this.files.entries()]
         // like the server (policy/authorize.ts visiblePath): download-only files are not search hits
         // folders too when asked (⌘K: folders=1), first, like the server
-        .filter(([p, n]) => (n.type === 'file' || (c.query.folders === '1' && n.type === 'folder')) && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        .filter(([p, n]) => (n.type === 'file' || (c.query.folders === '1' && n.type === 'folder')) && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).normalize('NFC').toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
         .sort(([, a], [, b]) => (a.type === b.type ? 0 : a.type === 'folder' ? -1 : 1))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
@@ -2784,7 +2785,10 @@ export class MockServer {
       const items: { path: string; name: string; line: number; snippet: string }[] = []
       for (const [p, n] of visible) {
         if (!/\.(md|txt|csv|html|json)$/i.test(p)) continue
-        dec.decode(n.data!).split('\n').forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
+        // an HTML file's line as its text (server: htmlLineText); a match only in the markup is no line
+        const html = /\.html?$/i.test(p)
+        const asText = (l: string) => l.replace(/<(script|style)\b[^>]*>[^<]*<\/\1>/gi, '').replace(/<[^>]*>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
+        dec.decode(n.data!).split('\n').map((l) => (html ? asText(l) : l)).forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
       }
       return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
     },

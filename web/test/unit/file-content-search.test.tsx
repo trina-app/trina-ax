@@ -4,9 +4,9 @@
 // server) shows only its lines.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { FileContentHits, Locale } from '@mycel/shared/api'
+import type { FileContentHits, FileEntry, Locale } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { FileContentList } from '../../src/components/FileContentSearch'
+import { FileContentList, FileNameList } from '../../src/components/FileContentSearch'
 import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -71,4 +71,52 @@ test('a click on a line opens its file', async () => {
     await m.unmount()
     removeDom()
   }
+})
+
+// QA TC-260: files and folders whose name holds the words come first ("로고" finds 로고.png), then the lines
+describe('names first', () => {
+  const entry = (p: string, type: 'file' | 'folder' = 'file'): FileEntry => ({ name: p.slice(p.lastIndexOf('/') + 1), path: p, type, size: type === 'file' ? 10 : null, mtime: '2026-11-11T00:00:00.000Z', mime: null, access: 'read' })
+  const NAMES = [entry('shared/brand/로고 모음', 'folder'), entry('shared/brand/로고.png'), entry('견적서.pdf')]
+  const names = (items: FileEntry[], q = '로고', truncated = false, onFolder = (_: string) => {}) =>
+    renderToStaticMarkup(<FileNameList items={items} truncated={truncated} query={q} onFolder={onFolder} />)
+
+  test('each file and folder in the order the server gave (folders first), the name marked, its folder beside it', () => {
+    setLocale('ko')
+    const html = names(NAMES)
+    expect(html).toContain(esc(translate('ko', 'files.search.names', { q: '로고' })))
+    expect(html.match(/data-testid="name-hit"/g)).toHaveLength(3)
+    expect(html.indexOf('title="shared/brand/로고 모음"')).toBeLessThan(html.indexOf('title="shared/brand/로고.png"'))
+    expect(html).toContain('<mark class="rounded-sm bg-accent-soft px-0.5 text-inherit">로고</mark><span>.png</span>')
+    expect(html).toContain('title="shared/brand/로고.png"')
+    // a file in the team folder itself has no folder line
+    expect(html).not.toContain('title="견적서.pdf"')
+    expect(names(NAMES, '로고', true)).toContain(esc(translate('ko', 'files.search.namesTruncated', { n: 3 })))
+  })
+
+  test('no name matches: nothing (the lines below say "nothing found")', () => {
+    expect(names([])).toBe('')
+  })
+
+  test('a file opens in the side panel; a folder opens in the list', async () => {
+    setLocale('en')
+    installDom()
+    closeSidePanel()
+    const opened: string[] = []
+    try {
+      const m = await mount(<FileNameList items={[entry('shared/brand/로고.png')]} truncated={false} query="로고" onFolder={(p) => opened.push(p)} />)
+      await m.click('name-hit')
+      expect(getSidePanel()).toMatchObject({ kind: 'file', file: { source: 'team', path: 'shared/brand/로고.png' } })
+      expect(opened).toEqual([])
+      closeSidePanel()
+      await m.unmount()
+      const f = await mount(<FileNameList items={[entry('shared/brand', 'folder')]} truncated={false} query="brand" onFolder={(p) => opened.push(p)} />)
+      await f.click('name-hit')
+      expect(opened).toEqual(['shared/brand'])
+      expect(getSidePanel()).toBeNull()
+      await f.unmount()
+    } finally {
+      closeSidePanel()
+      removeDom()
+    }
+  })
 })
