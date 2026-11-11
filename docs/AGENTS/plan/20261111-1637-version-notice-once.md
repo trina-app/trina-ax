@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:37
 - Branch: `fix/version-notice-once`
-- Status: in progress
+- Status: done
 - Where: web app (`web/src/store/live.ts`). Why: a web bug in the shared client, used by the browser, desktop and phone apps (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix with no API or data change
 
@@ -38,4 +38,5 @@ already shows the ready state elsewhere (Layout reads `updateReady`).
 
 ## Result
 
-Filled in at the end.
+Built as planned: `serverHello()` in `web/src/store/live.ts` raises the notice once per page; the unit test drives hellos
+1.0.0, 1.0.0, 1.1.0 ×3, 1.2.0 and sees one notice. Checked: web typecheck, check:i18n, check:docs, live.test.ts.
