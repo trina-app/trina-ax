@@ -9,6 +9,7 @@ import { useBackCloses } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
+import { useImageViewer } from '../lib/imageViewer'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -41,6 +42,8 @@ export default function Layout() {
   const panel = useSidePanel()
   // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the sidebar; the page stays mounted, hidden
   const big = usePanelExpanded() && expandable(panel)
+  // the image and file viewer (components/ImageViewer.tsx, over the whole window): the app under it is out of reach
+  const viewerOpen = !!useImageViewer()
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
@@ -125,7 +128,7 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" inert={viewerOpen || undefined} aria-hidden={viewerOpen || undefined} data-testid="app-layout">
       {/* a big side panel hides the page: the panel is what there is to skip to */}
       <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
@@ -149,7 +152,9 @@ export default function Layout() {
             </div>
           </div>
         )}
-        <main id="main" tabIndex={-1} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
+        {/* phones: a side panel (a file's preview, an artifact, the browser) is a full-screen sheet over the page, and the
+            page behind it is out of reach (no tap, scroll or focus goes there) until it closes */}
+        <main id="main" tabIndex={-1} inert={(phone && !!panel) || undefined} aria-hidden={(phone && !!panel) || undefined} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
           {/* a web browser not asked about notifications yet: one line, here on a computer (components/WebPushAsk.tsx) */}
           <WebPushAsk at="top" />
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}

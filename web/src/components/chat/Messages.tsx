@@ -89,7 +89,7 @@ export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect:
       <IconButton label={t('chat.prevBranch')} disabled={disabled || index === 0} onClick={() => onSelect(siblingIds[index - 1]!)}>
         <ChevronLeft size={14} />
       </IconButton>
-      <span className="tabular-nums" data-testid="branch-label">
+      <span className="whitespace-nowrap tabular-nums" data-testid="branch-label">
         {index + 1} / {count}
       </span>
       <IconButton label={t('chat.nextBranch')} disabled={disabled || index >= count - 1} onClick={() => onSelect(siblingIds[index + 1]!)}>
