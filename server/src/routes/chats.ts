@@ -3,6 +3,7 @@
 // Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
 // chatFor); "not yours" and "missing" are both not_found.
 import { redactorFor } from '../integrations/connections/redact'
+import { searchWords } from '@mycel/shared'
 import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
@@ -38,7 +39,7 @@ import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { Audiences, accountSeesProject, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
-import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
+import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
@@ -196,11 +197,33 @@ export const chatsRoutes: RouteModule = {
       }
       // a room's side panel (✦ Trina): my own chats opened from it (never a shared chat)
       if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
+      // a search: every word of the text, in any order, each in the title or in one of the chat's messages (the AI's
+      // project_chats tool matches the same way, chat/room-project-chats.ts); "견적서 보내" finds "견적서를 보내드렸어요".
+      // The messages that hold any word are read in ONE pass over messages_fts for the request (it is a scan: the
+      // chat records' LIKE … ESCAPE is never handed to FTS5), only for the chats this list may hold, each with the words
+      // it holds: per word, the chats where a person's message has it and the answers that have it. That only narrows
+      // the query below; whether an answer counts for me is decided in found() (it may be hidden from me)
       const q = query.q?.trim()
-      if (q) {
-        const like = `%${likeEscape(q)}%`
-        where.push(`(title LIKE ? ESCAPE '\\' OR id IN (SELECT chat_id FROM messages_fts WHERE content LIKE ? ESCAPE '\\'))`)
-        args.push(like, like)
+      const words = q ? searchWords(q).map((w) => `%${likeEscape(w)}%`) : []
+      const byWord = words.map(() => new Map<string, ChatHit>())
+      if (words.length) {
+        const any = words.map(() => "f.content LIKE ? ESCAPE '\\'")
+        const rows = ctx.db.query(`SELECT f.chat_id AS chat, f.message_id AS id, m.role, ${any.map((x, i) => `(${x}) AS w${i}`).join(', ')}
+          FROM messages_fts f JOIN messages m ON m.id = f.message_id WHERE (${any.join(' OR ')}) AND f.chat_id IN (SELECT id FROM chats WHERE ${where.join(' AND ')})`)
+          .all(...words, ...words, ...args) as ({ chat: string; id: string; role: string } & Record<string, unknown>)[]
+        for (const r of rows) {
+          words.forEach((_, i) => {
+            if (!r[`w${i}`]) return
+            let hit = byWord[i]!.get(r.chat)
+            if (!hit) byWord[i]!.set(r.chat, (hit = { question: false, answers: [] }))
+            if (r.role === 'assistant') hit.answers.push(r.id)
+            else hit.question = true
+          })
+        }
+        words.forEach((like, i) => {
+          where.push(`(title LIKE ? ESCAPE '\\' OR id IN (SELECT value FROM json_each(?)))`)
+          args.push(like, JSON.stringify([...byWord[i]!.keys()]))
+        })
       }
       const cur = decodeCursor(query.cursor, ['u', 'id'])
       if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
@@ -216,18 +239,15 @@ export const chatsRoutes: RouteModule = {
       // In the trash only what I may restore (chatFor 'manage'): its creator, or an editor of its project now
       const aud = new Audiences(ctx.db, ctx.files)
       const sight = new AnswerSight(ctx.db, ctx.files)
-      // the messages of shared chats that hold the words: one search for the request (the chat id is not indexed)
-      let hits: Map<string, ChatHit> | null = null
-      const found = (r: ChatRow) => {
-        const like = `%${likeEscape(q!)}%`
+      // every word through the title, a person's message, or an answer not hidden from me (the pass above)
+      const found = (r: ChatRow) => words.every((like, i) => {
         if (ctx.db.query("SELECT 1 FROM chats WHERE id = ? AND title LIKE ? ESCAPE '\\'").get(r.id, like)) return true
-        // a chat that stopped being shared (its creator's now) is not among the shared ones: its own search
-        const hit = isSharedRow(r) ? (hits ??= sharedHits(ctx.db, like)).get(r.id) : sharedHits(ctx.db, like, [r.id]).get(r.id)
+        const hit = byWord[i]!.get(r.id)
         if (!hit) return false
         if (hit.question) return true
         const hidden = sight.withheld(r.id, me)
         return hit.answers.some((id) => !hidden.has(id))
-      }
+      })
       let who: Principal | null | undefined
       const mayRestore = (r: ChatRow, p: ProjectRowT) => {
         if (r.user_id === me) return true

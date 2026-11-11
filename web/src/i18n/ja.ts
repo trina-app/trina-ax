@@ -3437,6 +3437,7 @@ export const ja: Record<MessageKey, string> = {
   "search.messagesFailed": "メッセージを検索できませんでした。",
   "search.inThread": "スレッド",
   "search.dm": "1:1トーク",
+  "search.roomsPeople": "トーク・メンバー",
   "rooms.toNewest": "最新のメッセージへ",
   "chatux.waitingForYou": "あなたを待っています。下のカードを確認してください。",
   "files.passThroughShort": "通過のみ",

@@ -3476,6 +3476,7 @@ export const ko = {
   "search.messagesFailed": "대화방 메시지를 검색하지 못했어요.",
   "search.inThread": "스레드",
   "search.dm": "1:1 대화",
+  "search.roomsPeople": "대화방·사람",
   "rooms.toNewest": "최근 메시지로",
   "chatux.waitingForYou": "답을 기다려요. 아래 카드를 확인해 주세요.",
   "files.passThroughShort": "이동만 가능",
