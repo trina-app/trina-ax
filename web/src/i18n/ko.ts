@@ -3518,7 +3518,7 @@ export const ko = {
   "welcome.later": "나중에 하기",
   "welcome.finished": "시작 설정을 마쳤어요.",
   "goal.title": "동료와 함께 문서 만들어 보기",
-  "goal.titleSkills": "동료와 함께 만들어 보기: {skills}",
+  "goal.titleSkills": "동료와 함께 문서 만들어 보기: {skills}",
   "goal.progress": "{count}/{target}",
   "goal.daysLeft": "{n}일 남음",
   "goal.invite": "팀원 초대",

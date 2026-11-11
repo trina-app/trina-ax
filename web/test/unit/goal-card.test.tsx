@@ -59,10 +59,10 @@ describe('text helpers', () => {
     const list = [{ path: 'a', name: '신청서' }, { path: 'deck', name: '회사 소개서' }, { path: 'b', name: '광고 문구' }, { path: 'c', name: '견적' }, { path: 'd', name: '카드뉴스' }]
     expect(goalTitleSkills('광고 문구', list, ['deck'])).toEqual(['광고 문구', '신청서', '견적'])
     expect(goalTitleSkills(null, [], [])).toEqual([])
-    expect(goalTitleText(ko, 'ko', ['광고 문구', '견적'])).toBe("동료와 함께 만들어 보기: '광고 문구', '견적'")
+    expect(goalTitleText(ko, 'ko', ['광고 문구', '견적'])).toBe("동료와 함께 문서 만들어 보기: '광고 문구', '견적'")
     expect(goalTitleText(en, 'en', ['Ad copy', 'Quotes', 'Promo cards'])).toBe("Make documents together with your colleagues: 'Ad copy', 'Quotes', and 'Promo cards'")
     expect(goalTitleText(en, 'en', [])).toBe('Make documents together with your colleagues')
-    expect(goalTitleText((k, p) => translate('ja', k, p), 'ja', ['広告', '見積'])).toBe('同僚と一緒に作ってみる: 「広告」「見積」')
+    expect(goalTitleText((k, p) => translate('ja', k, p), 'ja', ['広告', '見積'])).toBe('同僚と一緒に資料を作ってみる：「広告」「見積」')
   })
   test('progress up to the target, then a count; three names with "·", then +N (deleted people counted, never named)', () => {
     expect(goalProgressText(ko, 2, 3)).toBe('2/3')
@@ -145,7 +145,7 @@ describe('the card: a title, one line, one button', () => {
     try {
       const h = m.html()
       // the title invites people to make documents with the team's skill
-      expect(h).toContain("동료와 함께 만들어 보기: '광고 문구'")
+      expect(h).toContain("동료와 함께 문서 만들어 보기: '광고 문구'")
       expect(h).toContain(' · 1/3 · 5일 남음')
       expect(m.get('team-goal-next').textContent).toBe("민지님이 들어왔어요. '광고 문구'는 아직 써 보기 전이에요.")
       expect(buttons(h)).toBe(1)
@@ -294,7 +294,7 @@ describe('the card: a title, one line, one button', () => {
       try {
         const title = () => m.get('team-goal').querySelectorAll('h2')[0]!.textContent
         await m.until(() => title()!.includes('신청서') || null, 'the team\'s skills in the title')
-        expect(title()).toBe("동료와 함께 만들어 보기: '광고 문구', '신청서', 'quote maker' · 1/3 · 5일 남음")
+        expect(title()).toBe("동료와 함께 문서 만들어 보기: '광고 문구', '신청서', 'quote maker' · 1/3 · 5일 남음")
         expect(m.get('team-goal-progress').className).toContain('text-xs')
       } finally { await m.unmount() }
     } finally { globalThis.fetch = realFetch }
@@ -313,7 +313,7 @@ describe('the card: a title, one line, one button', () => {
     const link: TeamLinkResponse = { ...LINK, link: { ...LINK.link!, skill: { path: QUOTE, name: 'quote-maker', title: 'quote-maker' } } }
     const m = await card(goal({ skill: null, joined: 0 }), link)
     try {
-      expect(m.html()).toContain("동료와 함께 만들어 보기: 'quote maker'")
+      expect(m.html()).toContain("동료와 함께 문서 만들어 보기: 'quote maker'")
       await m.click('team-goal-copy-invite')
       expect(copied[0]).toContain("'quote maker'")
       expect(m.html() + copied[0]).not.toContain('quote-maker')
@@ -379,7 +379,7 @@ describe('the card: a title, one line, one button', () => {
       try {
         const toggle = m.get('team-goal-toggle')
         // the title, and the counts as its second line
-        expect(toggle.textContent).toBe("동료와 함께 만들어 보기: '광고 문구'1/3 · 5일 남음")
+        expect(toggle.textContent).toBe("동료와 함께 문서 만들어 보기: '광고 문구'1/3 · 5일 남음")
         expect(m.get('team-goal-progress').textContent).toBe('1/3 · 5일 남음')
         expect(toggle.getAttribute('aria-expanded')).toBe('false')
         // no frame, no rule under it

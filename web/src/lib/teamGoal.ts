@@ -103,7 +103,7 @@ export function goalTitleSkills(first: string | null, skills: readonly { path: s
   return out
 }
 
-/** The goal's title: an invitation to make documents with colleagues with the team's own skills ("동료와 함께 만들어
+/** The goal's title: an invitation to make documents with colleagues with the team's own skills ("동료와 함께 문서 만들어
  * 보기: '견적 만들기', '카드뉴스', '광고 문구'"); without a skill to name, the plain invitation. The count and the days
  * stay out of it (they follow it, small). */
 export function goalTitleText(t: T, locale: string, names: readonly string[]): string {

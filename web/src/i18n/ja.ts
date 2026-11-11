@@ -3475,7 +3475,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.later": "あとで行う",
   "welcome.finished": "はじめの設定が終わりました。",
   "goal.title": "同僚と一緒に資料を作ってみる",
-  "goal.titleSkills": "同僚と一緒に作ってみる: {skills}",
+  "goal.titleSkills": "同僚と一緒に資料を作ってみる：{skills}",
   "goal.progress": "{count}/{target}",
   "goal.daysLeft": "{n, plural, one {残り#日} other {残り#日}}",
   "goal.invite": "メンバーを招待",

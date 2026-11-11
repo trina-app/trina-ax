@@ -1,6 +1,6 @@
 // The 7-day team goal on Home for owners and admins (docs/DECISIONS.md "G — The 7-day team goal" and "Y — Home shows
 // one thing at a time"; contract shared/src/api/onboarding-goal.ts): the title invites people to make documents with
-// colleagues with a few of this team's own skills (owner 2026-11-11), "동료와 함께 만들어 보기: '광고 문구', '견적
+// colleagues with a few of this team's own skills (owner 2026-11-11), "동료와 함께 문서 만들어 보기: '광고 문구', '견적
 // 만들기', '카드뉴스' · 1/3 · 5일 남음" with the count small (the plain invitation while there is no skill; a skill
 // without a title by its folder name as words, shared skillLabel), ONE line of what to do next and ONE button. Someone joined and has not run a team skill: "민지님이
 // 들어왔어요. '광고 문구'는 아직 써 보기 전이에요." [다시 보내기] (copies a nudge with the skill form's link; never
@@ -164,7 +164,7 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
   // phones: the counts as the row's second line, so a wrap never leaves "남음" alone
   const counts = phone
     ? <span className="block text-xs text-muted tabular-nums" data-testid="team-goal-progress">{progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
-    : <span className="text-xs text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
+    : <span className="text-xs whitespace-nowrap text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
   const nextLine = <p className={clsx('text-sm text-muted text-pretty', !phone && 'mt-1')} data-testid="team-goal-next" data-next={noSkills ? 'noSkills' : next.kind}>{noSkills ? noSkillsText(t, next) : goalNextText(t, locale, next, named?.name ?? null)}</p>
   // phones never get [다시 보내기]
   const phoneAction = next.kind !== 'waiting' && action
