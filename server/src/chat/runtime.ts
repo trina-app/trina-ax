@@ -222,6 +222,10 @@ export class ChatRuntime {
   /** when the last answers started (performance.now(); at most startBurst, oldest first): a burst past that waits for spreadTimer */
   private recentStarts: number[] = []
   private spreadTimer: ReturnType<typeof setTimeout> | null = null
+  /** the queued turns a pending spread holds back, in the order they start: those that would be running without the
+   * spread (as many as the slots were free). They start first, before anything sent later, and they do not count as
+   * waiting (checkQueueRoom): what an answer that started at once is. */
+  private spreadNext: string[] = []
   private capacityWatcher: ReturnType<typeof setInterval>
   /** a fixed --max-turns (tests); null: the team setting, read when each answer starts */
   private engineTurnsOverride: number | null
@@ -426,11 +430,15 @@ export class ChatRuntime {
     const room = this.queued.length && this.running.size < limit ? memoryAdmission(this.running.size, limit) : limit
     this.memoryCheckedAt = Date.now()
     this.dispatchRetry = false
+    let spread = false
     while (this.running.size < room && this.queued.length) {
       // many answers at once start a few at a time (START_BURST per START_SPREAD_MS), the rest a moment later in order
-      if (this.startSpread()) break
+      if (this.startSpread()) { spread = true; break }
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
-      const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
+      // the ones a spread held back go first, in their order: they had their slots already
+      this.spreadNext = this.spreadNext.filter((id) => this.queued.some((s) => s.turnId === id))
+      const next = this.spreadNext.length ? this.queueEntries().find((s) => s.turnId === this.spreadNext[0]) : undefined
+      const head = next && !busy.has(next.chatId) ? next : selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
       if (!head) break
       const i = this.queued.findIndex(s => s.turnId === head.turnId)
       const spec = this.queued[i]!
@@ -469,6 +477,7 @@ export class ChatRuntime {
       try { this.publishChat(spec.userId, spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after dispatch failed', { err, turn: spec.turnId }) }
       exec.run().catch((err) => this.log.error('turn run failed', { err, turn: spec.turnId }))
     }
+    this.holdForSpread(spread ? room : 0)
     const held = this.queued.length > 0 && this.running.size < limit && this.running.size >= room
     if (held !== this.memoryHeld) {
       if (held) this.log.warn('queued answers wait for memory', { running: this.running.size, concurrency: limit, queued: this.queued.length })
@@ -497,6 +506,27 @@ export class ChatRuntime {
       this.spreadTimer.unref?.()
     }
     return true
+  }
+
+  /** After a dispatch: `room` > 0 when the spread stopped it with slots free. Then the turns that would take those slots
+   * (the ones held already first, then the rest in fair order) are kept in spreadNext; else it is emptied (no hold). */
+  private holdForSpread(room: number) {
+    const free = Math.max(0, room - this.running.size)
+    if (!free) { this.spreadNext = []; return }
+    const queued = new Set(this.queued.map((s) => s.turnId))
+    const kept = this.spreadNext.filter((id) => queued.has(id)).slice(0, free)
+    const more = this.orderedQueue().map((s) => s.turnId).filter((id) => !kept.includes(id))
+    this.spreadNext = [...kept, ...more.slice(0, free - kept.length)]
+  }
+
+  /** Queued turns held back only by the start spread (spreadNext): without it they would be running, and running
+   * turns never count. `mine`: this person's among them. Not while a claim waits to be tried again: then they do not
+   * start in a moment. (Memory: a spread break only happens with room left, holdForSpread takes no more than that.) */
+  private spreadHeld(userId: string): { team: number; mine: number } {
+    if (!this.spreadTimer || this.dispatchRetry || !this.spreadNext.length) return { team: 0, mine: 0 }
+    const ids = new Set(this.spreadNext)
+    const held = this.queued.filter((s) => ids.has(s.turnId))
+    return { team: held.length, mine: held.filter((s) => s.userId === userId).length }
   }
 
   /** The dispatch of one queued turn threw (claim, the turn's start): that turn ends with an error, nothing else. */
@@ -737,8 +767,10 @@ export class ChatRuntime {
     }
     const counts = this.db.query("SELECT COUNT(*) team, COALESCE(SUM(user_id = ?),0) mine FROM turns WHERE status='queued'").get(userId) as { team: number; mine: number }
     // Conservatively include an in-memory item until reconciliation, including after a failed DB write.
-    const team = Math.max(counts.team, this.queued.length)
-    const mine = Math.max(counts.mine, this.queued.filter((s) => s.userId === userId).length)
+    // turns that wait only for the start spread (a few ms) do not count: they would be running without it
+    const held = this.spreadHeld(userId)
+    const team = Math.max(counts.team, this.queued.length) - held.team
+    const mine = Math.max(counts.mine, this.queued.filter((s) => s.userId === userId).length) - held.mine
     const people = (this.db.query("SELECT COUNT(*) n FROM users WHERE status='active' AND deleted_at IS NULL").get() as { n: number }).n
     const teamMax = Math.max(QUEUE_TEAM_MIN, 4 * this.concurrency(), QUEUE_PER_USER * Math.min(people, 100))
     if (team < teamMax && mine < QUEUE_PER_USER) return

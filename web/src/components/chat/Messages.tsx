@@ -30,6 +30,7 @@ import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
 import { useChats, useQueuePosition } from '../../store/chats'
+import { useQueueShown } from '../../lib/queueShown'
 import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
@@ -584,6 +585,8 @@ export function AssistantMessage({
   const locale = useLocale()
   const streaming = m.status === 'streaming'
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
+  // a place in line held only a moment (the server's start spread) is not shown: no flash of "queued"
+  const queued = useQueueShown(streaming && queuePos !== undefined && queuePos > 0)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
   // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
   const waitingForYou = streaming && requests.length > 0
@@ -635,9 +638,9 @@ export function AssistantMessage({
             <span className="h-px flex-1 bg-line" />
           </div>
         )}
-        {streaming && queuePos !== undefined && queuePos > 0 && (
+        {queued && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="queue-position">
-            {t('chat.queued', { n: queuePos })} <span className="text-faint">{t('chat.queueHint')}</span>
+            {t('chat.queued', { n: queuePos ?? 0 })} <span className="text-faint">{t('chat.queueHint')}</span>
           </p>
         )}
         {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : (
@@ -646,7 +649,7 @@ export function AssistantMessage({
             <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
           </StepPostView.Provider>
         )}
-        {thinking && (queuePos === undefined || queuePos === 0) && (
+        {thinking && !queued && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
             <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
             <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />

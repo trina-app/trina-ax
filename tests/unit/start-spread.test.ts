@@ -114,3 +114,36 @@ test('shutdown cancels a pending spread: nothing starts after it', async () => {
   await Bun.sleep(START_SPREAD_MS + 100)
   expect(starts.length).toBe(START_BURST)
 })
+
+test('one person, concurrency 10, 7 sends: all accepted, at most START_BURST start per START_SPREAD_MS', async () => {
+  // turns held back only by the spread do not count toward the 3-waiting limit (QUEUE_PER_USER)
+  await setup('one-person', 1, 10)
+  const me = olga()
+  for (let i = 0; i < 7; i++) expect(() => send(me)).not.toThrow()
+  await waitFor(() => starts.length === 7)
+  for (let i = START_BURST; i < starts.length; i++) expect(starts[i]!.at - starts[i - START_BURST]!.at).toBeGreaterThanOrEqual(START_SPREAD_MS - 5)
+})
+
+test('the per-person limit still holds for turns waiting for a slot (spread pending, one slot free)', async () => {
+  // concurrency 4: 3 start, the 4th waits for the spread (not counted), 3 more wait for a slot, the 8th is refused: as without the spread
+  await setup('limit', 1, 4)
+  const me = olga()
+  for (let i = 0; i < 7; i++) send(me)
+  expect(rt.runningCount()).toBe(START_BURST)
+  expect(() => send(me)).toThrow(expect.objectContaining({ code: 'rate_limited' }))
+})
+
+test('two people, concurrency 10: the free slots are shared, nobody ends up with more than 3 waiting', async () => {
+  await setup('two', 2, 10)
+  const a = olga(), b = 'u1'
+  for (let i = 0; i < 4; i++) send(a)
+  const sendAll = (u: string) => { let n = 0; for (;;) { try { send(u); n++ } catch (e: any) { expect(e.code).toBe('rate_limited'); return n } } }
+  const accepted = { a: 4 + 0, b: sendAll(b) }
+  accepted.a += sendAll(a)
+  // no more than without the spread: 10 run, 3 wait each at most
+  expect(accepted.a + accepted.b).toBe(10 + 6)
+  await waitFor(() => rt.runningCount() === 10)
+  const waiting = (u: string) => (h.ctx.db.query("SELECT COUNT(*) n FROM turns WHERE status='queued' AND user_id=?").get(u) as { n: number }).n
+  expect(waiting(a)).toBeLessThanOrEqual(3)
+  expect(waiting(b)).toBeLessThanOrEqual(3)
+})

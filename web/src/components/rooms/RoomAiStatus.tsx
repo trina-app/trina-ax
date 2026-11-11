@@ -8,6 +8,7 @@
 // (RoomMessages, PrivateAnswered).
 import { Lock, Square, X } from 'lucide-react'
 import { useState } from 'react'
+import { useQueueShown } from '../../lib/queueShown'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomAiRun } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
@@ -96,6 +97,8 @@ function MyRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
   const last = run.steps.at(-1)
   const words = last ? roomStepWords(last) : null
   const now = !words ? '' : words.kind === 'read' ? t('rooms.aiStepRead', { name: words.name }) : words.kind === 'find' ? t('rooms.aiStepFind') : words.kind === 'web' ? t('rooms.aiStepWeb') : t('rooms.aiStepWork')
+  // a place in line held only a moment (the server's start spread) is not shown: no flash of "queued"
+  const queued = useQueueShown(run.state === 'queued' && run.position > 0)
   const stop = async () => {
     setStopping(true)
     try {
@@ -112,7 +115,7 @@ function MyRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
         <p className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
           {/* "트리나가 답하는 중" names the AI already; waiting in the queue says whose turn it is */}
           <span className="text-sm font-medium text-ink" role="status">
-            {run.state === 'queued' && run.position > 0 ? `${t('rooms.aiName')} · ${t('rooms.aiQueued', { n: run.position })}` : t('rooms.aiAnswering')}
+            {queued ? `${t('rooms.aiName')} · ${t('rooms.aiQueued', { n: run.position })}` : t('rooms.aiAnswering')}
           </span>
           {!requests.length && <Dots />}
           <Button size="sm" variant="secondary" className="ml-auto" busy={stopping} onClick={() => void stop()} data-testid="room-ai-stop">
