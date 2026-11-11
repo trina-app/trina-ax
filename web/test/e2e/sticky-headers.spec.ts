@@ -103,7 +103,8 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
   await start(page)
   for (const size of [{ width: 1468, height: 700 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    for (const path of ['/admin/settings', '/admin/connectors']) {
+    // a phone: Team settings is a list of its groups; its AI engine group is the long page there
+    for (const path of [size.width < 768 ? '/admin/settings/ai' : '/admin/settings', '/admin/connectors']) {
       await page.goto(path)
       await expect(page.getByTestId('admin-content')).toBeVisible()
       if (path === '/admin/connectors') await page.getByTestId('connector-show-all').click()

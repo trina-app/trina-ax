@@ -4,6 +4,7 @@
 // connection changes ask for the password again. Long work runs as a job with progress from the WebSocket.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
+import clsx from 'clsx'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { ConnectionMode } from '@mycel/shared/api'
@@ -11,7 +12,7 @@ import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, ErrorNote, Field, Modal, PhoneTargets, confirmDialog, inputCls } from '../../components/ui'
 import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import { forgetKeptChecks } from './overview'
 import OfficeUpdate from './OfficeUpdate'
@@ -71,16 +72,17 @@ function AllFailed({ detail, onRetry }: { detail: string | null; onRetry: () => 
   )
 }
 
-/** Label / value rows (a definition list): the label on the left, the value next to it, an action on the right; on a
- * phone the label goes above the value. */
+/** Label / value rows (a definition list): the label on the left, the value next to it, an action on the right. On a
+ * phone (below 768 px) the value sits at the right end of the row, like a phone's Settings › About; a `long` one (an
+ * address, a sentence, a state with its details) goes under the label instead. */
 function Rows({ children, testId, className }: { children: ReactNode; testId?: string; className?: string }) {
   return <dl className={`divide-y divide-line text-sm ${className ?? ''}`} data-testid={testId}>{children}</dl>
 }
-function Row({ label, children, action, testId }: { label: ReactNode; children: ReactNode; action?: ReactNode; testId?: string }) {
+function Row({ label, children, action, testId, long }: { label: ReactNode; children: ReactNode; action?: ReactNode; testId?: string; long?: boolean }) {
   return (
-    <div className="flex flex-wrap items-start gap-x-6 gap-y-1 py-2.5 sm:flex-nowrap" data-testid={testId}>
-      <dt className="text-muted max-sm:basis-full sm:w-40 sm:shrink-0">{label}</dt>
-      <dd className="min-w-0 flex-1">{children}</dd>
+    <div className="flex flex-wrap items-start gap-x-4 gap-y-1 py-2.5 md:flex-nowrap md:gap-x-6" data-testid={testId}>
+      <dt className={clsx('text-muted md:w-40 md:shrink-0', long ? 'max-md:basis-full' : 'max-md:max-w-[50%] max-md:shrink-0')}>{label}</dt>
+      <dd className={clsx('min-w-0 flex-1', !long && 'max-md:text-right max-md:break-words')}>{children}</dd>
       {action && <dd className="shrink-0">{action}</dd>}
     </div>
   )
@@ -107,13 +109,15 @@ export default function System() {
   // the sections stay mounted while hidden, so they can report that they loaded again after a retry
   return (
     <LoadReport.Provider value={loads.report}>
-      <FlatCardsProvider value>
-        <AdminPageHeader title={t('admin.system')} />
-        {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
-        <div hidden={loads.allFailed} className="max-w-3xl" data-testid="system-page">
-          <SystemSections />
-        </div>
-      </FlatCardsProvider>
+      <PhoneTargets.Provider value>
+        <FlatCardsProvider value>
+          <AdminPageHeader title={t('admin.system')} />
+          {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
+          <div hidden={loads.allFailed} className="max-w-3xl" data-testid="system-page">
+            <SystemSections />
+          </div>
+        </FlatCardsProvider>
+      </PhoneTargets.Provider>
     </LoadReport.Provider>
   )
 }
@@ -206,7 +210,7 @@ function Health({ rev }: { rev: number }) {
                     <div className="flex items-center gap-2.5">
                       <CheckCircle2 size={16} className="shrink-0 text-ok" aria-hidden />
                       <span className="min-w-0 flex-1">{t('system.healthPassed', { n: passed.length })}</span>
-                      <button type="button" aria-expanded={open} className="text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid="health-details">
+                      <button type="button" aria-expanded={open} className="text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline max-md:min-h-11" onClick={() => setOpen(!open)} data-testid="health-details">
                         {t(open ? 'system.hideDetails' : 'system.showDetails')}
                       </button>
                     </div>
@@ -365,7 +369,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
         {(c) => (
           <>
             <Rows>
-              <Row label={t('system.mode')}>
+              <Row label={t('system.mode')} long>
                 <span className="inline-flex flex-wrap items-center gap-2">
                   {/* no relay and a public address: nothing is off for the team, so no "Off" badge */}
                   {!(c.mode === 'direct-only' && pub) && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}
@@ -380,12 +384,12 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                 </Row>
               )}
               {c.address && (
-                <Row label={t('system.address')}>
+                <Row label={t('system.address')} long>
                   <code className="break-all">{c.address}</code>
                 </Row>
               )}
               {pub && (
-                <Row label={t('system.publicAddress')}>
+                <Row label={t('system.publicAddress')} long>
                   <code className="break-all">https://{pub}</code>
                 </Row>
               )}
@@ -534,7 +538,7 @@ function ConnectedFolders() {
                       <RefreshCw size={13} aria-hidden /> {t('connected.syncNow')}
                     </Button>
                     <Tooltip label={t('connected.remove')}>
-                      <button type="button" aria-label={t('connected.remove')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger"
+                      <button type="button" aria-label={t('connected.remove')} className="touch-hit rounded p-1 text-faint hover:bg-hover hover:text-danger"
                         onClick={async () => {
                           if (!(await confirmDialog({ title: t('connected.removeTitle'), body: t('connected.removeBody', { name: c.name }), confirm: t('connected.remove'), danger: true }))) return
                           await actOk(() => api.call(API.removeConnected, { params: { id: c.id } }))
@@ -605,12 +609,13 @@ function Update() {
               </Row>
               {u.managed ? (
                 // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
-                <Row label={t('system.row.status')}>
+                <Row label={t('system.row.status')} long>
                   <span className="text-muted" data-testid="update-managed">{t('system.updateManaged')}</span>
                 </Row>
               ) : u.available ? (
                 <Row
                   label={t('system.row.status')}
+                  long
                   action={
                     u.needsRoot ? undefined : (
                       <Button variant="primary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('update')}>
@@ -625,12 +630,12 @@ function Update() {
                   {u.needsRoot && <span className="mt-1 block text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</span>}
                 </Row>
               ) : (
-                <Row label={t('system.row.status')}>
+                <Row label={t('system.row.status')} long>
                   {u.feed === false ? <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span> : <span className="text-muted">{t('system.upToDate')}</span>}
                 </Row>
               )}
               {u.auto && !u.managed && (
-                <Row label={t('system.row.auto')} action={<Link to="/admin/settings#ts-time" className="text-xs font-medium text-accent-text underline-offset-2 hover:underline">{t('system.updateWindowLink')}</Link>}>
+                <Row label={t('system.row.auto')} long action={<Link to="/admin/settings#ts-time" className="text-xs font-medium text-accent-text underline-offset-2 hover:underline">{t('system.updateWindowLink')}</Link>}>
                   <span className="text-muted">{t('system.autoOn')}</span>
                 </Row>
               )}
@@ -744,7 +749,7 @@ function Export() {
       <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
         <legend className="sr-only">{t('system.export')}</legend>
         {(['chats', 'memories', 'files'] as const).map((w) => (
-          <label key={w} className="inline-flex items-center gap-1.5 text-sm">
+          <label key={w} className="inline-flex items-center gap-1.5 text-sm max-md:min-h-11">
             <input type="checkbox" checked={what.includes(w)} onChange={(e) => setWhat(e.target.checked ? [...what, w] : what.filter((x) => x !== w))} />
             {t(`system.exportWhat.${w}`)}
           </label>

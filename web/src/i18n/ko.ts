@@ -4026,6 +4026,7 @@ export const ko = {
   "teamSettings.section.time": "시간과 업데이트",
   "teamSettings.section.data": "데이터 보관",
   "teamSettings.section.ai": "팀원과 AI",
+  "teamSettings.group.engine": "AI 엔진",
   "teamSettings.learnMore": "자세히",
   "teamSettings.days": "일",
   "teamSettings.unsaved": "저장하지 않은 변경 사항",

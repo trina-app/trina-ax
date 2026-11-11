@@ -3986,6 +3986,7 @@ export const ja: Record<MessageKey, string> = {
   "teamSettings.section.time": "時間とアップデート",
   "teamSettings.section.data": "データの保持",
   "teamSettings.section.ai": "メンバーとAI",
+  "teamSettings.group.engine": "AIエンジン",
   "teamSettings.learnMore": "詳しく",
   "teamSettings.days": "日",
   "teamSettings.unsaved": "未保存の変更",

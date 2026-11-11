@@ -14,7 +14,7 @@ import { api, API, ApiError } from '../../lib/api'
 import { formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, confirmDialog, IconButton, inputCls, Modal, Switch } from '../../components/ui'
+import { Badge, Button, confirmDialog, IconButton, inputCls, Modal, PhoneTargets, Switch } from '../../components/ui'
 import { Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
 
 const POLL_MS = 4000
@@ -74,10 +74,10 @@ function Body({ d, onData }: { d: Status; onData: (d: Status) => void }) {
   return (
     <>
       {docs && (
-        <SettingRow id="kg-docs-enabled" title={t('kg.docs.enable')} desc={t('kg.docs.enableDesc')} more={t('kg.docs.enableMore')} testId="kg-docs-row"
+        <SettingRow id="kg-docs-enabled" inline title={t('kg.docs.enable')} desc={t('kg.docs.enableDesc')} more={t('kg.docs.enableMore')} testId="kg-docs-row"
           control={<Switch id="kg-docs-enabled" external checked={docs.enabled} disabled={saving !== null} onChange={(v) => void toggle('documents', v)} label={t('kg.docs.enable')} describedBy="kg-docs-enabled-desc" testId="kg-docs-enabled" />} />
       )}
-      <SettingRow id="kg-enabled" title={t('kg.enable')}
+      <SettingRow id="kg-enabled" inline title={t('kg.enable')}
         desc={d.available ? t('kg.enableDesc') : <span data-testid="kg-unavailable">{t('kg.unavailable')}</span>}
         more={d.available ? t('kg.enableMore') : t('kg.installMore')}
         testId="kg-enabled-row"
@@ -284,7 +284,10 @@ function Added({ d, onData }: { d: Status; onData: (d: Status) => void }) {
               {d.added.map((p) => (
                 <li key={p} className="inline-flex items-center gap-1 rounded-md border border-line bg-subtle py-0.5 pr-0.5 pl-2 font-mono text-xs text-ink" data-testid="kg-added-item">
                   {p}
-                  <IconButton label={t('kg.removeAdded', { path: p })} disabled={busy} onClick={() => void save(d.added.filter((x) => x !== p))} className="p-0.5 max-sm:p-1"><X size={13} aria-hidden /></IconButton>
+                  {/* inside a chip: its look stays small, a phone gets a 44 px box to tap around it */}
+                  <PhoneTargets.Provider value={false}>
+                    <IconButton label={t('kg.removeAdded', { path: p })} disabled={busy} onClick={() => void save(d.added.filter((x) => x !== p))} className="touch-hit p-0.5 max-sm:p-1"><X size={13} aria-hidden /></IconButton>
+                  </PhoneTargets.Provider>
                 </li>
               ))}
             </ul>

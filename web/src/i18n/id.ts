@@ -4026,6 +4026,7 @@ export const id: Record<MessageKey, string> = {
   "teamSettings.section.time": "Waktu dan pembaruan",
   "teamSettings.section.data": "Penyimpanan data",
   "teamSettings.section.ai": "Anggota dan AI",
+  "teamSettings.group.engine": "Mesin AI",
   "teamSettings.learnMore": "Selengkapnya",
   "teamSettings.days": "hari",
   "teamSettings.unsaved": "Perubahan belum disimpan",

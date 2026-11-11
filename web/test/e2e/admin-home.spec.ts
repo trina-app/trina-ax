@@ -216,8 +216,9 @@ test('the admin menu stays where it is while the page scrolls on a wide screen; 
   for (const size of [{ width: 1360, height: 640 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
     const phone = size.width < 768
-    // Team settings, with the team's AI settings at its end: the longest admin page
-    await page.goto('/admin/settings')
+    // Team settings, with the team's AI settings at its end: the longest admin page (a phone: its AI engine group, one
+    // page of its own there, pages/admin/teamSettingsGroups.ts)
+    await page.goto(phone ? '/admin/settings/ai' : '/admin/settings')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
     const menu = page.getByTestId(phone ? 'phone-page-bar' : 'admin-menu')
     const before = (await menu.boundingBox())!
@@ -227,7 +228,7 @@ test('the admin menu stays where it is while the page scrolls on a wide screen; 
     await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
     expect((await menu.boundingBox())!.y).toBe(before.y)
     if (phone) {
-      await expect(page.getByTestId('admin-bar-title')).toHaveText(t['admin.settings'])
+      await expect(page.getByTestId('admin-bar-title')).toHaveText(t['teamSettings.group.engine'])
       await expect(page.getByTestId('admin-back')).toBeInViewport()
       continue
     }

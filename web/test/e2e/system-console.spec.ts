@@ -68,7 +68,7 @@ test('an admin sees the plan, storage and office updates only', async ({ page })
   await expect(page.getByTestId('backup-now')).toHaveCount(0)
 })
 
-test('phone: rows stack, nothing runs off the side', async ({ page }) => {
+test('phone: a fact\'s value on the right of its label, nothing runs off the side', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page)
@@ -76,8 +76,10 @@ test('phone: rows stack, nothing runs off the side', async ({ page }) => {
   await expect(page.getByTestId('system-health')).toBeVisible()
   const wide = await page.getByTestId('admin-content').evaluate((el) => el.scrollWidth > el.clientWidth + 1)
   expect(wide).toBe(false)
-  // a fact's label sits above its value on a phone
+  // a fact's value sits on its label's line, at the right (as a phone's Settings › About; docs/DECISIONS.md "Admin and
+  // Settings on phones", the form pages)
   const row = page.getByTestId('system-facts').locator(':scope > div').first()
   const [label, value] = await Promise.all([row.locator('dt').boundingBox(), row.locator('dd').first().boundingBox()])
-  expect(value!.y).toBeGreaterThan(label!.y + label!.height - 1)
+  expect(Math.abs(value!.y - label!.y)).toBeLessThan(4)
+  expect(value!.x).toBeGreaterThan(label!.x + label!.width)
 })

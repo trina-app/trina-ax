@@ -146,8 +146,10 @@ const historyIdx = (): number | null => {
  * Put `listPath` under this page when it was entered from outside the list's area (see the top of this file). `phone`:
  * only below 768 px, as it was when the entry first showed (a resize never inserts). `final`: the page is the one that
  * stays (not a redirect, not refused, not still loading what decides it). Returns nothing; the page stays on screen.
+ * Several lists, outermost first (Admin's list, then Team settings' under a group of it): the area is the first one's,
+ * and all of them go under the page in that order, so Back walks page → Team settings → Admin → where you were.
  */
-export function useListUnderPage(listPath: string, phone: boolean, final: boolean) {
+export function useListUnderPage(listPath: string | readonly string[], phone: boolean, final: boolean) {
   const navigate = useNavigate()
   const location = useLocation()
   const nav = useRealNavigationType()
@@ -164,13 +166,15 @@ export function useListUnderPage(listPath: string, phone: boolean, final: boolea
     // under the Settings dialog this is the page behind it, not the address in the bar
     if (!firstPhone.current?.phone || realPath !== location.pathname) return
     const below = entryBelow(location.key)
-    if (!needsList({ nav, idx: historyIdx(), below, listPath, own: belowInState(location.state) !== undefined, fresh: entryFresh(location.key) })) return
+    const lists = typeof listPath === 'string' ? [listPath] : listPath
+    if (!lists.length || !needsList({ nav, idx: historyIdx(), below, listPath: lists[0]!, own: belowInState(location.state) !== undefined, fresh: entryFresh(location.key) })) return
     // the address as it was opened, ?query and #hash included, even when the page has used its query up meanwhile
     // (Connectors' ?drive=1 opens Google Drive and leaves the address): the page is drawn again over the list and
     // reads it again (its queries open or point at something; reading one twice does the same thing)
-    navigate(listPath, { replace: true, state: { [BELOW]: below ?? null } })
+    navigate(lists[0]!, { replace: true, state: { [BELOW]: below ?? null } })
+    for (let i = 1; i < lists.length; i++) navigate(lists[i]!, { state: { [BELOW]: lists[i - 1] } })
     const state = location.state && typeof location.state === 'object' ? location.state : {}
-    navigate(`${location.pathname}${location.search}${location.hash}`, { state: { ...state, [BELOW]: listPath } })
+    navigate(`${location.pathname}${location.search}${location.hash}`, { state: { ...state, [BELOW]: lists.at(-1) } })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key, final])
 }

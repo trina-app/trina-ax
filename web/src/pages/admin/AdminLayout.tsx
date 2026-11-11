@@ -15,7 +15,8 @@
 // Below 768 px (phones): /admin is a list (PhoneRoot.tsx) and each page opens over it with a push, under its own bar
 // (‹ and the page's name; the phone top bar steps aside for /admin). The list is always under a page, also one opened
 // from a link, and Back returns to it at the same place (lib/backStack.ts; docs/DECISIONS.md "Admin and Settings on
-// phones: a list you tap into").
+// phones: a list you tap into"). Team settings is one more list there: its groups, each a page at
+// /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); computers keep it one page.
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useRef } from 'react'
 import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
@@ -23,12 +24,13 @@ import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
 import { useGoBack } from '../../lib/back'
-import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
+import { BELOW, entryBelow, useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Spinner, useMediaQuery } from '../../components/ui'
 import { PhonePageBar } from '../../components/phone/PhonePageBar'
 import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
+import { teamSettingsGroup, teamSettingsRedirect } from './teamSettingsGroups'
 
 const Home = lazy(() => import('./Home'))
 const PhoneRoot = lazy(() => import('./PhoneRoot'))
@@ -86,11 +88,14 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
   },
 ]
 
-/** The name of an address for the phone's ‹ label: Admin's list and pages, and Settings' (lib/backStack.ts). */
-function pageName(path: string, t: (key: MessageKey) => string): string | null {
+/** The name of an address for the phone's ‹ label: Admin's list and pages (a group of Team settings by its own name),
+ * and Settings' (lib/backStack.ts). */
+function pageName(path: string, t: (key: MessageKey) => string, devEnv: boolean | undefined): string | null {
   if (path === '/admin') return t('admin.title')
   if (path.startsWith('/admin/')) {
-    const id = path.slice('/admin/'.length).split('/')[0]
+    const [id, sub] = path.slice('/admin/'.length).split('/')
+    const group = id === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
+    if (group) return t(group.label)
     const s = MENU.flatMap((g) => g.items).find((x) => x.id === id)
     return s ? t(s.label) : null
   }
@@ -114,25 +119,38 @@ function redirectOf(section: string, search: string): string | null {
 export default function AdminLayout() {
   const t = useT()
   const me = useMeStrict()
-  const { section = '' } = useParams()
-  const { search } = useLocation()
+  const { section = '', sub } = useParams()
+  const location = useLocation()
+  const { search, hash } = location
   // phones: the list and its pages (below 768 px, the width of the phone top bar and tabs)
   const phone = useMediaQuery('(max-width: 767.98px)')
   // tablets: the menu as a rail of icons (names in tips); computers: with the names
   const wide = useMediaQuery('(min-width: 1024px)')
   const content = useRef<HTMLDivElement>(null)
+  // the width this entry first showed at: a redirect after a resize (Team settings' one page ↔ its groups) says what is
+  // under it, so the new entry gets no list put under it (a resize never builds a back stack, lib/backStack.ts)
+  const firstWidth = useRef<{ key: string; phone: boolean } | null>(null)
+  if (firstWidth.current?.key !== location.key) firstWidth.current = { key: location.key, phone }
+  const resized = firstWidth.current.phone !== phone
   const admin = isAdmin(me)
-  const redirect = admin ? redirectOf(section, search) : null
+  const devEnv = me.server.devEnv
+  // Team settings: a group's page on a phone, the one page on a computer (teamSettingsGroups.ts); no other page has
+  // pages under it
+  const redirect = !admin ? null
+    : redirectOf(section, search) ?? (section === 'settings' ? teamSettingsRedirect({ sub, hash, phone, devEnv }) : sub ? `/admin/${section}${search}${hash}` : null)
+  const group = section === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
   const known = menu.some((g) => g.items.some((s) => s.id === section))
   // the page that stays (no redirect, allowed): only then may the list be put under it
   const final = admin && !redirect && known && section !== ''
-  useListUnderPage('/admin', phone, final)
+  // a group of Team settings has both lists under it: Back goes group → Team settings → Admin
+  useListUnderPage(group ? ['/admin', '/admin/settings'] : '/admin', phone, final)
   useKeptScroll(content, 'admin', phone && admin && !redirect && known)
-  const label = useBackLabel(section ? '/admin' : '/settings', (p) => pageName(p, t))
-  const back = useGoBack(section ? '/admin' : '/settings')
+  const up = group ? '/admin/settings' : section ? '/admin' : '/settings'
+  const label = useBackLabel(up, (p) => pageName(p, t, devEnv))
+  const back = useGoBack(up)
   if (!admin) return <Navigate to="/" replace />
-  if (redirect) return <Navigate to={redirect} replace />
+  if (redirect) return <Navigate to={redirect} replace state={resized ? { [BELOW]: entryBelow(location.key) ?? null } : undefined} />
   if (!known) return <Navigate to="/admin" replace />
   const current = menu.flatMap((g) => g.items).find((s) => s.id === section)!
 
@@ -158,7 +176,7 @@ export default function AdminLayout() {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
         {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
-        <PhonePageBar onBack={back} backLabel={label} title={section ? t(current.label) : ''} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
+        <PhonePageBar onBack={back} backLabel={label} title={group ? t(group.label) : section ? t(current.label) : ''} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
         <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
           {section === '' ? (
             <Suspense fallback={<Spinner />}>
