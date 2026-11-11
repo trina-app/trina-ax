@@ -28,7 +28,7 @@ test('the status, Run now, and off after a question', async ({ page }) => {
   await open(page)
   const section = page.getByTestId('file-list')
   await expect(section.getByRole('heading', { level: 2 })).toHaveText(t['fileList.title'])
-  await expect(page.getByTestId('file-list-counts')).toHaveText('1,240 files listed · 18 waiting to be read')
+  await expect(page.getByTestId('file-list-counts')).toHaveText('Files listed: 1,240 · waiting to be read: 18')
   await expect(page.getByTestId('file-list-uses')).toHaveText('Uses Claude Haiku on the team AI account “Team Claude”, signed in by Dana. Each night\'s run counts against its limit.')
   const sw = page.getByRole('checkbox', { name: t['fileList.title'] })
   await expect(sw).toBeChecked()
@@ -36,7 +36,7 @@ test('the status, Run now, and off after a question', async ({ page }) => {
   await page.getByTestId('file-list-run').click()
   await expect(page.getByTestId('file-list-running')).toBeVisible()
   await expect(page.getByTestId('file-list-run')).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByTestId('file-list-counts')).toHaveText('1,258 files listed')
+  await expect(page.getByTestId('file-list-counts')).toHaveText('Files listed: 1,258')
   // off asks first; cancelling keeps it on
   await sw.click({ force: true })
   await expect(page.getByTestId('dialog-confirm')).toHaveText(t['fileList.offConfirm'])

@@ -20,9 +20,9 @@ const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, 
 describe('the file list status', () => {
   test('on: files listed and waiting, the last and the next run, the team AI account and who signed it in, Run now', () => {
     const html = lines()
-    expect(text(html)).toContain('1,240 files listed · 18 waiting to be read')
+    expect(text(html)).toContain('Files listed: 1,240 · waiting to be read: 18')
     expect(text(html)).toContain('Last run')
-    expect(text(html)).toContain('96 files read')
+    expect(text(html)).toContain('files read: 96')
     expect(text(html)).toContain('next run')
     expect(text(html)).toContain('Uses Claude Haiku on the team AI account “Team Claude”, signed in by Dana. Each night\'s run counts against its limit.')
     expect(html).toContain('data-testid="file-list-run"')
@@ -30,7 +30,7 @@ describe('the file list status', () => {
   })
   test('the AI sign-in on the server\'s own computer; nothing waiting; no run yet', () => {
     const html = text(lines({ waiting: 0, lastRun: null, signIn: { engine: 'claude-code', model: 'haiku', kind: 'server', label: null, by: null } }))
-    expect(html).toContain('1,240 files listed')
+    expect(html).toContain('Files listed: 1,240')
     expect(html).not.toContain('waiting')
     expect(html).toContain('No run yet')
     expect(html).toContain("the AI sign-in on the server's computer")
