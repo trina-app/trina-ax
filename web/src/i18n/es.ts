@@ -3051,6 +3051,8 @@ export const es: Record<MessageKey, string> = {
   'admin.team.providers': "Cuentas de IA del equipo",
   'admin.team.integrations': "Apps conectadas del equipo",
   'admin.team.aiApps': "Acceso de apps de IA del equipo",
+  'admin.onComputerSlack': "Crear la app de Slack y pegar sus claves se hace en Administración en una computadora.",
+  'admin.onComputerAdd': "Añadir un servicio por su dirección se hace en Administración en una computadora.",
   'integrations.users': "Usada por: {who}",
   'integrations.users.nobody': "Aún nadie puede usarla",
   'integrations.users.notMe': "No disponible en sus chats",

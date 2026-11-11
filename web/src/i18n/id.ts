@@ -3095,6 +3095,8 @@ export const id: Record<MessageKey, string> = {
   'admin.team.providers': "Akun AI tim",
   'admin.team.integrations': "Aplikasi terhubung tim",
   'admin.team.aiApps': "Akses aplikasi AI tim",
+  'admin.onComputerSlack': "Membuat aplikasi Slack dan menempelkan kuncinya dilakukan di Admin pada komputer.",
+  'admin.onComputerAdd': "Menambah layanan lewat alamatnya dilakukan di Admin pada komputer.",
   'integrations.users': 'Dipakai oleh: {who}',
   'integrations.users.nobody': 'Belum ada yang bisa memakai',
   'integrations.users.notMe': 'Tidak di obrolan Anda',

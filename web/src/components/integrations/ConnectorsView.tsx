@@ -99,7 +99,7 @@ export function discoverHits(t: ReturnType<typeof useT>, query: string, builtIns
  * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. A phone (below
  * 768 px): one row per service with hairlines between, no framed tiles (docs/DECISIONS.md "Admin and Settings on
  * phones"). */
-export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
+export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, customNote, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
   /** its heading's id (useSectionIds) */
   titleId: string
   connected: Pick<Integration, 'url'>[]
@@ -107,6 +107,8 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
   onAdd: (c: Connector) => void
   /** add one that is not listed, by its address (owners and admins); without it the line says to ask an admin */
   onCustom?: () => void
+  /** without onCustom: what the line says instead of asking an admin (an admin on a phone: do it on a computer) */
+  customNote?: string
   builtIns?: BuiltInCard[]
   onAddBuiltIn?: (id: string) => void
   /** open a service's page */
@@ -164,7 +166,7 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
         ) : (
           // members: the address form (kind, sign-in method, headers, scopes) is an admin's job, like a custom app in
           // Slack or Notion; the admin adds it for the team or asks the member to connect it (Ask a member to connect…)
-          <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
+          customNote ? <span data-testid="connector-custom-note">{customNote}</span> : <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
         )}
       </p>
     </section>

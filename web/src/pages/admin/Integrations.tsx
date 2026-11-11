@@ -104,7 +104,8 @@ export default function AdminIntegrations() {
         title={t('admin.integrations')}
         query={query}
         onQuery={(q) => { setQuery(q); setOpen(null) }}
-        onAdd={() => setDialog({ toList: !!open })}
+        // a phone: adding a service by its address (kind, sign-in, headers) is a computer's job; Discover's line says so
+        onAdd={phone ? undefined : () => setDialog({ toList: !!open })}
         moreAdd={[
           { label: t('integrations.addTeam'), icon: <Plus size={15} aria-hidden />, onSelect: () => setDialog({ toList: !!open }), testId: 'integration-add-team' },
           { label: t('integrations.requests.add'), icon: <Send size={15} aria-hidden />, onSelect: () => setAsk({}), testId: 'integration-request-add' },
@@ -189,7 +190,7 @@ export default function AdminIntegrations() {
                 </section>
               )}
               <ConnectorDiscover titleId={ids.discover} className={rows > 0 ? 'mt-6 border-t border-line pt-6' : undefined} connected={[...list, ...tpls]} query={query}
-                onAdd={(c) => setDialog({ connector: c, toList: true })} onCustom={() => setDialog({ toList: true })}
+                onAdd={(c) => setDialog({ connector: c, toList: true })} onCustom={phone ? undefined : () => setDialog({ toList: true })} customNote={t('admin.onComputerAdd')}
                 builtIns={driveCard}
                 onOpenBuiltIn={(id) => setOpen(isGoogleApp(id) ? { kind: 'gapp', id } : { kind: 'drive' })}
                 onAddBuiltIn={(id) => {

@@ -3051,6 +3051,8 @@ export const ja: Record<MessageKey, string> = {
   'admin.team.providers': "チームのAIアカウント",
   'admin.team.integrations': "チームの連携サービス",
   'admin.team.aiApps': "チームのAIアプリ連携",
+  'admin.onComputerSlack': "Slackアプリの作成とキーの貼り付けは、パソコンの管理画面で行います。",
+  'admin.onComputerAdd': "アドレスでサービスを追加するのは、パソコンの管理画面で行います。",
   'integrations.users': "利用者：{who}",
   'integrations.users.nobody': "まだ誰も利用できません",
   'integrations.users.notMe': "自分のチャットでは利用不可",

@@ -3094,6 +3094,8 @@ export const ko = {
   'admin.team.providers': "팀 AI 계정",
   'admin.team.integrations': "팀 연결 서비스",
   'admin.team.aiApps': "팀 AI 앱 연결",
+  'admin.onComputerSlack': "Slack 앱 만들기와 키 붙여넣기는 컴퓨터의 관리자 화면에서 해요.",
+  'admin.onComputerAdd': "주소로 서비스를 추가하는 건 컴퓨터의 관리자 화면에서 해요.",
   'integrations.users': '사용할 사람: {who}',
   'integrations.users.nobody': '아직 아무도 못 씀',
   'integrations.users.notMe': '내 대화에서는 못 씀',

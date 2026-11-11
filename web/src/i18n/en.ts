@@ -3095,6 +3095,8 @@ export const en: Record<MessageKey, string> = {
   'admin.team.providers': "Team AI accounts",
   'admin.team.integrations': "Team connected apps",
   'admin.team.aiApps': "Team AI app access",
+  'admin.onComputerSlack': "Making the Slack app and pasting its keys is done in Admin on a computer.",
+  'admin.onComputerAdd': "Adding a service by its address is done in Admin on a computer.",
   'integrations.users': 'Used by: {who}',
   'integrations.users.nobody': 'Nobody can use it yet',
   'integrations.users.notMe': 'Not in your chats',
