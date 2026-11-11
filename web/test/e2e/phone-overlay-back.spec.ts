@@ -17,6 +17,8 @@ const MESSAGES = [
 ]
 const onOverlay = (page: Page) => page.evaluate(() => typeof (history.state as Record<string, unknown> | null)?.mycelOverlay === 'number')
 const historyLength = (page: Page) => page.evaluate(() => history.length)
+/** how many overlays' entries are over the page where the history is now (lib/backCloses.ts mycelOverlayDepth) */
+const depth = (page: Page) => page.evaluate(() => Number((history.state as Record<string, unknown> | null)?.mycelOverlayDepth ?? 0))
 /** Back as the phone does it (the swipe, Android's Back): the history's own back */
 const back = (page: Page) => page.goBack({ waitUntil: 'commit' })
 /** the entries of a closed overlay are backed off a moment after it closes */
@@ -137,6 +139,79 @@ for (const browserName of ['chromium', 'webkit'] as const) test.describe(browser
     await settled(page)
     await back(page)
     await expect(page).not.toHaveURL(roomUrl)
+  })
+
+  test('a sheet\'s item that opens a second sheet (⋯ › 알림 설정): one entry for the second; Back closes only it, and none is left', async ({ page }) => {
+    await openRoom(page)
+    const roomUrl = page.url()
+    for (const close of ['back', 'choice'] as const) {
+      await page.getByTestId('room-menu').click()
+      await expect.poll(() => depth(page)).toBe(1)
+      await page.getByTestId('room-menu-notify').click()
+      const levels = page.getByRole('menuitemradio')
+      await expect(levels).toHaveCount(4)
+      // the first sheet's entry went to the second: still one over the room
+      await expect.poll(() => depth(page)).toBe(1)
+      if (close === 'back') await back(page)
+      else await page.getByTestId('room-notify-default').click()
+      await expect(page.getByRole('menu')).toHaveCount(0)
+      expect(page.url()).toBe(roomUrl)
+      await expect.poll(() => depth(page)).toBe(0)
+    }
+    await back(page)
+    await expect(page).not.toHaveURL(roomUrl)
+  })
+
+  // the drawer's filter and search's type picker are sheets over a sheet once the phone menus (#453) are in
+  test('the drawer\'s filter: its row\'s choices (a second sheet) close with one Back, then the drawer; a choice leaves no entry', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.getByTestId('menu-open').click()
+    const drawer = page.locator('[data-drawer]')
+    const filter = drawer.getByTestId('recents-filter')
+    test.skip((await filter.count()) === 0, 'the drawer\'s filter sheet comes with the phone menus (#453)')
+    for (const close of ['back', 'choice'] as const) {
+      await filter.click()
+      await expect.poll(() => depth(page)).toBe(2)
+      await page.getByRole('menu').getByRole('menuitem').first().click()
+      const choices = page.getByRole('menuitemradio')
+      await expect(choices.first()).toBeVisible()
+      await expect.poll(() => depth(page)).toBe(2)
+      if (close === 'back') await back(page)
+      else await choices.first().click()
+      await expect(page.getByRole('menu')).toHaveCount(0)
+      await expect(drawer).toBeVisible()
+      await expect.poll(() => depth(page)).toBe(1)
+    }
+    await back(page)
+    await expect(drawer).toHaveCount(0)
+    await expect(page).toHaveURL(/\/$/)
+    expect(await depth(page)).toBe(0)
+  })
+
+  test('search\'s type picker: one Back closes the picker and search stays; a choice leaves no entry', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.getByTestId('menu-open').click()
+    await page.locator('[data-drawer]').getByTestId('drawer-search').click()
+    const search = page.getByRole('dialog').filter({ has: page.getByRole('combobox') })
+    await expect(search).toBeVisible()
+    const type = search.getByTestId('search-type')
+    test.skip((await type.count()) === 0, 'search\'s type picker sheet comes with the phone menus (#453)')
+    for (const close of ['back', 'choice'] as const) {
+      await type.click()
+      const choices = page.getByRole('menuitemradio')
+      await expect(choices.first()).toBeVisible()
+      await expect.poll(() => depth(page)).toBe(2)
+      if (close === 'back') await back(page)
+      else await choices.first().click()
+      await expect(choices).toHaveCount(0)
+      await expect(search).toBeVisible()
+      await expect.poll(() => depth(page)).toBe(1)
+    }
+    await back(page)
+    await expect(search).toHaveCount(0)
+    await expect(page).toHaveURL(/\/$/)
   })
 
   test('the side chat\'s 🕘 list: Back closes the list, then the side chat, then the room is left', async ({ page }) => {
