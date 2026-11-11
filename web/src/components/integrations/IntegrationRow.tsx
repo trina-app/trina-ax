@@ -14,7 +14,7 @@ import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } fro
 import { api, API, errorText } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
-import { audienceOf, authorizationUrl, canSignIn, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
+import { audienceOf, authorizationUrl, canSignIn, flowReasonKey, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -36,6 +36,7 @@ export interface SignInState {
   flowId: string | null
   url: string | null
   state: IntegrationFlow['state'] | 'starting'
+  /** why it failed, in words for the person (never the server's code) */
   reason: string | null
 }
 
@@ -74,7 +75,8 @@ export function useSignIn(onCompleted: (id: string) => void) {
         if (f.state === 'failed' || f.state === 'expired') {
           popup.current?.close()
           popup.current = null
-          setS((x) => (x && x.flowId === flowId ? { ...x, state: f.state, reason: f.reason } : x))
+          // the server's reason is a code: shown in words (never the code itself)
+          setS((x) => (x && x.flowId === flowId ? { ...x, state: f.state, reason: f.state === 'failed' ? t(flowReasonKey(f.reason)) : null } : x))
           return
         }
         setS((x) => (x && x.flowId === flowId && x.state !== f.state ? { ...x, state: f.state } : x))

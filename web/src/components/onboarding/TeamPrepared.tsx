@@ -18,7 +18,9 @@
 // unfolded). `readOnly` (a member under the no-AI card): the rows and 예시 only. Phones (below 768px): a skill row's tap
 // is 써 보기 (it says so at its end, as the files row says 물어보기), with 예시 as its own target at the row's end; the
 // files row is one row. The block reads again when skills, files or access change (once per burst of changes); a failed
-// read is one quiet "다시 불러오기", never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」 out.
+// read is the calm notice (components/LoadError.tsx, docs/DECISIONS.md "How we show errors": the connection reads again
+// by itself), never red under the box and never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」
+// out.
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -36,6 +38,7 @@ import { quietLink } from './SkillShareReview'
 import { SkillExampleViewer } from '../skills/SkillExampleViewer'
 import { SkillFormDialog } from '../skills/SkillForm'
 import { Button, useMediaQuery } from '../ui'
+import { LoadError } from '../LoadError'
 
 /** Skill rows on Home before "팀 스킬 N개 더 ›". */
 export const PREPARED_SKILL_ROWS = 3
@@ -50,31 +53,33 @@ const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].
 export const PREPARED_RELOAD_MS = 1500
 
 /** GET /api/skills/examples, read again when skills, team files or access change (as the skills list does), once per
- * burst of changes (PREPARED_RELOAD_MS). `enabled` false: not read. */
-export function useTeamPrepared(enabled = true, again: unknown = null): { data: TeamPreparedData | null; failed: boolean; reload: () => void } {
+ * burst of changes (PREPARED_RELOAD_MS). `enabled` false: not read. A failed read keeps `error` until a read works, so
+ * the notice stays while `reload` reads again (components/LoadError.tsx); `reload`'s promise settles with that read. */
+export function useTeamPrepared(enabled = true, again: unknown = null): { data: TeamPreparedData | null; failed: boolean; error: unknown; reload: () => Promise<void> } {
   const [data, setData] = useState<TeamPreparedData | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [attempt, setAttempt] = useState(0)
+  const [error, setError] = useState<unknown>(null)
+  const loadRef = useRef<(() => Promise<void>) | null>(null)
   useEffect(() => {
     if (!enabled) return
     let live = true, generation = 0
     let timer: ReturnType<typeof setTimeout> | null = null
     const load = () => {
       const g = ++generation
-      api.call(API.skillExamples).then(
-        (d) => { if (live && g === generation) { setData(d); setFailed(false) } },
-        () => { if (live && g === generation) setFailed(true) },
+      return api.call(API.skillExamples).then(
+        (d) => { if (live && g === generation) { setData(d); setError(null) } },
+        (e: unknown) => { if (live && g === generation) setError(e ?? new Error('failed')) },
       )
     }
     const later = () => {
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => { timer = null; if (live) load() }, PREPARED_RELOAD_MS)
+      timer = setTimeout(() => { timer = null; if (live) void load() }, PREPARED_RELOAD_MS)
     }
-    load()
+    loadRef.current = load
+    void load()
     const offs = [skillsChanged.on(later), accessChanged.on(later), reloadAsked.on(later), filesChanged.on((c) => { if (touches(c)) later() })]
-    return () => { live = false; if (timer) clearTimeout(timer); for (const off of offs) off() }
-  }, [enabled, attempt, again])
-  return { data, failed, reload: () => { setFailed(false); setAttempt((n) => n + 1) } }
+    return () => { live = false; loadRef.current = null; if (timer) clearTimeout(timer); for (const off of offs) off() }
+  }, [enabled, again])
+  return { data, failed: error !== null, error, reload: () => loadRef.current?.() ?? Promise.resolve() }
 }
 
 /** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료", "shared" → "전사 공유" (the top
@@ -121,7 +126,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
   const admin = isAdmin(me)
   const phone = useMediaQuery(PHONE)
   const ids = useId()
-  const { data, failed, reload } = useTeamPrepared()
+  const { data, failed, error, reload } = useTeamPrepared()
   const [running, setRunning] = useState<PreparedSkill | null>(null)
   const [viewing, setViewing] = useState<PreparedSkill | null>(null)
   const exampleButtons = useRef(new Map<string, HTMLButtonElement>())
@@ -131,10 +136,12 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skillRows])
   if (failed && !data) {
+    // the calm notice (the connection: it reads again by itself, and the block shows when a read works); never red
+    // under the box, and never the empty state
     return (
-      <p className="mt-6 text-center text-label text-muted" data-testid="team-prepared-failed">
-        <button type="button" className={clsx(quietLink, 'touch-hit')} onClick={reload} data-testid="team-prepared-retry">{t('home.prepared.retry')}</button>
-      </p>
+      <div className="mt-6" data-testid="team-prepared-failed">
+        <LoadError error={error} onRetry={reload} soft what="team-prepared" />
+      </div>
     )
   }
   if (!data) return null

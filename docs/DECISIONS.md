@@ -14240,7 +14240,9 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   "공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요." under it. Saved with it on: the move, then the share
   (`ShareChat.tsx ShareChatFlow`); the move's own toast only when the chat ends up not shared (on a phone it covered
   the confirm's lines; shared, the one toast is the share's). The title menu (`ChatTitleMenu.tsx`) has "프로젝트 사람들과 공유…" for such a chat
-  already in that project. The confirm: title "이 채팅을 프로젝트 사람 {n}명과 공유할까요?", first that sentence, then #163's
+  already in that project. The confirm: title "이 채팅을 공유해서 프로젝트 사람 {n}명이 볼 수 있게 할까요?" ({n}: everyone who
+  will see it, me included, as the line under the box and the copy-link toast count them: `seenOnceShared`, the check's
+  `audience` + 1; it said "{n}명과 공유할까요?" with the others only, QA TC-070, 2026-11-11), first that sentence, then #163's
   provenance line style ("이 채팅에는 프로젝트 사람 {m}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}", or the unknown
   line), "개인 메모리를 참고한 답이 있을 수 있어요" when it applies, "그 사이 바뀐 것이 있어요. 다시 확인해 주세요" when asked
   again; [취소] [공유하기], 공유하기 focused. Cancel keeps the chat moved and private. Shared: "프로젝트 사람들과 공유했어요",
@@ -18105,6 +18107,22 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   team path: `share_file` links are checked per viewer and grant nothing). **Stricter than the review asked:** hidden
   items, instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) and a live project's
   folder or one holding it, personal projects included (`managedInside` leaves `users/` out) are refused too.
+- **Each refused folder says what it is** (QA TC-016, 2026-11-11, `fix/qa-11-11-followups`). Every `projects/<p>`,
+  `groups/<g>` and `users/<id>` got the skill reason ("… the Files screen or the Skills page"), so asked to delete a
+  project's folder the AI sent an admin to the Skills page. Now (`TeamFiles.aiFolderRefusal`, `AI_TRASH_FOLDER_REFUSAL`):
+  a project's folder or one holding it → the project is deleted on the Projects screen, where a team project's folder
+  can go to the trash with it; a group's folder or one holding it → the Files screen, and deleting the group keeps its
+  folder; the person's own folder → it never goes to the trash, what is in it can; a rule folder or one holding it →
+  the Files screen; a folder right in `projects/` or `groups/` that is none of these → its place and the Files screen.
+  The skill reason only for a skill folder, something in one, or a folder with a `skills` entry in it now. What a folder
+  is comes before what it holds. The same folders are refused as before, by `remove()`'s guard too; only the words
+  changed. Who does it, in general words: "the user" when they may (the owner and admins; a project's creator for the
+  project), else "an admin" or "its creator or an admin" (the top-level reason too), never a person's name ("Admins are
+  never named"): an admin is not told that an admin does it, a member is not sent to a delete that fails.
+  A folder that holds a group's, a project's or a rule folder the asker cannot read gets the generic words "a group,
+  project or rule folder, or a folder that holds one" (`unreadableManagedBelow`, review of #354): which kind it is
+  would say what is in a place they cannot see. Another letter case or Unicode form of a protected folder gets the
+  same reason and stays (tests).
 - **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
   folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
   card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
@@ -18328,6 +18346,12 @@ some of them into cards.
   a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
   anything).
 - The README instruction is gone; the tools' descriptions say a missing folder is made.
+- **The answer's file summary** (QA TC-018, 2026-11-11, `fix/qa-11-11-followups`): two files moved into a new folder
+  read "파일 3개 저장" with every row "새로 만듦". An empty folder the tool made is not a file and is left out; a file the
+  answer moved is `moved` ("옮김"; an optional field next to `action: 'create'`, so an older app still shows "새로 만듦").
+  A folder that came with its files (moved whole, a skill copied whole: one event for the folder) stays one row as
+  before, moved or new, so such an answer still shows its chip. A file the answer made and then moved is new where it
+  is now; its old place leaves the list (`chat/turn.ts fileSummaryOf`).
 
 ## Scheduled tasks: saving and sending allowed on the card (feat/schedule-save-scope, 2026-11-10, product owner)
 
@@ -20220,6 +20244,29 @@ overruled the review's MUST 1 and three of its SHOULDs:
   - the permission matrix and `security-route-coverage.test.ts`;
   - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
 
+## A sign-in that did not finish says why — 로그인 실패는 이유를 말한다 (fix/activity-tabs-oauth-errors, 2026-11-11, QA TC-020)
+
+- **Never a code.** A failed sign-in at a service (MCP OAuth, an own app) used to show its stored reason as is: the row
+  said "exchange", and the sign-in window always said to sign in to the same team account. The flow keeps a code
+  (`integration_oauth_flows.reason`, `FlowFailure` in `connections/service.ts`), and both places say it in words:
+  the row through `flowReasonKey` (`web/src/lib/integrations.ts`, `integrations.signIn.reason.*`), the window through
+  `callbackClient` / `callbackDenied` / `callbackChanged` / `callbackExchange` (`connections/text.ts`). A code the app
+  does not know is the plain "Could not sign in. Please try again."
+- **A refused own app is named.** `invalid_client` or `unauthorized_client` from an own app's token address is the
+  reason `client`: "The service did not accept this app's Client ID or Secret", and where to look (the Secret under
+  Advanced when editing the connection; the word is that screen's own). A member whose connection comes from a template
+  signs in with the admin's app, which they never see: for them it is `client_template`, "ask the person who set up
+  this connection to check its Client ID and Secret". A registered app's refusal stays the general "did not finish". The service's answer is never stored or shown (it may repeat what was sent), nor is the secret.
+- **"Sign in to the team account" only when that is the problem**: a browser without the person's session, a used or
+  unknown link. A sign-in the service did not finish says what to do in the app instead.
+- **Done means checked.** The flow is `completed` once the connection's check after the sign-in has ended (it stays
+  `exchanging` meanwhile), so the row the app reads then says connected, not "needs sign-in" until a reload. When the
+  tokens are stored the flow gets a new 10 minutes, so a check that runs past the first 10 is never swept as expired.
+- Tests: server `c-integrations-own-app` (a fake token address answering `invalid_client`; another refusal; the flow
+  completes after the check), web `integrations` (every reason in five languages, never the code), `connect-card` (the
+  card says the reason in words).
+- Version impact: **patch** (words; a new reason code `client`; no API shape or data change).
+
 ## Moving a file out of a personal folder asks first (fix/move-widen-warning, 2026-11-11, QA TC-115)
 
 - **Problem.** On the Files screen, moving a file from users/<me>/ into a project or other shared folder showed no
@@ -20238,6 +20285,106 @@ overruled the review's MUST 1 and three of its SHOULDs:
 - **Tests.** `tests/security/r1-managed-folder-move.test.ts` (409 with the count, nothing moved; same-folder rename
   without a question; confirm moves and records it; no askWiden moves as before) and `web/test/unit/bulk-files.test.ts`
   (askWiden sent, one question for the batch, "no" leaves them, no askWiden without confirmWiden).
+
+## How we show errors — 연결이 끊기면 조용히, 다시 연결되면 저절로 (fix/calm-error-states, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`web/src/components/LoadError.tsx`, `web/src/lib/autoRetry.ts`, `web/src/lib/api.ts`, the places
+below, `web/src/components/Layout.tsx`, the five `web/src/i18n/*.ts`), 이유: the screens, their shared blocks and the app
+frame are core. Plan: `docs/AGENTS/plan/20261111-0329-calm-error-states.md`. Amends "W6.3 — What a new member sees first"
+(a failed read of 「팀에 준비된 것」 is the calm notice, no longer "다시 불러오기").
+
+The owner, on Home during a short network hiccup: a bare red sentence under the message box ("팀 서버에 연결하지 못했어요.
+인터넷 연결을 확인한 뒤 다시 시도해 주세요.") and an underlined "다시 불러오기" centred under it, "is this really the best it
+can look?". Red and "팀 서버" for what is usually a blip, unlike the rest of the app; lists elsewhere put the same words in
+a red box. People at work know the calm way from Slack, Gmail and KakaoTalk: one quiet line that says it cannot connect,
+that it is trying again, and the content back by itself.
+
+- **Two kinds of failure.** The connection (`isConnectionError`: no answer at all, or a 502–504 `unavailable` from the
+  relay or a proxy with no reason of the server's own) passes by itself and is not the person's to fix. Anything else is
+  the server's answer (no access, not found, a fault): a real problem, shown as before with the server's words in the
+  red `ErrorNote`. A 503 with the server's own reason (a quarantined file, the queue draining) is the server's answer.
+- **The connection, for a list or section: one calm notice** (`LoadError`). The neutral surface (`bg-subtle`, a hairline
+  edge), a WifiOff icon, "지금 연결이 안 돼요." / "Can't connect right now.", under it "다시 연결하는 중…" /
+  "Reconnecting…" with a small spinner, and a secondary [다시 시도] / [Try again]. `role="status"`, never `alert`; no red.
+- **It comes back by itself.** It reads again after 2, 4, 8 and 15 s, then every 30 s, while the page is visible;
+  nothing while it is hidden; at once when the page shows again, when the browser says it is online again, or when the
+  live connection is back. When a read works the notice goes and the data shows, without a click. [다시 시도] reads at
+  once (its own small spinner while it does, the focus kept on it) and starts the backoff over; never two reads at a
+  time. A place keeps its error until a read works, so the notice stays while it reads (no flicker to a skeleton and
+  back, no backoff starting over): the places changed here were made to (Files, a chat, the side chat, a room's
+  messages, 「팀에 준비된 것」; Settings › Memory reads again the page that failed, so a failed "더 보기" does not shorten
+  the list).
+- **One place says it.** While the app's connection banner shows (the live connection reconnecting, or offline after
+  30 s), a place that could not be read shows only a quiet spinner (named "다시 연결하는 중…" for screen readers) and reads
+  again every 30 s (a proxy that lets reads through but not the live connection) and at once when the connection is
+  back. The same while the message box says its message was not sent: on Home, the box's line says it and 「팀에 준비된
+  것」 waits under it. And of the places on screen that could not be read, one says it, the others wait with the quiet
+  spinner: the page's before the sidebar's 트리나 기록, then the first; when it comes back, the next one says it.
+- **The message box: never lost, never sent by itself.** A first message on Home that cannot reach the server keeps the
+  text in the box and says so on the same calm notice: "지금 연결이 안 돼서 보내지 못했어요. 메시지는 그대로 있어요." with
+  [다시 시도], which sends it. It is not sent again by itself: the person may want to change it. Emptying the box takes the
+  line away. Another failure keeps its red line. (In a chat a message already waits as "보내지 못했어요. · 다시 보내기" in the
+  list; the side chat's box keeps its toast: not changed here.)
+- **The side chat** found no chat for the room because its read failed: the calm notice reads again by itself, but a
+  chat the person opens or starts meanwhile (🕘, a new chat, here or in another panel of the room) stays; the read
+  that comes back only fills in "no chat yet" or a chat found deleted.
+- **The connection banner** is neutral too (`bg-subtle text-muted`, a hairline under it; it was amber, then red after
+  30 s), and offline says what is going on in plain words: "지금 연결이 안 돼요. 다시 연결하는 중이에요. 오래가면 인터넷
+  연결을 확인하거나 팀장에게 알려 주세요." The old line sent members to the team owner to check "서버 맥과 관리자 화면의
+  진단": jargon, wrong for a hosted team, and the admin screen does not open while offline.
+- **`soft`**: a part that is extra on its page (「팀에 준비된 것」) gets the calm notice for any failure, the server's
+  answer included ("불러오지 못했어요." with [다시 시도], no reading by itself), never red under the box.
+- **Where.** Home's 「팀에 준비된 것」 and message box, the sidebar's 트리나 기록 (a failed first read spun forever), the rooms
+  list, a room's messages, the file list, a chat's messages, the side chat, the admin screens' shared loader
+  (`Loadable`: Members, Groups, AI providers, Connections, Team settings and the others that use it) and Settings ›
+  Devices and › Memory. The other places that show a read's failure with `ErrorNote` keep it for now and can move one
+  by one.
+- **Words.** No "팀 서버": the person's side ("지금 연결이 안 돼요") and what is being done ("다시 연결하는 중…"). New
+  strings in five languages (`conn.now`, `conn.retrying`, `conn.loadFailed`, `conn.unsent`; `conn.offline` changed;
+  `home.prepared.retry` went). `error.network` stays for action failures; the chat error texts are
+  `fix/plain-words-errors-cards`'s.
+- **Left out.** Action failures (saving, deleting) and their toasts; the sign-in gate's full-page "연결할 수 없어요"; the
+  desktop and mobile shells' own texts; answer error cards.
+- Tests: `web/test/unit/auto-retry.test.ts` (the backoff on a fake clock, a read that works stops it, never two reads,
+  nothing after stop also with a read in flight, hidden page, the banner's 30 s, Try again; `isConnectionError`),
+  `load-error.test.tsx` (the calm notice, recovery without a click with a typed draft kept, Try again and its spinner,
+  the relay's 502, the server's error red and not read by itself, `soft`, the banner's quiet spinner and the read when
+  it goes, a hidden page, back online, one place says it and the sidebar's last, the message box's calm line with the
+  text kept and sent on Try again, the cause said once), `team-prepared.test.tsx` (the calm notice for a failed read;
+  the connection: back by itself), `side-chat.test.tsx` (a chat opened while the notice shows stays); e2e
+  `calm-errors.spec.ts`
+  (route-aborted reads: Home's block back without a click with the draft kept, the message box, the rooms list's Try
+  again, the file list back by itself, the banner's look; with `SHOTS_DIR`, Home and the rooms list at 1440 and 390,
+  light and dark).
+- Version impact: **patch** (how existing failures look and behave, and a few words; no API or data change).
+
+## Project cards: one height, and who sees it instead of the folder — 프로젝트 카드는 같은 높이로, 폴더 대신 누가 보는지 (fix/projects-even-cards, 2026-11-11, product owner)
+
+The owner saw the Projects list with a project that had no instructions: its card was much shorter than its
+neighbours, so the row looked broken and empty under it. Each card also showed its raw folder path (`projects/…`),
+and the page line spoke of "a folder of the team folder plus instructions" and "context". Plan:
+`docs/AGENTS/plan/20261111-0641-projects-even-cards.md`.
+
+- **One height per row.** The grid stretches its cells to the tallest card of the row and each card fills its cell
+  (the grid had `items-start` from before the text was clamped). Every card keeps two lines' room for the first
+  paragraph of its instructions (`min-h-[2lh]`), so a card without any does not collapse either; it says the project
+  page's own "No instructions." / "지침이 없어요." in faint text. "Instructions", not "description": the card's text is
+  the first paragraph of the instructions, and the edit dialog and the page call them that.
+- **Who sees it, not the folder path.** The line under the name says who sees the project by the rule and in the words
+  of its page's 멤버 line, from one function (`whoSeesProject`), so the two cannot differ: "멤버 3명" for the owner and
+  admins (its own people, `audienceSplit`), the total ("9명이 봐요") for anyone else, "나만 봐요", "나와 관리자만 봐요".
+  A personal project, whose page has no 멤버 line, says "나만 봐요", which tells it apart from a team project. A project
+  in the trash says who sees it now ("나와 관리자만 봐요"; its page shows the trash note instead): #355 puts its trash
+  and "no members left" notes on this line. No place name: nearly every project lives in Projects, so it would say the
+  same on every card.
+- **No "updated 2 days ago".** A project has no last-activity time in the API; adding one is a server change, left
+  for later.
+- **The page line**: "Keep the files, instructions and chats for one piece of work in one place." / "한 가지 일에
+  필요한 파일, 지침, 채팅을 한곳에 모아 둬요." ("채팅", the app's word, rather than "대화").
+- **Left**: the folder path on the project page (above its files) and in the message box's project picker; the
+  plain-words follow-up decides those.
+- Tests: e2e `project-list-menu` (the cards of a row are one height at 1440, also beside a name that wraps; one card
+  per row at 390; the who line and the empty line). Version impact: **patch** (layout and words on one page; no API or data change).
 
 ## 브라우저 정리가 멈춰도 트리나는 계속 — a stuck storage clear never stops the in-app browser or team removal (fix/desktop-clear-storage-hang, 2026-11-11)
 

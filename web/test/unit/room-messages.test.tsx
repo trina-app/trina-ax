@@ -4,7 +4,7 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
-import { previewConfirm, previewLine, previewReasons, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
+import { ANSWER_QUOTES, previewConfirm, previewLine, previewReasons, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
 import { groupRuns } from '../../src/lib/rooms'
 import { useRooms } from '../../src/store/rooms'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
@@ -480,4 +480,23 @@ test('a quote of a hidden answer says so; a preview that used one offers to post
   expect(askable).not.toContain(translate('en', 'rooms.aiWhyHidden'))
   expect(count(askable, 'data-testid="room-ai-share"')).toBe(1)
   expect(askable).not.toContain('marketing')
+})
+
+test('an answer\'s own quotes go without the typography\'s marks: a shared answer in a thread, and the room\'s AI answer (QA 2026-11-11)', () => {
+  // the answer quotes a message with its own marks: the room added “ ” around them (“"…"”); the AI chat never did
+  const answer = '> "Let\'s move the review to 3 pm"\n\nBen asked to move the review.'
+  const note = 'FYI'
+  const root = message({ roomId: R, seq: 1, body: 'review at 2?' })
+  const html = render([
+    message({ roomId: R, seq: 2, author: ME, body: `${note}\n\n${answer}`, sharedAnswer: { at: note.length + 2, cut: false }, threadRootId: root.id }),
+    message({ roomId: R, seq: 3, body: answer, authorKind: 'ai', author: null, askedBy: BEN }),
+  ])
+  const wrappers = [...html.matchAll(/<div class="([^"]*\bprose\b[^"]*)"[^>]*>([\s\S]*?<blockquote>)/g)]
+  expect(wrappers.length).toBe(2)
+  for (const [, cls] of wrappers) for (const c of ANSWER_QUOTES.split(' ')) expect(cls!.replaceAll('&amp;', '&').split(' ')).toContain(c)
+  // the shared answer's quote is inside the "Trina's answer" figure; the words are the answer's, its marks once
+  const shared = /data-testid="room-shared-answer"[\s\S]*?<\/figure>/.exec(html)![0]
+  expect(shared).toContain('<blockquote>')
+  expect(shared).toContain('&quot;Let&#x27;s move the review to 3 pm&quot;')
+  expect(shared).not.toMatch(/[“”]/)
 })

@@ -6,8 +6,8 @@ What the owner provides or decides before each store step. Engineering steps and
 ## Decided / already there
 
 - Bundle id / Android package: `app.trina.ax` (editions/trina/branding/mobile.json). The iOS platform is added to the
-  existing App Store Connect record of the Mac App Store app, team `YWW96288YY`, version 1.0.0, then 1.0.1 and 1.0.2;
-  the next store version is 1.0.3 (`app.config.ts`).
+  existing App Store Connect record of the Mac App Store app, team `YWW96288YY`, version 1.0.0, then 1.0.1 to 1.0.3;
+  the next store version is 1.0.4 (`app.config.ts`).
 - From 1.0.1 the iPhone app has a notification service extension, `app.trina.ax.NotificationService` (who and where in a
   room push, docs/DECISIONS.md "아이폰 알림의 이름"). Its App ID and profiles are made by automatic signing at the first
   archive (`-allowProvisioningUpdates` with the Admin API key); nothing to register by hand. It needs no App Group and no

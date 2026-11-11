@@ -18,7 +18,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { componentC } from '../../server/src/team-files/component'
-import { AI_SKILL_TRASH_REFUSAL, type AiTrashPlan } from '../../server/src/team-files/service'
+import { AI_SKILL_TRASH_REFUSAL, AI_TRASH_FOLDER_REFUSAL, type AiTrashPlan } from '../../server/src/team-files/service'
 import { AI_TRASH_MAX_ENTRIES, stampTree, TrashStranded } from '../../server/src/team-files/ai-trash'
 import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, type DeleteExec } from '../../server/src/chat/delete-files'
 import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -134,10 +134,11 @@ describe('what the AI may never put in the trash, admins and the owner included'
         const cases: [string, RegExp][] = [
           // users/ itself: nobody writes it (authorize says read-only before the AI's own rule)
           ['shared', /top-level folder/], ['skills', /top-level folder/], ['groups', /top-level folder/], ['users', /top-level folder|read-only/],
-          ['skills/team-rules.md', /skill folder/], ['groups/marketing', /skill folder/], ['groups/marketing/skills', /skill folder/],
-          ['groups/marketing/skills/brief/SKILL.md', /skill folder/], ['projects/falcon', /skill folder/], ['projects/falcon/skills/launch', /skill folder/],
-          [`users/${who}/skills`, /skill folder/], [`users/${who}/skills/mine/SKILL.md`, /skill folder/], [`users/${who}`, /skill folder/],
-          ['groups/marketing/salaries', /group, project or rule folder/], ['shared/holds-rule', /group, project or rule folder/], ['shared/proj-elsewhere', /group, project or rule folder/],
+          // a group's, a project's and the person's own folder say what they are, even with skills in them (QA TC-016)
+          ['skills/team-rules.md', /skill folder/], ['groups/marketing', /a group's folder/], ['groups/marketing/skills', /skill folder/],
+          ['groups/marketing/skills/brief/SKILL.md', /skill folder/], ['projects/falcon', /a project's folder/], ['projects/falcon/skills/launch', /skill folder/],
+          [`users/${who}/skills`, /skill folder/], [`users/${who}/skills/mine/SKILL.md`, /skill folder/], [`users/${who}`, /own personal folder/],
+          ['groups/marketing/salaries', /its own permissions/], ['shared/holds-rule', /its own permissions/], ['shared/proj-elsewhere', /a project's folder/],
           [`users/${who}/.attachments/c1/pic.png`, /chat attachments/], ['shared/.hidden-notes.md', /hidden item/],
           ['CLAUDE.md', /instruction file|not found or no access/], ['shared/with-agents', /instruction file/],
           ['shared/plugin-pack', /plugin/], ['shared/plugin-pack/x.md', /plugin|managed by the plugin/], ['shared/upload-here', /upload link/],
@@ -164,9 +165,9 @@ describe('what the AI may never put in the trash, admins and the owner included'
     put('skills/old-rule.md', 'old\n')
     put('users/alice/no-card.md')
     const fakeItem = { item: { rel: 'skills/old-rule.md', kind: 'file' as const, files: 0, folders: 0, entries: [], audience: '' }, retentionDays: 30 }
-    for (const [user, rel] of [['carol', 'skills/old-rule.md'], ['dana', 'skills/old-rule.md'], ['carol', 'groups/marketing/skills/brief/SKILL.md'], ['carol', 'groups/marketing'], ['alice', 'projects/falcon/skills/launch/SKILL.md']] as const) {
-      // even with a manifest in hand: the skill guard comes first, whatever the role
-      expect(() => svc().remove(user, rel, TURN, { ai: fakeItem })).toThrow(AI_SKILL_TRASH_REFUSAL)
+    for (const [user, rel, why] of [['carol', 'skills/old-rule.md', AI_SKILL_TRASH_REFUSAL], ['dana', 'skills/old-rule.md', AI_SKILL_TRASH_REFUSAL], ['carol', 'groups/marketing/skills/brief/SKILL.md', AI_SKILL_TRASH_REFUSAL], ['carol', 'groups/marketing', AI_TRASH_FOLDER_REFUSAL.group(true)], ['alice', 'projects/falcon/skills/launch/SKILL.md', AI_SKILL_TRASH_REFUSAL]] as const) {
+      // even with a manifest in hand: the skill guard comes first, whatever the role (a group's folder says what it is)
+      expect(() => svc().remove(user, rel, TURN, { ai: fakeItem })).toThrow(why)
       expect(() => svc().remove(user, rel, TURN)).toThrow(Denied)
     }
     expect(() => svc().remove('alice', 'users/alice/no-card.md', TURN)).toThrow('only with delete_files')
@@ -176,6 +177,138 @@ describe('what the AI may never put in the trash, admins and the owner included'
     expect(has('skills/old-rule.md')).toBe(false)
     svc().restoreTrash('carol', r.trashId)
     expect(has('skills/old-rule.md')).toBe(true)
+  })
+})
+
+describe('each folder that never goes says what it is (QA TC-016), and still never goes', () => {
+  const fakeItem = (rel: string) => ({ item: { rel, kind: 'folder' as const, files: 0, folders: 0, entries: [], audience: '' }, retentionDays: 30 })
+  /** no person is named in a reason (docs/DECISIONS.md "Admins are never named"): the fixture's people by id and name */
+  const NAMED = /\b(alice|bob|carol|dana|erin)\b|Kim|Lee|Park|Choi|Yoo/i
+  /** Refused for `who` (the owner and an admin by default) with exactly `why`, no person named, nothing moved, and
+   * TeamFiles.remove's own guard (an AI turn, a manifest in hand) still refuses it. */
+  const stays = (rel: string, why: string, o: { guard?: boolean; who?: string[] } = {}) => {
+    for (const who of o.who ?? ['carol', 'dana']) {
+      const r = refusedOf(who, [rel])
+      expect({ who, rel, error: r?.[0]?.error }).toEqual({ who, rel, error: why })
+      expect(why).not.toMatch(NAMED)
+      if (o.guard) expect(() => svc().remove(who, rel, TURN, { ai: fakeItem(rel) })).toThrow(why)
+      expect(() => svc().remove(who, rel, TURN)).toThrow(Denied)
+    }
+    expect(has(rel)).toBe(true)
+    expect(trashRows('original_path = ?', rel)).toEqual([])
+  }
+  const project = (name: string, folder: string, by = 'carol') =>
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(uuidv7(), name, folder, by, new Date().toISOString())
+  const R = AI_TRASH_FOLDER_REFUSAL
+
+  test('a project: where a project is deleted (the Projects screen) and by whom, not the skill reason, with no skills in it or with some', () => {
+    put('projects/Acme Launch/brief.md')
+    project('Acme Launch', 'projects/Acme Launch')
+    // the owner and an admin delete it themselves
+    stays('projects/Acme Launch', R.project(true), { guard: true })
+    expect(R.project(true)).toBe('a project\'s folder, or a folder that holds one: it does not go to the trash from a chat. The user deletes the project on the Projects screen, where a team project\'s own folder can go to the trash with it')
+    expect(R.project(true)).not.toMatch(/skill/i)
+    // with a skills folder in it, still the project's reason (what it is comes before what it holds)
+    put('projects/Acme Launch/skills/kickoff/SKILL.md', '---\nname: kickoff\ndescription: k\n---\nx\n')
+    stays('projects/Acme Launch', R.project(true), { guard: true })
+    // a project's folder outside projects/, and a folder that holds one; a member who did not make it is told who does
+    put('shared/clients/acme/plan.md')
+    project('Acme client', 'shared/clients/acme')
+    stays('shared/clients/acme', R.project(true))
+    stays('shared/clients', R.project(true))
+    stays('shared/clients/acme', R.project(false), { who: ['alice'] })
+    expect(R.project(false)).toContain('Its creator or an admin deletes the project on the Projects screen')
+    // its creator deletes it: a member's own project
+    put('shared/alice-plan/a.md')
+    project('Alice plan', 'shared/alice-plan', 'alice')
+    stays('shared/alice-plan', R.project(true), { who: ['alice'] })
+  })
+
+  test('a group: the Files screen, and deleting the group keeps its folder; not the skill reason', () => {
+    // groups/finance (the Finance group's folder) holds no skills; groups/marketing does: both are a group's folder
+    expect(has('groups/finance/skills')).toBe(false)
+    stays('groups/finance', R.group(true), { guard: true })
+    put('groups/marketing/skills/brief/SKILL.md', '---\nname: brief\ndescription: b\n---\nx\n')
+    stays('groups/marketing', R.group(true), { guard: true })
+    expect(R.group(true)).toBe('a group\'s folder, or a folder that holds one (what the group\'s members share): it does not go to the trash from a chat. The user deletes it on the Files screen; deleting the group itself keeps its folder')
+    // a member of the group (writes it) cannot delete it on the Files screen: an admin does, no one by name
+    stays('groups/marketing', R.group(false), { who: ['alice'], guard: true })
+    expect(R.group(false)).toContain('An admin deletes it on the Files screen')
+    expect(R.group(true) + R.group(false)).not.toMatch(/skill/i)
+  })
+
+  test('the person\'s own folder: it never goes, what is in it can; not the skill reason', () => {
+    for (const who of ['alice', 'carol', 'dana']) {
+      put(`users/${who}/notes/a.md`)
+      const r = refusedOf(who, [`users/${who}`])
+      expect(r?.[0]?.error).toBe(R.own)
+      // the folders in it can go (the card asks)
+      expect(planOf(who, [`users/${who}/notes`]).items.map((i) => i.rel)).toEqual([`users/${who}/notes`])
+      expect(has(`users/${who}`)).toBe(true)
+    }
+    expect(R.own).not.toMatch(/skill|admin/i)
+  })
+
+  test('a folder holding a group, project or rule folder the asker cannot read: the generic words, never which kind', () => {
+    const hide = (id: string, folder: string) => {
+      h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(`f_${id}`, folder)
+      h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(`r_${id}`, `f_${id}`)
+    }
+    // a project's folder nobody but the owner and admins reads, inside a folder alice writes
+    put('shared/hold-secret/plan/a.md')
+    put('shared/hold-secret/mine.md')
+    project('Secret plan', 'shared/hold-secret/plan')
+    hide('hold_secret', 'shared/hold-secret/plan')
+    // a rule folder alice cannot read, inside another folder she writes
+    put('shared/hold-locked/vault/a.md')
+    hide('hold_locked', 'shared/hold-locked/vault')
+    for (const inner of ['shared/hold-secret/plan', 'shared/hold-locked/vault']) expect(refusedOf('alice', [inner])?.[0]?.error).toMatch(/not found or no access/)
+    for (const rel of ['shared/hold-secret', 'shared/hold-locked']) {
+      stays(rel, R.managed(false), { who: ['alice'] })
+      expect(R.managed(false)).toBe('a group, project or rule folder, or a folder that holds one: it does not go to the trash from a chat. An admin deletes it on the Files screen')
+    }
+    // the owner and an admin read them: what they are
+    stays('shared/hold-secret', R.project(true))
+    stays('shared/hold-locked', R.rule(true))
+  })
+
+  test('another letter case or Unicode form of a protected folder: the same reason, still never goes', () => {
+    const caseless = h.ctx.files.fx.caseInsensitive
+    const nfc = 'projects/견적 2026'.normalize('NFC')
+    put(`${nfc}/brief.md`)
+    // the project's row keeps the name decomposed (as macOS may hand it in): still the project's folder
+    project('견적 2026', nfc.normalize('NFD'))
+    stays(nfc, R.project(true), { guard: true })
+    for (const [asked, onDisk, why] of [['GROUPS/marketing', 'groups/marketing', R.group(true)], ['groups/MARKETING', 'groups/marketing', R.group(true)], [nfc.normalize('NFD'), nfc, R.project(true)], ['Projects/견적 2026'.normalize('NFD'), nfc, R.project(true)]] as const) {
+      for (const who of ['carol', 'dana']) {
+        const r = refusedOf(who, [asked])
+        expect({ asked, who, refused: !!r }).toEqual({ asked, who, refused: true })
+        // on a volume that finds the folder by another spelling, the folder's own reason; elsewhere it is not found
+        if (caseless) expect({ asked, who, error: r![0]!.error, path: r![0]!.path }).toEqual({ asked, who, error: why, path: onDisk })
+        if (caseless) expect(() => svc().remove(who, asked, TURN, { ai: fakeItem(onDisk) })).toThrow(why)
+      }
+      expect(has(onDisk)).toBe(true)
+      expect(trashRows('original_path = ?', onDisk)).toEqual([])
+    }
+  })
+
+  test('a rule folder, and a folder right in projects/ or groups/ that is none of these; the skill reason only with a skills folder in it', () => {
+    put('shared/locked-plan/a.md')
+    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_del_rule2', 'shared/locked-plan')").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_rule2', 'f_del_rule2', 'user', 'carol', 'write')").run()
+    stays('shared/locked-plan', R.rule(true))
+    expect(R.rule(true)).toBe('a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. The user deletes it on the Files screen')
+    // no project, no group, no skills in it: what the place is
+    put('projects/old-launch/notes.md')
+    stays('projects/old-launch', R.projectsPlace(true), { guard: true })
+    put('groups/old-team/notes.md')
+    stays('groups/old-team', R.groupsPlace(true), { guard: true })
+    // a skills folder in it now (any letter case): the skill reason, as before
+    put('projects/old-launch/Skills/x/SKILL.md', '---\nname: x\ndescription: x\n---\nx\n')
+    stays('projects/old-launch', AI_SKILL_TRASH_REFUSAL, { guard: true })
+    // a top-level folder: the owner and an admin delete it themselves, a member is told an admin does
+    expect(refusedOf('carol', ['shared'])?.[0]?.error).toBe('a top-level folder never goes to the trash from a chat; the user deletes it on the Files screen')
+    expect(refusedOf('alice', ['shared'])?.[0]?.error).toBe('a top-level folder never goes to the trash from a chat; an admin deletes it on the Files screen')
   })
 })
 
@@ -679,7 +812,7 @@ describe('the card, the answer, the audit and the restore', () => {
     const bad = await turn('alice', fake(del('users/alice/keep1.md', 'groups/marketing')), () => 'trash')
     expect(bad.cards).toEqual([])
     expect(bad.content).toContain('nobody was asked')
-    expect(bad.content).toContain('- groups/marketing: a skill folder')
+    expect(bad.content).toContain("- groups/marketing: a group's folder")
     expect(has('users/alice/keep1.md')).toBe(true)
   })
 
