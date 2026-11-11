@@ -340,6 +340,24 @@ describe('the attacks the security review tried (each one must fail)', () => {
     e.db.query("DELETE FROM users WHERE id = 'p8'").run()
   })
 
+  test('a name that is also a plain word is still a name where it stands for a person (수정한테, "to Dan", "for Al")', () => {
+    e.db.query("INSERT INTO users (id, username, name, role) VALUES ('p8', 'sujeong', '이수정', 'member'), ('p9', 'dsmith', 'Dan Smith', 'member'), ('q1', 'amoreno', 'Al Moreno', 'member'), ('q2', 'wpark', 'Will Park', 'member')").run()
+    const n = teamNames(e.db)
+    const mask = masker(n)
+    expect(mask('수정한테 메일 써 줘')).toBe('(person)한테 메일 써 줘')
+    expect(mask('Draft an email to Dan about the budget')).toBe('Draft an email to (person) about the budget')
+    expect(mask('Write the budget email for Al')).toBe('Write the budget email for (person)')
+    for (const text of ['수정한테 메일 써 줘', 'Draft an email to Dan about the budget', 'Write the budget email for Al', 'Send it to Will today'])
+      expect({ text, ok: genericShape(text, n) }).toEqual({ text, ok: false })
+    // and as a sentence word it is a topic: one person typing it is never enough
+    for (const p of ['p1', 'p2', 'p3', 'p4', 'p5']) ask(p, 'check the budget email')
+    ask('p1', 'will check the budget email')
+    const sn = snap()
+    expect(passing(sn, team(sn), [{ text: 'Will check the budget email', ids: idsOf(sn, 'budget') }])).toEqual([])
+    expect(passing(sn, team(sn), [{ text: 'Check the budget email', ids: idsOf(sn, 'budget') }])).toHaveLength(1)
+    e.db.query("DELETE FROM users WHERE id IN ('p8', 'p9', 'q1', 'q2')").run()
+  })
+
   test('turned off and on while the AI wrote: what it was given is from before, nothing is stored', () => {
     for (const p of ['p1', 'p2', 'p3', 'p4', 'p5']) ask(p, '회의록 요약해 줘')
     const s = snap()

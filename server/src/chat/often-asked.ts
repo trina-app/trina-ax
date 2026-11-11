@@ -123,8 +123,10 @@ export const isAppPrompt = (line: string) => APP_RE.some((re) => re.test(line))
 
 /** A name and how it is looked for: `latin` (whole words; parts of 2 letters as written, longer ones in any case) or
  * anywhere in other scripts. */
-export interface Name { s: string; latin: boolean; exactCase: boolean }
-export interface TeamNames { people: Name[]; titled: string[]; projects: Name[]; rooms: Name[] }
+export interface Name { s: string; latin: boolean; exactCase: boolean; plain?: boolean }
+/** `plain`: name parts that are also plain words (a given name 수정, "Will", "Dan"): looked for only where they stand
+ * for a person (see asPerson), and a sentence word that is one is always a topic (3 people must have typed it). */
+export interface TeamNames { people: Name[]; titled: string[]; projects: Name[]; rooms: Name[]; plain: Name[] }
 const HANGUL = /^[\p{Script=Hangul}]+$/u
 const CJK_NAME = /^[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+$/u
 const LATIN = /^[\p{Script=Latin}\p{N}_.\-' ]+$/u
@@ -135,11 +137,11 @@ export const plainLatin = (s: string) => s.normalize('NFD').replace(/(\p{Script=
 const nameOf = (raw: string, minChars = 2): Name | null => {
   const v = plainLatin(raw.normalize('NFKC').trim())
   if ([...v].length < minChars) return null
-  // a name part that is also a plain word (a given name 수정, "fix"; Will): not a name to look for, or every "수정해 줘"
-  // would be masked and dropped; a sentence word still needs its 3 people
-  if (GENERIC.has(v.toLowerCase()) || STOP.has(v.toLowerCase())) return null
   const latin = LATIN.test(v)
-  return { s: v, latin, exactCase: latin && v.length < 3 }
+  // a name part that is also a plain word (a given name 수정, "fix"; Will; Dan): not looked for everywhere, or every
+  // "수정해 줘" would be masked and dropped; only where it stands for a person (asPerson)
+  const plain = GENERIC.has(v.toLowerCase()) || STOP.has(v.toLowerCase())
+  return { s: v, latin, exactCase: latin && v.length < 3, ...(plain ? { plain: true } : {}) }
 }
 const names = (xs: (Name | null)[]) => {
   const seen = new Set<string>()
@@ -167,7 +169,8 @@ export function teamNames(db: Database): TeamNames {
   }
   const projects = (db.query('SELECT name FROM projects').all() as { name: string }[]).map((r) => nameOf(r.name))
   const rooms = hasTable(db, 'rooms') ? (db.query("SELECT name FROM rooms WHERE kind = 'group' AND name IS NOT NULL").all() as { name: string }[]).map((r) => nameOf(r.name)) : []
-  return { people: names(people), titled: [...titled], projects: names(projects), rooms: names(rooms) }
+  const all = names(people)
+  return { people: all.filter((x) => !x.plain), titled: [...titled], projects: names(projects).filter((x) => !x.plain), rooms: names(rooms).filter((x) => !x.plain), plain: all.filter((x) => x.plain) }
 }
 
 /** A name as a pattern: Latin whole words, other scripts anywhere. */
@@ -182,9 +185,22 @@ export function nameFinder(xs: Name[]): { re: RegExp[]; test: (t: string) => boo
   return { re, test: (t) => re.some((r) => { r.lastIndex = 0; return r.test(t) }) }
 }
 
+/** Where a plain-word name part stands for a person: in Korean or Japanese followed by a person's particle or a title
+ * ("수정한테", "수정 님"); in Latin script capitalized as the name is, anywhere but the start of a sentence ("email to
+ * Dan"). */
+export function asPerson(n: TeamNames): RegExp | null {
+  const cjk = n.plain.filter((x) => !x.latin).map((x) => escape(x.s))
+  const latin = n.plain.filter((x) => x.latin).map((x) => escape(x.s.charAt(0).toUpperCase() + x.s.slice(1)))
+  const parts = [
+    ...(cjk.length ? [`(?:${cjk.join('|')})(?=\\s?(?:한테|에게|께서|께|이랑|랑|${KO_TITLES}|${JA_TITLES}))`] : []),
+    ...(latin.length ? [`(?<=[^\\s.!?。！？]\\s+)(?:${latin.join('|')})(?![\\p{L}\\p{N}])`] : []),
+  ]
+  return parts.length ? new RegExp(parts.join('|'), 'gu') : null
+}
+
 /** The masks, built once per run. */
 export function masker(n: TeamNames): (line: string) => string {
-  const person = nameFinder(n.people), project = nameFinder(n.projects), room = nameFinder(n.rooms)
+  const person = nameFinder(n.people), project = nameFinder(n.projects), room = nameFinder(n.rooms), standsFor = asPerson(n)
   const titled = n.titled.length
     ? new RegExp(`(?:${[...n.titled].sort((a, b) => b.length - a.length).map(escape).join('|')})\\s?(?:${KO_TITLES}|${JA_TITLES})`, 'gu')
     : null
@@ -193,6 +209,7 @@ export function masker(n: TeamNames): (line: string) => string {
   return (line) => {
     let s = plainRoomRefs(plainLatin(line))
     if (titled) s = s.replace(titled, PERSON)
+    if (standsFor) s = s.replace(standsFor, PERSON)
     for (const r of person.re) s = s.replace(r, PERSON)
     for (const r of project.re) s = s.replace(r, PROJECT)
     for (const r of room.re) s = s.replace(r, ROOM)
@@ -230,14 +247,17 @@ const listed = (w: string, set: Set<string>) => set.has(w) || (w.endsWith('s') &
 export type SentenceWord = { kind: 'stop' } | { kind: 'generic' } | { kind: 'topic'; forms: Unit[] }
 export interface Unit { cjk: boolean; s: string }
 
-export function readWord(w: string): SentenceWord {
+export function readWord(w: string, nameParts: ReadonlySet<string> = new Set()): SentenceWord {
   if (!CJK.test(w)) {
+    // a word that is also a colleague's name ("dan", "will") is a topic: 3 people must have typed it
+    if (nameParts.has(w)) return { kind: 'topic', forms: [{ cjk: false, s: w }] }
     if (listed(w, STOP)) return { kind: 'stop' }
     if (listed(w, GENERIC)) return { kind: 'generic' }
     return { kind: 'topic', forms: [{ cjk: false, s: w }] }
   }
   // Korean and Japanese: the word, and the word without each ending it has
   const stems = [w, ...ENDINGS.filter((e) => w.endsWith(e) && w.length > e.length).map((e) => w.slice(0, -e.length))]
+  if (stems.some((s) => nameParts.has(s))) return { kind: 'topic', forms: stems.filter((s) => graphemes(s).length >= 2).map((s) => ({ cjk: true, s })) }
   if (stems.some((s) => STOP.has(s))) return { kind: 'stop' }
   if (stems.some((s) => GENERIC.has(s))) return { kind: 'generic' }
   // a stem of one letter says too little to be looked for: never a form, so such a word drops the sentence
@@ -264,6 +284,8 @@ export function genericShape(text: string, n: TeamNames): boolean {
   if (/[^\p{L}\p{M}\s.,?!'’"“”:;~\-…·、。，？！]/u.test(text) || /[\r\n\t]/.test(text)) return false
   if (/https?|www\.|\.(?:pdf|docx?|xlsx?|pptx?|hwpx?|csv|txt|md|png|jpe?g|zip|json|html?)\b/i.test(text)) return false
   const t = plainLatin(text.normalize('NFKC'))
+  const standsFor = asPerson(n)
+  if (standsFor && standsFor.test(t)) return false
   return ![n.people, n.projects, n.rooms].some((xs) => nameFinder(xs).test(t))
 }
 
@@ -388,12 +410,13 @@ export interface Passed { text: string; people: number }
 export function passing(s: Snapshot, a: Audience, items: AiItem[]): Passed[] {
   if (a.askers.size < OFTEN_ASKED.minAudience) return []
   const byId = new Map(a.entries.map((e) => [e.id, e]))
+  const nameParts = new Set(s.names.plain.map((x) => norm(x.s)))
   const out: Passed[] = []
   const seen = new Set<string>()
   for (const item of items) {
     const text = item.text.replace(/\s+/g, ' ').trim()
     if (seen.has(norm(text)) || !genericShape(text, s.names)) continue
-    const topics = wordsOf(text).map(readWord).filter((w): w is Extract<SentenceWord, { kind: 'topic' }> => w.kind === 'topic')
+    const topics = wordsOf(text).map((w) => readWord(w, nameParts)).filter((w): w is Extract<SentenceWord, { kind: 'topic' }> => w.kind === 'topic')
     if (!topics.length || topics.some((w) => !w.forms.length)) continue
     // each person's lines in the item, together
     const lines = new Map<string, Said[]>()

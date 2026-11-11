@@ -20911,8 +20911,10 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   mentions, people's names (full and written together, "이서연" for "이 서연"; every part of 2+ letters, so a Korean or
   Japanese given name or surname alone, "민수", "田中"; Latin parts as whole words, 2-letter ones as written, accents
   ignored; a one-letter surname with a title, "김 과장"), project names, group chat names. A name part that is also a
-  plain verb or function word (a given name 수정, "Will") is not looked for alone, or every "수정해 줘" would be masked
-  and dropped; a sentence word still needs its 3 people, and the full name and the name with a title are masked. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
+  plain verb or function word (a given name 수정; Will, Dan, Al) is not masked everywhere, or every "수정해 줘" would be
+  dropped: only where it stands for a person (followed by 한테, 에게, 께, 랑, a title, さん; in Latin script capitalized
+  past the start of a sentence: "email to Dan"), and such a sentence is rejected; as a sentence word it is always a
+  topic, so 3 people must have typed it. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
   line, at most 40 a person and 600 in all (taken in turns), in random order with meaningless ids; never who wrote it.
 - **The AI.** Once a day (from 05:00 team time, 20 h after the last; 28 h after it at any hour; a try waits 3 h), one
   call of the file list's reader (file-list/engine-reader.ts, `ReadOptions`): no tools, Haiku or Codex's nano/mini, a
