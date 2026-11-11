@@ -192,7 +192,8 @@ describe('with the switch on', () => {
     for (const u of ['https://echo-site.example/out?d=hello', 'https://other-echo.example/p?d=hello']) {
       const asked: Asked[] = []
       await expect(gate(chat, u, person(null, asked))).rejects.toThrow(/did not allow/)
-      expect(asked[0]!.question).toContain('matches what the AI had sent')
+      // the echo card's words (#348: plain words in cards)
+      expect(asked[0]!.question).toContain('contains something the AI sent earlier')
       expect(values(asked[0]) ?? []).not.toContain(ALL_SITES_ANSWER)
     }
     // a plain address of the allowed site still opens through ①b
