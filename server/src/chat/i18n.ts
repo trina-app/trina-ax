@@ -253,6 +253,8 @@ export const TEXT = {
   webSearchRefused: STEP_TEXT.webSearchRefused,
   thinking: STEP_TEXT.thinking,
   // shared project chats (chat/shared.ts, docs/DECISIONS.md "Shared project chats")
+  // selectBranch while an answer runs or waits (routes/chats.ts branchBusyCheck); the web turns the arrows off then
+  branchWhileAnswering: t('답변을 쓰는 중이에요. 끝나면 다른 버전으로 바꿀 수 있어요.', 'An answer is still being written. You can switch versions when it is done.', 'Jawaban masih ditulis. Anda bisa beralih versi setelah selesai.', "まだ回答を作成中です。終わったら別のバージョンに切り替えられます。", "Todavía se está escribiendo una respuesta. Podrá cambiar de versión cuando termine."),
   sharedChatBusy: t('{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.', "{name}'s question is being answered. You can send yours when it is done.", 'Pertanyaan {name} sedang dijawab. Anda bisa mengirim setelah selesai.', "{name}さんの質問に回答中です。終わったら送信できます。", "Se está respondiendo la pregunta de {name}. Podrá enviar la suya cuando termine."),
   sharedChatSafeOps: t("이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.", "Your team's security settings don't allow continuing shared chats. Ask in a chat of your own.", "Pengaturan keamanan tim Anda tidak mengizinkan obrolan bersama dilanjutkan. Tanyakan di obrolan Anda sendiri.", "チームのセキュリティ設定により、共有チャットは続けられません。自分のチャットで質問してください。", "La configuración de seguridad de su equipo no permite continuar chats compartidos. Pregunte en un chat propio."),
   // a file uploaded into the person's own folder before the chat was shared (now a computer file goes into the project
