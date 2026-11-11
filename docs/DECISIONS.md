@@ -19935,3 +19935,83 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   (settings, connectors, credentials, Drive, AI apps, search, engine choice, files, chat, onboarding, states, my usage).
   Server unit `refusal-texts` (the screen names).
 - Version impact: **patch** (words, one control fewer for members, the model id behind a button; no API or data change).
+
+
+## Plain words in errors, cards and steps — 오류·확인 카드·작업 단계를 쉬운 말로 (fix/plain-words-errors-cards, 2026-11-11, product owner)
+
+The owner (2026-11-11): Trina AX is used by office workers, almost never developers; every screen must make sense to a
+non-developer in a few seconds. The plain-words audit (2026-11-10) found the developer words concentrated in what the
+server sends: chat errors naming engines, proxies, API addresses, "(HTTP 502)" and admin menus that no longer exist;
+confirmation cards with `create_task`, a JSON dump, raw paths and a SHA-256; step lines with snake_case ids, raw ids,
+engine names, model ids and an English " (job)". The owner approved the audit's top 15; this is PR 2 of that work
+(items 3, 5, 6 and the server-sent parts of 11 and 15). Plan: `docs/AGENTS/plan/20261111-0044-plain-words-errors-cards.md`.
+
+- **Chat errors say what happened and who to tell** (`shared/src/api/errors.ts` CHAT_ERROR_MESSAGES, the generic
+  `engine_unavailable`): "지금은 AI가 답할 수 없어요. 팀장에게 알려 주세요.", "답하다가 멈췄어요. 다시 해 주세요.", "쓸 수
+  있는 AI 계정이 없어요. 관리자에게 알려 주세요." No engine, proxy, API or HTTP code in any language
+  (`tests/unit/chat-errors-plain.test.ts` checks every one). The server no longer adds " (HTTP 502)" to the text
+  (`chat/i18n.ts engineError`); the status stays in `params.status` for diagnostics.
+- **Where to fix it, for those who can** (`web/src/lib/chatErrors.ts`): the owner and admins read their own words with
+  the admin menu path, built from the menu's labels (`admin.title` › `admin.providers`, or › `admin.system` ›
+  `system.health`), so the path follows the menu when it is renamed (the other plain-words PR renames 제공자). The health
+  page is the owner's only (admins see the storage there), so `engine_missing` and `proxy_down` name it to the owner and
+  an admin reads the member's words. A member never sees a menu path. The "no AI" words with the connect button
+  (`aiConnect.error.*`) keep winning while no AI answers the owner or an admin; `credential_unusable` there now names
+  the real menu too (it said "관리 › AI 연결").
+- **Old stored errors still follow the language**: errors saved without `params.reason` are matched by their exact
+  text, so every earlier wording (all five languages) stays in `LEGACY_CHAT_ERRORS` / `LEGACY_ERROR_MESSAGES`, for
+  matching only. The engine and safe-operations refusals ("어떤 AI로 답할지는 관리자가 정해요. 그냥 보내면 팀 기본 AI가
+  답해요.", "이 팀의 보안 설정 때문에 …") have no stored form to keep.
+- **The connected-service card** (`integrations/connections/card-lines.ts`, `tools.ts gate`). It is a safety net, so
+  what the person needs to decide stays on it, and approve / deny do exactly what they did:
+  - The question names the tool by its MCP `title`, else its id in words ("AI가 Tasks에 이 내용을 보내려고 해요: 할 일
+    만들기"). The title is the service's text like the id: made one line, at most 80 characters, invisible and
+    direction-changing characters dropped, so it cannot add lines to the card. A service that would mislead with its
+    title could already mark the tool read-only and never be asked at all (`mcp.ts toolOf`), so the title widens nothing.
+  - Every value of the call is a labelled line (받는 사람, 제목, 마감일 …; a name not in `FIELD_WORDS` as its own words,
+    "page_id" → "Page id"), recipients first, **every value in full** (a long one scrolls in place). Runs of spaces and
+    of empty lines are made one, so nothing sits out of sight below a wall of blank lines. A name with a long
+    random-looking part stays as it is.
+  - The exact JSON is one click away, "보내는 내용 그대로 보기" (`ConfirmDetail.exact`), with its size; open, it is what
+    the card showed before. A client that does not know `exact` shows the JSON open.
+  - Lines are made only when they can show all of it. More than 40 values, nested deeper than 4, over 20,000 characters,
+    or an invisible or direction-changing character in a name or a value: no lines, the JSON open as before, the
+    recipients first in words.
+  - The card now also highlights long random-looking parts (`opaqueParts`), in the lines and in the JSON. It had none.
+  - The size limit (`MAX_CARD_PAYLOAD`) is counted as before, on the JSON and the recipients.
+  - An HTTP API call says what its method does (보내기, 바꾸기, 고치기, 지우기) and shows the address it calls first, as
+    "주소"; a JSON body as lines, a text body open.
+- **Steps never show the AI's arguments.** A connection's step is "Notion · Create page" (`stepOf`), an HTTP API's
+  "Tasks · 보내기". This amends the 0.2.19 review's "a short look at the arguments" (`argsPreview`, S8): a price check
+  and the paid run it was for no longer read differently in the steps; both are on the activity log and the paid one
+  asked on its card. With no arguments there is nothing to hide, so `argsPreview`, `secretArg`, `hideSecretsInText`
+  and their test are gone.
+- **Step lines** (`shared/src/step-labels.ts`): a tool without words of its own reads as its id in words
+  (`readableToolName`: "TodoWrite" → "Todo write"; nothing left → 작업); no schedule or Drive ids (the verb alone);
+  no engine names or model ids ("AI가 답하지 않아 다른 AI로 다시 답해요", "고른 AI를 지금 쓸 수 없어 팀 기본 AI로
+  답해요"); " (job)" / " (background)" in the language on screen; verbs 화면 만들기, 자료 지도에서 찾기, 페이지에서 동작
+  실행, 페이지 오류 보기, 페이지 통신 보기, 쓸 수 있는 기능 찾기. Stored steps with the earlier templates or verbs are
+  redrawn in today's words (`LEGACY`, `LEGACY_VERBS`; a model id or engine name they held is dropped).
+- **Places in words on cards** (`chat/place-words.ts`): the Files screen's words for the top folders (`labeledPath`:
+  전사 공유, 부서, 프로젝트, 팀 스킬), 내 폴더 and 첨부한 파일 (`placeName`), another person's folder by their name, the
+  team folder's top as "팀 폴더 맨 위". Not `placeName` alone: it says a group's brand folder and the company's both as
+  "브랜드 폴더", and a card is where the person decides, so two places must never read the same. A path with `.` or `..`
+  is shown as given. Used by the wider-audience card (target and sources), the shared-read card, the room change card's
+  question and fields, move/copy, the trash card's list, the team-skill save card (and the web preview's path, on hover
+  as a path) and save_room_file's default. What the AI reads, refusals and the activity log keep the disk path.
+- **The wider-audience card has no SHA-256 line.** A safe-operations PowerPoint's approval is still bound to those bytes
+  on the server (`safe-ops/publication.ts` binding, checked again before the link); the hash stays in
+  `safe_ops_publications` and the file event of the activity log.
+- **The person's own draft**: "내 폴더에 저장할 요청 준비" writes "…같은 내용을 내 폴더에 저장해 줘." with the place in words,
+  no `users/<id>`; the AI is told which folder 내 폴더 is (`chat/prompt.ts`).
+- **A connection's sign-in failure** is said in words (`integrations.signIn.reason.*`), not its stored code (denied,
+  invalid, changed, superseded).
+- **Left for later**: the Google Drive routes' error codes (the web already words them where they show), background
+  job exception text, the English-only dev-environment card and errors, the in-app browser's "사내망 주소" card, the
+  skill-move card's path box, the schedule template's run message, and every web-only item of the audit (the other
+  plain-words PRs).
+- Tests: `tests/unit/chat-errors-plain.test.ts`, `c-integrations-card-lines.test.ts`, `step-labels-plain.test.ts`,
+  `place-words.test.ts`, `c-integrations-slow-list.test.ts` (no arguments in a step); web unit `chat-error-words`,
+  `ask-card-exact`; e2e `chat.spec.ts` (the error box as a member and as the owner), `safety-cards.spec.ts` (the lines,
+  the exact JSON, the fallback), `plain-steps.spec.ts`, `exfil-followups.spec.ts`.
+- Version impact: **patch** (new wording, one optional card field, no data change).
