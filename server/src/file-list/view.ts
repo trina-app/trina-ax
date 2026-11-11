@@ -1,8 +1,12 @@
 // The `_FILES.md` a person sees (docs/AGENTS/plan/20261111-0630-file-list.md "Design"): rendered when they ask, from
 // the sidecar's lines, never written to disk. A line shows only when its file passes visiblePath for that person now
-// (readable, a regular single-link file, not quarantined, an allowed name) and still has the size and mtime that were
-// described; anything else (moved, changed, deleted, hidden from them) is simply not there. A list shows only when the
-// person can read its own path and at least one of its lines shows.
+// (readable, a regular single-link file, not quarantined, an allowed name), is the very file that was read (same
+// device and inode) with the size and mtime that were described, and its folder still has the access unit (rule
+// chain) it was read in: its fields came from a model call that held that unit's files only, so after a rule change or
+// a move to another unit it waits to be read again. And the model may have mixed up the files of one call: a line shows
+// only when the person can also open every file still in that call (a batch-mate moved or narrowed away hides it; the
+// next run reads such a call's files again). Anything else is simply not there. A list shows only when the person can
+// read its own path and at least one of its lines shows.
 import fs from 'node:fs'
 import { FILE_LIST_NAME } from '@mycel/shared/api'
 import { renderLine } from './format'
@@ -37,19 +41,23 @@ export interface Seen {
   visible(rel: string): fs.Stats | null
   /** this person can read the list's own path */
   canRead(rel: string): boolean
+  /** this person can open every file still in this model call (absent: not checked) */
+  batchOk?(batch: string): boolean
 }
 
-/** One list for one person, or null when nothing of it shows for them. */
-export function renderList(folder: string, entries: readonly Entry[], seen: Seen): { text: string; lines: number; mtimeMs: number } | null {
+/** One list for one person, or null when nothing of it shows for them. `chain`: the folder's rule chain now. */
+export function renderList(folder: string, entries: readonly Entry[], seen: Seen, chain: string): { text: string; lines: number; mtimeMs: number } | null {
   const listPath = Units.listPath(folder)
   if (!seen.canRead(listPath)) return null
   const body: string[] = []
   let cur: string | null = null
   let lines = 0, mtimeMs = 0
   for (const e of entries) {
+    if (e.chain !== chain) continue
+    if (e.batch && seen.batchOk && !seen.batchOk(e.batch)) continue
     const st = seen.visible(e.path)
-    // the bytes that were described, and only those: a changed file waits for the next night
-    if (!st || st.size !== e.size || st.mtimeMs !== e.mtimeMs) continue
+    // the bytes that were described, of that very file, and only those: a changed file waits for the next night
+    if (!st || st.size !== e.size || st.mtimeMs !== e.mtimeMs || (e.ino && e.ino !== `${st.dev}:${st.ino}`)) continue
     const d = dirOf(e.path)
     if (d !== cur) { body.push('', `## ${d.normalize('NFC')}/`); cur = d }
     body.push(renderLine(e.path, e.fields!, e.real))

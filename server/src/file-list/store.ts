@@ -28,9 +28,17 @@ export interface Entry {
   readAt: string | null
   /** failed reads (a file that keeps failing is tried again after FAILED_RETRY_DAYS) */
   tries: number
+  /** the access unit's rule chain when it was read (units.ts chain): a line shows only while its folder still has it,
+   * and a move keeps it only within the same chain (its fields came from a call holding that unit's files) */
+  chain?: string | null
+  /** device and inode of the file that was read ("dev:ino"): a line shows only for that very file */
+  ino?: string | null
+  /** the model call it was read in (its batch-mates' text may be in its line): a line shows only to someone who can
+   * open every file still in that call (view.ts); null: no model (metadata) */
+  batch?: string | null
 }
 
-interface Row { path: string; size: number; mtime: number; sha: string | null; kind: string | null; real: string | null; fields: string | null; via: string | null; read_at: string | null; tries: number }
+interface Row { path: string; size: number; mtime: number; sha: string | null; kind: string | null; real: string | null; fields: string | null; via: string | null; read_at: string | null; tries: number; chain: string | null; ino: string | null; batch: string | null }
 
 export class Sidecar {
   readonly db: Database
@@ -39,7 +47,8 @@ export class Sidecar {
     this.db = new Database(path.join(dir, 'state.db'), { create: true })
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec(`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime REAL NOT NULL, sha TEXT, kind TEXT,
-      real TEXT, fields TEXT, via TEXT, read_at TEXT, tries INTEGER NOT NULL DEFAULT 0)`)
+      real TEXT, fields TEXT, via TEXT, read_at TEXT, tries INTEGER NOT NULL DEFAULT 0, chain TEXT, ino TEXT, batch TEXT)`)
+    for (const c of ['chain', 'ino', 'batch']) { try { this.db.exec(`ALTER TABLE files ADD COLUMN ${c} TEXT`) } catch { /* there already */ } }
     this.db.exec('CREATE INDEX IF NOT EXISTS files_sha ON files(sha)')
     this.db.exec(`CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT NOT NULL, ended_at TEXT, trigger TEXT NOT NULL,
       engine TEXT, model TEXT, read INTEGER NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -53,7 +62,7 @@ export class Sidecar {
   private entry(r: Row): Entry {
     let fields: Fields | null = null
     try { fields = r.fields ? JSON.parse(r.fields) as Fields : null } catch { fields = null }
-    return { path: r.path, size: r.size, mtimeMs: r.mtime, sha: r.sha, kind: r.kind as Kind | null, real: r.real, fields, via: r.via as Via | null, readAt: r.read_at, tries: r.tries }
+    return { path: r.path, size: r.size, mtimeMs: r.mtime, sha: r.sha, kind: r.kind as Kind | null, real: r.real, fields, via: r.via as Via | null, readAt: r.read_at, tries: r.tries, chain: r.chain, ino: r.ino, batch: r.batch }
   }
   all(): Map<string, Entry> {
     const m = new Map<string, Entry>()
@@ -67,10 +76,10 @@ export class Sidecar {
     return (this.db.query('SELECT * FROM files WHERE path = ? OR (path >= ? AND path < ?)').all(p, p + '/', p + '0') as Row[]).map((r) => this.entry(r))
   }
   put(e: Entry) {
-    this.db.query(`INSERT INTO files (path, size, mtime, sha, kind, real, fields, via, read_at, tries) VALUES (?,?,?,?,?,?,?,?,?,?)
+    this.db.query(`INSERT INTO files (path, size, mtime, sha, kind, real, fields, via, read_at, tries, chain, ino, batch) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, sha=excluded.sha, kind=excluded.kind, real=excluded.real,
-      fields=excluded.fields, via=excluded.via, read_at=excluded.read_at, tries=excluded.tries`)
-      .run(e.path, e.size, e.mtimeMs, e.sha, e.kind, e.real, e.fields ? JSON.stringify(e.fields) : null, e.via, e.readAt, e.tries)
+      fields=excluded.fields, via=excluded.via, read_at=excluded.read_at, tries=excluded.tries, chain=excluded.chain, ino=excluded.ino, batch=excluded.batch`)
+      .run(e.path, e.size, e.mtimeMs, e.sha, e.kind, e.real, e.fields ? JSON.stringify(e.fields) : null, e.via, e.readAt, e.tries, e.chain ?? null, e.ino ?? null, e.batch ?? null)
     this.version++
   }
   delete(p: string) { this.db.query('DELETE FROM files WHERE path = ?').run(p); this.version++ }

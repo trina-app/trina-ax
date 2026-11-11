@@ -91,10 +91,15 @@ describe('a first run', () => {
     expect(r.text.split('\n')[0]).toBe(`     1\t${HEADER}`)
   })
 
-  test('a list\'s lines are read like its folder\'s files, never an answer\'s source', async () => {
+  test('a list\'s lines are read like its folder\'s files (its folder in the read scope), never an answer\'s source', async () => {
     const ctx = A.toolCtx('alice')
     await A.ctx.files.call('grep', { pattern: 'glossary', path: 'shared', output_mode: 'content' }, ctx)
-    expect(ctx.files.readPaths.has('shared/_FILES.md')).toBe(true)
+    await A.ctx.files.call('read', { file_path: 'shared/_FILES.md' }, ctx)
+    expect(ctx.files.readPaths.has('shared')).toBe(true)
+    expect([...ctx.files.readPaths].some((p) => p.endsWith(FILE_LIST_NAME))).toBe(false)
+    // every path in the read scope is a real one the person may read (the remote connector checks each)
+    const { authorize } = await import('../../server/src/policy/authorize')
+    for (const p of ctx.files.readPaths) expect(() => authorize(A.ctx.files.fx, A.ctx.files.rules(), A.ctx.files.principal('alice'), p, 'read')).not.toThrow()
     expect(JSON.stringify([...(ctx.files.sources as unknown as { entries?: () => Iterable<unknown> }).entries?.() ?? []])).not.toContain('_FILES.md')
   })
 
@@ -147,27 +152,52 @@ describe('only what changed is read; a line shows only for the file as it was re
 })
 
 describe('access and moves, at once and without reading', () => {
-  test('an admin narrows a folder: people who lost it no longer see its lines anywhere', async () => {
+  test('an admin narrows a folder: its lines leave every list at once; read again in their new unit at the next run', async () => {
     reader.calls = []
     expect(named(await readList('bob', 'shared/_FILES.md')).some((p) => p.startsWith('shared/policies/'))).toBe(true)
     const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', rules: [{ subjectType: 'user', subjectId: 'alice', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
     expect({ status: r.status, body: r.body }).toMatchObject({ status: 201 })
+    // at once, without reading: gone from the wide list for everyone, and not yet shown in the narrow one (their fields
+    // came from a call that held the wide unit's files)
     expect(named(await readList('bob', 'shared/_FILES.md')).some((p) => p.startsWith('shared/policies/'))).toBe(false)
     expect(await readList('bob', 'shared/policies/_FILES.md')).toBeNull()
+    expect(await readList('alice', 'shared/policies/_FILES.md')).toBeNull()
+    expect((await call('bob', 'grep', { pattern: 'policies', path: '', output_mode: 'content' })).text).not.toContain('shared/policies/')
+    expect(reader.calls.length).toBe(0)
+    // the next run reads them again, in calls of their own unit (their old batch-mates in shared/ are read again too,
+    // since a line may hold text of the files it was read with)
+    await run()
+    const inPolicies = (f: { path: string }) => f.path.startsWith('shared/policies/')
+    expect(reader.calls.some((c) => c.files.some(inPolicies))).toBe(true)
+    expect(reader.calls.every((c) => c.files.every(inPolicies) || !c.files.some(inPolicies))).toBe(true)
     expect(named(await readList('alice', 'shared/policies/_FILES.md')).length).toBeGreaterThan(0)
-    const g = await call('bob', 'grep', { pattern: 'policies', path: '', output_mode: 'content' })
-    expect(g.text).not.toContain('shared/policies/')
+    expect(await readList('bob', 'shared/policies/_FILES.md')).toBeNull()
+  })
+
+  test('a rename through Files inside its unit: the line follows its file, no read', async () => {
+    reader.calls = []
+    const r = await A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'shared/new-a.md', to: 'shared/new-a-renamed.md' }) })
+    expect({ status: r.status, body: r.body }).toMatchObject({ status: 200 })
+    const list = named(await readList('alice', 'shared/_FILES.md'))
+    expect(list).not.toContain('shared/new-a.md')
+    expect(list).toContain('shared/new-a-renamed.md')
     expect(reader.calls.length).toBe(0)
   })
 
-  test('a move through Files: the line follows its file, no read', async () => {
+  test('a move into another unit: gone from the old list at once, read again in the new unit at the next run', async () => {
     reader.calls = []
     const r = await A.json('/api/files/move', { as: 'carol', ...jsonBody({ from: 'shared/copy-1.md', to: 'groups/finance/copy-1.md', confirm: true }) })
     expect({ status: r.status, body: r.body }).toMatchObject({ status: 200 })
     expect(named(await readList('alice', 'shared/_FILES.md'))).not.toContain('shared/copy-1.md')
+    expect(named(await readList('bob', 'groups/finance/_FILES.md'))).not.toContain('groups/finance/copy-1.md')
+    expect(reader.calls.length).toBe(0)
+    await run()
+    // the moved file, and the batch-mates it was read with (here its copy), each in a call of its own unit
+    expect(reader.paths()).toContain('groups/finance/copy-1.md')
+    expect(reader.paths().filter((p) => p !== 'groups/finance/copy-1.md').every((p) => p.startsWith('shared/'))).toBe(true)
+    expect(reader.calls.every((c) => c.files.every((f) => f.path.startsWith('groups/finance/')) || c.files.every((f) => f.path.startsWith('shared/')))).toBe(true)
     expect(named(await readList('bob', 'groups/finance/_FILES.md'))).toContain('groups/finance/copy-1.md')
     expect(await readList('alice', 'groups/finance/_FILES.md')).toBeNull()
-    expect(reader.calls.length).toBe(0)
   })
 
   test('a deleted file (to the trash) leaves the sidecar at once', async () => {

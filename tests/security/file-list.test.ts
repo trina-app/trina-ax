@@ -13,7 +13,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { FILE_LIST_NAME } from '@mycel/shared/api'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
-import { FakeReader } from '../lib/file-list-fake'
+import { defaultAnswer, FakeReader } from '../lib/file-list-fake'
 import { fileListOf, type FileList } from '../../server/src/file-list/service'
 import { atLeast, RuleSet } from '../../server/src/policy/access'
 import { HEADER } from '../../server/src/file-list/view'
@@ -119,12 +119,17 @@ describe('nobody sees a file name or text they cannot open through any list', ()
     expect(r.status).toBe(201)
     policies = r.body.id
     expect((await listsOf('bob')).get('shared/_FILES.md') ?? '').not.toContain('CANARY-HR-15')
-    await checkEveryone('narrowed shared/policies')
+    await checkEveryone('narrowed shared/policies, before a run')
+    expect(await fl.start('now')).toBe('done')
+    expect((await listsOf('carol')).get('shared/policies/_FILES.md') ?? '').toContain('CANARY-HR-15')
+    await checkEveryone('narrowed shared/policies, read again')
   })
 
   test('the rules of that folder changed (a person added): only they gain its lines', async () => {
     const r = await A.json(`/api/admin/folders/${policies}/rules`, { as: 'dana', ...jsonBody({ rules: [{ subjectType: 'user', subjectId: 'carol', access: 'write' }, { subjectType: 'user', subjectId: 'bob', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }, 'PUT') })
     expect(r.status).toBe(200)
+    await checkEveryone('policies for carol and bob, before a run')
+    expect(await fl.start('now')).toBe('done')
     expect((await listsOf('bob')).get('shared/policies/_FILES.md') ?? '').toContain('CANARY-HR-15')
     expect((await listsOf('alice')).has('shared/policies/_FILES.md')).toBe(false)
     await checkEveryone('policies for carol and bob')
@@ -133,6 +138,8 @@ describe('nobody sees a file name or text they cannot open through any list', ()
   test('the rule taken away: its lines move back to the wider list, still only to readers', async () => {
     const r = await A.json(`/api/admin/folders/${policies}`, { as: 'dana', method: 'DELETE' })
     expect(r.status).toBe(204)
+    await checkEveryone('policies rule removed, before a run')
+    expect(await fl.start('now')).toBe('done')
     expect((await listsOf('alice')).get('shared/_FILES.md') ?? '').toContain('CANARY-HR-15')
     await checkEveryone('policies rule removed')
   })
@@ -153,6 +160,28 @@ describe('nobody sees a file name or text they cannot open through any list', ()
     expect(r.status).toBe(200)
     for (const u of PEOPLE) expect(JSON.stringify([...(await listsOf(u)).values()])).not.toContain('CANARY-MOVE-18')
     await checkEveryone('moved into users/bob')
+  })
+
+  test('a model that mixes up batch-mates: after a rule splits their unit, nobody sees a batch-mate\'s text', async () => {
+    // every line also carries the canaries of the other files of its call (a confused or steered model)
+    const all = (files: { text: string }[]) => [...new Set(files.flatMap((f) => [...f.text.matchAll(/CANARY-[A-Z]+-\d+/g)].map((m) => m[0])))]
+    reader.answer = (files) => files.map((f) => JSON.stringify({ id: f.id, type: 'document', names: [], date: '', what: `mixed ${all(files).join(' ')}` })).join('\n')
+    write('shared/team-a/plan.md', '# team a plan CANARY-TEAMA-21\n')
+    write('shared/team-b/plan.md', '# team b plan CANARY-TEAMB-22\n')
+    expect(await fl.start('now')).toBe('done')
+    // one call held both (one unit): each line names both canaries, which everyone in shared/ may see
+    expect((await listsOf('alice')).get('shared/_FILES.md') ?? '').toContain('CANARY-TEAMB-22')
+    // now team-b becomes bob's only: the mixed lines must not show anywhere bob's file text could reach alice
+    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/team-b', rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    expect(r.status).toBe(201)
+    reader.answer = (files) => files.map((f) => JSON.stringify(defaultAnswer(f))).join('\n')
+    await checkEveryone('team-b split off, before a run')
+    // alice's lists: no CANARY-TEAMB-22 at all (the shared line that named it came from a call holding team-b's file,
+    // and team-a's line is still from that call: it is read again too)
+    expect(JSON.stringify([...(await listsOf('alice')).values()])).not.toContain('CANARY-TEAMB-22')
+    expect(await fl.start('now')).toBe('done')
+    expect(JSON.stringify([...(await listsOf('alice')).values()])).not.toContain('CANARY-TEAMB-22')
+    await checkEveryone('team-b split off, read again')
   })
 
   test('the next run after all that: still nobody sees more than they may', async () => {

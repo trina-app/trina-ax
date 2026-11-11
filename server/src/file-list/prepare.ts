@@ -5,9 +5,11 @@
 // files nothing can read get their line without a model ("meta"). The type comes from the bytes (sniff.ts).
 //
 // The bytes are read once, from an fd opened without following a link, of a regular single-link file whose parent
-// folders are checked to be the real ones (realpathCheck): a file swapped for a link (a dev environment can do that) is
-// never read. The size, mtime and sha256 kept with the line are those of exactly these bytes, so a file that changed
-// after it was read no longer matches and its line is not shown (view.ts).
+// folders are checked to be the real ones (realpathCheck) before the open and again after the read, with the fd's
+// device and inode equal to the path's (a parent folder swapped for a link meanwhile, which a dev environment can do,
+// is caught); a quarantined file or its bytes are never read. The size, mtime, sha256 and inode kept with the line are
+// those of exactly these bytes, so a file that changed after it was read no longer matches and its line is not shown
+// (view.ts).
 import fs from 'node:fs'
 import { constants as C } from 'node:fs'
 import path from 'node:path'
@@ -46,8 +48,8 @@ export interface Item {
   images?: { media: 'image/jpeg'; data: Buffer }[]
   /** group meta: the fields, no model */
   meta?: Fields
-  /** the file as it was read: what its line describes */
-  read: { size: number; mtimeMs: number; sha: string }
+  /** the file as it was read: what its line describes (sha null: larger than READ_MAX, not hashed) */
+  read: { size: number; mtimeMs: number; sha: string | null; ino: string }
 }
 
 export interface PrepareEnv {
@@ -60,38 +62,49 @@ export interface PrepareEnv {
   ocr?: string | null
   /** the team sends images to the AI (Team settings) and the reader can take them */
   images: boolean
+  /** the safe operations quarantine (files the server made in a confidential workflow): never read */
+  quarantine?: { hasFile(abs: string): boolean; hasHash(hash: string): boolean }
   signal?: AbortSignal
 }
 
 /**
- * Read a team file safely: parents checked, no link followed, a regular single-link file. The bytes (all of them up to
- * `max`, else the first HEAD), its stat and the sha256 of the whole file as read. null when it is not such a file.
+ * Read a team file safely: parents checked before the open and after the read, no link followed, a regular single-link
+ * file whose fd is the path's own file. The bytes (all of them up to `max`, else the first HEAD), its stat, its
+ * "dev:ino" and the sha256 of the whole file (null when it is larger than `max`: not read to its end). null when it is
+ * not such a file, or it changed while it was read.
  */
-export async function readSafe(root: string, rel: string, max = READ_MAX): Promise<{ bytes: Buffer; whole: boolean; st: fs.Stats; sha: string } | null> {
+export async function readSafe(root: string, rel: string, max = READ_MAX): Promise<{ bytes: Buffer; whole: boolean; st: fs.Stats; sha: string | null; ino: string } | null> {
   const segs = rel.split('/')
+  const abs = path.join(root, ...segs)
   try { realpathCheck(root, segs.slice(0, -1)) } catch { return null }
   let fh: fs.promises.FileHandle
-  try { fh = await fs.promises.open(path.join(root, ...segs), C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch { return null }
+  try { fh = await fs.promises.open(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch { return null }
   try {
     const st = await fh.stat()
     if (!st.isFile() || st.nlink > 1) return null
-    const h = new Bun.CryptoHasher('sha256')
     const whole = st.size <= max
+    const h = whole ? new Bun.CryptoHasher('sha256') : null
     const keep: Buffer[] = []
     let kept = 0
     const buf = Buffer.alloc(1 << 20)
     for (;;) {
+      const room = (whole ? max : HEAD) - kept
+      if (!whole && room <= 0) break
       const { bytesRead } = await fh.read(buf, 0, buf.length)
       if (!bytesRead) break
       const chunk = buf.subarray(0, bytesRead)
-      h.update(chunk)
-      const room = (whole ? max : HEAD) - kept
+      h?.update(chunk)
       if (room > 0) { const c = Buffer.from(chunk.subarray(0, room)); keep.push(c); kept += c.length }
     }
     const after = await fh.stat()
     // changed while it was read: not described now (the next run reads it again)
     if (after.size !== st.size || after.mtimeMs !== st.mtimeMs) return null
-    return { bytes: Buffer.concat(keep), whole, st, sha: h.digest('hex') }
+    // the path still leads to this very file through real folders (no parent swapped for a link meanwhile)
+    let now: fs.Stats
+    try { now = fs.lstatSync(abs) } catch { return null }
+    if (now.dev !== st.dev || now.ino !== st.ino) return null
+    try { realpathCheck(root, segs.slice(0, -1)) } catch { return null }
+    return { bytes: Buffer.concat(keep), whole, st, sha: h ? h.digest('hex') : null, ino: `${st.dev}:${st.ino}` }
   } catch { return null } finally { await fh.close() }
 }
 
@@ -170,9 +183,10 @@ const tidy = (t: string) => t.replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n')
 export async function prepare(env: PrepareEnv, rel: string): Promise<Item | null> {
   const name = rel.slice(rel.lastIndexOf('/') + 1)
   const ext = extOf(name)
+  if (env.quarantine?.hasFile(path.join(env.root, ...rel.split('/')))) return null
   const f = await readSafe(env.root, rel)
-  if (!f) return null
-  const read = { size: f.st.size, mtimeMs: f.st.mtimeMs, sha: f.sha }
+  if (!f || (f.sha && env.quarantine?.hasHash(f.sha))) return null
+  const read = { size: f.st.size, mtimeMs: f.st.mtimeMs, sha: f.sha, ino: f.ino }
   const bytes = f.bytes
   const kind = sniff(bytes.subarray(0, HEAD), ext, f.whole ? bytes : null)
   const real = wrongExtension(name, kind)

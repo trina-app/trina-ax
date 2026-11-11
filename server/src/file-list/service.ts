@@ -29,8 +29,8 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { visionOn } from '../files/vision'
 import type { VirtualFile, VirtualFiles } from '../files/virtual'
 import { cleanFields, unknownFields, type Fields } from './format'
-import { prepare, type Item, type PrepareEnv } from './prepare'
-import { buildBlocks, parseAnswer, ReaderLimit, ReaderUnavailable, type Reader } from './reader'
+import { prepare, READ_MAX, type Item, type PrepareEnv } from './prepare'
+import { buildBlocks, parseAnswer, ReaderLimit, ReaderUnavailable, type Reader, type ReaderAnswer, type ReaderUsage } from './reader'
 import { ownerId, pickReader, READER_CHAT, type ReaderPick } from './engine-reader'
 import { FORGET_ON_OFF, READ_PERSONAL, RUN_FILES, RUN_TOKENS } from './policy'
 import { extOf } from './sniff'
@@ -56,6 +56,10 @@ export const MAX_GAP_H = 30
 export const CATCH_UP_MS = 3 * 3600_000
 /** a run's lease is taken over when its holder has not renewed it for this long (a process that died) */
 export const LEASE_STALE_MS = 15 * 60_000
+/** a run stops after this many model calls in a row gave no usable answer (a broken engine) */
+export const MAX_FAILED_CALLS = 5
+/** while a run writes, the per-person view regroups the sidecar at most this often */
+const REGROUP_MS = 5000
 
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
 const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); t.unref?.() })
@@ -85,7 +89,8 @@ export class FileList implements VirtualFiles {
   private timers: ReturnType<typeof setInterval>[] = []
   private closed = false
   /** the sidecar's lines by list folder, for the store version and the rules they were grouped with */
-  private grouped: { version: number; rules: string; units: Units; byFolder: Map<string, Entry[]> } | null = null
+  private grouped: { version: number; rules: string; units: Units; byFolder: Map<string, Entry[]>; byBatch: Map<string, string[]>; at: number } | null = null
+  private hourFmt: { tz: string; f: Intl.DateTimeFormat } | null = null
 
   constructor(private ctx: AppContext, private o: FileListOptions = {}) {
     const dir = path.join(ctx.engineConfig.dataDir, 'file-list')
@@ -98,6 +103,7 @@ export class FileList implements VirtualFiles {
     if (!this.store.meta('firstSeenAt')) this.store.setMeta('firstSeenAt', this.now().toISOString())
     ctx.files.events.on('tree-changed', this.onTreeChanged)
     ctx.files.virtual = this
+    this.sweepSearchCopies()
     if (this.o.loops ?? process.env.NODE_ENV !== 'test') {
       this.timers.push(setInterval(() => { if (this.nightlyDue()) void this.start('nightly') }, 30 * 60_000))
       const first = setTimeout(() => { if (this.nightlyDue()) void this.start('nightly') }, 2 * 60_000)
@@ -124,7 +130,16 @@ export class FileList implements VirtualFiles {
       this.run?.abort.abort()
       // the stored lines go (policy.ts FORGET_ON_OFF); turned on again, the files are read again over the next nights
       if (FORGET_ON_OFF) this.store.clear()
+      this.sweepSearchCopies()
     }
+  }
+
+  /** The per-search copies of rendered lists (files/search.ts pass 0) that a crash left behind. */
+  private sweepSearchCopies() {
+    try {
+      const dir = path.join(path.dirname(this.ctx.files.office.dir), 'search-inputs')
+      for (const n of safeReaddir(dir)) if (n.name.startsWith('virtual-')) fs.rmSync(path.join(dir, n.name), { recursive: true, force: true })
+    } catch (e) { this.ctx.log.warn('file list: sweeping search copies failed', { err: e }) }
   }
 
   // ---------------------------------------------------------------- the virtual lists (files/virtual.ts)
@@ -132,26 +147,42 @@ export class FileList implements VirtualFiles {
   private groups(rules: RuleSet) {
     const folders = rules.ruleFolders().sort()
     const sig = folders.join('\u0000')
-    if (!this.grouped || this.grouped.version !== this.store.version || this.grouped.rules !== sig) {
+    const g = this.grouped
+    // regrouped when the rules' folders change, and when lines changed (while a run writes, at most every REGROUP_MS:
+    // a line that is gone meanwhile still fails the per-line checks, a new one shows a moment later)
+    if (!g || g.rules !== sig || (g.version !== this.store.version && (!this.run || Date.now() - g.at >= REGROUP_MS))) {
       const units = new Units(folders)
-      this.grouped = { version: this.store.version, rules: sig, units, byFolder: byListFolder(this.store.all().values(), units) }
+      const all = [...this.store.all().values()]
+      const byBatch = new Map<string, string[]>()
+      for (const e of all) if (e.batch) { const l = byBatch.get(e.batch); if (l) l.push(e.path); else byBatch.set(e.batch, [e.path]) }
+      this.grouped = { version: this.store.version, rules: sig, units, byFolder: byListFolder(all, units), byBatch, at: Date.now() }
     }
-    return this.grouped
+    return this.grouped!
   }
+  private chainOfFolder(units: Units, folder: string) { return units.chain(segsOf(folder)) }
+  /** What this person may see, for one rendering (each file looked at once). */
   private seen(user: Principal, rules: RuleSet) {
     const fx = this.ctx.files.fx
-    return { visible: (rel: string) => visiblePath(fx, rules, user, rel), canRead: (rel: string) => atLeast(rules.access(user, segsOf(rel)), 'read') }
+    const byBatch = this.groups(rules).byBatch
+    const vis = new Map<string, fs.Stats | null>()
+    const visible = (rel: string) => { if (!vis.has(rel)) vis.set(rel, visiblePath(fx, rules, user, rel)); return vis.get(rel)! }
+    const batches = new Map<string, boolean>()
+    const batchOk = (b: string) => { if (!batches.has(b)) batches.set(b, (byBatch.get(b) ?? []).every((p) => !!visible(p))); return batches.get(b)! }
+    return { visible, canRead: (rel: string) => atLeast(rules.access(user, segsOf(rel)), 'read'), batchOk }
   }
 
-  under(user: Principal, rules: RuleSet, base: readonly string[]): Map<string, VirtualFile> {
+  under(user: Principal, rules: RuleSet, base: readonly string[], accept?: (listPath: string) => boolean): Map<string, VirtualFile> {
     const out = new Map<string, VirtualFile>()
     if (!this.on()) return out
     const b = base.join('/')
     const seen = this.seen(user, rules)
-    for (const [folder, entries] of this.groups(rules).byFolder) {
+    const g = this.groups(rules)
+    for (const [folder, entries] of g.byFolder) {
       if (!under(folder, b)) continue
-      const v = renderList(folder, entries, seen)
-      if (v) out.set(Units.listPath(folder), { text: v.text, mtimeMs: v.mtimeMs })
+      const listPath = Units.listPath(folder)
+      if (accept && !accept(listPath)) continue
+      const v = renderList(folder, entries, seen, this.chainOfFolder(g.units, folder))
+      if (v) out.set(listPath, { text: v.text, mtimeMs: v.mtimeMs })
     }
     return out
   }
@@ -159,8 +190,9 @@ export class FileList implements VirtualFiles {
   at(user: Principal, rules: RuleSet, segs: readonly string[]): VirtualFile | null {
     if (!this.on() || !segs.length || !isFileListName(segs[segs.length - 1]!)) return null
     const folder = segs.slice(0, -1).join('/')
-    const entries = this.groups(rules).byFolder.get(folder)
-    const v = entries ? renderList(folder, entries, this.seen(user, rules)) : null
+    const g = this.groups(rules)
+    const entries = g.byFolder.get(folder)
+    const v = entries ? renderList(folder, entries, this.seen(user, rules), this.chainOfFolder(g.units, folder)) : null
     return v ? { text: v.text, mtimeMs: v.mtimeMs } : null
   }
 
@@ -169,28 +201,40 @@ export class FileList implements VirtualFiles {
     if (!this.on()) return false
     const rules = this.rules()
     const seen = this.seen(user, rules)
-    for (const [folder, entries] of this.groups(rules).byFolder) {
+    const g = this.groups(rules)
+    for (const [folder, entries] of g.byFolder) {
       if (!seen.canRead(Units.listPath(folder))) continue
-      for (const e of entries) { const st = seen.visible(e.path); if (st && st.size === e.size && st.mtimeMs === e.mtimeMs) return true }
+      const chain = this.chainOfFolder(g.units, folder)
+      for (const e of entries) {
+        if (e.chain !== chain || (e.batch && !seen.batchOk(e.batch))) continue
+        const st = seen.visible(e.path)
+        if (st && st.size === e.size && st.mtimeMs === e.mtimeMs && (!e.ino || e.ino === `${st.dev}:${st.ino}`)) return true
+      }
     }
     return false
   }
 
-  /** Files moved, were renamed or deleted (trash included): a moved line follows its file (same size and mtime), a
-   * deleted one goes from the sidecar at once (no reading). */
+  /** Files moved, were renamed or deleted (trash included): a moved line follows its file (the same file, size and
+   * mtime) inside the same access unit (a moved rule folder keeps its own); moved into another unit it waits to be read
+   * there (its fields came from a call holding the old unit's files). A deleted one goes from the sidecar at once. */
   private onTreeChanged = (e: { paths?: string[]; moves?: { from: string; to: string }[] } | undefined) => {
     if (!e) return
     try {
       const root = this.ctx.files.fx.root
-      const listable = new Units([])
+      const units = new Units(this.rules().ruleFolders())
       for (const m of e.moves ?? []) {
         for (const ent of this.store.under(m.from)) {
           const to = m.to + ent.path.slice(m.from.length)
-          const st = lstatFile(path.join(root, ...segsOf(to)))
+          const toSegs = segsOf(to)
+          const st = lstatFile(path.join(root, ...toSegs))
+          // the old chain with the moved folder's own rule paths moved along (folders.path follows a move)
+          const was = (ent.chain ?? '').split('\u0000').map((p) => (under(p, m.from) && p !== '' ? m.to + p.slice(m.from.length) : p)).join('\u0000')
+          const same = units.listable(toSegs) && was === this.chainOfFolder(units, units.listFolderOf(toSegs))
           this.store.tx(() => {
             this.store.delete(ent.path)
-            if (st && st.size === ent.size && st.mtimeMs === ent.mtimeMs && !this.store.get(to) && listable.listable(segsOf(to))) {
-              this.store.put({ ...ent, path: to, via: ent.via === 'model' || ent.via === 'copy' ? 'moved' : ent.via })
+            if (st && st.size === ent.size && st.mtimeMs === ent.mtimeMs && (!ent.ino || ent.ino === `${st.dev}:${st.ino}`) && !this.store.get(to) && units.listable(toSegs)) {
+              this.store.put(same ? { ...ent, path: to, chain: this.chainOfFolder(units, units.listFolderOf(toSegs)), via: ent.via === 'model' || ent.via === 'copy' ? 'moved' : ent.via }
+                : { ...ent, path: to, fields: null, via: null, chain: null })
             }
           })
         }
@@ -227,7 +271,11 @@ export class FileList implements VirtualFiles {
 
   // ---------------------------------------------------------------- when
   private tz(): string { try { return teamTimeZone(this.ctx.db) } catch { return 'UTC' } }
-  private hour(d: Date): number { return Number(new Intl.DateTimeFormat('en-US', { timeZone: this.tz(), hour: 'numeric', hourCycle: 'h23' }).format(d)) }
+  private hour(d: Date): number {
+    const tz = this.tz()
+    if (this.hourFmt?.tz !== tz) this.hourFmt = { tz, f: new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hourCycle: 'h23' }) }
+    return Number(this.hourFmt.f.format(d))
+  }
   private lastNightly(): number { return Date.parse(this.store.meta('lastNightlyAt') ?? this.store.meta('firstSeenAt') ?? '') || 0 }
 
   /** A nightly run is due: 12 hours after the last one inside the window (02:00–05:00 team time), or 30 hours after it. */
@@ -294,7 +342,7 @@ export class FileList implements VirtualFiles {
     let stop: FileListStop = 'done'
     try {
       // the sidecar against the disk (no reading)
-      await this.reconcile(st.abort.signal)
+      await this.reconcile(st.abort.signal, { deadline, renew: () => this.store.renewLease(st.holder) })
       if (!pick.ok) { stop = 'failed'; return stop }
       stop = await this.readPending(pick.reader, st, deadline, runId)
       return stop
@@ -348,35 +396,55 @@ export class FileList implements VirtualFiles {
    * the trash), new and changed files wait to be read, deleted files go (and with them every row of a folder that is
    * no longer read, such as personal folders).
    */
-  async reconcile(signal: AbortSignal): Promise<{ kept: number; moved: number; pending: number; deleted: number }> {
+  async reconcile(signal: AbortSignal, o: { deadline?: number | null; renew?: () => void } = {}): Promise<{ kept: number; moved: number; pending: number; deleted: number }> {
     const root = this.ctx.files.fx.root
     const cur = await this.scan(signal)
     const old = this.store.all()
+    const units = new Units(this.rules().ruleFolders())
+    const chainOf = (rel: string) => this.chainOfFolder(units, units.listFolderOf(segsOf(rel)))
     const gone = new Map<string, Entry[]>()
     for (const [p, e] of old) if (!cur.has(p) && e.sha && e.fields) { const l = gone.get(e.sha) ?? []; l.push(e); gone.set(e.sha, l) }
     let kept = 0, moved = 0, pending = 0, deleted = 0
     const taken = new Set<string>()
+    let n = 0
     for (const [rel, f] of [...cur].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
       signal.throwIfAborted()
+      if (++n % 100 === 0) { o.renew?.(); if (o.deadline != null && this.now().getTime() >= o.deadline) break }
       const e = old.get(rel)
-      if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) { kept++; continue }
-      const sha = await hashFile(path.join(root, ...segsOf(rel)))
-      if (!sha) continue
-      if (e && e.sha === sha) { this.store.put({ ...e, size: f.size, mtimeMs: f.mtimeMs }); kept++; continue }
+      if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) {
+        // its unit changed (a rule added or taken away above it): read again in the unit it is in now
+        if (e.fields && e.chain !== chainOf(rel)) { this.store.put({ ...e, fields: null, via: null, chain: null }); pending++ } else kept++
+        continue
+      }
+      // a file too big to read is not hashed either: its line comes from its metadata (prepare.ts)
+      const sha = f.size > READ_MAX ? null : await hashFile(path.join(root, ...segsOf(rel)))
+      if (!sha && f.size <= READ_MAX) continue
+      if (e && sha && e.sha === sha) { this.store.put({ ...e, size: f.size, mtimeMs: f.mtimeMs, ...(e.chain !== chainOf(rel) ? { fields: null, via: null, chain: null } : {}) }); kept++; continue }
       // moved or renamed: the same bytes at a path that is gone (the same name first)
       const name = rel.slice(rel.lastIndexOf('/') + 1)
-      const cands = (gone.get(sha) ?? []).filter((g) => !taken.has(g.path))
+      // only within the same access unit: the fields came from a call holding that unit's files
+      const cands = (sha ? gone.get(sha) ?? [] : []).filter((g) => !taken.has(g.path) && g.chain === chainOf(rel))
       const src = cands.find((g) => g.path.slice(g.path.lastIndexOf('/') + 1) === name) ?? cands[0]
       if (src && !e) {
         taken.add(src.path)
-        this.store.put({ ...src, path: rel, size: f.size, mtimeMs: f.mtimeMs, via: src.via === 'model' || src.via === 'copy' ? 'moved' : src.via })
+        this.store.put({ ...src, path: rel, size: f.size, mtimeMs: f.mtimeMs, ino: null, via: src.via === 'model' || src.via === 'copy' ? 'moved' : src.via })
         moved++
         continue
       }
-      this.store.put({ path: rel, size: f.size, mtimeMs: f.mtimeMs, sha, kind: null, real: null, fields: null, via: null, readAt: null, tries: e?.tries ?? 0 })
+      this.store.put({ path: rel, size: f.size, mtimeMs: f.mtimeMs, sha, kind: null, real: null, fields: null, via: null, readAt: null, tries: e?.tries ?? 0, chain: null, ino: null })
       pending++
     }
     this.store.tx(() => { for (const p of old.keys()) if (!cur.has(p)) { this.store.delete(p); deleted++ } })
+    // a model call whose files are no longer in one access unit (a rule added or taken away, a file moved out): its
+    // lines may hold each other's text, so all of them are read again, each in its own unit now
+    const byBatch = new Map<string, Entry[]>()
+    for (const e of this.store.all().values()) if (e.batch) { const l = byBatch.get(e.batch); if (l) l.push(e); else byBatch.set(e.batch, [e]) }
+    this.store.tx(() => {
+      for (const members of byBatch.values()) {
+        if (new Set(members.map((m) => chainOf(m.path))).size <= 1) continue
+        for (const m of members) { this.store.put({ ...m, fields: null, via: null, chain: null, batch: null }); if (m.fields) pending++ }
+      }
+    })
     return { kept, moved, pending, deleted: deleted - moved }
   }
 
@@ -409,10 +477,12 @@ export class FileList implements VirtualFiles {
       root: this.ctx.files.fx.root, office: this.ctx.files.office, ocr: this.ctx.engineConfig.ocr ?? null,
       extract: { pandoc: this.ctx.engineConfig.pandoc, pdftotext: this.ctx.engineConfig.pdftotext, ocr: null, textLayerOnly: true, quarantine: this.ctx.files.quarantine },
       vision: this.ctx.files.visionTools(), images: reader.images && visionOn(this.ctx.db), signal,
+      ...(this.ctx.files.fx.quarantine ? { quarantine: this.ctx.files.fx.quarantine } : {}),
     }
     const owner = ownerId(this.ctx)
     let stopBy: FileListStop | null = null
     const inflight = new Set<Promise<void>>()
+    const ctl: Ctl = { signal, runId, why: () => why(), failures: 0 }
     const used = () => { const r = this.store.lastRun(); return (r?.inputTokens ?? 0) + (r?.outputTokens ?? 0) }
     const why = (): FileListStop | null => {
       if (stopBy) return stopBy
@@ -430,27 +500,29 @@ export class FileList implements VirtualFiles {
       while (!why() && this.peopleWaiting()) await sleep(this.o.pollMs ?? 5000)
       if (why()) return
       this.store.renewLease(st.holder)
-      const p = this.callBatch(reader, batch, signal, runId, false).catch((e) => {
+      const p = this.callBatch(reader, batch, ctl).catch((e) => {
         if (e instanceof ReaderLimit) stopBy ??= 'limit'
         else if (e instanceof ReaderUnavailable) stopBy ??= 'failed'
         else if (!signal.aborted) this.ctx.log.warn('file list: call failed', { err: e })
       }).finally(() => inflight.delete(p))
       inflight.add(p)
     }
-    outer: for (const entries of byUnit.values()) {
-      // identical files of the unit are read once
+    try {
+    outer: for (const [chain, entries] of byUnit) {
+      // identical files of the unit are read once (a file too big to hash is its own)
       const first = new Map<string, Entry>()
       const copies = new Map<string, Entry[]>()
       for (const e of entries) {
-        if (e.sha && first.has(e.sha)) { const l = copies.get(e.sha) ?? []; l.push(e); copies.set(e.sha, l) }
-        else if (e.sha) first.set(e.sha, e)
+        const key = e.sha ?? `path:${e.path}`
+        if (first.has(key)) { const l = copies.get(key) ?? []; l.push(e); copies.set(key, l) }
+        else first.set(key, e)
       }
       let images: Prepared[] = [], imageBytes = 0, texts: Prepared[] = [], textChars = 0
-      for (const e of first.values()) {
+      for (const [key, e] of first) {
         if (why()) break outer
         const item = await prepare(env, e.path)
         if (!item) continue // not readable safely now (gone, a link, changed while read): the next run looks again
-        const prep: Prepared = { item, entry: e, copies: copies.get(e.sha!) ?? [] }
+        const prep: Prepared = { item, entry: e, copies: copies.get(key) ?? [], chain }
         if (item.group === 'meta') { this.record(prep, item.meta!, 'meta'); continue }
         if (item.group === 'image') {
           const bytes = (item.images ?? []).reduce((a, im) => a + im.data.length, 0)
@@ -465,50 +537,67 @@ export class FileList implements VirtualFiles {
       if (texts.length) await dispatch(texts)
       if (images.length) await dispatch(images)
     }
-    await Promise.all(inflight)
+    } finally {
+      // calls that are out finish (or see the stop) before the run ends: nothing records after a switch-off's clear
+      await Promise.allSettled([...inflight])
+    }
     const left = all.length - chosen.length
     return why() ?? stopBy ?? (left > 0 ? 'limit' : 'done')
   }
 
-  /** One model call for files of one unit; each file's fields go only to that file (and its identical copies). */
-  private async callBatch(reader: Reader, batch: Prepared[], signal: AbortSignal, runId: number, retried: boolean): Promise<void> {
-    let text: string
-    try {
-      const ans = await reader.read(buildBlocks(batch.map((b) => b.item)), signal)
-      this.store.addUsage(runId, { calls: 1, input: ans.usage.input, output: ans.usage.output, cost: ans.usage.costUsd })
-      text = ans.text
-    } catch (e) {
-      if (e instanceof ReaderLimit || e instanceof ReaderUnavailable || signal.aborted) throw e
-      if (!retried) { await sleep(this.o.retryMs ?? 10_000); return this.callBatch(reader, batch, signal, runId, true) }
-      text = ''
+  /**
+   * One model call for files of one unit; each file's fields go only to that file (and its identical copies). A call
+   * that gives no answer is tried once more; still none, the files wait for the next run (not marked failed). Files the
+   * model answered without are each tried once on their own, then get an honest "reading failed" line (tried again
+   * after FAILED_RETRY_DAYS). Every retry looks at the run's stop reasons first; MAX_FAILED_CALLS calls in a row without
+   * an answer stop the run.
+   */
+  private async callBatch(reader: Reader, batch: Prepared[], ctl: Ctl): Promise<void> {
+    let ans: ReaderAnswer | null = null
+    for (let attempt = 0; attempt < 2 && !ans; attempt++) {
+      if (attempt) { await sleep(this.o.retryMs ?? 10_000); if (ctl.why()) return }
+      try {
+        ans = await reader.read(buildBlocks(batch.map((b) => b.item)), ctl.signal)
+        ctl.failures = 0
+      } catch (e) {
+        const used = (e as { usage?: ReaderUsage } | null)?.usage
+        if (used) this.store.addUsage(ctl.runId, { calls: 1, input: used.input, output: used.output, cost: used.costUsd })
+        if (e instanceof ReaderLimit || e instanceof ReaderUnavailable || ctl.signal.aborted) throw e
+        if (++ctl.failures >= MAX_FAILED_CALLS) throw new ReaderUnavailable(`the reader gave no answer ${MAX_FAILED_CALLS} times in a row`)
+      }
     }
-    const answers = parseAnswer(text, batch.length)
+    if (!ans) return
+    this.store.addUsage(ctl.runId, { calls: 1, input: ans.usage.input, output: ans.usage.output, cost: ans.usage.costUsd })
+    const answers = parseAnswer(ans.text, batch.length)
     const missing: Prepared[] = []
     let read = 0
+    // the call's id: each line remembers it, since the model saw these files together
+    const call = crypto.randomUUID()
     batch.forEach((b, i) => {
       const f = cleanFields(answers.get(i + 1), b.entry.path, b.item.text ?? '')
-      if (f) { this.record(b, f, 'model'); read++ }
+      if (f) { this.record(b, f, 'model', call); read++ }
       else missing.push(b)
     })
-    if (read) this.store.addUsage(runId, { read })
-    // what the model left out: each once on its own, then an honest line that says so (tried again after some days)
+    if (read) this.store.addUsage(ctl.runId, { read })
     for (const b of missing) {
-      if (batch.length > 1) { await this.callBatch(reader, [b], signal, runId, true); continue }
-      this.record(b, unknownFields('reading failed'), 'failed')
+      if (ctl.why()) return
+      if (batch.length > 1) await this.callBatch(reader, [b], ctl)
+      else this.record(b, unknownFields('reading failed'), 'failed')
     }
   }
 
   /** Keep a file's fields with the size, mtime and hash of the bytes that were read, and its identical copies' (same
    * bytes), unless its row went meanwhile (the file was moved or deleted while it was read). */
-  private record(b: Prepared, f: Fields, via: Via) {
+  private record(b: Prepared, f: Fields, via: Via, batch: string | null = null) {
+    if (!this.on()) return
     const now = new Date().toISOString()
-    const { size, mtimeMs, sha } = b.item.read
+    const { size, mtimeMs, sha, ino } = b.item.read
     this.store.tx(() => {
       const cur = this.store.get(b.entry.path)
-      if (cur) this.store.put({ ...cur, size, mtimeMs, sha, kind: b.item.kind, real: b.item.real, fields: f, via, readAt: now, tries: via === 'failed' ? cur.tries + 1 : 0 })
+      if (cur) this.store.put({ ...cur, size, mtimeMs, sha, ino, chain: b.chain, batch, kind: b.item.kind, real: b.item.real, fields: f, via, readAt: now, tries: via === 'failed' ? cur.tries + 1 : 0 })
       for (const c of b.copies) {
         const cc = this.store.get(c.path)
-        if (cc && cc.sha === sha) this.store.put({ ...cc, kind: b.item.kind, real: b.item.real, fields: f, via: via === 'model' ? 'copy' : via, readAt: now, tries: 0 })
+        if (cc && sha && cc.sha === sha) this.store.put({ ...cc, chain: b.chain, batch, ino: null, kind: b.item.kind, real: b.item.real, fields: f, via: via === 'model' ? 'copy' : via, readAt: now, tries: 0 })
       }
     })
   }
@@ -525,7 +614,8 @@ export class FileList implements VirtualFiles {
   }
 }
 
-interface Prepared { item: Item; entry: Entry; copies: Entry[] }
+interface Prepared { item: Item; entry: Entry; copies: Entry[]; /** the access unit's rule chain of this call */ chain: string }
+interface Ctl { signal: AbortSignal; runId: number; why: () => FileListStop | null; failures: number }
 
 function safeReaddir(dir: string): fs.Dirent[] { try { return fs.readdirSync(dir, { withFileTypes: true }) } catch { return [] } }
 

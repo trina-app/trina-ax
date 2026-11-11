@@ -136,6 +136,8 @@ export class EngineReader implements Reader {
     let unsubscribe: (() => void) | null = null
     let status: 'done' | 'error' | 'stopped' = 'error'
     let kill: (() => void) | null = null
+    // what the call used, also when it then fails (the run's token cap counts it: service.ts callBatch)
+    const usage = { input: 0, output: 0, costUsd: 0 }
     const onProxy = (ev: ProxyTurnEvent) => {
       if (ev.type === 'rate_limit' || (ev.type === 'credential' && ev.reason === 'over_limit') || ev.type === 'budget') limited = ev.type
       else if (ev.type === 'credential' || ev.type === 'auth' || ev.type === 'lockdown') refused = ev.type
@@ -187,7 +189,6 @@ export class EngineReader implements Reader {
         lr = buildCodexReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt: SYSTEM_PROMPT, message: blocksAsText(blocks), timeoutMs: READER_TIMEOUT_MS, model: this.pick.model, ...(proxy ? { proxy } : {}), ...(managed ? { managed } : {}) }, conf)
       }
       const parser = this.engine === 'claude-code' ? new ClaudeStreamParser() : new CodexEventParser()
-      const usage = { input: 0, output: 0, costUsd: 0 }
       const errors: { code: string; message: string }[] = []
       let toolUse = false
       const h = core.launcher.launch(lr)
@@ -236,6 +237,7 @@ export class EngineReader implements Reader {
       return { text, usage }
     } catch (e) {
       if (signal.aborted) status = 'stopped'
+      if ((usage.input || usage.output) && e && typeof e === 'object') Object.assign(e, { usage })
       throw e
     } finally {
       slots.get(this.ctx)?.delete(slot)
