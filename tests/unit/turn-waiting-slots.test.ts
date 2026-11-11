@@ -170,6 +170,38 @@ test('a turn stopped while it waits for a slot leaves the line; its held answer 
   expect(rt.slotsInUse()).toBe(0)
 }, 30_000)
 
+test('a used-up budget while the turn waits for a slot stops it like Stop: its held answer reaches no tool', async () => {
+  await setup('budget', 1)
+  const answers = new Map<string, unknown>()
+  const a = newChat(), b = newChat()
+  engines.set(a, asking(answers))
+  const first = send(a)
+  await waitFor(() => execOf(a)?.waitingForPerson)
+  const bDone = gate()
+  engines.set(b, () => work(() => bDone.p))
+  const second = send(b)
+  await waitFor(() => turnStatus(second.turnId) === 'running')
+  const ea = execOf(a)!
+  ea.answer(cardOf(ea)!, 'ask_user', ['trash them'])
+  expect(ea.waitingForSlot).toBe(true)
+  // a sub-agent's model call (the answer goes on after it) uses the person's block budget up
+  h.ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES ('b-wait', 'user', 'olga', 'day', 0, 100, 'block')").run()
+  ;(ea as any).onEvent({ type: 'usage', running: true, continues: true, inputTokens: 500, outputTokens: 0 }, [])
+  // its engine is ending: it holds a slot again (beside b's), like a stopped turn
+  expect(rt.isParked(ea)).toBe(false)
+  expect(rt.slotsInUse()).toBe(2)
+  expect(await waitFor(() => turnStatus(first.turnId) === 'error')).toBe(true)
+  const err = (h.ctx.db.query('SELECT m.error FROM messages m JOIN turns t ON t.message_id = m.id WHERE t.id = ?').get(first.turnId) as { error: string } | null)?.error
+  expect(JSON.parse(err ?? '{}').code).toBe('budget_exceeded')
+  expect(answers.get(a)).toBeNull()
+  expect((h.ctx.db.query('SELECT input_tokens FROM turns WHERE id = ?').get(first.turnId) as { input_tokens: number }).input_tokens).toBe(500)
+  // the held answer never comes back when the slot frees
+  bDone.open()
+  expect(await waitFor(() => rt.runningCount() === 0)).toBe(true)
+  expect(answers.get(a)).toBeNull()
+  expect(rt.slotsInUse()).toBe(0)
+}, 30_000)
+
 test('two cards open: the first answer waits with the turn; the last one takes the slot back for both', async () => {
   await setup('two', 1)
   const a = newChat(), b = newChat()

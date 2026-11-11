@@ -425,6 +425,12 @@ export class TurnExec {
   stop(reason: 'stopped' | 'timeout' | 'shutdown' = 'stopped') {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
+    this.halt(reason)
+  }
+
+  /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
+   * in one place so they never drift apart. */
+  private halt(reason?: 'stopped' | 'timeout' | 'shutdown') {
     // a turn that waited for a person holds a slot again while its engine ends (ChatRuntime.turnEngineEnding)
     try { this.rt.turnEngineEnding(this) } catch (e) { this.rt.log.warn('taking the slot back for the stop failed', { err: e, turn: this.id }) }
     this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
@@ -433,9 +439,11 @@ export class TurnExec {
     this.activeCore?.turns.invalidate(this.id, reason)
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
+    // answers held for a slot never reach their tool (a card the person answered before the stop)
     this.dropHeldAnswers()
     try { this.handle?.kill() } catch { this.quarantine() }
-    if (this.stopGrace) clearTimeout(this.stopGrace) // a budget stop's (checkBudget)
+    // a later stop after a budget stop: one grace timer, the latest
+    if (this.stopGrace) clearTimeout(this.stopGrace)
     this.stopGrace = setTimeout(() => {
       if (this.status !== 'finished') this.quarantine()
     }, TURN_STOP_GRACE_MS)
@@ -1164,8 +1172,9 @@ export class TurnExec {
 
   /**
    * The person's "block" budget during the answer (admin/budgets.ts budgetBlock, the check before a turn starts): used
-   * up, the answer stops like Stop does (tools and model requests refused at once, open cards closed, the engine ended,
-   * quarantined if it does not end in time; the API engine sees the turn's abort), but without a stop reason: the
+   * up, the answer stops like Stop does (halt: the slot taken back, tools and model requests refused at once, open
+   * cards closed and answers held for a slot dropped, the engine ended, quarantined if it does not end in time; the API
+   * engine sees the turn's abort), but without a stop reason: the
    * answer ends as an error with the budget message. The model proxy refuses its own requests at the budget already
    * (onProxyEvent).
    */
@@ -1177,15 +1186,7 @@ export class TurnExec {
     this.budgetHit = { code: 'budget_exceeded', message: b.message }
     this.proxyError ??= this.budgetHit
     this.rt.log.info('answer stopped: budget used up', { turn: this.id, budget: b.budget.id })
-    this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
-    this.abort.abort()
-    this.activeCore?.turns.invalidate(this.id)
-    try { revokeProxyTokens(this.rt.db, this.id) } catch {}
-    for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
-    try { this.handle?.kill() } catch { this.quarantine() }
-    this.stopGrace ??= setTimeout(() => {
-      if (this.status !== 'finished') this.quarantine()
-    }, TURN_STOP_GRACE_MS)
+    this.halt()
   }
 
   /** The engine started with (init check) or asked the model for (model proxy, M1) a tool outside the lockdown: the
