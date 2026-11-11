@@ -158,6 +158,11 @@ function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
   fail('conflict', tr('turnInProgress', locale))
 }
 
+/** Switching versions (selectBranch) waits for the chat's answer, whoever asked: one plain 409 for everyone. */
+function branchBusyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale) {
+  if (rt.activeTurn(a.row.id)) fail('conflict', tr('branchWhileAnswering', locale), { params: { reason: 'branch_while_answering' } })
+}
+
 const isClientIdClash = (e: unknown) => /UNIQUE constraint failed: messages\.chat_id, messages\.client_message_id/.test(String((e as Error)?.message ?? e))
 
 export const chatsRoutes: RouteModule = {
@@ -171,6 +176,7 @@ export const chatsRoutes: RouteModule = {
   register(kit, ctx) {
     const rt = getChatRuntime(ctx)
     const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
+    const branchBusy = (a: ChatAccess, locale: Locale) => branchBusyCheck(rt, a, locale)
     /** a project as the API shows it to `p`, with its shared chats (chat/shared.ts projectShare, `viewer`'s upload right)
      * and who changes its members (chat/project-access.ts membersView) */
     const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string, creators?: Map<string, Principal | null>, aud: Audiences = new Audiences(ctx.db, ctx.files)) => {
@@ -582,8 +588,12 @@ export const chatsRoutes: RouteModule = {
     })
 
     kit.handle(API.selectBranch, ({ c, params, body, auth }) => {
-      const chat = chatOf(rt, c, auth, params.id, 'continue').row
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      const chat = a.row
       messageInChat(rt, chat.id, body.messageId)
+      // not while an answer runs or waits (anyone's, in a shared chat): the live answer would drop off the branch on
+      // screen and the next message would continue from the other one
+      branchBusy(a, c.get('locale'))
       const leaf = rt.store.newestLeafUnder(chat.id, body.messageId)
       ctx.db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(leaf, chat.id)
       return messagesPage(rt, { ...chat, active_leaf_id: leaf }, undefined, 50, auth.user.id, c.get('locale'))
