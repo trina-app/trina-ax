@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:25
 - Branch: `fix/phone-back-closes-overlays` (stacked on `batch/phone-settings`, #344)
-- Status: in progress
+- Status: done
 - Where: trina-ax/web. Why: the phone app is one WebView of the web app, and Back there walks the web app's history.
 - Version impact: patch. A fix to how Back behaves on phones; nothing new to learn, computers unchanged.
 
@@ -39,8 +39,8 @@ Out: route parents, per-tab stacks and tab taps (nav-model, TC-244); admin in-pa
   count them as pages and does not rewrite them.
 - Open: one `pushState` on top. Back (a popstate that lands below an overlay's entry) closes every overlay above the
   landed entry, top first, one per entry: nested overlays unwind one at a time.
-- Close any other way (✕, scrim, Esc, a choice): its entry is backed off after the current task's effects (a
-  microtask), with one `history.go(-n)` for all closed at once. An overlay that opens in the same moment (a menu item
+- Close any other way (✕, scrim, Esc, a choice): its entry is backed off after the moment's effects (a microtask),
+  with one `history.go(-n)` for all closed at once. An overlay that opens in the same moment (a menu item
   that opens a dialog) takes over the closing entry with `replaceState` instead: no back, no push, no race.
 - An overlay opened while a back of ours is on its way pushes its entry once the back has landed.
 - Navigating from inside an overlay: `history.pushState` is wrapped once; a push (the router's) while an overlay entry
@@ -74,4 +74,9 @@ test, and the new and touched phone e2e specs on port 19352.
 
 ## Result
 
-(filled in at the end)
+Built as planned, in `web/src/lib/backCloses.ts` (`useOverlayEntry`, `holdOverlayEntry`, `isOverlayEntry`,
+`whenOverlaysSettled`); `lib/imageViewer.ts` keeps only its state and uses it. Also hooked: `TitleMenu` (the chat title
+⌄) and `PhoneFilters` (Activity log's Filters). Found while building: in Chromium and WebKit a push made while a back is
+on its way is lost, and WebKit merges two back() calls in a row into one, hence the one `go(-n)`, the hand-over in the
+same moment and the push again after landing. The Files row ⋯ and Search's row ⋯ are not MenuButtons yet (files and
+menus-tabs agents): they get Back when they are. PR: https://github.com/trina-app/trina-ax/pull/452
