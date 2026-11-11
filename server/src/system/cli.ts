@@ -31,6 +31,10 @@
 //                                                (credentials.key.<N>) and remove the older one; JSON {rekeyed}
 //   drive-rekey                                  rotate personal Drive secrets in their dedicated key directory;
 //                                                retain older keys for backups/in-flight readers; JSON {rekeyed}
+//   google-broker-key [--json]                   for a self-installed server that signs in to Google through the hosting
+//                                                service: the relay public key (SPKI base64) and this server's public
+//                                                address, to register there (integrations/google-drive/broker.ts).
+//                                                Never the private key. Plain text, or JSON { publicKey, address }
 //
 // For the hosted service's root tool (mycel-ctl / mycel-enroll, control-plane 3.5.3, system/cloud-admin.ts):
 //   relay-key [--sign-register <slug> <ts>] [--sign-rotate <teamId>] [--sign-reattach <tenantId> <teamId> <ts>]
@@ -85,6 +89,7 @@ import { archiveUpload, cloudBackupPrepare, cloudBackupUpload, relayKeyCommand, 
 import { makeCredCtx } from '../credentials/store'
 import { DriveStore } from '../integrations/google-drive/store'
 import { rekeyDrive } from '../integrations/google-drive/rekey'
+import { googleBrokerKey } from '../integrations/google-drive/broker'
 import { rekeyCredentials } from '../credentials/rekey'
 import { cloudStatus, credentialsEscrowOut, resetLinkBase, setHostedChatKey, setHostedSpeechKey } from './cloud-tenant'
 import { createResetLink } from '../auth/accounts'
@@ -380,6 +385,14 @@ export async function main(argv: string[]): Promise<number> {
       finally { db.close() }
       return 0
     }
+    // the key and address the hosting service's operator registers for a self-installed server's Google sign-in
+    case 'google-broker-key': {
+      const r = googleBrokerKey(cfg.dataDir, cfg.tunnel?.host)
+      if (args.includes('--json')) { out(r); return 0 }
+      console.log(`public key: ${r.publicKey}`)
+      console.log(`address:    ${r.address ?? 'not set (set tunnel.host first: the hosting service sends people back only to this address)'}`)
+      return 0
+    }
     // AI connections: a new key for their secrets (credentials/rekey.ts)
     case 'credentials-rekey': {
       const db = openDb(dbFile)
@@ -390,7 +403,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|hosted-chat-key|update-window (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|google-broker-key|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|hosted-chat-key|update-window (see server/src/system/cli.ts)')
       return 2
   }
 }
