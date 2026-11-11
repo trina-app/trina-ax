@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+	"mycel/native/internal/bootflags"
 	"mycel/native/internal/bundle"
 )
 
@@ -1223,6 +1224,7 @@ func (u *updater) updateApp(dir, v string) error {
 			return err
 		}
 	}
+	migrateWait := bootflags.MigrateTimeout(bootstrapCommand(u.in))
 	switched := time.Now()
 	deadline := switched.Add(u.healthTimeout)
 	// a roll-back is reported once it has lasted rollbackGrace: when the old version cannot read the database the new
@@ -1279,9 +1281,37 @@ func (u *updater) updateApp(dir, v string) error {
 	return fmt.Errorf("version %s did not answer /api/health within %v", v, u.healthTimeout)
 }
 
-// migrateWait: how long after the switch `update` waits for a version that reports it is updating its database (the
-// bootstrap's --migrate-timeout default)
-var migrateWait = 60 * time.Minute
+// bootstrapCommand: the command line of the bootstrap that watches the update, for the flags `update` must agree with
+// (native/internal/bootflags: --migrate-timeout, how long after the switch a version that reports it is updating its
+// database is waited for). The installed server unit's ExecStart, a drop-in's (<unit>.d/*.conf, in name order; an empty
+// ExecStart= resets) last; without a unit, the one the installer and supervise use (bootstrapArgv).
+func bootstrapCommand(in *Install) []string {
+	unit := filepath.Join(systemdUnitDir, in.ID+"-server.service")
+	files := []string{unit}
+	if d, err := filepath.Glob(filepath.Join(unit+".d", "*.conf")); err == nil {
+		files = append(files, d...) // Glob sorts
+	}
+	var argv []string
+	found := false
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			v, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
+			if !ok {
+				continue
+			}
+			found = true
+			argv = strings.Fields(strings.TrimLeft(v, "-@:+!"))
+		}
+	}
+	if !found || len(argv) == 0 {
+		return bootstrapArgv(in)
+	}
+	return argv
+}
 
 // rollbackGrace: how long a roll-back must last before `update` reports it (the old version's start and exit 75, then
 // the bootstrap's step forward to v again; native/cmd/mycel-bootstrap)

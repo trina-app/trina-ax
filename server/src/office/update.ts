@@ -16,7 +16,9 @@
 //      10 minutes, like "update now" (O4, the Linux root update's rule: native/cmd/mycel-ctl/schedule.go)
 //   4. the new bundle's own installer with --update: it stops the agents, copies its app/ next to the old one, keeps
 //      the old one as app.previous, swaps, starts the server and cloudflared again
-//   5. /api/health on 127.0.0.1 must answer with the new version (and still after 15 s); otherwise roll back: stop
+//   5. /api/health on 127.0.0.1 must answer with the new version (and still after 15 s); a version that updates a large
+//      database first answers "migrating" meanwhile and is waited for, at most MIGRATE_WAIT_MS (office/health.ts; QA
+//      TC-278); otherwise roll back: stop
 //      the agents, app -> app.failed, app.previous -> app, the old version's `office.js install`, wait for the old
 //      version; that version is not tried again by the nightly run (`teamax update now` tries again)
 //   6. the release's Windows desktop installer + latest.yml into data/downloads (index.json), so the desks' app
@@ -42,6 +44,7 @@ import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
+import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -355,8 +358,9 @@ export interface UpdateDeps {
   fetch: FetchLike
   /** run a program; output goes to the log (and is returned when `capture`) */
   exec(cmd: string[], o: { cwd?: string; env?: Record<string, string>; capture?: boolean; timeoutMs?: number }): Promise<Exec>
-  /** the version /api/health reports on 127.0.0.1:<port>, null when it does not answer */
-  health(port: number): Promise<string | null>
+  /** the version /api/health reports on 127.0.0.1:<port>, null when it does not answer, {migrating: version} while that
+   * version updates its database before it starts (office/health.ts) */
+  health(port: number): Promise<HealthAnswer>
   /** stop the server and cloudflared agents (rollback) */
   stopAgents(s: OfficeSettings): Promise<void>
   sleep(ms: number): Promise<void>
@@ -373,14 +377,7 @@ export const defaultDeps = (): UpdateDeps => ({
     if (timer) clearTimeout(timer)
     return { code, out: (out + err).trim() }
   },
-  async health(port) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2000) })
-      if (!r.ok) return null
-      const j = (await r.json()) as { version?: unknown }
-      return typeof j.version === 'string' ? j.version : null
-    } catch { return null }
-  },
+  health: (port) => probeHealth(port),
   async stopAgents(s) {
     const uid = process.getuid?.() ?? 0
     for (const l of [`${s.label}.tunnel`, s.label]) Bun.spawnSync(['launchctl', 'bootout', `gui/${uid}/${l}`], { stdout: 'ignore', stderr: 'ignore' })
@@ -411,6 +408,8 @@ export interface RunOptions {
   deps?: Partial<UpdateDeps>
   /** waits (tests make them short) */
   healthWaitMs?: number
+  /** a version that reports "migrating" may take this long after the switch (MIGRATE_WAIT_MS) */
+  migrateWaitMs?: number
   stableMs?: number
   idleWaitMs?: number
   /** the nightly run inside the team's window (scheduledRun): wait for running answers until then and leave the update
@@ -576,16 +575,42 @@ export async function rollBack(home: string, from: string, to: string, d: Update
   // the old version's own install (agent plist, server, cloudflared); it does not touch this agent (TEAMAX_UPDATE_RUN)
   const r = await d.exec([path.join(app, 'bin', 'bun'), path.join(app, 'server', 'src', 'office.js'), 'install', '--no-open', '--home', home], { cwd: home, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1' }, timeoutMs: 5 * 60_000 })
   if (r.code !== 0) d.log(`the old version's install exited ${r.code}`)
-  return await waitVersion(s.appPort, from, d, healthWaitMs)
+  return (await waitVersion(s.appPort, from, d, healthWaitMs)).version
 }
 
-async function waitVersion(port: number, want: string, d: UpdateDeps, ms: number): Promise<string | null> {
-  const end = d.now().getTime() + ms
+export interface WaitResult {
+  /** the version that answered last (null: none) */
+  version: string | null
+  /** `want` said it was updating its database at some point / still said so when the wait ended */
+  sawMigrating: boolean
+  stillMigrating: boolean
+}
+
+/** Wait until /api/health answers with `want`, at most `ms`. While `want` reports it is updating its database the
+ * deadline moves to now + `ms` (never less than it had), so the start after a long migration gets the usual time; once
+ * that has lasted `migrateMs` from the start of the wait there is no more time (the bootstrap's extendDeadline,
+ * native/cmd/mycel-bootstrap; the wait is bounded by migrateMs + ms). Progress goes to the log once a minute. */
+export async function waitVersion(port: number, want: string, d: UpdateDeps, ms: number, migrateMs = MIGRATE_WAIT_MS): Promise<WaitResult> {
+  const start = d.now().getTime()
+  let end = start + ms
   let last: string | null = null
+  let sawMigrating = false, loggedAt = -Infinity
   for (;;) {
-    last = await d.health(port)
-    if (last === want) return last
-    if (d.now().getTime() >= end) return last
+    const h = await d.health(port)
+    const now = d.now().getTime()
+    const migrating = isMigrating(h) && h.migrating === want
+    last = typeof h === 'string' ? h : null
+    if (last === want) return { version: last, sawMigrating, stillMigrating: false }
+    if (migrating) {
+      if (now - start < migrateMs) end = Math.max(end, now + ms)
+      else end = Math.min(end, now)
+      if (now - loggedAt >= 60_000) {
+        d.log(`${want} is updating its database (${h.progress || '-'}), ${Math.round((now - start) / 1000)} s so far; waiting while it does, at most ${Math.round(migrateMs / 60_000)} min`)
+        loggedAt = now
+      }
+      sawMigrating = true
+    }
+    if (now >= end) return { version: last, sawMigrating, stillMigrating: migrating }
     await d.sleep(2000)
   }
 }
@@ -886,9 +911,14 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   let problem: string | null = inst.code !== 0 ? `the installer exited ${inst.code}` : null
   if (!problem) {
     phase('verify', `waiting for ${target} to answer`, target)
-    const v = await waitVersion(s.appPort, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS)
-    if (v !== target) problem = v ? `the server answers as ${v}, not ${target}` : `${target} did not answer on 127.0.0.1:${s.appPort}`
-    else {
+    const w = await waitVersion(s.appPort, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS, o.migrateWaitMs ?? MIGRATE_WAIT_MS)
+    const v = w.version
+    if (v !== target) {
+      problem = w.stillMigrating ? `${target} was still updating its database after ${Math.round((o.migrateWaitMs ?? MIGRATE_WAIT_MS) / 60_000)} min`
+        : v ? `the server answers as ${v}, not ${target}`
+        : w.sawMigrating ? `${target} did not answer on 127.0.0.1:${s.appPort} after it updated its database`
+        : `${target} did not answer on 127.0.0.1:${s.appPort}`
+    } else {
       await d.sleep(o.stableMs ?? STABLE_MS)
       const again = await d.health(s.appPort)
       if (again !== target) problem = `${target} stopped answering after it started`

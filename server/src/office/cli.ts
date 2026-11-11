@@ -69,6 +69,7 @@ import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } f
 import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
 import { updateView } from './update'
+import { isMigrating, MIGRATE_WAIT_MS, probeHealth } from './health'
 import { claudeMcpCommand, headline, scanClaudeMcp } from './claude-mcp'
 import { PRODUCT } from '@mycel/shared'
 
@@ -419,12 +420,25 @@ function setupLinks(s: OfficeSettings, origins: string[]): { local: string; desk
   return { local: `http://localhost:${s.appPort}/setup?token=${token}`, desk: origins[0] ? `${origins[0]}/setup?token=${token}` : null }
 }
 
-async function waitHealthy(s: OfficeSettings, seconds: number): Promise<boolean> {
-  for (let i = 0; i < seconds; i++) {
-    if (await answers(`http://127.0.0.1:${s.appPort}/api/health`, 1500)) return true
+/** Wait for the server on 127.0.0.1. A version that updates a large database first answers "migrating" meanwhile
+ * (office/health.ts): with `migratingIsUp` (the updater's run, TEAMAX_UPDATE_RUN: the updater waits for it, and kills an
+ * installer that takes 10 minutes) that counts as started; otherwise the wait goes on while it says so, `seconds` from
+ * its last "migrating" and at most MIGRATE_WAIT_MS in all, with a line every minute. */
+async function waitHealthy(s: OfficeSettings, seconds: number, o: { migratingIsUp?: boolean; say?: (line: string) => void } = {}): Promise<'up' | 'migrating' | false> {
+  const start = Date.now()
+  let end = start + seconds * 1000, said = 0
+  for (;;) {
+    const h = await probeHealth(s.appPort, 1500)
+    if (typeof h === 'string') return 'up'
+    if (isMigrating(h)) {
+      if (o.migratingIsUp) return 'migrating'
+      const now = Date.now()
+      end = now - start < MIGRATE_WAIT_MS ? Math.max(end, now + seconds * 1000) : Math.min(end, now)
+      if (o.say && now - said >= 60_000) { o.say(`the server is updating its database (${h.progress || '-'}), ${Math.round((now - start) / 1000)} s so far ...`); said = now }
+    }
+    if (Date.now() >= end) return false
     await Bun.sleep(1000)
   }
-  return false
 }
 
 /** accounts.js / admin.js of this bundle (or the sources in a checkout) with this installation's config */
@@ -832,7 +846,9 @@ export async function main(argv: string[]): Promise<number> {
       fs.writeFileSync(p.plist(s.label), text, { mode: 0o644 })
       lines(`LaunchAgent ${p.plist(s.label)}: ${agent.start()}`)
       lines('waiting for the server ...')
-      if (!(await waitHealthy(s, 90))) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      const up = await waitHealthy(s, 90, { migratingIsUp: process.env.TEAMAX_UPDATE_RUN === '1', say: lines })
+      if (!up) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      if (up === 'migrating') lines('the server is updating its database before it starts; the update waits for it')
       const tl = await syncTunnelAgent(s)
       if (tl) lines(tl)
       try { const ul = syncUpdateAgent(s, agentPath(s)); if (ul) lines(ul) } catch (e) { lines(`update agent not installed: ${(e as Error).message}`) }
@@ -887,7 +903,8 @@ export async function main(argv: string[]): Promise<number> {
       const installed = fs.existsSync(p.plist(s.label))
       const pid = agent.loaded() ? agent.pid() : null
       lines(!installed ? 'not installed' : !agent.loaded() ? 'installed, stopped (teamax start)' : `running${pid ? ` (pid ${pid})` : ' (starting)'}`)
-      lines(`  this Mac  http://127.0.0.1:${s.appPort}  ${(await answers(`http://127.0.0.1:${s.appPort}/api/health`)) ? 'answers' : 'no answer'}`)
+      const here = await probeHealth(s.appPort)
+      lines(`  this Mac  http://127.0.0.1:${s.appPort}  ${typeof here === 'string' ? 'answers' : isMigrating(here) ? `updating its database (${here.migrating}${here.progress ? `: ${here.progress}` : ''}); desks get no answer until it is done` : 'no answer'}`)
       if (s.publicHost) {
         const r = await probePublic(s.publicHost, 6000)
         lines(`  internet  https://${s.publicHost}  ${probeWord(r)}  (cloudflared ${tunnelAgentOf(s).loaded() ? 'running' : 'stopped'}, app port ${s.appPort})`)

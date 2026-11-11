@@ -424,13 +424,14 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 }
 
 // QA TC-278: the new version updates a large database for longer than the health wait and says so on /api/health:
-// `update` keeps waiting (up to migrateWait) and reports ok; "migrating" past migrateWait is still an error.
+// `update` keeps waiting (up to the bootstrap's --migrate-timeout, read from the server unit) and reports ok;
+// "migrating" past it is still an error.
 func TestUpdateWaitsWhileMigrating(t *testing.T) {
 	tb := newTestBase(t, "0.1.0")
 	systemdRunDir = filepath.Join(t.TempDir(), "none")
-	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
-	oldWait := migrateWait
-	t.Cleanup(func() { migrateWait = oldWait })
+	systemdUnitDir = t.TempDir()
+	t.Cleanup(func() { systemdRunDir, systemdUnitDir = "/run/systemd/system", "/etc/systemd/system" })
+	unit := filepath.Join(systemdUnitDir, "mycel-server.service") // newTestBase's install.json id
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	k := base64.StdEncoding.EncodeToString(pub)
 	healAfter := 5 * time.Second // longer than the 3 s health wait updateHooks sets
@@ -446,9 +447,12 @@ func TestUpdateWaitsWhileMigrating(t *testing.T) {
 	if code != 0 || r.Result != "ok" {
 		t.Fatalf("%d %+v %s", code, r, errs)
 	}
-	// bounded: migrating forever gives up at migrateWait
+	// bounded: migrating forever gives up at the bootstrap's --migrate-timeout (a drop-in's ExecStart wins over the unit's)
 	tb.health.Store("0.1.0")
-	migrateWait, healAfter = 4*time.Second, time.Hour
+	must(t, os.WriteFile(unit, []byte("[Service]\nExecStart="+tb.base+"/root/mycel-bootstrap --app x --migrate-timeout 1h\n"), 0o644))
+	must(t, os.MkdirAll(unit+".d", 0o755))
+	must(t, os.WriteFile(filepath.Join(unit+".d", "10-wait.conf"), []byte("[Service]\nExecStart=\nExecStart="+tb.base+"/root/mycel-bootstrap --app x --migrate-timeout=4s\n"), 0o644))
+	healAfter = time.Hour
 	os.Remove(filepath.Join(tb.base, "app/current"))
 	os.Symlink("versions/0.1.0", filepath.Join(tb.base, "app/current"))
 	arch2 := filepath.Join(t.TempDir(), "h.tar.zst")
