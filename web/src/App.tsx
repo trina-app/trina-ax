@@ -31,6 +31,7 @@ import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
+import { safeNext } from './lib/nav'
 import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
@@ -211,13 +212,18 @@ function Gate() {
       </Routes>
     )
   }
-  if (status.me.user.mustChangePassword)
+  if (status.me.user.mustChangePassword) {
+    // where the person was heading goes along (?next=), so the new password leads there instead of Home
+    // (never an address that holds a token: an invite or reset link would only move it into the query)
+    const tokenPage = /^\/(invite|reset-password|join)(\/|$)/.test(location.pathname)
+    const heading = location.pathname === '/login' ? safeNext(location.search) : location.pathname !== '/' && !tokenPage ? location.pathname + location.search : null
     return (
       <Routes>
         <Route path="/password" element={<ForcedPassword />} />
-        <Route path="*" element={<Navigate to="/password" replace />} />
+        <Route path="*" element={<Navigate to={`/password${heading ? `?next=${encodeURIComponent(heading)}` : ''}`} replace />} />
       </Routes>
     )
+  }
   return (
     // a lazy route that is gone after a server update: reload once instead of a blank page (lib/chunk-reload.ts)
     <ChunkErrorBoundary>
@@ -338,9 +344,8 @@ function NotFound() {
 /** Signed in while on /login (or /password): go where the person was heading (?next=, same-site paths only); otherwise
  * Home, or on a phone the 대화 list (signedInHome). */
 function AfterSignIn() {
-  const location = useLocation()
-  const next = new URLSearchParams(location.search).get('next')
+  const next = safeNext(useLocation().search)
   // no ?next: a landing (lib/welcome.ts LANDING_STATE), where an owner with unfinished welcome steps goes to them
-  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return <Navigate to={next} replace />
+  if (next) return <Navigate to={next} replace />
   return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
 }

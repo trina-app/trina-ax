@@ -361,6 +361,7 @@ export const es: Record<MessageKey, string> = {
   'chat.deleteTitle': "¿Eliminar este chat?",
   'chat.deleteBody': "Se conservará en \"{trash}\" durante {days, plural, one {# día} other {# días}} y luego se eliminará definitivamente. Si hay una respuesta en curso, se detendrá.",
   'chat.deleted': "Chat eliminado.",
+  'chat.restoreFailed': "No se pudo recuperar el chat. Sigue en {trash}.",
   'chat.notFound': "No se encuentra en el historial.",
   'chat.queued': "En espera · posición estimada {n}",
   'chat.queueHint': "El orden puede cambiar a medida que avanza el trabajo.",

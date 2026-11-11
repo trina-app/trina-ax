@@ -18,6 +18,27 @@ export function readJoinToken(loc: { pathname: string; search: string; hash: str
   return { token: /^[A-Za-z0-9_-]{16,200}$/.test(raw) ? raw : null, cleanUrl: `${loc.pathname}${loc.search}${rest ? `#${rest}` : ''}` }
 }
 
+const JOIN_TOKEN_KEY = 'mycel.joinToken'
+
+/**
+ * The team link of this tab: the address's #t= (which the page then takes out of the address bar), else the token this
+ * tab kept from it. The tab keeps it until the person joined or the server said the link does not work, so a refresh
+ * on a weak phone connection (the details never loaded, or the form was open) still finds the link.
+ */
+export function tabJoinToken(loc: { pathname: string; search: string; hash: string }): { token: string | null; cleanUrl: string | null } {
+  const link = readJoinToken(loc)
+  try {
+    if (link.cleanUrl === null) return { token: sessionStorage.getItem(JOIN_TOKEN_KEY), cleanUrl: null }
+    if (link.token) sessionStorage.setItem(JOIN_TOKEN_KEY, link.token)
+    else sessionStorage.removeItem(JOIN_TOKEN_KEY)
+  } catch { /* storage blocked: only the address has it, as before */ }
+  return link
+}
+/** Joined, or the link does not work: the tab forgets the token. */
+export function forgetJoinToken() {
+  try { sessionStorage.removeItem(JOIN_TOKEN_KEY) } catch { /* storage blocked: nothing kept */ }
+}
+
 /** The text a leader pastes into KakaoTalk or Slack: who invites, to which team (`team`: the team's name, so the
  * message says where the link leads; docs/DECISIONS.md "W3"), and the ONE skill to try together when the link names one
  * (the skill the link opens: several shared skills are never listed, docs/DECISIONS.md "W5"), on the product as the app

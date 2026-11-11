@@ -376,6 +376,7 @@ export const en: Record<MessageKey, string> = {
   'chat.deleteTitle': 'Delete this chat?',
   'chat.deleteBody': 'It stays in "{trash}" for {days, plural, one {# day} other {# days}} and is then removed for good. A running answer stops.',
   'chat.deleted': 'Chat deleted.',
+  'chat.restoreFailed': "Couldn't bring the chat back. It is still in {trash}.",
   'chat.notFound': "This can't be found in the history.",
   "chat.queued": "Waiting · estimated position {n}",
   "chat.queueHint": "The order may change as work progresses.",
