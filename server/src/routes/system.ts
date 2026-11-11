@@ -12,7 +12,7 @@ import { fail } from '../http/errors'
 import { DownloadStalled } from '../http/download-deadline'
 import { JobFailure } from '../jobs/service'
 import type { JobService } from '../services'
-import { BackupError } from '../system/backup'
+import { BackupError, lastRestore } from '../system/backup'
 import { connectInfo } from '../system/connect-info'
 import { ConnectionChangeError, connectionStatus, modeOf, saveClaimCodeFor, saveConnectionMode } from '../system/connection'
 import { runExport } from '../system/export'
@@ -166,7 +166,7 @@ export const systemRoutes: RouteModule = {
       return { jobId }
     })
 
-    kit.handle(API.listBackups, () => ({ items: ops().backups.list() }))
+    kit.handle(API.listBackups, () => ({ items: ops().backups.list(), lastRestore: lastRestore(ctx.db) }))
 
     kit.handle(API.startBackup, ({ c, body, auth }) => {
       const locale = c.get('locale')

@@ -19,7 +19,9 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
 import { z } from 'zod'
-import type { BackupInfo } from '@mycel/shared/api'
+import type { BackupInfo, LastRestore } from '@mycel/shared/api'
+import { audit } from '../admin/audit'
+import { userRef } from '../auth/users'
 import { RestorePending } from '@mycel/shared/install'
 import { SCHEMA_READER_LEVEL, checkReadable } from '../db'
 import type { Logger } from '../log'
@@ -417,7 +419,7 @@ export class BackupManager {
     await fsp.copyFile(src, staged)
     await fsp.chmod(staged, 0o600)
     try { inspectDbCopy(staged) } catch (e) { await fsp.rm(staged, { force: true }); throw e }
-    const pending: RestorePending = { format: 1, file: staged, backupId: id, requestedAt: this.now().toISOString(), requestedBy }
+    const pending: RestorePending = { format: 1, file: staged, backupId: id, requestedAt: this.now().toISOString(), requestedBy, backupCreatedAt: this.createdAtOf(id) }
     await fsp.writeFile(path.join(this.o.layout.dataDir, 'restore-pending.json'), JSON.stringify(pending), { mode: 0o600 })
     return pending
   }
@@ -556,7 +558,18 @@ export function withoutHostingKey(file: string): void {
  * data/backups/before-restore-<time>/ and put the staged copy in place. Failures leave the current DB untouched.
  */
 
-export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>, o: { rename?: (a: string, b: string) => void } = {}): { applied: boolean; backupId?: string; error?: string } {
+/** What the start that met a staged restore did: put it in place (`applied`), or kept the current database (`error`). */
+export interface RestoreOutcome {
+  applied: boolean
+  backupId?: string
+  error?: string
+  /** from the staged request: who asked, when, and when the backup was made */
+  requestedBy?: string | null
+  requestedAt?: string
+  backupCreatedAt?: string | null
+}
+
+export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>, o: { rename?: (a: string, b: string) => void } = {}): RestoreOutcome {
   const rename = o.rename ?? fs.renameSync
   const pf = path.join(dataDir, 'restore-pending.json')
   if (!fs.existsSync(pf)) return { applied: false }
@@ -603,12 +616,36 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
     }
     fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep }), { mode: 0o600 })
     log.info('database restored from backup', { backupId: p.backupId, previousDb: keep })
-    return { applied: true, backupId: p.backupId }
+    return { applied: true, backupId: p.backupId, requestedBy: p.requestedBy, requestedAt: p.requestedAt, backupCreatedAt: p.backupCreatedAt ?? null }
   } catch (e) {
     fs.writeFileSync(result, JSON.stringify({ ok: false, backupId: p.backupId, at: new Date().toISOString(), error: (e as Error).message }), { mode: 0o600 })
     log.error('restore failed; the current database was kept', { backupId: p.backupId, err: e })
-    return { applied: false, backupId: p.backupId, error: (e as Error).message }
+    return { applied: false, backupId: p.backupId, error: (e as Error).message, requestedBy: p.requestedBy, requestedAt: p.requestedAt, backupCreatedAt: p.backupCreatedAt ?? null }
   } finally {
     fs.rmSync(pf, { force: true })
   }
+}
+
+/**
+ * The activity log row of a restore the start just applied or failed to apply (`backup.restore`, by the person who asked
+ * for it): after the restart Admin › System and the activity log say which backup, made when, put back when and by whom,
+ * and whether it worked (QA TC-208: only the toast before the restart said anything). Written into the database the
+ * server opened: the restored one, or the kept one when the restore failed. Nothing for a start without a restore.
+ */
+export function recordRestore(db: Database, r: RestoreOutcome): void {
+  if (!r.backupId) return
+  const by = r.requestedBy && db.query('SELECT 1 FROM users WHERE id = ?').get(r.requestedBy) ? r.requestedBy : null
+  audit(db, {
+    actor: by, action: 'backup.restore', target: r.backupId,
+    detail: { ok: r.applied, backupCreatedAt: r.backupCreatedAt ?? null, requestedAt: r.requestedAt ?? null, ...(r.applied ? {} : { error: r.error ?? null }) },
+  })
+}
+
+/** The last restore as the activity log has it (Admin › System › Backups), or null. */
+export function lastRestore(db: Database): LastRestore | null {
+  const row = db.query("SELECT actor_id, target, detail, at FROM audit_log WHERE action = 'backup.restore' ORDER BY id DESC LIMIT 1").get() as { actor_id: string | null; target: string | null; detail: string | null; at: string } | null
+  if (!row || !row.target) return null
+  let d: { ok?: unknown; backupCreatedAt?: unknown } = {}
+  try { d = JSON.parse(row.detail ?? '{}') } catch {}
+  return { backupId: row.target, backupCreatedAt: typeof d.backupCreatedAt === 'string' ? d.backupCreatedAt : null, at: row.at, by: userRef(db, row.actor_id), ok: d.ok !== false }
 }

@@ -56,6 +56,24 @@ test('restore: a wrong password stays in the dialog under the field; the right o
   await expect(page.getByText(t['system.restoreDone'])).toBeVisible()
 })
 
+test('after a restore, Backups says which backup was put back, when and by whom; a failed one says the data was kept (QA TC-208)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const line = page.getByTestId('last-restore')
+  await page.goto('/admin/system')
+  await expect(page.getByTestId('backup-list')).toBeVisible()
+  await expect(line).toHaveCount(0)
+  const last = { backupId: '20261110T030000Z-daily', backupCreatedAt: '2026-11-10T03:00:00.000Z', at: '2026-11-11T05:20:00.000Z', by: { id: 'olga', name: 'Olga' }, ok: true }
+  await page.request.post('/__test/last-restore', { data: { last } })
+  await page.reload()
+  await expect(line).toContainText('Olga님이')
+  await expect(line).toContainText('백업으로 되돌렸어요')
+  await expect(line).toContainText(/2026\. 11\. 10\./)
+  await page.request.post('/__test/last-restore', { data: { last: { ...last, ok: false } } })
+  await page.reload()
+  await expect(line).toContainText('되돌리지 못해서 데이터를 그대로 두었어요')
+})
+
 test('health: what needs attention first, the passed checks behind Show details', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
