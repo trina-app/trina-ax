@@ -18119,6 +18119,10 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   changed. Who does it, in general words: "the user" when they may (the owner and admins; a project's creator for the
   project), else "an admin" or "its creator or an admin" (the top-level reason too), never a person's name ("Admins are
   never named"): an admin is not told that an admin does it, a member is not sent to a delete that fails.
+  A folder that holds a group's, a project's or a rule folder the asker cannot read gets the generic words "a group,
+  project or rule folder, or a folder that holds one" (`unreadableManagedBelow`, review of #354): which kind it is
+  would say what is in a place they cannot see. Another letter case or Unicode form of a protected folder gets the
+  same reason and stays (tests).
 - **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
   folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
   card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
@@ -20353,6 +20357,34 @@ that it is trying again, and the content back by itself.
   again, the file list back by itself, the banner's look; with `SHOTS_DIR`, Home and the rooms list at 1440 and 390,
   light and dark).
 - Version impact: **patch** (how existing failures look and behave, and a few words; no API or data change).
+
+## Project cards: one height, and who sees it instead of the folder — 프로젝트 카드는 같은 높이로, 폴더 대신 누가 보는지 (fix/projects-even-cards, 2026-11-11, product owner)
+
+The owner saw the Projects list with a project that had no instructions: its card was much shorter than its
+neighbours, so the row looked broken and empty under it. Each card also showed its raw folder path (`projects/…`),
+and the page line spoke of "a folder of the team folder plus instructions" and "context". Plan:
+`docs/AGENTS/plan/20261111-0641-projects-even-cards.md`.
+
+- **One height per row.** The grid stretches its cells to the tallest card of the row and each card fills its cell
+  (the grid had `items-start` from before the text was clamped). Every card keeps two lines' room for the first
+  paragraph of its instructions (`min-h-[2lh]`), so a card without any does not collapse either; it says the project
+  page's own "No instructions." / "지침이 없어요." in faint text. "Instructions", not "description": the card's text is
+  the first paragraph of the instructions, and the edit dialog and the page call them that.
+- **Who sees it, not the folder path.** The line under the name says who sees the project by the rule and in the words
+  of its page's 멤버 line, from one function (`whoSeesProject`), so the two cannot differ: "멤버 3명" for the owner and
+  admins (its own people, `audienceSplit`), the total ("9명이 봐요") for anyone else, "나만 봐요", "나와 관리자만 봐요".
+  A personal project, whose page has no 멤버 line, says "나만 봐요", which tells it apart from a team project. A project
+  in the trash says who sees it now ("나와 관리자만 봐요"; its page shows the trash note instead): #355 puts its trash
+  and "no members left" notes on this line. No place name: nearly every project lives in Projects, so it would say the
+  same on every card.
+- **No "updated 2 days ago".** A project has no last-activity time in the API; adding one is a server change, left
+  for later.
+- **The page line**: "Keep the files, instructions and chats for one piece of work in one place." / "한 가지 일에
+  필요한 파일, 지침, 채팅을 한곳에 모아 둬요." ("채팅", the app's word, rather than "대화").
+- **Left**: the folder path on the project page (above its files) and in the message box's project picker; the
+  plain-words follow-up decides those.
+- Tests: e2e `project-list-menu` (the cards of a row are one height at 1440, also beside a name that wraps; one card
+  per row at 390; the who line and the empty line). Version impact: **patch** (layout and words on one page; no API or data change).
 
 ## Retention and the update channel are owner-only — 보관 기간과 업데이트 채널은 팀장만 (fix/owner-only-retention-settings, 2026-11-11)
 
