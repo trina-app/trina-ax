@@ -92,9 +92,11 @@ describe('upload sessions', () => {
     await put(s.body.id, 0, chunk(data, 0))
     await put(s.body.id, 1, chunk(data, 1))
     expect((await A.json(`/api/upload-sessions/${s.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).toBe('shared/up/raw/a.bin')
-    const again = await create(target, data)
-    await put(again.body.id, 0, chunk(data, 0))
-    await put(again.body.id, 1, chunk(data, 1))
+    // another file of that name gets a new one (the same file again is kept: c-uploads-same.test.ts)
+    const other = blob(UPLOAD_CHUNK_SIZE + 10, 2)
+    const again = await create(target, other)
+    await put(again.body.id, 0, chunk(other, 0))
+    await put(again.body.id, 1, chunk(other, 1))
     expect((await A.json(`/api/upload-sessions/${again.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).not.toBe('shared/up/raw/a.bin')
     // no write access: the same answer for a folder and for a file below it, chunked or small
     const denied = (await mkdir('groups/finance/up')).status
@@ -221,6 +223,25 @@ describe('upload sessions', () => {
     componentC(A.ctx).uploads.sweep(Date.now() + 13 * H)
     expect(fs.existsSync(part)).toBe(false)
     expect((await A.json(`/api/upload-sessions/${s.body.id}`, { as: 'alice' })).status).toBe(404)
+  })
+  test('an ended upload names the limit that ended it: 24 h with nothing arriving, or 7 days from the start (QA TC-230)', async () => {
+    const H = 3600_000
+    const data = blob(10, 3)
+    const ended = async (created: number) => {
+      const s = await create({ kind: 'path', path: `shared/end-${created}.bin` }, data)
+      A.ctx.db.query('UPDATE upload_sessions SET created_at = ?, expires_at = ? WHERE id = ?').run(new Date(created).toISOString(), new Date(Date.now() - 1000).toISOString(), s.body.id)
+      const r = await put(s.body.id, 0, data)
+      expect(r.status).toBe(410)
+      return r.body.error.message as string
+    }
+    expect(await ended(Date.now() - 30 * H)).toBe('Nothing arrived for 24 hours, so this upload ended. Start it again.')
+    expect(await ended(Date.now() - SESSION_MAX_MS - H)).toBe('An upload has to finish within 7 days of its start. This one passed 7 days and ended. Start it again.')
+    // a part file that is gone (a restored database brought the session back): it cannot go on
+    const s = await create({ kind: 'path', path: 'shared/lost.bin' }, data)
+    fs.rmSync(path.join(A.data, 'uploads', `${s.body.id}.part`))
+    const r = await put(s.body.id, 0, data)
+    expect(r.status).toBe(410)
+    expect(r.body.error.message).toBe('This upload cannot go on. Start it again.')
   })
   test('a recording refused for too many jobs (429) is not left in the work folder', async () => {
     const C = componentC(A.ctx)

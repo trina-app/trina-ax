@@ -48,6 +48,8 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   AI_ALLOWANCES: 'What I allowed the AI in advance',
   HANDOVER: 'Owner handover (the lead link\'s card and the owner\'s own connections)',
   FILE_LIST: 'The file list (one line per team file in a _FILES.md per access folder, read at night by the team\'s AI)',
+  SERVICE_REQUESTS: 'Asking an admin to add an app',
+  MEMBER_WELCOME: 'The welcome card for invited people (Home)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

@@ -139,6 +139,27 @@ test('English workspace: no recommendation; an uploaded test build shows its war
   await expect(page.getByText("This package is not in this version's official list and has no valid signature.")).toBeVisible()
 })
 
+test('the ⋯ menu offers a rollback only to a version this server still trusts', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/admin/plugins')
+  await catalogRow(page, 'app.trina.office-starter').getByTestId('plugin-catalog-install').click()
+  await page.getByRole('dialog').getByTestId('plugin-install-enable').click()
+  const row = installedRow(page, 'app.trina.office-starter')
+  await expect(row.getByTestId('plugin-line')).toHaveText('On for the whole company')
+  const menu = async (o: { version: string; trusted: boolean; untrusted?: boolean }) => {
+    expect((await page.request.post('/__test/plugin-previous', { data: { id: 'app.trina.office-starter', ...o } })).ok()).toBeTruthy()
+    await page.reload()
+    await row.getByTestId('plugin-more').click()
+    await expect(page.getByTestId('plugin-remove')).toBeVisible()
+  }
+  await menu({ version: '0.9.0', trusted: true })
+  await expect(page.getByTestId('plugin-rollback')).toHaveText('Roll back to 0.9.0')
+  // the server no longer trusts the pack (a test setting was turned off): a rollback would only be refused
+  await menu({ version: '0.9.0', trusted: false, untrusted: true })
+  await expect(page.getByTestId('plugin-rollback')).toHaveCount(0)
+})
+
 test('members do not see the Plugins page', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page, { username: 'bob', password: 'bob password 1' })

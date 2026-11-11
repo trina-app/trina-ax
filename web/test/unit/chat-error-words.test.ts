@@ -36,11 +36,9 @@ test('the owner and admins read where to fix it, in the menu\'s own words; the h
       expect(say('en', r, role)).toContain(providers)
     }
   }
-  for (const r of ['engine_missing', 'proxy_down'] as const) {
-    expect(say('en', r, 'owner')).toContain(health)
-    // an admin cannot open the health page: the member's words ("let the team owner know")
-    expect(say('en', r, 'admin')).toBe(CHAT_ERROR_MESSAGES[r].en)
-  }
+  expect(say('en', 'proxy_down', 'owner')).toContain(health)
+  // an admin cannot open the health page: the member's words ("let the team owner know")
+  expect(say('en', 'proxy_down', 'admin')).toBe(CHAT_ERROR_MESSAGES.proxy_down.en)
   // nothing to fix in the admin menu: the same words for everyone
   for (const r of ['rate_limit', 'context', 'timeout', 'wall_timeout', 'refused', 'crash', 'interrupted', 'user_disabled', 'output_limit', 'provider_error'] as const) {
     expect(say('en', r, 'owner')).toBe(CHAT_ERROR_MESSAGES[r].en)
@@ -49,9 +47,29 @@ test('the owner and admins read where to fix it, in the menu\'s own words; the h
   for (const l of LOCALES) {
     const t = (k: MessageKey) => translate(l, k)
     expect(say(l, 'no_credential', 'admin')).toContain(adminPath(t, 'providers'))
-    expect(say(l, 'engine_missing', 'owner')).toContain(adminPath(t, 'health'))
+    expect(say(l, 'proxy_down', 'owner')).toContain(adminPath(t, 'health'))
+    // a full server disk (QA TC-209): the owner and admins are pointed at Admin › System, where the storage card is
+    expect(say(l, 'storage_full', 'owner')).toContain(adminPath(t, 'system'))
+    expect(say(l, 'storage_full', 'admin')).toContain(adminPath(t, 'system'))
     for (const r of REASONS) expect([l, r, JARGON.test(say(l, r, 'owner'))]).toEqual([l, r, false])
   }
+})
+
+// owner decision 2026-11-11: the AI cannot start (engine_missing). A member reads "Trina isn't ready yet." (the button
+// beside it tells an admin); the owner and an admin read their own words, which the [Connect AI] button goes with, and
+// no menu path or developer word in either
+test('the AI cannot start: "not ready yet" for a member, "connect an AI" for the owner and an admin', () => {
+  expect(say('en', 'engine_missing', 'member')).toBe("Trina isn't ready yet.")
+  for (const role of ['owner', 'admin'] as const) {
+    expect(chatErrorText('engine_missing', role, false)).toEqual({ key: 'chat.error.admin.engine_missing', where: null })
+    expect(say('en', 'engine_missing', role)).toBe("Trina isn't ready yet. Connect an AI so it can answer.")
+  }
+  for (const l of LOCALES) for (const role of ['owner', 'admin', 'member'] as const) {
+    const text = say(l, 'engine_missing', role)
+    expect([l, role, JARGON.test(text) || /›|>|Diagnos|진단|診断|Diagnóstico|Diagnostik/.test(text)]).toEqual([l, role, false])
+  }
+  // AI or no AI, the same words (it is not a missing connection)
+  expect(chatErrorText('engine_missing', 'member', true).key).toBe('chat.error.engine_missing')
 })
 
 test('no AI answers the owner or an admin: the words that go with the connect button, the path filled in', () => {

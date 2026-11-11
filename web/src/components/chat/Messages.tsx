@@ -42,6 +42,7 @@ import { TYPE_LABEL } from '../artifactLabels'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../Markdown'
 import AiAccessButton from './AiAccessButton'
+import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
@@ -89,7 +90,7 @@ export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect:
       <IconButton label={t('chat.prevBranch')} disabled={disabled || index === 0} onClick={() => onSelect(siblingIds[index - 1]!)}>
         <ChevronLeft size={14} />
       </IconButton>
-      <span className="tabular-nums" data-testid="branch-label">
+      <span className="whitespace-nowrap tabular-nums" data-testid="branch-label">
         {index + 1} / {count}
       </span>
       <IconButton label={t('chat.nextBranch')} disabled={disabled || index >= count - 1} onClick={() => onSelect(siblingIds[index + 1]!)}>
@@ -671,6 +672,7 @@ export function AssistantMessage({
             {isLast && canRegenerate && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && <AiAccessButton />}
+                {reason === 'engine_missing' && <NotReadyButton role={role} />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                 </Button>

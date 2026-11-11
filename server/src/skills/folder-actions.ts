@@ -22,6 +22,7 @@
 // change it, who can see the files. The file service takes a grant for exactly that operation and plans it again right
 // before the rename or copy (skills/guard.ts takeSkillAction): anything that differs refuses it. "I" places the bytes
 // the card showed as new files.
+import { inProjectZone } from '../policy/access'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -371,6 +372,10 @@ function plan(ctx: AppContext, user: Principal, a: FolderActionInput): FolderPla
     if (a.to_folder === undefined) refuse('to_folder is missing', 'call skill_files again with to_folder')
     target = join(clean(a.to_folder!), nameOf(src))
   }
+  // a team project's own folder stays as it is in projects/ (docs/DECISIONS.md "Project contents only for members"):
+  // said before any card, as the file service would refuse the run
+  const srcSegs = src.split('/').filter(Boolean)
+  if (a.action !== 'copy' && srcSegs.length === 2 && inProjectZone(srcSegs)) refuse("a project's own folder stays where it is in projects/; rename the project on its page instead", 'tell the user; to share its files elsewhere, copy them')
   // where it is and where it would go, as the file service resolves them (and every check it makes: write, admins
   // for managed folders, nothing into itself, nothing protected)
   let from: string, to: string, isDir: boolean, narrowed = 0

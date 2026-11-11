@@ -104,7 +104,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   // Admin > 폴더 권한 shows the group's rule on skills/, labelled, and points back at the Team skills page
   await page.goto('/admin/folders?folder=skills')
   const detail = page.getByTestId('folder-detail')
-  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 부서: 읽기·쓰기')
+  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 부서: 고칠 수 있음')
   await expect(detail.getByTestId('skill-manager-badge')).toBeVisible()
   await expect(detail).toContainText('팀 스킬 화면의 "고칠 수 있는 사람"과 같은 설정')
   // no team skills column on Members and Groups any more
@@ -585,14 +585,15 @@ test('the skills I can use: most used first, search, "…" opens the file, the r
   await expect(page.getByTestId('composer-input')).toHaveValue('/proposal ')
 })
 
-test('a link to my suggestions works again while the page is open; on a phone the chosen tab is in view', async ({ page }) => {
+test('a link to my suggestions works again while the page is open; on a phone the four tabs fit, the chosen one in view', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await page.setViewportSize({ width: 375, height: 812 })
   await signIn(page)
   await page.goto('/skills?mine=1')
   const row = page.getByRole('tablist', { name: 'Team skills' })
   const selected = row.locator('[role="tab"][aria-selected="true"]')
-  await expect(selected).toHaveText('My suggestions')
+  // a phone: each tab's short word (components/ui.tsx Tabs), so the admin's four fit the width
+  await expect(selected).toHaveText('Mine')
   // applied, the link leaves the address, so the same link works again later
   await expect.poll(() => new URL(page.url()).searchParams.has('mine')).toBe(false)
   const inView = () => selected.evaluate((tab) => {
@@ -601,19 +602,16 @@ test('a link to my suggestions works again while the page is open; on a phone th
     return b.left >= r.left - 1 && b.right <= r.right + 1
   })
   await expect.poll(inView).toBe(true)
-  // the admin's four tabs do not fit this width in English: a tab chosen out of view scrolls into the row (a DOM
-  // click, because Playwright's own click would scroll it first)
-  expect(await row.evaluate((r) => r.scrollWidth > r.clientWidth)).toBe(true)
-  await row.evaluate((r) => { r.scrollLeft = r.scrollWidth })
-  await row.evaluate((r) => (r.querySelector('[role="tab"]') as HTMLElement).click())
-  await expect(selected).toHaveText('Available skills')
-  await expect.poll(inView).toBe(true)
+  // nothing to scroll sideways: every tab is in the row
+  expect(await row.evaluate((r) => r.scrollWidth <= r.clientWidth)).toBe(true)
+  await row.getByRole('tab', { name: 'Skills' }).click()
+  await expect(selected).toHaveText('Skills')
   // a banner's link to my suggestions again, while the page is open
   await page.evaluate(() => {
     history.pushState({}, '', '/skills?mine=1')
     dispatchEvent(new PopStateEvent('popstate'))
   })
-  await expect(selected).toHaveText('My suggestions')
+  await expect(selected).toHaveText('Mine')
   await expect.poll(inView).toBe(true)
 })
 

@@ -85,7 +85,19 @@ describe('admins and the owner', () => {
       expect(r.body.error.code).toBe('validation')
       expect(r.body.error.fields.to).toContain('invalid_path')
     }
-    expect((await move('carol', 'projects/falcon', 'users/carol/falcon')).status).toBe(400)
+    // a project folder: the owner and an admin who are not its members do not even see it (docs/DECISIONS.md "Project
+    // contents only for members"; it was 400 invalid_path); an admin who writes all of it as a member gets the 400
+    for (const who of ['carol', 'dana'] as const) expect((await move(who, 'projects/falcon', `users/${who}/falcon`)).status).toBe(404)
+    const ruleFor = (id: string, p: string) => A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) SELECT ?, id, 'user', 'carol', 'write' FROM folders WHERE path = ?").run(id, p)
+    ruleFor('r_falcon_carol', 'projects/falcon')
+    try {
+      // (public/ inside it she only reads, as everyone does: that stops it first)
+      expect((await move('carol', 'projects/falcon', 'users/carol/falcon')).status).toBe(403)
+      ruleFor('r_falcon_pub_carol', 'projects/falcon/public')
+      const r = await move('carol', 'projects/falcon', 'users/carol/falcon')
+      expect([r.status, r.body.error?.fields?.to]).toEqual([400, expect.stringContaining('invalid_path')])
+    } finally { A.ctx.db.query("DELETE FROM folder_rules WHERE id IN ('r_falcon_carol', 'r_falcon_pub_carol')").run() }
+    expect(exists(A.team, 'projects/falcon')).toBe(true)
     expect((await move('dana', 'shared/team-x', 'users/dana/team-x')).status).toBe(400)
     expect(exists(A.team, 'groups/marketing')).toBe(true)
   })

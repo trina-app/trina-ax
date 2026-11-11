@@ -1,0 +1,3 @@
+- Settings: a text size that can't be saved (offline) goes back to the account's size at once, instead of staying until the next reload.
+- Settings › Notifications: when a change can't be saved, the switches go back to what the server has; a change saved just before it no longer flips back.
+- Team settings › AI: the two switches for members' own AI accounts wait for each save, so two quick changes can't end on the wrong value.

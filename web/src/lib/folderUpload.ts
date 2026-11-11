@@ -125,7 +125,7 @@ export interface FolderUploadCalls {
   /** make one folder; a 409 means that the name is there */
   mkdir(path: string, signal: AbortSignal): Promise<unknown>
   isFolder(path: string, signal: AbortSignal): Promise<boolean>
-  upload(file: File, path: string, signal: AbortSignal, onProgress: (p: { phase: 'hashing' | 'uploading' | 'finishing'; loaded: number; total: number }) => void): Promise<unknown>
+  upload(file: File, path: string, signal: AbortSignal, onProgress: (p: { phase: 'hashing' | 'uploading' | 'finishing' | 'waiting'; loaded: number; total: number }) => void): Promise<unknown>
   /** drop what the server holds of an unfinished file */
   discard(file: File, path: string): Promise<unknown>
   concurrency?: number
@@ -161,7 +161,7 @@ export interface FolderUploadView {
   failures: readonly FolderFailure[]
   /** the storage refusal that stopped the upload */
   refusal: unknown
-  active: readonly { name: string; phase: 'hashing' | 'uploading' | 'finishing' | null; loaded: number; total: number }[]
+  active: readonly { name: string; phase: 'hashing' | 'uploading' | 'finishing' | 'waiting' | null; loaded: number; total: number }[]
   canRetry: boolean
 }
 

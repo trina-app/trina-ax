@@ -61,6 +61,7 @@ describe('browser tools', () => {
       for (const t of ['navigate', 'computer', 'read_page', 'browser_batch', 'preview_start', 'tabs_context']) expect(tools!.split(',')).toContain(t)
       expect(result).toBe('opened https://example.com')
       expect(system).toContain('## Browser (desktop app)')
+      expect(system).not.toContain('There is no browser in this app')
       expect(d.data.message.steps.find((s) => s.tool === 'navigate')).toMatchObject({ kind: 'browser', label: 'Open page · https://example.com', status: 'ok' })
       expect(web.frames.some((f) => f.type === 'browser.call')).toBe(false)
     } finally { stop() }
@@ -76,6 +77,15 @@ describe('browser tools', () => {
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
+  })
+
+  test('on the web the AI is told the desktop app has the browser, so it says so instead of only "I cannot" (QA TC-242)', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await send(fake({ echo: 'system' }), { window: 'win-web-00002', client: 'web' })(chat.id)
+    const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+    expect(d.data.message.content).toContain('There is no browser in this app (the web or a phone).')
+    expect(d.data.message.content).toContain('desktop app has a browser next to the chat')
+    expect(d.data.message.content).not.toContain('## Browser (desktop app)')
   })
 
   test('"Allow all websites" (url-gate ①d): a browser tool opens an address the AI wrote without the address card, named in its audit line', async () => {

@@ -136,10 +136,17 @@ export class GoogleApps {
   }
   private isLimited(app: GoogleAppId) { const at = this.limited.get(app); return at !== undefined && this.now() - at < LIMITED_MS }
 
+  /** Why nobody but an admin's setup can make the app connectable now (null: members can connect it). The same for
+   * every member (integrations/service-requests.ts reads it too). */
+  reasonOf(app: GoogleAppId): GoogleAppView['reason'] {
+    const setup = setupOf(this.ctx, app), lib = this.library().state()
+    return lib === 'unsupported' ? 'unsupported' : setup.mode === 'off' ? 'not_set_up' : !membersOn(this.db, app) ? 'members_off'
+      : setup.mode === 'broker' && this.isLimited(app) ? 'service_limited' : null
+  }
+
   view(user: string, app: GoogleAppId): GoogleAppView {
     const setup = setupOf(this.ctx, app), lib = this.library().state()
-    const reason: GoogleAppView['reason'] = lib === 'unsupported' ? 'unsupported' : setup.mode === 'off' ? 'not_set_up' : !membersOn(this.db, app) ? 'members_off'
-      : setup.mode === 'broker' && this.isLimited(app) ? 'service_limited' : null
+    const reason = this.reasonOf(app)
     const row = this.row(user, app)
     const secret = row ? this.secretOf(row) : null
     const status: GoogleAppView['status'] = !row ? 'disconnected' : secret && row.status !== 'needs_auth' && secret.google.key === setup.key ? 'connected' : 'needs_reconnect'

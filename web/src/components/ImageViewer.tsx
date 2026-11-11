@@ -732,7 +732,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
             <ChevronLeft size={20} />
           </BarButton>
         )}
-        {count && <span className="mx-2 shrink-0 text-xs text-white/70 tabular-nums max-md:mx-0.5" data-testid="image-viewer-count">{count}</span>}
+        {count && <span className="mx-2 shrink-0 text-xs whitespace-nowrap text-white/70 tabular-nums max-md:mx-0.5" data-testid="image-viewer-count">{count}</span>}
         {docMode && next && (
           <BarButton label={stepLabel(next, 'next')} onClick={() => go(next)} testId="image-viewer-bar-next" className="md:hidden">
             <ChevronRight size={20} />

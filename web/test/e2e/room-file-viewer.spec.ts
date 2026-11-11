@@ -208,8 +208,11 @@ test('Esc and Back close it, and focus goes back to the chip; 패널에서 열�
   const open = chip(timeline(page), 'acme-handbook.pdf').getByTestId('room-file-open')
   await open.click()
   await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
+  // the app under the viewer is out of reach while it is open (QA TC-265), and back in reach once it closes
+  await expect(page.getByTestId('app-layout')).toHaveAttribute('inert', '')
   await page.keyboard.press('Escape')
   await expect(viewer(page)).toHaveCount(0)
+  await expect(page.getByTestId('app-layout')).not.toHaveAttribute('inert')
   await expect(open).toBeFocused()
   // Back closes it and stays on the room
   await open.click()

@@ -74,7 +74,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
         s.chunks.set(n, (init!.body as Blob).size)
         if (o.dropAfterStore?.has(n)) {
           o.dropAfterStore.delete(n)
-          throw new TypeError('network dropped')
+          throw new TypeError('Network request failed')
         }
         return json({ received: [...s.chunks.keys()].sort((a, b) => a - b) })
       }
@@ -354,8 +354,9 @@ describe('uploads', () => {
       const refusing = new ApiClient({ baseUrl: '', fetch: (async () => json({ error: { code: 'forbidden', message: 'no' } }, 403)) as unknown as typeof fetch })
       await go((f, t) => uploadFile(f, t, { client: refusing, storage: null }))
       const lost = new ApiClient({ baseUrl: '', fetch: (async () => { throw new TypeError('Network request failed') }) as unknown as typeof fetch })
-      await go((f, t) => uploadFile(f, t, { client: lost, storage: null }))
-      await go((f, t) => uploadFile(Object.assign(f, { arrayBuffer: async () => { throw new DOMException('gone', 'NotReadableError') } }), t, { client: lost, storage: null }))
+      // (a lost connection is waited for: here no time at all, so it ends now)
+      await go((f, t) => uploadFile(f, t, { client: lost, storage: null, connectionWaitMs: 0 }))
+      await go((f, t) => uploadFile(Object.assign(f, { arrayBuffer: async () => { throw new DOMException('gone', 'NotReadableError') } }), t, { client: lost, storage: null, connectionWaitMs: 0 }))
       const stop = new AbortController()
       const stopping = held()
       await go((f, t) => {

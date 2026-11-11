@@ -211,6 +211,10 @@ describe('backup, restore, export jobs', () => {
     expect(job.result).toMatchObject({ backupId: id })
     expect(job.message).toContain('다시 시작')
     expect(fs.existsSync(path.join(ctx.config.dataDir, 'restore-pending.json'))).toBe(true)
+    // the backup's time goes with the request, for what Admin says after the restart (QA TC-208); nothing restored yet
+    const pending = JSON.parse(fs.readFileSync(path.join(ctx.config.dataDir, 'restore-pending.json'), 'utf8'))
+    expect(pending).toMatchObject({ backupId: id, requestedBy: 'olga', backupCreatedAt: getOps(ctx)!.backups.list()[0]!.createdAt })
+    expect(((await (await req('/api/admin/backups', { as: 'owner' })).json()) as { lastRestore: unknown }).lastRestore).toBeNull()
     expect(restarts).toBe(0)
     fs.rmSync(path.join(ctx.config.dataDir, 'restore-pending.json'))
   })

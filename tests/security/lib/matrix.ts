@@ -30,13 +30,16 @@ const FIN = [C.finSkill, C.finFile, C.finFileOld, C.finTrashName, C.finName]
 const DM = [C.dmMsg, C.dmFileName]
 // the group chat of alice, erin and frank
 const GROUP = [C.groupMsg, C.groupName]
-const ALL = [...ALICE_OWN, ...FIN, ...DM, ...GROUP, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
+// Team plan (alice + erin): its members only, never the owner or an admin (docs/DECISIONS.md "Project contents only for
+// members"); projects/falcon likewise: alice and the finance group (bob), the owner and admins no more
+const TEAM = [C.teamFile, C.teamFileOld, C.teamName, C.teamSub, C.teamTrashName, C.teamInstr, C.teamChatMsg, C.teamSkill]
+const ALL = [...ALICE_OWN, ...FIN, ...DM, ...GROUP, ...TEAM, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
 export const VISIBLE: Record<Who, string[]> = {
   // a skill alice suggested reaches the managers of its target folder (skills/: owner and admins), nobody else
-  owner: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
-  admin: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
-  memberIn: [...ALICE_OWN, ...DM, ...GROUP, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
-  other: [...DM, ...GROUP, C.mktBrief, C.mktInstr],
+  owner: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.aliceSuggestion],
+  admin: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.aliceSuggestion],
+  memberIn: [...ALICE_OWN, ...DM, ...GROUP, ...TEAM, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
+  other: [...DM, ...GROUP, ...TEAM, C.mktBrief, C.mktInstr],
   memberOut: [...FIN, C.bobFile, C.falconPlan, C.falconInstr],
   pwchange: [],
   anon: [],

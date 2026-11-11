@@ -22,6 +22,9 @@ export const UserPrefs = z.object({
   /** set themselves away (the account menu's "자리 비움으로 표시"; docs/DECISIONS.md "접속 상태"): their dot shows away
    * until they change it. Only PUT /api/me/away sets it; PATCH /api/me leaves it as it is. */
   away: z.boolean().optional(),
+  /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
+   * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
+  roomAskHint: z.literal('seen').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -180,6 +183,13 @@ export const Project = z.object({
    * owner or admin, or whoever may change its members): to anyone else it would tell that the others are admins.
    * Absent: someone else sees it by a rule, the caller may not read its rules, a personal project, or an older server. */
   alone: z.literal(true).optional(),
+  /** false: the caller manages this team project without being a member (the owner or an admin, GET with manage=1):
+   * its name, creator and member count only; `instructions` is empty and nothing of its contents comes with it
+   * (docs/DECISIONS.md "Project contents only for members"). Absent: a member, or an older server. */
+  member: z.literal(false).optional(),
+  /** the caller may manage it without reading it: rename, members, delete, restore (the owner or an admin for a team
+   * project; its creator while they may edit it). Absent from older servers: use canEdit. */
+  canManage: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -205,6 +215,13 @@ export const Chat = z.object({
   /** the AI asked me something in this chat and waits (an open ask_user / connect_service card shown in every window;
    * a card for one desktop window only is not counted). Absent = no. */
   waiting: z.literal(true).optional(),
+  /** the earlier answer here ended, but the end of the AI's work is not confirmed yet (the server's quarantined slot,
+   * at most a few minutes past the answer's time limit): the chat takes no new message until then and says so; other
+   * chats work as usual. Absent = no. */
+  ending: z.literal(true).optional(),
+  /** I answered the AI here, and the answer waits for a free place among the team's running answers to go on (the AI
+   * gave its place back while it waited for me). Absent = no. */
+  waitingForPlace: z.literal(true).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
@@ -521,6 +538,11 @@ export const FileEntry = z.object({
    * but the AI cannot read it and in-app previews are off, so "Ask AI" and "add to chat" are not offered. Absent on
    * every other entry (and from servers before this field) */
   downloadOnly: z.literal(true).optional(),
+  /** a folder the caller may write that they still may not rename, move or put in the trash (file listings only,
+   * GET /api/files/tree): 'admin' only the owner or an admin may (a group, project or rule folder, shared/, skills/, or
+   * one holding such a folder; never sent to the owner or an admin), 'always' nobody may (a personal folder, a folder
+   * holding a plugin's managed folder). Absent everywhere else and from older servers: the server still decides. */
+  fixed: z.enum(['admin', 'always']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 
@@ -720,6 +742,10 @@ export const TeamSettings = z.object({
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
+  /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
+   * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
+   * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */
+  oftenAsked: z.boolean(),
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),

@@ -42,7 +42,7 @@ import { aiName } from '../lib/tabs'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
-import { useEdgeFade, useFocusTrap } from './ui'
+import { useEdgeFade, useFocusTrap, useMediaQuery } from './ui'
 import { contentQueryReady } from './FileContentSearch'
 import { skillFileLink } from './AvailableSkills'
 import { useChatActions } from './chat/chatActions'
@@ -50,6 +50,7 @@ import { useCopyChatLink } from './chat/copyChatLink'
 import { openTeamInvite } from './TeamMenu'
 import { Tooltip } from './Tooltip'
 import { Avatar } from './Avatar'
+import { MenuButton, useLongPress } from './rooms/MenuButton'
 import { AiFace, AiMark } from './rooms/AiFace'
 import { PeoplePicker } from './rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from './rooms/RoomIcon'
@@ -313,7 +314,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     const ctrl = new AbortController()
     const asked = namesKey
     const timer = setTimeout(() => {
-      api.call(API.findFiles, { query: { q: q.trim(), path: '', limit: 30 }, signal: ctrl.signal }).then(
+      api.call(API.findFiles, { query: { q: q.trim(), path: '', limit: 30, folders: '1' }, signal: ctrl.signal }).then(
         (r) => live && setNames({ q: asked, items: r.items, failed: false }),
         () => live && !ctrl.signal.aborted && setNames({ q: asked, items: [], failed: true }),
       )
@@ -518,6 +519,9 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
   const activeIndex = chosen >= 0 ? chosen : Math.min(sel.index, rows.length - 1)
   const active = rows[activeIndex]
   const choose = (i: number) => setSel({ key: rows[i]?.key ?? null, index: i })
+  /** the row drawn as highlighted: the one Enter opens; on a phone only once a finger or a key chose it (the first
+   * row lit on its own reads as already tapped) */
+  const lit = (r: Row) => r === active && (!phone || sel.key !== null)
   useEffect(() => {
     if (active) listRef.current?.querySelector(`[data-key="${CSS.escape(active.key)}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [active])
@@ -546,8 +550,25 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     const at = el?.getBoundingClientRect()
     setMenu({ row: r, top: at && box ? at.bottom - box.top : 0 })
   }
-  // the type tabs scroll sideways on a phone: fade the cut edge, and bring the chosen one into view (arrow keys at the
-  // ends of the text choose another)
+  // a phone (below 768px): the types as one picker ("전체 ⌄") that opens a sheet, a chat row's "⋯" (44px, on every chat
+  // row) or a long press on it opens its actions as a sheet, and no row is lit before a finger or a key chose one
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const [typeAsk, setTypeAsk] = useState(0)
+  const typeButton = useRef<HTMLButtonElement>(null)
+  // `long`: a long press opened it (the finger lifting is no tap on the sheet: MenuButton's openSignal), else the "⋯"
+  // (openRequest); `n`: a new sheet each time
+  const [sheet, setSheet] = useState<{ row: Row; n: number; long: boolean } | null>(null)
+  const openSheet = (r: Row, long = false) => setSheet((x) => ({ row: r, n: (x?.n ?? 0) + 1, long }))
+  const pressed = useRef<Row | null>(null)
+  const longAt = useRef(0)
+  const longPress = useLongPress(() => {
+    if (!pressed.current) return
+    longAt.current = Date.now()
+    openSheet(pressed.current, true)
+  })
+  const press = (r: Row) => (phone && r.chat ? { ...longPress, onPointerDown: (e: React.PointerEvent) => { pressed.current = r; longPress.onPointerDown(e) } } : {})
+  // the type tabs scroll sideways on a narrow window: fade the cut edge, and bring the chosen one into view (arrow keys
+  // at the ends of the text choose another)
   const tabRow = useRef<HTMLDivElement>(null)
   useEdgeFade(tabRow)
   useEffect(() => {
@@ -637,6 +658,24 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
         </div>
         {/* the line under the tabs sits outside the row, so the row's edge fade does not fade it too */}
         <div className="shrink-0 border-b border-line">
+          {phone ? (
+            // a phone: the seven types do not fit a row; the chosen one, and a sheet with all of them
+            <div className="px-3 pb-2">
+              <button ref={typeButton} type="button" aria-haspopup="menu" aria-label={`${t('search.types')}: ${t(TAB_LABEL[tab])}`} onClick={() => setTypeAsk((n) => n + 1)} className="inline-flex h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-text hover:bg-hover" data-testid="search-type">
+                {t(TAB_LABEL[tab])}
+                <ChevronDown size={16} className="text-faint" aria-hidden />
+              </button>
+              <MenuButton
+                label={t('search.types')}
+                heading={t('search.types')}
+                className="contents"
+                buttonClassName="hidden!"
+                openRequest={typeAsk}
+                focusBack={() => typeButton.current?.focus()}
+                items={SEARCH_TABS.map((x) => ({ label: t(TAB_LABEL[x]), checked: tab === x, onSelect: () => setTab(x), testId: `search-type-${x}` }))}
+              />
+            </div>
+          ) : (
           <div ref={tabRow} role="tablist" aria-label={t('search.types')} className="scroll-thin edge-fade flex gap-1 overflow-x-auto px-4 pb-3">
             {SEARCH_TABS.map((x) => (
               <button
@@ -656,6 +695,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
               </button>
             ))}
           </div>
+          )}
         </div>
         <div ref={listRef} id="search-results" role="listbox" aria-label={t('search.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-[56vh]">
           {errorNow && <p className="px-3 py-2 text-sm text-danger">{errorNow}</p>}
@@ -678,7 +718,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
                       aria-selected={on}
                       onMouseMove={() => !on && choose(rows.indexOf(r))}
                       onClick={() => go(r)}
-                      className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm', on && 'bg-hover')}
+                      className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm', lit(r) && 'bg-hover')}
                       data-testid="search-room-file"
                     >
                       <RoomFileHit hit={r.roomFile.hit} room={r.roomFile.room} name={mark(r.title)} />
@@ -695,7 +735,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
                       aria-selected={on}
                       onMouseMove={() => !on && choose(rows.indexOf(r))}
                       onClick={() => go(r)}
-                      className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2', on && 'bg-hover')}
+                      className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2', lit(r) && 'bg-hover')}
                       data-testid="search-message"
                     >
                       <MessageHit hit={r.hit.hit} room={r.hit.room} text={mark(hitText(r.hit.hit, words))} />
@@ -710,8 +750,10 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
                     role="option"
                     aria-selected={on}
                     onMouseMove={() => !on && choose(rows.indexOf(r))}
-                    onClick={() => go(r)}
-                    className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm', on && 'bg-hover')}
+                    // the finger lifting after a long press that opened the row's sheet opens no chat
+                    onClick={() => Date.now() - longAt.current > 800 && go(r)}
+                    {...press(r)}
+                    className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm max-md:min-h-11', lit(r) && 'bg-hover', phone && r.chat && 'py-0 pr-0 select-none [-webkit-touch-callout:none]')}
                   >
                     {r.face ? (
                       'room' in r.face ? <RoomIcon room={r.face.room} size={20} /> : <Avatar user={r.face.person} size={20} />
@@ -725,15 +767,16 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
                       {r.match ? mark(r.title) : r.title}
                       {r.sub && <span className={clsx('ml-2 text-xs', r.attention ? 'text-accent-text' : 'text-faint')}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
                     </span>
-                    {on && r.chat && (
+                    {r.chat && (on || phone) && (
                       <Tooltip label={t('search.rowActions')}>
                         <span
                           role="presentation"
                           data-testid="search-row-more"
-                          className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-text"
+                          className={clsx('grid shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-text', phone ? 'size-11' : 'size-6')}
                           onClick={(e) => {
                             e.stopPropagation()
-                            if (menu?.row.key === r.key) closeMenu()
+                            if (phone) openSheet(r)
+                            else if (menu?.row.key === r.key) closeMenu()
                             else openMenu(r)
                           }}
                         >
@@ -782,6 +825,25 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
               </button>
             ))}
           </div>
+        )}
+        {phone && sheet?.row.chat && (
+          // a phone's sheet of a chat row's actions (rooms/MenuButton.tsx): opened by its "⋯" or a long press, the chat's
+          // name on top; the keyboard stays down (no focusBack: the person was reading the results, and each item closes
+          // the search)
+          <MenuButton
+            key={sheet.n}
+            label={t('search.rowActions')}
+            sheetTitle={sheet.row.title}
+            className="contents"
+            buttonClassName="hidden!"
+            openSignal={sheet.long ? 1 : 0}
+            openRequest={sheet.long ? 0 : 1}
+            items={[
+              { label: t('chat.rename'), icon: <Pencil size={18} aria-hidden />, onSelect: () => { onClose(); void chatActions.rename(sheet.row.chat!) }, testId: 'search-row-rename' },
+              { label: t('rooms.menu.copyLink'), icon: <Link2 size={18} aria-hidden />, onSelect: () => { onClose(); void copyChatLink(sheet.row.chat!) }, testId: 'search-row-copy-link' },
+              { label: t('common.delete'), icon: <Trash2 size={18} aria-hidden />, onSelect: () => { onClose(); void chatActions.remove(sheet.row.chat!) }, danger: true, testId: 'search-row-delete' },
+            ]}
+          />
         )}
         <div className="hidden shrink-0 items-center gap-5 border-t border-line px-5 py-2.5 text-xs text-faint sm:flex" data-testid="search-hints">
           <Hint label={t('search.hintClose')} keys={['Esc']} />

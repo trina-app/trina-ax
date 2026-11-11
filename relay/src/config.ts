@@ -49,6 +49,17 @@ export interface RelayConfig {
   clientPingMs: number
   initialWindow: number
   maxStreamsPerConn: number
+  /**
+   * HTTP streams one client address may have open to one team at once (RELAY_MAX_STREAMS_PER_IP; default half of one
+   * control connection's streams; 0 = no cap). Over it the relay answers 503 team_busy at once, so a flood from one
+   * address can't take every stream of the team (QA TC-199). WebSockets are not counted.
+   */
+  maxStreamsPerIp: number
+  /**
+   * an HTTP answer with bytes waiting for a visitor whose socket took nothing for this long is cut (RELAY_CLIENT_STALL_MS,
+   * default 30 s; 0 = never): a client that stops reading must not hold a team stream and relay buffers forever
+   */
+  clientStallMs: number
   maxConnsPerTeam: number
   clientWsCap: number
   /** expose GET /_stats to loopback callers */
@@ -150,6 +161,8 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     clientPingMs: num(env.RELAY_CLIENT_PING_MS, 20_000),
     initialWindow: num(env.RELAY_WINDOW, DEFAULTS.initialWindow),
     maxStreamsPerConn: num(env.RELAY_MAX_STREAMS, DEFAULTS.maxStreams),
+    maxStreamsPerIp: num(env.RELAY_MAX_STREAMS_PER_IP, Math.floor(num(env.RELAY_MAX_STREAMS, DEFAULTS.maxStreams) / 2)),
+    clientStallMs: num(env.RELAY_CLIENT_STALL_MS, 30_000),
     maxConnsPerTeam: num(env.RELAY_MAX_CONNS, DEFAULTS.maxConnections),
     clientWsCap: num(env.RELAY_CLIENT_WS_CAP, DEFAULTS.clientWsCap),
     stats: bool.has('stats') || env.RELAY_STATS === '1' || dev,

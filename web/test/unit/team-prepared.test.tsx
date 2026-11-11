@@ -27,7 +27,7 @@ import { EmptyTeamLine, InviteStep } from '../../src/components/onboarding/Invit
 import { useHandover } from '../../src/store/handover'
 import { skillsChanged } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
-import { installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
+import { installDom, mount, removeDom, type Mounted } from './dom-host'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 
 const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
@@ -413,31 +413,18 @@ describe('the invite step\'s empty-team line', () => {
     } finally { await m.unmount() }
   })
 
-  test('the welcome steps\' invite step: the line above the message; gone while "이 사람이 팀장이에요" is ticked (the lead sets up), back when unticked', async () => {
+  test('the welcome steps\' invite step: the line above the message, and no "이 사람이 팀장이에요" even where the server offers it (owner 2026-11-11)', async () => {
     data = full({ skills: [], teamFolder: tf(0) })
     signIn('owner')
     useHandover.setState({ loaded: true, state: { flag: true, recovery: 'server', openLead: null, card: null, connections: [] } } as never)
-    /** a click on a checkbox turns it over before its handlers run (the browser's own step, which the fake DOM leaves out) */
-    const tick = async (m: Mounted, box: FakeElement) => {
-      const checked = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'checked')!
-      checked.set!.call(box, !checked.get!.call(box))
-      await m.click(box)
-    }
     const went: string[] = []
     const m = await mount(<MemoryRouter><InviteStep prepare onDone={() => {}} steps={{ skills: () => went.push('skills'), files: () => went.push('files') }} /></MemoryRouter>)
     try {
       await m.until(() => m.find('invite-empty-team'), 'the line')
-      expect(m.find('lead-flag')).not.toBeNull()
-      // above the team link's part, inside the invite step
-      const html = m.html()
-      expect(html.indexOf('data-testid="invite-empty-team"')).toBeGreaterThan(html.indexOf('data-testid="lead-flag"'))
+      expect(m.find('lead-flag')).toBeNull()
+      expect(m.html()).not.toContain('lead-flag')
       await m.click('invite-empty-skills')
       expect(went).toEqual(['skills'])
-      await tick(m, m.get('lead-flag-check'))
-      await m.until(() => m.find('lead-create'), 'the lead link part')
-      expect(m.find('invite-empty-team')).toBeNull()
-      await tick(m, m.get('lead-flag-check'))
-      await m.until(() => m.find('invite-empty-team'), 'the line again')
     } finally {
       await m.unmount()
       useHandover.getState().reset()

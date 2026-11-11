@@ -158,14 +158,19 @@ describe('messages', () => {
 })
 
 describe('projects', () => {
-  test('a team project is a new projects/<name>, seen by its participants, edited by the creator or an admin', async () => {
+  test('a team project is a new projects/<name>, seen by its participants, edited by the creator or an admin who is a member', async () => {
     const p = await h.api('alice').call(API.createProject, { body: { name: 'Campaign Q4', instructions: 'Use the brief.', participants: [{ subjectType: 'group', subjectId: 'marketing' }] } })
     expect(p).toMatchObject({ name: 'Campaign Q4', folderPath: 'projects/Campaign Q4', canEdit: true, createdBy: { id: 'alice', name: 'Alice Kim' } })
     expect(fs.statSync(path.join(h.team, 'projects/Campaign Q4')).isDirectory()).toBe(true)
     // erin (marketing) sees it but did not create it: no editing (design tab 5: the creator and admins); bob (finance) can't see it
     expect((await h.api('erin').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(false)
     expect(await code(h.api('erin').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'Ignore the brief.' } }))).toBe('403 forbidden')
-    expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(true)
+    // carol (admin) is not a participant: she does not read it (docs/DECISIONS.md "Project contents only for members"); she
+    // manages it (manage=1: its name and member count, nothing of its contents) and may not edit what is in it
+    expect(await code(h.api('carol').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
+    expect(await h.api('carol').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })).toMatchObject({ member: false, canManage: true, canEdit: false, instructions: '' })
+    expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'Admin rules.' } }))).toBe('403 forbidden')
+    expect((await h.api('bob').call(API.listProjects, { query: { manage: '1' } })).items.some((x) => x.id === p.id)).toBe(false)
     expect(await code(h.api('bob').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
     expect((await h.api('bob').call(API.listProjects, {})).items.some((x) => x.id === p.id)).toBe(false)
     // an older project on falcon: bob reads (finance has read) but can't edit
@@ -179,17 +184,31 @@ describe('projects', () => {
     expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'groups/marketing/new', instructions: '' } }))).toBe('400 validation')
     expect((await h.req('alice', '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', folderPath: '../outside' }) })).status).toBe(400)
     expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'shared/glossary.md', instructions: '' } }))).toBe('400 validation')
-    // its folder never changes while it is in place (admins point only a project whose folder is gone); delete: chats
-    // stay, without project; the folder stays unless asked
+    // its folder never changes while it is in place (admins point only a project whose folder is gone, and only one
+    // whose contents they read: carol, not a member, is refused before anything else is looked at)
     expect(await code(h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('403 forbidden')
+    expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('403 forbidden')
+    // alice makes carol a member: an admin who is one edits it like its creator
+    const access = await h.api('alice').call(API.getProjectAccess, { params: { id: p.id } })
+    await h.api('alice').call(API.putProjectParticipants, { params: { id: p.id }, body: { participants: [{ subjectType: 'group', subjectId: 'marketing' }, { subjectType: 'user', subjectId: 'carol' }], expectedHash: access.rulesHash } })
+    expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(true)
     expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/falcon' } }))).toBe('409 conflict')
     const moved = await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'New rules.' } })
     expect(moved).toMatchObject({ folderPath: 'projects/Campaign Q4', instructions: 'New rules.' })
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     expect((await h.api('alice').call(API.listChats, { query: { projectId: p.id } })).items.map((c) => c.id)).toEqual([chat.id])
+    // delete: first to the trash with its folder (the project stays, In trash, read by nobody); then, by the owner or an
+    // admin (its creator no longer manages it there), for good: chats stay, without project, and the folder does not
+    // come back
     await h.api('alice').call(API.deleteProject, { params: { id: p.id } })
+    expect(fs.existsSync(path.join(h.team, 'projects/Campaign Q4'))).toBe(false)
+    expect(await code(h.api('alice').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
+    expect((await h.api('dana').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })).inTrash).toBe(true)
+    expect(await code(h.api('alice').call(API.deleteProject, { params: { id: p.id } }))).toBe('404 not_found')
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect(await code(h.api('dana').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } }))).toBe('404 not_found')
     expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).projectId).toBeNull()
-    expect(fs.existsSync(path.join(h.team, 'projects/Campaign Q4'))).toBe(true)
+    expect(fs.existsSync(path.join(h.team, 'projects/Campaign Q4'))).toBe(false)
   })
 })
 
@@ -311,6 +330,17 @@ describe('usage limits (tab 5 "사용 한도 도달")', () => {
       expect(err?.code).toBe('budget_exceeded')
       expect(err?.message).toContain('오늘 AI 사용 한도를 다 썼어요')
       expect(err?.message).toContain('다시 쓸 수 있어요')
+      // the day ends at midnight, said so it cannot read as noon ("오전 12:00"; QA TC-215)
+      expect(err?.message).toMatch(/\d+월 \d+일 0시부터 다시 쓸 수 있어요/)
+      expect(err?.message).not.toContain('오전')
+      // no new chat either: a first question from Home leaves no empty chat behind, in the same words
+      const chats = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM chats WHERE user_id = 'carol'").get() as { n: number }).n
+      const before = chats()
+      const refusedNew = await h.api('carol').call(API.createChat, { body: {} }).then(() => null, (e: unknown) => e as ApiError)
+      expect(refusedNew?.status).toBe(429)
+      expect(refusedNew?.code).toBe('budget_exceeded')
+      expect(refusedNew?.message).toBe(err?.message)
+      expect(chats()).toBe(before)
       expect(await code(h.api('carol').call(API.regenerate, { params: { id: chat.id, messageId: first.started.assistantMessage.id }, body: {} }))).toBe('429 budget_exceeded')
       // nothing was queued for the refused sends
       expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM turns WHERE user_id = 'carol'").get()).toEqual({ n: 2 })

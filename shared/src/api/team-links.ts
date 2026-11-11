@@ -105,6 +105,9 @@ export const TeamLinkInfo = z.object({
   skillName: z.string().nullable(),
   /** the same skill as people read its name (its metadata title, else its name); absent from an older server */
   skillTitle: z.string().nullable().optional(),
+  /** who made the link ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
+   * from an older server */
+  inviterName: z.string().nullable().optional(),
 })
 export type TeamLinkInfo = z.infer<typeof TeamLinkInfo>
 

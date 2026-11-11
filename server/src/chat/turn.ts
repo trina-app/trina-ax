@@ -38,8 +38,9 @@ import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
+import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
@@ -51,6 +52,7 @@ import { notificationsOf } from '../notifications/service'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
+import { DISK_FULL_TEXT, diskAlmostFull, isDiskFullError } from '../system/storage'
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
@@ -142,7 +144,8 @@ export interface TurnSpec extends QueueTiming {
  * that failed (chat/turn.ts sharedReadText). */
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
-interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null }
+/** openedAt: when the tool call asked (performance.now()), for the engine's tool timeout (ChatRuntime.slotWaitMaxMs) */
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -279,6 +282,10 @@ export class TurnExec {
   private error: ApiErrorBody | null = null
   /** unknown: a usage without a cost and without a list price (API engine); ids: the provider's request ids */
   private usage = { i: 0, o: 0, c: 0, seen: false, unknown: false, ids: [] as string[] }
+  /** tokens of the model calls of the run under way (Claude Code's running usage), until its own total replaces them */
+  private runningUsage = { i: 0, o: 0 }
+  /** the person's "block" budget ran out during this answer: the answer ends with this (the budget message) */
+  private budgetHit: ApiErrorBody | null = null
   private dirty = false
   private saver: ReturnType<typeof setInterval> | null = null
   private clock: ReturnType<typeof setInterval> | null = null
@@ -296,6 +303,9 @@ export class TurnExec {
   private timeoutSource: 'active' | 'wall' | null = null
   private activeMs = 0
   private humanWaits = 0
+  /** card answers held back until the turn has a queue slot again (ChatRuntime.turnResuming): the turn gave its slot
+   * back while it waited for the person, and its engine goes on only once it holds one */
+  private heldAnswers: { requestId: string; value: unknown; resolve: (v: unknown) => void; openedAt: number }[] = []
   private requests = new Map<string, OpenRequest>()
   /** what the server keeps beside an open connect_service card (chat/connect-service.ts), by its request id: the
    * connection the card made, so another key after a failed check goes to that same connection, and the connect still
@@ -370,6 +380,23 @@ export class TurnExec {
     return this.principal
   }
   get waitingForPerson() { return this.humanWaits > 0 }
+  /** a person answered, and the turn waits for a queue slot to go on (its time limit stays paused meanwhile) */
+  get waitingForSlot() { return this.heldAnswers.length > 0 }
+  /** how long ago the oldest held answer's card opened (its tool call started then), ms; 0: none held */
+  heldSinceMs(): number {
+    if (!this.heldAnswers.length) return 0
+    return performance.now() - Math.min(...this.heldAnswers.map((a) => a.openedAt))
+  }
+  /** The turn holds a slot again (ChatRuntime.grantResumes): the held answers reach the engine. */
+  resumeAnswers() {
+    for (const a of this.heldAnswers.splice(0)) a.resolve(a.value)
+  }
+  /** The turn stops or ends while answers wait for a slot: none of them reaches a tool (like a card the end closed). */
+  private dropHeldAnswers() {
+    if (!this.heldAnswers?.length) return
+    for (const a of this.heldAnswers.splice(0)) { this.cardMissing.set(a.requestId, 'ended'); a.resolve(null) }
+    try { this.rt.turnStopsWaiting(this) } catch (e) { this.rt.log.warn('leaving the slot queue failed', { err: e, turn: this.id }) }
+  }
 
   // ---------------- lifecycle ----------------
   async run() {
@@ -383,7 +410,7 @@ export class TurnExec {
     } catch (e) {
       if (!this.error) {
         if (e instanceof CoreUnavailableError) this.error = { ...engineError('engine_missing', this.spec.locale) }
-        else { this.rt.log.error('turn failed', { err: e, turn: this.id }); this.error = engineError('crash', this.spec.locale) }
+        else { this.rt.log.error('turn failed', { err: e, turn: this.id }); this.error = this.crashOrFullDisk(e) }
       }
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
@@ -398,13 +425,25 @@ export class TurnExec {
   stop(reason: 'stopped' | 'timeout' | 'shutdown' = 'stopped') {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
+    this.halt(reason)
+  }
+
+  /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
+   * in one place so they never drift apart. */
+  private halt(reason?: 'stopped' | 'timeout' | 'shutdown') {
+    // a turn that waited for a person holds a slot again while its engine ends (ChatRuntime.turnEngineEnding)
+    try { this.rt.turnEngineEnding(this) } catch (e) { this.rt.log.warn('taking the slot back for the stop failed', { err: e, turn: this.id }) }
     this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
     this.abort.abort()
     // Stop authorizing tools/model requests immediately, even if process termination takes longer.
     this.activeCore?.turns.invalidate(this.id, reason)
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
+    // answers held for a slot never reach their tool (a card the person answered before the stop)
+    this.dropHeldAnswers()
     try { this.handle?.kill() } catch { this.quarantine() }
+    // a later stop after a budget stop: one grace timer, the latest
+    if (this.stopGrace) clearTimeout(this.stopGrace)
     this.stopGrace = setTimeout(() => {
       if (this.status !== 'finished') this.quarantine()
     }, TURN_STOP_GRACE_MS)
@@ -442,7 +481,7 @@ export class TurnExec {
   }
 
   private tick() {
-    if (this.humanWaits > 0 || this.status !== 'running') return
+    if (this.humanWaits > 0 || this.heldAnswers?.length || this.status !== 'running') return
     this.activeMs += 1000
     if (this.activeMs >= this.rt.turnTimeoutMs && !this.stopReason) {
       this.timeoutSource = 'active'
@@ -655,6 +694,8 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나") or of a shared project chat
       memories: this.room || this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
+      browserInDesktopApp: !this.browser && !this.restricted && !this.room && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
       history: fresh ? rt.history(userMsg.parent_id, !!this.room, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared, sideRoom,
@@ -707,6 +748,8 @@ export class TurnExec {
     }
     if (this.stopReason) return
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
+    // a chat started from a skill is called by the skill's name people read, not "/card-news" (title.ts)
+    if (invoked && skillPlaceholderTitle(rt.db, spec.chatId, invoked.skill, skillAlias(invoked.skill.path))) rt.publishChat(spec.userId, spec.chatId, 'updated')
     // a project's skill: anyone who writes the project's folder may have written it (outside content, as project
     // instructions are: chat/runtime.ts projectTaints)
     if (invoked?.skill.project) this.taint()
@@ -881,8 +924,8 @@ export class TurnExec {
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = engineError(err.code, spec.locale)
-        else if (crashed) this.error = engineError('crash', spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
         if (!this.writtenText && !this.error && parser.text) this.appendText(parser.text)
         break
@@ -902,7 +945,7 @@ export class TurnExec {
       const stopped: { reason: 'used' | 'ended' | null } = { reason: null }
       const meter = trial ? createTrialMeter(credentialsOf(rt.ctx), (r) => { stopped.reason ??= r }) : undefined
       await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
-        ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
+        beforeRound: () => this.checkBudget(), ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (stopped.reason && !this.stopReason) this.error = engineError(stopped.reason === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
@@ -913,7 +956,7 @@ export class TurnExec {
     }
     // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
     // limit, never for budgets, refusals or crashes
-    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
+    if (claude && !this.stopReason && !this.budgetHit && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
   }
 
   /** The AI connection for this attempt (credentials/resolve.ts), or null with the turn's error set: none for this
@@ -940,7 +983,7 @@ export class TurnExec {
   private switchCredential(engine: CredEngine, exclude: Set<string>): boolean {
     const { rt, spec } = this
     const f = this.credentialFailure
-    if (!f || this.stopReason || this.switches >= 2) return false
+    if (!f || this.stopReason || this.budgetHit || this.switches >= 2) return false
     exclude.add(f.id)
     const next = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
     if (!next.ok) return false
@@ -1016,8 +1059,8 @@ export class TurnExec {
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = engineError(err.code, spec.locale)
-        else if (crashed) this.error = engineError('crash', spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         break
       }
     } finally {
@@ -1105,6 +1148,47 @@ export class TurnExec {
     if (ev.type !== 'auth') this.handle?.kill()
   }
 
+  /** A run's tokens that its total never replaced (it crashed or was killed) count as they are. */
+  private foldRunningUsage() {
+    this.usage.i += this.runningUsage.i; this.usage.o += this.runningUsage.o
+    this.runningUsage = { i: 0, o: 0 }
+  }
+
+  /**
+   * The engine's usage so far on the turn row, at once (not only at the end): a budget sums the turn rows, so this
+   * person's other answers see it, and a turn cut off by a crash keeps what it used. Once the model proxy counted a
+   * request of this turn its numbers stand (authoritative, usage_source 'proxy': credentials/broker.ts replaces the
+   * engine's on its first count); the engine's only fill in a turn the proxy counted nothing of. 'engine_unpriced':
+   * the provider gave no cost for some request and the model has no list price, so the amount is the known part only
+   * (the usage page says "price unknown"; never shown as free).
+   */
+  private recordUsage() {
+    const u = this.usage, r = this.runningUsage
+    try {
+      this.rt.db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND (usage_source IS NULL OR usage_source <> 'proxy')")
+        .run(u.i + r.i, u.o + r.o, u.c, u.unknown ? 'engine_unpriced' : 'engine', this.id)
+    } catch (e) { this.rt.log.warn('recording the usage failed', { err: e, turn: this.id }) }
+  }
+
+  /**
+   * The person's "block" budget during the answer (admin/budgets.ts budgetBlock, the check before a turn starts): used
+   * up, the answer stops like Stop does (halt: the slot taken back, tools and model requests refused at once, open
+   * cards closed and answers held for a slot dropped, the engine ended, quarantined if it does not end in time; the API
+   * engine sees the turn's abort), but without a stop reason: the
+   * answer ends as an error with the budget message. The model proxy refuses its own requests at the budget already
+   * (onProxyEvent).
+   */
+  private checkBudget() {
+    if (this.budgetHit || this.stopReason || this.status === 'finished') return
+    let b: ReturnType<typeof budgetBlock> = null
+    try { b = budgetBlock(this.rt.db, this.spec.userId, this.spec.locale) } catch (e) { this.rt.log.warn('budget check failed', { err: e, turn: this.id }); return }
+    if (!b) return
+    this.budgetHit = { code: 'budget_exceeded', message: b.message }
+    this.proxyError ??= this.budgetHit
+    this.rt.log.info('answer stopped: budget used up', { turn: this.id, budget: b.budget.id })
+    this.halt()
+  }
+
   /** The engine started with (init check) or asked the model for (model proxy, M1) a tool outside the lockdown: the
    * answer stops with the lockdown error at once, never retried (the same engine would do it again). */
   private stopAtLockdown(reason: string, source: 'init' | 'proxy') {
@@ -1130,7 +1214,11 @@ export class TurnExec {
   /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
   private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void) {
     if (this.remainingWallMs() <= 0) this.expireWall()
-    if (this.stopReason) return { exit: null, stderr: '', notes: [] as string[] }
+    // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
+    // (other answers of this person may have used it up since the last attempt)
+    this.foldRunningUsage()
+    this.checkBudget()
+    if (this.stopReason || this.budgetHit) return { exit: null, stderr: '', notes: [] as string[] }
     if (!core.launcher) throw new CoreUnavailableError('engine launcher not running')
     lr = { ...lr, timeoutMs: Math.min(lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS, this.remainingWallMs()) }
     const h = core.launcher.launch(lr)
@@ -1269,9 +1357,18 @@ export class TurnExec {
         this.subtaskProgress(e.id, e.stats)
         return
       case 'usage':
-        this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0; this.usage.seen = true
+        // a running usage is one model call of the run under way; the run's total replaces those estimates
+        if (e.running) { this.runningUsage.i += e.inputTokens; this.runningUsage.o += e.outputTokens }
+        else { this.runningUsage = { i: 0, o: 0 }; this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0 }
+        this.usage.seen = true
         if (e.costUnknown) this.usage.unknown = true
         if (e.requestId && this.usage.ids.length < 50) this.usage.ids.push(e.requestId)
+        // counted at once, so this person's other answers see it. The budget is checked again only where the answer
+        // goes on after this call (Claude Code or the API engine asked for a tool, a sub-agent called the model); a
+        // run's total and the answer's last call never turn an answer that is complete into a budget error: the next
+        // answer is refused before it starts instead
+        this.recordUsage()
+        if (e.continues) this.checkBudget()
         return
       case 'error':
         errors.push(e)
@@ -2051,9 +2148,12 @@ export class TurnExec {
     const always = coverOnce && !!grantRoom
     // anyone who joins the room from now on lapses a grant this card makes (rooms/ai-grants.ts members_since)
     const askedAt = new Date().toISOString()
-    // the person's own chat: why it asks first (the room card's words after it for a new team file)
+    // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
+    // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
+    const reads = mine && this.readsOnly(tool, input)
     const question = target
       ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
+      : reads ? tr(own ? 'roomsSeenConfirmRead' : 'roomAiConfirmRead', L, { what, ai: aiCalled(L) })
       : own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
       : tr('roomAiConfirm', L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
@@ -2965,7 +3065,9 @@ export class TurnExec {
   private exclusiveCard: Promise<void> | null = null
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
-  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<unknown> {
+  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
+    // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
+    o = { ...o, askedAt: o.askedAt ?? performance.now() }
     if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
@@ -2981,14 +3083,16 @@ export class TurnExec {
     }
     return shown
   }
-  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
+  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.remainingWallMs() <= 0) this.expireWall()
         this.closeRequest(request.requestId, null, 'timeout')
       }, Math.min(o.timeoutMs, this.remainingWallMs()))
-      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null })
+      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now() })
       this.humanWaits++
+      // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
+      if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
       const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request } }
       if (o.window) this.rt.hub.publishTo(this.spec.userId, o.window, ev)
       else this.rt.hub.publish(this.spec.userId, ev)
@@ -3054,6 +3158,21 @@ export class TurnExec {
     else this.rt.hub.publish(this.spec.userId, ev)
     this.cardsChanged(r.window, false)
     if (reason !== 'answered') this.cardMissing.set(requestId, reason === 'timeout' ? 'timeout' : 'ended')
+    // A card of a turn that holds no slot closed (answered or timed out): its answer reaches the engine only once the
+    // turn has a slot again. Another card still open: the answer waits with the turn. The last one: the turn takes the
+    // next free slot, first in line (ChatRuntime.turnResuming). A card the turn's end closed needs none.
+    if (reason !== 'turn_ended' && this.status === 'running' && !this.stopReason) {
+      let parked = false
+      try { parked = this.rt.isParked(this) } catch (e) { this.rt.log.warn('reading the slot state failed', { err: e, turn: this.id }) }
+      if (parked) {
+        // held first: a grant (now, or later by grantResumes) hands it on with resumeAnswers
+        this.heldAnswers.push({ requestId, value, resolve: r.resolve, openedAt: r.openedAt })
+        if (this.humanWaits === 0) {
+          try { this.rt.turnResuming(this) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }); this.resumeAnswers() }
+        }
+        return
+      }
+    }
     r.resolve(value)
   }
 
@@ -3156,6 +3275,15 @@ export class TurnExec {
     finally { this.resolveDone() }
   }
 
+  /** An engine that stopped, or a turn that threw: on a full disk say so (the error is ENOSPC / SQLite full, the engine's
+   * output says "no space left on device", or the server's disk has almost nothing left now), else the crash words.
+   * QA TC-209: a full disk read as "the AI stopped unexpectedly", and only an admin can fix it. */
+  private crashOrFullDisk(e?: unknown, output = ''): ApiErrorBody {
+    const cfg = this.rt.ctx.config
+    const full = isDiskFullError(e) || DISK_FULL_TEXT.test(output) || diskAlmostFull([cfg.dataDir, cfg.teamRoot])
+    return engineError(full ? 'storage_full' : 'crash', this.spec.locale)
+  }
+
   /** finish() could not record the end: the rows still get one (never left running or streaming) */
   private endAfterFailure() {
     this.error ??= engineError('crash', this.spec.locale)
@@ -3175,6 +3303,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     this.finishStep('text', () => this.flushText())
+    this.finishStep('held answers', () => this.dropHeldAnswers())
     // a room session: every read of this turn is in the read scope before the room decides where the answer goes
     if (this.room) { try { this.noteReads() } catch (e) { this.rt.log.warn('room read scope failed', { err: e, turn: this.id }) } }
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
@@ -3187,7 +3316,7 @@ export class TurnExec {
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
-    for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
+    for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason || this.budgetHit ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
     for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
@@ -3198,6 +3327,9 @@ export class TurnExec {
       else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
     }
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
+    // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
+    // (a broken lockdown stays what the person reads: it says more than the budget)
+    else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null
@@ -3249,11 +3381,8 @@ export class TurnExec {
       if (core) core.turns.revoke(this.id, turnStatus, this.error?.message)
       else db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(turnStatus, new Date().toISOString(), this.error?.message ?? null, this.id)
       if (this.usage.seen) {
-        // in company-key mode the model proxy already counted (authoritative); engine numbers only fill in otherwise
-        // 'engine_unpriced': the provider gave no cost for some request and the model has no list price, so the amount
-        // is the known part only (the usage page says "price unknown"; never shown as free)
-        db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND input_tokens = 0 AND output_tokens = 0")
-          .run(this.usage.i, this.usage.o, this.usage.c, this.usage.unknown ? 'engine_unpriced' : 'engine', this.id)
+        this.foldRunningUsage()
+        this.recordUsage()
         if (this.usage.ids.length) this.rt.log.info('provider request ids', { turn: this.id, requestIds: this.usage.ids })
       }
       this.rt.store.touchChat(this.spec.chatId)

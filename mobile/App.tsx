@@ -296,6 +296,8 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
  */
 function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<void> }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  // the connect the person said yes to could not reach the team (or not be saved): [다시 시도] goes again with that link
+  const [again, setAgain] = useState(false)
   // [연결] is on only once ④ has been on screen a while (the gate counts 600 ms from gate.shown)
   const [ready, setReady] = useState(false)
   // the team moved at its relay: its new address, asked once more before anything is saved
@@ -312,17 +314,22 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       try { if (current === moved.origin) onSame(moved.entryPath); else await onDone(moved) } catch { setError(t.saveFailed) } finally { setBusy(false) }
       return
     }
-    // the yes counts for this host only, and not right after ④ appeared
-    const o = gate.answer(true, offer.host, Date.now())
+    // the yes counts for this host only, and not right after ④ appeared; [다시 시도] reuses the link that yes confirmed
+    const o = again ? gate.retry(offer.host) : gate.answer(true, offer.host, Date.now())
     if (!o) return
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setAgain(false)
     try {
       const r = await checkTeam(o.origin, service.teamDomain)
-      if (!r.ok) { setError(r.reason === 'unknown' ? fill(t.teamUnknown, { name: o.name ?? o.host }) : r.reason === 'suspended' ? t.suspended : r.reason === 'notTeam' ? t.notTeam : t.unreachableSetup); return }
+      if (!r.ok) {
+        if (r.reason === 'unreachable') { setError(t.linkUnreachable); setAgain(true); return }
+        setError(r.reason === 'unknown' ? fill(t.teamUnknown, { name: o.name ?? o.host }) : r.reason === 'suspended' ? t.suspended : t.notTeam)
+        return
+      }
       if (r.renamed) { setMoved({ origin: r.origin, entryPath: o.entryPath }); return }
       if (current === r.origin) onSame(o.entryPath)
       else await onDone({ origin: r.origin, entryPath: o.entryPath })
-    } catch { setError(t.saveFailed) } finally { setBusy(false) }
+      gate.clear()
+    } catch { setError(t.saveFailed); setAgain(true) } finally { setBusy(false) }
   }
   useEffect(() => {
     gate.shown(offer.id, Date.now())
@@ -341,8 +348,8 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}
       <View style={s.askRow}>
         <Pressable ref={cancelRef} style={[s.secondary, s.askButton]} onPress={no} testID="link-cancel" accessibilityRole="button"><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
-        {!error && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
-          {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
+        {(!error || again) && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
+          {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{again ? t.retry : switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
       </View>
     </View>
   </View>

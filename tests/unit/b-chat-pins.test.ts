@@ -1,6 +1,7 @@
 // Pinned chats (docs/DECISIONS.md "Pinned chats", server/src/chat/pins.ts): "상단에 고정" / "고정 해제" on a chat row.
-// The project is on projects/falcon and shares its chats: alice writes it, the finance group (bob) reads it, carol
-// (admin) and dana (owner) see everything; erin is not in its audience. Covered: pin and unpin (idempotent, my windows
+// The project is on projects/falcon and shares its chats: alice writes it, the finance group (bob) reads it; carol
+// (admin) and dana (owner) are not its members, so they do not see its chats (docs/DECISIONS.md "Project contents only
+// for members"); erin is not in its audience. Covered: pin and unpin (idempotent, my windows
 // hear it, nobody else), the order of the list and its pages (my list, a project's page, a search), a shared chat's pin
 // is its viewer's own, a pin of a chat I can no longer see is not shown and goes, the trash, a purge, a deleted project
 // and a deleted person take their pins, and the cap.
@@ -159,7 +160,9 @@ describe('shared project chats', () => {
     expect(mine.pinnedAt).toBeString()
     expect(mine.shared?.mine).toBe(true)
     expect((await ids('bob'))[0]).toBe(shared.id)
-    for (const u of ['alice', 'carol']) expect((await h.api(u).call(API.getChat, { params: { id: shared.id } })).pinnedAt).toBeUndefined()
+    expect((await h.api('alice').call(API.getChat, { params: { id: shared.id } })).pinnedAt).toBeUndefined()
+    // carol (admin) is not a member: she does not see the chat at all
+    expect((await errOf(h.api('carol').call(API.getChat, { params: { id: shared.id } }))).status).toBe(404)
     expect((await list('alice')).find((x) => x.id === shared.id)?.pinnedAt).toBeUndefined()
     await ws.bob!.next('chat.updated', (f) => f.data.chatId === shared.id && !!f.data.chat?.pinnedAt)
     await caughtUp()
@@ -172,10 +175,13 @@ describe('shared project chats', () => {
     expect(updates('bob', shared.id, turn.bob).every((f) => f.data.chat?.pinnedAt === mine.pinnedAt)).toBe(true)
     expect(updates('alice', shared.id, turn.alice).length).toBeGreaterThan(0)
     expect(updates('alice', shared.id, turn.alice).every((f) => f.data.chat?.pinnedAt === undefined)).toBe(true)
-    // carol (admin) may pin it too, for herself
-    await pin('carol', shared.id)
-    expect(pinRows(shared.id)).toEqual(['bob', 'carol'])
-    await unpin('carol', shared.id)
+    // carol (admin) is not a member: she cannot pin it (not found, as a chat she does not see)
+    expect((await errOf(pin('carol', shared.id))).status).toBe(404)
+    expect(pinRows(shared.id)).toEqual(['bob'])
+    // alice may pin it too, for herself
+    await pin('alice', shared.id)
+    expect(pinRows(shared.id)).toEqual(['alice', 'bob'])
+    await unpin('alice', shared.id)
     expect((await h.api('bob').call(API.getChat, { params: { id: shared.id } })).pinnedAt).toBe(mine.pinnedAt)
   })
 
@@ -224,6 +230,12 @@ describe('what takes a pin away', () => {
     const shared = await h.api('bob').call(API.createChat, { body: { projectId: p.id } })
     await pin('bob', shared.id)
     await pin('dana', shared.id)
+    // the first delete puts it in the trash with its folder: nobody sees its chats, so a list drops its person's pin of
+    // one as it loads (as for any chat they cannot see)
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect((await list('bob')).find((x) => x.id === shared.id)).toBeUndefined()
+    expect(pinRows(shared.id)).toEqual(['dana'])
+    // deleted for good: its shared chats go to their creators' trash, and every pin of them goes
     await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
     expect(pinRows(shared.id)).toEqual([])
   })

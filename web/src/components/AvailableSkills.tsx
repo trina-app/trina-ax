@@ -34,18 +34,20 @@ import { useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { toast } from '../store/ui'
-import { skillPrompt } from './PopularSkills'
 import { BringSkillsSheet } from './skills/BringSkillsSheet'
 import { ContributeSheet } from './skills/ContributeSheet'
 import { MoveSkillDialog } from './skills/MoveSkillDialog'
 import { installPacks, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from './skills/PackRows'
 import { SkillFormDialog } from './skills/SkillForm'
+import { MenuButton } from './rooms/MenuButton'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from './ui'
 
 type Skill = SkillInfo & { uses?: number }
 
 /** The skill's file in Files (its folder, the file selected). */
 export const skillFileLink = (path: string) => `/files?path=${encodeURIComponent(parentPath(path))}&select=${encodeURIComponent(path)}`
+/** The text a skill row puts in the composer: the slash command and a space for the request. */
+export const skillPrompt = (name: string) => '/' + name + ' '
 /** A new chat with "/<name> " in the message box. */
 export const skillChatLink = (name: string) => `/?prompt=${encodeURIComponent(skillPrompt(name))}`
 
@@ -335,7 +337,35 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
   )
 }
 
-function SkillMenu({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
+/** A row's "…": on a computer a small menu under it, the file's path at its foot; on a phone (below 768px) a 44px "…"
+ * and a bottom sheet with the skill's name on top and no path (rooms/MenuButton.tsx, the app's one sheet). */
+function SkillMenu(props: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  return phone ? <SkillSheet {...props} /> : <SkillDropdown {...props} />
+}
+
+function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
+  const t = useT()
+  const name = skillShown(s) ?? `/${s.name}`
+  return (
+    <MenuButton
+      label={t('skills.moreNamed', { name })}
+      tip={t('common.more')}
+      sheetTitle={name}
+      muted
+      className="shrink-0"
+      buttonClassName="size-11"
+      testId="skill-more"
+      items={[
+        ...(onUse ? [{ label: t('skills.use'), icon: <MessageSquarePlus size={18} aria-hidden />, onSelect: onUse }] : []),
+        { label: t('skills.viewFile'), icon: <FileText size={18} aria-hidden />, onSelect: () => navigateTo(skillFileLink(s.path)), testId: 'skill-file' },
+        { label: t('skills.move'), icon: <ArrowRightLeft size={18} aria-hidden />, onSelect: onMove, testId: 'skill-move-open' },
+      ]}
+    />
+  )
+}
+
+function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)

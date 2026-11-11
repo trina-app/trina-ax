@@ -4,20 +4,22 @@ import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { PRODUCT } from '@mycel/shared'
+import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { useMe, useSession } from '../store/session'
+import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
-import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { forgetJoinToken, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
+import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
 import { platform } from '../lib/pwa'
+import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
@@ -249,7 +251,9 @@ export function Setup() {
   const navigate = useNavigate()
   // the link from the account console (#token=…&team=…&lang=…&site=…) or the installer (?token=…), read once
   const [link] = useState(() => readSetupLink(window.location))
-  const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
+  // after a reload the token is no longer in the address: the one this tab's link carried (lib/setupLink.ts)
+  const [linkToken] = useState(() => link.token ?? keptSetupToken())
+  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const passwordHintId = useId()
   const { busy, error, run, setError } = useSubmit()
@@ -264,7 +268,7 @@ export function Setup() {
   }, []) // once, on arrival
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
-    setupToken: link.token ? null : requiredCheck(form.setupToken),
+    setupToken: linkToken ? null : requiredCheck(form.setupToken),
     teamName: requiredCheck(form.teamName),
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
@@ -280,6 +284,7 @@ export function Setup() {
       const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       // the company website from the link: the company profile step starts from it (components/onboarding)
       rememberSetupSite(link.site)
+      forgetSetupToken()
       // then the welcome steps (pages/Welcome.tsx): set before the session switch re-renders /setup (App.tsx AfterSetup)
       setAfterSetup('/welcome')
       signedIn(r.me)
@@ -292,7 +297,7 @@ export function Setup() {
     <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
       <form onSubmit={submit} noValidate className="space-y-6">
         <FormSection title={t('setup.section.team')} testId="setup-section-team">
-          {!link.token && (
+          {!linkToken && (
             <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
               <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
             </Field>
@@ -412,10 +417,10 @@ function SignInInstead() {
 }
 
 /** "앱에서 열기": the same join page in the desktop or phone app (its screen ④ asks first). Web browsers on the apps'
- * systems only. */
+ * systems only. On Android, without the app, Chrome opens the "Get the app" address instead. */
 function OpenInApp({ path }: { path: string }) {
   const t = useT()
-  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage })
+  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage, androidFallback: getAppHref('android', clientKind(), APP_DOWNLOADS) })
   if (!openInAppShown(clientKind(), href)) return null
   return (
     <p className="mt-2 text-center text-sm">
@@ -425,6 +430,106 @@ function OpenInApp({ path }: { path: string }) {
     </p>
   )
 }
+
+/**
+ * Both join pages (docs/DECISIONS.md "Get the app"). In a phone's web browser the link landed here because the app is
+ * not installed (with it, the link opens the app), so the page leads with one button that copies this invite or team
+ * link and goes to the App Store (or Android's download page), and says to paste the link on the app's first screen
+ * (its one box takes an invite link, a team link or an address). The copy happens only on that tap, never on load, and
+ * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
+ * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
+ */
+function JoinChoices({ path, children }: { path: string; children: ReactNode }) {
+  const t = useT()
+  const [web, setWeb] = useState(false)
+  // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
+  // link to copy by hand ('failed'); both offer the store as a plain link
+  const [manual, setManual] = useState<null | 'checking' | 'copied' | 'failed'>(null)
+  const store = getAppHref(platform(), clientKind(), APP_DOWNLOADS)
+  if (!store || web)
+    return (
+      <>
+        {children}
+        <HaveAccount />
+        <OpenInApp path={path} />
+      </>
+    )
+  // this page's own link (the team link's token from memory: the address bar no longer has it), for the person's own
+  // paste in the app; the store address stays the fixed one, with nothing of it
+  const link = window.location.origin + path
+  const onAndroid = platform() === 'android'
+  const copied = () => {
+    setManual('copied')
+    toast({ level: 'success', text: t('auth.linkCopied') })
+  }
+  // the copy runs inside the tap; when it worked, the tap's own navigation to the store goes ahead (no scripted
+  // navigation after an await: Safari and iOS web views treat those differently). When it did not, the page stays,
+  // so nobody installs with nothing to paste
+  const tap = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const r = copyInTap(link, { doc: document, clipboard: navigator.clipboard })
+    if (r.now) {
+      toast({ level: 'success', text: t('auth.linkCopied') })
+      return
+    }
+    e.preventDefault()
+    setManual('checking')
+    void (r.later ?? Promise.resolve(false)).then((ok) => (ok ? copied() : setManual('failed')))
+  }
+  const copyAgain = () => {
+    const r = copyInTap(link, { doc: document, clipboard: navigator.clipboard })
+    if (r.now) return copied()
+    void r.later?.then((ok) => ok && copied())
+  }
+  // the store this button opens: the App Store, Google Play, or (a build without a Play listing) the download page
+  const goLabel = t(!onAndroid ? 'auth.goAppStore' : APP_DOWNLOADS.android && store === APP_DOWNLOADS.android ? 'auth.goGooglePlay' : 'auth.goDownloadPage')
+  return (
+    <div data-testid="get-app">
+      <a
+        href={store}
+        rel="noreferrer noopener"
+        onClick={tap}
+        className="flex min-h-10 w-full items-center justify-center rounded-lg bg-accent px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover"
+        data-testid="get-app-store"
+      >
+        {t('auth.getApp')}
+      </a>
+      {manual === 'failed' && (
+        <div className="mt-3 flex flex-col gap-2" data-testid="get-app-manual">
+          <p role="alert" className="text-sm text-ink">{t('auth.linkNotCopied')}</p>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={link}
+              aria-label={t('auth.inviteLinkLabel')}
+              onFocus={(e) => e.currentTarget.select()}
+              className={clsx(inputCls, 'min-w-0 flex-1')}
+              data-testid="get-app-link"
+            />
+            <Button onClick={copyAgain} data-testid="get-app-copy">{t('common.copy')}</Button>
+          </div>
+        </div>
+      )}
+      {(manual === 'failed' || manual === 'copied') && (
+        <p className="mt-2 text-center text-sm">
+          <a href={store} rel="noreferrer noopener" className="text-accent-text underline" data-testid="get-app-go">{goLabel}</a>
+        </p>
+      )}
+      <p className="mt-2 text-center text-sm text-muted" data-testid="get-app-hint">{t('auth.getAppHint')}</p>
+      <OpenInApp path={path} />
+      <p className="mt-4 text-center text-sm">
+        <button type="button" className="text-accent-text underline" onClick={() => setWeb(true)} data-testid="get-app-web">
+          {t('auth.continueInBrowser')}
+        </button>
+      </p>
+      <HaveAccount />
+    </div>
+  )
+}
+
+/** Both join pages' title: "{inviter} invited you to {team}" when the link's or invite's maker is known (docs/DECISIONS.md
+ * "A welcome for invited people"), else "Join {team}". */
+export const joinTitle = (t: ReturnType<typeof useT>, team: string, inviter: string | null | undefined) =>
+  inviter ? t('invite.invitedBy', { inviter, team }) : t('invite.joinTeam', { team })
 
 /** Under both join forms: someone who already has an account here signs in instead of making a second one. */
 function HaveAccount() {
@@ -508,10 +613,10 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
-      <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
-      <HaveAccount />
-      <OpenInApp path={`/invite/${token}`} />
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+      <JoinChoices path={`/invite/${token}`}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      </JoinChoices>
     </AuthFrame>
   )
 }
@@ -596,10 +701,10 @@ export function TeamJoin() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
-      <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
-      <HaveAccount />
-      <OpenInApp path={`/join#t=${link.token}`} />
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+      <JoinChoices path={`/join#t=${link.token}`}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      </JoinChoices>
     </AuthFrame>
   )
 }

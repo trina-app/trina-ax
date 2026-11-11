@@ -1,7 +1,7 @@
 // Shared project chats (docs/DECISIONS.md "Shared project chats"). A project editor turns on "share its chats"
 // (projects.share_chats); every chat made in that project from then on (chats.shared_at, only at creation) is seen by
-// the people who can see the project (canSeeProject: who can read its folder, owner and admins included; while its
-// folder is in the trash, the owner and admins) and may be continued by them. Nothing about who sees a chat is stored:
+// the people who can see the project (canSeeProject: who can read its folder; for a project in projects/ its members
+// only, the owner and admins too only as members; while its folder is in the trash, nobody) and may be continued by them. Nothing about who sees a chat is stored:
 // the audience is the project's readers now, so a rule change applies at once (losing access hides the chat, from its
 // creator too). Each turn is its sender's (chat/turn.ts: their access, AI connection, engine, budget, queue and usage),
 // and what some of the audience cannot read enters the transcript only after the sender's yes on a card
@@ -81,7 +81,8 @@ export class Audiences {
       // canSeeProject with the rules read once for every person and project of this request
       const rules = (this.rules ??= this.files.rules())
       const segs = p.folder_path === '' ? [] : p.folder_path.split('/')
-      ids = this.people.filter((x) => (p.trashed_with === null || x.role === 'owner' || x.role === 'admin') && atLeast(rules.access(x, segs), 'read')).map((x) => x.id)
+      // while its folder is in the trash nobody reads it (chat/projects.ts canSeeProject), the owner and admins included
+      ids = p.trashed_with !== null ? [] : this.people.filter((x) => atLeast(rules.access(x, segs), 'read')).map((x) => x.id)
       this.byProject.set(p.id, ids)
     }
     return ids
@@ -89,7 +90,8 @@ export class Audiences {
   sees(userId: string, p: ProjectRow): boolean { return this.of(p).includes(userId) }
   /**
    * Nobody but `viewer` sees the project by a rule of its folder (a person, group, role or everyone rule): anyone else of
-   * its audience sees it only as the owner or an admin, who see every project (Project.alone: the line under the box says
+   * its audience sees it only as the owner or an admin, who see a project outside projects/ by their role (inside it
+   * they read it only as members; Project.alone: the line under the box says
    * "나와 관리자만 봐요", docs/DECISIONS.md "Who sees it, always"). Role-blind: each of them is judged as a member would
    * be, so an admin who sees it by a rule (its creator, someone chosen) counts like anyone else. While its folder is in
    * the trash nobody sees it by a rule. Only for someone who may read its rules anyway (chat/project-access.ts
@@ -128,17 +130,16 @@ export class Audiences {
 /** The audience of one project now. */
 export const audienceOf = (db: Database, files: FileService, p: ProjectRow): string[] => new Audiences(db, files).of(p)
 
-/** canSeeProject's rule for one person under a rule set: read on its folder; while its folder is in the trash, the owner
- * and admins only. */
+/** canSeeProject's rule for one person under a rule set: read on its folder; while its folder is in the trash, nobody. */
 const seesUnder = (rules: RuleSet, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, x: Principal): boolean =>
-  (p.trashed_with === null || x.role === 'owner' || x.role === 'admin') && atLeast(rules.access(x, p.folder_path === '' ? [] : p.folder_path.split('/')), 'read')
+  p.trashed_with === null && atLeast(rules.access(x, p.folder_path === '' ? [] : p.folder_path.split('/')), 'read')
 
 /**
  * The folder rules a project is judged by as if its folder were in place: the team's rules now, or while its folder is in
  * the files trash the rules parked with it put back at its old path (rules of a folder that took that path since do not
  * count), as the files trash judges who may restore it (team-files/service.ts trashVisible). null: its folder was purged
- * from the trash (its own rules are gone, and the folder above may let in people it kept out): only the owner and
- * admins see the project, as canSeeProject says.
+ * from the trash (its own rules are gone, and the folder above may let in people it kept out): nobody reads it, and the
+ * owner and admins only manage it (chat/projects.ts mayManageProject).
  */
 export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRow, 'trashed_with'>): RuleSet | null {
   if (!p.trashed_with) return files.rules()
@@ -152,13 +153,14 @@ export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRo
 
 /** Would this account see the project, by its folder's rules: whatever its status (a disabled account counts as if it
  * were enabled again: it then sees its shared chats again; a deleted one never), and as if its folder were in place
- * (while it is in the trash only the owner and admins see the project; its people again once it is back: `rules` from
+ * (while it is in the trash nobody reads it; its people again once it is back: `rules` from
  * rulesInPlace). For a deleted project's shared chats (routes/chats.ts deleteProject): one goes to its creator's trash
  * only when they would see it. */
 export function accountSeesProject(db: Database, rules: RuleSet | null, p: Pick<ProjectRow, 'folder_path'>, userId: string): boolean {
   const u = db.query('SELECT id, name, role FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
   if (!u) return false
-  if (!rules) return u.role === 'owner' || u.role === 'admin'
+  // its folder was purged: its own rules are gone, so nobody is known to see it (the owner and admins neither)
+  if (!rules) return false
   const groups = (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((r) => r.group_id)
   return seesUnder(rules, { folder_path: p.folder_path, trashed_with: null }, { ...u, groups })
 }
@@ -306,11 +308,11 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   const hide = o.hide ?? redactorFor(rt.ctx, r.user_id).hide
   if (!isSharedRow(r)) {
     // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
-    const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id), { ...(severalAuthors(rt.db, r.id) ? { answersOf: r.user_id } : {}), viewer })
+    const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id), { ...(severalAuthors(rt.db, r.id) ? { answersOf: r.user_id } : {}), viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: rt.waitsForPlace(r.id) })
     return { ...c, title: hide(c.title) }
   }
   const runner = rt.activeTurnUser(r.id)
-  const c = rt.store.toChat(r, rt.runState(r.id), runner === viewer && rt.waitsForPerson(r.id), { answersOf: r.user_id === viewer ? viewer : null, viewer })
+  const c = rt.store.toChat(r, rt.runState(r.id), runner === viewer && rt.waitsForPerson(r.id), { answersOf: r.user_id === viewer ? viewer : null, viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: runner === viewer && rt.waitsForPlace(r.id) })
   const shared = sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files))
   if (o.people) {
     const p = o.people.get(r.id)
@@ -444,7 +446,7 @@ export function projectSeenByAll(db: Database, files: FileService, p: Pick<Proje
   const segs = p.folder_path === '' ? [] : p.folder_path.split('/')
   return ids.every((id) => {
     const x = loadPrincipal(db, id)
-    return !!x && (p.trashed_with === null || x.role === 'owner' || x.role === 'admin') && atLeast(rules.access(x, segs), 'read')
+    return !!x && p.trashed_with === null && atLeast(rules.access(x, segs), 'read')
   })
 }
 

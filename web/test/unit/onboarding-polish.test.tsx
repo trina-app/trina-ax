@@ -4,13 +4,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import { skillTitle, type PopularSkills, type SkillInfo, type TeamLinkResponse } from '@mycel/shared/api'
+import { skillTitle, type SkillInfo, type TeamLinkResponse } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { teamLinkMessage } from '../../src/lib/team-link'
 import { namedProduct } from '../../src/lib/tabs'
 import { TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
-import { PopularSkillsList } from '../../src/components/PopularSkills'
 import { matchSkills } from '../../src/components/chat/SkillMenu'
 import { OwnerChecklist } from '../../src/pages/admin/OwnerChecklist'
 import { installDom, mount, removeDom } from './dom-host'
@@ -52,24 +51,6 @@ describe('a skill by its title', () => {
     const html = renderToStaticMarkup(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="김팀장" team="Acme" groups={[]} skills={[AD, PLAIN]} busy={false} onCreate={noop} onRevoke={noop} />)
     expect(html).toContain(`<option value="${AD.path}">광고 문구</option>`)
     expect(html).toContain(`<option value="${PLAIN.path}">weekly</option>`)
-  })
-
-  test('Home\'s frequent skills: the title and the description without the repeated lead; choosing still writes "/ad-copy "', async () => {
-    const result: PopularSkills = { items: [{ ...AD, uses: 3, users: 2 }], days: 30 }
-    const html = renderToStaticMarkup(<MemoryRouter><PopularSkillsList result={result} onChoose={noop} /></MemoryRouter>)
-    expect(html).toContain('>광고 문구</button>')
-    expect(html).toContain('>알릴 제품과 실을 곳을 받아 3안을 써요.</p>')
-    expect(html).not.toContain('ad-copy')
-    installDom()
-    try {
-      const chosen: string[] = []
-      const m = await mount(<MemoryRouter><PopularSkillsList result={result} onChoose={(p) => chosen.push(p)} /></MemoryRouter>)
-      try {
-        const button = m.container.querySelector('button')!
-        await m.click(button)
-        expect(chosen).toEqual(['/ad-copy '])
-      } finally { await m.unmount() }
-    } finally { removeDom() }
   })
 
   test('the "/" menu finds a skill by its title too', () => {
