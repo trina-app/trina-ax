@@ -1,13 +1,13 @@
-// The kept skills in a real browser against the mock (docs/DECISIONS.md "W6 — Onboarding v6: skills catalog and 내 스킬";
-// FLOW-v6 §2, §4.2): the owner's 내 스킬 step (components/onboarding/SkillsStep.tsx) lists the kept skills the team does
-// not have (회사 소개서, 카드뉴스, 홍보 영상 checked when a company profile is saved, 자연스러운 글 never) above
-// bring-your-own, under ONE primary that names what goes in; 예시 opens the viewer with the example made on the invented
-// 예시커피 / Example Coffee (one per open, Esc back to the row). Own skills
-// still being checked hold the primary, and a check past 30 seconds is ended (the list then shows unticked, "AI 없이").
-// A press that does not all go in stays with the reason (a request that failed with 다시 시도; a name already taken) and
-// a 다음. The Team skills page (components/AvailableSkills.tsx): for owners and admins the kept skills folded under the
-// lists, nothing checked, installed rows moving up into the list; "내 스킬 가져오기" for everyone on a computer (the
-// bring sheet, a member's suggestion sheet); a phone's plain line. The step with own skills only: welcome-skills.spec.ts.
+// The kept skills in a real browser against the mock (docs/DECISIONS.md "W6 — Onboarding v6: skills catalog and 내 스킬",
+// "W7"; FLOW-v6 §2, §4.2): the owner's skills step (components/onboarding/SkillsStep.tsx) lists only the kept skills the
+// team does not have (회사 소개서, 카드뉴스, 홍보 영상 checked when a company profile is saved, 자연스러운 글 never),
+// under ONE primary that names what goes in; nothing there brings own skills (no folder button, no hidden-folder hint,
+// no Claude Code line). 예시 opens the viewer with the example made on the invented 예시커피 / Example Coffee (one per
+// open, Esc back to the row). A press that does not all go in stays with the reason (a request that failed with 다시
+// 시도; a name already taken) and a 다음. The Team skills page (components/AvailableSkills.tsx): for owners and admins
+// the kept skills folded under the lists, nothing checked, installed rows moving up into the list; "내 스킬 가져오기"
+// for everyone on a computer (the bring sheet, where a check past 30 seconds is ended and the list shows unticked, "AI
+// 없이"; a member's suggestion sheet); a phone's plain line. The whole setup walk: welcome-skills.spec.ts.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
@@ -70,6 +70,12 @@ async function toSkillsStep(page: Page, o: { profile?: boolean } = {}) {
 const packRow = (root: Page | Locator, name: string) => root.locator(`[data-testid="skill-pack-row"][data-name="${name}"]`)
 const checks = (root: Locator) => root.getByTestId('skill-pack-check').evaluateAll((xs) => xs.map((x) => (x as HTMLInputElement).checked))
 const progress = async (page: Page) => (await (await page.request.get('/api/onboarding/welcome')).json()).progress
+/** nothing of the own-skills way in is on the step (docs/DECISIONS.md "W7") */
+async function noOwnPart(page: Page) {
+  for (const id of ['skills-own', 'skills-find', 'skills-hint', 'skills-promise', 'skills-cc', 'skills-phone-own']) await expect(page.getByTestId(id)).toHaveCount(0)
+  await expect(page.getByTestId('skills-step')).not.toContainText('.claude')
+  await expect(page.getByTestId('skills-step')).not.toContainText('내 스킬 가져오기')
+}
 const inTeam = async (page: Page) => ((await (await page.request.get('/api/onboarding/packs')).json()).skills as { name: string; inTeam: boolean }[]).filter((s) => s.inTeam).map((s) => s.name)
 
 test('내 스킬 with a company profile: four kept skills, the visual three checked; 예시 with ‹ › and Esc; one press puts them in; 이전 shows 다음', async ({ page }) => {
@@ -84,15 +90,12 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await expect(packs.getByTestId('skill-pack-line')).toHaveCount(4)
   await expect(packRow(packs, 'intro-deck').getByTestId('skill-pack-line')).toHaveText('회사 소개로 6~10장짜리 소개서를 만들어요')
   expect(await checks(packs)).toEqual([true, true, true, false])
-  // one primary naming what goes in; 나중에 하기 beside it; the own part under it with its folder button
+  // one primary naming what goes in; 나중에 하기 beside it; only the skills Trina prepared, no own skills
   const primary = page.getByTestId('skills-primary')
   await expect(primary).toHaveAttribute('data-state', 'put')
   await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
   await expect(page.getByTestId('skills-later')).toBeVisible()
-  await expect(page.getByTestId('skills-own').getByRole('heading', { name: '내 스킬 가져오기' })).toBeVisible()
-  await expect(page.getByTestId('skills-find')).toBeVisible()
-  await expect(page.getByTestId('skills-hint')).toBeVisible()
-  await expect(page.getByTestId('skills-promise')).toHaveText('고른 폴더의 스킬만 읽어요 · 넣기 전에 목록을 먼저 보여 드려요')
+  await noOwnPart(page)
   // a check moves the words: 자연스러운 글 too → four items, counted
   await packRow(packs, 'humanizer').getByTestId('skill-pack-check').check()
   await expect(primary).toHaveText('팀에 넣기 · 4개')
@@ -154,30 +157,23 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   expect(realErrors(errors)).toEqual([])
 })
 
-test('내 스킬, own skills and a kept one: the primary waits while they are checked; past 30 seconds the list shows unticked; one own + 카드뉴스 → "카드뉴스·주간 업무 보고 넣기" (own skills named too), both go in', async ({ page }) => {
+test('Team skills › 내 스킬 가져오기 (owner, during the setup): a check past 30 seconds is ended and the list shows unticked; a ticked own skill goes in', async ({ page }) => {
   const errors = watchConsole(page)
   // the page's own clock (time still runs): the 30 seconds are skipped instead of waited for
   await page.clock.install()
   await stubFolderWindow(page)
   await reset(page)
   await toSkillsStep(page)
-  // no profile: nothing checked, so no primary yet
-  const packs = page.getByTestId('skill-packs')
-  expect(await checks(packs)).toEqual([false, false, false, false])
-  const primary = page.getByTestId('skills-primary')
-  await expect(primary).toHaveCount(0)
-  await expect(page.getByTestId('skills-later')).toBeVisible()
+  // the step brings no own skills: they go in from Team skills
+  await noOwnPart(page)
+  await page.getByTestId('nav-skills').click()
+  await page.getByTestId('skill-bring').click()
+  await expect(page.getByTestId('bring-sheet')).toBeVisible()
   // the AI's check of the folder held (the mock answers checking until the page ends it)
   await post(page, '/__test/share-hold', { on: true })
-  await page.getByTestId('skills-find').click()
+  await page.getByTestId('bring-find').click()
   const review = page.getByTestId('skill-review')
   await expect(review).toHaveAttribute('data-status', 'checking')
-  await expect(primary).toHaveAttribute('data-state', 'checking')
-  await expect(primary).toHaveText('내 스킬 살펴보는 중…')
-  await expect(primary).toBeDisabled()
-  // a kept skill checked meanwhile does not free the primary
-  await packRow(packs, 'card-news').getByTestId('skill-pack-check').check()
-  await expect(primary).toHaveAttribute('data-state', 'checking')
   // 30 seconds on screen: the page ends the check (stop-check); the list shows with nothing ticked
   const stopped = page.waitForRequest((r) => r.method() === 'POST' && /^\/api\/skill-shares\/[^/]+\/stop-check$/.test(new URL(r.url()).pathname))
   await page.clock.fastForward('00:31')
@@ -185,21 +181,17 @@ test('내 스킬, own skills and a kept one: the primary waits while they are ch
   await expect(review).toHaveAttribute('data-status', 'ready')
   await expect(page.getByTestId('skill-review-no-ai')).toHaveText('AI 없이 찾았어요 · 직접 골라 주세요')
   await expect(review.getByRole('checkbox', { checked: true })).toHaveCount(0)
-  await expect(review.locator('[data-testid="skill-row"][data-name="weekly-report"]')).toBeVisible()
-  // only 카드뉴스 so far: named
-  await expect(primary).toHaveAttribute('data-state', 'put')
-  await expect(primary).toHaveText('카드뉴스 넣기')
+  const share = page.getByTestId('skills-share')
+  await expect(share).toBeDisabled()
   await review.locator('[data-testid="skill-row"][data-name="weekly-report"]').getByTestId('skill-check').check()
-  await expect(primary).toHaveText('카드뉴스·주간 업무 보고 넣기')
-  await primary.click()
-  // own first, then the kept one: both in, one toast, 팀 파일
-  await expect(page.getByTestId('toast').filter({ hasText: '스킬 2개를 팀에 넣었어요' })).toBeVisible()
-  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  await expect(share).toHaveText('팀에 넣기 · 1개')
+  await share.click()
+  await expect(page.getByTestId('skills-done')).toBeVisible()
   const names = ((await (await page.request.get('/api/skills')).json()).items as { name: string }[]).map((s) => s.name)
-  expect(names).toEqual(expect.arrayContaining(['weekly-report', 'card-news']))
+  expect(names).toContain('weekly-report')
   expect(names).not.toContain('meeting-notes')
-  expect(await inTeam(page)).toEqual(['card-news'])
-  expect((await progress(page)).steps.skills).toBe('done')
+  await page.getByTestId('skills-done-next').click()
+  await expect(page.getByTestId('bring-sheet')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -431,7 +423,7 @@ test('Team skills (member): no catalog; 내 스킬 가져오기 opens the sugges
 test.describe('a phone (390 × 844, dark)', () => {
   test.use({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' })
 
-  test('내 스킬: the rows with their one line, one line that own skills go in on a computer, the primary full width and working; Team skills says the same in one line', async ({ page }) => {
+  test('the skills step: the rows with their one line, nothing about own skills, the primary full width and working; Team skills says own skills go in on a computer', async ({ page }) => {
     const errors = watchConsole(page)
     await reset(page)
     await toSkillsStep(page, { profile: true })
@@ -441,8 +433,7 @@ test.describe('a phone (390 × 844, dark)', () => {
     await expect(packs.getByTestId('skill-pack-line')).toHaveCount(4)
     await expect(packRow(packs, 'card-news').getByTestId('skill-pack-line')).toHaveText('회사 소개로 정사각형 카드 5장을 만들어요')
     expect(await checks(packs)).toEqual([true, true, true, false])
-    await expect(page.getByTestId('skills-phone-own')).toHaveText('쓰던 스킬은 컴퓨터에 있어요 · 컴퓨터의 팀 스킬 › 내 스킬 가져오기에서 넣어요')
-    await expect(page.getByTestId('skills-find')).toHaveCount(0)
+    await noOwnPart(page)
     const primary = page.getByTestId('skills-primary')
     await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
     const [p, s] = [await primary.boundingBox(), await page.getByTestId('skills-step').boundingBox()]

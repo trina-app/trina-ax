@@ -47,7 +47,7 @@ async function fakeDrive(page: Page, o: { authorize?: 'ok' | 'broker_down'; flow
 async function toTools(page: Page) {
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
-  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 내 스킬')
+  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 스킬')
   await page.getByTestId('skills-later').click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
@@ -61,7 +61,7 @@ test('도구 연결 with Drive: the step order (n/5); [연결] names both effect
   await signIn(page)
   await toTools(page)
   const bar = page.getByTestId('welcome-progress')
-  await expect(bar.locator('li')).toHaveText(['1/5 회사 소개 · 나중에 하기로 했어요', '2/5 내 스킬 · 나중에 하기로 했어요', '3/5 팀 파일 · 나중에 하기로 했어요', '4/5 도구 연결', '5/5 팀원 초대'])
+  await expect(bar.locator('li')).toHaveText(['1/5 회사 소개 · 나중에 하기로 했어요', '2/5 스킬 · 나중에 하기로 했어요', '3/5 팀 파일 · 나중에 하기로 했어요', '4/5 도구 연결', '5/5 팀원 초대'])
   await expect(bar.locator('[aria-current="step"]')).toContainText('4/5 도구 연결')
   const tools = page.getByTestId('welcome-tools')
   await expect(tools.getByRole('heading', { name: '자주 쓰는 도구를 연결해 둘까요?' })).toBeVisible()
