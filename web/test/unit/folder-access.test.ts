@@ -6,7 +6,7 @@ import type { AccessTreeNode, Project } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText } from '../../src/lib/folder-access'
 import { editableHere } from '../../src/components/FolderAccess'
-import { byRoleLine, PROJECTS_BY_ROLE } from '../../src/lib/whoByRole'
+import { byRoleLine } from '../../src/lib/whoByRole'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
