@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:21
 - Branch: `fix/phone-menus-tabs` (stacked on `batch/phone-settings`, #344)
-- Status: in progress
+- Status: done
 - Where: trina-ax/web. Why: the phone app shows the web app in a WebView, so phone menus and tabs are web code (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch. Phone layout fixes; computers and the API are unchanged.
@@ -58,4 +58,14 @@ e2e `web/test/e2e/phone-menus-tabs.spec.ts` (390×844, touch, ko + en).
 
 ## Result
 
-Filled in at the end.
+PR #453. Built as planned, with these differences:
+
+- Segmented tabs stay segments up to 5 choices when every word fits its equal share (measured on a hidden copy of
+  the row), and become one picker row otherwise; the plan said "more than 3: a picker". So the admin's four Team skills
+  tabs show in Korean and English at 390px; a long language or a narrow phone gets the picker. Search's seven types are
+  always a picker.
+- No Cancel row in the sheet: it would be one more menu item in every existing sheet; the scrim closes it (and Back
+  will, with the overlay-back work).
+- "+", "Edit" and Activity's search go in the phone top bar through a new slot (`components/phone/PhoneBarAction.tsx`,
+  one line in `PhoneTopBar.tsx`).
+- "바꾸기" on Team skills already takes taps from 44px and keeps its look; Scheduled's small switch is left for TC-189.
