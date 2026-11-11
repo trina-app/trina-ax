@@ -154,6 +154,14 @@ export const en: Record<MessageKey, string> = {
   'setup.create': 'Create team and start',
 
   'invite.title': 'Invitation',
+
+  'invite.signedInTitle': 'You are signed in',
+
+  'invite.signedInBody': 'You are signed in as {name}. This invite is for someone who joins the team. To accept it, sign out first.',
+
+  'invite.signOutAccept': 'Sign out and accept the invite',
+
+  'invite.keepAccount': 'Keep using this account',
   'invite.invalid': 'This invite link has expired or was already used. Ask the person who invited you for a new one.',
   'invite.joinTeam': 'Join {team}',
   'invite.sub': "You're invited as {role}. The link works until {date}.",
