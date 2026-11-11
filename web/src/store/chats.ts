@@ -93,13 +93,13 @@ export interface SendInput {
   /** messages that waited for an answer (store/sendQueue.ts): the same messages always go with the same id */
   clientMessageId?: string
   /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
-  onConflict?: () => void
+  onConflict?: (e: ApiError) => void
   /** a new chat is a side chat of this room (✦ Trina, components/rooms/SideChatPanel.tsx) */
   sideRoomId?: string
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
-const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | undefined; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: () => void }>()
+const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | undefined; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: (e: ApiError) => void }>()
 /**
  * Events for messages we don't know yet (they raced the POST answer). Bounded: a message that never shows up (another
  * branch, a lost response) must not keep its events forever; the oldest entries go first, and past the per-message
@@ -390,7 +390,7 @@ export const useChats = create<ChatsState>((set, get) => {
         if (job.onConflict && e instanceof ApiError && e.code === 'conflict') {
           outbox.delete(localId)
           setThread(job.chatId, (t) => ({ ...t, messages: t.messages.filter((m) => m.id !== localId) }))
-          job.onConflict()
+          job.onConflict(e)
           return
         }
         // team files the person attached but can no longer open: the message is marked "not sent" with the reason,

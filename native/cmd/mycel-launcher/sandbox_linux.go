@@ -278,9 +278,10 @@ func checkArgPath(name, p string) error {
 }
 
 // codexLockFiles are bound as empty read-only files (and folders) over CODEX_HOME's files that change what Codex may
-// do (engine.sb:193-200 on macOS).
-var codexLockFiles = []string{"config.toml", "models_cache.json", "catalog.json", "AGENTS.md", "hooks.json"}
-var codexLockDirs = []string{"skills", "plugins"}
+// do: the same names as engine.sb on macOS and server/src/engine/codex.ts CODEX_LOCK_FILES (.env sets the CLI's
+// environment, AGENTS.override.md wins over AGENTS.md, rules/ holds command rules, prompts/ custom prompts).
+var codexLockFiles = []string{"config.toml", "models_cache.json", "catalog.json", "AGENTS.md", "hooks.json", ".env", "AGENTS.override.md"}
+var codexLockDirs = []string{"skills", "plugins", "rules", "prompts"}
 
 // buildBwrapArgs is the exact argv after the bwrap program name (golden-tested in sandbox_linux_test.go).
 func buildBwrapArgs(p bwrapParams) ([]string, error) {

@@ -260,7 +260,7 @@ function Profile() {
       <Section title={t('settings.theme')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.theme')}>
           {(['system', 'light', 'dark'] as Theme[]).map((x) => (
-            <button key={x} type="button" role="radio" aria-checked={theme === x} onClick={() => void setTheme(x).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} className={clsx('rounded-lg border px-3 py-2 text-sm max-md:min-h-11', theme === x ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}>
+            <button key={x} type="button" role="radio" aria-checked={theme === x} onClick={() => void setTheme(x).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} className={clsx('rounded-lg border px-3 py-2 text-sm', theme === x ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}>
               {t(`settings.theme.${x}`)}
             </button>
           ))}

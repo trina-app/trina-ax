@@ -588,19 +588,25 @@ pk__python_pin() {
 }
 # pk_python_install DEST NAME: the pinned venv in DEST/<version>-<sha12>, current -> it when its program starts. Prints
 # the program's path through current, or nothing and 1 (then a current that starts stays).
-pk_python_install() {
-  local dest=$1 name=$2 rc=0
+pk_python_install() { pk__python_locked pk__python_install_locked "$@"; }
+# pk_python_prepare DEST NAME: only the venv (built and its program started); current is not touched, so a server may run
+# meanwhile (install-linux.sh builds it before it stops the server; pk_python_install then finds it and only switches)
+pk_python_prepare() { pk__python_locked pk__python_build_locked "$@"; }
+pk__python_locked() {  # FN DEST NAME
+  local fn=$1 dest=$2 name=$3 rc=0
   pk__python_pin "$name" || return 1
   if pk__browser_dest "$dest"; then
-    pk__python_install_locked "$dest" "$name" || rc=$?
+    "$fn" "$dest" "$name" || rc=$?
     pk__unlock
   else rc=1; fi
   rm -f "$PY_REQ"
   return $rc
 }
-pk__python_install_locked() {
-  local dest=$1 name=$2 dir py cv prev keep v k env=()
+pk__python_build_locked() {
+  local dest=$1 name=$2 dir py k env=()
   dir="$dest/$PY_KEY"
+  # built by pk_python_prepare in this run (the same pin): no second start of the program
+  if [[ "${PK_PY_PREPARED:-}" == *" $dir:$PY_SHA "* ]] && [ "$(cat "$dir/.sha256" 2>/dev/null || true)" = "$PY_SHA" ]; then return 0; fi
   if [ "$(cat "$dir/.sha256" 2>/dev/null || true)" != "$PY_SHA" ] || ! pk_python_check "$dir" "$PY_PROG"; then
     py=$(command -v python3 2>/dev/null) || { pk_err "python $name: python3 is missing (apt-get install python3 python3-venv)"; return 1; }
     "$py" -c "import sys; sys.exit(sys.version_info < ($(echo "$PY_MIN" | tr . ,),))" \
@@ -620,6 +626,12 @@ pk__python_install_locked() {
     if ! pk_python_check "$dir" "$PY_PROG"; then rm -rf "$dir"; pk_err "python $name $PY_V: $PY_PROG does not start here"; return 1; fi
     printf '%s\n' "$PY_SHA" > "$dir/.sha256"
   fi
+  PK_PY_PREPARED="${PK_PY_PREPARED:- } $dir:$PY_SHA "
+}
+pk__python_install_locked() {
+  local dest=$1 name=$2 dir cv prev keep v
+  dir="$dest/$PY_KEY"
+  pk__python_build_locked "$dest" "$name" || return 1
   # current -> it; the venv before stays (a running server may still use it), every other one goes
   cv=$(readlink "$dest/current" 2>/dev/null || true)
   prev=""

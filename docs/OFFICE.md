@@ -292,6 +292,20 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 5. 새 버전이 `http://127.0.0.1:<앱 포트>/api/health`에 그 버전으로 답하고 15초 뒤에도 답해야 성공입니다. 2분 30초 안에
    답하지 않거나 곧 멈추면 **이전 버전으로 저절로 되돌립니다**(`app` → `app.failed`, `app.previous` → `app`, 다시 시작).
    되돌린 버전은 밤마다 다시 시도하지 않습니다(`teamax update now`로만).
+   **큰 데이터베이스:** 새 버전이 데이터베이스를 바꿔야 하면(마이그레이션) 먼저 사본을 만들고(`data/backups/pre-migrate-*.db`)
+   마이그레이션을 적용한 뒤에 시작합니다. 데이터베이스가 몇 GB면 몇 분에서 수십 분 걸릴 수 있습니다. 그동안 새 버전은
+   `/api/health`에 503 "migrating"(진행: 남은 마이그레이션, 복사 중이면 복사한 MB)으로 답하고, 업데이트는 그 답이 오는 동안
+   기다립니다: 전환 뒤 최대 **60분**(리눅스 서버의 부트스트랩 `--migrate-timeout`과 같은 한도), 끝난 뒤 다시 2분 30초.
+   60분이 지나도 계속 "migrating"이면 되돌립니다. 진행은 `update.log`에 1분마다 남고, `teamax status`의 "this Mac" 줄에도
+   보입니다. 단, 업데이트를 돌리는 것은 **설치되어 있던(이전) 버전**의 업데이트 에이전트입니다. 이 기능이 없는 버전에서 올라가는
+   첫 업데이트만 새 설치 프로그램이 기다리는 약 4분 + 2분 30초 안에 끝나는 마이그레이션만 통과하고, 그보다 길면 되돌립니다.
+   이 경우 업데이트 시간에 맥 미니에서 새 zip의 `office-install.sh`를 손으로 실행하세요(손으로 하는 설치는 최대 60분 기다림).
+   이 동안 **사무실 안 대체 경로(데스크 주소 `https://192.168.x.x:8443`, TLS)로 붙는 데스크는 업데이트 안내 대신 "연결이
+   거부됨"(connection refused)을 봅니다**: 그 포트는 서버가 다 시작한 뒤에야 열립니다(인증서 받는 곳 `:8442`는 계속
+   답함). 기다리는 동안 서버 쪽에서 답하는 것은 `127.0.0.1:<앱 포트>`뿐입니다. 인터넷 주소는 설치 프로그램이 cloudflared를
+   다시 켠 뒤부터(자동 업데이트: 약 4분 뒤, 손으로 하는 설치: 다 끝난 뒤) Cloudflare를 거쳐 이 포트로 와서 503
+   `The server is updating its database after an update. Try again in a few minutes.`를 받고, 그 전에는 Cloudflare 오류입니다. 데이터베이스가 크면 업데이트는
+   업데이트 시간(밤)에 두고, 낮의 `지금 업데이트`는 데스크에 미리 알리세요.
 6. 릴리스에 든 **데스크용 윈도우 앱**(설치 파일 + `latest.yml`)을 `data/downloads`에 넣습니다(설정 > 앱에 보이는 곳,
    이전 윈도우 설치 파일은 지움). 데스크의 Trina AX 앱(0.2.0부터)은 시작할 때와 4시간마다 팀 주소의 `/downloads/`를
    확인해 뒤에서 받고, 받은 파일이 서명된 릴리스(같이 넣는 `/downloads/<채널>.json`, 없으면 릴리스 피드)가 가리키는
@@ -346,6 +360,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 인터넷 주소: 403 "not open to your network" | 허용 목록(`TEAMAX_PUBLIC_ALLOW_FROM`·`TEAMAX_PUBLIC_COUNTRIES`, 9장)에 그 네트워크가 없음 |
 | 첫 설정 "인터넷 주소에서 할 수 없어요" | 정상. 맥 미니에서 `teamax setup-link`의 `http://localhost…` 링크로 |
 | 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |
+| 업데이트 중 데스크 주소(8443): "연결이 거부됨" | 새 버전이 큰 데이터베이스를 바꾸는 중일 수 있음(6장 5단계, 몇 분에서 최대 60분). 맥 미니에서 `teamax status`의 "this Mac" 줄이 "updating its database"면 기다리세요. 진행은 `~/TeamAX/logs/update.log` |
 | 데스크: 아예 안 열림 | 같은 네트워크인지, 맥 미니에서 `teamax status`, 맥 방화벽에서 bun 허용, IP가 바뀌지 않았는지(`teamax info`) |
 | 403 "office network" | 다른 네트워크(VPN·게스트 Wi-Fi)에서 접속함. 맥 미니와 같은 사무실 네트워크에서 |
 | 421 "Misdirected request" | 카드에 없는 주소·이름으로 접속함. `teamax info`의 주소를 쓰세요 |

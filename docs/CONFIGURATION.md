@@ -56,9 +56,9 @@ While it is set:
 
 - **Models.** The proxy forwards exactly the ids in `models`; any other id, and any `claude-*` id (Anthropic's own
   name, which a gateway passes on to Anthropic at Anthropic's price), is refused. The file may not name a `claude-*` id
-  either; for Claude through OpenRouter use its own id (`anthropic/…`). Admin > Connections > Providers lists these models for Claude
+  either; for Claude through OpenRouter use its own id (`anthropic/…`). Admin > AI accounts lists these models for Claude
   Code, and the team default model can be one of them.
-- **Connections.** Add the gateway's key in Admin > Connections > Providers as "API key for <label>" (20–300 letters, digits,
+- **Connections.** Add the gateway's key in Admin > AI accounts as "API key for <label>" (20–300 letters, digits,
   `.`, `_`, `-`; never an `sk-ant-` key or token). An OpenRouter key is checked on `GET /api/v1/key`; another gateway's
   on `GET <baseUrl>/v1/models` when that list needs a key, else it is "checked on the first question". A key added for
   the gateway is only ever sent there.

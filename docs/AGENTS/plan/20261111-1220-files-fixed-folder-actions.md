@@ -54,8 +54,9 @@ nothing new is shown; an admin sees no mark. Cost: `managedInside()` per writabl
 ## Result
 
 Built as planned. `TeamFiles.tree()` sets `fixed` on the returned page's folder entries the caller may write:
-`'always'` from `unmovable()` (the test `assertMovable()` now uses too: a personal folder, root, `.system`, a folder
-holding a plugin's managed folder), `'admin'` from `managedInside()` for anyone but the owner or an admin. The web's
+`'always'` from `unmovable()` (the test `assertMovable()` now uses too: a personal folder, root, `.system`, the top
+`projects/` folder (dev's members-only zone guard, f1cd13b2b, moved into `unmovable()` on the rebase so it still
+refuses), a folder holding a plugin's managed folder), `'admin'` from `managedInside()` for anyone but the owner or an admin. The web's
 `canChange()` is false for a fixed entry, so the selection bar's 옮기기 and 휴지통으로 and dragging rows to move leave
 it out; the bar shows "옮길 수 없는 폴더 N개" beside "읽기 전용 N개", and the skip toast and the trash question count the
 two apart. The row menu's 이름 바꾸기, 옮기기 and 휴지통으로 are disabled with one line under them ("이 폴더는 관리자만
@@ -65,7 +66,7 @@ two apart. The row menu's 이름 바꾸기, 옮기기 and 휴지통으로 are di
 Tests: `tests/unit/c-files-fixed.test.ts` (a member's group folder, `shared`, a folder holding a project's folder:
 'admin'; a plain folder and files: none; read-only and pass-through folders: none; a personal folder: 'always' for a
 member and an admin; the owner and an admin: no 'admin'; every marked folder's rename is refused (403) and the plain
-one's works), `web/test/unit/bulk-files.test.ts` (canChange, isFixed, drag and drop), and
+one's works; the top `projects/` is 'always' for the owner and an admin and its move is refused), `web/test/unit/bulk-files.test.ts` (canChange, isFixed, drag and drop), and
 `web/test/unit/files-fixed-folder.test.tsx` (the row menu off with its reason and no request on a press; a plain folder
 keeps the actions; the selection bar's count and buttons).
 
@@ -73,3 +74,7 @@ On a local server as a member of a group `sales` at 1440 and 390 px: the three i
 shows no toast, and selecting the folder shows "옮길 수 없는 폴더 1개" with 옮기기 and 휴지통으로 off; as an admin the
 listing has no mark. `tests/unit/c-e2e.test.ts` fails in this worktree before and after (the launcher's socket path is
 too long for this folder), unrelated.
+
+Rebased onto dev 1ccf9a7f6 (2026-11-12): dev's `if (isProjectsTop(segs)) fileError(...)` in `assertMovable()` is now
+`return 'protected'` in `unmovable()`, so `projects/` still never moves or is renamed, and the listing marks it.
+`tests/security/project-members-only.test.ts`, `c-files-fixed` and `c-files`: 118 pass.

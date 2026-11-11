@@ -47,6 +47,11 @@ export const mimeOf = (name: string): string | null => {
   return t && t !== 'application/octet-stream' ? t : (ext(name) ? 'application/octet-stream' : null)
 }
 const segsOf = (rel: string) => (rel === '' ? [] : rel.split('/'))
+/** names sameFileAt() looks at: the name and its first renamed forms (a lost answer is retried within minutes) */
+const SAME_FILE_NAMES = 20
+/** how long a person's own upload counts as "this upload, sent again" (a resumed upload, photos picked again on a phone
+ * after the network dropped); after that the same file uploaded again is a new copy, as before */
+const SAME_UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000
 const isUnder = (anc: string, p: string) => anc === '' ? p !== '' : p.startsWith(anc + '/')
 const iso = (ms: number) => new Date(ms).toISOString()
 /** A path a person typed, for a name the server makes from it (a new folder or file, a rename, a move): composed (NFC),
@@ -245,6 +250,22 @@ export class TeamFiles {
     return { abs: r.abs, name: r.segs[r.segs.length - 1]! }
   }
 
+  /** Replace the file at `abs`: `then` gets the sha256 of the file as it is now, and runs in the same synchronous step
+   * as the check that the file did not change (inode, size, mtime) while it was hashed, so it keeps the current file as
+   * a version and puts the new one in place with nothing in between. Hashed again when it changed (11-11 code audit,
+   * row 33: two replace uploads at once kept the first one's bytes under the hash of the file before it, and restoring
+   * that version did nothing; a hash from the cache let the other one in between too). A file that never holds still
+   * (someone outside keeps writing): conflict. */
+  private async replacing<T>(abs: string, then: (sha: string) => T): Promise<T> {
+    for (let i = 0; i < 5; i++) {
+      const st = checkRegular(abs)
+      const h = await this.sha(abs, st)
+      const now = checkRegular(abs)
+      if (now.ino === st.ino && now.dev === st.dev && now.size === st.size && now.mtimeMs === st.mtimeMs) return then(h)
+    }
+    throw new HttpError('conflict')
+  }
+
   private async sha(abs: string, st: fs.Stats): Promise<string> {
     const k = `${abs}\0${st.ino}\0${st.size}\0${st.mtimeMs}`
     const hit = this.shaCache.get(k)
@@ -310,13 +331,14 @@ export class TeamFiles {
     return this.entry(user, rules, r.segs)
   }
 
-  /** root, users/, users/<id>/ and .system/ never move or go to the trash; nor does a folder holding a skill pack's
-   * managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
+  /** root, users/, users/<id>/, .system/ and the top projects/ never move or go to the trash; nor does a folder holding
+   * a skill pack's managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
   private assertMovable(segs: string[]) {
     const why = this.unmovable(segs)
     if (why === 'protected') fileError('forbidden', 'protectedFolder')
     if (why === 'plugin') fileError('forbidden', 'pluginManaged', undefined, { reason: 'plugin_managed' })
   }
+  /** Why assertMovable() refuses `segs` (null: it does not); the file listing's `fixed: 'always'` asks the same. */
   private unmovable(segs: string[]): 'protected' | 'plugin' | null {
     if (segs.length === 0 || (segs[0] === 'users' && segs.length <= 2) || segs[0] === PRODUCT.systemDir) return 'protected'
     // the top projects/ folder (any letter case): moved or renamed, every project folder would leave the members-only
@@ -920,27 +942,35 @@ export class TeamFiles {
     const onExists = o.onExists ?? 'rename'
     let replaced = false
     let conflictOf: string | null = null
+    let out: ReturnType<typeof copyTeamFile> | null = null
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
       if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
       if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name, false, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))].join('/'), 'write', { mustExist: false })
       else {
-        const cur = await this.sha(r.abs, checkRegular(r.abs))
-        if (o.baseSha256 && o.baseSha256 !== cur) {
+        const target = r
+        out = await this.replacing(target.abs, (cur) => {
+          if (o.baseSha256 && o.baseSha256 !== cur) return null
+          // the copy follows the snapshot in the same step (replacing)
+          grant?.recheck()
+          snapshotVersion(this.ctx.db, this.root, target.rel, { userId, turnId: null }, 'edit', cur)
+          replaced = true
+          return copyTeamFile(this.root, fr.abs, target.segs)
+        })
+        if (!out) {
           // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
           let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
           if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
           conflictOf = r.rel
           r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
-        } else {
-          snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
-          replaced = true
         }
       }
     }
-    // the card's plan again, right before the copy
-    grant?.recheck()
-    const out = copyTeamFile(this.root, fr.abs, r.segs)
+    if (!out) {
+      // the card's plan again, right before the copy
+      grant?.recheck()
+      out = copyTeamFile(this.root, fr.abs, r.segs)
+    }
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
     // a conflict copy is told to both people and listed in the original's history, like a conflicting save
     const turnId = o.turnId ?? null, tool = o.tool ?? 'file-screen'
@@ -1754,16 +1784,20 @@ export class TeamFiles {
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const blob = path.join(this.root, ...v.storage_path.split('/'))
     const size = checkRegular(blob).size
-    let cur: string | null = null
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-      const st = checkRegular(r.abs)
-      cur = await this.sha(r.abs, st)
-      if (cur === v.sha256) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+      const same = await this.replacing(r.abs, (cur) => {
+        if (cur === v.sha256) return true
+        if (currentPlan()) assertStorageRoom(size)
+        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
+        installFile(this.root, r.segs, blob, { keepSource: true })
+        return false
+      })
+      if (same) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+    } else {
+      if (currentPlan()) assertStorageRoom(size)
+      installFile(this.root, r.segs, blob, { keepSource: true })
     }
-    if (currentPlan()) assertStorageRoom(size)
-    if (cur) snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
-    installFile(this.root, r.segs, blob, { keepSource: true })
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: v.size, sha256: v.sha256, detail: { versionId, version: v.version } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
@@ -2035,9 +2069,11 @@ export class TeamFiles {
    * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from), or what
    * an upload's event carries (a computer file attached in a shared chat: its attachment and chat, uploads/shared-chat.ts).
    * `taken` (with rename): names that count as taken though nothing has them (an instruction file's name), so the next
-   * free one is used.
+   * free one is used. `keepSame` (with rename; the file screen's uploads): when the name holds this person's own upload
+   * of this very file from the last 24 hours (sameFileAt), that file is kept and answered, with no "(2)" copy: a retry
+   * whose first answer was lost on the way, or the same photos picked again after a dropped connection (QA TC-223).
    */
-  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create' | 'upload'; detail: Record<string, unknown> }, o: { taken?: (name: string) => boolean } = {}): Promise<FileEntry> {
+  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create' | 'upload'; detail: Record<string, unknown> }, o: { taken?: (name: string) => boolean; keepSame?: boolean } = {}): Promise<FileEntry> {
     const user = this.principal(userId)
     const rules = this.rules()
     const bad = name.includes('/') ? 'names cannot contain "/"' : badSegment(name.normalize('NFC'))
@@ -2045,21 +2081,50 @@ export class TeamFiles {
     const fr = authorize(this.fx, rules, user, folder, 'write', { mustExist: true })
     if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let finalName = name.normalize('NFC')
+    if (onExists === 'rename' && o.keepSame) {
+      const same = await this.sameFileAt(user, rules, fr.segs, finalName, fs.statSync(src).size, sha)
+      if (same) return same
+    }
     if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
     const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
     let action: FileChange['action'] = 'create'
+    const size = fs.statSync(src).size
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
-      const st = checkRegular(r.abs)
-      snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', await this.sha(r.abs, st))
+      await this.replacing(r.abs, (cur) => {
+        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
+        installFile(this.root, r.segs, src)
+      })
       action = 'update'
-    }
-    const size = fs.statSync(src).size
-    installFile(this.root, r.segs, src)
+    } else installFile(this.root, r.segs, src)
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: event?.action ?? 'upload', size, sha256: sha, detail: { replaced: action === 'update', ...event?.detail } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])
     return this.entry(user, rules, r.segs)
+  }
+
+  /** The entry of this person's own upload of this very file in the last 24 hours (SAME_UPLOAD_WINDOW_MS: the upload
+   * event names them, the path and this sha256, and the file is still that content, `size` bytes) at `name` or at one
+   * of the names a rename would have given it then ("name (2).ext", "name (3).ext"…, up to the first free one: a retry
+   * whose first answer was lost, where another file already had the name). Null otherwise: another file; the same
+   * content uploaded by someone else, made another way, or longer ago (a team template uploaded again to get one's own
+   * copy gets its copy, never the shared original); a folder, a link, or a name the person cannot see or read. */
+  private async sameFileAt(user: Principal, rules: RuleSet, folder: string[], name: string, size: number, sha: string): Promise<FileEntry | null> {
+    const [base, ext] = splitExt(name, false)
+    for (let i = 1; i <= SAME_FILE_NAMES; i++) {
+      const cand = i === 1 ? name : `${base} (${i})${ext}`
+      const segs = [...folder, cand]
+      const abs = path.join(this.root, ...segs)
+      let st: fs.Stats
+      try { st = fs.lstatSync(abs) } catch { return null } // the first free name: nothing after it is this upload's
+      if (!st.isFile() || st.nlink !== 1 || st.size !== size) continue
+      if (!siblingVisible(this.fx, rules, user, folder, cand) || !atLeast(rules.access(user, segs), 'read')) continue
+      if ((await this.sha(abs, st)) !== sha) continue
+      const since = new Date(Date.now() - SAME_UPLOAD_WINDOW_MS).toISOString()
+      const mine = this.ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND sha256 = ? AND at >= ? LIMIT 1").get(segs.join('/'), user.id, sha, since)
+      if (mine) return this.entry(user, rules, segs, st)
+    }
+    return null
   }
 
   // ---------------- retention ----------------

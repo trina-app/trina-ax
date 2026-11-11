@@ -79,3 +79,13 @@ export function ipInRanges(ip: string | undefined | null, ranges: readonly IpRan
   const max = a.v === 4 ? 32 : 128
   return ranges.some((r) => r.v === a.v && (r.bits === 0 ? true : (a.n >> BigInt(max - r.bits)) === (r.net >> BigInt(max - r.bits))))
 }
+
+/**
+ * What one visitor counts as for the per-visitor stream cap: an IPv4 address as it is, an IPv6 address by its /64 (a
+ * home or office line gets a whole /64, so counting single IPv6 addresses would let one machine look like many).
+ */
+export function visitorKey(ip: string): string {
+  const a = toBig(ip)
+  if (!a) return ip
+  return a.v === 4 ? unmapIp(ip.trim()) : `${(a.n >> 64n).toString(16)}::/64`
+}

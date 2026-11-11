@@ -5,9 +5,9 @@ import { dropFileUpload, useFileUploads } from '../lib/fileUploads'
 import { formatSize } from '../lib/format'
 import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
-import { uploadPercent } from '../lib/upload'
+import { uploadBar } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
-import { IconButton } from './ui'
+import { Button, IconButton } from './ui'
 import { UploadLabel } from './UploadLabel'
 
 export default function FileUploads({ here }: { here: string }) {
@@ -19,8 +19,9 @@ export default function FileUploads({ here }: { here: string }) {
   return (
     <ul className="mx-4 mb-2 space-y-1 rounded-xl border border-line bg-surface p-2 sm:mx-6" aria-label={t('files.uploads')} data-testid="upload-list">
       {items.map((u) => {
-        // the bar follows the label: empty while hashing, full while the server finishes
-        const pct = u.progress?.phase === 'finishing' ? 100 : (uploadPercent(u.progress) ?? 0)
+        // the bar follows the label: empty while hashing, full while the server finishes, kept while it waits for the
+        // connection
+        const pct = uploadBar(u.progress)
         return (
           <li key={u.id} className="flex items-center gap-2 text-xs" data-status={u.status}>
             {u.status === 'uploading' ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : u.status === 'done' ? <span className="text-ok" aria-hidden>✓</span> : <span className="text-danger" aria-hidden>!</span>}
@@ -53,6 +54,11 @@ export default function FileUploads({ here }: { here: string }) {
               <div className="h-1 w-20 shrink-0 overflow-hidden rounded bg-subtle" aria-hidden>
                 <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
               </div>
+            )}
+            {u.status === 'failed' && u.retry && (
+              <Button size="sm" onClick={u.retry} data-testid="file-upload-retry">
+                {t('common.retry')}
+              </Button>
             )}
             <IconButton label={u.status === 'uploading' ? t('common.cancel') : t('common.close')} onClick={() => (u.status === 'uploading' ? u.abort.abort() : dropFileUpload(u.id))}>
               <X size={13} />

@@ -22,6 +22,7 @@ import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
 import { registerGoogleAppsRoutes } from './google-apps'
 import { googleAppsOf } from '../integrations/google-apps/service'
+import { installServiceRequests } from '../integrations/service-requests'
 import { registerIntegrationRoutes } from './integrations'
 import { registerIntegrations } from '../integrations/connections/tools'
 import { registerPluginRoutes } from './plugins'
@@ -42,6 +43,8 @@ export const filesRoutes: RouteModule = {
     registerIntegrations(ctx)
     // Gmail, Calendar, Docs and Sheets: the library runs while one of them is set up (integrations/google-apps/)
     try { googleAppsOf(ctx) } catch (e) { ctx.log.error('Google apps failed to start; they stay off', { err: e }) }
+    // a member's ask to add an app: closed once it is set up somewhere else too (integrations/service-requests.ts)
+    installServiceRequests(ctx)
     // the file list: its nightly check and its hooks on moves and access changes (file-list/service.ts); a broken
     // sidecar never stops the server here
     try { fileListOf(ctx) } catch (e) { ctx.log.error('file list failed to start; it stays off', { err: e }) }
@@ -156,7 +159,8 @@ export const filesRoutes: RouteModule = {
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try {
-        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha)
+        // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
+        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha, undefined, { keepSame: true })
       } finally { fs.rmSync(p, { force: true }) }
     }, 'name'))
 

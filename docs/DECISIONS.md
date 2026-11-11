@@ -295,7 +295,7 @@
 # D web (웹 클라이언트, 2026-10-21)
 
 - **Saram `web/`(d315378)과 chat-proto에서 코드를 복사해 가져왔다**(마크다운 보정·KaTeX·Mermaid, 아티팩트 패널, 파일 미리보기, 녹음, 브라우저 패널). Supabase·Saram 팀 기능(업무·회의·승인·코드 변경 모드)은 버렸고, 문구는 모두 번역 키(ko 원본, en, id)로 옮겼다. 상태 관리는 zustand.
-- **아티팩트·HTML/SVG 미리보기는 설계서대로 `sandbox="allow-scripts"` 프레임이 팀 서버의 고정 받개 문서 `GET /sandbox/frame?v=<빌드>`를 연다**(srcdoc·blob: 아님: 둘 다 앱 CSP를 물려받아 앱 CSP를 풀어야 했다). 받개 응답 CSP는 `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' data: blob: <서버>/vendor/; … connect-src 'none'; … frame-ancestors <서버>`이고 `<서버>`는 요청의 Host(https·http 둘 다 적음: TLS가 서버 앞에서 끝날 수 있음). 받개는 "ready"를 보내고 부모(event.source === parent)가 postMessage로 넘긴 문서 하나를 `document.open/write`로 자기 위에 쓴다(문서는 응답 CSP를 그대로 가짐). 부모도 그 프레임 창에서 온 메시지만 받는다. 화면이 AI가 쓴 문서를 통째로 다시 감싸서(`<!doctype><html><head>CSP…</head><body>원문`) 같은 정책의 meta CSP가 두 번째 겹으로 맨 앞에 오고, AI의 `<head>`·CSP·`<base>`는 body 안으로 밀려나 무시된다. 모든 페이지에 붙는 `X-Frame-Options: DENY`(기반 미들웨어)는 `frame-ancestors`가 있으면 브라우저가 무시한다(Chromium·WebKit에서 확인, e2e 목 서버도 같은 헤더를 붙임). React 아티팩트는 부모 화면에서 sucrase로 변환하고 `data:` 모듈로 실행('unsafe-eval' 없음). 라이브러리는 `web/scripts/build-vendor.ts`가 `dist/vendor/`에 번들(React 하나를 모든 항목이 공유)하고 서버가 `/vendor/`에서 CORS `*`로 준다(불투명 출처 프레임의 모듈 스크립트는 CORS가 필요). XML 미리보기는 문서로 그리지 않고 색칠한 텍스트로만 보인다(더 안전).
+- **아티팩트·HTML/SVG 미리보기는 설계서대로 `sandbox="allow-scripts"` 프레임이 팀 서버의 고정 받개 문서 `GET /sandbox/frame?v=<빌드>`를 연다**(srcdoc·blob: 아님: 둘 다 앱 CSP를 물려받아 앱 CSP를 풀어야 했다). 받개 응답 CSP는 `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' data: blob: <서버>/vendor/; … connect-src 'none'; … frame-ancestors <서버>`이고 `<서버>`는 요청의 Host(https·http 둘 다 적음: TLS가 서버 앞에서 끝날 수 있음). 받개는 "ready"를 보내고 부모(event.source === parent)가 postMessage로 넘긴 문서 하나를 `document.open/write`로 자기 위에 쓴다(문서는 응답 CSP를 그대로 가짐). 쓰는 때는 받개 자신의 load가 끝난 뒤다(QA TC-218, 2026-11-11): 받개가 아직 불러오는 중에 쓰면 Chromium이 두 load를 하나로 합쳐, load 수로 문서가 떠난 것을 아는 화면(SandboxFrame, 예상 2번)이 차단된 이동의 오류 페이지를 놓쳤다(빈 회색 칸, 안내 없음). 불투명 출처 문서에서는 Navigation API의 navigate 이벤트가 오지 않고 location을 감쌀 수 없으며 Chromium은 차단된 이동 자리에 오류 페이지를 넣으므로, 아티팩트를 제자리에 두지는 못하고 안내를 늘 보인다. 부모도 그 프레임 창에서 온 메시지만 받는다. 화면이 AI가 쓴 문서를 통째로 다시 감싸서(`<!doctype><html><head>CSP…</head><body>원문`) 같은 정책의 meta CSP가 두 번째 겹으로 맨 앞에 오고, AI의 `<head>`·CSP·`<base>`는 body 안으로 밀려나 무시된다. 모든 페이지에 붙는 `X-Frame-Options: DENY`(기반 미들웨어)는 `frame-ancestors`가 있으면 브라우저가 무시한다(Chromium·WebKit에서 확인, e2e 목 서버도 같은 헤더를 붙임). React 아티팩트는 부모 화면에서 sucrase로 변환하고 `data:` 모듈로 실행('unsafe-eval' 없음). 라이브러리는 `web/scripts/build-vendor.ts`가 `dist/vendor/`에 번들(React 하나를 모든 항목이 공유)하고 서버가 `/vendor/`에서 CORS `*`로 준다(불투명 출처 프레임의 모듈 스크립트는 CORS가 필요). XML 미리보기는 문서로 그리지 않고 색칠한 텍스트로만 보인다(더 안전).
 - **앱 화면 CSP는 설계서대로 `script-src 'self'`(+ `'wasm-unsafe-eval'`)**: 인라인·data:·blob: 스크립트와 eval 없음, `frame-src 'self'`, `worker-src 'self'`, `base-uri 'none'`. 답변·파일 이름·Office 미리보기가 그려지는 본 화면의 XSS 마지막 방어선이다. `'wasm-unsafe-eval'`은 큰 업로드의 sha256(hash-wasm, JavaScript eval은 아님), `connect-src blob:`은 pdf.js 워커가 미리보기 blob을 읽는 데 필요(둘 다 e2e에서 CSP 위반으로 발견). `img-src 'self' data: blob:`이라 답변 속 외부 이미지는 브라우저 수준에서도 막히고, 화면은 "외부 이미지 · 호스트" 카드(누르면 새 탭)로 보인다. 프레임이 다른 곳으로 이동하면(`frame-src 'self'`가 막음) 세 번째 load 또는 쓰인 문서의 pagehide "leaving" 신호로 알아채 about:blank로 되돌리고 안내한다.
 - **Office 미리보기는 본 화면에 그려지므로**: docx-preview의 `renderAltChunks`를 끈다(기본값은 문서 속 HTML 조각을 sandbox 없는 srcdoc iframe으로 그려 같은 출처에서 스크립트가 돈다). 그려진 문서(docx·pptx·xlsx) 안의 링크는 절대 http(s)만 남기고(javascript:·data:·상대 경로는 링크에서 뺌, `#책갈피`는 미리보기 안에서 스크롤) 누르면 묻고 새 창(noopener)으로 연다(`web/src/lib/safeLinks.ts`, 라이브러리가 나중에 그리는 것도 MutationObserver로). 웹 검색 결과 출처도 http(s)만 링크로 만든다. 미리보기 한도는 PDF·Office 50MB, 이미지 20MB, 텍스트류는 앞 2MB만 읽는다(Content-Length가 없어도 읽는 도중 끊음).
 - **정적 제공 코드는 `server/src/routes/web-static.ts`로 분리**(라우트 모듈 `web.ts`가 다시 내보냄). 웹 목 서버가 서버 컨텍스트 없이 같은 함수로 빌드를 제공해, e2e가 실제 운영 헤더(CSP 등)로 돈다. `<data>/downloads/`(index.json + 설치 파일)를 `/downloads/`로 제공한다(설정 > 앱의 데스크톱 앱 내려받기). 2026-10-21부터 로그인한 사람만(세션 필요, 임시 비밀번호는 바꾼 뒤): 키트 설치 파일에는 팀 주소가 들어 있고 인터넷 주소로 열려 있으므로 나머지 앱과 같은 규칙. `Cache-Control: private`라 Cloudflare가 .exe/.dmg를 저장해 남에게 주지 않는다(`server/src/routes/downloads.ts`). index.json에 적힌 파일만, 링크가 아닌 보통 파일(O_NOFOLLOW, 링크 수 1)일 때만 준다. 사무실 모드 `teamax desktop add`(`server/src/office/desktop.ts`)는 NSIS/UDIF 머리와 그 머리에 적힌 길이까지 확인하고(잘린 파일 거절), `signed`는 실제 검사(osslsigncode, Gatekeeper `spctl`)가 통과할 때만 참이다(인증서 표가 있기만 하거나 ad-hoc 서명이면 'unverified', 화면은 SmartScreen·Gatekeeper 단계를 그대로 보임). office-install.sh는 zip 옆 폴더의 설치 파일만 저절로 올리고 `~/Downloads`는 그 플랫폼이 없을 때 물어본 뒤에만, `--with-desktop` zip은 `desktop.sha256`에 적힌 파일만 올린다(보안 검토: 엉뚱한 파일이 모두의 앱이 되지 않게). 계약 밖 경로는 모두 `GET *` 안에서 처리하므로 레지스트리 규칙은 그대로다.
@@ -606,6 +606,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **`POST /api/connect-info/lan-failure {code}`** → 204. 세션마다 1시간에 한 번만 세고 24시간 메모리에만 둔다(재시작하면 비움). 진단 '사무실 직접 연결'이 횟수·인증서 불일치 수·방화벽 안내를 보인다. 데스크톱 앱은 설계의 'Bonjour로 같은 teamId를 찾았는데 실패'를 Bonjour 없이 이렇게 대신한다: 서버 맥의 `.local` 이름이 이 네트워크에서 풀릴 때만(mDNS는 같은 링크에서만 답함) 알린다. 인증서 불일치도 같다: 집에서는 같은 사설 IP에 다른 기기(공유기·NAS의 8443)가 있을 수 있어, 늘 알리면 진단이 '다른 기기가 서버인 척'이라고 잘못 경고했다(리뷰에서 고침). 루프백 주소는 이 맥 자신이므로 사무실로 본다. 앱도 팀·코드마다 1시간에 한 번. 탐침은 시간 초과(`timeout`)와 연결 실패(`unreachable`)를 나눈다.
 - **연결 방식 화면**: `ConnectionStatus`에 `availableModes`·`teamName`(선택 필드). Team AX 중계는 설정 `relay.officialAvailable`(기본 false, 환경 변수 `MYCEL_RELAY_OFFICIAL=1`)일 때만 목록에 있고 서버도 409로 거부한다. Cloudflare·Tailscale은 목록에서 뺐다(원래 409). 중계 연결(자체·Team AX)은 팀 이름이 필요하다: `RelayTeamName`(소문자·숫자·가운데 하이픈 2–40자), 주지 않으면 server.json의 기존 값, 둘 다 없으면 400 `body.teamName`. `relay.teamName`을 server.json에 같이 쓴다.
 - **비밀번호 재설정 링크 버튼**(관리자 > 팀원): 이미 있던 `POST /api/admin/users/:id/reset-link`을 화면에 붙였다. 확인 → 링크(24시간·1회·새 링크가 이전 링크를 무효화) 복사, 메일 없음. owner 행에는 버튼이 없다(owner는 서버 맥의 CLI로만). 임시 비밀번호 버튼은 그대로 둔다.
+- **재설정 링크는 그 계정 주인에게 알린다**(2026-11-11, QA TC-202): 서버 CLI(`mycel-account`·`mycel-ctl reset-link`)나 owner·관리자가 링크를 만들면, 그 계정 주인의 활동에 알림 `account.reset_link`(표 `reset_link_notices`, 마이그레이션 119; 출처는 링크 행 id, 토큰은 없음)가 항상 생긴다. 누가 만들었는지(서버 / 이름)와, 링크가 아직 살아 있으면(안 쓰고·안 바뀌고·안 지남, 읽을 때 계산) "내가 부탁한 게 아니면 보안·기기에서 비밀번호를 바꾸면 바로 막혀요"를 보여 주고 그 화면으로 연다. 전에는 활동 기록 한 줄뿐이었다. 휴대폰 푸시는 아직 없다.
 - **버전 기록 되돌리기**: 저장된 버전은 모두 '바뀌기 전 내용'이라 가장 새 버전도 지금 파일과 다르다. 화면이 맨 위 버전을 '지금 파일'로 여겨 되돌리기를 숨기던 것을 고쳤다. `GET /api/files/history`가 `currentSha256`(지금 파일)과 `canRestore`(그 경로 쓰기 권한, 되돌리기 API와 같은 규칙)를 준다. 지금 파일과 같은 버전만 '지금 내용과 같음'으로 표시하고, 쓰기 권한이 없으면 내려받기만. 권한 규칙은 바꾸지 않았다.
 
 ## 사무실 모드 (feat/office-mode, 2026-10-21)
@@ -758,6 +759,18 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `params.reason: server_disk_full`) instead of 500, and a chat turn that failed on one (the error, the engine's or the
   launcher's "no space left on device", or under 64 MiB left on the data or team disk when it stopped) ends with the
   chat reason `storage_full`; the owner and admins read where to look (Admin › System).
+- **One visitor can't fill a team's relay streams (2026-11-11, QA TC-199, audit #3).** 1,100 connections from one machine
+  that asked for a big file and never read the answer took all 1,024 streams of a team in 12 s, the answers of everyone
+  else waited behind theirs, and the relay never closed them. Now one visitor (IPv4 address; IPv6 by /64, one line gets
+  a whole /64) has at most `RELAY_MAX_STREAMS_PER_IP` HTTP streams open to a team (default half of one control
+  connection, 256): over it the relay answers 503 `team_busy` at once and closes that connection, before waiting for a
+  stream and again after. WebSockets are not counted (the team server must accept them; realtime of an office behind
+  one address stays open). An answer with bytes waiting for a visitor whose socket took no chunk for
+  `RELAY_CLIENT_STALL_MS` (30 s) is cut: RST CANCEL to the team server, socket closed. Progress is per written chunk
+  (at most 64 KB), so a slow line that keeps reading is never cut. Counters only (`/metrics`
+  `relay_http_requests_total{outcome="capped"}`, `relay_client_stalls_total`); no address is logged. The cap counts the
+  address the relay already believes (`--trusted-proxies`), so a relay behind a local tunnel without that setting would
+  cap everyone together.
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 
@@ -8755,8 +8768,13 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
   re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
   cannot misread it as Web Push). `POST /api/push/devices` / `DELETE /api/push/devices/:id`; `GET /api/push` adds
-  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
-  also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
+  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it
+  when that is the same person, or when the session that had it is over (expired, the account removed or switched
+  off). Another person's live session keeps it: registration answers 409 "another account gets this phone's
+  notifications; sign out there first" (QA TC-201, fix/push-token-takeover, 2026-11-11). A phone that changes hands
+  loses its row first: logout removes it with the session, a team switch with the removal key, and after a reinstall
+  the iPhone app signs the kept session out (Android gets a new FCM token), so the old "another account replaces it"
+  only let a member who knew a colleague's token take over their notifications.
 - **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
   hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
   store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
@@ -20948,6 +20966,20 @@ universal links / app links); without it, the phone's browser lands on the join 
 - Tests: `web/test/unit/get-the-app.test.ts`, `tests/unit/app-links.test.ts` (the banner), `web/test/e2e/get-the-app.spec.ts`
   (390, iPhone and Android user agents, light and dark), `web/test/e2e/first-run.spec.ts`.
 
+## Usage limits: a true USD hint, no empty chat after a refused send, midnight in 24-hour time (fix/usage-limit-words, 2026-11-11, QA TC-215)
+
+- **The USD hint says what really adds up.** Admin › 팀 설정 › 사용 한도's hint under 금액 한도 (USD) said amounts
+  build up only with API key connections. Answers through a login count too: the engine reports an estimated amount,
+  which the turn keeps (`usage.costNote` says so already), and a USD block limit refuses on it. The hint now says the
+  amount is an estimate of the same use through the API and that answers through a login can add up too.
+- **No new chat while a block limit is used up.** `POST /api/chats` answers the same `budget_exceeded` (429, the
+  person's words) as sending, editing and regenerating. A first question from Home made the chat before the send was
+  refused, and the empty chat stayed in the list. Now Home's composer keeps the text and shows the refusal, and no
+  chat is made. Attaching a file on Home (which makes the chat first) is refused the same way.
+- **When a limit is free again, in 24-hour time.** A day's or a month's limit ends at the team's midnight, and
+  "오전 12:00" / "12:00 AM" can read as noon. `limitResetText` (shared) says "11월 12일 0시", "Nov 12 at 00:00",
+  "11月12日 00:00", in the team's time zone, for the refusal (`budgetBlock`) and for Settings › 사용량.
+
 
 ## Project contents only for members — 프로젝트 내용은 멤버만 (feat/project-members-only, 2026-11-11, product owner)
 
@@ -21342,20 +21374,6 @@ decided that Team settings splits into pages on phones and stays one page on com
   the same person and session, never over a newer saved value) and `back-stack.test.tsx` (two lists under a group).
 - Version impact: **minor** (a visible change on phones; no API, data or permission change).
 
-## Usage limits: a true USD hint, no empty chat after a refused send, midnight in 24-hour time (fix/usage-limit-words, 2026-11-11, QA TC-215)
-
-- **The USD hint says what really adds up.** Admin › 팀 설정 › 사용 한도's hint under 금액 한도 (USD) said amounts
-  build up only with API key connections. Answers through a login count too: the engine reports an estimated amount,
-  which the turn keeps (`usage.costNote` says so already), and a USD block limit refuses on it. The hint now says the
-  amount is an estimate of the same use through the API and that answers through a login can add up too.
-- **No new chat while a block limit is used up.** `POST /api/chats` answers the same `budget_exceeded` (429, the
-  person's words) as sending, editing and regenerating. A first question from Home made the chat before the send was
-  refused, and the empty chat stayed in the list. Now Home's composer keeps the text and shows the refusal, and no
-  chat is made. Attaching a file on Home (which makes the chat first) is refused the same way.
-- **When a limit is free again, in 24-hour time.** A day's or a month's limit ends at the team's midnight, and
-  "오전 12:00" / "12:00 AM" can read as noon. `limitResetText` (shared) says "11월 12일 0시", "Nov 12 at 00:00",
-  "11月12日 00:00", in the team's time zone, for the refusal (`budgetBlock`) and for Settings › 사용량.
-
 ## Follow-ups 11-12 — 한 가지 말로 "볼 수 있음 / 고칠 수 있음", Mac App Store 먼저, 읽기 카드는 읽는다고 (fix/followups-1112, 2026-11-12, QA TC-281..TC-285, TC-287)
 
 - **Shared chats say "멤버"** (TC-281, after "Project contents only for members"). Sharing a chat, the shared chat's
@@ -21499,3 +21517,75 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   a phone, no AI: tell the owner once, connect my own, the row back when AI answers; first names; the join title; the ✦
   line once).
 - Version impact: **minor** (a new endpoint, migration 286 and a visible change on an invited person's first screen).
+
+## A project card I am not in says only members see inside — 멤버만 내용을 볼 수 있어요 (fix/project-card-members-only, 2026-11-12, QA TC-303)
+
+- Since "Project contents only for members", the owner or an admin who is not a member gets a team project without its
+  instructions (`Project.member: false`, `instructions: ''`). The Projects list card (#374) read that empty field as
+  "지침이 없어요." ("No instructions."), which was untrue for a project that has instructions. Now such a card shows a
+  small lock (as "나만 봐요" under a chat's box) and "멤버만 내용을 볼 수 있어요." ("Only members can see what's inside.")
+  in the same faint two lines' room, so the card stays as tall as the others. The line comes from `member: false`
+  alone: nothing more is sent.
+- In the trash (`inTrash`, also `member: false` for everyone): that line stays empty. Nobody sees its contents then,
+  members included, and the card's line above already says it is in the trash.
+- Unchanged: members' cards, "지침이 없어요." on a project I see that has no instructions, and the project page (its one
+  quiet block for a non-member).
+- i18n: `projects.cardMembersOnly` in the five languages.
+- Tests: web unit `project-list-menu.test.tsx` (the lock and the line on a card I am not in, empty in the trash, "지침이
+  없어요." on mine), e2e `project-list-menu.spec.ts` (an admin who is not in a project with instructions: the line and
+  the lock, not its instructions, as tall as her own card, axe; `SHOTS_DIR` takes the pictures at 1440 and 390).
+- Version impact: **patch** (words on a card; no API, data or permission change).
+
+## A member asks an admin to add an app — 멤버가 관리자에게 앱 추가를 요청한다 (feat/ask-admin-service, 2026-11-11, product owner, QA TC-286)
+
+- **What.** The owner said yes ("그래 ㄱㄱ") to a member asking for an app the team has not set up. Before, a member
+  on such an app's page saw "Your admin hasn't set up Gmail yet." and a Connect button that did nothing. Now **Ask admin
+  to add it** takes the place of both; afterwards "Request sent", opened again "Already asked", and the card in the list
+  says "Asked". Slack's app requests are the model: one button, the admins hear about it, the member hears back.
+- **Which apps.** Only the five an admin sets up once for everyone: Google Drive, Gmail, Google Calendar, Google Docs
+  and Google Sheets, and only while not set up. The server holds the list (`REQUESTABLE_SERVICES`) and refuses any other
+  name, so no free text from a member reaches an admin. Left out on purpose: the listed MCP services (a member adds
+  those with their own account, and asking for something you can add yourself is refused too); "Not listed?" (it names
+  no app in the list, so its line stays); an app an admin turned **off** for members (that was the admin's choice: no
+  button, the reason stays as before); when the team turned personal connections off (members see no listed services,
+  and asking for a team connection there is a bigger change); a setup that is not the admins' to make (a hosted team's
+  comes from the hosting service, an operator's file from the server: nobody here could answer it, so the server
+  refuses it). Owners and admins cannot ask (they set it up).
+- **One notice per app, not per ask.** Each owner and admin has one Activity row per app ("Alice asked to add Gmail",
+  "Erin and 2 others asked to add Gmail", newest asker first); a new ask makes it unread again and moves it up. The row
+  opens the app's setup in Admin › Connected apps, with a small "Set up Gmail" button inside it. Names are read when the
+  inbox is shown, never stored with the notice. A 30-second check keeps the notices with whoever is an owner or admin
+  now: someone demoted loses them, someone promoted gets those of the apps asked for now.
+- **Closing.** When members can connect the app (an admin set it up, or turned the members' switch on after that; a
+  setup made elsewhere is caught by a 30-second check), its requests close, the admins' notice is marked read and says
+  "Added", and each asker gets one quiet notice ("Gmail is ready. You can connect it now.", inbox only, never an OS
+  push) that opens its page. Set up but off for members does not close them (the member still cannot connect it; the
+  notice's page has the members' switch), nor does a hosting service's Google review that lets only its test users in.
+  Requests also close after the inbox's 30 days, or when their member leaves or becomes an owner or admin.
+- **Limits.** One open request per member and app (a partial unique index; "already" sends nothing), at most 10 new
+  requests per member a day. Nothing a member gets names an admin ("Admins are never named", above).
+- **Data.** Migration 343 (342 is taken by an open PR): `service_requests` and `service_request_notices` (the notices'
+  own table, as the others: notification_inbox has a fixed event list). Additive, reader 1.
+- Tests: `tests/unit/c-service-requests.test.ts`, web unit `service-requests`, e2e `integrations.spec.ts` (member asks,
+  owner sets it up from the notice, member hears it is ready; phone width), `google-apps.spec.ts` and `drive.spec.ts`
+  (the button in place of the disabled Connect).
+- Version impact: **minor** (a new API, two inbox events, one migration). Needed in the core too (potenlab/team-ax).
+
+## Uploads wait for the connection; one's own upload sent again is kept once (fix/uploads-wait-for-connection, 2026-11-12, QA TC-223)
+
+- **Waiting, not failing.** An upload whose request gets no answer at all (the browsers' own network-failure words:
+  "Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource.", lib/xhr.ts's "Network request
+  failed"; any TypeError while the browser says it is offline) or the relay's 502 / 504 waits for the connection: a
+  pause of up to 10 s that the browser's `online` event ends at once, no request while offline, for up to 10 minutes,
+  then it fails with 다시 시도. Another TypeError is a fault in the page and is not retried. A server error keeps its
+  tries (5 for a chunk, 1 for a small file). A small file for a team folder is sent again too; attachments and voice are
+  sent once (a second one would be a second attachment or transcription).
+- **No "(2)" of one's own upload sent again.** `POST /api/files/upload` and an upload session to a path, with
+  `onExists: 'rename'`, keep a file already at the name or at one of its renamed forms ("name (2)" … "(20)", up to the
+  first free one) and answer with it, only when it is **this person's own upload of this very content in the last 24
+  hours**: a file_events `upload` row of theirs for that path with that sha256, and the file is still that content. That
+  is what a resumed upload and photos picked again after a dropped connection are. The same content uploaded by someone
+  else, made another way (the AI, a copy), or longer ago gets "(2)" as before: someone uploading a team template again to
+  get their own copy gets the copy, never the shared original back (which they would then edit). Hidden or unreadable
+  names are never looked at.
+- Tests: `tests/unit/c-uploads-same.test.ts`, `web/test/unit/upload-wait.test.ts`, `web/test/unit/file-upload-retry.test.tsx`.

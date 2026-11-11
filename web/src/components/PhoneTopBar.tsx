@@ -3,7 +3,8 @@
 //   대화 (/rooms):   its name · ⊕ a new conversation (the people list)
 //   파일:            none (the Files page's own header is the bar)
 //   a page under a tab (팀 스킬, 프로젝트, …): ‹ back · the page's name (the page keeps its heading for screen readers
-//                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx)
+//                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx);
+//                    the page's one action on the right ("+", "Edit": phone/PhoneBarAction.tsx)
 //   관리자 (/admin):  none here: Admin draws the same bar itself, with "‹ Admin" over its pages (admin/AdminLayout.tsx)
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
@@ -20,6 +21,7 @@ import { useAttention } from '../store/sessionMarkers'
 import { useUi } from '../store/ui'
 import { IconButton } from './ui'
 import { PhonePageBar } from './phone/PhonePageBar'
+import { PhoneBarSlot } from './phone/PhoneBarAction'
 
 const icon = 'size-11 shrink-0'
 
@@ -40,7 +42,7 @@ export function PhoneTopBar() {
   const titleKey = pageTitleKey(path)
   const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
   if (!home && !rooms)
-    return <PhonePageBar onBack={back} backLabel={backLabel} title={title} titleHidden={!!titleKey} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
+    return <PhonePageBar onBack={back} backLabel={backLabel} title={title} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {home ? (

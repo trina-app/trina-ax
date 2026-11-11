@@ -9,6 +9,7 @@ import { driveAdminStatus, setDriveClient } from '../integrations/google-drive/a
 import { listShares, setMembersCanConnect, shareFolders, stopShare, updateShare } from '../integrations/google-drive/share-admin'
 import { shareView } from '../integrations/google-drive/shares'
 import { DriveError } from '../integrations/google-drive/store'
+import { afterServiceSetup } from '../integrations/service-requests'
 
 async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
   try { return await fn() } catch (e) {
@@ -25,10 +26,11 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.disconnectDrive, ({ auth }) => safe(() => googleDriveOf(ctx).disconnect(auth.user.id)))
   // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)
   kit.handle(API.driveAdminStatus, () => safe(() => driveAdminStatus(ctx)))
-  kit.handle(API.setDriveClient, ({ auth, body }) => safe(() => setDriveClient(ctx, auth.user.id, body)))
+  // a member's ask for Google Drive closes once members can connect it (integrations/service-requests.ts)
+  kit.handle(API.setDriveClient, ({ auth, body }) => safe(() => { const st = setDriveClient(ctx, auth.user.id, body); afterServiceSetup(ctx, 'google-drive'); return st }))
   // the members' switch and Drives shared with the team (integrations/google-drive/shares.ts); admins only, and the
   // service checks the caller is an active admin again
-  kit.handle(API.setDriveMembers, ({ auth, body }) => safe(() => { setMembersCanConnect(ctx, auth.user.id, body.on); return driveAdminStatus(ctx) }))
+  kit.handle(API.setDriveMembers, ({ auth, body }) => safe(() => { setMembersCanConnect(ctx, auth.user.id, body.on); afterServiceSetup(ctx, 'google-drive'); return driveAdminStatus(ctx) }))
   kit.handle(API.listDriveShares, ({ auth }) => safe(() => ({ items: listShares(ctx, auth.user.id) })))
   kit.handle(API.authorizeDriveShare, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, { shareId: body.shareId })))
   kit.handle(API.completeDriveShareFlow, ({ auth, params, body }) => safe(() => { const svc = googleDriveOf(ctx); return shareView(ctx.db, svc.completeShare(auth.user.id, auth.session.id, params.id, body.name), svc.key) }))

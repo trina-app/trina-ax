@@ -221,7 +221,7 @@ export function DeckBuildView({ build, run }: { build: DeckBuild; run: DeckRunSt
               <IconButton label={t('deck.progress.prev')} disabled={at <= 0} onClick={() => go(-1)} data-testid="deck-prev">
                 <ChevronLeft size={16} />
               </IconButton>
-              <span className="min-w-12 text-center tabular-nums" data-testid="deck-page">
+              <span className="min-w-12 shrink-0 text-center whitespace-nowrap tabular-nums" data-testid="deck-page">
                 {shown + 1} / {build.slides.length}
               </span>
               <IconButton label={t('deck.progress.next')} disabled={at >= done.length - 1} onClick={() => go(1)} data-testid="deck-next">

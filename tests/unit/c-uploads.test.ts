@@ -92,9 +92,11 @@ describe('upload sessions', () => {
     await put(s.body.id, 0, chunk(data, 0))
     await put(s.body.id, 1, chunk(data, 1))
     expect((await A.json(`/api/upload-sessions/${s.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).toBe('shared/up/raw/a.bin')
-    const again = await create(target, data)
-    await put(again.body.id, 0, chunk(data, 0))
-    await put(again.body.id, 1, chunk(data, 1))
+    // another file of that name gets a new one (the same file again is kept: c-uploads-same.test.ts)
+    const other = blob(UPLOAD_CHUNK_SIZE + 10, 2)
+    const again = await create(target, other)
+    await put(again.body.id, 0, chunk(other, 0))
+    await put(again.body.id, 1, chunk(other, 1))
     expect((await A.json(`/api/upload-sessions/${again.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).not.toBe('shared/up/raw/a.bin')
     // no write access: the same answer for a folder and for a file below it, chunked or small
     const denied = (await mkdir('groups/finance/up')).status

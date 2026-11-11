@@ -481,28 +481,35 @@ export default function Files() {
     // "read-only folder" for a folder the person can write and dropped the file (e2e mobile upload on a slow server).
     if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
     const folder = into ?? path
-    for (const file of list) {
-      const item = addFileUpload(file.name, folder)
-      const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
-      // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
-      const release = markBusy('upload')
-      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
-        () => {
-          patchFileUpload(item.id, { status: 'done' })
-          setTimeout(() => dropFileUpload(item.id), 4000)
-          if (onScreen.current?.path === folder) void onScreen.current.load()
-        },
-        (e) => {
-          if (item.abort.signal.aborted) {
-            // cancelled: drop the server's half-received session too (it holds disk space and counts against the
-            // person's open uploads for a day otherwise)
-            if (item.abort.signal.reason !== SIGNED_OUT) void cancelUpload(file, target, api)
-            return dropFileUpload(item.id)
-          }
-          patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
-        },
-      )
-    }
+    for (const file of list) sendFile(file, folder, addFileUpload(file.name, folder))
+  }
+  /** One file of startUploads, and its 다시 시도 after a failure: the same file to the same name (a large one goes on
+   * from the chunks the server has; a small one that did arrive is kept by the server, no "(2)"; QA TC-223). */
+  const sendFile = (file: File, folder: string, item: { id: number; abort: AbortController }) => {
+    const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
+    // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
+    const release = markBusy('upload')
+    uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
+      () => {
+        patchFileUpload(item.id, { status: 'done' })
+        setTimeout(() => dropFileUpload(item.id), 4000)
+        if (onScreen.current?.path === folder) void onScreen.current.load()
+      },
+      (e) => {
+        if (item.abort.signal.aborted) {
+          // cancelled: drop the server's half-received session too (it holds disk space and counts against the
+          // person's open uploads for a day otherwise)
+          if (item.abort.signal.reason !== SIGNED_OUT) void cancelUpload(file, target, api)
+          return dropFileUpload(item.id)
+        }
+        const retry = () => {
+          const again = { id: item.id, abort: new AbortController() }
+          patchFileUpload(item.id, { status: 'uploading', error: undefined, progress: null, abort: again.abort, retry: undefined })
+          sendFile(file, folder, again)
+        }
+        patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')), retry })
+      },
+    )
   }
 
   /** Upload a read folder into this folder, or into `into`, with the same check for write access as for a file. */

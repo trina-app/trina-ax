@@ -2,7 +2,7 @@
 // (/join#t=…) and the forced password change.
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
@@ -12,11 +12,13 @@ import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocale
 import { useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
+import { mobileApp } from '../lib/mobile'
+import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
-import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin, tabJoinToken } from '../lib/team-link'
+import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
 import { platform } from '../lib/pwa'
 import { copyInTap } from '../lib/copy-in-tap'
@@ -91,10 +93,16 @@ export function LanguageSwitcher() {
 
 /** The sign-in style screens. From 640px the form is a card in the middle of the screen; on a phone it has no frame
  * (the card's edge sat 16px from the screen's and only boxed the fields in once more) and it starts near the top, so
- * the button is in view and the keyboard does not push the page around. */
+ * the button is in view and the keyboard does not push the page around. On a phone the page scrolls in its own box,
+ * as high as what the keyboard leaves (#root's --app-h, lib/viewport.ts), so a form's button (SubmitBar) can stay on
+ * that box's bottom edge, above the keyboard (QA TC-272). Inside the phone app the website's footer (the source code
+ * link, the language select) is left out: the app's Settings › About has the source offer, and the language is the
+ * person's or the team's. */
 function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
+  const inApp = !!mobileApp()
+  const box = useFieldAboveBar()
   return (
-    <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10 max-sm:justify-start max-sm:pt-[max(2.5rem,8vh)]">
+    <div ref={box} className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10 max-sm:h-full max-sm:justify-start max-sm:overflow-y-auto max-sm:scroll-pb-28 max-sm:pt-[max(2.5rem,8vh)]" data-testid="auth-frame">
       <main className="w-full max-w-sm">
         <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight max-sm:mb-8">
           <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg dark:ring-1 dark:ring-line" />
@@ -105,11 +113,37 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
           {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}
         </div>
-        {switcher && <LanguageSwitcher />}
-        <SourceCodeLink className="mt-4 block text-center text-xs text-faint hover:text-muted" />
+        {switcher && !inApp && <LanguageSwitcher />}
+        {!inApp && <SourceCodeLink className="mt-4 block text-center text-xs text-faint hover:text-muted" />}
       </main>
     </div>
   )
+}
+
+/** On a phone, the field being typed in stays in sight above the button bar (SubmitBar) and the keyboard: when it gets
+ * the focus, and when the keyboard opens and the box gets shorter (visualViewport's resize), the box scrolls it (with its
+ * hint or error) into view, keeping the bar's height free under it (the box's scroll-padding-bottom). A computer's page does not scroll. */
+function useFieldAboveBar() {
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = box.current
+    const phone = window.matchMedia?.('(max-width: 639.98px)')
+    if (!el || !phone) return
+    const reveal = () => {
+      const f = document.activeElement
+      // the whole field (Field's box: its hint or error under it too), not only the input
+      if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
+    }
+    // after the keyboard's own scrolling and the new --app-h have settled
+    const later = () => requestAnimationFrame(reveal)
+    el.addEventListener('focusin', later)
+    window.visualViewport?.addEventListener('resize', later)
+    return () => {
+      el.removeEventListener('focusin', later)
+      window.visualViewport?.removeEventListener('resize', later)
+    }
+  }, [])
+  return box
 }
 
 /** An error on screen: a text key of ours, or what the server said. Drawn in the language on screen: our own texts,
@@ -149,26 +183,61 @@ function usePasswordReveal() {
   return { show, capsOn, caps, toggle: () => setShow((v) => !v) }
 }
 
-/** The Caps Lock note and the eye button, on their own row; with `hint`, on the field's hint line instead (the hint's
- * place under the field, the button at the field's right edge): the input names `hint.id` in aria-describedby, and
- * the text is left empty while the field shows an error (an error takes the hint's place, as in Field). */
-function PasswordRevealRow({ reveal, testId, hint }: { reveal: ReturnType<typeof usePasswordReveal>; testId: string; hint?: { id: string; text: string } }) {
+/** A password field with its eye button inside, at the field's right edge (before, the button had a row of its own
+ * under the field, which pushed a phone's button under the keyboard: QA TC-272). `reveal` is shared by the fields of
+ * one form, so one tap shows both of a password change; `eye` is false on the second of them (one button is enough). */
+function PasswordField({ label, hint, error, reveal, eyeTestId, eye = true, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'className'> & { label: string; hint?: string; error?: string | null; reveal: ReturnType<typeof usePasswordReveal>; eyeTestId?: string; eye?: boolean; 'data-testid': string }) {
   const t = useT()
-  const { show, capsOn, toggle } = reveal
-  const label = show ? t('auth.hidePassword') : t('auth.showPassword')
+  const { show, caps, toggle } = reveal
+  const name = show ? t('auth.hidePassword') : t('auth.showPassword')
+  const button = eye ? (
+    <IconButton label={name} aria-pressed={show} onClick={toggle} className="mr-0.5 max-sm:mr-0" data-testid={eyeTestId}>
+      {show ? <EyeOff size={16} /> : <Eye size={16} />}
+    </IconButton>
+  ) : undefined
   return (
-    <div className={clsx('flex items-center justify-between gap-2', hint && 'mt-1')}>
-      <span className="min-w-0 text-xs">
-        <span role="status" className="text-warn" data-testid="caps-lock">
-          {capsOn ? t('auth.capsLock') : ''}
-        </span>
-        {hint && !capsOn && <span id={hint.id} className="text-faint">{hint.text}</span>}
+    <Field label={label} hint={hint} error={error} aside={button}>
+      <input {...props} className={clsx(inputCls, eye && 'pr-11')} type={show ? 'text' : 'password'} onKeyDown={caps} onKeyUp={caps} autoCapitalize="none" />
+    </Field>
+  )
+}
+
+/** The Caps Lock note under the last password field (empty while it is off); with `hint`, on the field's hint line
+ * instead: the input names `hint.id` in aria-describedby, and the text is left empty while the field shows an error
+ * (an error takes the hint's place, as in Field). */
+function CapsLockNote({ reveal, hint }: { reveal: ReturnType<typeof usePasswordReveal>; hint?: { id: string; text: string } }) {
+  const t = useT()
+  const { capsOn } = reveal
+  return (
+    <p className={clsx('text-xs', (capsOn || hint) && 'mt-1')}>
+      <span role="status" className="text-warn" data-testid="caps-lock">
+        {capsOn ? t('auth.capsLock') : ''}
       </span>
-      <IconButton label={label} aria-pressed={show} onClick={toggle} className={clsx('shrink-0', hint && '-my-1.5 -mr-1.5 max-sm:-my-2 max-sm:-mr-2')} data-testid={testId}>
-        {show ? <EyeOff size={15} /> : <Eye size={15} />}
-        <span className="ml-1 text-xs">{label}</span>
-      </IconButton>
-    </div>
+      {hint && !capsOn && <span id={hint.id} className="text-faint">{hint.text}</span>}
+    </p>
+  )
+}
+
+/** A form's button with the error above it. On a phone it stays on the bottom edge of the page's box (AuthFrame) while
+ * the form runs on below it, so it is above the keyboard while a field is being typed in. `plain`: just the children (the
+ * password change inside Settings, not a sign-in style page). */
+function SubmitBar({ children, plain }: { children: ReactNode; plain?: boolean }) {
+  if (plain) return <>{children}</>
+  return <div className="space-y-3 bg-canvas max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-4 max-sm:px-4 max-sm:py-2" data-testid="auth-submit-bar">{children}</div>
+}
+
+/** The details of an invite or a team link did not load (no connection, a server error): why, and a way to try again;
+ * never "the link is wrong" (QA TC-171 for the team link, 11-11 for the personal invite). */
+function LoadFailed({ e, onRetry }: { e: unknown; onRetry: () => void }) {
+  const t = useT()
+  const locale = useLocale()
+  return (
+    <>
+      <p role="alert" className="text-sm text-danger" data-testid="join-load-error">{errorText(e, locale, t('error.network'))}</p>
+      <Button variant="primary" className="mt-4 w-full" onClick={onRetry} data-testid="join-retry">
+        {t('common.retry')}
+      </Button>
+    </>
   )
 }
 
@@ -229,14 +298,16 @@ export function Login() {
         <Field label={t('auth.password')} error={errorOf('password')}>
           <input className={inputCls} name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required data-testid="login-password" />
         </Field>
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
-        <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="login-submit">
-          {t('auth.signIn')}
-        </Button>
+        <SubmitBar>
+          {error && (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          )}
+          <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="login-submit">
+            {t('auth.signIn')}
+          </Button>
+        </SubmitBar>
         <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
       </form>
     </AuthFrame>
@@ -251,7 +322,9 @@ export function Setup() {
   const navigate = useNavigate()
   // the link from the account console (#token=…&team=…&lang=…&site=…) or the installer (?token=…), read once
   const [link] = useState(() => readSetupLink(window.location))
-  const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
+  // after a reload the token is no longer in the address: the one this tab's link carried (lib/setupLink.ts)
+  const [linkToken] = useState(() => link.token ?? keptSetupToken())
+  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const passwordHintId = useId()
   const { busy, error, run, setError } = useSubmit()
@@ -266,7 +339,7 @@ export function Setup() {
   }, []) // once, on arrival
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
-    setupToken: link.token ? null : requiredCheck(form.setupToken),
+    setupToken: linkToken ? null : requiredCheck(form.setupToken),
     teamName: requiredCheck(form.teamName),
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
@@ -282,6 +355,7 @@ export function Setup() {
       const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       // the company website from the link: the company profile step starts from it (components/onboarding)
       rememberSetupSite(link.site)
+      forgetSetupToken()
       // then the welcome steps (pages/Welcome.tsx): set before the session switch re-renders /setup (App.tsx AfterSetup)
       setAfterSetup('/welcome')
       signedIn(r.me)
@@ -294,7 +368,7 @@ export function Setup() {
     <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
       <form onSubmit={submit} noValidate className="space-y-6">
         <FormSection title={t('setup.section.team')} testId="setup-section-team">
-          {!link.token && (
+          {!linkToken && (
             <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
               <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
             </Field>
@@ -331,13 +405,11 @@ export function Setup() {
           </Field>
           {/* one password field, as when joining: the eye button shows what was typed (no second field to type blind) */}
           <div>
-            <Field label={t('auth.password')} error={errorOf('password')}>
-              <input className={inputCls} name="password" type={reveal.show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={reveal.caps} onKeyUp={reveal.caps} required autoComplete="new-password" autoCapitalize="none" aria-describedby={passwordHintId} data-testid="setup-password" />
-            </Field>
-            <PasswordRevealRow reveal={reveal} testId="setup-password-show" hint={{ id: passwordHintId, text: errorOf('password') ? '' : t('setup.passwordHint') }} />
+            <PasswordField label={t('auth.password')} error={errorOf('password')} reveal={reveal} eyeTestId="setup-password-show" name="password" value={form.password} onChange={set('password')} required autoComplete="new-password" aria-describedby={passwordHintId} data-testid="setup-password" />
+            <CapsLockNote reveal={reveal} hint={{ id: passwordHintId, text: errorOf('password') ? '' : t('setup.passwordHint') }} />
           </div>
         </FormSection>
-        <div className="space-y-3">
+        <SubmitBar>
           {error && (
             <p role="alert" className="text-sm text-danger">
               {error}
@@ -346,7 +418,7 @@ export function Setup() {
           <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="setup-submit">
             {t('setup.create')}
           </Button>
-        </div>
+        </SubmitBar>
       </form>
     </AuthFrame>
   )
@@ -356,7 +428,7 @@ export interface JoinValues { name: string; username: string; password: string }
 
 /**
  * The new-account form of an invite and of the team invite link: name, username, password. No second password field:
- * the eye button shows what was typed (PasswordRevealRow; the setup form has the same).
+ * the eye button inside the field shows what was typed (PasswordField; the setup form has the same).
  * The same rules as before: the username rule while typing, the length before sending, the server's words after.
  */
 export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void }) {
@@ -380,18 +452,18 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { s
       <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={errorOf('username') ?? (usernameProblem(form.username) ? t('auth.usernameHint') : null)}>
         <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
       </Field>
-      <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
-        <input className={inputCls} name="password" type={reveal.show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={reveal.caps} onKeyUp={reveal.caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
-      </Field>
-      <PasswordRevealRow reveal={reveal} testId="invite-password-show" />
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
-      <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="invite-submit">
-        {submitLabel}
-      </Button>
+      <PasswordField label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')} reveal={reveal} eyeTestId="invite-password-show" name="password" value={form.password} onChange={set('password')} required autoComplete="new-password" data-testid="invite-password" />
+      <CapsLockNote reveal={reveal} />
+      <SubmitBar>
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        )}
+        <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="invite-submit">
+          {submitLabel}
+        </Button>
+      </SubmitBar>
     </form>
   )
 }
@@ -546,34 +618,25 @@ function HaveAccount() {
  * phone app already on this team): say who is signed in and offer to sign out to accept it, or to keep the account.
  * Before, the link opened Home without a word and the invite was lost (QA TC-134, TC-174). Signing out shows the
  * invite page at the same address (the signed-out routes in App.tsx).
- * The team link (/join#t=…, no `:token`: App.tsx AfterJoin) the same way (QA TC-200): its token is after # and kept here
- * only, taken out of the address bar as the join page does; signing out opens the join page with it.
  */
 export function InviteWhileSignedIn() {
   const t = useT()
   const me = useMe()
   const { token } = useParams()
-  const [join] = useState(() => (token ? null : readJoinToken(window.location)))
   const signedOut = useSession((s) => s.signedOut)
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    if (join?.cleanUrl) window.history.replaceState(window.history.state, '', join.cleanUrl)
-  }, [join])
   const leave = async () => {
     setBusy(true)
-    // the address first: the signed-out page reads it as it opens, and it can open before the logout answers (the live
-    // connection hears the session end: store/live.ts). The team link's token goes back in it; a damaged team link
-    // opens the join page without one, which says the link does not work
-    navigate(join ? `/join${join.token ? `#t=${join.token}` : ''}` : `/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
     await api.call(API.logout).catch(() => {})
     clearLocalData()
     signedOut()
+    navigate(`/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
   }
   return (
-    <AuthFrame title={t('invite.signedInTitle')} sub={t(join ? 'teamLink.signedInBody' : 'invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
+    <AuthFrame title={t('invite.signedInTitle')} sub={t('invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
       <div className="flex flex-col gap-2" data-testid="invite-signed-in">
-        <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t(join ? 'teamLink.signOutJoin' : 'invite.signOutAccept')}</Button>
+        <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t('invite.signOutAccept')}</Button>
         <Button disabled={busy} onClick={() => navigate('/', { replace: true })} data-testid="invite-keep">{t('invite.keepAccount')}</Button>
       </div>
     </AuthFrame>
@@ -587,18 +650,27 @@ export function AcceptInvite() {
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
   const [info, setInfo] = useState<InviteInfo | null | 'missing'>(null)
-  const { busy, error, run, setError, setFailure } = useSubmit()
+  // the details did not load (no connection, a server error): why, and a way to try again (LoadFailed), as the team link
+  const [loadFailed, setLoadFailed] = useState<{ e: unknown } | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const { busy, error, run, setError } = useSubmit()
   useEffect(() => {
     let live = true
+    setLoadFailed(null)
     api.call(API.inviteInfo, { params: { token: token! } }).then(
       (i) => live && setInfo(i),
-      (e) => live && (isApiError(e, 'not_found') || isApiError(e, 'gone') ? setInfo('missing') : setFailure(e)),
+      (e) => {
+        if (!live) return
+        // the server's own "no such invite" / "used or expired"; a 404 page without its answer (a relay or proxy in
+        // between) is a failed load, as on the team link
+        if ((isApiError(e, 'not_found') && e.body.params?.httpStatus === undefined) || isApiError(e, 'gone')) setInfo('missing')
+        else setLoadFailed({ e })
+      },
     )
     return () => {
       live = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token])
+  }, [token, attempt])
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
@@ -608,7 +680,7 @@ export function AcceptInvite() {
   if (info === null)
     return (
       <AuthFrame title={t('invite.title')}>
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
+        {loadFailed ? <LoadFailed e={loadFailed.e} onRetry={() => setAttempt((n) => n + 1)} /> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
       </AuthFrame>
     )
   if (info === 'missing' || !info.valid)
@@ -689,14 +761,7 @@ export function TeamJoin() {
   if (info === null)
     return (
       <AuthFrame title={t('invite.title')}>
-        {loadFailed ? (
-          <>
-            <p role="alert" className="text-sm text-danger" data-testid="join-load-error">{errorText(loadFailed.e, locale, t('error.network'))}</p>
-            <Button variant="primary" className="mt-4 w-full" onClick={() => setAttempt((n) => n + 1)} data-testid="join-retry">
-              {t('common.retry')}
-            </Button>
-          </>
-        ) : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
+        {loadFailed ? <LoadFailed e={loadFailed.e} onRetry={() => setAttempt((n) => n + 1)} /> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
       </AuthFrame>
     )
   if (info === 'missing' || !info.valid)
@@ -799,7 +864,6 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
   const [form, setForm] = useState({ current: '', next: '', next2: '' })
   // typing blind twice: let the person see what they typed, and say when Caps Lock is on
   const reveal = usePasswordReveal()
-  const { show, caps } = reveal
   const { busy, error, run, setError } = useSubmit()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
@@ -827,21 +891,21 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
           <input className={inputCls} name="current" type="password" value={form.current} onChange={set('current')} required autoComplete="current-password" data-testid="password-current" />
         </Field>
       )}
-      <Field label={t('auth.newPassword')} hint={t('auth.passwordRule')} error={errorOf('next')}>
-        <input className={inputCls} name="next" type={show ? 'text' : 'password'} value={form.next} onChange={set('next')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" autoFocus={withoutCurrent} data-testid="password-new" />
-      </Field>
-      <Field label={t('auth.passwordAgain')} error={errorOf('next2')}>
-        <input className={inputCls} name="next2" type={show ? 'text' : 'password'} value={form.next2} onChange={set('next2')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="password-new2" />
-      </Field>
-      <PasswordRevealRow reveal={reveal} testId="password-show" />
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
-      <Button type="submit" variant="primary" busy={busy} className={forced ? 'w-full' : undefined} data-testid="password-submit">
-        {t('auth.changePassword')}
-      </Button>
+      <PasswordField label={t('auth.newPassword')} hint={t('auth.passwordRule')} error={errorOf('next')} reveal={reveal} eyeTestId="password-show" name="next" value={form.next} onChange={set('next')} required autoComplete="new-password" autoFocus={withoutCurrent} data-testid="password-new" />
+      {/* the one eye button above shows both fields */}
+      <PasswordField label={t('auth.passwordAgain')} error={errorOf('next2')} reveal={reveal} eye={false} name="next2" value={form.next2} onChange={set('next2')} required autoComplete="new-password" data-testid="password-new2" />
+      <CapsLockNote reveal={reveal} />
+      {/* the forced change is a sign-in style page: its button stays above a phone's keyboard; in Settings it is a plain row */}
+      <SubmitBar plain={!forced}>
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        )}
+        <Button type="submit" variant="primary" busy={busy} className={forced ? 'w-full' : undefined} data-testid="password-submit">
+          {t('auth.changePassword')}
+        </Button>
+      </SubmitBar>
     </form>
   )
 }
