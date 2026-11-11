@@ -20,10 +20,13 @@
 // All of it reaches the router as one change: the steps in between are not shown.
 //
 // Overlay entries (lib/backCloses.ts, lib/imageViewer.ts) are browser entries pushed while something is open, at the
-// same address, with React Router's state (and `scr`) copied plus a field whose name starts with "__". This module
-// never makes, rewrites or counts them: a pop onto or off one reaches the router as the same screen. On a phone a push
-// made while one is on top takes its place (no overlay entry is left under a page), and a step back over several
-// entries goes past them, each overlay closing on its own popstate as for a Back.
+// same address, with React Router's state (and `scr`) copied plus their mark (`mycelOverlay` and its depth; before
+// that a field whose name starts with "__"). This module never makes, rewrites or counts them: a pop onto or off one
+// reaches the router as the same screen, and a push or replace made while one is on top is the overlays' to place
+// (backCloses wraps pushState and replaceState: a page opened from inside an overlay takes its entry). A step back over
+// several entries goes past them (the depth of the one on top, then any left under a page, after backCloses' own skip
+// over it), each overlay closing on its own popstate as for a Back. The entries this module writes are new entries
+// (a new key, often a new address): they don't carry over a page's overlay token (`mycelPage`).
 import { createPath, NavigationType, parsePath, UNSAFE_createBrowserHistory, type HistoryRouterProps, type Location, type To } from 'react-router-dom'
 import { chainOf, rootTab, sameScreen, screenOf } from './screens'
 import { TAB_ROOT, type Tab } from './tabs'
@@ -46,8 +49,16 @@ const PHONE = '(max-width: 767.98px)'
 
 const newKey = () => Math.random().toString(36).slice(2, 10)
 export const isPhone = () => typeof window !== 'undefined' && window.matchMedia?.(PHONE).matches === true
-/** An overlay's entry: a field of its own whose name starts with "__" (see the top of this file). */
-export const isOverlay = (state: unknown) => !!state && typeof state === 'object' && Object.keys(state).some((k) => k.startsWith('__'))
+/** An overlay's entry (see the top of this file): `mycelOverlay` (lib/backCloses.ts), or a field of its own whose name
+ * starts with "__" (the older marks: `__backCloses`, `__imageViewer`, `__viewerSheet`). */
+export const isOverlay = (state: unknown) =>
+  !!state && typeof state === 'object' && (typeof (state as Record<string, unknown>).mycelOverlay === 'number' || Object.keys(state).some((k) => k.startsWith('__')))
+/** How many overlay entries this one is over its page (0: a page's own entry). */
+const overlayDepth = (state: unknown) => {
+  if (!isOverlay(state)) return 0
+  const d = (state as Record<string, unknown>).mycelOverlayDepth
+  return typeof d === 'number' && d > 0 ? d : 1
+}
 
 /**
  * Where a navigation from the top of `trail` to `target` goes (see the top of this file). Pure: unit tested.
@@ -157,51 +168,57 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
     listener?.({ action: a, location: base.location, delta })
   }
 
-  /** one step of history.go, done when its popstate came (or after 700 ms: a step that went nowhere) */
-  function step(n: number): Promise<void> {
+  /** the next popstate (true), or none within `ms` (false); `go`: the step of history.go that should bring it */
+  function nextPop(ms: number, go?: number): Promise<boolean> {
     return new Promise((done) => {
-      const timer = setTimeout(() => wake(), 700)
-      const wake = () => {
+      const timer = setTimeout(() => {
+        woke = null
+        done(false)
+      }, ms)
+      woke = () => {
         clearTimeout(timer)
         woke = null
-        done()
+        done(true)
       }
-      woke = wake
-      h.go(n)
+      if (go) h.go(go)
     })
   }
+  /** one step of history.go, done when its popstate came (or after 700 ms: a step that went nowhere) */
+  const step = (n: number) => nextPop(700, n)
 
-  /** back `n` router entries, and past any overlay entry on top or left between them */
+  /** Back `n` router entries, and past the overlay entries over the page on show; then on past any overlay entry
+   * landed on (one left under a page), after the overlays' own skip over it has had its moment (lib/backCloses.ts
+   * skips entries of overlays no longer open by itself). */
   async function backBy(n: number) {
     const target = idxNow() - n
-    if (n > 0) await step(-n)
-    for (let tries = 0; tries < 6; tries++) {
+    const over = overlayDepth(stateNow())
+    if (n + over > 0) await step(-(n + over))
+    for (let tries = 0; tries < 8; tries++) {
       const s = stateNow()
       if (!isOverlay(s) && idxNow() <= target) break
+      if (isOverlay(s) && (await nextPop(150))) continue
       await step(-1)
     }
   }
 
-  /** Make the entries of a plan from the entry on show (after its steps back), and tell the router once. A push made
-   * while an overlay entry is on top takes that entry's place. */
+  /** Make the entries of a plan from the entry on show (after its steps back), and tell the router once. A push or
+   * replace made while an overlay entry is on top is the overlays' to place (lib/backCloses.ts wraps the history's
+   * pushState and replaceState: a page opened from inside an overlay takes its entry). */
   function apply(p: Plan) {
     const sc = scrNow()
     let trail = sc.trail
     let idx = idxNow()
     let tab = sc.tab ?? screenOf((p.replace ?? p.push[0])?.p ?? pathNow()).tab
-    let over = isOverlay(stateNow())
     if (p.replace) {
       // the first entry of a stack says which stack it is
       if (trail.length === 1) tab = screenOf(p.replace.p).tab ?? tab
       trail = [...trail.slice(0, -1), p.replace]
       write('replace', p.replace, idx, { tab, sid: sc.sid, trail, ...(sc.open && trail.length === 1 ? { open: true as const } : {}) })
-      over = false
     }
     for (const item of p.push) {
       idx += 1
       trail = [...trail, item]
-      write(over ? 'replace' : 'push', item, idx, { tab, sid: sc.sid, trail })
-      over = false
+      write('push', item, idx, { tab, sid: sc.sid, trail })
     }
     emit(p.push.length ? NavigationType.Push : p.replace ? NavigationType.Replace : NavigationType.Pop, p.push.length || -p.back)
   }
@@ -261,7 +278,7 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
       // a Forward onto an entry of the stack a tab tap left: back where it came from, unseen
       if (sid && shownSid && sid !== shownSid) {
         const was = shownIdx
-        enqueue(() => quietly(() => step(was - idxNow())))
+        enqueue(() => quietly(async () => void (await step(was - idxNow()))))
         return
       }
     }

@@ -99,7 +99,9 @@ describe('a navigation on a phone', () => {
     expect(plan(items('/', '/c/x'), `/files/view?path=${encodeURIComponent('a/b.txt')}`).push).toHaveLength(1)
   })
 
-  test('overlay entries are the ones marked with a "__" field', () => {
+  test('overlay entries: backCloses\' mark, or the older ones with a "__" field', () => {
+    expect(isOverlay({ usr: null, key: 'k', idx: 1, mycelOverlay: 7, mycelOverlayDepth: 1, mycelPage: 'p1' })).toBe(true)
+    expect(isOverlay({ usr: null, key: 'k', idx: 1, mycelPage: 'p1' })).toBe(false)
     expect(isOverlay({ usr: null, key: 'k', idx: 1, __backCloses: 3 })).toBe(true)
     expect(isOverlay({ usr: null, key: 'k', idx: 1, __imageViewer: 1 })).toBe(true)
     expect(isOverlay({ usr: null, key: 'k', idx: 1, scr: {} })).toBe(false)
