@@ -37,3 +37,5 @@ Built as planned: the review phase carries `from: 'answers'` after the three que
 `onboarding.profile.reviewTitleTyped`. A read draft or a saved profile keeps "이렇게 이해했어요". The new test in
 `profile-step.test.tsx` failed before the change. `profile-step` + `welcome`: 81 pass. Typecheck, check:i18n and
 check:docs pass.
+
+PR: https://github.com/trina-app/trina-ax/pull/461
