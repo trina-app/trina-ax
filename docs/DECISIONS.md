@@ -19917,6 +19917,10 @@ Plan: `docs/AGENTS/plan/20261111-0346-google-workspace-connectors.md` (the owner
   media.ts) for `save_url`; other kinds are saved from their text with the file tools, only when the person asks.
 - **The hosting service's sign-in** is the Drive broker with the `app` field; an older control plane answers
   `invalid_request`, which the card shows as "not available yet" (`service_limited`) for ten minutes.
+- **Merged with "Plain words for members" (2026-11-11).** The sidebar item, the page's title and Settings use that
+  entry's name, **Connected apps** (`integrations.title`), not "Connectors"; the AI's pointers say "Connected apps ›
+  Gmail (Reconnect)" for a Google app and "Settings › Connected apps" for the rest. Adding a service by its address
+  stays with owners and admins on the new page too: a member reads "Not listed? Ask an admin to add it."
 - Version impact: **minor** (new connectors, API and an add-only migration).
 - Tests: `tests/unit/c-google-apps-signin.test.ts`, `c-google-apps-tools.test.ts` (fake Google, a fake library on
   127.0.0.1, the fake broker with the `app` field; token and client-secret canaries).

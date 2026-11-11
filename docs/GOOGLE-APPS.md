@@ -1,6 +1,6 @@
 # Gmail, Google Calendar, Google Docs and Google Sheets
 
-Four built-in connectors next to Google Drive ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)). A person opens **Connectors** in
+Four built-in connectors next to Google Drive ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)). A person opens **Connected apps** in
 the sidebar, picks Gmail (or Calendar, Docs, Sheets), presses **Connect**, signs in at Google, and the AI can use that
 app in their chats. Each app is its own card with its own Google sign-in. Google Drive stays Trina's own connector.
 
@@ -15,7 +15,7 @@ Code: `server/src/integrations/google-apps/` (service, config, catalog, tokens, 
 
 ## Setting it up (admins)
 
-Admin › Connectors has one card per app. Each needs a Google OAuth web client and the right Google APIs switched on.
+Admin › Connected apps has one card per app. Each needs a Google OAuth web client and the right Google APIs switched on.
 
 ### In Google Cloud
 
@@ -54,7 +54,7 @@ Admin › Connectors has one card per app. Each needs a Google OAuth web client 
 
 ### In Trina
 
-Admin › Connectors › the app › **Set up**:
+Admin › Connected apps › the app › **Set up**:
 
 - **Use the same Google app as Drive** (offered, and on, when Google Drive has one): the card signs in with Drive's
   client and follows it when Drive's changes (people then reconnect). Add the redirect URI above to that client in

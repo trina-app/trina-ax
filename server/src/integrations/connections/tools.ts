@@ -281,7 +281,7 @@ function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, des
 /** Where a connection's settings are changed, by whom (E6, E11): a team connection by an admin, a personal one by its
  * owner. */
 function connectionSettings(row: Pick<Row, 'scope' | 'google_app' | 'name'>, L: Locale): string {
-  if (row.google_app) return `in Connectors > ${row.name} > Settings`
+  if (row.google_app) return `in Connected apps › ${row.name} › Settings`
   return row.scope === 'team' ? `in ${SCREEN.adminMcp(L)}` : `in ${SCREEN.settingsMcp(L)}`
 }
 
@@ -952,7 +952,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) {
           // made from an admin's template: the person connects their own key again on a card in the chat
           if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
-          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in ${row.google_app ? `Connectors > ${row.name}, Reconnect` : 'Settings › Connected apps'})`)
+          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in ${row.google_app ? `Connected apps › ${row.name}, Reconnect` : 'Settings › Connected apps'})`)
           continue
         }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }

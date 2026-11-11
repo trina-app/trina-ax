@@ -962,7 +962,7 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
 }
 
 /** where the person fixes a connection's sign-in: a Google app on its card under Connectors */
-const fixWhere = (row: Pick<Row, 'google_app'>) => (row.google_app ? `Connectors > ${APP_NAMES[row.google_app]} (Reconnect)` : 'Settings › Connected apps')
+const fixWhere = (row: Pick<Row, 'google_app'>) => (row.google_app ? `Connected apps › ${APP_NAMES[row.google_app]} (Reconnect)` : 'Settings › Connected apps')
 
 /** the audit summary's word for a failed call */
 function kindOf(e: unknown): string {
