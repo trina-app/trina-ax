@@ -91,6 +91,12 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
   },
 ]
 
+/** A phone's names of the pages that the 나 list has for the person too (AI accounts, Connected apps, AI apps): the
+ * team's are "Team …" there, so the two lists never show the same name for different things. Computers keep the
+ * sidebar's names (its title says whose they are). */
+const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.team.providers', connectors: 'admin.team.integrations', 'ai-apps': 'admin.team.aiApps' }
+const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
+
 /** The name of an address for the phone's ‹ label: Admin's list and pages (a group of Team settings by its own name),
  * and Settings' (lib/backStack.ts). */
 function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | undefined): string | null {
@@ -101,7 +107,7 @@ function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | 
     const group = id === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
     if (group) return t(group.label)
     const s = MENU.flatMap((g) => g.items).find((x) => x.id === id)
-    return s ? t(s.label) : null
+    return s ? t(phoneLabel(s)) : null
   }
   return settingsPageName(path, t)
 }
@@ -209,16 +215,15 @@ export default function AdminLayout() {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="admin-phone">
         {/* the list's bar: ‹ back to where it came from (the 나 list: "‹ Settings"); its big title is in the list */}
-        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(current.label) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
+        <PhonePageBar onBack={back} backLabel={label} title={bar?.title ?? (group ? t(group.label) : isAdminDetail(here) && section !== 'folders' ? '' : section ? t(phoneLabel(current)) : '')} titleHidden={!!section} backTestId="admin-back" titleTestId="admin-bar-title" />
         <div ref={content} className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
           {section === '' ? (
             <Suspense fallback={<Spinner />}>
-              <PhoneRoot groups={menu.filter((g): g is typeof g & { label: MessageKey } => g.label !== null)} />
+              <PhoneRoot groups={menu.filter((g): g is typeof g & { label: MessageKey } => g.label !== null).map((g) => ({ ...g, items: g.items.map((s) => ({ ...s, label: phoneLabel(s) })) }))} />
             </Suspense>
           ) : (
             <div className="mx-auto w-full max-w-6xl p-4">
-              {/* every page here applies to the whole team (Settings says "Just for you" the same way) */}
-              <AdminScope />
+              {/* the list says once that every page here applies to the whole team (PhoneRoot.tsx); not again on each */}
               {page}
             </div>
           )}

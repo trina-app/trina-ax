@@ -4,11 +4,12 @@
 // A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): the bar says the page's name (the title is
 // for screen readers), and only the search with one Filters button stays at the top; the kind, the person, the time and
 // Clear open under it (components/PhoneFilters.tsx), so the kinds never run off the screen (in Spanish they need about
-// 550 px).
+// 550 px). A row opens the record's own page (/admin/audit/<id>, adminScreens.ts) with what is behind it, and Back
+// returns to the list where it was.
 import clsx from 'clsx'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { ChevronDown, FileText, LogIn, Search, ShieldCheck, Wrench, type LucideIcon } from 'lucide-react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ChevronDown, ChevronRight, FileText, LogIn, Search, ShieldCheck, Wrench, type LucideIcon } from 'lucide-react'
 import { BROWSER_STEP_VERB, FILE_STEP_VERB } from '@mycel/shared'
 import type { AuditEntry } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -21,6 +22,7 @@ import { currentLocale, DICTS, useLocale, useT, type MessageKey } from '../../i1
 import { Badge, Button, ErrorNote, Skeleton, StickyHeader, useMediaQuery } from '../../components/ui'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { useLoad } from './common'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 const KIND_ICON: Record<ActivityKind, LucideIcon> = { auth: LogIn, admin: ShieldCheck, file: FileText, tool: Wrench }
 const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-label text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10'
@@ -88,6 +90,16 @@ export default function Audit() {
     setParams(writeFilters(NO_FILTERS), { replace: true })
   }
   const words = { today: t('sidebar.today'), yesterday: t('sidebar.yesterday') }
+  // a phone: a record's own page, pushed from its row with the list's filters kept in the address
+  const sub = useParams().sub
+  const navigate = useNavigate()
+  const upTo = useUpTo()
+  const opened = phone && sub ? days.flatMap((d) => d.runs).find((r) => r.entries[0]!.id === sub) : undefined
+  const missing = phone && !!sub && !!shown && !busy && !opened
+  useEffect(() => { if (missing) upTo('/admin/audit') }, [missing]) // eslint-disable-line react-hooks/exhaustive-deps
+  useAdminBar(opened ? t(`audit.source.${opened.entries[0]!.source}`) : null)
+  const openRun = phone ? (run: ActivityRun) => navigate(`/admin/audit/${encodeURIComponent(run.entries[0]!.id)}${window.location.search}`) : undefined
+  if (phone && sub) return opened ? <RecordPage run={opened} /> : <Skeleton lines={4} />
   const clearButton = (
     <button type="button" className="ml-auto text-sm font-medium text-accent-text hover:underline max-md:ml-0 max-md:min-h-10" onClick={clear} data-testid="activity-clear">
       {t('activity.clear')}
@@ -203,7 +215,7 @@ export default function Audit() {
               </h3>
               <ul className="divide-y divide-line">
                 {d.runs.map((run) => (
-                  <Row key={run.key} run={run} />
+                  <Row key={run.key} run={run} onOpen={openRun} />
                 ))}
               </ul>
             </section>
@@ -222,8 +234,34 @@ export default function Audit() {
   )
 }
 
-/** One line: the time, the kind, "Dion signed in", the item, "· 5 times". Click: what is behind it. */
-function Row({ run }: { run: ActivityRun }) {
+/** A phone's page of one record (a folded run: each time it happened): the sentence, then what is behind it. */
+function RecordPage({ run }: { run: ActivityRun }) {
+  const t = useT()
+  const locale = useLocale()
+  const e = run.entries[0]!
+  const n = run.entries.length
+  return (
+    <section aria-labelledby="activity-record-title" data-testid="activity-record" data-kind={e.source}>
+      <h2 id="activity-record-title" className="text-base break-words">
+        <span className="font-semibold text-ink">{who(t, e)}</span> <Sentence e={e} />
+      </h2>
+      <p className="mt-1 text-xs text-faint tabular-nums">
+        {new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(e.at))}{n > 1 && <> · {t('activity.times', { count: n })}</>}
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {e.detail?.via === 'internet' && <Badge>{t('audit.viaInternet')}</Badge>}
+        <ToolOutcome e={e} />
+      </div>
+      <div className="mt-4 border-t border-line pt-3 text-sm" data-testid="activity-detail">
+        <Details e={e} times={n > 1 ? run.entries.map((x) => x.at) : undefined} />
+      </div>
+    </section>
+  )
+}
+
+/** One line: the time, the kind, "Dion signed in", the item, "· 5 times". Click: what is behind it (a phone, `onOpen`:
+ * the record's own page). */
+function Row({ run, onOpen }: { run: ActivityRun; onOpen?: (run: ActivityRun) => void }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(false)
@@ -233,7 +271,7 @@ function Row({ run }: { run: ActivityRun }) {
   const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null
   return (
     <li data-testid="activity-row" data-kind={e.source}>
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-3 rounded-md px-1.5 py-2 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2">
+      <button type="button" aria-expanded={onOpen ? undefined : open} onClick={() => (onOpen ? onOpen(run) : setOpen(!open))} className="flex w-full items-center gap-3 rounded-md px-1.5 py-2 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:min-h-12">
         <span className="w-[4.5rem] shrink-0 text-xs text-faint tabular-nums">{formatTime(e.at, locale)}</span>
         <Icon size={15} className="shrink-0 text-faint" aria-hidden />
         <span className="sr-only">{t(`audit.source.${e.source}`)}: </span>
@@ -244,7 +282,7 @@ function Row({ run }: { run: ActivityRun }) {
         {e.detail?.via === 'internet' && <Badge>{t('audit.viaInternet')}</Badge>}
         <ToolOutcome e={e} />
         {ip && <span className="shrink-0 text-xs text-faint tabular-nums max-sm:hidden" data-testid="audit-ip">{ip}</span>}
-        <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
+        {onOpen ? <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden /> : <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />}
       </button>
       {open && (
         <div className="mb-3 ml-1.5 rounded-lg bg-subtle px-3 py-2 sm:ml-[5.75rem]" data-testid="activity-detail">

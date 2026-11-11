@@ -150,20 +150,17 @@ export function AdminPageHeader({ title, desc, actions, children, controls, test
   const phone = useMediaQuery('(max-width: 767.98px)')
   if (phone) {
     // A phone (docs/DECISIONS.md "Admin and Settings on phones"): the bar above says the page's name (AdminLayout's
-    // PhonePageBar), so the title is for screen readers only; the line keeps one line (More) with the page's buttons at
-    // its end (PageActions: one, the rest under its ⌄); only the search and filters row stays at the top while the page
+    // PhonePageBar), so the title is for screen readers only; the line keeps two lines (More) with the page's buttons
+    // under it (PageActions: one, the rest under its ⌄); only the search and filters row stays at the top while the page
     // scrolls (the whole header stuck took a third of the screen)
     return (
       <>
         <div className={clsx('mb-3', className)} data-testid={testId}>
           <h2 className="sr-only">{title}</h2>
           {children && <div className="mb-2 flex flex-wrap items-center gap-2">{children}</div>}
-          {(desc || actions) && (
-            <div className="flex items-center gap-3">
-              {desc ? <OneLine className="min-w-0 flex-1 text-xs text-muted">{desc}</OneLine> : <span className="flex-1" />}
-              {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-            </div>
-          )}
+          {/* the line on its own (two lines, then More), the buttons under it: beside them it was cut to a few words */}
+          {desc && <OneLine className="text-xs text-muted" twoOnPhone testId={testId ? `${testId}-desc` : undefined}>{desc}</OneLine>}
+          {actions && <div className={clsx('flex flex-wrap items-center gap-2', desc && 'mt-2.5')} data-testid={testId ? `${testId}-actions` : undefined}>{actions}</div>}
         </div>
         {controls && (
           <StickyHeader className="mb-3 flex flex-wrap items-center gap-2 py-2" testId={testId ? `${testId}-controls` : undefined}>

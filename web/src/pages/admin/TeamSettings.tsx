@@ -324,6 +324,8 @@ export function TeamIconRow() {
   const [error, setError] = useState<string | null>(null)
   const [previews, setPreviews] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+  // a phone: where the logo shows, in a phone's words (the sidebar previews are a computer's)
+  const phone = useMediaQuery('(max-width: 767.98px)')
 
   const upload = async (file: File) => {
     setError(null)
@@ -360,7 +362,7 @@ export function TeamIconRow() {
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
-        desc={<>{t('teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
+        desc={<>{t(phone ? 'teamIcon.descPhone' : 'teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
         more={t('teamIcon.hint')}
         control={
           <span className="inline-flex flex-wrap items-center gap-2">
@@ -394,10 +396,10 @@ export function TeamIconRow() {
                 {error}
               </p>
             )}
-            <button type="button" aria-expanded={previews} className="mt-2 text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline max-md:min-h-11" onClick={() => setPreviews(!previews)} data-testid="team-icon-previews">
+            {!phone && <button type="button" aria-expanded={previews} className="mt-2 text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline max-md:min-h-11" onClick={() => setPreviews(!previews)} data-testid="team-icon-previews">
               {previews ? t('teamIcon.hidePreviews') : t('teamIcon.showPreviews')}
-            </button>
-            <div hidden={!previews} className="mt-3 grid max-w-md grid-cols-2 gap-3">
+            </button>}
+            <div hidden={!previews || phone} className="mt-3 grid max-w-md grid-cols-2 gap-3">
               {/* the sidebar header as it is drawn (the 20 px logo, cropped square, beside the team name) on the sidebar's
                   background and text colour of each look (theme.edition.css --c-subtle, --c-ink, --c-line) */}
               {(['light', 'dark'] as const).map((scheme) => (
@@ -421,6 +423,8 @@ export function TeamIconRow() {
  * the field: saving would turn it into a team setting nobody chose. */
 export function UpdateWindowField({ value, ok, legacy, onChange }: { value: string | null; ok: boolean; legacy: { window: string; zone: string } | null; onChange: (v: string | null) => void }) {
   const t = useT()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (phone) return <UpdateWindowTimes value={value} ok={ok} legacy={legacy} onChange={onChange} />
   return (
     <SettingRow id="ts-update-window" title={t('teamSettings.updateWindow')}
       desc={legacy ? t('teamSettings.updateWindowLegacy', legacy) : t('teamSettings.row.updateWindowDesc')}
@@ -430,6 +434,37 @@ export function UpdateWindowField({ value, ok, legacy, onChange }: { value: stri
         <input id="ts-update-window" aria-describedby={ok ? 'ts-update-window-desc' : 'ts-update-window-error'} aria-invalid={ok ? undefined : true}
           className={clsx(inputCls, 'md:w-64', !ok && 'border-danger focus:border-danger focus:ring-danger')} data-team-field="update-window" placeholder={legacy?.window ?? '02:00-05:00'} value={value ?? ''} onChange={(e) => onChange(e.target.value.trim() || null)} />
       } />
+  )
+}
+
+/** A phone's update window: two time pickers (the phone's own wheel), start and end, instead of typing "02:00-05:00".
+ * The window changes once both are set, or both are cleared (the default); one alone waits for the other. */
+function UpdateWindowTimes({ value, ok, legacy, onChange }: { value: string | null; ok: boolean; legacy: { window: string; zone: string } | null; onChange: (v: string | null) => void }) {
+  const t = useT()
+  const parse = (v: string | null) => {
+    const m = /^(\d{2}:\d{2})-(\d{2}:\d{2})$/.exec(v ?? '')
+    return m ? { from: m[1]!, to: m[2]! } : { from: '', to: '' }
+  }
+  const [times, setTimes] = useState(() => parse(value))
+  // a draft put back or saved elsewhere: the pickers follow it
+  useEffect(() => { if (value !== `${times.from}-${times.to}` && (value !== null || times.from || times.to)) setTimes(parse(value)) }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (next: { from: string; to: string }) => {
+    setTimes(next)
+    if (next.from && next.to) onChange(`${next.from}-${next.to}`)
+    else if (!next.from && !next.to) onChange(null)
+  }
+  const field = (which: 'from' | 'to') => (
+    <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted">
+      {t(which === 'from' ? 'teamSettings.updateWindowFrom' : 'teamSettings.updateWindowTo')}
+      <input type="time" className={clsx(inputCls, 'min-h-11', !ok && 'border-danger')} value={times[which]} placeholder={legacy?.window.split('-')[which === 'from' ? 0 : 1]}
+        onChange={(e) => set({ ...times, [which]: e.target.value })} data-testid={`update-window-${which}`} />
+    </label>
+  )
+  return (
+    <SettingRow id="ts-update-window" heading title={t('teamSettings.updateWindow')}
+      desc={legacy ? t('teamSettings.updateWindowLegacy', legacy) : t('teamSettings.updateWindowPhone')}
+      below={ok ? null : <p id="ts-update-window-error" role="alert" className="mt-1.5 text-xs text-danger">{t('teamSettings.updateWindowBad')}</p>}
+      control={<span className="flex w-full items-end gap-3" data-team-field="update-window">{field('from')}{field('to')}</span>} />
   )
 }
 
