@@ -263,6 +263,9 @@ test.describe('TC-263: phone Settings has no duplicate entries or loops (owner, 
     expect((await page.request.post('/__test/dev-env', { data: { srt: true, sites: ['example.com'] } })).ok()).toBe(true)
     await signIn(page)
   })
+  test.afterEach(async ({ page }) => {
+    await page.request.put('/api/me/web-access', { headers: { [CSRF_HEADER]: '1' }, data: { on: false } }).catch(() => {})
+  })
 
   test('1. Me › Notifications — no "Open Activity" box', async ({ page }) => {
     await me(page, 'settings-row-notifications')
@@ -287,7 +290,8 @@ test.describe('TC-263: phone Settings has no duplicate entries or loops (owner, 
   })
 
   test('4. Me list — Browser, Allowed for Trina and Dev environment sites are one page with three sections', async ({ page }) => {
-    // Browser shows on a phone while the person's "Allow all websites" is on (#432)
+    // Browser shows on a phone while the person's "Allow all websites" is on (#432); the mock's reset keeps that value,
+    // so it is turned off again at the end (afterEach) for the specs that run after this one
     expect((await page.request.put('/api/me/web-access', { headers: { [CSRF_HEADER]: '1' }, data: { on: true, acceptWarning: WEB_ALLOW_ALL_WARNING_VERSION } })).ok()).toBe(true)
     await me(page)
     await expect(page.getByTestId('settings-row-dev-env-sites')).toHaveCount(0)

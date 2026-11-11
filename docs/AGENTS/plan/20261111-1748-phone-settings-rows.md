@@ -1,8 +1,8 @@
 # Phones: Settings sections as rows and switches; computer-only setup not offered; no loops
 
 - Date (UTC): 2026-11-11 17:48
-- Branch: `fix/phone-settings-rows` (base `batch/phone-settings`, stacked on #344)
-- Status: in progress
+- Branch: `fix/phone-settings-rows` (started on `batch/phone-settings`; base `dev` once #344 merged)
+- Status: done
 - Where: `web/` (Settings sections, Notifications, AI apps, Apps, the connection dialog in the phone app). Why: phone
   layouts of the shared Settings are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Phone layouts and wording only; no API or data change
@@ -68,4 +68,13 @@ phone spec at 390×844 (owner and member) on its own port.
 
 ## Result
 
-(filled in at the end)
+Built as planned, PR #469. Differences:
+- Apps and AI apps change on a phone itself (the phone app, or a browser on an iPhone or Android phone), not by
+  width: a narrow window on a computer keeps the Mac/Windows files and the setup steps.
+- Also on a phone: Profile's account deletion request is the page's last row; Settings' schedule folder pickers are
+  value rows; Allowed for Trina's own Delete is a 44 px icon.
+- "This device off" uses the existing per-session endpoints; the phone app remembers it (`mycel.phonePush.offHere`)
+  so it does not register the phone again by itself.
+- Not here: the Google Drive page and the Connectors page layout (#399 and the admin agent), Me › Connectors staying in
+  the 나 tab (nav-model; #457's screens.ts should give /settings/security/password and /settings/security/devices the
+  parent /settings/security).
