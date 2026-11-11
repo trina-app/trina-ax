@@ -49,7 +49,7 @@ describe('move_files', () => {
     expect(r0.isError).toBe(true)
     expect(r0.text).toContain('did not allow')
     expect(no.questions).toHaveLength(1)
-    expect(no.questions[0]).toContain('2개 항목을 shared/company 폴더로 옮기려고 해요')
+    expect(no.questions[0]).toContain('2개 항목을 전사 공유 › company 폴더로 옮기려고 해요')
     expect(no.questions[0]).toMatch(/\d+명이 더 볼 수 있게 돼요/)
     expect(no.questions[0]).toContain('logo.png')
     expect(has('users/alice/.attachments/c1/logo.png')).toBe(true) // declined: nothing moved
@@ -95,7 +95,7 @@ describe('move_files', () => {
     put('shared/one-en.md', 'x')
     const en = ask(false)
     await call('alice', 'move_files', { paths: ['shared/one-en.md'], to_folder: 'users/alice' }, { person: en, locale: 'en' })
-    expect(en.questions[0]).toContain('The AI wants to move 1 item to users/alice.')
+    expect(en.questions[0]).toContain('The AI wants to move 1 item to My folder.')
     expect(en.questions[0]).not.toContain('(s)')
     const lost = /(\d+) (person|people) who can see (it|them) now will no longer be able to\. Move (it|them)\?/.exec(en.questions[0]!)
     expect(lost).not.toBeNull()
@@ -104,7 +104,7 @@ describe('move_files', () => {
     put('users/alice/one-es.md', 'x')
     const es = ask(false)
     await call('alice', 'copy_files', { paths: ['users/alice/one-es.md'], to_folder: 'shared' }, { person: es, locale: 'es' })
-    expect(es.questions[0]).toContain('La IA quiere copiar 1 archivo a shared.')
+    expect(es.questions[0]).toContain('La IA quiere copiar 1 archivo a Toda la empresa.')
     const added = /(\d+) (persona más podrá|personas más podrán) verlo\. ¿Copiarlo\?/.exec(es.questions[0]!)
     expect(added).not.toBeNull()
     expect(added![2]).toBe(added![1] === '1' ? 'persona más podrá' : 'personas más podrán')
@@ -158,14 +158,14 @@ describe('move_files', () => {
     const no = ask(false)
     const r0 = await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf', 'users/alice/contracts/b.pdf'], to_folder: 'shared/계약서/2026' }, { person: no })
     expect(r0.isError).toBe(true)
-    expect(no.questions[0]).toContain('AI가 2개 항목을 새로 만들 shared/계약서/2026 폴더로 옮기려고 해요.')
+    expect(no.questions[0]).toContain('AI가 2개 항목을 새로 만들 전사 공유 › 계약서 › 2026 폴더로 옮기려고 해요.')
     expect(r0.text).toContain('shared/계약서/2026 (a new folder)')
     // a no makes no folder
     expect(has('shared/계약서')).toBe(false)
 
     const en = ask(false)
     await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf'], to_folder: 'shared/계약서/2026' }, { person: en, locale: 'en' })
-    expect(en.questions[0]).toContain('The AI wants to move 1 item to shared/계약서/2026, a new folder it will make.')
+    expect(en.questions[0]).toContain('The AI wants to move 1 item to Company-wide › 계약서 › 2026, a new folder it will make.')
 
     const yes = ask(true)
     const r = await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf', 'users/alice/contracts/b.pdf'], to_folder: 'shared/계약서/2026' }, { person: yes, turn: true })
@@ -402,7 +402,7 @@ describe('copy_files', () => {
     const r = await call('alice', 'copy_files', { paths: ['users/alice/certs/business.pdf'], to_folder: 'shared/certs' }, { person: p, turn: true })
     expect(r.isError).toBe(false)
     expect(p.questions).toHaveLength(1)
-    expect(p.questions[0]).toContain('파일 1개를 shared/certs 폴더에 복사하려고 해요')
+    expect(p.questions[0]).toContain('파일 1개를 전사 공유 › certs 폴더에 복사하려고 해요')
     expect(bytes('shared/certs/business.pdf').toString()).toBe('%PDF-1.4 cert')
     expect(has('users/alice/certs/business.pdf')).toBe(true)
     const ev = A.ctx.db.query("SELECT turn_id, detail FROM file_events WHERE path = 'shared/certs/business.pdf' ORDER BY id DESC LIMIT 1").get() as { turn_id: string; detail: string }

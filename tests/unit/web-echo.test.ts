@@ -73,7 +73,7 @@ describe('search results', () => {
     expect(asked).toHaveLength(echoes.length)
     for (const a of asked) {
       expect(a.question).toContain('from a web page or a search result')
-      expect(a.question).toContain('matches what the AI had sent to a tool earlier')
+      expect(a.question).toContain('contains something the AI sent earlier in this chat')
       // no "allow this site": this is the card an AI's try to send data out raises
       expect(a.options?.map((o) => o.value) ?? ['allow', 'deny']).toEqual(['allow', 'deny'])
     }
@@ -94,7 +94,7 @@ describe('search results', () => {
     const asked: Asked[] = []
     await expect(gateUrl(h.ctx.db, chat, echo, person(false, asked), { turnId: 'fresh', userId: 'alice' })).rejects.toThrow(/did not allow/)
     expect(free(chat)).toBe(0)
-    expect(asked[0]!.question).toContain('matches what the AI had sent')
+    expect(asked[0]!.question).toContain('contains something the AI sent earlier')
   })
 })
 
@@ -216,7 +216,7 @@ describe('web_fetch redirects (the same check as save_url)', () => {
     const asked: Asked[] = []
     const g = redirectGuard(h.ctx.db, chat, at('/short'), person(false, asked), { ask: GATE_TEXT.redirectEcho, unattended: 'nobody', declined: 'declined' })
     await expect(webFetch(at('/short'), { ...T, onRedirect: g.check })).rejects.toThrow('declined')
-    expect(asked[0]!.question).toContain('The address the AI is opening redirects to another one')
+    expect(asked[0]!.question).toContain('The address the AI is opening sends it on to another one')
     expect(asked[0]!.question).toContain(SECRET)
     expect(seen.some((s) => s.startsWith('/collect'))).toBe(false)
     // nobody to ask: not followed either

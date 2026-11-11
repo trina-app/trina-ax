@@ -234,16 +234,18 @@ export function roomWidening(db: Database, roomId: string, sources: ReadSource[]
 
 /** Where a source is, for the confirmation card. `ownNames`: a room by the name its members gave it (the card, shown to
  * the person as text); without it by the server's name only (anything the AI reads back: any member of a group chat may
- * set its own name). */
-export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }, o: { ownNames?: boolean } = {}): string {
+ * set its own name). `place`: a team path in the person's words (the card: chat/place-words.ts, "전사 공유 › 영업",
+ * another person's folder by their name); without it the path (what the AI reads). */
+export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }, o: { ownNames?: boolean; place?: (path: string) => string } = {}): string {
+  const at = (path: string) => (o.place ? o.place(path) : path + '/')
   if (s.type === 'root') return text.root
   if (s.type === 'room') return (text.room ?? 'room {name}').replace('{name}', roomName(db, s.id, !!o.ownNames))
-  if (s.type === 'user') return s.id === me ? text.mine : `users/${s.id}/`
-  if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? segs.join('/') : text.root }
+  if (s.type === 'user') return s.id === me ? text.mine : at(`users/${s.id}`)
+  if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? (o.place ? o.place(segs.join('/')) : segs.join('/')) : text.root }
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
   if (s.type === 'drive_share') return shareRow(db, s.id)?.name ?? 'Google Drive'
   const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
-  return row ? (row.path === '' ? text.root : row.path + '/') : '?'
+  return row ? (row.path === '' ? text.root : at(row.path)) : '?'
 }
 
 /** A room as a card names it: its own name when it has one and `own` (to the person, shown as text; never for the AI),

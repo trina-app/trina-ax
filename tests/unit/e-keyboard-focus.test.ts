@@ -293,7 +293,8 @@ describe('wiring', () => {
   test('where the person acts: key and mouse presses in every view; in a tab not while the AI drives it; opening the pane', () => {
     const main = readFileSync(join(dir, 'main/main.ts'), 'utf8')
     expect(win).toMatch(/wc\.on\('before-input-event', \(_e, i\) => \{\s*if \(i\.type !== 'keyUp'\) this\.personActed\(inPane\)/)
-    expect(win).toMatch(/wc\.on\('before-mouse-event', \(_e, m\) => \{\s*if \(m\.type === 'mouseDown'\) this\.personActed\(inPane\)/)
+    // a press in the browser toolbar first notes where the keyboard was (a drag of the browser's edge gives it back)
+    expect(win).toMatch(/wc\.on\('before-mouse-event', \(_e, m\) => \{\s*if \(m\.type !== 'mouseDown'\) return\s*if \(view === this\.chrome\) \{[\s\S]{0,600}?\}\s*this\.personActed\(inPane\)\s*\}\)/)
     expect(pane).toMatch(/before-input-event', \(_e, i\) => \{\s*if \(i\.type !== 'keyUp' && this\.driving === 0\) this\.host\.onPersonActed\?\.\(view\)/)
     expect(pane).toMatch(/before-mouse-event', \(_e, m\) => \{\s*if \(m\.type === 'mouseDown' && this\.driving === 0\) this\.host\.onPersonActed\?\.\(view\)/)
     expect(win).toContain('onKeys: (view) => this.tabKeys(view),')

@@ -26,7 +26,7 @@ export type ListControl = MutableRefObject<{ open: boolean; close: () => void }>
  * the field closes the list only once its click has landed (a centred dialog moves as a whole when the list closes),
  * and Tab closes it at once. `saidOf`: what a screen reader hears once one is picked (default: added with read access,
  * as the edit panel adds them). */
-export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, saidOf }: {
+export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, saidOf, placeholder }: {
   users: User[]
   groups: Group[]
   taken: ReadonlySet<string>
@@ -35,6 +35,8 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
   onAdd: (o: NamedOption) => void
   inline?: boolean
   saidOf?: (o: NamedOption) => string
+  /** the field's own words (default: "Find a person or group by name") */
+  placeholder?: string
 }) {
   const t = useT()
   const listId = useId()
@@ -127,7 +129,7 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
             aria-activedescendant={open && shown[cur] ? optionId(cur) : undefined}
             autoComplete="off"
             value={q}
-            placeholder={t('accessEdit.addPlaceholder')}
+            placeholder={placeholder ?? t('accessEdit.addPlaceholder')}
             onChange={(e) => {
               setQ(e.target.value)
               setActive(0)

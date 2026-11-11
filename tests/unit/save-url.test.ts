@@ -219,7 +219,7 @@ describe('before anything is fetched', () => {
     s.cards.answer = false
     requests = []
     await expect(s.run(at('/hero.png'), 'shared/u/hero.png')).rejects.toThrow(/did not allow opening this address/)
-    expect(s.cards.asked[0]).toContain('did not appear in this conversation')
+    expect(s.cards.asked[0]).toContain("wasn't in this chat")
     expect(requests).toEqual([])
   })
   test('redirects into private, LAN or metadata addresses are refused on their hop', async () => {
@@ -428,7 +428,7 @@ describe('addresses from connections (learned links) and the echo check', () => 
     // the next one in this answer: the person decides
     s.cards.answer = false
     await expect(s.run(urls[T]!, `shared/conn/${T}.png`)).rejects.toThrow(/did not allow/)
-    expect(s.cards.asked[0]).toContain(`as many addresses from web pages and search results without asking as it may (${T} per answer`)
+    expect(s.cards.asked[0]).toContain(`as many addresses from web pages and search results as it may without asking (${T} per answer`)
     // opening one of the first ones again is free
     s.cards.asked = []
     await s.run(urls[0]!, 'shared/conn/0b.png')
@@ -446,7 +446,7 @@ describe('addresses from connections (learned links) and the echo check', () => 
     s.cards.answer = false
     for (const u of echoed) await expect(s.run(u, 'shared/echo/e.png')).rejects.toThrow(/did not allow/)
     expect(s.cards.asked).toHaveLength(3)
-    for (const q of s.cards.asked) expect(q).toContain('matches what the AI had sent to a tool earlier')
+    for (const q of s.cards.asked) expect(q).toContain('contains something the AI sent earlier in this chat')
     s.cards.asked = []
     s.cards.answer = true
     await s.run(at('/hero.jpg?fresh=1'), 'shared/echo/fresh.png')
@@ -516,7 +516,7 @@ describe('addresses from connections (learned links) and the echo check', () => 
     s.cards.answer = false
     await expect(s.run(at('/s/abc'), 'shared/redir/a.png')).rejects.toThrow(/did not allow following the redirect/)
     expect(s.cards.asked).toHaveLength(1)
-    expect(s.cards.asked[0]).toContain('redirects to another one')
+    expect(s.cards.asked[0]).toContain('sends it on to another one')
     expect(s.cards.asked[0]).toContain(long)
     // declined: the long address was never asked for
     expect(requests).toEqual(['/s/abc'])
@@ -553,7 +553,7 @@ describe('addresses from connections (learned links) and the echo check', () => 
     rememberConnectionUrls(A.ctx.db, s.chat, [at('/hero.png?who=erin')], { integrationId, userId: 'erin', turnId: s.turnId })
     s.cards.answer = false
     await expect(s.run(at('/hero.png?who=erin'), 'shared/conn/erin.png')).rejects.toThrow(/did not allow/)
-    expect(s.cards.asked[0]).toContain('did not appear in this conversation')
+    expect(s.cards.asked[0]).toContain("wasn't in this chat")
   })
   test('scheduled runs: an echo cannot be confirmed, so it is not opened', async () => {
     const s = setup('alice', { unattended: true })

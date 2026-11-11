@@ -329,7 +329,7 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
   test('a skills folder under projects/ that no live project has: the card says no chat follows it', async () => {
     const r = await turn('carol', await projectChat('carol'), fake({ tool: 'write', args: { file_path: 'projects/nobody-yet/skills/x/SKILL.md', content: md('x', 'x') }, sayResult: true }), 'skip')
     // (carol reads Korean)
-    expect(r.card!.question).toContain('projects/nobody-yet의 스킬 폴더에 저장할까요? 아직 이 폴더를 쓰는 프로젝트가 없어서 어떤 채팅도 따르지 않아요.')
+    expect(r.card!.question).toContain('프로젝트 › nobody-yet의 스킬 폴더에 저장할까요? 아직 이 폴더를 쓰는 프로젝트가 없어서 어떤 채팅도 따르지 않아요.')
   })
 
   test('a side chat beside a room is like a room: no project skills; moved into the project, like any of its chats', async () => {

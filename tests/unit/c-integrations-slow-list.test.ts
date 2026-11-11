@@ -4,7 +4,7 @@
 // whose check fails for now keeps the list saved before and stays connected, with the reason (Settings: "last check
 // failed"); so does one in an error that was only for now. A call that goes through clears that, and an error a failed
 // call left, never a needed sign-in. One deadline bounds the whole check. Tool calls keep their fixed 30 s, a turn
-// never waits for a check, and a step shows a short look at an MCP call's arguments (secrets hidden before the cut).
+// never waits for a check, and a step names an MCP call by the connection and the tool, never its arguments.
 // The limits are small here (the net options tests may set), the code is the same.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
@@ -12,10 +12,9 @@ import { API_KEY, FakeServices } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { MCP_LIST_IDLE_MS, MCP_LIST_TIMEOUT_MS } from '../../server/src/integrations/connections/mcp'
 import { TIMEOUT_MS } from '../../server/src/integrations/connections/net'
-import { secretHider } from '../../server/src/integrations/connections/hide'
 import { getRow } from '../../server/src/integrations/connections/store'
 import { TEXT } from '../../server/src/integrations/connections/text'
-import { argsPreview, integrationToolProvider } from '../../server/src/integrations/connections/tools'
+import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnToolContext } from '../../server/src/services'
 
@@ -226,30 +225,15 @@ describe('reading a slow tools/list', () => {
     } finally { await checking; fake.pace = null }
   })
 
-  test('a step shows a short look at the arguments: a price check and the paid run it was for are told apart', () => {
+  test('a step names the connection and the tool in words, never the arguments (plain words: no raw ids or arguments)', () => {
     const { tools } = turn('alice')
     const label = tools.get('my_studio__s0')!.label!
-    const quote = label({ model: 'z_image', prompt: 'a green leaf', get_cost: true }, 'en')
-    const paid = label({ model: 'z_image', prompt: 'a green leaf' }, 'en')
-    // flags and numbers first, so a long prompt never pushes them out
-    expect(quote).toBe('Studio · s0 (get_cost: true, model: "z_image", prompt: "a green leaf")')
-    expect(paid).toBe('Studio · s0 (model: "z_image", prompt: "a green leaf")')
-    expect(label({}, 'en')).toBe('Studio · s0')
-    const long = argsPreview({ prompt: 'a leaf\non white '.repeat(20), model: 'z_image', options: { size: '1k' }, refs: ['x'], count: 1, get_cost: true })
-    // texts in the AI's order, each cut to 40 characters
-    expect(long).toStartWith('count: 1, get_cost: true, prompt: "a leaf on white a leaf on white a leaf …", model: "z_image"')
-    expect(long.length).toBeLessThanOrEqual(100)
-    expect(long).not.toContain('\n')
-    expect(argsPreview({ options: { size: '1k' }, refs: ['x'], note: null })).toBe('note: null, options: {…}, refs: […]')
-    for (const nothing of [null, undefined, 'text', 3, ['a']]) expect(argsPreview(nothing)).toBe('')
-    // a stored secret is hidden in the whole text before it is cut (a cut one could not be found later); a text
-    // under a secret's name is not shown
     const secret = 'CANARY-' + 'k'.repeat(60)
-    const hidden = argsPreview({ note: `use ${secret} here`, api_key: 'typed-key', password: 'pw', max_tokens: 5 }, secretHider([secret]))
-    expect(hidden).toBe('max_tokens: 5, note: "use [hidden key] here", api_key: •••, password: •••')
-    expect(hidden).not.toContain('CANARY')
-    // a whole part of the name only
-    expect(argsPreview({ accessToken: 'a', 'x-api-key': 'b', user_password: 'c', passage: 'd', bypass: 'e', author: 'g' }))
-      .toBe('accessToken: •••, x-api-key: •••, user_password: •••, passage: "d", bypass: "e", author: "g"')
+    // the tool has no title of its own: its id in words; nothing the AI passed shows, a stored secret included
+    for (const args of [{ model: 'z_image', prompt: 'a green leaf', get_cost: true }, { note: `use ${secret} here`, api_key: 'typed-key' }, {}]) {
+      const l = label(args, 'en')
+      expect(l).toBe('Studio · S0')
+      for (const v of ['z_image', 'green leaf', 'get_cost', 'CANARY', 'typed-key']) expect(l).not.toContain(v)
+    }
   })
 })

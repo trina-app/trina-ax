@@ -63,6 +63,16 @@ export function headlineText(t: T, c: Chip): string {
   return c.kind === 'people' ? t('folderAccess.peopleAll', { n: c.n }) : chipText(t, c)
 }
 
+/** The "Who can open it" panel's headline, in its one verb: "6 people can open it (owner and admins included)" (a
+ * member's total), "3 people can open it" (the owner and admins: the server's split; the role line follows), "Everyone
+ * at {team} can open it", "Only you can open it", "Only the owner and admins can open it". */
+export function panelHeadline(t: T, c: Chip, team: string): string {
+  if (c.kind === 'onlyYou') return t('folderAccess.onlyYouOpen')
+  if (c.kind === 'team') return t('folderAccess.everyoneOpens', { team })
+  if (c.kind === 'adminsOnly') return t('folderAccess.hintAdminsOnly')
+  return c.byRole !== undefined ? t('folderAccess.openCountApart', { n: c.n }) : t('folderAccess.openCount', { n: c.n })
+}
+
 /** The chip's accessible name. Apart: "3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요" (a number, never a name; no role part at
  * 0); otherwise the panel's headline. */
 export function chipLabel(t: T, c: Chip): string {

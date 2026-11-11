@@ -408,7 +408,7 @@ describe('the link budget (F5, review M5)', () => {
     const e = await gateUrl(h.ctx.db, chat, over, no, { turnId: turn }).catch((x) => x)
     expect(String(e.message)).toContain('did not allow')
     expect(asked).toHaveLength(1)
-    expect(asked[0]!.question).toContain(`${T} per answer, ${C} per conversation`)
+    expect(asked[0]!.question).toContain(`${T} per answer, ${C} per chat`)
     expect(asked[0]!.question).toContain(over)
     // already counted: free; typed and allowed: free
     expect(await gateUrl(h.ctx.db, chat, found[0]!, no, { turnId: turn })).toBe('seen')

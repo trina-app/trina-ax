@@ -315,6 +315,8 @@ Bun.serve({
       )
     }
     if (p === '/data.json') return json({ items: [1, 2, 3] })
+    // a page that answers late: the pane while a page loads (pane-look.spec.ts)
+    if (p === '/slow') return Bun.sleep(Math.min(20_000, Number(url.searchParams.get('ms')) || 3000)).then(() => page('Slow page', '<h1>Slow page</h1><p>Loaded late.</p>'))
     // an open redirect on an allowed site (exfil.spec.ts)
     if (p === '/go') return new Response(null, { status: 302, headers: { location: url.searchParams.get('to') ?? '/' } })
     // payment-card fields (quiet.spec.ts): refused like password fields
