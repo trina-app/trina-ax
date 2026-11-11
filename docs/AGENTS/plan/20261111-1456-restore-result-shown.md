@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:56
 - Branch: `fix/restore-result-shown`
-- Status: in progress
+- Status: done
 - Where: `server/src/system`, `server/src/main.ts`, `web/src/pages/admin/System.tsx` (core). Why: the in-app restore is core backup code (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: an additive field on an owner endpoint and a log row; no behaviour change of the restore
 
@@ -44,4 +44,11 @@ PR #409 changes the same function (`applyPendingRestore`, other lines): whicheve
 
 ## Result
 
-(filled in at the end)
+As planned. `stageDbRestore` writes `backupCreatedAt` into `restore-pending.json` (optional field);
+`applyPendingRestore` returns who asked and when; main.ts calls `recordRestore` once the database is open (activity
+log `backup.restore`, by the person who asked; no actor when the restored database does not know them);
+`lastRestore(db)` feeds `GET /api/admin/backups` `lastRestore`; Admin › System › Backups shows one line ("{when}에
+{name}님이 {backup time}에 만든 백업으로 되돌렸어요", or that it failed and the data was kept); activity label "백업
+복원" in five languages; docs/site/reference/http-api.md regenerated. Local dev server: backup, restore, restart:
+the API answers lastRestore with the backup id, its time, the owner and ok; the activity log lists "이도윤 백업 복원 ·
+<backup id>"; System shows the line.
