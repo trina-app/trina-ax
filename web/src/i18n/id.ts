@@ -857,6 +857,7 @@ export const id: Record<MessageKey, string> = {
   'files.restoreBody': 'Isi sekarang disimpan sebagai versi baru, jadi kamu selalu bisa kembali.',
   'files.restored': 'v{version} dipulihkan.',
   'files.sameAsNow': 'Sama dengan isi sekarang',
+  'files.versionsFolderInTrash': 'Folder file ini ada di tempat sampah, jadi versinya tidak bisa dipulihkan. Pulihkan foldernya dari tempat sampah dulu.',
   'files.currentVersion': 'Saat ini',
   'files.unknownAuthor': 'Penulis tidak diketahui',
   'files.replacedBy': 'Penulis tidak diketahui · diganti oleh {name}',

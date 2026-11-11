@@ -857,6 +857,7 @@ export const en: Record<MessageKey, string> = {
   'files.restoreBody': 'The current content is kept as a new version, so you can always come back to it.',
   'files.restored': 'Restored v{version}.',
   'files.sameAsNow': 'Same as now',
+  'files.versionsFolderInTrash': "This file's folder is in the trash, so its versions can't be restored. Restore the folder from the trash first.",
   'files.currentVersion': 'Current',
   'files.unknownAuthor': 'Author unknown',
   'files.replacedBy': 'Author unknown · replaced by {name}',

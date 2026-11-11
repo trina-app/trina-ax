@@ -1592,12 +1592,13 @@ export class TeamFiles {
    * Also: the current file's hash (to tell which versions differ) and whether the caller may restore (write access to
    * the path, the rule restoreVersion checks; false for a path hidden from the caller).
    */
-  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean; current: HistoryCurrent | null; events: FileHistoryEvent[] }> {
+  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean; restoreBlocked: 'folderInTrash' | null; current: HistoryCurrent | null; events: FileHistoryEvent[] }> {
     const user = this.principal(userId)
     const rules = this.rules()
     let at = parseInput(rel).join('/') // malformed input is refused the same way for everyone
     let exists = false
     let canRestore = false
+    let placeTrashed = false
     let currentSha256: string | null = null
     let currentSize = 0
     try {
@@ -1611,13 +1612,21 @@ export class TeamFiles {
       if (r.exists && r.st!.isFile()) { try { const st = checkRegular(r.abs); currentSha256 = await this.sha(r.abs, st); currentSize = st.size } catch {} }
     } catch (e) {
       if (!(e instanceof Denied) && !(e instanceof ToolError && e.code === 'not_found')) throw e
+      // not_found: a folder on the way is gone (the caller may read the place, else Denied); in the trash, the
+      // versions wait for it (below), and whoever may write the place is told why
+      if (e instanceof ToolError) placeTrashed = this.placeInTrash(segsOf(at)) && atLeast(rules.access(user, segsOf(at)), 'write')
     }
     const db = this.ctx.db
     const rows = (db.query('SELECT id, path, version, sha256, size, author_id, turn_id, saved_by, saved_turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(at) as VersionRow[])
       .filter((v) => this.versionVisible(user, rules, v))
     if (!exists && rows.length === 0) throw new HttpError('not_found')
-    // versions whose folder is in the trash cannot be restored until the folder is (restoreVersion refuses them)
-    if (rows.length && rows.every((v) => this.versionInTrash(v))) canRestore = false
+    // versions whose folder is in the trash cannot be restored until the folder is (restoreVersion refuses them); the
+    // history says why, to whoever could restore them otherwise
+    let restoreBlocked: 'folderInTrash' | null = null
+    if (rows.length && (placeTrashed || rows.every((v) => this.versionInTrash(v)))) {
+      if (canRestore || placeTrashed) restoreBlocked = 'folderInTrash'
+      canRestore = false
+    }
     // the changes of the file (moves followed back), each only where the caller may read the path it happened at:
     // a file moved out of a private folder does not show what happened in there, nor that folder's name
     const readable = (p: string) => atLeast(rules.access(user, segsOf(p)), 'read')
@@ -1642,6 +1651,7 @@ export class TeamFiles {
       path: at,
       currentSha256,
       canRestore,
+      restoreBlocked,
       current: exists && currentSha256 ? {
         version: top + 1, sha256: currentSha256, size: currentSize,
         author: headKnown ? ref(head!.userId) : null, turnId: headKnown ? head!.turnId : null, at: headKnown ? normIso(head!.at) : null,
@@ -1661,6 +1671,18 @@ export class TeamFiles {
   /** the folder the version was saved under is in the trash (or parked with a trash item that is gone) */
   private versionInTrash(v: Pick<VersionRow, 'folder_id'>): boolean {
     return !!v.folder_id && this.parkedView(v.folder_id) !== null
+  }
+
+  /**
+   * The file's folder is not there and a folder above it is in the trash: its versions wait for the folder (QA TC-229).
+   * A plain folder has no folders row, so versionInTrash does not see it, and restoring a version made the folder
+   * again outside the trash (the trash's own restore then became "<name> (restored)"). A folder made again under the
+   * same name is there, so a version can go into it.
+   */
+  private placeInTrash(segs: readonly string[]): boolean {
+    try { if (fs.statSync(path.join(this.root, ...segs.slice(0, -1))).isDirectory()) return false } catch {}
+    return !!this.ctx.db.query(`SELECT 1 FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL
+      AND (original_path = '' OR substr(?1, 1, length(original_path) + 1) = original_path || '/') LIMIT 1`).get(segs.join('/'))
   }
 
   private versionRow(user: Principal, rules: RuleSet, versionId: string): VersionRow {
@@ -1690,7 +1712,7 @@ export class TeamFiles {
     // so write access fell back to the folder above (shared/: everyone write) and the restored file came back with no
     // rule at all, readable and writable by the whole team (security round 4). The folder comes back first, with its
     // rules; then the version.
-    if (this.versionInTrash(v)) fileError('conflict', 'folderInTrash', { path: r.rel })
+    if (this.versionInTrash(v) || this.placeInTrash(r.segs)) fileError('conflict', 'folderInTrash', { path: r.rel })
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const blob = path.join(this.root, ...v.storage_path.split('/'))
     const size = checkRegular(blob).size

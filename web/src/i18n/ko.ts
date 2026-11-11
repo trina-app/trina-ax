@@ -856,6 +856,7 @@ export const ko = {
   'files.restoreBody': '지금 내용은 새 버전으로 남아서 언제든 다시 돌아올 수 있어요.',
   'files.restored': 'v{version}(으)로 되돌렸어요.',
   'files.sameAsNow': '지금 내용과 같음',
+  'files.versionsFolderInTrash': '이 파일의 폴더가 휴지통에 있어서 버전을 되돌릴 수 없어요. 휴지통에서 폴더를 먼저 되돌려 주세요.',
   'files.currentVersion': '지금 버전',
   'files.unknownAuthor': '작성자 모름',
   'files.replacedBy': '작성자 모름 · {name} 님이 바꿈',

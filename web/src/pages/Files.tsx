@@ -1255,6 +1255,8 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
   // every stored version is an earlier content of the file (the newest one is what it was before the last change),
   // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
   const [current, setCurrent] = useState<{ sha256: string | null; canRestore: boolean }>({ sha256: null, canRestore: true })
+  // why there is no 되돌리기: the file's folder is in the trash (it comes back first; QA TC-229)
+  const [blocked, setBlocked] = useState<HistoryResponse['restoreBlocked']>(null)
   // the content as it is now with the person who saved it, and the changes (created / edited / moved / ...)
   const [now, setNow] = useState<NonNullable<HistoryResponse['current']> | null>(null)
   const [events, setEvents] = useState<FileHistoryEvent[]>([])
@@ -1267,6 +1269,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
         if (!live) return
         setItems([...r.items].sort((a, b) => b.version - a.version))
         setCurrent({ sha256: r.currentSha256 ?? null, canRestore: r.canRestore ?? true })
+        setBlocked(r.restoreBlocked ?? null)
         setNow(r.current ?? null)
         setEvents(r.events ?? [])
       },
@@ -1295,6 +1298,12 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     <Modal open onClose={onClose} title={t('files.historyOf', { name: baseName(path) })} width={600}>
       {error && <ErrorNote>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={4} />}
+      {blocked === 'folderInTrash' && (
+        <p className="mb-2 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-sm text-muted" data-testid="history-folder-in-trash">
+          <Trash2 size={14} className="mt-0.5 shrink-0" aria-hidden />
+          {t('files.versionsFolderInTrash')}
+        </p>
+      )}
       {items && !items.length && !now && !events.length && <p className="text-sm text-muted">{t('files.noHistory')}</p>}
       {items && (items.length > 0 || now) && (
         <ul className="divide-y divide-line" data-testid="history-list">
