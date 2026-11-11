@@ -255,7 +255,8 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
   return (
     <section aria-labelledby={titleId} className="space-y-6" data-testid={testId}>
       <div className="rounded-2xl bg-subtle p-5 sm:p-6">
-        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={onBack} data-testid="connector-back">
+        {/* a phone: the bar's ‹ above is the way back (the page has its own address), so not a second one here */}
+        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink max-md:hidden" onClick={onBack} data-testid="connector-back">
           <ArrowLeft size={15} aria-hidden /> {t('integrations.title')}
         </button>
         <div className="flex flex-wrap items-center gap-4">

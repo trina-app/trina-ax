@@ -6,7 +6,7 @@
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
 import { AlertTriangle, ArrowLeft, ArrowUpCircle, BadgeCheck, BookOpen, Cable, Check, Cpu, FileText, FileUp, Globe, Languages, Loader2, Minus, Plus, Puzzle, Search, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginKind, PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
@@ -18,6 +18,7 @@ import { Badge, Button, EmptyState, IconButton, Modal, StickyHeader, confirmDial
 import { Tooltip } from '../../components/Tooltip'
 import { CardMenu } from '../../components/integrations/AppConnectorCard'
 import { Loadable, useLoad } from './common'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 type T = ReturnType<typeof useT>
 
@@ -345,7 +346,8 @@ function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: Instal
   return (
     <section aria-labelledby={titleId} className="space-y-6" data-testid="plugin-detail" data-plugin={of.id}>
       <div className="rounded-2xl bg-subtle p-5 sm:p-6">
-        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={onBack} data-testid="plugin-back">
+        {/* a phone: the bar's ‹ above is the way back (the page has its own address) */}
+        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink max-md:hidden" onClick={onBack} data-testid="plugin-back">
           <ArrowLeft size={15} aria-hidden /> {t('admin.plugins')}
         </button>
         <div className="flex flex-wrap items-center gap-4">
@@ -405,9 +407,22 @@ export default function Plugins() {
   const state = useLoad(() => api.call(API.listPlugins))
   const [plan, setPlan] = useState<PluginPlan | null>(null)
   const [query, setQuery] = useState('')
-  // a plugin's page (its id), in place of the lists; ?focus=<plugin id> opens it (a link from elsewhere in Admin)
-  const [params] = useSearchParams()
-  const [open, setOpen] = useState<string | null>(() => params.get('focus'))
+  // a plugin's page: its own address, /admin/plugins/<id> (?focus=<plugin id>, a link from elsewhere in Admin, leads
+  // there: AdminLayout.tsx), in place of the lists; Back or its way back return to them
+  const sub = useParams().sub
+  const open = sub ? decodeURIComponent(sub) : null
+  const navigate = useNavigate()
+  const upTo = useUpTo()
+  const setOpen = (id: string | null) => {
+    if (id === null) { if (open !== null) upTo('/admin/plugins'); return }
+    if (id !== open) navigate(`/admin/plugins/${encodeURIComponent(id)}`)
+  }
+  // the phone's bar names the plugin whose page this is
+  const named = open ? (state.data?.installed.find((x) => x.id === open) ?? state.data?.catalog.find((x) => x.id === open))?.name : undefined
+  useAdminBar(named ?? null)
+  // an address of a plugin this server does not list (removed, a typo): the lists
+  const unknown = open !== null && !!state.data && !named
+  useEffect(() => { if (unknown) navigate('/admin/plugins', { replace: true }) }, [unknown, navigate])
   const file = useRef<HTMLInputElement>(null)
   const installedId = useId()
   const discoverId = useId()
@@ -416,11 +431,18 @@ export default function Plugins() {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }
   const review = (id: string) => inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))
-  // back from a plugin's page: the keyboard returns to the card that opened it
+  // back from a plugin's page: the keyboard returns to the card that opened it (once the lists show again: going back
+  // in the history takes a moment)
   const back = () => {
     const id = open
     setOpen(null)
-    requestAnimationFrame(() => [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === id)?.querySelector<HTMLElement>('[data-testid="plugin-open"]')?.focus())
+    const focus = (frames: number) => requestAnimationFrame(() => {
+      const card = [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === id && e.dataset.testid !== 'plugin-detail')
+      const button = card?.querySelector<HTMLElement>('[data-testid="plugin-open"]')
+      if (button) button.focus()
+      else if (frames > 1) focus(frames - 1)
+    })
+    focus(20)
   }
   return (
     <>

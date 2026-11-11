@@ -14,15 +14,15 @@
 // notice, the old App connectors address) opens Google Drive's page.
 import { Plus, Send } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { APP_CONNECTORS, appConnectorLogo, type Connector } from '../../lib/connectors'
+import { APP_CONNECTORS, appConnectorLogo, CONNECTORS, type Connector } from '../../lib/connectors'
 import { canonicalService, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
-import { Badge, EmptyState } from '../../components/ui'
+import { Badge, EmptyState, useMediaQuery } from '../../components/ui'
 import { ConnectorDetail, ConnectorDiscover, ConnectorsHeader, discoverHits, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds } from '../../components/integrations/ConnectorsView'
 import { DriveAdminDetail, driveAdminLine, driveAdminOn, DriveSetupDialog } from '../../components/integrations/DriveConnector'
 import { DriveAdminSettings } from '../../components/integrations/DriveShares'
@@ -34,6 +34,7 @@ import { AudienceChip, IntegrationRow, useIntegrationActions } from '../../compo
 import { TemplateRow } from '../../components/integrations/TemplatesView'
 import { toast } from '../../store/ui'
 import { Loadable, useLoad } from './common'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -52,9 +53,24 @@ export default function AdminIntegrations() {
   const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
   const [gappSetup, setGappSetup] = useState<GoogleAppId | null>(null)
   const setGapp = (st: GoogleAppAdminStatus) => gapps.setData((a) => a?.map((x) => (x.id === st.id ? st : x)) ?? a)
-  // a connector's page, opened from Discover (or ?drive=1, ?app=gmail): it takes the place of the list until its way back
-  const [open, setOpen] = useState<{ kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'mcp'; c: Connector } | null>(null)
-  const [params, setParams] = useSearchParams()
+  // a connector's page, opened from Discover: its own address, /admin/connectors/<id> (the old ?drive=1 and ?app=gmail
+  // lead there, AdminLayout.tsx), in place of the list; Back or its way back return to the list
+  const { sub } = useParams()
+  const navigate = useNavigate()
+  const upTo = useUpTo()
+  const open: { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'mcp'; c: Connector } | null = !sub ? null
+    : sub === APP_CONNECTORS[0].id ? { kind: 'drive' }
+      : isGoogleApp(sub) ? { kind: 'gapp', id: sub }
+        : (() => { const c = CONNECTORS.find((x) => x.id === sub); return c ? { kind: 'mcp' as const, c } : null })()
+  const setOpen = (o: { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'mcp'; c: Connector } | null) => {
+    if (!o) { if (sub) upTo('/admin/connectors'); return }
+    const id = o.kind === 'drive' ? APP_CONNECTORS[0].id : o.kind === 'gapp' ? o.id : o.c.id
+    if (id !== sub) navigate(`/admin/connectors/${id}`)
+  }
+  // an address of a connector this page does not know (a typo, an old link): the list
+  useEffect(() => { if (sub && !open) navigate('/admin/connectors', { replace: true }) }, [sub, open, navigate])
+  // the phone's bar names the connector whose page this is
+  useAdminBar(open ? (open.kind === 'drive' ? APP_CONNECTORS[0].name : open.kind === 'gapp' ? builtInName(open.id) : open.c.name) : null)
   const requests = useTeamRequests()
   const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
   const [query, setQuery] = useState('')
@@ -68,16 +84,11 @@ export default function AdminIntegrations() {
   })
   const person = { id: me.user.id, groupIds: me.groups.map((g) => g.id) }
   const ids = useSectionIds()
-  useEffect(() => {
-    const app = params.get('app')
-    if (params.get('drive') !== '1' && !app) return
-    if (app && isGoogleApp(app)) setOpen({ kind: 'gapp', id: app })
-    else if (params.get('drive') === '1') setOpen({ kind: 'drive' })
-    setParams((p) => { p.delete('drive'); p.delete('app'); return p }, { replace: true })
-  }, [params, setParams])
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const DRIVE = APP_CONNECTORS[0]
   // back from a connector's page: where it was opened from
-  const back = () => { setOpen(null); goToSection(ids.discover) }
+  // (a computer: the keyboard to Discover; a phone keeps the list's place, lib/backStack.ts useKeptScroll)
+  const back = () => { setOpen(null); if (!phone) goToSection(ids.discover) }
   // added from Discover (or from Add over a connector's page): the search is cleared (it was looking for what the new
   // row may not match) and the keyboard goes to the list the new row is in (once it is there: a template comes with the
   // list loaded again), since the button that opened the dialog is gone
