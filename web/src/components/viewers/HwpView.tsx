@@ -5,8 +5,6 @@ import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { Button } from '../ui'
 
-/** Where the pages come from: a team file by its path, or a file sent in a team chat room (read through the room: its
- * members only, the same checks as reading it inline). */
 /** What the server says about this file or this server, which asking again cannot change: no [다시 시도], only the
  * download (QA TC-265 FILES-23: "이 서버에서는 한글 미리보기를 쓸 수 없어요" with a retry that could only fail again).
  * A timeout, a busy queue, a cancelled or changed render, a preview an admin may turn on, and a request that never got
@@ -16,6 +14,8 @@ export const HWP_FINAL: ReadonlySet<HwpReason> = new Set<HwpReason>(['engine', '
 export const hwpCanRetry = (reason: HwpReason | 'missing' | 'quarantined', fromServer: boolean) =>
   reason !== 'quarantined' && !(fromServer && reason !== 'missing' && HWP_FINAL.has(reason))
 
+/** Where the pages come from: a team file by its path, or a file sent in a team chat room (read through the room: its
+ * members only, the same checks as reading it inline). */
 export type HwpSource = { kind: 'team'; path: string } | { kind: 'room'; roomId: string; fileId: string }
 
 /** Shared web/Electron/WebView viewer. Only server-produced PNG pixels enter the page. */
