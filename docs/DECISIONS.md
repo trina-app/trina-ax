@@ -20366,3 +20366,8 @@ saves nothing of that request; sending the value it already has is fine, so the 
 settings shows an admin the four retention fields read-only with "Only the team owner can change this." The update
 channel has no field there (it is the installation's own). Periods an admin already shortened stay until the owner
 changes them.
+
+- Out of scope: an admin can still delete one trashed item for good (`DELETE /api/files/trash/:id`, purgeTrash), which
+  also drops that item's file versions. That is the trash's own design and is audited (`trash.purge`); the audit
+  retention that keeps that row is now the owner's.
+- Version impact: **patch** (an admin's change of five settings is refused; no response or data change).
