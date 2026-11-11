@@ -29,6 +29,7 @@ import { attachContextMenu, contextMenuOpen } from './context-menu'
 import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
+import { clearSessionData } from './clear-session'
 import { debug } from './debug'
 
 export type Mode = 'welcome' | 'team' | 'offline'
@@ -348,12 +349,9 @@ export class AppWindow {
       this.mode = 'welcome'
       this.layout()
     }
-    // forget everything this team left in the app: cookies, storage, cache, allowed sites
-    for (const kind of ['app', 'browser'] as const) {
-      const ses = session.fromPartition(partitionFor(id, kind))
-      await ses.clearStorageData().catch(() => {})
-      await ses.clearCache().catch(() => {})
-    }
+    // forget everything this team left in the app: cookies, storage, cache, HTTP logins, allowed sites (both
+    // partitions side by side, each clear with a time limit: a stuck clear must not keep the team in the list)
+    await Promise.all((['app', 'browser'] as const).map((kind) => clearSessionData(session.fromPartition(partitionFor(id, kind)), `team ${id} ${kind}`)))
     this.o.store.removeTeamFiles(id)
     this.saveTeams(removeTeam(this.teams, id))
   }
@@ -745,8 +743,7 @@ export class AppWindow {
         this.sendPaneState(pane.state())
       } else {
         // the pane is not open for this team: clear its stored data directly
-        const ses = session.fromPartition(partitionFor(teamId, 'browser'))
-        await Promise.all([ses.clearStorageData(), ses.clearCache(), ses.clearAuthCache()])
+        await clearSessionData(session.fromPartition(partitionFor(teamId, 'browser')), `team ${teamId} browser`)
         const saved = new SitePermissions(this.o.store.loadPermissions(teamId))
         if (saved.resetForNewPerson()) this.o.store.savePermissions(teamId, saved.toJSON())
       }

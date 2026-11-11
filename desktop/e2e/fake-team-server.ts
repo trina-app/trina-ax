@@ -363,6 +363,38 @@ Promise.all(['http://acme.localhost:19151/api/health', 'http://127.0.0.1:19151/a
       return r
     }
     if (p === '/cookie') return page('cookie', `<p id="c">${esc(req.headers.get('cookie') ?? '')}</p>`)
+    // what a signed-in site keeps in the browser (clear-storage.spec.ts): a cookie, localStorage, IndexedDB, Cache
+    // Storage and a service worker (the last two need a secure origin: the spec launches the app with shop.test as one)
+    if (p === '/store.html') {
+      return page(
+        'store',
+        `<p id="out">pending</p><script>
+(async () => {
+  document.cookie = 'kept=1; Path=/; Max-Age=3600'
+  localStorage.setItem('kept', '1')
+  await new Promise((ok, fail) => { const r = indexedDB.open('kept', 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onerror = fail; r.onsuccess = () => { const tx = r.result.transaction('s', 'readwrite'); tx.objectStore('s').put('1', 'k'); tx.oncomplete = () => { r.result.close(); ok() } } })
+  await (await caches.open('kept')).put('/data.json', new Response('1'))
+  await navigator.serviceWorker.register('/sw.js')
+  await navigator.serviceWorker.ready
+  return 'stored'
+})().then((s) => (document.getElementById('out').textContent = s), (e) => (document.getElementById('out').textContent = 'failed ' + e))
+</script>`,
+      )
+    }
+    if (p === '/stored.html') {
+      return page(
+        'stored',
+        `<p id="out">pending</p><script>
+(async () => {
+  const idb = (await indexedDB.databases()).map((d) => d.name).join(',')
+  const cs = (await caches.keys()).join(',')
+  const sw = (await navigator.serviceWorker.getRegistrations()).length
+  return 'cookie=[' + document.cookie + '] ls=[' + (localStorage.getItem('kept') ?? '') + '] idb=[' + idb + '] caches=[' + cs + '] sw=[' + sw + ']'
+})().then((s) => (document.getElementById('out').textContent = s), (e) => (document.getElementById('out').textContent = 'failed ' + e))
+</script>`,
+      )
+    }
+    if (p === '/sw.js') return new Response("self.addEventListener('fetch', () => {})", { headers: { 'content-type': 'text/javascript' } })
     if (p === '/frame-escape') return page('escaped', '<p>escaped</p>')
     if (p === '/test/hits') return json({ hits: hits.get(url.searchParams.get('path') ?? '') ?? 0 })
     return new Response('not found', { status: 404 })

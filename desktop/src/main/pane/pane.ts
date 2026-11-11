@@ -30,6 +30,7 @@ import { blockedMessage, blockedUrl, type BlockReason } from '../../common/brows
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
 import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
+import { clearSessionData } from '../clear-session'
 import { debug } from '../debug'
 
 export interface PanePrompt {
@@ -587,11 +588,8 @@ export class BrowserPane {
     this.repeatHint = new RepeatPromptHint()
     this.officeLetThrough.clear()
     if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
-    await Promise.all([
-      this.session.clearStorageData(),
-      this.session.clearCache(),
-      this.session.clearAuthCache(),
-    ])
+    // an explicit list and a time limit: a clear that never settles must not stop every later AI browser call
+    await clearSessionData(this.session, 'in-app browser')
     this.hide()
     this.emit()
   }

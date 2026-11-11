@@ -28,9 +28,10 @@ export function newUserData(locale: 'ko' | 'en' | 'id' | 'ja' | 'es' | null = 'k
   return dir
 }
 
-export async function launch(userData: string, env: Record<string, string> = {}): Promise<ElectronApplication> {
+/** `args`: extra command-line switches for Chromium (clear-storage.spec.ts treats the shop as a secure origin). */
+export async function launch(userData: string, env: Record<string, string> = {}, args: string[] = []): Promise<ElectronApplication> {
   const app = await electron.launch({
-    args: [join(ROOT, 'dist/main.cjs')],
+    args: [join(ROOT, 'dist/main.cjs'), ...args],
     cwd: ROOT,
     env: {
       ...(process.env as Record<string, string>),
