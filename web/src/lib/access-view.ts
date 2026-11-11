@@ -260,7 +260,7 @@ export function membersOnlyText(t: T, n: Pick<AccessTreeNode, 'who'>): string {
   return `${t('accessTree.membersOnly')} · ${count ? t('folderAccess.people', { n: count }) : t('projects.noMembers')}`
 }
 
-/** "영업팀 3명 · 읽기·쓰기, 모두 · 읽기", or "팀장과 관리자만" when no rule lets a member in. */
+/** "영업팀 3명 · 고칠 수 있음, 모두 · 볼 수 있음", or "팀장과 관리자만" when no rule lets a member in. */
 export function whoSeesText(t: T, n: Pick<AccessTreeNode, 'who'>, members: number): string {
   const see = seers(n)
   if (!see.length) return t('accessTree.who.adminsOnly')
@@ -352,7 +352,7 @@ const fromText = (t: T, folder: string, here: string) => (folder === here ? t('a
 /**
  * Where the access on a row comes from. One folder for everyone: "이 폴더의 규칙" or "shared에서 물려받음". Several
  * (it differs by person): by whom, "영업팀: 이 폴더의 규칙 · 나머지: shared에서 물려받음". The folders of the people who can
- * open it; when nobody can, of those shut out ("모두: 권한 없음" here). No rule for any member: said so.
+ * open it; when nobody can, of those shut out ("모두: 열 수 없음" here). No rule for any member: said so.
  */
 export function sourceText(t: T, n: Pick<AccessTreeNode, 'who' | 'path'>, members: number): string {
   const rules = n.who.filter((w) => w.reason === 'rule')

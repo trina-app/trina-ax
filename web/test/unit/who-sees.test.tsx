@@ -65,8 +65,8 @@ describe('the words', () => {
     }
     expect(await lineOf(null, 'chat')).toEqual({ text: '나만 봐요', kind: 'me', lock: true, tag: 'SPAN' })
     expect(await lineOf({ audience: 4, alone: true }, 'chat')).toEqual({ text: '나와 관리자만 봐요', kind: 'admins', lock: false, tag: 'SPAN' })
-    expect(await lineOf({ audience: 4 }, 'chat')).toEqual({ text: '프로젝트 사람 4명이 이 채팅을 볼 수 있어요.', kind: 'people', lock: false, tag: 'SPAN' })
-    expect(await lineOf({ audience: 2 }, 'new')).toEqual({ text: '새 채팅은 프로젝트 사람 2명이 볼 수 있어요.', kind: 'people', lock: false, tag: 'SPAN' })
+    expect(await lineOf({ audience: 4 }, 'chat')).toEqual({ text: '멤버 4명이 이 채팅을 볼 수 있어요.', kind: 'people', lock: false, tag: 'SPAN' })
+    expect(await lineOf({ audience: 2 }, 'new')).toEqual({ text: '새 채팅은 멤버 2명이 볼 수 있어요.', kind: 'people', lock: false, tag: 'SPAN' })
   })
 })
 
@@ -90,14 +90,14 @@ describe('the project box', () => {
     // a member alone: the owner and the admins are counted, and nobody else sees it by a rule
     expect(await box(project({ audience: 3, alone: true }), 'member')).toEqual({ text: '나와 관리자만 봐요', button: true, inRow: true, opened: 1 })
     // someone else added
-    expect(await box(project({ audience: 4 }), 'member')).toEqual({ text: '새 채팅은 프로젝트 사람 4명이 볼 수 있어요.', button: true, inRow: true, opened: 1 })
+    expect(await box(project({ audience: 4 }), 'member')).toEqual({ text: '새 채팅은 멤버 4명이 볼 수 있어요.', button: true, inRow: true, opened: 1 })
     // an admin on a member's project: someone else sees it by a rule (the member), so the count
-    expect(await box(project({ audience: 3, createdBy: { id: 'jun', name: 'Jun' } }), 'admin')).toEqual({ text: '새 채팅은 프로젝트 사람 3명이 볼 수 있어요.', button: true, inRow: true, opened: 1 })
+    expect(await box(project({ audience: 3, createdBy: { id: 'jun', name: 'Jun' } }), 'admin')).toEqual({ text: '새 채팅은 멤버 3명이 볼 수 있어요.', button: true, inRow: true, opened: 1 })
   })
 
   test('clickable only when the person may change the members and the new chat will be shared', async () => {
     // a member of someone else's project: the same words, nothing to open
-    expect(await box(project({ audience: 4, membersEditable: false, createdBy: { id: 'jun', name: 'Jun' } }), 'member')).toEqual({ text: '새 채팅은 프로젝트 사람 4명이 볼 수 있어요.', button: false, inRow: true, opened: 0 })
+    expect(await box(project({ audience: 4, membersEditable: false, createdBy: { id: 'jun', name: 'Jun' } }), 'member')).toEqual({ text: '새 채팅은 멤버 4명이 볼 수 있어요.', button: false, inRow: true, opened: 0 })
     // a team project that does not share its chats: the new chat is mine alone, and members do not change that
     expect(await box(project({ audience: 4, shareChats: false }), 'owner')).toEqual({ text: '나만 봐요', button: false, inRow: true, opened: 0 })
     // a personal project: never shared, never clickable
@@ -141,7 +141,7 @@ describe('the project page\'s 멤버 line: members only in projects/, the same w
     // more people: its members, "4명", the box "새 채팅은 멤버 4명이 …"
     const more = await row(project({ audience: 4 }), 'member')
     expect(more.row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 4 })}${ko('projects.manage')}`)
-    expect(more.box).toBe('새 채팅은 프로젝트 사람 4명이 볼 수 있어요.')
+    expect(more.box).toBe('새 채팅은 멤버 4명이 볼 수 있어요.')
     // the owner and admins: the same, never a role part or "관리자만"
     const admin = await row(project({ audience: 3, audienceSplit: { direct: 3, byRole: 0 } }), 'admin')
     expect(admin.row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 3 })}${ko('projects.manage')}`)

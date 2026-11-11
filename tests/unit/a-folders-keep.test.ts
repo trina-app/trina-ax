@@ -78,7 +78,7 @@ describe('folder rows that stay', () => {
       const d = await admin.try('DELETE', `/api/admin/folders/${id}`)
       expect(d.status, p).toBe(409)
       expect(d.body.error.message).toBe(msg('teamFolderKeepsRules', 'ko'))
-      expect(d.body.error.message).toContain('"모두: 권한 없음"')
+      expect(d.body.error.message).toContain('"모두: 열 수 없음"')
       const put = await owner.try('PUT', `/api/admin/folders/${id}/rules`, { rules: [] })
       expect(put.status, p).toBe(400)
       expect(put.body.error.message).toBe(msg('teamFolderKeepsRules', 'ko'))

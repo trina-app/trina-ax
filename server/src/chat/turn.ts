@@ -2054,9 +2054,12 @@ export class TurnExec {
     const always = coverOnce && !!grantRoom
     // anyone who joins the room from now on lapses a grant this card makes (rooms/ai-grants.ts members_since)
     const askedAt = new Date().toISOString()
-    // the person's own chat: why it asks first (the room card's words after it for a new team file)
+    // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
+    // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
+    const reads = mine && this.readsOnly(tool, input)
     const question = target
       ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
+      : reads ? tr(own ? 'roomsSeenConfirmRead' : 'roomAiConfirmRead', L, { what, ai: aiCalled(L) })
       : own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
       : tr('roomAiConfirm', L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({

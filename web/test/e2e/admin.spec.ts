@@ -113,8 +113,8 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
   await panel.getByTestId('edit-save').click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 읽기')
-  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
+  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 볼 수 있음')
+  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 볼 수 있음')
 
   // engines: what is missing, in plain words
   await page.getByTestId('admin-menu').getByRole('link', { name: 'AI 계정', exact: true }).click()
