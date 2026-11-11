@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  appPatch, audienceOf, authorizationUrl, authOf, canSignIn, covers, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
+  appPatch, audienceOf, authorizationUrl, authOf, canSignIn, covers, flowReasonKey, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
 import { DICTS, translate } from '../../src/i18n'
@@ -286,4 +286,26 @@ describe('a connection whose last check failed', () => {
     for (const d of Object.values(DICTS)) for (const k of ['integrations.checkFailedKept', 'integrations.lastCheckFailed'] as const) expect(d[k]).toContain('{reason}')
     for (const d of Object.values(DICTS)) expect(d['integrations.checkFailedKept']).toContain('{date}')
   })
+})
+
+test('TC-020: why a sign-in failed, in words in every language; an unknown code is the plain "could not sign in", never the code', () => {
+  expect(flowReasonKey('client')).toBe('integrations.signIn.reason.client')
+  expect(flowReasonKey('client_template')).toBe('integrations.signIn.reason.clientTemplate')
+  expect(flowReasonKey('denied')).toBe('integrations.signIn.reason.denied')
+  expect(flowReasonKey('changed')).toBe('integrations.signIn.reason.changed')
+  expect(flowReasonKey('superseded')).toBe('integrations.signIn.reason.superseded')
+  expect(flowReasonKey('exchange')).toBe('integrations.signIn.reason.exchange')
+  expect(flowReasonKey('invalid')).toBe('integrations.signIn.reason.exchange')
+  expect(flowReasonKey('something_new')).toBe('integrations.signIn.failed')
+  expect(flowReasonKey(null)).toBe('integrations.signIn.failed')
+  // a refused Client ID or Secret says where to look: the Secret under Advanced (고급), in that screen's own words
+  for (const l of Object.keys(DICTS) as (keyof typeof DICTS)[]) {
+    const words = translate(l, 'integrations.signIn.reason.client')
+    expect(words).toContain(translate(l, 'integrations.advanced'))
+    expect(words).not.toMatch(/\b(client|exchange|invalid_client)\b/)
+    // a template's app: the member cannot see it, so the words send them to whoever set it up, not to Advanced
+    const theirs = translate(l, 'integrations.signIn.reason.clientTemplate')
+    expect(theirs).not.toContain(translate(l, 'integrations.advanced'))
+    expect(theirs).not.toMatch(/\b(client_template|invalid_client)\b/)
+  }
 })

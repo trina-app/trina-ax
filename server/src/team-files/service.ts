@@ -108,6 +108,8 @@ export const AI_TRASH_FOLDER_REFUSAL = {
   rule: (may: boolean) => `a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
   projectsPlace: (may: boolean) => `a folder right in projects/, where a team project keeps its folder and skills: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
   groupsPlace: (may: boolean) => `a folder right in groups/, where a group keeps its folder and skills: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
+  /** a folder holding a group, project or rule folder the asker cannot read: which kind it is would say what is there */
+  managed: (may: boolean) => `a group, project or rule folder, or a folder that holds one: it does not go to the trash from a chat. ${deletes(may)} it on the Files screen`,
 }
 
 export class TeamFiles {
@@ -1348,11 +1350,21 @@ export class TeamFiles {
     if (group === 'at') return AI_TRASH_FOLDER_REFUSAL.group(manager)
     const holder = holdsSkillRoot(segs)
     if (holder && this.skillsFolderIn(segs)) return AI_SKILL_TRASH_REFUSAL
+    // a managed folder inside it that the asker cannot read: the generic words, so the kind does not tell what is there
+    if (this.unreadableManagedBelow(user, rules, rel, projects.map((p) => p.folder_path))) return AI_TRASH_FOLDER_REFUSAL.managed(manager)
     if (project) return AI_TRASH_FOLDER_REFUSAL.project(mine())
     if (group) return AI_TRASH_FOLDER_REFUSAL.group(manager)
     if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule(manager)
     if (holder) return top === 'groups' ? AI_TRASH_FOLDER_REFUSAL.groupsPlace(manager) : AI_TRASH_FOLDER_REFUSAL.projectsPlace(manager)
     return null
+  }
+
+  /** A project's, a group's or a rule folder strictly inside `rel` that `user` cannot read. */
+  private unreadableManagedBelow(user: Principal, rules: RuleSet, rel: string, projectFolders: readonly string[]): boolean {
+    const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const me = k(rel)
+    const below = [...projectFolders, ...this.groupFolders(), ...rules.ruleFolders()].filter((f) => k(f).startsWith(me + '/'))
+    return below.some((f) => !atLeast(rules.access(user, segsOf(f)), 'read'))
   }
 
   /** `rel` among `folders`: 'at' (it is one of them), 'above' (one is inside it) or null; letter case and Unicode form

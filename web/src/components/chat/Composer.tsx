@@ -30,10 +30,10 @@
 // "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
 // alone: send waits and a quiet line under the box says what to add.
 import clsx from 'clsx'
-import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
-import { errorText } from '../../lib/api'
+import { errorText, isConnectionError } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
@@ -48,7 +48,8 @@ import { useMe } from '../../store/session'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
-import { IconButton, useMediaQuery } from '../ui'
+import { Button, IconButton, useMediaQuery } from '../ui'
+import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 import { SecretWarning, useSecretHold } from './SecretWarning'
@@ -158,6 +159,11 @@ export default function Composer({
   const tokens = roomMenu.ranges.length > 0
   const [scrollTop, setScrollTop] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // the send failed for the connection (lib/api.ts isConnectionError): the calm line under the box, the text kept in it
+  // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors")
+  const [unsent, setUnsent] = useState(false)
+  // it says the connection is down: a notice of the same page (Home's 「팀에 준비된 것」) does not say it again
+  useSaysConnection(unsent && !error)
   // files from this computer: everywhere but a shared chat whose project folder the person may not write
   const computer = sharedUploads?.allowed !== false
   // the chips live outside the component too (components/chat/ComposerFiles.tsx, lib/teamAttach stash): leaving the
@@ -220,6 +226,8 @@ export default function Composer({
   }), [running, sending, voice.busy])
 
   useEffect(() => writeDraft(userId, draftId, wired), [userId, wired, draftId])
+  // "the message is still here" no longer holds once the box is emptied
+  useEffect(() => { if (!text.trim()) setUnsent(false) }, [text])
   // a non-empty draft (or an upload: useComposerFiles) means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
 
@@ -294,6 +302,7 @@ export default function Composer({
     if (!secret.pass(anyway)) return
     setSending(true)
     setError(null)
+    setUnsent(false)
     if (answering) {
       // a failure (the question was answered in another window or closed meanwhile) keeps the text and says why
       try {
@@ -302,7 +311,8 @@ export default function Composer({
         roomMenu.reset()
         writeDraft(userId, draftId, '')
       } catch (e) {
-        setError(errorText(e, locale, t('error.network')))
+        if (isConnectionError(e)) setUnsent(true)
+        else setError(errorText(e, locale, t('error.network')))
       } finally {
         setSending(false)
       }
@@ -320,7 +330,8 @@ export default function Composer({
       writeDraft(userId, draftId, '')
       clearSent()
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
+      if (isConnectionError(e)) setUnsent(true)
+      else setError(errorText(e, locale, t('error.network')))
     } finally {
       setSending(false)
     }
@@ -660,6 +671,15 @@ export default function Composer({
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}
         </p>
+      )}
+      {unsent && !error && (
+        <CalmNotice
+          className="mt-2"
+          testId="composer-unsent"
+          icon={<WifiOff size={16} />}
+          title={t('conn.unsent')}
+          action={<Button size="sm" variant="secondary" disabled={!canSend} onClick={submit} data-testid="composer-unsent-retry">{t('common.retry')}</Button>}
+        />
       )}
       <TeamFilePicker
         open={picker}

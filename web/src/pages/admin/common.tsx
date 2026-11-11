@@ -6,33 +6,40 @@ import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls, useMediaQuery } from '../../components/ui'
+import { Button, Field, Modal, Skeleton, StickyHeader, inputCls, useMediaQuery } from '../../components/ui'
+import { LoadError } from '../../components/LoadError'
 
 /** Team settings, scrolled to Usage limits (TeamAiSettings.tsx reads #ai-limits). */
 export const USAGE_LIMITS_LINK = '/admin/settings#ai-limits'
 
+/** `error`: the failure in words (kept until a read works); `cause`: what was thrown, for Loadable's notice. */
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
   const locale = useLocale()
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [cause, setCause] = useState<unknown>(null)
   const reload = useCallback(async () => {
     try {
       setData(await fn())
       setError(null)
+      setCause(null)
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
+      setCause(e)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   useEffect(() => {
     void reload()
   }, [reload])
-  return { data, error, reload, setData }
+  return { data, error, cause, reload, setData }
 }
 
-export function Loadable<T>({ state, children, lines = 4 }: { state: { data: T | null; error: string | null; reload: () => Promise<void> }; children: (d: T) => ReactNode; lines?: number }) {
-  if (state.error) return <ErrorNote onRetry={() => void state.reload()}>{state.error}</ErrorNote>
+/** A read that failed: the connection gets the calm notice that reads again by itself, anything else the red note with
+ * the server's words (components/LoadError.tsx). */
+export function Loadable<T>({ state, children, lines = 4 }: { state: { data: T | null; error: string | null; cause?: unknown; reload: () => Promise<void> }; children: (d: T) => ReactNode; lines?: number }) {
+  if (state.error) return <LoadError error={state.cause} text={state.error} onRetry={state.reload} />
   if (state.data === null) return <Skeleton lines={lines} />
   return <>{children(state.data)}</>
 }

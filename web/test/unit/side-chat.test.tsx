@@ -20,7 +20,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
-import { useSideChats } from '../../src/store/sideChats'
+import { sideChatOf, useSideChats } from '../../src/store/sideChats'
 import { useSession } from '../../src/store/session'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
@@ -1042,3 +1042,36 @@ test('the file viewer: ✦ is a new chat with the file quoted; "스레드로 돌
     await p.unmount()
   }
 })
+
+test('a first read that cannot reach the server: the calm notice; a chat the person opens meanwhile stays (the notice goes, no read takes it away)', async () => {
+  signIn()
+  useSideChats.setState(useSideChats.getInitialState())
+  const old = uuidv7()
+  serve(uuidv7(), [old], UNSEEN)
+  const served = globalThis.fetch
+  let down = true
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://team.localhost')
+    if (down && (init?.method ?? 'GET') === 'GET' && u.pathname === '/api/chats') throw new TypeError('Failed to fetch')
+    return served(input, init)
+  }) as typeof fetch
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('load-error'), 'the notice')
+    expect(m.get('load-error').getAttribute('data-what')).toBe('side-chat')
+    expect(m.get('load-error').getAttribute('data-state')).toBe('connection')
+    expect(m.container.ownerDocument!.body.querySelector('[role="alert"]')).toBeNull()
+    // the connection is back; before the notice reads again, the person opens an older side chat from 🕘
+    down = false
+    await m.click('side-chat-history')
+    await m.until(() => !!m.find('side-chat-history-list'), 'the list')
+    const items = m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]')
+    await m.click(items[1]!)
+    await m.until(() => sideChatOf(useSideChats.getState(), team.id).chatId === old, 'the chosen chat')
+    expect(m.find('load-error')).toBeNull()
+    await m.settle(2_500)
+    expect(sideChatOf(useSideChats.getState(), team.id).chatId).toBe(old)
+  } finally {
+    await m.unmount()
+  }
+}, 10_000)
