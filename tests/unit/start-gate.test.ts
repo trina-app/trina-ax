@@ -11,20 +11,28 @@ import { setSetting } from '../../server/src/admin/settings'
 import { setAvailableMemoryForTests } from '../../server/src/system/limits'
 
 let h: Harness | null = null, rt: ChatRuntime
+// at: the gate's own launch time (its clock when it let the turn go); stopped turns leaving the gate have none
 let launches: { exec: TurnExec; at: number; stopped: boolean }[] = []
 let fakeRun: ReturnType<typeof spyOn> | null = null
 const ended = new Set<string>()
-async function setup(name: string, people: number, concurrency: number, o: { burst?: number } = {}) {
-  launches = []; ended.clear()
+// a fake gate clock (o.clock): it moves only by advance(), so what a test asserts right after a dispatch does not depend
+// on how long the dispatch took (a slow machine passes START_SPREAD_MS inside one schedule() and the gate correctly
+// launches more). The real timer the gate arms finds nothing to launch until the test moves the clock.
+let fakeNow = 0
+function advance(ms: number) { fakeNow += ms; (rt as any).launchGated() }
+async function setup(name: string, people: number, concurrency: number, o: { burst?: number; clock?: boolean } = {}) {
+  launches = []; ended.clear(); fakeNow = 1000
   setAvailableMemoryForTests(null)
   // a fake engine: a turn launched after a stop only ends, as TurnExec.run does (no engine once stopReason is set)
   fakeRun = spyOn(TurnExec.prototype, 'run').mockImplementation(async function(this: TurnExec) {
-    launches.push({ exec: this, at: performance.now(), stopped: !!this.stopReason })
+    const stopped = !!this.stopReason
+    launches.push({ exec: this, at: stopped ? NaN : (rt as any).recentLaunches.at(-1), stopped })
     if (this.stopReason) finish(this)
   })
   h = await harness(`gate-${name}-${Math.random().toString(36).slice(2)}`); await withOwner(h)
   rt = getChatRuntime(h.ctx)
   if (o.burst !== undefined) rt.startBurst = o.burst
+  if (o.clock) rt.gateNow = () => fakeNow
   for (let i = 1; i < people; i++) h.ctx.db.query("INSERT INTO users(id,username,name,role) VALUES(?,?,?,'member')").run(`u${i}`, `u${i}`, `U${i}`)
   setSetting(h.ctx.db, 'concurrency', concurrency); rt.schedule()
 }
@@ -46,7 +54,7 @@ function finish(exec: TurnExec) {
 }
 const running = (): Map<string, TurnExec> => (rt as any).running
 const gated = (): TurnExec[] => (rt as any).startGate
-const waitFor = async (cond: () => boolean, ms = 5000) => {
+const waitFor = async (cond: () => boolean, ms = 15000) => {
   const end = Date.now() + ms
   while (!cond() && Date.now() < end) await Bun.sleep(10)
   expect(cond()).toBe(true)
@@ -62,23 +70,27 @@ afterEach(close)
 const fifteen = () => [olga(), ...Array.from({ length: 14 }, (_, i) => `u${i + 1}`)]
 
 test('15 answers released in one dispatch: all 15 run (claimed, position 0) at once; engines launch 3 per START_SPREAD_MS in order', async () => {
-  await setup('fifteen', 15, 15)
+  await setup('fifteen', 15, 15, { clock: true })
   const people = fifteen()
   const paused = spyOn(rt, 'schedule').mockImplementation(() => {})
   const sent = people.map((u) => send(u))
   paused.mockRestore()
-  const t0 = performance.now()
+  const t0 = fakeNow
   rt.schedule()
   // the queue is as with no gate: every turn holds its slot and is not "queued"
   expect(rt.runningCount()).toBe(15); expect(rt.queuedCount()).toBe(0)
   for (const s of sent) expect(rt.queuePosition(s.turnId)).toBe(0)
   expect(launches.length).toBe(START_BURST)
-  await waitFor(() => launches.length === 15)
+  for (let n = START_BURST; n < 15; n += START_BURST) {
+    advance(START_SPREAD_MS - 1); expect(launches.length).toBe(n)
+    advance(1); expect(launches.length).toBe(n + START_BURST)
+  }
   expect(launches.map((l) => l.exec.spec.userId)).toEqual(people)
-  const at = launches.map((l) => l.at - t0)
-  for (let i = START_BURST; i < at.length; i++) expect(at[i]! - at[i - START_BURST]!).toBeGreaterThanOrEqual(START_SPREAD_MS - 5)
-  expect(at[14]!).toBeLessThan(4 * START_SPREAD_MS + 2000)
-  expect((rt as any).launchTimer).toBeNull()
+  expect(launches.map((l) => l.at - t0)).toEqual(people.map((_, i) => Math.floor(i / START_BURST) * START_SPREAD_MS))
+  expect(gated()).toHaveLength(0)
+  // the timer armed while the gate held turns fires once more, finds the gate empty and is not armed again
+  await waitFor(() => (rt as any).launchTimer === null)
+  expect(launches).toHaveLength(15)
 })
 
 test('15 sends one after another: never more than START_BURST launches within START_SPREAD_MS', async () => {
@@ -88,16 +100,16 @@ test('15 sends one after another: never more than START_BURST launches within ST
   expect(rt.runningCount()).toBe(15)
   await waitFor(() => launches.length === 15)
   expect(launches.map((l) => l.exec.spec.userId)).toEqual(people)
-  for (let i = START_BURST; i < launches.length; i++) expect(launches[i]!.at - launches[i - START_BURST]!.at).toBeGreaterThanOrEqual(START_SPREAD_MS - 5)
+  for (let i = START_BURST; i < launches.length; i++) expect(launches[i]!.at - launches[i - START_BURST]!.at).toBeGreaterThanOrEqual(START_SPREAD_MS)
 })
 
 test('one to three answers launch with no delay; a slot freed later launches the next one at once', async () => {
-  await setup('few', 3, 2)
+  await setup('few', 3, 2, { clock: true })
   send(olga()); expect(launches.length).toBe(1)
   send('u1'); expect(launches.length).toBe(2)
   const third = send('u2')
   expect(launches.length).toBe(2); expect(rt.queuePosition(third.turnId)).toBe(1)
-  await Bun.sleep(START_SPREAD_MS + 20)
+  advance(START_SPREAD_MS + 20)
   finish(launches[0]!.exec)
   expect(launches.length).toBe(3); expect(launches[2]!.exec.spec.userId).toBe('u2')
 })
@@ -114,7 +126,7 @@ test('with the gate off (startSpreadMs 0, or startBurst 0) all launch in one go,
 })
 
 test('Stop on a turn in the start gate: it ends at once (no engine), its slot goes to the next queued answer, the gate order holds', async () => {
-  await setup('stop', 6, 5)
+  await setup('stop', 6, 5, { clock: true })
   const paused = spyOn(rt, 'schedule').mockImplementation(() => {})
   const sent = [olga(), 'u1', 'u2', 'u3', 'u4', 'u5'].map((u) => send(u))
   paused.mockRestore(); rt.schedule()
@@ -127,12 +139,13 @@ test('Stop on a turn in the start gate: it ends at once (no engine), its slot go
   expect(running().has(sent[3]!.turnId)).toBe(false)
   expect(rt.queuePosition(sent[5]!.turnId)).toBe(0)
   expect(gated().map((e) => e.spec.userId)).toEqual(['u4', 'u5'])
-  await waitFor(() => launches.filter((l) => !l.stopped).length === 5)
+  expect(launches.filter((l) => !l.stopped)).toHaveLength(START_BURST)
+  advance(START_SPREAD_MS)
   expect(launches.filter((l) => !l.stopped).map((l) => l.exec.spec.userId)).toEqual([olga(), 'u1', 'u2', 'u4', 'u5'])
 })
 
 test('shutdown: turns still in the gate end without an engine, nothing launches after it', async () => {
-  await setup('shutdown', 6, 6)
+  await setup('shutdown', 6, 6, { clock: true })
   const paused = spyOn(rt, 'schedule').mockImplementation(() => {})
   for (const u of [olga(), 'u1', 'u2', 'u3', 'u4', 'u5']) send(u)
   paused.mockRestore(); rt.schedule()
@@ -140,16 +153,18 @@ test('shutdown: turns still in the gate end without an engine, nothing launches 
   void rt.shutdown()
   await Promise.resolve(); await Promise.resolve()
   expect(gated()).toHaveLength(0); expect((rt as any).launchTimer).toBeNull()
-  await Bun.sleep(START_SPREAD_MS + 100)
+  advance(10 * START_SPREAD_MS); await Bun.sleep(START_SPREAD_MS + 100)
   expect(launches.filter((l) => !l.stopped)).toHaveLength(START_BURST)
   expect(launches.filter((l) => l.stopped)).toHaveLength(3)
 })
 
 test('drain waits for gated turns too: they launch and finish, drain resolves true', async () => {
-  await setup('drain', 6, 6)
+  await setup('drain', 6, 6, { clock: true })
   for (const u of [olga(), 'u1', 'u2', 'u3', 'u4', 'u5']) send(u)
+  expect(launches).toHaveLength(START_BURST)
   const d = rt.drain(5000)
-  await waitFor(() => launches.length === 6)
+  advance(START_SPREAD_MS)
+  expect(launches).toHaveLength(6)
   for (const l of launches) finish(l.exec)
   expect(await d).toBe(true)
   rt.resume()
@@ -161,7 +176,7 @@ test('one person, concurrency 10, 7 sends: all accepted and running, at most STA
   for (let i = 0; i < 7; i++) expect(() => send(me)).not.toThrow()
   expect(rt.runningCount()).toBe(7)
   await waitFor(() => launches.length === 7)
-  for (let i = START_BURST; i < launches.length; i++) expect(launches[i]!.at - launches[i - START_BURST]!.at).toBeGreaterThanOrEqual(START_SPREAD_MS - 5)
+  for (let i = START_BURST; i < launches.length; i++) expect(launches[i]!.at - launches[i - START_BURST]!.at).toBeGreaterThanOrEqual(START_SPREAD_MS)
 })
 
 // QA rev2 repro for #463: holding turns in the queue for the spread moved round-robin tickets. Concurrency 3, after a

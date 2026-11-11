@@ -215,6 +215,8 @@ export class ChatRuntime {
   /** at most startBurst engine launches within startSpreadMs (startSpreadMs or startBurst 0: launch at once; tests) */
   startBurst = START_BURST
   startSpreadMs = START_SPREAD_MS
+  /** the start gate's clock: monotonic (a wall clock set back must not hold a launch); tests move a fake one forward */
+  gateNow: () => number = () => performance.now()
   /** how often the capacity watcher probes quarantined slots (tests) */
   quarantineProbeMs = QUARANTINE_PROBE_MS
   /** how long an answered turn waits for a slot after its card opened before it goes on anyway (tests) */
@@ -239,7 +241,7 @@ export class ChatRuntime {
   private placeTold = new Set<string>()
   private memoryCheckedAt = 0
   /** the start gate (launch below): dispatched turns whose engine launch waits, oldest first; when the last launches
-   * were (performance.now()); the timer that launches the next ones */
+   * were (gateNow()); the timer that launches the next ones */
   private startGate: TurnExec[] = []
   private recentLaunches: number[] = []
   private launchTimer: ReturnType<typeof setTimeout> | null = null
@@ -615,10 +617,10 @@ export class ChatRuntime {
     this.launchGated()
   }
   private launchGated() {
-    let now = performance.now()
+    let now = this.gateNow()
     while (this.startGate.length) {
-      // a monotonic clock (a wall clock set back must not hold a launch), read per launch: a launch's own work counts
-      now = performance.now()
+      // the clock is read per launch: a launch's own work counts
+      now = this.gateNow()
       while (this.recentLaunches.length && now - this.recentLaunches[0]! >= this.startSpreadMs) this.recentLaunches.shift()
       if (this.startSpreadMs > 0 && this.startBurst > 0 && this.recentLaunches.length >= this.startBurst) break
       const exec = this.startGate.shift()!
