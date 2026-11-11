@@ -3472,8 +3472,6 @@ export const es: Record<MessageKey, string> = {
   "teamLink.skipBody": "Las habilidades del equipo crecen cuando alguien más las usa con usted. ¿Invita ahora a una o dos personas?",
   "teamLink.joinSub": "Únase ahora mismo con este enlace. Funciona hasta el {date}.",
   "teamLink.joinSubSkill": "Al unirse podrá probar enseguida la habilidad '{skill}'.",
-  "teamLink.signedInBody": "Inició sesión como {name}. Este enlace es para alguien que se une al equipo. Para unirse, primero cierre la sesión.",
-  "teamLink.signOutJoin": "Cerrar sesión y unirse",
   "teamLink.problem.expired": "Este enlace de invitación venció. Pida uno nuevo a quien se lo envió.",
   "teamLink.problem.used_up": "Este enlace ya alcanzó su número de usos. Pida uno nuevo a quien se lo envió.",
   "teamLink.problem.revoked": "Este enlace de invitación ya no se usa. Pida uno nuevo a quien se lo envió.",

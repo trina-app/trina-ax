@@ -3472,8 +3472,6 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.skipBody": "一緒に使う人がいると、チームのスキルが育っていきます。今、1〜2人だけ招待してみませんか？",
   "teamLink.joinSub": "このリンクからすぐに参加できます。{date}まで有効です。",
   "teamLink.joinSubSkill": "参加するとすぐに「{skill}」スキルを試せます。",
-  "teamLink.signedInBody": "現在 {name} としてサインインしています。このリンクはチームに参加する人のためのものです。参加するには、先にサインアウトしてください。",
-  "teamLink.signOutJoin": "サインアウトして参加する",
   "teamLink.problem.expired": "この招待リンクは期限切れです。送ってくれた人に新しいリンクを頼んでください。",
   "teamLink.problem.used_up": "このリンクで参加できる人数に達しました。送ってくれた人に新しいリンクを頼んでください。",
   "teamLink.problem.revoked": "この招待リンクはもう使えません。送ってくれた人に新しいリンクを頼んでください。",

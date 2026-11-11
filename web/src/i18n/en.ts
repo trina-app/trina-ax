@@ -3516,8 +3516,6 @@ export const en: Record<MessageKey, string> = {
   "teamLink.skipBody": "Team skills grow when someone uses them with you. Invite one or two people now?",
   "teamLink.joinSub": "Join right away with this link. It works until {date}.",
   "teamLink.joinSubSkill": "After you join, you can try the '{skill}' skill right away.",
-  "teamLink.signedInBody": "You are signed in as {name}. This link is for someone who joins the team. To join, sign out first.",
-  "teamLink.signOutJoin": "Sign out and join",
   "teamLink.problem.expired": "This invite link has expired. Ask the person who sent it for a new link.",
   "teamLink.problem.used_up": "Everyone this link was for has joined already. Ask the person who sent it for a new link.",
   "teamLink.problem.revoked": "This invite link is no longer in use. Ask the person who sent it for a new link.",

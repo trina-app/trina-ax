@@ -3516,8 +3516,6 @@ export const id: Record<MessageKey, string> = {
   "teamLink.skipBody": "Skill tim berkembang saat ada orang yang memakainya bersama Anda. Undang satu atau dua orang sekarang?",
   "teamLink.joinSub": "Bergabung langsung lewat tautan ini. Berlaku sampai {date}.",
   "teamLink.joinSubSkill": "Setelah bergabung, Anda bisa langsung mencoba skill '{skill}'.",
-  "teamLink.signedInBody": "Anda masuk sebagai {name}. Tautan ini untuk orang yang akan bergabung ke tim. Untuk bergabung, keluar dulu.",
-  "teamLink.signOutJoin": "Keluar dan bergabung",
   "teamLink.problem.expired": "Tautan undangan ini sudah kedaluwarsa. Minta tautan baru ke orang yang mengirimnya.",
   "teamLink.problem.used_up": "Kuota tautan ini sudah habis. Minta tautan baru ke orang yang mengirimnya.",
   "teamLink.problem.revoked": "Tautan undangan ini tidak dipakai lagi. Minta tautan baru ke orang yang mengirimnya.",
