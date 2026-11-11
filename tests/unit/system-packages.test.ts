@@ -7,7 +7,8 @@ import { describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { flatFile, flatLines, groupsFor, linuxList, listProblems, packagesFor, readList, REQUIRED_PLATFORMS, type PackageList } from '../../scripts/system/packages'
+import { flatFile, flatLines, groupsFor, linuxList, listProblems, packagesFor, pythonRequirements, pythonsFor, readList, REQUIRED_PLATFORMS, type PackageList } from '../../scripts/system/packages'
+import { cmpVersion, markerTrue, wheelFits } from '../../scripts/system/python-lock'
 import { LINUX_ROOT_SCRIPTS, linuxBundleFiles } from '../../scripts/build-bundle'
 import { bundleManifest } from '../../scripts/build-office'
 import { rootManaged } from '../../scripts/release/publish-server'
@@ -75,6 +76,13 @@ describe('the list (scripts/system/packages.json)', () => {
       ['a profile name', (l) => { l.groups.minimal = { install: 'default', for: 'x', packages: { jq: '' } } }, /group minimal: bad name/],
       ['an artifact nobody has', (l) => { l.groups.browser!.artifacts = ['chromium-snap'] }, /no artifact chromium-snap/],
       ['a TAB', (l) => { l.groups.core!.for = 'a\tb' }, /a TAB or line break/],
+      // Python programs: exact pins with their sha256, the program's own pin, the interpreter in the same group
+      ['a range', (l) => { l.python!['workspace-mcp']!.requirements['fastmcp>=4'] = 'a'.repeat(64) }, /fastmcp>=4: a requirement is "name==version"/],
+      ['no wheel hash', (l) => { l.python!['workspace-mcp']!.requirements['fastmcp==4.1.4'] = '' }, /fastmcp==4.1.4: the sha256 of its wheels/],
+      ['python version moved', (l) => { l.python!['workspace-mcp']!.version = '9.9.9' }, /do not pin workspace-mcp==9.9.9 itself/],
+      ['no venv module', (l) => { delete l.groups['google-apps']!.packages!['python3-venv'] }, /needs the package python3-venv in the group/],
+      ['a program nobody has', (l) => { l.groups['google-apps']!.python = ['nosuch'] }, /no python program nosuch/],
+      ['a python floor', (l) => { l.python!['workspace-mcp']!.python = '3.11' }, /python must be ">=3.N"/],
     ]
     for (const [name, change, want] of cases) {
       const l = clone()
@@ -85,7 +93,10 @@ describe('the list (scripts/system/packages.json)', () => {
 
   test('the always groups are what every install needs; the image and the dev environment groups are on request', () => {
     expect(groupsFor(LIST, ['minimal'])).toEqual(['core', 'documents', 'media'])
-    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'devenv', 'browser'])
+    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'devenv', 'browser', 'google-apps'])
+    // Gmail, Calendar, Docs and Sheets (the Google Workspace library): every default install, never --minimal
+    expect(pythonsFor(LIST, ['default'])).toEqual(['workspace-mcp'])
+    expect(pythonsFor(LIST, ['minimal'])).toEqual([])
     for (const g of ['image', 'srt', 'boxes']) expect(LIST.groups[g]!.install).toBe('on-request')
     expect(LIST.groups.browser!.artifacts).toEqual(['chrome-headless-shell'])
     expect(LIST.groups.srt!.artifacts).toEqual(['node', 'srt'])
@@ -116,7 +127,7 @@ describe('packages.sh reads the list', () => {
 
   test('the same groups and packages for every system, profile and group', () => {
     const bun = ['--bun', process.execPath]
-    const sets = [['minimal'], ['default'], ['image'], ['srt'], ['boxes'], ['core', 'media', 'fonts', 'devenv']]
+    const sets = [['minimal'], ['default'], ['image'], ['srt'], ['boxes'], ['core', 'media', 'fonts', 'devenv'], ['google-apps'], ['minimal', 'docker', 'google-apps']]
     // one shell reads the list once and prints every case (a bun start per case is slow)
     const lines: string[] = [], want: string[] = []
     for (const names of sets) {
@@ -475,6 +486,127 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     expect(s).toMatch(/if pk_browser_switch "\$BROWSER_DIR"/)
   })
 
+  test('python programs: the readers, the requirements pip gets, the pin', () => {
+    const r = lib('pk_load; pk_pythons default; pk_pythons minimal; pk_py workspace-mcp version; pk_py workspace-mcp python; pk_py workspace-mcp program; pk_py nosuch version || echo none', { PK_BUN: process.execPath })
+    expect(r.err).toBe('')
+    const y = LIST.python!['workspace-mcp']!
+    expect(r.out.trim().split('\n')).toEqual(['workspace-mcp', y.version, y.python.slice(2), y.program, 'none'])
+    const req = lib('pk_load; pk_python_requirements workspace-mcp', { PK_BUN: process.execPath })
+    expect(req.err).toBe('')
+    expect(req.out).toBe(pythonRequirements(LIST, 'workspace-mcp'))
+    // every line an exact pin with at least one sha256; the program's own wheel among them
+    for (const l of req.out.trim().split('\n')) expect(l).toMatch(/^[a-z0-9-]+==[0-9][0-9A-Za-z.!+]* --hash=sha256:[0-9a-f]{64}( --hash=sha256:[0-9a-f]{64})*$/)
+    expect(req.out).toContain(`workspace-mcp==${y.version} --hash=sha256:`)
+    // a name in the list that is not a pin stops it (no option reaches pip)
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-py-'))
+    const l = clone(); l.python!['workspace-mcp']!.requirements = { '--index-url=http://evil/x==1': 'a'.repeat(64) }
+    fs.writeFileSync(path.join(d, 'l.json'), JSON.stringify(l))
+    const bad = lib(`pk_load "${d}/l.json"; pk_python_requirements workspace-mcp >/dev/null || echo refused`, { PK_BUN: process.execPath })
+    expect(bad.out.trim()).toBe('refused')
+    expect(bad.err).toContain('not a pinned requirement')
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  // a fake python3: -c answers the version check (too old while <d>/old exists); -m venv DIR makes a venv whose python
+  // stands for pip: it records its arguments and the requirements it got, and puts a program that starts (unless
+  // <d>/broken exists; it fails while <d>/pip-fails exists)
+  function fakePython() {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-venv-'))
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    fs.writeFileSync(path.join(d, 'pip.sh'), [
+      '#!/bin/bash', `R="${d}"`, 'v=$(cd "$(dirname "$0")/.." && pwd)',
+      'printf \'%s\\n\' "$*" >> "$R/pip-calls"', '[ ! -e "$R/pip-fails" ] || exit 1',
+      'while [ $# -gt 0 ]; do [ "$1" = -r ] && cp "$2" "$v/got-requirements"; shift; done',
+      'printf \'#!/bin/sh\\n[ ! -e "%s/broken" ]\\n\' "$R" > "$v/bin/workspace-mcp"; chmod 755 "$v/bin/workspace-mcp"', '',
+    ].join('\n'))
+    fs.writeFileSync(path.join(bin, 'python3'), [
+      '#!/bin/bash', `R="${d}"`,
+      'if [ "$1" = -c ]; then case "$2" in *version_info*) [ ! -e "$R/old" ] ;; *) echo 3.9.0 ;; esac; exit; fi',
+      '[ "$1 $2" = "-m venv" ] || exit 2',
+      'mkdir -p "$3/bin" && cp "$R/pip.sh" "$3/bin/python" && chmod 755 "$3/bin/python"', '',
+    ].join('\n'), { mode: 0o755 })
+    const dest = path.join(d, 'python', 'workspace-mcp')
+    const calls = () => fs.existsSync(path.join(d, 'pip-calls')) ? fs.readFileSync(path.join(d, 'pip-calls'), 'utf8').trim().split('\n') : []
+    return { d, dest, calls, env: { PK_BUN: process.execPath, PATH: `${bin}:${PATH}` } }
+  }
+  const reqSha = (l: PackageList) => new Bun.CryptoHasher('sha256').update(pythonRequirements(l, 'workspace-mcp')).digest('hex')
+  const pyKey = (l: PackageList) => `${l.python!['workspace-mcp']!.version}-${reqSha(l).slice(0, 12)}`
+  const withWheel = (name: string, h: string) => { const l = clone(); l.python!['workspace-mcp']!.requirements[name] = h.repeat(64); return l }
+
+  test('python programs: a venv in its pinned folder, pip with only the list\'s wheels, current -> it once it starts', () => {
+    const p = fakePython()
+    const key = pyKey(LIST)
+    let r = lib(`umask 077; pk_load; pk_python_install "${p.dest}" workspace-mcp`, p.env)
+    expect(r.err).toBe('')
+    expect(r.out.trim()).toBe(path.join(p.dest, 'current', 'bin', 'workspace-mcp'))
+    expect(fs.readlinkSync(path.join(p.dest, 'current'))).toBe(key)
+    expect(fs.readFileSync(path.join(p.dest, key, 'got-requirements'), 'utf8')).toBe(pythonRequirements(LIST, 'workspace-mcp'))
+    expect(fs.readFileSync(path.join(p.dest, key, '.sha256'), 'utf8').trim()).toBe(reqSha(LIST))
+    // readable by the server's account whatever the umask
+    for (const x of [p.dest, path.join(p.dest, key), path.join(p.dest, key, 'bin')]) expect((fs.statSync(x).mode & 0o755).toString(8)).toBe('755')
+    expect(p.calls().length).toBe(1)
+    const args = p.calls()[0]!.split(' ')
+    expect(args.slice(0, 4)).toEqual(['-I', '-m', 'pip', 'install'])
+    for (const a of ['--isolated', '--no-cache-dir', '--require-hashes', '--only-binary=:all:', '--no-deps', '--index-url=https://pypi.org/simple', '-r']) expect(args).toContain(a)
+    // again: it is there, no pip
+    r = lib(`pk_load; pk_python_install "${p.dest}" workspace-mcp`, p.env)
+    expect(r.code).toBe(0)
+    expect(p.calls().length).toBe(1)
+    // an unfinished folder (no .sha256: stopped mid-way) is built again
+    fs.rmSync(path.join(p.dest, key, '.sha256'))
+    expect(lib(`pk_load; pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env).code).toBe(0)
+    expect(p.calls().length).toBe(2)
+    // a new pin (another wheel): a new folder, current moves, the one before stays until the next switch
+    const l2 = withWheel('extra-wheel==1.0', 'b'), l3 = withWheel('extra-wheel==2.0', 'c')
+    fs.writeFileSync(path.join(p.d, 'l2.json'), JSON.stringify(l2))
+    fs.writeFileSync(path.join(p.d, 'l3.json'), JSON.stringify(l3))
+    expect(lib(`pk_load "${p.d}/l2.json"; pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env).code).toBe(0)
+    expect(fs.readlinkSync(path.join(p.dest, 'current'))).toBe(pyKey(l2))
+    expect(fs.readFileSync(path.join(p.dest, '.previous'), 'utf8').trim()).toBe(key)
+    const names = () => fs.readdirSync(p.dest).filter((n) => n !== '.lock').sort()
+    expect(names()).toEqual(['.previous', 'current', key, pyKey(l2)].sort())
+    expect(lib(`pk_load "${p.d}/l3.json"; pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env).code).toBe(0)
+    expect(names()).toEqual(['.previous', 'current', pyKey(l2), pyKey(l3)].sort())
+    fs.rmSync(p.d, { recursive: true, force: true })
+   }, 120_000)
+
+  test('python programs: pip fails, the program does not start, Python is too old: nothing new, current stays', () => {
+    const p = fakePython()
+    expect(lib(`pk_load; pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env).code).toBe(0)
+    const key = pyKey(LIST), l2 = withWheel('extra-wheel==1.0', 'b')
+    fs.writeFileSync(path.join(p.d, 'l2.json'), JSON.stringify(l2))
+    const cases: [string, string][] = [['pip-fails', 'pip install failed'], ['broken', 'does not start here'], ['old', 'needs Python 3.11 or later; this system has 3.9.0']]
+    for (const [flag, err] of cases) {
+      fs.writeFileSync(path.join(p.d, flag), '')
+      const r = lib(`pk_load "${p.d}/l2.json"; pk_python_install "${p.dest}" workspace-mcp || echo failed`, p.env)
+      expect(`${flag}: ${r.out.trim()}`).toBe(`${flag}: failed`)
+      expect(r.err).toContain(err)
+      expect(fs.readlinkSync(path.join(p.dest, 'current'))).toBe(key)
+      expect(fs.existsSync(path.join(p.dest, pyKey(l2)))).toBe(false)
+      fs.rmSync(path.join(p.d, flag))
+    }
+    fs.rmSync(p.d, { recursive: true, force: true })
+   }, 120_000)
+
+  test('python-lock.ts reads markers, wheel tags and versions as pip does', () => {
+    const env = { python_full_version: '3.11.2', python_version: '3.11', sys_platform: 'linux', platform_system: 'Linux', platform_machine: 'x86_64', platform_python_implementation: 'CPython', implementation_name: 'cpython', os_name: 'posix', extra: '' }
+    expect(markerTrue("python_full_version < '3.11'", env)).toBe(false)
+    expect(markerTrue("python_full_version == '3.11.*' or (python_full_version == '3.12.*' and sys_platform != 'emscripten')", env)).toBe(true)
+    expect(markerTrue("sys_platform == 'win32'", env)).toBe(false)
+    expect(markerTrue("platform_machine != 'ppc64le' and platform_machine != 's390x'", env)).toBe(true)
+    expect(markerTrue("extra == 'dev'", env)).toBe(false)
+    expect(wheelFits('cffi-2.0.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl', '3.11.2', 'x86_64', 36)).toBe(true)
+    expect(wheelFits('cffi-2.0.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl', '3.12.3', 'x86_64', 39)).toBe(false)
+    expect(wheelFits('cryptography-50.0.0-cp311-abi3-manylinux_2_34_aarch64.whl', '3.13.5', 'aarch64', 41)).toBe(true)
+    expect(wheelFits('cryptography-50.0.0-cp311-abi3-manylinux_2_38_aarch64.whl', '3.11.2', 'aarch64', 36)).toBe(false)
+    expect(wheelFits('x-1.0-cp313-cp313t-manylinux_2_17_x86_64.whl', '3.13.5', 'x86_64', 41)).toBe(false)
+    expect(wheelFits('x-1.0-cp313-cp313-musllinux_1_2_x86_64.whl', '3.13.5', 'x86_64', 41)).toBe(false)
+    expect(wheelFits('x-1.0-py3-none-any.whl', '3.11.2', 'aarch64', 36)).toBe(true)
+    expect(cmpVersion('2026.1.post1', '2026.1')).toBe(1)
+    expect(cmpVersion('4.1.4', '4.1.2')).toBe(1)
+    expect(cmpVersion('1.0rc1', '1.0')).toBe(-1)
+  })
+
   test('sync (mycel-ctl update) needs an id and a base', () => {
     expect(sh(['sync']).code).toBe(2)
     expect(sh(['sync', '--id', 'Bad Id', '--base', '/x']).code).toBe(2)
@@ -623,6 +755,10 @@ describe('every install path reads the list', () => {
     expect(d).toContain('groups="minimal docker"; \\')
     expect(d).toContain('case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here')
     expect(d).toContain('pk_browser_install /opt/trina/chrome-headless-shell "linux-$(pk_arch)"')
+    // the Google Workspace library is in the default image (when the kit's list has its group)
+    expect(d).toContain('if pk_groups google-apps >/dev/null 2>&1; then groups="$groups google-apps"; fi')
+    expect(d).toContain('for p in $(pk_pythons $groups); do pk_python_install "/opt/trina/python/$p" "$p" >/dev/null; done')
+    expect(pythonsFor(LIST, ['minimal', 'docker', 'google-apps'])).toEqual(['workspace-mcp'])
     expect(read('docker/entrypoint.sh')).toContain('--skip-apt --no-auto-update --minimal')
     // by default no browser group: what the always and docker groups install has no browser library of its own
     expect(groupsFor(LIST, ['minimal', 'docker'])).not.toContain('browser')
@@ -688,6 +824,9 @@ describe('every install path reads the list', () => {
     expect(inst).toContain('LIST_OK=0 PROFILE=default DISTRO=""\n[ "$MINIMAL" = 0 ] || PROFILE=minimal')
     expect(inst).toContain('pk_packages "$DISTRO" "$ARCH" "$PROFILE"')
     expect(inst).toContain('pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell')
+    expect(inst).toContain('for PY in $(pk_pythons "$PROFILE"); do')
+    expect(inst).toContain('if PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY"); then')
+    expect(read('scripts/system/packages.sh')).toContain('if path=$(pk_python_install "$PK_OPT/python/$p" "$p"); then')
     // install-srt.sh (the image with --srt, and a server that turns the dev environment on) installs default groups only
     const srtGroups = /^PKG_GROUPS="([^"]*)"$/m.exec(read('scripts/dev-env/srt/install-srt.sh'))![1]!.split(' ')
     for (const g of srtGroups) expect(groupsFor(LIST, ['default'])).toContain(g)

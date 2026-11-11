@@ -228,7 +228,7 @@ describe('route registry', () => {
     const offContract = new Set([
       'GET *', 'GET /api/ws',
       // External OAuth/MCP protocols are tested through their raw contracts, not our app JSON API.
-      'GET /api/integrations/google-drive/callback', 'GET /api/integrations/oauth/callback',
+      'GET /api/integrations/google-drive/callback', 'GET /api/integrations/google-apps/callback', 'GET /api/integrations/oauth/callback',
       // Sign in with Slack's return (tests/unit/c-slack.test.ts; matrix: SLACK_RAW_COVERED)
       'GET /api/integrations/slack/oauth/callback',
       'GET /.well-known/oauth-protected-resource', 'GET /.well-known/oauth-protected-resource/mcp',

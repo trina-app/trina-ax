@@ -52,6 +52,7 @@ import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
 import { projectMembersTool } from './project-members'
 import { readRooms } from './read-rooms'
+import { WEB_ACCESS_CHANGED } from '../admin/settings'
 
 export interface Tool {
   name: string
@@ -100,6 +101,8 @@ export interface ChatToolSet extends TurnToolSet {
   readsOnly(name: string, input: unknown): boolean
   /** ...and that may go without the room card after a room read (the service's own mark, not api_request's method) */
   readsFree(name: string, input: unknown): boolean
+  /** in a team chat room's session: one of the asker's own Google apps' tools (the only connection tools a room gets) */
+  roomConnection?(name: string): boolean
 }
 
 /** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
@@ -129,6 +132,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const tools = new Map<string, Tool>()
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   const templateWrites = new Set<string>()
+  /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
+  const roomConnections = new Set<string>()
   const add = (t: Tool): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
@@ -139,7 +144,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
     // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
-    if (exec.room && !ROOM_TOOLS.has(t.name)) return false
+    if (exec.room && !ROOM_TOOLS.has(t.name) && !roomConnections.has(t.name)) return false
     // a shared project chat (chat/shared.ts): the same allowlist without the room's own tools
     if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
@@ -205,12 +210,15 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
-  // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
-  for (const p of confidential || exec.restricted || exec.room || exec.shared ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
+  // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS) but the asker's own Google apps (owner decision 10:
+  // what they find goes through the room's private answer, rooms/ai.ts decide), so "Connected services" lists only those
+  const providers = exec.rt.ctx.services.turnToolProviders ?? []
+  for (const p of confidential || exec.restricted || exec.shared ? [] : exec.room ? providers.filter((x) => x.name === 'integrations') : providers) {
     let built: ReturnType<typeof p.build>
-    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
+    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule', room: !!exec.room }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
+      if (exec.room) roomConnections.add(t.name)
       if (!add(wrapRegistered(exec, t))) continue
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
@@ -231,6 +239,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     connection: (name) => connections.has(name),
     readsOnly: (name, input) => readsOnly(name, input),
     readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),
+    roomConnection: (name) => !!exec.room && roomConnections.has(name) && connections.has(name),
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args, caller) {
@@ -428,6 +437,9 @@ export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec'
 const roomShort = (refusalText: string) => { const e = endOfText(refusalText); return e === 'failed' ? 'the check failed' : cardEndShort(e) }
 const sharedShort = (refusalText: string) => { const e = endOfText(refusalText); return e === 'declined' ? 'not shared by the user' : e === 'failed' ? 'the check failed' : cardEndShort(e) }
 
+/** The apps a person asks from and watches the answer in (session clients, shared ClientKind) */
+const LIVE_CLIENTS: ReadonlySet<string> = new Set(['web', 'desktop', 'mobile'])
+
 /** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */
 export function turnPerson(exec: TurnExec): TurnPerson {
   // the value picked (one of the card's own answers, never free text), or null with why there was none
@@ -456,6 +468,11 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
     // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
     unattended: exec.spec.clientKind === 'schedule' || exec.restricted,
+    // "Allow all websites" (tools/url-gate.ts ①d), the switch of this turn's own person: asked from their app with the
+    // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
+    // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
+    allSitesHere: () => LIVE_CLIENTS.has(exec.spec.clientKind ?? '') && !exec.restricted,
+    webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }
@@ -895,9 +912,11 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {}) as Record<string, unknown>
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
+      let allSites = false
       const gate = async (href: string): Promise<string | null> => {
         try {
-          await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
+          // an address "Allow all websites" opened is named in the audit line (plan §3)
+          if (await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId }) === 'all') allSites = true
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
@@ -957,7 +976,7 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       if (!r.ok) content.push({ type: 'text', text: `Error: ${r.error ?? 'browser tool failed'}` })
       exec.patchToolStep(name, (s) => (shared.length ? { images: [...(s.images ?? []), ...shared] } : {}))
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
-      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}` }
+      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${allSites ? ' (all websites allowed)' : ''}` }
     },
   }
 }

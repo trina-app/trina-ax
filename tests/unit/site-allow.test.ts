@@ -297,7 +297,8 @@ describe('sub-agents of the answer share the chat\'s sites', () => {
       { say: 'done' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId, 20_000)
     const req = card.data.request as { requestId: string; options?: { value: string }[] }
-    expect(req.options!.map((o) => o.value)).toEqual(['allow', 'site', 'deny'])
+    // a real turn in the person's own chat also offers "Allow all websites" (tests/unit/web-allow-all.test.ts)
+    expect(req.options!.map((o) => o.value)).toEqual(['allow', 'site', 'all_sites', 'deny'])
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer: 'site' } })
     await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
     expect(alice.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === r.turnId)).toHaveLength(1)

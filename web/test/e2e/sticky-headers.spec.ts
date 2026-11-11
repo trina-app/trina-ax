@@ -36,19 +36,20 @@ async function staysPut(header: Locator, line = true) {
 }
 
 for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
-  test(`MCP keeps its title row at the top in Admin and in Settings (${name})`, async ({ page }) => {
+  test(`Connectors keeps its title row at the top in Admin and on its own page (${name})`, async ({ page }) => {
     await page.setViewportSize(size)
     await start(page)
-    for (const path of ['/admin/connectors', '/settings/connectors']) {
+    for (const path of ['/admin/connectors', '/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
-      // the same noun in Admin and in Settings; Discover is on the page under the connections
-      await expect(header.getByRole('heading', { name: /^(연결한 서비스|Connected apps)$/ })).toBeVisible()
+      // the same noun in Admin and on its own page (a phone's top bar says it there); the cards are under it
+      await expect(header.getByRole('heading', { name: /^(연결한 서비스|Connected apps)$/ })).toBeAttached()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
-      await staysPut(header)
+      // Admin's title row gets its hairline once scrolled; the page's own full-width bar has its line all along
+      await staysPut(header, path.startsWith('/admin'))
       await expect(header.getByTestId('connector-search')).toBeInViewport()
-      // it looks transparent: filled with exactly the surface it sits on (the Settings panel, or the page)
-      const surface = path.startsWith('/settings') ? page.getByRole('dialog', { name: t['settings.title'] }) : page.locator('body')
+      // it looks transparent: filled with exactly the surface it sits on (the page)
+      const surface = page.locator('body')
       expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await surface.evaluate((el) => getComputedStyle(el).backgroundColor))
       // a control that gets focus near the top scrolls into view below the row, not under it
       const first = page.getByTestId('connector-add').first()
@@ -56,10 +57,6 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await expect(first).toBeFocused()
       await expect.poll(async () => (await first.boundingBox())!.y - ((await header.boundingBox())!.y + (await header.boundingBox())!.height)).toBeGreaterThanOrEqual(0)
     }
-    // Settings is a dialog: its top bar stays where it is; only the section beside the list scrolls. On a phone the bar
-    // names the section and the dialog's title is for screen readers only (SettingsDialog)
-    const dialog = page.getByRole('dialog', { name: t['settings.title'] })
-    await expect(name === 'phone' ? dialog.getByTestId('settings-section-title') : dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
   })
 }
 

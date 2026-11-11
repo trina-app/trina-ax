@@ -4,7 +4,8 @@
 // templates and requests, each with who may use it in a chip after its name (the whole team, groups, people). Admins
 // manage them all but use one in their own chats only when the rule includes them, so each row says so. Members'
 // personal connections are not listed (nobody but the owner can use those). Then Discover: Google Drive first (its page:
-// on or not, how many members use it, the one-time Google setup), then known MCP services; a card opens its page, whose
+// on or not, how many members use it, the one-time Google setup), Gmail, Google Calendar, Google Docs and Google Sheets
+// (each its own setup, GoogleAppAdmin.tsx; ?app=gmail opens one), then known MCP services; a card opens its page, whose
 // Connect adds it with one team key and whose ⌄ makes it a template. Nothing connected yet: Discover right under the
 // title. The search filters both sections. "Add" takes any MCP server or API by its address, either for the team with
 // one key or as a template each member connects with their own key (components/integrations/TemplatesView.tsx). Its ⌄
@@ -14,7 +15,7 @@
 import { Plus, Send } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { DriveAdminStatus, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
+import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppId, Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { APP_CONNECTORS, appConnectorLogo, type Connector } from '../../lib/connectors'
 import { canonicalService, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
@@ -25,6 +26,8 @@ import { Badge, EmptyState } from '../../components/ui'
 import { ConnectorDetail, ConnectorDiscover, ConnectorsHeader, discoverHits, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds } from '../../components/integrations/ConnectorsView'
 import { DriveAdminDetail, driveAdminLine, driveAdminOn, DriveSetupDialog } from '../../components/integrations/DriveConnector'
 import { DriveAdminSettings } from '../../components/integrations/DriveShares'
+import { GoogleAppAdminDetail, googleAppAdminLine, googleAppAdminOn, GoogleAppSetupDialog } from '../../components/integrations/GoogleAppAdmin'
+import { builtInLogo, builtInName, GOOGLE_APP_ORDER, isGoogleApp } from '../../lib/googleApps'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { RequestDialog, RequestRow, requestFormOf, shownRequests, useTeamRequests } from '../../components/integrations/RequestDialog'
 import { AudienceChip, IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
@@ -45,8 +48,12 @@ export default function AdminIntegrations() {
   // Google Drive on this server (an older server has no such address: Drive is then left out)
   const drive = useLoad(async () => { try { return await api.call(API.driveAdminStatus) } catch { return null as DriveAdminStatus | null } })
   const [driveSetup, setDriveSetup] = useState(false)
-  // a connector's page, opened from Discover (or ?drive=1): it takes the place of the list until its way back
-  const [open, setOpen] = useState<{ kind: 'drive' } | { kind: 'mcp'; c: Connector } | null>(null)
+  // Gmail, Google Calendar, Google Docs and Google Sheets on this server (an older server has none): set up per card
+  const gapps = useLoad(async () => { try { return (await api.call(API.googleAppsAdminStatus)).apps } catch { return [] as GoogleAppAdminStatus[] } })
+  const [gappSetup, setGappSetup] = useState<GoogleAppId | null>(null)
+  const setGapp = (st: GoogleAppAdminStatus) => gapps.setData((a) => a?.map((x) => (x.id === st.id ? st : x)) ?? a)
+  // a connector's page, opened from Discover (or ?drive=1, ?app=gmail): it takes the place of the list until its way back
+  const [open, setOpen] = useState<{ kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'mcp'; c: Connector } | null>(null)
   const [params, setParams] = useSearchParams()
   const requests = useTeamRequests()
   const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
@@ -62,9 +69,11 @@ export default function AdminIntegrations() {
   const person = { id: me.user.id, groupIds: me.groups.map((g) => g.id) }
   const ids = useSectionIds()
   useEffect(() => {
-    if (params.get('drive') !== '1') return
-    setOpen({ kind: 'drive' })
-    setParams((p) => { p.delete('drive'); return p }, { replace: true })
+    const app = params.get('app')
+    if (params.get('drive') !== '1' && !app) return
+    if (app && isGoogleApp(app)) setOpen({ kind: 'gapp', id: app })
+    else if (params.get('drive') === '1') setOpen({ kind: 'drive' })
+    setParams((p) => { p.delete('drive'); p.delete('app'); return p }, { replace: true })
   }, [params, setParams])
   const DRIVE = APP_CONNECTORS[0]
   // back from a connector's page: where it was opened from
@@ -99,6 +108,8 @@ export default function AdminIntegrations() {
               <DriveAdminSettings status={d} onStatus={(st) => drive.setData(st)} />
             </DriveAdminDetail>
           )
+          const gs = open?.kind === 'gapp' ? gapps.data?.find((x) => x.id === open.id) : undefined
+          if (gs) return <GoogleAppAdminDetail status={gs} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} onBack={back} />
           if (open?.kind === 'mcp') {
             const c = open.c
             const have = [...list, ...tpls].find((i) => canonicalService(i.url) === canonicalService(c.url))
@@ -116,7 +127,13 @@ export default function AdminIntegrations() {
             )
           }
           // a Google client alone is "Ready to set up", not on: on is members connecting their own, or a share
-          const driveCard = d ? [{ id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: d.configured && !driveAdminOn(d) ? t('driveAdmin.ready') : driveAdminLine(t, d), state: driveAdminOn(d) ? 'added' as const : 'available' as const }] : []
+          const driveCard = [
+            ...(d ? [{ id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: d.configured && !driveAdminOn(d) ? t('driveAdmin.ready') : driveAdminLine(t, d), state: driveAdminOn(d) ? 'added' as const : 'available' as const }] : []),
+            ...GOOGLE_APP_ORDER.flatMap((id) => {
+              const g = gapps.data?.find((x) => x.id === id)
+              return g ? [{ id, name: builtInName(id), logo: builtInLogo(id), line: googleAppAdminLine(t, g), state: googleAppAdminOn(g) ? 'added' as const : 'available' as const }] : []
+            }),
+          ]
           const reqs = shownRequests(requests.list)
           const q = query.trim().toLocaleLowerCase()
           const shown = [...list].filter((i) => matchesQuery(i, query)).sort((a, b) => a.name.localeCompare(b.name))
@@ -162,7 +179,17 @@ export default function AdminIntegrations() {
               )}
               <ConnectorDiscover titleId={ids.discover} className={rows > 0 ? 'mt-6 border-t border-line pt-6' : undefined} connected={[...list, ...tpls]} query={query}
                 onAdd={(c) => setDialog({ connector: c, toList: true })} onCustom={() => setDialog({ toList: true })}
-                builtIns={driveCard} onOpenBuiltIn={() => setOpen({ kind: 'drive' })} onAddBuiltIn={() => { setOpen({ kind: 'drive' }); if (d?.canSetUp && !d.configured) setDriveSetup(true) }}
+                builtIns={driveCard}
+                onOpenBuiltIn={(id) => setOpen(isGoogleApp(id) ? { kind: 'gapp', id } : { kind: 'drive' })}
+                onAddBuiltIn={(id) => {
+                  if (isGoogleApp(id)) {
+                    setOpen({ kind: 'gapp', id })
+                    const g = gapps.data?.find((x) => x.id === id)
+                    if (g?.canSetUp && !g.configured) setGappSetup(id)
+                    return
+                  }
+                  setOpen({ kind: 'drive' }); if (d?.canSetUp && !d.configured) setDriveSetup(true)
+                }}
                 onOpen={(c) => setOpen({ kind: 'mcp', c })} />
             </>
           )
@@ -178,6 +205,9 @@ export default function AdminIntegrations() {
       )}
       {driveSetup && drive.data && (
         <DriveSetupDialog status={drive.data} onClose={() => setDriveSetup(false)} onSaved={(st) => { drive.setData(st); setDriveSetup(false) }} />
+      )}
+      {gappSetup && gapps.data?.find((x) => x.id === gappSetup) && (
+        <GoogleAppSetupDialog status={gapps.data.find((x) => x.id === gappSetup)!} onClose={() => setGappSetup(null)} onSaved={(st) => { setGapp(st); setGappSetup(null) }} />
       )}
       {dialog && (
         <IntegrationDialog

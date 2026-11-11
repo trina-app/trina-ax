@@ -80,7 +80,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, CHAT_FILES_FOLDER, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, CHAT_FILES_FOLDER, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
 import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
 import { Sealer } from '../../../server/src/credentials/seal'
@@ -94,6 +94,8 @@ import { editPreview, rulesHash } from '../../../server/src/admin/access-edit'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
+import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
+import type { GoogleAppId } from '@mycel/shared/api'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
@@ -219,6 +221,8 @@ const PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'profile_
 const MY_PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'my_profile_changed', message: '' } } as const
 /** like server/src/admin/settings.ts BROWSER_POLICY_CHANGED */
 const BROWSER_POLICY_CHANGED = { type: 'notice', data: { level: 'info', code: 'browser_policy_changed', message: '' } } as const
+/** like server/src/admin/settings.ts WEB_ACCESS_CHANGED (to one person's windows) */
+const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code: 'web_access_changed', message: '' } } as const
 /** like server/src/admin/team-icon.ts TEAM_ICON_CHANGED */
 const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const
 
@@ -241,6 +245,10 @@ export class MockServer {
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
   users: User[] = []
+  /** people whose "Allow all websites" for the AI's web reads is on (PUT /api/me/web-access; server/src/tools/web-allow-all.ts) */
+  webAccess = new Set<string>()
+  /** the team lets members turn it on: both team keys, like the server */
+  webTeam() { return this.settings.browserAllowAll && this.settings.webAllowAll }
   passwords = new Map<string, string>()
   /** last password reset by an admin, per user id (Me.passwordReset) */
   resets = new Map<string, NonNullable<Me['passwordReset']>>()
@@ -401,6 +409,8 @@ export class MockServer {
    * and never go back out (only `hasSecret`). */
   integrations: MockIntegration[] = []
   plugins = new MockPlugins()
+  /** Gmail, Google Calendar, Google Docs, Google Sheets (test/mock/googleApps.ts): nothing set up until a test does */
+  googleApps = new MockGoogleApps()
   /** after-update to-dos an admin dismissed (server/src/system/after-update.ts) */
   afterDismissed: string[] = []
   integrationSecrets = new Map<string, string>()
@@ -556,6 +566,7 @@ export class MockServer {
     this.credLogins.clear()
     this.integrations = []
     this.plugins.reset()
+    this.googleApps.reset()
     this.afterDismissed = []
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
@@ -1104,9 +1115,9 @@ export class MockServer {
     const choose = this.canChoose(u)
     if (!choose) { delete prefs.engine; delete prefs.model }
     return {
-      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)) },
+      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose, ...((st) => (st ? { statusMessage: st } : {}))(this.myStatus(u.id)), ...(this.webTeam() && this.webAccess.has(u.id) ? { webAllowAll: true as const } : {}) },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, ...(this.webTeam() ? { webAllowAll: true as const } : {}), iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, projectCreators: this.settings.projectCreators, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -1853,6 +1864,16 @@ export class MockServer {
     },
     // Settings > Usage: made-up numbers for whoever is signed in (the real server reads only the caller's own turns,
     // tests/unit/a-my-usage.test.ts); the owner has a monthly limit of their own and a group's daily one
+    // like server/src/routes/auth.ts PUT /api/me/web-access: on needs the team and the current risk sentence's version
+    setMyWebAccess: (c) => {
+      if (c.body.on) {
+        if (!this.webTeam()) fail('conflict', 409, 'The team does not allow this.', undefined, { reason: 'web_allow_all_off' })
+        if (c.body.acceptWarning !== WEB_ALLOW_ALL_WARNING_VERSION) fail('conflict', 409, 'Accept the warning first.', undefined, { reason: 'web_allow_all_warning' })
+        this.webAccess.add(c.user.id)
+      } else this.webAccess.delete(c.user.id)
+      this.publish(WEB_ACCESS_CHANGED)
+      return { allowAll: this.webAccess.has(c.user.id) }
+    },
     myUsage: (c) => {
       const mine = c.user.id === 'olga'
       const end = new Date(Date.now() + 5 * 86400_000).toISOString()
@@ -3239,6 +3260,7 @@ export class MockServer {
     updateSettings: (c) => {
       const before = this.settings.defaultLocale
       const policyBefore = this.settings.browserAllowAll
+      const webBefore = this.webTeam()
       // like server/src/admin/settings.ts: a new speech provider starts "Turn video sound into text" from its default
       const providerChanged = c.body.speechProvider !== undefined && c.body.speechProvider !== this.speechNow()
       if (c.body.speechProvider !== undefined) this.speechChosen = true
@@ -3247,6 +3269,12 @@ export class MockServer {
       this.syncLocales()
       if (this.settings.defaultLocale !== before) this.publish(LOCALE_CHANGED)
       if (this.settings.browserAllowAll !== policyBefore) this.publish(BROWSER_POLICY_CHANGED)
+      // like the server: the team turning it off turns everyone's off, and they hear it
+      if (webBefore && !this.webTeam()) {
+        const had = [...this.webAccess]
+        this.webAccess.clear()
+        if (had.length) this.publish(WEB_ACCESS_CHANGED)
+      }
       return { ...this.settings, speechProvider: this.speechNow() }
     },
     // like server/src/admin/team-icon.ts: the same checks (shared/src/team-icon.ts) and words
@@ -3498,6 +3526,46 @@ export class MockServer {
       }
       this.driveClient = 'app'
       return this.driveAdminStatus()
+    },
+
+    // Gmail, Google Calendar, Google Docs, Google Sheets (shared/src/api/google-apps.ts; test/mock/googleApps.ts)
+    myGoogleApps: (c) => this.googleApps.list(c.user.id),
+    authorizeGoogleApp: (c) => {
+      const app = this.googleApps.app(c.params.app) ? c.params.app as GoogleAppId : fail('not_found', 404)
+      return this.googleApps.authorize(app, c.user.id, { name: c.user.name, email: `${c.user.username}@example.test` }) ?? fail('forbidden', 403, 'google_app_unavailable')
+    },
+    googleAppFlow: (c) => this.googleApps.poll(c.params.app as GoogleAppId, c.params.id!, c.user.id) ?? fail('not_found', 404, 'google_app_flow_not_found'),
+    completeGoogleAppFlow: (c) => this.googleApps.complete(c.params.app as GoogleAppId, c.params.id!, c.user.id) ?? fail('not_found', 404, 'google_app_flow_not_found'),
+    cancelGoogleAppFlow: (c) => { this.googleApps.cancel(c.params.id!); return undefined },
+    updateGoogleApp: (c) => {
+      const a = this.googleApps.app(c.params.app)
+      const conn = a?.conns.get(c.user.id) ?? fail('not_found', 404, 'google_app_not_connected')
+      conn.writePolicy = c.body.writePolicy
+      return this.googleApps.view(c.params.app as GoogleAppId, c.user.id)
+    },
+    disconnectGoogleApp: (c) => (this.googleApps.app(c.params.app) ? this.googleApps.disconnect(c.params.app as GoogleAppId, c.user.id) : fail('not_found', 404)),
+    googleAppsAdminStatus: () => ({ apps: GOOGLE_APP_LIST.map((id) => this.googleApps.adminStatus(id, this.driveClient !== 'none')) }),
+    setGoogleAppClient: (c) => {
+      const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
+      if (app.blocked) fail('forbidden', 403, 'google_app_blocked')
+      if (c.body.sameAsDrive) {
+        if (this.driveClient === 'none') fail('bad_request', 400, 'google_app_no_drive_app')
+        app.client = 'drive'
+      } else {
+        if (c.body.file !== undefined) {
+          let j: { web?: { redirect_uris?: unknown } } | null = null
+          try { j = JSON.parse(c.body.file) } catch { fail('bad_request', 400, 'google_client_invalid') }
+          if (!j?.web) fail('bad_request', 400, 'google_client_invalid')
+          if (!Array.isArray(j!.web!.redirect_uris) || !j!.web!.redirect_uris.includes('https://team.example.test/api/integrations/google-apps/callback')) fail('bad_request', 400, 'google_client_redirect')
+        }
+        app.client = 'app'
+      }
+      return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
+    },
+    setGoogleAppMembers: (c) => {
+      const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
+      app.members = c.body.on
+      return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
 
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
@@ -4386,6 +4454,8 @@ export class MockServer {
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/google-apps') this.googleApps.control(body)
+    else if (p === '/__test/drive-client') this.driveClient = body.on === false ? 'none' : 'app'
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null
@@ -5113,7 +5183,7 @@ const FAKE_MCP_TOOLS: IntegrationTool[] = [
 const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */

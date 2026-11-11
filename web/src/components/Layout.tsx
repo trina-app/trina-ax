@@ -5,6 +5,7 @@ import { ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
+import { useBackCloses } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
@@ -26,7 +27,7 @@ import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
-import { Spinner } from './ui'
+import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
 const FilePanel = lazy(() => import('./FilePanel'))
@@ -108,6 +109,11 @@ export default function Layout() {
   }, [location.pathname])
 
   useEffect(() => setDrawer(false), [location.pathname, setDrawer])
+  // phones: Android's Back closes the drawer, then a full-screen side panel (file preview, artifact, browser), and only
+  // then leaves the page (QA TC-141). A panel kept across a move (open in folder) holds a new entry on the new page
+  const phone = !useMediaQuery('(min-width: 768px)')
+  useBackCloses(drawer, () => setDrawer(false), phone)
+  useBackCloses(!!panel, closeSidePanel, phone, location.key)
   // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
   // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
   useEffect(() => setPanelExpanded(false), [location.key])

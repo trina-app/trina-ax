@@ -26,10 +26,14 @@ export const REQUIRED_PLATFORMS: Record<string, readonly string[]> = {
 }
 
 export interface PackageSpec { min?: string; on?: string[]; when?: (typeof WHENS)[number] }
-export interface Group { install: Install; for: string; packages?: Record<string, string | PackageSpec>; remove?: string[]; artifacts?: string[] }
+export interface Group { install: Install; for: string; packages?: Record<string, string | PackageSpec>; remove?: string[]; artifacts?: string[]; python?: string[] }
 /** revoked: versions that must not stay on a machine even when newer than the pin (a bad pin rolled back: packages.sh
  * switches back to version and removes them) */
 export interface Artifact { version: string; for: string; revoked?: string[]; platforms: Record<string, { url: string; sha256: string; size: number; dir?: string }> }
+/** a Python program in a venv of its own (packages.sh pk_python_install): its version, the Python it needs (">=3.N"),
+ * the program in the venv's bin/, and every wheel it installs as "name==version": "sha256 sha256 ..." (one sha256 per
+ * wheel a list system can use; scripts/system/python-lock.ts writes them from the project's uv.lock) */
+export interface PythonProgram { version: string; for: string; python: string; program: string; requirements: Record<string, string> }
 export interface PackageList {
   format: 1
   _about?: string[]
@@ -37,6 +41,7 @@ export interface PackageList {
   arches: string[]
   groups: Record<string, Group>
   artifacts: Record<string, Artifact>
+  python?: Record<string, PythonProgram>
 }
 
 export const readList = (file = LIST_FILE): PackageList => JSON.parse(fs.readFileSync(file, 'utf8')) as PackageList
@@ -44,6 +49,7 @@ export const readList = (file = LIST_FILE): PackageList => JSON.parse(fs.readFil
 const NAME = /^[a-z0-9][a-z0-9.+-]*$/
 const FLOOR = /^>=[0-9][0-9A-Za-z.+:~-]*$/
 const GROUP = /^[a-z][a-z0-9-]*$/
+const PY_VERSION = /^[0-9][0-9A-Za-z.!+]*$/
 const has = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 const extra = (o: object, allowed: string[]) => Object.keys(o).filter((k) => !allowed.includes(k))
 
@@ -53,7 +59,7 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
   if (!j || typeof j !== 'object' || Array.isArray(j)) return ['the list is not a JSON object']
   const l = j as PackageList
   if (l.format !== 1) p.push(`format is ${String(l.format)}, not 1`)
-  for (const k of extra(l, ['format', '_about', 'distros', 'arches', 'groups', 'artifacts'])) p.push(`unknown key ${k}`)
+  for (const k of extra(l, ['format', '_about', 'distros', 'arches', 'groups', 'artifacts', 'python'])) p.push(`unknown key ${k}`)
   // a TAB or a line break would break packages.sh's flat lines; a space would split a name
   const walk = (v: unknown, at: string): void => {
     if (typeof v === 'string') { if (/[\t\n\r]/.test(v)) p.push(`${at}: a TAB or line break`) }
@@ -75,15 +81,17 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
   const targets = new Set([...Object.keys(distros), ...Object.keys(distros).flatMap((d) => arches.map((a) => `${d}/${a}`))])
   const artifacts = l.artifacts && typeof l.artifacts === 'object' ? l.artifacts : {}
   const groups = l.groups && typeof l.groups === 'object' ? l.groups : {}
+  const pythons = l.python && typeof l.python === 'object' && !Array.isArray(l.python) ? l.python : {}
+  if (l.python !== undefined && pythons !== l.python) p.push('python must be an object')
   if (!Object.values(groups).some((g) => g?.install === 'always')) p.push('no group with install "always"')
   for (const [g, v] of Object.entries(groups)) {
     const at = `group ${g}`
     if (!GROUP.test(g) || (PROFILES as readonly string[]).includes(g)) p.push(`${at}: bad name (a-z, 0-9, -; not ${PROFILES.join(' or ')})`)
     if (!v || typeof v !== 'object') { p.push(`${at}: not an object`); continue }
-    for (const k of extra(v, ['install', 'for', 'packages', 'remove', 'artifacts'])) p.push(`${at}: unknown key ${k}`)
+    for (const k of extra(v, ['install', 'for', 'packages', 'remove', 'artifacts', 'python'])) p.push(`${at}: unknown key ${k}`)
     if (!INSTALLS.includes(v.install)) p.push(`${at}: install must be ${INSTALLS.join(', ')}`)
     if (typeof v.for !== 'string' || !v.for) p.push(`${at}: say what it is for ("for")`)
-    if (!v.packages && !v.artifacts) p.push(`${at}: no packages and no artifacts`)
+    if (!v.packages && !v.artifacts && !v.python) p.push(`${at}: no packages, no artifacts and no python`)
     for (const [n, s] of Object.entries(v.packages ?? {})) {
       if (!NAME.test(n)) p.push(`${at}: bad package name ${n}`)
       const spec: PackageSpec = typeof s === 'string' ? { min: s } : s
@@ -95,6 +103,12 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
     }
     for (const n of v.remove ?? []) if (!NAME.test(n)) p.push(`${at}: bad package to remove ${n}`)
     for (const a of v.artifacts ?? []) if (!has(artifacts, a)) p.push(`${at}: no artifact ${a}`)
+    if (v.python !== undefined && !Array.isArray(v.python)) p.push(`${at}: python must be a list of program names`)
+    for (const y of Array.isArray(v.python) ? v.python : []) {
+      if (!has(pythons, y)) p.push(`${at}: no python program ${y}`)
+      // a venv needs the interpreter and its venv module from apt, in the same group (a group alone must work)
+      else for (const need of ['python3', 'python3-venv']) if (!has(v.packages ?? {}, need)) p.push(`${at}: python program ${y} needs the package ${need} in the group`)
+    }
     // an always group installs on every system of the list
     if (v.install === 'always') {
       for (const t of Object.keys(distros).flatMap((d) => arches.map((a) => [d, a] as const))) {
@@ -129,6 +143,25 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
     }
   }
   for (const n of Object.keys(REQUIRED_PLATFORMS)) if (!has(artifacts, n)) p.push(`no artifact ${n}`)
+  for (const [n, y] of Object.entries(pythons)) {
+    const at = `python ${n}`
+    if (!GROUP.test(n)) p.push(`${at}: bad name`)
+    if (!y || typeof y !== 'object') { p.push(`${at}: not an object`); continue }
+    for (const k of extra(y, ['version', 'for', 'python', 'program', 'requirements'])) p.push(`${at}: unknown key ${k}`)
+    if (typeof y.version !== 'string' || !PY_VERSION.test(y.version)) p.push(`${at}: no version`)
+    if (typeof y.for !== 'string' || !y.for) p.push(`${at}: say what it is for ("for")`)
+    if (typeof y.python !== 'string' || !/^>=3\.[0-9]+$/.test(y.python)) p.push(`${at}: python must be ">=3.N" (the oldest Python it runs on)`)
+    if (typeof y.program !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(y.program)) p.push(`${at}: program must be a file name in the venv's bin/`)
+    const reqs = y.requirements && typeof y.requirements === 'object' && !Array.isArray(y.requirements) ? y.requirements : null
+    if (!reqs || !Object.keys(reqs).length) { p.push(`${at}: no requirements`); continue }
+    for (const [r, h] of Object.entries(reqs)) {
+      // exact pins only ("name==version"), and one or more sha256: pip --require-hashes refuses anything else anyway
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?==[0-9][0-9A-Za-z.!+]*$/.test(r)) p.push(`${at}: ${r}: a requirement is "name==version" (a normalized name)`)
+      if (typeof h !== 'string' || !/^[0-9a-f]{64}( [0-9a-f]{64})*$/.test(h)) p.push(`${at}: ${r}: the sha256 of its wheels, separated by one space`)
+    }
+    if (!has(reqs, `${n}==${y.version}`)) p.push(`${at}: the requirements do not pin ${n}==${y.version} itself (a version moved without its wheels?)`)
+    if (!Object.values(groups).some((g) => g?.python?.includes(n))) p.push(`${at}: no group installs it`)
+  }
   return p
 }
 
@@ -137,6 +170,21 @@ export function groupsFor(l: PackageList, names: string[]): string[] {
   return Object.entries(l.groups).filter(([g, v]) => names.includes(g)
     || (names.includes('minimal') && v.install === 'always')
     || (names.includes('default') && (v.install === 'always' || v.install === 'default'))).map(([g]) => g)
+}
+
+/** The Python programs of a profile or groups (packages.sh pk_pythons), each once, in list order. */
+export function pythonsFor(l: PackageList, names: string[]): string[] {
+  const out: string[] = []
+  for (const g of groupsFor(l, names)) for (const y of l.groups[g]!.python ?? []) if (!out.includes(y)) out.push(y)
+  return out
+}
+
+/** The requirements file pip installs a Python program from (packages.sh pk_python_requirements): one line per wheel,
+ * "name==version --hash=sha256:..." with every sha256 of the list. */
+export function pythonRequirements(l: PackageList, name: string): string {
+  const y = l.python?.[name]
+  if (!y) throw new Error(`no python program ${name}`)
+  return Object.entries(y.requirements).map(([r, h]) => `${r}${h.split(' ').map((x) => ` --hash=sha256:${x}`).join('')}\n`).join('')
 }
 
 /** The apt packages for a system (packages.sh pk_packages), each once, in list order. */
@@ -168,9 +216,12 @@ export function flatLines(l: PackageList): string {
     }
     for (const n of v.remove ?? []) t('R', g, n)
     for (const a of v.artifacts ?? []) t('GA', g, a)
+    for (const y of v.python ?? []) t('GY', g, y)
   }
   for (const [n, a] of Object.entries(l.artifacts)) for (const [p, x] of Object.entries(a.platforms)) t('F', n, p, a.version, x.url, x.sha256, x.size, x.dir)
   for (const [n, a] of Object.entries(l.artifacts)) for (const v of a.revoked ?? []) t('X', n, v)
+  for (const [n, y] of Object.entries(l.python ?? {})) t('Y', n, y.version, y.python.replace(/^>=/, ''), y.program)
+  for (const [n, y] of Object.entries(l.python ?? {})) for (const [r, h] of Object.entries(y.requirements)) t('W', n, r, h)
   return o.join('\n')
 }
 

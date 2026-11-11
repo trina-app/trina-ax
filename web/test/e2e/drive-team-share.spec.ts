@@ -85,8 +85,10 @@ test('a member sees the shared Drive with only its folders, and their own Connec
   await shareFinance(page)
   await page.context().clearCookies()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
-  await page.goto('/settings/connectors')
-  const shared = page.getByTestId('yours-drive').getByTestId('drive-team-share')
+  await page.goto('/connectors')
+  // on the list among the connected apps; its page says what is shared
+  await page.locator('[data-testid="connected-app"][data-id="google-drive"]').click()
+  const shared = page.getByTestId('drive-detail').getByTestId('drive-team-share')
   await expect(shared).toContainText('팀이 공유한 Drive: 회사 Drive')
   await expect(shared).toContainText('폴더: Finance')
   await expect(shared).not.toContainText('HR')
