@@ -8223,8 +8223,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `group` (tables are never rebuilt, so a later step can add such rooms without a new table); no code writes one, the
   contract's `RoomKind` does not list it, and `POST /api/rooms` takes `dm` only. Team rooms
   and the everyone room are made by the server only (`POST /api/rooms` opens DMs only).
-- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group (except the welcome team group:
-  "One room for the whole team") and the everyone room, and
+- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group and the everyone room, and
   sets their members from `group_members` and the active accounts. It runs at start, at the end of every
   `afterAccessChange` (group create, edit, delete, a person's role or groups), when a person's rooms are out of step on
   their `GET /api/rooms` (a new account from an invite or the team link), and once a minute. A disabled or deleted
@@ -17251,8 +17250,7 @@ what each one is for.
   one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
   touched (nothing runs it for them). No department folders.
 - **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
-  puts joiners in it; no team room since "One room for the whole team"), but the meeting notes and brand folders go
-  to `shared/회의록/` and `shared/브랜드/`
+  puts joiners in it; its team room), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
   (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
   회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
   folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
@@ -20723,20 +20721,3 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   the limit, the next person is asked again, team removal still finishes). The first fails on the code before this
   change (times out). On the overloaded Mac, where `person.spec.ts` failed on dev, it passed with this change.
 - Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
-
-## One room for the whole team — 팀 대화방은 하나 (fix/one-default-room, 2026-11-11, product owner)
-
-- **The welcome steps' team group gets no team room.** `setupWelcomeTeam` makes the team group (the team link and the
-  lead invite put joiners in it, so its room had the same people as the everyone room: two rooms for one team, a side
-  effect of "rooms follow groups", never a choice). The everyone room (`kind 'all'`) is the team's one room. The group
-  itself stays (the welcome steps, the team link and the handover read `teamGroup`).
-- How: `createGroupAs(…, { room: false })` writes the group's team room row archived, in the group's own transaction
-  (`noTeamRoom`, audited `room.archive` reason `team_group`), so the sync that runs at the end (`afterAccessChange`)
-  never makes a live one. `Rooms.sync()` also skips the group the welcome row records (`welcomeTeamGroupId`).
-- **A team from before:** at every sync, the recorded team group's live room is archived while it has no message
-  (event lines do not count). Archived = the existing mechanism: row kept, members removed, nobody can read it; never
-  deleted. A room somebody wrote in is left alone; messages are never removed, so this settles once. No migration.
-- Other groups still get their team rooms as before.
-- Tests: server unit `b-rooms-one-room` (a new team: only the everyone room, other groups keep rooms; an older team: an
-  empty room archived once, a written one kept).
-- Version impact: **patch** (one room fewer for new teams; no API or schema change).
