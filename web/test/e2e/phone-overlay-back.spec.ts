@@ -4,6 +4,7 @@
 // Back; closed with ✕ they leave no entry behind; a page opened from inside one takes its entry. A computer's dialog
 // adds no entry. Runs in WebKit too (the iPhone app's engine).
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
@@ -160,7 +161,7 @@ test('search from the drawer (TRINA-20): Back closes search and stays on Trina; 
   await page.getByTestId('tab-ai').click()
   await expect(page).toHaveURL(/\/$/)
   await page.getByTestId('menu-open').click()
-  await page.getByTestId('drawer-search').click()
+  await page.locator('[data-drawer]').getByTestId('drawer-search').click()
   const search = page.getByRole('dialog').filter({ has: page.getByRole('combobox') })
   await expect(search).toBeVisible()
   // the drawer gave search its place
@@ -179,7 +180,7 @@ test('a page opened from inside the drawer takes its entry: Back from it is Trin
   await signIn(page)
   const start = await historyLength(page)
   await page.getByTestId('menu-open').click()
-  await page.getByTestId('nav-skills').click()
+  await page.locator('[data-drawer]').getByTestId('nav-skills').click()
   await expect(page).toHaveURL(/\/skills$/)
   expect(await historyLength(page)).toBe(start + 1)
   await back(page)
@@ -208,6 +209,18 @@ test('the new-chat picker (CHATS-05): Back closes it and stays on Chats; the nex
   await expect(page).toHaveURL(/\/$/)
 })
 
+test('a chat\'s title ⌄ menu closes with Back and the chat stays', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const chat = (await (await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: {} })).json()) as { id: string }
+  await page.goto(`/c/${chat.id}`)
+  await page.getByTestId('chat-menu').click()
+  await expect(page.getByRole('menu')).toBeVisible()
+  await back(page)
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp(`/c/${chat.id}$`))
+})
+
 test('Files (FILES-12): Move and Version history close with Back and the folder stays', async ({ page }) => {
   await reset(page)
   await signIn(page)
@@ -215,7 +228,7 @@ test('Files (FILES-12): Move and Version history close with Back and the folder 
   const row = page.getByTestId('file-row').filter({ hasText: 'notes.txt' })
   await expect(row).toBeVisible()
   const url = page.url()
-  for (const item of ['이동', '버전 기록']) {
+  for (const item of ['옮기기', '버전 기록']) {
     await row.getByTestId('file-menu').click()
     await page.getByRole('menuitem', { name: new RegExp(`^${item}`) }).click()
     await expect(page.getByRole('dialog')).toBeVisible()
@@ -245,9 +258,10 @@ test('Admin (ADM-04): the invite sheet and Activity log\'s Filters close with Ba
   await back(page)
   await expect(kinds).toBeHidden()
   expect(page.url()).toBe(filtered)
-  // and Back again leaves the page in one press: no entry with the old address was left under it
+  // and Back again leaves the page in one press (to Admin's list, put under a page opened from outside it): no entry
+  // with the old address was left under it
   await back(page)
-  await expect(page).toHaveURL(/\/admin\/members$/)
+  await expect(page).toHaveURL(/\/admin$/)
 })
 
 test.describe('a computer', () => {

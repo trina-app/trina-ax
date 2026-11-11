@@ -39,8 +39,10 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await expect(page.getByTestId('topbar-new-dm')).toBeVisible()
   await expect(page.getByTestId('menu-open')).toHaveCount(0)
   await expect(page.getByTestId('rooms-ai')).toBeHidden()
+  // ⊕ asks for the people list with ?new=1, which opens it and leaves the address (Back closes it: lib/backCloses.ts)
   await page.getByTestId('topbar-new-dm').click()
-  await expect(page).toHaveURL(/\/rooms\?new=1$/)
+  await expect(page.getByRole('dialog', { name: t['rooms.newChat'] })).toBeVisible()
+  await expect(page).toHaveURL(/\/rooms$/)
   await page.getByRole('dialog', { name: t['rooms.newChat'] }).getByRole('button', { name: t['common.close'] }).click()
   await expect(page).toHaveURL(/\/rooms$/)
 
