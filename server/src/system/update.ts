@@ -29,6 +29,7 @@ import { readFileChunks, writeAtomic, zstdDecompress } from './streams'
 import { extractTar } from './tar'
 import { RELEASE_KEYS } from './release-keys'
 import { FeedRollout } from './rollout'
+import { DOWNLOAD_IDLE_MS, downloadDeadline, downloadTotalMs } from '../http/download-deadline'
 
 /** Ed25519 release public keys (base64, raw 32 bytes): system/release-keys.ts. */
 export const RELEASE_PUBLIC_KEYS: readonly string[] = RELEASE_KEYS
@@ -189,6 +190,9 @@ export interface UpdateManagerOptions {
   fetch?: typeof fetch
   /** how long one feed request may take (default 10 s); a host that drops packets must not hang the check */
   feedTimeoutMs?: number
+  /** tests: shorter bundle download deadlines (default http/download-deadline.ts: 120 s without data, 10 min + 250 KB/s) */
+  downloadIdleMs?: number
+  downloadTotalMs?: number
   /** the root-owned folder of the install (root/VERSION: the root files' version, releaseNeedsRoot); null in dev */
   rootDir?: string | null
 }
@@ -369,12 +373,21 @@ export class UpdateManager {
     const b = feed.bundles.find((x) => x.os === os && x.arch === arch)
     if (!b) throw new UpdateError(`release ${feed.version} has no bundle for ${os}-${arch}`)
     if (!b.url.startsWith('https://')) throw new UpdateError('bundle URL must be https')
-    const r = await (this.o.fetch ?? fetch)(b.url, { redirect: 'follow' })
-    if (!r.ok || !r.body) throw new UpdateError(`download: HTTP ${r.status}`)
+    // a connection that stops sending would hold the update job, and with it the system operations lock (backup,
+    // restore, export, update), until a restart: it throws DownloadStalled after DOWNLOAD_IDLE_MS without data or
+    // downloadTotalMs in all (writeAtomic removes the partial file)
+    const dl = downloadDeadline({ idleMs: this.o.downloadIdleMs ?? DOWNLOAD_IDLE_MS, totalMs: this.o.downloadTotalMs ?? downloadTotalMs(b.size) })
     const file = path.join(this.o.dataDir, 'updates', `${feed.version}.tar.zst`)
-    let n = 0
-    const body = r.body as unknown as AsyncIterable<Uint8Array>
-    const w = await writeAtomic((async function* () { for await (const c of body) { n += c.byteLength; if (n > b.size) throw new UpdateError('download larger than announced'); progress(n / b.size); yield c } })(), file)
+    let w: { size: number; sha256: string }
+    try {
+      const r = await (this.o.fetch ?? fetch)(b.url, { redirect: 'follow', signal: dl.signal })
+      if (!r.ok || !r.body) throw new UpdateError(`download: HTTP ${r.status}`)
+      let n = 0
+      const body = r.body as unknown as AsyncIterable<Uint8Array>
+      w = await writeAtomic((async function* () { for await (const c of body) { dl.tick(); n += c.byteLength; if (n > b.size) throw new UpdateError('download larger than announced'); progress(n / b.size); yield c } })(), file)
+    } catch (e) {
+      throw dl.stalled() ?? e
+    } finally { dl.done() }
     if (w.sha256 !== b.sha256) { await fsp.rm(file, { force: true }); throw new UpdateError('download does not match the release hash') }
     try { return await this.stage(file) } finally { await fsp.rm(file, { force: true }) }
   }
