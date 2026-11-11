@@ -7,7 +7,7 @@ import type { Access, FolderEditChange, FolderEditPreview } from '@mycel/shared/
 import { RuleSet, type Principal } from '../../../server/src/policy/access'
 import { editPreview } from '../../../server/src/admin/access-edit'
 import { draftOf, rulesOf, type Draft } from '../../src/lib/access-edit'
-import { aboveRows, askTitle, generalLevel, hasPanel, inProjects, kindOf, namesText, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk } from '../../src/lib/folder-sharing'
+import { aboveRows, askTitle, generalLevel, hasPanel, inProjects, kindOf, latentLines, namesText, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk } from '../../src/lib/folder-sharing'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
@@ -160,6 +160,41 @@ describe('when Save asks first (from the server\'s answer only)', () => {
     expect(ask.widen).toBe(false)
     expect(ask.narrow.map((w) => w.kind)).toEqual(['team-files'])
     expect(askTitle(en, shut, ask)).toBe('Take access away?')
+  })
+})
+
+describe('who gains later, in the confirm (QA TC-232)', () => {
+  const gina: Principal = { id: 'gina', name: 'Gina', role: 'member', groups: [] }
+  const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'gina', 'none')]
+  const latentOf = (next: { subjectType: string; subjectId: string | null; access: Access }[]) =>
+    editPreview({ rules: new RuleSet(rows), people, uncounted: [gina], groupName: (id) => id[0]!.toUpperCase() + id.slice(1), personName: (id) => id }, 'shared/x', next, { team: null }).latent
+  test('a change that only lets them view says "open", never "open or edit"', () => {
+    const lines = latentLines(en, 'en', latentOf([{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'group', subjectId: 'design', access: 'read' }]), 'Acme')
+    expect(lines).toEqual([
+      'Gina (switched off) will be able to open it when switched back on.',
+      'People added to Design later will be able to open it.',
+      'People who join Acme later will be able to open it.',
+    ])
+  })
+  test('a change that lets them edit says "open or edit"; an answer that does not say (an older server) too', () => {
+    const edit = latentOf([{ subjectType: 'group', subjectId: 'design', access: 'write' }])
+    expect(latentLines(en, 'en', edit, 'Acme')).toEqual(['People added to Design later will be able to open or edit it.'])
+    const view = latentOf([{ subjectType: 'group', subjectId: 'design', access: 'read' }])
+    expect(latentLines(en, 'en', view, 'Acme')).toEqual(['People added to Design later will be able to open it.'])
+    const { edit: _, ...older } = view!
+    expect(latentLines(en, 'en', older, 'Acme')).toEqual(['People added to Design later will be able to open or edit it.'])
+    expect(latentLines(en, 'en', null, 'Acme')).toEqual([])
+  })
+  test('Korean: no particle that depends on the name (no "이(가)", "은(는)", "(으)로" or "을(를)" after a name)', () => {
+    const lines = [
+      ...latentLines(ko, 'ko', latentOf([{ subjectType: 'everyone', subjectId: null, access: 'write' }]), 'Acme'),
+      ...latentLines(ko, 'ko', latentOf([{ subjectType: 'everyone', subjectId: null, access: 'read' }]), 'Acme'),
+      ...(['willOpen', 'willEdit', 'willLose', 'willViewOnly', 'willLoseSkills'] as const).map((k) => ko(`folderAccess.${k}`, { names: 'Dan' })),
+      ko('folderAccess.levelOf', { name: 'Dan' }), ko('folderAccess.backTo', { folder: 'Sales' }), ko('folderAccess.warnTeamFiles', { folder: 'Sales' }),
+    ]
+    expect(lines.length).toBeGreaterThan(8)
+    for (const l of lines) expect([l, /이\(가\)|은\(는\)|\(으\)로|을\(를\)|\(이\)|\(가\)/.test(l)]).toEqual([l, false])
+    expect(ko('folderAccess.willOpen', { names: 'Dan' })).toBe('Dan도 열 수 있게 돼요')
   })
 })
 

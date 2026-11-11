@@ -98,6 +98,19 @@ export function outcomeLines(t: T, locale: string, data: Pick<FolderEditPreview,
   return out
 }
 
+/** Who gains that no head count can see, by name, a line each (the confirm before Save): people switched off, whoever
+ * joins these groups, whoever joins the team. "Can open it" when they only get view, "open or edit" when one of them
+ * gets edit somewhere (QA TC-232), or when the answer does not say (an older server). */
+export function latentLines(t: T, locale: string, latent: FolderEditPreview['latent'], team: string): string[] {
+  if (!latent) return []
+  const edit = latent.edit ?? { team: true, off: true, groups: true }
+  const out: string[] = []
+  if (latent.off.length) out.push(t(edit.off ? 'folderAccess.latentOff' : 'folderAccess.latentOffView', { names: namesText(t, locale, latent.off.map((u) => u.name), latent.off.length) }))
+  if (latent.groups.length) out.push(t(edit.groups ? 'folderAccess.latentGroups' : 'folderAccess.latentGroupsView', { groups: namesText(t, locale, latent.groups.map((g) => g.name), latent.groups.length) }))
+  if (latent.team) out.push(t(edit.team ? 'folderAccess.latentTeam' : 'folderAccess.latentTeamView', { team }))
+  return out
+}
+
 /** What Save asks before saving, from the server's fresh answer for exactly the draft (nothing here guesses): more
  * access, counted (`changes`, here or in folders inside: exact for everyone in the team now) or not (`latentMore`: a
  * person switched off, whoever joins the team or a group the rules name), or everyone editing skills/; and the team's
