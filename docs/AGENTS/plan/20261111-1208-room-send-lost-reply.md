@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:08
 - Branch: `fix/room-send-lost-reply`
-- Status: in progress
+- Status: done
 - Where: `shared/src/api/rooms.ts`, `server/src/rooms/store.ts`, `web/src/store/rooms.ts`. Why: the team chat rooms are
   core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: one optional field on the author's own room messages, nothing new to see
@@ -58,4 +58,13 @@ is aborted, offline 10 s, online).
 
 ## Result
 
-(filled in at the end)
+Built as planned. `RoomMessage.clientMessageId` is sent only on the viewer's own user messages (`shownOut` in
+`server/src/rooms/store.ts`, so the POST answer, page reads, search hits and the per-person live event alike).
+`settledPending` (pure) plus one store subscription settle a pending send as soon as its message is in the timeline or a
+thread on screen; `post()` ignores a failure whose send is no longer pending. No change to the lines PR #365 edits: the
+branch merges with it cleanly and the rooms store tests pass on that merge too.
+
+Checked on a local dev server with the QA steps: the POST reaches the server and its answer is aborted, offline 10 s,
+online: the message shows once and no failed bubble at any time. With the live connection cut as well, the bubble shows
+failed while cut and goes when the reconnect brings the message. Offline before the send still shows failed with
+다시 시도 / 지우기, and 다시 시도 delivers it once.
