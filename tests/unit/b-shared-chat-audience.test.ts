@@ -110,6 +110,10 @@ describe('a read the card confirmed', () => {
     expect(await found('gina', 'Autumn')).not.toContain(chatId)
     // the question is everyone's to find
     expect(await found('gina', 'campaign-brief')).toContain(chatId)
+    // every word must be found through what the person sees: a word of the hidden answer does not count
+    expect(await found('bob', 'campaign-brief Autumn')).toContain(chatId)
+    expect(await found('gina', 'campaign-brief Autumn')).not.toContain(chatId)
+    expect(await found('gina', 'Autumn campaign-brief')).not.toContain(chatId)
     expect(await h.api('gina').call(API.messageSources, { params: { id: chatId, messageId: answerId } })).toEqual({ files: [], unavailable: 0 })
     const forBob = await h.api('bob').call(API.messageSources, { params: { id: chatId, messageId: answerId } })
     expect(forBob.unavailable + forBob.files.length).toBeGreaterThan(0)

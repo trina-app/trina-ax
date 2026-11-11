@@ -47,6 +47,11 @@ describe('chat list', () => {
     expect((await h.api('erin').call(API.listChats, { query: { q: 'kumquat' } })).items.map((c) => c.id)).toEqual([ids[1]])
     expect((await h.api('erin').call(API.listChats, { query: { q: 'ripen in' } })).items.map((c) => c.id)).toEqual([ids[1]])
     expect((await h.api('erin').call(API.listChats, { query: { q: '100%_' } })).items).toEqual([])
+    // every word, in any order: in one message, across the question and the answer, or the title and a message
+    for (const q of ['winter kumquats', 'harvest winter', 'kumquat chat', '  RIPEN   kumquat '])
+      expect((await h.api('erin').call(API.listChats, { query: { q } })).items.map((c) => c.id), q).toEqual([ids[1]])
+    expect((await h.api('erin').call(API.listChats, { query: { q: 'kumquat banana' } })).items).toEqual([])
+    expect((await h.api('erin').call(API.listChats, { query: { q: 'kumquat 3' } })).items).toEqual([])
     expect((await h.api('bob').call(API.listChats, { query: { q: 'kumquat' } })).items).toEqual([])
     erin.close()
   })
