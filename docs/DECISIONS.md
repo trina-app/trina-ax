@@ -22160,3 +22160,26 @@ can be unit tested.
 - The HWP preview offers 다시 시도 only when trying again can change the answer. A final server reason (`engine`,
   `isolation`, `unsupported`, `locked`, `distribution`, `damaged`, `limit`, `loss`) shows the download only. Transient
   reasons, `disabled` and `missing`, and failures without the server's answer keep the retry.
+
+## Phones: 44 px targets and 16 px fields (fix/phone-tap-16px, 2026-11-11, the owner, QA TC-189)
+
+Below 768 px every control takes taps from at least 44 × 44 px (Apple HIG 44 pt; Material 48 dp), and text fields show
+at least 16 px text, because iOS Safari zooms in on a smaller one.
+- This is done in the shared parts, not per screen: `Button`, `IconButton`, `MenuButton`, `CopyButton`, `Tabs`' tabs
+  and `inputCls` fields are 44 px; `Switch` takes taps from a 44 px box; the 16 px field rule in index.css matches
+  phone widths as well as touch screens.
+- This replaces "44 px buttons (`components/ui.tsx` `PhoneTargets`)" under "Admin and Settings on phones": the context
+  is gone, and every page now gets what the form pages had.
+- A control in a chip or a row whose height it must not change takes `compact`: it keeps its size and takes taps from
+  a 44 px box (`touch-hit`). A one-off control uses `touch-hit` where nothing is drawn over its box.
+- Computers and tablets (768 px and wider) keep their sizes.
+- `web/test/e2e/phone-targets.spec.ts` measures the main phone screens.
+
+## A PDF pinch keeps the place under the fingers (fix/pdf-pinch-anchor, 2026-11-11, QA TC-259)
+
+No new design: this is a fix inside the existing pinch (a live transform, then drawing again at the new width). While
+a pinch's live `scale(k)` is on the page column, positions are measured from its layout top (`layoutTop` in
+`lib/pdfPages.ts`), never from the scaled box, so the zoom keeps the place under the fingers. The live transform
+stays until the fingers lift. The double tap and the toolbar buttons are unchanged.
+
+Version impact: patch (a phone viewer fix; no API or data change).
