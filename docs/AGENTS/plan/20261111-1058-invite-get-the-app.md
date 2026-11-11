@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 10:58
 - Branch: `feat/invite-get-the-app`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`web/src/pages/Auth.tsx`, `web/src/lib/team-link.ts`, `server/src/routes/web-static.ts`,
   i18n, tests). Why: the join pages and the web app's HTML are core; the store addresses stay the edition's
   `APP_DOWNLOADS` (`editions/trina/branding/apps.json`), so a neutral build shows nothing new.
@@ -23,11 +23,14 @@ In:
 - Android (web browser): one primary "Get the app" button to `APP_DOWNLOADS.android`, else the download page
   (`APP_DOWNLOADS.page`: the APK is on updates.trina.app, linked from that page, never the .apk itself). The existing
   `intent://` "Open in the app" stays and gains `S.browser_fallback_url=<that page>`.
-- Under the button one line: "After installing, tap the invite link again." The form moves behind a text link
-  "Continue in the browser" on these phones; "Already joined? Sign in" stays.
+- Changed after the owner's answer (2026-11-11): the button is "Copy invite & get the app". On the person's tap it
+  copies this page's invite or team link, shows "Link copied", then opens the store. The line under it: "After
+  installing, paste the link in the app's first screen." (the first screen's box takes an invite link as it is). No
+  copying on load; the app never reads the clipboard by itself. The form moves behind a text link "Continue in the
+  browser" on these phones; "Already joined? Sign in" stays.
 - Five languages, English first.
 
-Out: deferred deep links (no clipboard, no fingerprinting), Google Play (when it is live: set `android` in
+Out: silent deferred deep links (no clipboard read by the app, no fingerprinting), Google Play (when it is live: set `android` in
 `editions/trina/branding/apps.json` and run `bun scripts/edition-apps.ts … --apply`; a TODO names it), iPad layout
 beyond what iOS detection already gives, desktop browsers (unchanged), our own apps' web views (never shown).
 
@@ -51,3 +54,11 @@ beyond what iOS detection already gives, desktop browsers (unchanged), our own a
 - Smart App Banners show only in Safari on iOS, not in a WKWebView, so our iPhone app never shows it; the server adds the meta only for an
   iPhone/iPad/iPod user agent (`Vary: User-Agent`), so computers get the same HTML as before.
 - No migration, no permission change.
+
+## Result
+
+- iPhone browser: Smart App Banner (`app-id=6829192435`, no `app-argument`) on `/invite/*` and `/join`; the button copies
+  the link and opens the App Store listing. Android browser: the button copies and opens ax.trina.app/download; "Open in
+  the app" keeps the intent with `S.browser_fallback_url` = that page. Computers and our apps: unchanged.
+- Tests: `web/test/unit/get-the-app.test.ts`, `tests/unit/app-links.test.ts` (banner), `web/test/e2e/get-the-app.spec.ts`
+  (390, iPhone and Android user agents, clipboard, Referer), `first-run.spec.ts` updated.

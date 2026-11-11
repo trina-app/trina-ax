@@ -4,18 +4,19 @@ import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { PRODUCT } from '@mycel/shared'
+import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { useMe, useSession } from '../store/session'
+import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin } from '../lib/team-link'
+import { getAppHref, joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin } from '../lib/team-link'
 import { platform } from '../lib/pwa'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { holdMadeBy } from '../lib/starter'
@@ -408,10 +409,10 @@ function SignInInstead() {
 }
 
 /** "앱에서 열기": the same join page in the desktop or phone app (its screen ④ asks first). Web browsers on the apps'
- * systems only. */
+ * systems only. On Android, without the app, Chrome opens the "Get the app" address instead. */
 function OpenInApp({ path }: { path: string }) {
   const t = useT()
-  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage })
+  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage, androidFallback: getAppHref('android', clientKind(), APP_DOWNLOADS) })
   if (!openInAppShown(clientKind(), href)) return null
   return (
     <p className="mt-2 text-center text-sm">
@@ -419,6 +420,57 @@ function OpenInApp({ path }: { path: string }) {
         {t('auth.openInApp')}
       </a>
     </p>
+  )
+}
+
+/**
+ * Both join pages (docs/DECISIONS.md "Get the app"). In a phone's web browser the link landed here because the app is
+ * not installed (with it, the link opens the app), so the page leads with one button that copies this invite or team
+ * link and goes to the App Store (or Android's download page), and says to paste the link on the app's first screen
+ * (its one box takes an invite link, a team link or an address). The copy happens only on that tap, never on load, and
+ * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
+ * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
+ */
+function JoinChoices({ path, children }: { path: string; children: ReactNode }) {
+  const t = useT()
+  const [web, setWeb] = useState(false)
+  const store = getAppHref(platform(), clientKind(), APP_DOWNLOADS)
+  if (!store || web)
+    return (
+      <>
+        {children}
+        <HaveAccount />
+        <OpenInApp path={path} />
+      </>
+    )
+  const copyAndGo = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault()
+    // this page's own link (the team link's token from memory: the address bar no longer has it), for the person's
+    // own paste in the app; the store address stays the fixed one, with nothing of it
+    const copied = await navigator.clipboard?.writeText(window.location.origin + path).then(() => true, () => false)
+    toast(copied ? { level: 'success', text: t('auth.linkCopied') } : { level: 'warn', text: t('auth.linkNotCopied') })
+    window.location.assign(store)
+  }
+  return (
+    <div data-testid="get-app">
+      <a
+        href={store}
+        rel="noreferrer noopener"
+        onClick={(e) => void copyAndGo(e)}
+        className="flex min-h-10 w-full items-center justify-center rounded-lg bg-accent px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover"
+        data-testid="get-app-store"
+      >
+        {t('auth.getApp')}
+      </a>
+      <p className="mt-2 text-center text-sm text-muted" data-testid="get-app-hint">{t('auth.getAppHint')}</p>
+      <OpenInApp path={path} />
+      <p className="mt-4 text-center text-sm">
+        <button type="button" className="text-accent-text underline" onClick={() => setWeb(true)} data-testid="get-app-web">
+          {t('auth.continueInBrowser')}
+        </button>
+      </p>
+      <HaveAccount />
+    </div>
   )
 }
 
@@ -505,9 +557,9 @@ export function AcceptInvite() {
     )
   return (
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
-      <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
-      <HaveAccount />
-      <OpenInApp path={`/invite/${token}`} />
+      <JoinChoices path={`/invite/${token}`}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      </JoinChoices>
     </AuthFrame>
   )
 }
@@ -567,9 +619,9 @@ export function TeamJoin() {
     )
   return (
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
-      <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
-      <HaveAccount />
-      <OpenInApp path={`/join#t=${link.token}`} />
+      <JoinChoices path={`/join#t=${link.token}`}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      </JoinChoices>
     </AuthFrame>
   )
 }

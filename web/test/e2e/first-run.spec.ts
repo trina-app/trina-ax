@@ -124,6 +124,8 @@ const UA = {
   iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
   linux: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
 }
+// without the app, Android's Chrome opens the download page (APP_DOWNLOADS; no token in it)
+const FALLBACK = `S.browser_fallback_url=${encodeURIComponent('https://ax.trina.app/download')};`
 test('"앱에서 열기": the desktop scheme on computers, an intent with our package on Android, none on iPhone or Linux', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
@@ -134,7 +136,8 @@ test('"앱에서 열기": the desktop scheme on computers, an intent with our pa
     const ctx = await browser.newContext({ locale: 'ko-KR', userAgent: ua })
     const p = await ctx.newPage()
     await p.goto(`/invite/${token}`)
-    await expect(p.getByTestId('join-form')).toBeVisible()
+    // phones lead with "Get the app" (get-the-app.spec.ts), the form behind "Continue in the browser"
+    await expect(p.getByTestId('join-form').or(p.getByTestId('get-app'))).toBeVisible()
     const origin = new URL(p.url()).origin
     const invite = encodeURIComponent(`${origin}/invite/${token}`)
     const open = p.getByTestId('open-in-app')
@@ -142,17 +145,17 @@ test('"앱에서 열기": the desktop scheme on computers, an intent with our pa
       await expect(open).toHaveText(ko('auth.openInApp'))
       expect(await open.getAttribute('href')).toBe(`trina-ax://open?url=${invite}`)
     } else if (system === 'android') {
-      expect(await open.getAttribute('href')).toBe(`intent://open?url=${invite}#Intent;scheme=trina-ax;package=app.trina.ax;end`)
+      expect(await open.getAttribute('href')).toBe(`intent://open?url=${invite}#Intent;scheme=trina-ax;package=app.trina.ax;${FALLBACK}end`)
     } else {
       await expect(open).toHaveCount(0)
     }
     await p.goto(linkUrl.pathname + linkUrl.hash)
-    await expect(p.getByTestId('join-form')).toBeVisible()
+    await expect(p.getByTestId('join-form').or(p.getByTestId('get-app'))).toBeVisible()
     // the page took the token out of the address bar; a link that carries it is only where our app receives it
     expect(new URL(p.url()).hash).toBe('')
     const join = encodeURIComponent(`${origin}/join${linkUrl.hash}`)
     const href = (await p.getByTestId('open-in-app').count()) ? await p.getByTestId('open-in-app').getAttribute('href') : null
-    expect({ system, href }).toEqual({ system, href: system === 'mac' || system === 'windows' ? `trina-ax://open?url=${join}` : system === 'android' ? `intent://open?url=${join}#Intent;scheme=trina-ax;package=app.trina.ax;end` : null })
+    expect({ system, href }).toEqual({ system, href: system === 'mac' || system === 'windows' ? `trina-ax://open?url=${join}` : system === 'android' ? `intent://open?url=${join}#Intent;scheme=trina-ax;package=app.trina.ax;${FALLBACK}end` : null })
     await ctx.close()
   }
 })

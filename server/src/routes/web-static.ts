@@ -2,7 +2,8 @@
 // the web client's mock server (web/test/mock) serves the build with exactly the same headers.
 import fs from 'node:fs'
 import path from 'node:path'
-import { PRODUCT, TEAM_ICON_PATH, type TeamIconFile } from '@mycel/shared'
+import { APP_DOWNLOADS, PRODUCT, TEAM_ICON_PATH, type TeamIconFile } from '@mycel/shared'
+import { joinPagePath, smartAppBanner } from '@mycel/shared/app-links'
 
 export const WEB_DEV_URL = 'http://localhost:19140'
 
@@ -341,8 +342,18 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   if (p.startsWith('/assets/') || p.startsWith('/vendor/') || p.startsWith('/icons/') || (hasExtension(p) && p !== '/index.html')) {
     return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-cache' } })
   }
+  const headers: Record<string, string> = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': appCsp(url.host) }
+  // an invite or team-link page opened on an iPhone: Apple's Smart App Banner ("Get" / "Open" for the phone app,
+  // docs/DECISIONS.md "Get the app"), with no app-argument, so no token. Safari on iOS shows it; a WKWebView (our own
+  // app) and computers never do, and computers get the page as before
+  if (joinPagePath(p)) {
+    headers.vary = 'User-Agent'
+    const banner = iosBrowser(req.headers.get('user-agent') ?? '') ? smartAppBanner(APP_DOWNLOADS.iphone) : null
+    if (banner) return new Response(fs.readFileSync(index, 'utf8').replace('</head>', `    ${banner}\n  </head>`), { headers })
+  }
   // the app shell as built: its icon links are the product's, also with a team logo set
-  return new Response(Bun.file(index), {
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': appCsp(url.host) },
-  })
+  return new Response(Bun.file(index), { headers })
 }
+
+/** An iPhone, iPad or iPod (an iPad in desktop mode says "Macintosh" and gets no banner, like a computer). */
+const iosBrowser = (ua: string) => /\b(iPhone|iPad|iPod)\b/.test(ua)
