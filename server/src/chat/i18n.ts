@@ -121,6 +121,7 @@ export const TEXT = {
   no: t('기억하지 않기', 'Don’t remember', 'Jangan ingat', "記憶しない", "No recordar"),
   remembered: STEP_TEXT.remembered,
   notRemembered: STEP_TEXT.notRemembered,
+  rememberAsking: STEP_TEXT.rememberAsking,
   forgot: STEP_TEXT.forgot,
   asked: STEP_TEXT.asked,
   notAnswered: STEP_TEXT.notAnswered,

@@ -24,6 +24,7 @@ import { authorize } from '../policy/authorize'
 import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
+import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
@@ -806,16 +807,29 @@ function bTools(exec: TurnExec): Tool[] {
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
         const value = clean.text
         let source: 'ai' | 'user' = 'ai'
+        // the step's final words: patched onto it once (patchToolStep), or, when its card already changed it, onto the
+        // same step again by its id
+        let settle = (p: Partial<StoredStep>) => exec.patchToolStep('remember', () => p)
         // this conversation has seen outside content, or has read rooms (chat/read-rooms.ts: a room read, kept for the
         // rest of the chat; a side chat; another person's message quoted): the person confirms before anything is
         // kept (tab 3)
         if (exec.tainted || readRooms(exec)) {
-          const answer = await exec.waitForPerson({
-            kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
-            options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
-          } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          // while the card waits, the step says so (not "remembered" yet). The step may not have started when the
+          // answer comes: then its one queued patch brings the final words.
+          let stepId: string | null = null, final: Partial<StoredStep> | null = null
+          exec.patchToolStep('remember', (st) => { stepId = st.id; return final ?? { label: tr('rememberAsking', L, { text: value }).slice(0, 500) } })
+          settle = (p) => { final = p; if (stepId) exec.updateStep(stepId, p) }
+          const notKept = (answered: boolean) => settle({ label: tr('notRemembered', L, { text: value }).slice(0, 500), ...(answered ? {} : { detail: tr('notAnswered', L) }) })
+          let answer: unknown
+          try {
+            answer = await exec.waitForPerson({
+              kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
+              options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
+            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          } catch (e) { notKept(false); throw e }
           if (answer !== 'yes' && !(Array.isArray(answer) && answer[0] === 'yes')) {
-            exec.patchToolStep('remember', () => ({ label: tr('notRemembered', L, { text: value }).slice(0, 500), detail: tr('notAnswered', L) }))
+            // "답하지 않음" only when the card ran out; a "no" is an answer
+            notKept(answer !== null && answer !== undefined)
             return { ...text('The user did not confirm, so nothing was remembered. Do not try again unless the user asks.'), summary: 'remember -> not confirmed' }
           }
           source = 'user'
@@ -825,7 +839,7 @@ function bTools(exec: TurnExec): Tool[] {
           .run(id, spec.userId, value, spec.chatId, source, spec.turnId, new Date().toISOString())
         const row = rt.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE id = ?').get(id) as { id: string; text: string; source_chat_id: string | null; created_at: string }
         rt.hub.publish(spec.userId, { type: 'memory.changed', data: { change: 'created', memory: rt.store.toMemory(row) } })
-        exec.patchToolStep('remember', () => ({ label: tr('remembered', L, { text: value }).slice(0, 500), detail: `memory:${id}` }))
+        settle({ label: tr('remembered', L, { text: value }).slice(0, 500), detail: `memory:${id}` })
         return { ...text(JSON.stringify({ id })), summary: `remember -> ${id} (${source})` }
       },
     },

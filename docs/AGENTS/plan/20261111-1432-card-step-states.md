@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:32
 - Branch: `fix/card-step-states`
-- Status: in progress
+- Status: done
 - Where: `server/src/chat/tools.ts`, `shared/src/step-labels.ts`, `web/src/components/chat/Steps.tsx`. Why: chat
   steps are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a display fix with no new behaviour
@@ -54,3 +54,10 @@ tests/unit/step-labels-*.test.ts`, `bun run test:web`.
 
 ## Result
 
+Built as planned. `remember` patches its step to "Asking whether to remember: …" before the card and settles the final
+words on the same step by id (or through the one queued patch when the step had not started). A "no" no longer gets
+the "not answered" detail; a stopped turn while the card waits says "not remembered". `unansweredStep` (shared) drives
+the new `unanswered` mark in `Steps.tsx`: a grey dashed circle, "답하지 않음" beside the line, and no row to open
+just for those words. Tests: `b-chat` (the step while waiting, after yes, after no; a question that ran out),
+`step-labels-tools`, `web/test/unit/steps-recovered.test.tsx`. The waiting-label check failed before the fix.
+`bun run test:web` 2366 pass.
