@@ -46,6 +46,11 @@ export const QUEUE_PER_USER = 3
 export const QUEUE_RETRY_AFTER_S = 30
 /** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
 export const MEMORY_RECHECK_MS = 2000
+/** at most START_BURST engines are launched (TurnExec.run) within START_SPREAD_MS; the rest of a burst launch that
+ * much later, in dispatch order (15 engines launched in one instant froze a 2-core server for 0.5-1.3 s; QA TC-277).
+ * Only the launch waits: the turn is claimed, holds its slot and counts as running from dispatch, as before. */
+export const START_BURST = 3
+export const START_SPREAD_MS = 200
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
@@ -207,6 +212,9 @@ export class ChatRuntime {
   private probedAt = 0
   /** a quarantined slot whose engine was never confirmed gone waits this long past the turn's wall deadline (tests) */
   quarantineReleaseGraceMs = QUARANTINE_RELEASE_GRACE_MS
+  /** at most startBurst engine launches within startSpreadMs (startSpreadMs or startBurst 0: launch at once; tests) */
+  startBurst = START_BURST
+  startSpreadMs = START_SPREAD_MS
   /** how often the capacity watcher probes quarantined slots (tests) */
   quarantineProbeMs = QUARANTINE_PROBE_MS
   /** how long an answered turn waits for a slot after its card opened before it goes on anyway (tests) */
@@ -230,6 +238,11 @@ export class ChatRuntime {
   /** turns whose chat was told they wait for a free place (Chat.waitingForPlace): told again when they go on */
   private placeTold = new Set<string>()
   private memoryCheckedAt = 0
+  /** the start gate (launch below): dispatched turns whose engine launch waits, oldest first; when the last launches
+   * were (performance.now()); the timer that launches the next ones */
+  private startGate: TurnExec[] = []
+  private recentLaunches: number[] = []
+  private launchTimer: ReturnType<typeof setTimeout> | null = null
   private capacityWatcher: ReturnType<typeof setInterval>
   /** a fixed --max-turns (tests); null: the team setting, read when each answer starts */
   private engineTurnsOverride: number | null
@@ -456,6 +469,7 @@ export class ChatRuntime {
    * a person or not, its engine may now be working (ending, or still running), so it holds a slot again until its end
    * is confirmed. That may go over the limit for a moment; nothing new starts until it is back under. */
   turnEngineEnding(exec: TurnExec) {
+    this.ungate(exec)
     if (this.running.get(exec.id) !== exec) return
     this.turnStopsWaiting(exec)
     this.parked.delete(exec.id)
@@ -576,7 +590,7 @@ export class ChatRuntime {
       }
       this.running.set(spec.turnId, exec)
       try { this.publishChat(spec.userId, spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after dispatch failed', { err, turn: spec.turnId }) }
-      exec.run().catch((err) => this.log.error('turn run failed', { err, turn: spec.turnId }))
+      this.launch(exec)
     }
     const held = this.queued.length > 0 && this.slotsInUse() < limit && this.slotsInUse() >= room
     if (held !== this.memoryHeld) {
@@ -591,6 +605,41 @@ export class ChatRuntime {
       this.dispatchRetry = true
       this.log.error('queue dispatch failed; trying again', { err })
     } finally { this.dispatching = false }
+  }
+
+  /** Launch a dispatched turn's engine (TurnExec.run) through the start gate: at most startBurst within startSpreadMs,
+   * first in first out. The turn already holds its slot (running), so queue order, limits and positions are what they
+   * were without the gate; only the engine starts up to a few hundred ms later in a burst. */
+  private launch(exec: TurnExec) {
+    this.startGate.push(exec)
+    this.launchGated()
+  }
+  private launchGated() {
+    const now = performance.now()
+    while (this.startGate.length) {
+      // a monotonic clock: a wall clock set back must not hold a launch
+      while (this.recentLaunches.length && now - this.recentLaunches[0]! >= this.startSpreadMs) this.recentLaunches.shift()
+      if (this.startSpreadMs > 0 && this.startBurst > 0 && this.recentLaunches.length >= this.startBurst) break
+      const exec = this.startGate.shift()!
+      this.recentLaunches.push(now)
+      this.runExec(exec)
+    }
+    if (this.startGate.length && !this.launchTimer) {
+      const wait = Math.max(1, Math.ceil(this.recentLaunches[0]! + this.startSpreadMs - now))
+      this.launchTimer = setTimeout(() => { this.launchTimer = null; this.launchGated() }, wait)
+    }
+  }
+  private runExec(exec: TurnExec) {
+    exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id }))
+  }
+  /** A turn stopped before its engine launched (Stop, shutdown, a budget stop): it leaves the gate and runs now, which
+   * only ends it (TurnExec.run skips the engine once stopReason is set), so its slot comes back at once. After the
+   * stop's own code (a microtask), never inside it. */
+  private ungate(exec: TurnExec) {
+    const i = this.startGate.indexOf(exec)
+    if (i < 0) return
+    this.startGate.splice(i, 1)
+    queueMicrotask(() => this.runExec(exec))
   }
 
   /** The dispatch of one queued turn threw (claim, the turn's start): that turn ends with an error, nothing else. */
@@ -1163,6 +1212,9 @@ export class ChatRuntime {
     if (this.recoveryRetry) clearTimeout(this.recoveryRetry)
     this.recoveryRetry = null
     this.recoveryAbort.abort()
+    // turns still in the start gate are stopped below and leave it then (ungate); nothing launches after this
+    if (this.launchTimer) clearTimeout(this.launchTimer)
+    this.launchTimer = null
     this.shutdownP = (async () => {
       const execs = [...this.running.values()]
       for (const e of execs) e.stop('shutdown')
