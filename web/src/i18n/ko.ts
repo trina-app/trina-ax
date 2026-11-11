@@ -2013,6 +2013,7 @@ export const ko = {
   'budgets.tokensUsed': '토큰 {used} / {limit}',
 
   'teamSettings.nameOwnerOnly': '팀 이름은 팀장만 바꿀 수 있어요.',
+  'teamSettings.ownerOnlyField': '팀장만 바꿀 수 있어요.',
   'teamSettings.defaultLocale': '팀 기본 언어',
   'teamSettings.defaultLocaleHint': '자기 언어를 고르지 않은 사람은 모두 이 언어로 봐요.',
   'teamSettings.browserAllowAll': '팀원이 "모든 웹사이트 허용"을 켤 수 있음',

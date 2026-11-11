@@ -116,10 +116,10 @@ export default function TeamSettingsPage() {
                   )}
                 </SettingsSection>
                 <SettingsSection title={t('teamSettings.section.data')} id="ts-data" testId="team-settings-data">
-                  <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} onChange={num('auditRetentionDays', 7, 3650)} />
-                  <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
-                  <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} onChange={num('trashRetentionDays', 1, 365)} />
-                  <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} onChange={num('chatTrashRetentionDays', 1, 365)} />
+                  <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} ownerOnly={!owner} onChange={num('auditRetentionDays', 7, 3650)} />
+                  <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} ownerOnly={!owner} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
+                  <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('trashRetentionDays', 1, 365)} />
+                  <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('chatTrashRetentionDays', 1, 365)} />
                 </SettingsSection>
                 <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
                   <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
@@ -175,14 +175,15 @@ export default function TeamSettingsPage() {
   )
 }
 
-/** A retention period: a small number field with "days" after it. */
-function DaysRow({ id, title, desc, value, min, max, onChange }: { id: string; title: string; desc: string; value: number; min: number; max: number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
+/** A retention period: a small number field with "days" after it. Only the owner changes one (the server refuses an
+ * admin: a shorter period makes the nightly sweep erase the audit log or old file versions); an admin sees it read-only. */
+function DaysRow({ id, title, desc, value, min, max, ownerOnly, onChange }: { id: string; title: string; desc: string; value: number; min: number; max: number; ownerOnly: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
   const t = useT()
   return (
-    <SettingRow id={id} title={title} desc={desc}
+    <SettingRow id={id} title={title} desc={ownerOnly ? `${desc} ${t('teamSettings.ownerOnlyField')}` : desc}
       control={
         <span className="inline-flex items-center gap-2">
-          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={min} max={max} value={value} onChange={onChange} />
+          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={min} max={max} value={value} disabled={ownerOnly} onChange={onChange} />
           <span className="text-sm text-muted">{t('teamSettings.days')}</span>
         </span>
       } />

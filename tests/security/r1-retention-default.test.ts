@@ -37,18 +37,18 @@ describe('version retention: one value for the admin screen and the sweep', () =
     expect(await versions(old)).toBe(0)
   })
 
-  test('a 10-day-old version survives when the admin keeps 30 days, and goes when they keep 9', async () => {
-    expect((await A.json('/api/admin/settings', { as: 'carol', ...jsonBody({ fileHistoryRetentionDays: 30 }, 'PATCH') })).status).toBe(200)
+  test('a 10-day-old version survives when the owner keeps 30 days, and goes when they keep 9', async () => {
+    expect((await A.json('/api/admin/settings', { as: 'dana', ...jsonBody({ fileHistoryRetentionDays: 30 }, 'PATCH') })).status).toBe(200)
     const p = await versionAged('ten-days.md', 10)
     componentC(A.ctx).sweep()
     expect(await versions(p)).toBe(1)
-    expect((await A.json('/api/admin/settings', { as: 'carol', ...jsonBody({ fileHistoryRetentionDays: 9 }, 'PATCH') })).status).toBe(200)
+    expect((await A.json('/api/admin/settings', { as: 'dana', ...jsonBody({ fileHistoryRetentionDays: 9 }, 'PATCH') })).status).toBe(200)
     componentC(A.ctx).sweep()
     expect(await versions(p)).toBe(0)
   })
 
-  test('trash purge dates follow the admin trash setting', async () => {
-    expect((await A.json('/api/admin/settings', { as: 'carol', ...jsonBody({ trashRetentionDays: 14 }, 'PATCH') })).status).toBe(200)
+  test('trash purge dates follow the trash setting (set by the owner)', async () => {
+    expect((await A.json('/api/admin/settings', { as: 'dana', ...jsonBody({ trashRetentionDays: 14 }, 'PATCH') })).status).toBe(200)
     expect((await A.json('/api/files/content', { as: 'alice', ...jsonBody({ path: 'shared/to-trash.md', content: 'x\n', baseSha256: null }, 'PUT') })).status).toBe(200)
     const del = await A.json('/api/files' + q({ path: 'shared/to-trash.md' }), { as: 'alice', method: 'DELETE' })
     expect(del.status).toBe(200)

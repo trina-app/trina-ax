@@ -86,7 +86,7 @@ import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
-import { normalizeWebsite, SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
+import { normalizeWebsite, OWNER_ONLY_SETTINGS, SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
 import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from '../../../server/src/admin/access-tree'
@@ -3258,6 +3258,8 @@ export class MockServer {
       return { ...this.speechKey, hosted: null }
     },
     updateSettings: (c) => {
+      // like server/src/routes/admin.ts: the team name, retention periods and update channel are the owner's
+      if (c.user.role !== 'owner' && (['teamName', ...OWNER_ONLY_SETTINGS] as const).some((k) => c.body[k] !== undefined && c.body[k] !== this.settings[k])) fail('forbidden', 403, 'Only the team owner can change this.')
       const before = this.settings.defaultLocale
       const policyBefore = this.settings.browserAllowAll
       const webBefore = this.webTeam()

@@ -458,6 +458,11 @@ export const BudgetBody = z.object({
   action: z.enum(['warn', 'block']),
 })
 export const UpdateSettingsBody = TeamSettings.partial()
+/** Team settings only the owner may change (an admin gets 403 with fields[body.<key>] = 'owner only'; the same value
+ * again is fine). The retention periods decide what the nightly sweep erases (the audit log, file history, both
+ * trashes), so an admin must not be able to shorten them; the update channel goes with them. The team name is the
+ * owner's too, with its own message (the relay address changes). */
+export const OWNER_ONLY_SETTINGS = ['updateChannel', 'auditRetentionDays', 'fileHistoryRetentionDays', 'trashRetentionDays', 'chatTrashRetentionDays'] as const satisfies readonly (keyof TeamSettings)[]
 /** PUT /api/admin/team-icon?type=image/png: the type the file is (PNG, JPEG or WebP; its first bytes must match). The
  * server refuses anything else in words (params.reason: type, mismatch, too_big, too_small, too_large). */
 export const TeamIconQuery = z.object({ type: z.string().min(1).max(100) })

@@ -20353,3 +20353,16 @@ that it is trying again, and the content back by itself.
   again, the file list back by itself, the banner's look; with `SHOTS_DIR`, Home and the rooms list at 1440 and 390,
   light and dark).
 - Version impact: **patch** (how existing failures look and behave, and a few words; no API or data change).
+
+## Retention and the update channel are owner-only — 보관 기간과 업데이트 채널은 팀장만 (fix/owner-only-retention-settings, 2026-11-11)
+
+An audit found that an admin could set the audit log to 7 days, file history and both trashes to 1 day, and the update
+channel to beta, after which the nightly sweep (`auth/sweeper.ts`, `admin/audit.ts`, `team-files/service.ts`) erased
+the audit trail and old file versions; the owner was left with one `settings.update` row. Team settings stay the
+admins' otherwise; these join the team name as the owner's own: `OWNER_ONLY_SETTINGS` in `shared/src/api/admin.ts`
+(`auditRetentionDays`, `fileHistoryRetentionDays`, `trashRetentionDays`, `chatTrashRetentionDays`, `updateChannel`).
+PATCH /api/admin/settings refuses an admin's change of any of them with 403 (`fields["body.<key>"] = "owner only"`) and
+saves nothing of that request; sending the value it already has is fine, so the contract does not change. Admin › Team
+settings shows an admin the four retention fields read-only with "Only the team owner can change this." The update
+channel has no field there (it is the installation's own). Periods an admin already shortened stay until the owner
+changes them.

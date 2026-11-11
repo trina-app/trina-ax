@@ -2014,6 +2014,7 @@ export const id: Record<MessageKey, string> = {
   'budgets.tokensUsed': 'Token {used} / {limit}',
 
   'teamSettings.nameOwnerOnly': 'Hanya owner yang bisa mengganti nama tim.',
+  'teamSettings.ownerOnlyField': 'Hanya owner tim yang bisa mengubah ini.',
   'teamSettings.defaultLocale': 'Bahasa bawaan tim',
   'teamSettings.defaultLocaleHint': 'Semua orang yang belum memilih bahasanya sendiri melihat bahasa ini.',
   'teamSettings.browserAllowAll': 'Anggota dapat mengaktifkan "Izinkan semua situs web"',

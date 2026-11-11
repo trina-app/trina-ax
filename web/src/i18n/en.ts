@@ -2014,6 +2014,7 @@ export const en: Record<MessageKey, string> = {
   'budgets.tokensUsed': 'Tokens {used} / {limit}',
 
   'teamSettings.nameOwnerOnly': 'Only the owner can change the team name.',
+  'teamSettings.ownerOnlyField': 'Only the team owner can change this.',
   'teamSettings.defaultLocale': 'Team default language',
   'teamSettings.defaultLocaleHint': 'Everyone who has not picked their own language sees this one.',
   'teamSettings.browserAllowAll': 'Members can turn on "Allow all websites"',
