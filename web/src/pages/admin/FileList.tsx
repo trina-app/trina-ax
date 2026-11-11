@@ -27,15 +27,15 @@ export default function FileListSettings() {
   const d = state.data
   return (
     <SettingsSection id="file-list" title={t('fileList.title')} desc={t('fileList.desc')} testId="file-list"
-      actions={d ? <Toggle d={d} onData={state.setData} /> : undefined}>
+      actions={d ? <FileListToggle d={d} onData={state.setData} /> : undefined}>
       <Loadable state={state} lines={2}>
-        {(data) => <Status d={data} onData={state.setData} />}
+        {(data) => <FileListStatusLines d={data} onData={state.setData} />}
       </Loadable>
     </SettingsSection>
   )
 }
 
-function Toggle({ d, onData }: { d: FileListStatus; onData: (d: FileListStatus) => void }) {
+export function FileListToggle({ d, onData }: { d: FileListStatus; onData: (d: FileListStatus) => void }) {
   const t = useT()
   const act = useAction()
   const [saving, setSaving] = useState(false)
@@ -58,7 +58,7 @@ function engineName(s: FileListSignIn): string {
   return s.model ? `ChatGPT (${s.model})` : 'ChatGPT'
 }
 
-function Status({ d, onData }: { d: FileListStatus; onData: (d: FileListStatus) => void }) {
+export function FileListStatusLines({ d, onData }: { d: FileListStatus; onData: (d: FileListStatus) => void }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
