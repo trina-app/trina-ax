@@ -439,7 +439,7 @@ export class TeamFiles {
   /** `skillMove`: skills/move.ts runMove, which checked write on both places and has the person's yes for exactly these
    * files (the AI's move_skill card or the Skills page): the AI's refusal for skill roots does not apply. `skillGrant`:
    * skill_files' grant for exactly this move (skills/guard.ts takeSkillAction), planned again right before the rename. */
-  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean; skillMove?: boolean; skillsOk?: boolean; skillGrant?: string } & By = {}): { entry: FileEntry } {
+  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean; skillMove?: boolean; skillsOk?: boolean; skillGrant?: string; askWiden?: boolean } & By = {}): { entry: FileEntry } {
     const user = this.principal(userId)
     const rules = this.rules()
     const { fr, target, isDir, managed, same } = this.moveChecks(user, rules, from, to, onExists)
@@ -464,6 +464,13 @@ export class TeamFiles {
       narrowed = this.lostViewers(rules, user.id, fr.segs, target)
       if (narrowed > 0 && !o.confirm) fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed })
     }
+    // the other way (QA TC-115): an item out of a personal folder to where more people can read it must be confirmed
+    // too, when the client asks (askWiden: the Files screen). The AI's own moves ask on their cards (tools/file-moves.ts)
+    let widened = 0
+    if (o.askWiden && fr.segs[0] === 'users' && !(target[0] === 'users' && target[1] === fr.segs[1])) {
+      widened = this.viewersAdded(rules, user.id, fr.segs, target)
+      if (widened > 0 && !o.confirm) fileError('conflict', 'audienceWidened', undefined, { reason: 'audience_widened', viewersAdded: widened })
+    }
     // a project's folder moved to projects/<name> from elsewhere: the project follows it, and the skills in its skills/
     // folder start to count in its chats (docs/DECISIONS.md "Project skills"). Said first, with their names (409
     // project_skills_on unless skillsOk), and each recorded as a skill change once moved
@@ -486,7 +493,7 @@ export class TeamFiles {
       // the old bytes of a changed file as a version, in the move's own transaction (after its history was moved, so at
       // the new path)
       const inTx = changed.length ? () => { for (const c of changed) saveVersion(this.ctx.db, this.root, [...target, ...c.segs].join('/'), c.old, { userId, turnId: o.turnId ?? null }) } : undefined
-      aside = this.relocate(userId, fr, target, isDir, { ...o, narrowed, ...(fresh ? { fresh } : {}), ...(inTx ? { inTx } : {}) })
+      aside = this.relocate(userId, fr, target, isDir, { ...o, narrowed, widened, ...(fresh ? { fresh } : {}), ...(inTx ? { inTx } : {}) })
     } catch (e) { if (fresh) fs.rmSync(fresh, { recursive: true, force: true }); throw e }
     // what was moved: the files the card showed go; anything else (written after the last check) goes to the trash
     if (aside && grant?.fresh) {
@@ -668,9 +675,10 @@ export class TeamFiles {
    * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
    * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
    */
-  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; fresh?: string; inTx?: () => void }): string | null {
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; widened?: number; fresh?: string; inTx?: () => void }): string | null {
     const toRel = target.join('/')
     const narrowed = o.narrowed ?? 0
+    const widened = o.widened ?? 0
     const db = this.ctx.db
     if (isDir && toRel.toLowerCase() !== fr.rel.toLowerCase()) {
       const clash = db.query('SELECT path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel, toRel) as { path: string } | null
@@ -729,7 +737,7 @@ export class TeamFiles {
           .run(toRel, fr.rel, fr.rel, fr.rel)
       }
       fileEvent(db, { turnId: o.turnId ?? null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: o.tool ?? 'file-screen' } })
-      fileEvent(db, { turnId: o.turnId ?? null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: o.tool ?? 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
+      fileEvent(db, { turnId: o.turnId ?? null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: o.tool ?? 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}), ...(widened ? { audienceWidened: widened } : {}) } })
       const toAbs = path.join(this.root, ...target)
       if (!o.fresh) fs.renameSync(fr.abs, toAbs)
       else {

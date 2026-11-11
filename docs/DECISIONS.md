@@ -20212,3 +20212,22 @@ overruled the review's MUST 1 and three of its SHOULDs:
   - `site-allow.test.ts`;
   - the permission matrix and `security-route-coverage.test.ts`;
   - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
+
+## Moving a file out of a personal folder asks first (fix/move-widen-warning, 2026-11-11, QA TC-115)
+
+- **Problem.** On the Files screen, moving a file from users/<me>/ into a project or other shared folder showed no
+  question, so a private file (a salary file in QA) became visible to more people at once. Moving the other way
+  (into users/<me>/) already asked ("Make it private?", `audience_narrowed`), and Share (copy) asked too.
+- **Rule.** `POST /api/files/move` with `askWiden: true`: an item moved out of a personal folder users/<x>/ to a place
+  outside it where more active people (the mover left out) can read it answers 409 conflict
+  `{reason: 'audience_widened', viewersAdded}` unless `confirm: true`. People are counted, never named. Once moved,
+  the file event's detail has `audienceWidened`. A move inside the same personal folder never asks.
+- **Opt-in.** Only the Files screen sends `askWiden` (single move, rename, drag and drop and the bulk move, which asks
+  once for the whole batch with the most people any one item adds). An older client that does not send it, and the
+  AI's file tools (their own cards ask: tools/file-moves.ts, skills/), move as before. One `confirm` covers both
+  directions: a move cannot narrow and widen at once.
+- **Not covered (question for the product owner).** Shared → shared moves that widen (a group folder into
+  Company-wide) still do not ask. Only the personal-folder case was asked for.
+- **Tests.** `tests/security/r1-managed-folder-move.test.ts` (409 with the count, nothing moved; same-folder rename
+  without a question; confirm moves and records it; no askWiden moves as before) and `web/test/unit/bulk-files.test.ts`
+  (askWiden sent, one question for the batch, "no" leaves them, no askWiden without confirmWiden).
