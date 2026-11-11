@@ -212,6 +212,14 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   await confirm(page).click()
   await expect(page.getByTestId('sharing-done')).toBeVisible()
   expect(await rules(page, 'marketing')).toEqual(['user:bob:read', 'user:carol:read'])
+  // its own save is not "someone else's change"
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('sharing-stale')).toHaveCount(0)
+  // the footer link can be brought into sight, not under the buttons
+  await page.getByTestId('sharing-open-admin').scrollIntoViewIfNeeded()
+  const link = (await page.getByTestId('sharing-open-admin').boundingBox())!
+  const bar = (await page.getByTestId('sharing-footer-slot').boundingBox())!
+  expect(link.y + link.height).toBeLessThanOrEqual(bar.y + 1)
 
   // remove Carol: only less access, saved without a question
   await sharingRow(page, 'user:carol').getByTestId('sharing-remove').click()

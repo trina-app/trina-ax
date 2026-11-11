@@ -7,10 +7,11 @@
 //     POST /api/admin/folders, which refuse users/, an empty shared/ or skills/, unknown or repeated subjects, more than
 //     200 rules, a save over another admin's change (409 rules_changed), a rule row made meanwhile (409
 //     folder_exists), and write the audit row.
-//  3. A change that gives more access asks first: the panel's decision (web/src/lib/folder-sharing.ts saveAsk,
-//     raisesAccess), fed with the real server's answers, asks for every widening, including the ones the server's head
-//     count misses (switched-off people, "everyone" when today every member is named by a group), and not for a change
-//     that only narrows. The confirm is the admin's second look, not a boundary: only admins can save at all (1).
+//  3. A change that gives more access asks first: the panel's decision (web/src/lib/folder-sharing.ts saveAsk), made
+//     only from the real server's answer for the draft, asks for the widenings the server's head count sees and for
+//     the ones it cannot count (the preview's `latentMore`: people switched off on the server, whoever joins the team
+//     or a group, "everyone" when today every member is named by a group), and not for a change that only narrows.
+//     The confirm is the admin's second look, not a boundary: only admins can save at all (1).
 // Fixture (the harness Admin's own editor tests use): olga = owner, adam = admin; alice, carl = Sales; bob; shared/
 // everyone writes (the default).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -18,7 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderEditPreview } from '@mycel/shared/api'
 import { draftOf, rulesOf, type Draft } from '../../web/src/lib/access-edit'
-import { raisesAccess, saveAsk } from '../../web/src/lib/folder-sharing'
+import { saveAsk } from '../../web/src/lib/folder-sharing'
 import { addMember, harness, withOwner, type Client, type Harness } from '../unit/a-lib'
 
 let h: Harness
@@ -40,7 +41,7 @@ beforeAll(async () => {
 }, 60_000)
 afterAll(() => h.close())
 const q = (p: string) => '?path=' + encodeURIComponent(p)
-type Row = { id: string; path: string; rulesHash: string; rules: { subjectType: string; subjectId: string | null; access: string }[] }
+type Row = { id: string; path: string; rulesHash: string; rules: { subjectType: string; subjectId: string | null; access: 'none' | 'read' | 'write' }[] }
 const folderRow = async (p: string) => ((await admin.call('GET', '/api/admin/folders')).items as Row[]).find((f) => f.path === p)
 const preview = async (p: string, rules: unknown[]) => (await admin.call('POST', '/api/admin/access/edit-preview', { path: p, rules })) as FolderEditPreview
 const every = (access: string) => ({ subjectType: 'everyone', subjectId: null, access })
@@ -128,20 +129,22 @@ describe('2. saving in place keeps every server check', () => {
 
 describe('3. a change that gives more access asks first', () => {
   /** what the panel would do with the server's answer for this draft of `p`: ask (widen / narrow) or save straight */
-  const decide = async (p: string, change: (d: Draft) => Draft, o: { off?: string[] } = {}) => {
+  const decide = async (p: string, change: (d: Draft) => Draft) => {
     const row = await folderRow(p)
-    const stored = draftOf(row?.rules ?? [], false).draft
-    const draft = change(stored)
-    const answer = await preview(p, rulesOf(draft, { root: false }))
-    const users = new Map(((await admin.call('GET', '/api/admin/users')).items as { id: string; username: string; status: string }[]).map((u) => [u.id, { status: o.off?.includes(u.username) ? 'disabled' as const : u.status as 'active' }]))
-    const groups = new Map(((await admin.call('GET', '/api/admin/groups')).items as { id: string; memberIds: string[] }[]).map((g) => [g.id, { memberIds: g.memberIds }]))
-    return saveAsk(answer, raisesAccess({ stored, draft, above: answer.everyoneAbove?.access ?? 'none', users, groups }))
+    const draft = change(draftOf(row?.rules ?? [], false).draft)
+    return saveAsk(await preview(p, rulesOf(draft, { root: false })))
   }
   const idOf = (username: string) => (h.ctx.db.query('SELECT id FROM users WHERE username = ?').get(username) as { id: string }).id
 
   test('adding someone who could not open it asks; changing nothing does not', async () => {
     expect((await decide('docs/team', (d) => ({ ...d, named: [...d.named, { subjectType: 'user', subjectId: idOf('bob'), access: 'read' }] })))?.widen).toBe(true)
     expect(await decide('docs/team', (d) => d)).toBeNull()
+  })
+
+  test('adding someone as "can view" who could already edit through a folder above: less, saved straight', async () => {
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'docs', 'team', 'inner'), { recursive: true })
+    // docs/team gives Alice her own "can view" and Sales (Alice, Carl) "can edit": Carl edits in inner by the folder above
+    expect(await decide('docs/team/inner', (d) => ({ ...d, named: [{ subjectType: 'user', subjectId: idOf('carl'), access: 'read' }] }))).toBeNull()
   })
 
   test('view → edit asks; edit → view (only narrowing) saves straight', async () => {
@@ -159,13 +162,40 @@ describe('3. a change that gives more access asks first', () => {
     expect((await decide('docs/all', (d) => ({ ...d, basic: 'write' })))?.widen).toBe(true)
   })
 
-  test('a switched-off person raised, or their row removed where everyone gets more, asks (they are not counted)', async () => {
-    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'docs', 'off'), { recursive: true })
-    await admin.call('POST', '/api/admin/folders', { path: 'docs/off', create: false, rules: [user(idOf('carl'), 'none'), every('read')] })
-    const carl = idOf('carl')
-    // carl is switched off in the panel's people list: no head count can see him
-    expect((await decide('docs/off', (d) => ({ ...d, named: d.named.filter((n) => n.subjectId !== carl) }), { off: ['carl'] }))?.widen).toBe(true)
-    expect((await decide('docs/off', (d) => ({ ...d, named: d.named.map((n) => (n.subjectId === carl ? { ...n, access: 'write' as const } : n)) }), { off: ['carl'] }))?.widen).toBe(true)
+  test('switched off on the server: a "No access" above lifted by "everyone can view" here, or their own row raised, asks', async () => {
+    const dave = await addMember(h, owner, { username: 'dave' })
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'docs', 'off', 'inner'), { recursive: true })
+    await admin.call('POST', '/api/admin/folders', { path: 'docs/off', create: false, rules: [user(dave.id, 'none'), user(idOf('carl'), 'write'), every('read')] })
+    await admin.call('PATCH', `/api/admin/users/${dave.id}`, { status: 'disabled' })
+    // case A: inner follows docs/off (dave: no access there); everyone can view inner now. Nobody counted gains, dave would
+    const a = await preview('docs/off/inner', [every('read')])
+    expect(a.more).toBe(0)
+    expect(a.latentMore).toBe(true)
+    expect((await decide('docs/off/inner', (d) => ({ ...d, basic: 'read' })))?.widen).toBe(true)
+    // his own "No access" row lifted (removed or raised)
+    expect((await decide('docs/off', (d) => ({ ...d, named: d.named.filter((n) => n.subjectId !== dave.id) })))?.widen).toBe(true)
+    expect((await decide('docs/off', (d) => ({ ...d, named: d.named.map((n) => (n.subjectId === dave.id ? { ...n, access: 'write' as const } : n)) })))?.widen).toBe(true)
+  })
+
+  test('an empty group: kept out above then everyone here (B), "same as above" where it can edit (C), its "can view" removed while everyone edits (D)', async () => {
+    const empty = (await admin.call('POST', '/api/admin/groups', { name: 'Nobody yet' })).id
+    const g = (access: string) => ({ subjectType: 'group', subjectId: empty, access })
+    for (const d of ['docs/b/inner', 'docs/c/inner', 'docs/d']) fs.mkdirSync(path.join(h.ctx.files.fx.root, ...d.split('/')), { recursive: true })
+    // B: docs/b keeps the group out and lets everyone else read; inner gets "everyone can view" of its own
+    await admin.call('POST', '/api/admin/folders', { path: 'docs/b', create: false, rules: [g('none'), every('read')] })
+    const b = await preview('docs/b/inner', [every('read')])
+    expect(b.more).toBe(0)
+    expect(b.latentMore).toBe(true)
+    // C: docs/c lets the group edit; inner says "only people added here", then back to "same as above"
+    await admin.call('POST', '/api/admin/folders', { path: 'docs/c', create: false, rules: [g('write'), every('none')] })
+    await admin.call('POST', '/api/admin/folders', { path: 'docs/c/inner', create: false, rules: [user(idOf('alice'), 'read'), every('none')] })
+    expect((await decide('docs/c/inner', (d) => ({ ...d, basic: 'follow' })))?.widen).toBe(true)
+    // D: docs/d: the group can view, everyone can edit; the group's row removed
+    await admin.call('POST', '/api/admin/folders', { path: 'docs/d', create: false, rules: [g('read'), every('write')] })
+    const dd = await preview('docs/d', [every('write')])
+    expect(dd.more).toBe(0)
+    expect(dd.latentMore).toBe(true)
+    expect((await decide('docs/d', (d) => ({ ...d, named: d.named.filter((n) => n.subjectId !== empty) })))?.widen).toBe(true)
   })
 
   test('taking the team\'s own files from members asks too, in its own words (narrowing)', async () => {

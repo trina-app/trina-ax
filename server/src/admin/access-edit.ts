@@ -47,6 +47,8 @@ export interface EditSource {
   rules: RuleSet
   /** active people */
   people: readonly Principal[]
+  /** people switched off (not deleted): not counted, but what they would get when switched back on is (`latentMore`) */
+  uncounted?: readonly Principal[]
   groupName(id: string): string | null
   personName(id: string): string | null
 }
@@ -217,8 +219,23 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
   return {
     current, hash: rulesHash(current),
     people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
-    now, next: nextWho, above, everyoneAbove, changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
+    now, next: nextWho, above, everyoneAbove, latentMore: latentMore(src, before, after, path, below.paths), changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
   }
+}
+
+/**
+ * Whether the rules give more to someone the head count above cannot see (FolderEditPreview.latentMore): a person
+ * switched off (they get it when switched back on), a member nobody names (whoever joins the team), or a member of a
+ * group the rules name, alone in it (whoever joins that group; an empty group counts nobody today), at the folder or
+ * at a rule folder below it. Asked of the permission function for each of them, before and after. One made-up member
+ * per group: a person in several groups at once is covered by the people who are in the team now.
+ */
+function latentMore(src: EditSource, before: RuleSet, after: RuleSet, path: string, belowPaths: readonly string[]): boolean {
+  const groups = new Set<string>()
+  for (const rs of [before, after]) for (const f of rs.ruleFolders()) for (const r of rs.rulesAt(f)) if (r.subjectType === 'group' && r.subjectId) groups.add(r.subjectId)
+  const probes: Principal[] = [NOBODY, ...[...groups].map((g) => ({ id: `\u0000group:${g}`, name: '', role: 'member' as const, groups: [g] })), ...(src.uncounted ?? [])]
+  const at = [segsOf(path), ...belowPaths.map(segsOf)]
+  return probes.some((p) => at.some((segs) => RANK[after.access(p, segs)] > RANK[before.access(p, segs)]))
 }
 
 /** A member no person or group rule can name: what the folders above give "everyone" (FolderEditPreview.everyoneAbove). */

@@ -9,13 +9,14 @@
 // the same 44 px sizes and switch to them when they land).
 import clsx from 'clsx'
 import { ChevronRight, TriangleAlert, X } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import type { Access, Folder, FolderEditPreview, Group, Project, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { addNamed, draftOf, removeNamed, setNamed, type Basic, type Draft } from '../../lib/access-edit'
 import { isSkillsPath } from '../../lib/access-view'
-import { aboveRows, askTitle, generalLevel, hasPanel, outcomeLines, overridingGroup, overrideText, parentOf, raisesAccess, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
+import { aboveRows, askTitle, generalLevel, hasPanel, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog } from '../../components/ui'
@@ -40,6 +41,8 @@ export interface FolderSharingProps {
   guard: MutableRefObject<() => Promise<boolean>>
   /** the add field's list: Esc closes it first */
   list: ListControl
+  /** the sheet's own footer (the Modal's footer slot): what will happen and the buttons go there, always in sight */
+  footer: HTMLElement | null
 }
 
 export default function FolderSharing(props: FolderSharingProps) {
@@ -75,20 +78,29 @@ export default function FolderSharing(props: FolderSharingProps) {
   }, [path, round])
   if (error && !loaded) return <ErrorNote onRetry={() => setRound((n) => n + 1)}>{error}</ErrorNote>
   if (!loaded) return <Skeleton lines={4} />
-  const nfc = path.normalize('NFC')
-  const folder = loaded.folders.find((f) => f.path.normalize('NFC') === nfc && !f.hidden) ?? null
-  // a new draft per folder and per save: the saved rules are the next start
-  return <Body key={`${path}\u0003${round}`} {...props} folder={folder} users={loaded.users} groups={loaded.groups} below={loaded.below} reload={() => setRound((n) => n + 1)} />
+  // the folder's rule row by its exact path (names on disk), as Admin › Folder permissions finds it
+  const folder = loaded.folders.find((f) => f.path === path && !f.hidden) ?? null
+  // another admin's rules came first (a 409): the folder list again, for the same draft (a row made meanwhile is then
+  // saved over with PUT, not POSTed again)
+  const refreshFolders = () => void api.call(API.listFolders).then((r) => setLoaded((l) => (l ? { ...l, folders: r.items } : l)), () => {})
+  // after a save: nothing on screen until the list is read again, then a new draft from the saved rules (a draft started
+  // from the list before the save would take the save for someone else's change)
+  const reload = () => {
+    setLoaded(null)
+    setRound((n) => n + 1)
+  }
+  return <Body key={`${path}\u0003${round}`} {...props} folder={folder} users={loaded.users} groups={loaded.groups} below={loaded.below} reload={reload} onStale={refreshFolders} />
 }
 
 const LEVEL_WORD: Record<Access, 'folderAccess.canView' | 'folderAccess.canEdit' | 'folderAccess.noAccess'> = { read: 'folderAccess.canView', write: 'folderAccess.canEdit', none: 'folderAccess.noAccess' }
 
-function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, groups, below, reload }: FolderSharingProps & {
+function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, users, groups, below, reload, onStale }: FolderSharingProps & {
   folder: Folder | null
   users: User[]
   groups: Group[]
   below: number
   reload: () => void
+  onStale: () => void
 }) {
   const t = useT()
   const locale = useLocale()
@@ -103,7 +115,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
     const label = (n: Draft['named'][number]) => (n.subjectType === 'group' ? groupById.get(n.subjectId)?.name : userById.get(n.subjectId)?.name) ?? n.subjectId
     return { ...d, named: [...d.named].sort((a, b) => (a.access === 'none') !== (b.access === 'none') ? (a.access === 'none' ? 1 : -1) : a.subjectType === b.subjectType ? label(a).localeCompare(label(b)) : a.subjectType === 'group' ? -1 : 1) }
   }
-  const d = useRulesDraft({ path, folder, sort, onStale: () => {} })
+  const d = useRulesDraft({ path, folder, sort, onStale })
   const { draft, setDraft, data, ready, edited } = d
   const stored = useMemo(() => draftOf(d.base.rules, d.root).draft, [d.base.rules, d.root])
   const storedAccess = useMemo(() => new Map(stored.named.map((n) => [`${n.subjectType}:${n.subjectId}`, n.access])), [stored])
@@ -111,7 +123,19 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
   const [changedNow, setChangedNow] = useState(false)
 
   // the leave question: close, Esc, the backdrop, another folder, a link, a reload
-  const askToLeave = async () => !edited || d.saving || (await confirmDialog({ title: t('folderAccess.discardTitle'), body: t('folderAccess.discardBody'), confirm: t('accessEdit.discard'), danger: true }))
+  /** the panel left this folder (closed, another folder, a link) or unmounted: a Save on its way stops at its next step */
+  const left = useRef(false)
+  useEffect(() => () => {
+    left.current = true
+  }, [])
+  // the write itself is on its way: the panel goes without asking (the save lands). Before it (Save's fresh ask, its
+  // confirm), leaving asks, and dropping the changes stops that Save
+  const askToLeave = async () => {
+    if (!edited || d.saving) return true
+    const ok = await confirmDialog({ title: t('folderAccess.discardTitle'), body: t('folderAccess.discardBody'), confirm: t('accessEdit.discard'), danger: true })
+    if (ok) left.current = true
+    return ok
+  }
   guard.current = askToLeave
   useEffect(() => () => {
     guard.current = async () => true
@@ -152,7 +176,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
   const choices = d.choices.filter((b) => b !== 'follow' || folder?.keep !== 'team' || d.initial.basic === 'follow')
   const parent = parentOf(path)
   const basicLabel = (b: Basic) =>
-    b === 'follow' ? (parent === '' || parent === null ? t('folderAccess.sameAsTop') : t('folderAccess.sameAs', { folder: nameOf(parent) }))
+    b === 'follow' ? (parent === '' || parent === null ? t('folderAccess.sameAsTop') : hasPanel(parent) ? t('folderAccess.sameAs', { folder: nameOf(parent) }) : t('folderAccess.sameAsAbove'))
       : b === 'named' ? t('folderAccess.onlyHere')
         : t(b === 'read' ? 'folderAccess.everyoneView' : 'folderAccess.everyoneEdit', { team })
   const hint = (() => {
@@ -162,11 +186,13 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
     return t(draft.basic === 'read' ? 'folderAccess.hintEveryoneView' : 'folderAccess.hintEveryoneEdit', { team })
   })()
 
-  const raised = () => raisesAccess({ stored, draft, above: data?.everyoneAbove?.access ?? 'none', users: userById, groups: groupById })
   const lines = (p: FolderEditPreview) => outcomeLines(t, locale, p, { skills })
 
+  /** a Save on its way, at once (two clicks before the next render are one Save) */
+  const saving = useRef(false)
   const save = async () => {
-    if (busy || d.why) return
+    if (saving.current || busy || d.why) return
+    saving.current = true
     setBusy(true)
     setChangedNow(false)
     try {
@@ -174,42 +200,47 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
       const hash = d.base.hash
       // asked again now, for exactly this draft: what is saved is what the admin was shown
       const fresh = await d.askNow()
-      if (!fresh || !shown) return
+      if (!fresh || !shown || left.current) return
       // another admin changed this folder: the note says so (the draft kept); the next Save decides
       if (hash !== null && fresh.hash !== hash) return
       if (!sameOutcome(shown, fresh)) {
         setChangedNow(true)
         return
       }
-      const ask = saveAsk(fresh, raised())
+      const ask = saveAsk(fresh)
       if (ask) {
         const ok = await confirmDialog({
           title: askTitle(t, fresh, ask),
           body: (
             <div className="space-y-1.5" data-testid="sharing-confirm-body">
-              {lines(fresh).filter((l) => l.kind !== 'none').map((l) => <p key={l.kind}>{l.text}</p>)}
-              {ask.widen && !fresh.changes.some((c) => c.direction === 'more') && <p>{t('folderAccess.confirmLater')}</p>}
+              {/* which folder: the panel behind can show another one by now */}
+              <p className="font-medium text-ink" data-testid="sharing-confirm-folder">{nameOf(path)}</p>
+              {lines(fresh).filter((l) => l.kind !== 'none' && l.kind !== 'below').map((l) => <p key={l.kind} className={l.kind === 'lose' || l.kind === 'viewOnly' ? 'text-warn' : undefined}>{l.text}</p>)}
+              {ask.later && <p>{t('folderAccess.confirmLater')}</p>}
               {ask.widen && fresh.below.some((b) => b.more > 0) && <p>{t('folderAccess.confirmBelow', { n: fresh.below.filter((b) => b.more > 0).length })}</p>}
               {ask.skillsEveryone && <p>{t('folderAccess.warnSkillsEveryone')}</p>}
               {ask.narrow.map((w) => (
-                <p key={w.kind} className="text-warn">{w.kind === 'team-files' ? t('folderAccess.warnTeamFiles', { n: w.count, folder: nameOf(path) }) : t('folderAccess.warnSkills', { n: w.count })}</p>
+                <p key={w.kind} className="text-warn">{w.kind === 'team-files' ? t('folderAccess.warnTeamFiles', { folder: nameOf(path) }) : t('folderAccess.warnSkills')}</p>
               ))}
             </div>
           ),
           confirm: ask.widen ? t('folderAccess.giveAccess') : t('folderAccess.saveAnyway'),
           danger: !ask.widen,
         })
-        if (!ok) return
+        if (!ok || left.current) return
         // a confirm left open covers nothing: asked once more before the write
         const again = await d.askNow()
+        if (left.current) return
         if (!again || again.hash !== fresh.hash || !sameOutcome(fresh, again)) {
           if (again && again.hash === fresh.hash) setChangedNow(true)
           return
         }
       }
+      if (left.current) return
       const saved = await d.save()
       if (saved) reload()
     } finally {
+      saving.current = false
       setBusy(false)
     }
   }
@@ -282,7 +313,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
               {g ? <GroupTile size={24} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={24} />}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink">{label}</p>
-                {second && <p className="truncate text-xs text-faint" data-testid="sharing-row-second">{second}</p>}
+                {second && <p className="text-xs [overflow-wrap:anywhere] text-faint sm:truncate" data-testid="sharing-row-second">{second}</p>}
               </div>
               {always ? (
                 <span className="shrink-0 text-xs text-muted">{t('folderAccess.always')}</span>
@@ -340,8 +371,8 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
       {d.connected && <p className="text-xs text-muted" data-testid="sharing-connected">{t('folderAccess.connectedCopy')}</p>}
       {skills && <p className="text-xs text-muted" data-testid="sharing-skills">{t('folderAccess.skillsEdit')}</p>}
 
-      <GeneralAccess value={draft.basic} choices={choices} label={basicLabel} hint={hint} except={anyNone && general !== 'none'} onChange={(b) => setDraft((x) => ({ ...x, basic: b }))}
-        from={draft.basic === 'follow' && parent !== null && hasPanel(parent) ? () => void swap(parent) : null} fromLabel={parent !== null ? t('folderAccess.changeIn', { folder: nameOf(parent) }) : ''} keepOne={d.keepsOne} />
+      <GeneralAccess value={draft.basic} choices={choices} label={basicLabel} hint={hint} except={anyNone} onChange={(b) => setDraft((x) => ({ ...x, basic: b }))}
+        from={draft.basic === 'follow' && parent !== null && hasPanel(parent) ? () => void swap(parent) : null} fromText={parent !== null ? t('folderAccess.changeInShort', { folder: nameOf(parent) }) : ''} fromLabel={parent !== null ? t('folderAccess.changeIn', { folder: nameOf(parent) }) : ''} keepOne={d.keepsOne} />
 
       <div className="space-y-1 border-t border-line pt-3 text-xs text-muted">
         <p data-testid="sharing-footer">{t('folderAccess.adminsAlways')}</p>
@@ -361,34 +392,41 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
         </p>
       </div>
 
-      <footer className="sticky bottom-0 z-10 -mx-5 -mb-5 space-y-2 border-t border-line bg-surface px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:-mx-4 max-sm:px-4" data-testid="sharing-footer-bar">
-        {edited && d.saveable && <Outcome data={data} ready={ready} error={d.preview.error} lines={data ? lines(data) : []} onRetry={d.retry} />}
-        {changedNow && <p role="status" className="text-xs text-warn" data-testid="sharing-changed-now">{t('folderAccess.changedNow')}</p>}
-        {d.refused && <ErrorNote>{d.refused}</ErrorNote>}
-        <div className="flex items-center justify-end gap-2">
-          {edited ? (
-            <>
-              <Button variant="ghost" onClick={() => void (async () => {
-                if (await askToLeave()) {
-                  setDraft(d.initial)
-                  setChangedNow(false)
-                }
-              })()} data-testid="sharing-cancel">
-                {t('common.cancel')}
+      <Footer to={footer}>
+        <div className="w-full space-y-2" data-testid="sharing-footer-bar">
+          {edited && d.saveable && <Outcome data={data} ready={ready} error={d.preview.error} lines={data ? lines(data) : []} onRetry={d.retry} />}
+          {changedNow && <p role="status" className="text-xs text-warn" data-testid="sharing-changed-now">{t('folderAccess.changedNow')}</p>}
+          {d.refused && <ErrorNote>{d.refused}</ErrorNote>}
+          <div className="flex items-center justify-end gap-2">
+            {edited ? (
+              <>
+                <Button variant="ghost" onClick={() => void (async () => {
+                  if (await askToLeave()) {
+                    setDraft(d.initial)
+                    setChangedNow(false)
+                  }
+                })()} data-testid="sharing-cancel">
+                  {t('common.cancel')}
+                </Button>
+                <Button variant="primary" onClick={() => void save()} busy={busy || d.saving} disabled={!!d.why} data-testid="sharing-save">
+                  {t('common.save')}
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" onClick={() => onLeave('')} data-testid="sharing-done">
+                {t('common.done')}
               </Button>
-              <Button variant="primary" onClick={() => void save()} busy={busy || d.saving} disabled={!!d.why} data-testid="sharing-save">
-                {t('common.save')}
-              </Button>
-            </>
-          ) : (
-            <Button variant="primary" onClick={() => onLeave('')} data-testid="sharing-done">
-              {t('common.done')}
-            </Button>
-          )}
+            )}
+          </div>
         </div>
-      </footer>
+      </Footer>
     </div>
   )
+}
+
+/** The sheet's footer (the Modal's footer slot), or in place when there is none (a test mounting the panel alone). */
+function Footer({ to, children }: { to: HTMLElement | null; children: ReactNode }) {
+  return to ? createPortal(children, to) : <footer className="border-t border-line pt-3">{children}</footer>
 }
 
 /** A greyed row from a folder above: the whole row opens that folder (44 px), with "Change there ›". */
@@ -410,7 +448,7 @@ function AboveButton({ onOpen, title, second, level, label, tile, face, testId, 
         {tile ? <GroupTile size={24} /> : face ? <Avatar user={face} size={24} /> : <GroupTile size={24} />}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-ink">{title}</p>
-          <p className="truncate text-xs text-faint">
+          <p className="text-xs [overflow-wrap:anywhere] text-faint sm:truncate">
             {second} · <span className="text-accent-text">{t('folderAccess.changeThere')}</span>
             <ChevronRight size={12} className="ml-0.5 inline align-[-1px] text-accent-text" aria-hidden />
           </p>
@@ -421,7 +459,7 @@ function AboveButton({ onOpen, title, second, level, label, tile, face, testId, 
   )
 }
 
-function GeneralAccess({ value, choices, label, hint, except, onChange, from, fromLabel, keepOne }: {
+function GeneralAccess({ value, choices, label, hint, except, onChange, from, fromText, fromLabel, keepOne }: {
   value: Basic
   choices: Basic[]
   label: (b: Basic) => string
@@ -429,6 +467,7 @@ function GeneralAccess({ value, choices, label, hint, except, onChange, from, fr
   except: boolean
   onChange: (b: Basic) => void
   from: (() => void) | null
+  fromText: string
   fromLabel: string
   keepOne: boolean
 }) {
@@ -453,7 +492,7 @@ function GeneralAccess({ value, choices, label, hint, except, onChange, from, fr
           <>
             {' '}
             <button type="button" onClick={from} aria-label={fromLabel} className="font-medium text-accent-text underline-offset-2 hover:underline" data-testid="sharing-general-from">
-              {t('folderAccess.changeThere')} ›
+              {fromText} ›
             </button>
           </>
         )}

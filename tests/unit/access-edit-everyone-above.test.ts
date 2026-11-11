@@ -81,3 +81,49 @@ describe('everyoneAbove: what the folder above gives everyone', () => {
     }
   })
 })
+
+describe('latentMore: more access for someone the head count cannot see', () => {
+  const off: Principal = { id: 'dave', name: 'Dave', role: 'member', groups: [] }
+  const run = (rows: Row[], at: string, next: Parameters<typeof editPreview>[2], uncounted: Principal[] = []) =>
+    editPreview({ rules: new RuleSet(rows), people, uncounted, groupName: (id) => id, personName: (id) => id }, at, next, { team: null })
+  const every = (access: Access) => ({ subjectType: 'everyone' as const, subjectId: null, access })
+
+  test('a switched-off person kept out above, then everyone may view here: not counted, but latent', () => {
+    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'dave', 'none')]
+    const out = run(rows, 'shared/x', [every('read')], [off])
+    expect(out.latentMore).toBe(true)
+  })
+
+  test('an empty group kept out above, then everyone may view here: whoever joins it gets in', () => {
+    const rows = [row('shared', 'group', 'empty', 'none'), row('shared', 'everyone', null, 'none')]
+    // every member of the team today gains, so the head count asks too; the made-up member of "empty" is the point here
+    const out = run([...rows, row('shared/x', 'user', 'bob', 'read'), row('shared/x', 'user', 'eve', 'read')], 'shared/x', [{ subjectType: 'user', subjectId: 'bob', access: 'read' }, { subjectType: 'user', subjectId: 'eve', access: 'read' }, every('read')])
+    expect(out.latentMore).toBe(true)
+  })
+
+  test('"only people added here" back to "same as above" where an empty group can edit above: latent', () => {
+    const rows = [row('shared', 'group', 'empty', 'write'), row('shared/x', 'everyone', null, 'none')]
+    const out = run(rows, 'shared/x', [])
+    expect(out.changes).toEqual([])
+    expect(out.latentMore).toBe(true)
+  })
+
+  test('an empty group\'s "can view" removed while everyone can edit: latent (its future members get edit)', () => {
+    const rows = [row('shared/x', 'group', 'empty', 'read'), row('shared/x', 'everyone', null, 'write')]
+    const out = run(rows, 'shared/x', [every('write')])
+    expect(out.latentMore).toBe(true)
+  })
+
+  test('nothing latent: the same rules, or only less', () => {
+    const rows = [row('shared', 'everyone', null, 'read'), row('shared/x', 'group', 'sales', 'write')]
+    expect(run(rows, 'shared/x', [{ subjectType: 'group', subjectId: 'sales', access: 'write' }], [off]).latentMore).toBe(false)
+    expect(run(rows, 'shared/x', [{ subjectType: 'group', subjectId: 'sales', access: 'read' }, every('none')], [off]).latentMore).toBe(false)
+  })
+
+  test('a rule folder below that follows this one counts too', () => {
+    const rows = [row('shared/x', 'everyone', null, 'none'), row('shared/x/y', 'user', 'bob', 'write')]
+    // a switched-off person no rule below names follows shared/x there
+    const out = run(rows, 'shared/x', [every('read')], [off])
+    expect(out.latentMore).toBe(true)
+  })
+})

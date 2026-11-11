@@ -1,7 +1,7 @@
 // "Who can open it" on the Files page, for admins (docs/DECISIONS.md "Who can open it, like Drive's Share"): what the
 // panel shows and when it asks before saving. Words and comparisons only: who can open what is the server's answer for
 // the draft on screen (POST /api/admin/access/edit-preview, the permission function itself); nothing here decides access.
-import type { Access, AccessTreeWho, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
+import type { Access, AccessTreeWho, FolderEditChange, FolderEditPreview, FolderEditWarning, Group } from '@mycel/shared/api'
 import type { Basic, Draft } from './access-edit'
 import type { MessageKey } from '../i18n'
 
@@ -65,6 +65,7 @@ export function namesText(t: T, locale: string, names: readonly string[], count:
   const shown = names.slice(0, 3)
   const rest = Math.max(0, count - shown.length)
   if (rest > 0) return t('folderAccess.andOthers', { names: shown.join(', '), n: rest })
+  if (locale.startsWith('ko')) return shown.join(', ')
   try {
     return new Intl.ListFormat(locale, { type: 'conjunction' }).format(shown)
   } catch {
@@ -97,45 +98,19 @@ export function outcomeLines(t: T, locale: string, data: Pick<FolderEditPreview,
   return out
 }
 
-const key = (n: { subjectType: string; subjectId: string }) => `${n.subjectType}\u0000${n.subjectId}`
-
-/**
- * Whether the draft lets anyone in more than the stored rules do, by the settings themselves: a person or group added
- * with view or edit or raised, a "no access" row raised or removed, the general access up (through what the folder above
- * gives where it follows it), or a row removed that names a switched-off person, or a group with one, while what they
- * then follow may give more. The server's head count misses these: switched-off people are not counted, and "everyone"
- * may count nobody today (every member named by a group) but lets in whoever joins.
- */
-export function raisesAccess(o: { stored: Draft; draft: Draft; above: Access; users: ReadonlyMap<string, Pick<User, 'status'>>; groups: ReadonlyMap<string, Pick<Group, 'memberIds'>> }): boolean {
-  const general = generalLevel(o.draft.basic, o.above)
-  if (RANK[general] > RANK[generalLevel(o.stored.basic, o.above)]) return true
-  const before = new Map(o.stored.named.map((n) => [key(n), n.access]))
-  const after = new Map(o.draft.named.map((n) => [key(n), n.access]))
-  for (const [k, a] of after) {
-    const b = before.get(k)
-    if (b === undefined ? a !== 'none' : RANK[a] > RANK[b]) return true
-  }
-  const off = (id: string) => o.users.get(id)?.status === 'disabled'
-  for (const n of o.stored.named) {
-    if (after.has(key(n))) continue
-    if (n.access === 'none') return true
-    // someone not counted now follows the rest of the rules, which may give them more than this row did
-    const involvesOff = n.subjectType === 'user' ? off(n.subjectId) : (o.groups.get(n.subjectId)?.memberIds ?? []).some(off)
-    if (involvesOff && n.access !== 'write') return true
-  }
-  return false
-}
-
-/** What Save asks before saving, from the fresh answer for the draft: more access (a gain counted by the server here
- * or in folders inside, a raised setting, everyone editing skills/), and the team's own files or skills taken from
- * members (the server's warnings). Nothing: save straight away (it only narrows, and "What will happen" named who). */
-export interface SaveAsk { widen: boolean; narrow: FolderEditWarning[]; skillsEveryone: boolean }
-export function saveAsk(data: Pick<FolderEditPreview, 'changes' | 'below' | 'warnings'>, raised: boolean): SaveAsk | null {
-  const gains = data.changes.some((c) => c.direction === 'more') || data.below.some((b) => b.more > 0)
+/** What Save asks before saving, from the server's fresh answer for exactly the draft (nothing here guesses): more
+ * access, counted (`changes`, here or in folders inside: exact for everyone in the team now) or not (`latentMore`: a
+ * person switched off, whoever joins the team or a group the rules name), or everyone editing skills/; and the team's
+ * own files or skills taken from members (the server's warnings). Nothing: save straight away (it only narrows, or
+ * changes nobody, and "What will happen" named who). `later`: the more access is only for people not counted now. */
+export interface SaveAsk { widen: boolean; later: boolean; narrow: FolderEditWarning[]; skillsEveryone: boolean }
+export function saveAsk(data: Pick<FolderEditPreview, 'changes' | 'below' | 'warnings' | 'latentMore'>): SaveAsk | null {
+  const counted = data.changes.some((c) => c.direction === 'more') || data.below.some((b) => b.more > 0)
+  const later = !counted && data.latentMore === true
   const skillsEveryone = data.warnings.some((w) => w.kind === 'skills-everyone-writes')
   const narrow = data.warnings.filter((w) => w.kind === 'team-files' || w.kind === 'team-instructions')
-  const widen = gains || raised || skillsEveryone || data.warnings.some((w) => w.kind === 'root-everyone')
-  return widen || narrow.length ? { widen, narrow, skillsEveryone } : null
+  const widen = counted || data.latentMore === true || skillsEveryone || data.warnings.some((w) => w.kind === 'root-everyone')
+  return widen || narrow.length ? { widen, later, narrow, skillsEveryone } : null
 }
 
 /** The confirm's title: how many more people can open it, else how many can edit it, else "Give more access?" (nobody

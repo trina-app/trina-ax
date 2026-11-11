@@ -33,7 +33,7 @@ type R = { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: strin
 
 /** the stub server's rule rows by folder, and its folder ids */
 let rows: Map<string, R[]>
-const ids = new Map([['shared', '01900000-0000-7000-8000-0000000000f1'], ['shared/Sales', '01900000-0000-7000-8000-0000000000f2'], ['shared/Sales/Quotes', '01900000-0000-7000-8000-0000000000f3'], ['shared/Sales/Plans', '01900000-0000-7000-8000-0000000000f4']])
+const ids = new Map([['shared', '01900000-0000-7000-8000-0000000000f1'], ['shared/Sales', '01900000-0000-7000-8000-0000000000f2'], ['shared/Sales/Quotes', '01900000-0000-7000-8000-0000000000f3'], ['shared/Sales/Plans', '01900000-0000-7000-8000-0000000000f4'], ['shared/Sales/New', '01900000-0000-7000-8000-0000000000f5']])
 const ruleSet = () => new RuleSet([...rows].flatMap(([path, rs]) => rs.map((r) => ({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))))
 const folderOf = (path: string): Folder => ({
   id: ids.get(path)!, path, exists: true, createdAt: T0, groupId: null, keep: path === 'shared' ? 'team' : null, hidden: false,
@@ -42,6 +42,7 @@ const folderOf = (path: string): Folder => ({
 })
 const sent: { key: string; body: any }[] = []
 let putReply: ((path: string, body: any) => Response) | null = null
+let postReply: ((body: any) => Response) | null = null
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
 const sessionBefore = useSession.getState().status
@@ -60,6 +61,11 @@ beforeAll(() => {
     if (key === 'POST /api/admin/access/edit-preview') {
       const out = editPreview({ rules: ruleSet(), people, groupName: (id) => groups.find((g) => g.id === id)?.name ?? null, personName: (id) => people.find((p) => p.id === id)?.name ?? null }, body.path, body.rules, { team: body.path === 'shared' ? 'shared' : null })
       return json(200, { path: body.path, exists: true, connected: false, ...out })
+    }
+    if (key === 'POST /api/admin/folders') {
+      if (postReply) return postReply(body)
+      rows.set(body.path, body.rules)
+      return json(201, folderOf(body.path))
     }
     const put = /^PUT \/api\/admin\/folders\/([^/]+)\/rules$/.exec(key)
     if (put) {
@@ -80,6 +86,7 @@ beforeEach(() => {
     ['shared/Sales/Plans', [{ subjectType: 'user', subjectId: 'erin', access: 'write' }]],
   ])
   putReply = null
+  postReply = null
   useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'olga', name: 'Olga', role: 'owner' }, groups: [], team: { name: 'Acme', defaultLocale: 'en', projectCreators: 'members' }, server: { version: '0', dev: false } } } } as never)
 })
 afterEach(() => { sent.length = 0; useSession.setState({ status: sessionBefore }) })
@@ -97,7 +104,7 @@ function Host({ start }: { start: string }) {
   const list = { current: { open: false, close: () => {} } }
   return (
     <MemoryRouter>
-      <FolderSharing key={path} path={path} project={null} projectOf={() => null} onSwap={setPath} onLeave={() => {}} guard={guard} list={list} />
+      <FolderSharing key={path} path={path} project={null} projectOf={() => null} onSwap={setPath} onLeave={() => {}} guard={guard} list={list} footer={null} />
       <DialogHost />
     </MemoryRouter>
   )
@@ -240,6 +247,57 @@ describe('Save asks the server again, and asks first before more access', () => 
     expect(m.get('sharing-stale').textContent).toContain(en('folderAccess.staleKept'))
     // the draft is kept: Save is still there to save it over theirs
     expect(m.find('sharing-save')).not.toBeNull()
+    await m.unmount()
+  })
+})
+
+describe('after a save, and the other ways a save ends', () => {
+  test('a save starts a new draft from the saved rules: no "someone else changed this", Done again', async () => {
+    const m = await open()
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
+    await ready(m)
+    await m.click('sharing-save')
+    await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`).length && m.find('sharing-done'), 'saved, and Done')
+    await m.settle(400)
+    expect(m.find('sharing-stale')).toBeNull()
+    expect(m.find('sharing-save')).toBeNull()
+    await m.unmount()
+  })
+
+  test('Save pressed twice quickly: one save', async () => {
+    const m = await open()
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
+    await ready(m)
+    const save = m.get('sharing-save')
+    await act(async () => {
+      save.click()
+      save.click()
+    })
+    await m.until(() => m.find('sharing-done'), 'saved')
+    expect(calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)).toHaveLength(1)
+    await m.unmount()
+  })
+
+  test('a folder without settings of its own, given some by another admin meanwhile: said once, then saved over with PUT', async () => {
+    // on disk, no rule row: the folder list does not have it
+    const m = await mount(<Host start="shared/Sales/New" />)
+    await m.until(() => m.find('sharing-above'), 'the panel and the rows from above')
+    await choose(m.get('sharing-general-select'), 'named')
+    await ready(m)
+    // the other admin's row is made between this panel's answer and its save
+    postReply = () => {
+      rows.set('shared/Sales/New', [{ subjectType: 'user', subjectId: 'erin', access: 'read' }])
+      return json(409, { error: { code: 'conflict', message: 'exists', params: { reason: 'folder_exists' } } })
+    }
+    await m.click('sharing-save')
+    await m.until(() => m.find('sharing-stale'), 'the "someone else changed this" note')
+    expect(calls('POST /api/admin/folders')).toHaveLength(1)
+    // the next Save goes over their row (PUT with their hash), never POST again
+    await m.until(() => !m.get('sharing-save').hasAttribute('disabled'), 'Save ready')
+    await m.click('sharing-save')
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/New')}/rules`)[0], 'the PUT')
+    expect(put.body.expectedHash).toBe(rulesHash([{ subjectType: 'user', subjectId: 'erin', access: 'read' }]))
+    expect(calls('POST /api/admin/folders')).toHaveLength(1)
     await m.unmount()
   })
 })

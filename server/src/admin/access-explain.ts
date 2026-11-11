@@ -276,8 +276,11 @@ export function explainEdit(ctx: AppContext, body: { path: string; rules: Folder
   const userNames = new Map((db.query('SELECT id, name FROM users WHERE deleted_at IS NULL').all() as { id: string; name: string }[]).map((u) => [u.id, u.name]))
   const segs = segsOf(p)
   const connected = segs.length >= 2 && segs[0] === 'connected' && !!db.query('SELECT 1 FROM connected_folders WHERE name = ?').get(segs[1]!)
+  // people switched off: not counted, but what they would get when switched back on is (latentMore)
+  const uncounted = (db.query("SELECT id, name, role FROM users WHERE status != 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Role }[])
+    .map((u) => ({ ...u, groups: groupsOf(ctx, u.id) }))
   const out = editPreview(
-    { rules: state.rules, people: state.principals, groupName: (id) => groupNames.get(id) ?? null, personName: (id) => userNames.get(id) ?? null },
+    { rules: state.rules, people: state.principals, uncounted, groupName: (id) => groupNames.get(id) ?? null, personName: (id) => userNames.get(id) ?? null },
     p, body.rules, { team: teamFolderOf(p, ctx.files.fx.caseInsensitive), chats: (id) => chatsWithEngineSession(db, id) },
   )
   return { path: p, exists: isDir(ctx.files.fx.root, segs, new Map()), connected, ...out }

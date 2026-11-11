@@ -11,7 +11,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Access, AccessTreeNode, FolderAudience, Project } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, panelByRole, panelHeadline, type ChipPlace } from '../lib/folder-access'
+import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, panelHeadline, type ChipPlace } from '../lib/folder-access'
 import { hasPanel, inProjects } from '../lib/folder-sharing'
 import { useFolderName, useFolderWords } from '../lib/folderLabels'
 import { useLocale, useT } from '../i18n'
@@ -156,8 +156,10 @@ export function FolderAccessPanel({ target, project, projectOf, onClose }: {
   }
   const previous = trail.length > 1 ? trail[trail.length - 2]! : target?.path ?? ''
   const projectFolder = place === 'project' && proj
+  /** the sheet's footer, where FolderSharing puts what will happen and its buttons (always in sight, on phones too) */
+  const [footerEl, setFooterEl] = useState<HTMLDivElement | null>(null)
   return (
-    <Modal open={!!target && !!place} onClose={() => void close()} title={t('folderAccess.menu')} width={520}>
+    <Modal open={!!target && !!place} onClose={() => void close()} title={t('folderAccess.menu')} width={520} footer={sharing ? <div ref={setFooterEl} className="w-full" data-testid="sharing-footer-slot" /> : undefined}>
       {target && place && path !== null && (
         <div className="space-y-3" data-testid="folder-access-panel" data-path={path}>
           {trail.length > 0 && (
@@ -170,7 +172,7 @@ export function FolderAccessPanel({ target, project, projectOf, onClose }: {
             <>
               {projectFolder && <ProjectLines project={proj} admin go={go} />}
               <Suspense fallback={<Skeleton lines={4} />}>
-                <FolderSharing key={path} path={path} project={proj} projectOf={projectOf ?? (() => null)} onSwap={(to) => setTrail((tr) => [...tr, to])} onLeave={leave} guard={guard} list={list} />
+                <FolderSharing key={path} path={path} project={proj} projectOf={projectOf ?? (() => null)} onSwap={(to) => setTrail((tr) => [...tr, to])} onLeave={leave} guard={guard} list={list} footer={footerEl} />
               </Suspense>
             </>
           ) : (
@@ -185,7 +187,6 @@ export function FolderAccessPanel({ target, project, projectOf, onClose }: {
                   <p className="text-base font-semibold text-ink" data-testid="folder-access-headline">
                     {panelHeadline(t, chip, me.team.name)}
                   </p>
-                  {admin && panelByRole(t, chip) && <p className="mt-0.5 text-sm text-muted" data-testid="folder-access-by-role">{panelByRole(t, chip)}</p>}
                 </div>
               )}
               {place === 'own' && <p className="text-sm text-muted">{t('folderAccess.ownFolder')}</p>}

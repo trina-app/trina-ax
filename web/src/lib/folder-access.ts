@@ -73,9 +73,6 @@ export function panelHeadline(t: T, c: Chip, team: string): string {
   return c.byRole !== undefined ? t('folderAccess.openCountApart', { n: c.n }) : t('folderAccess.openCount', { n: c.n })
 }
 
-/** Under the panel's headline, for the owner and admins: "팀장·관리자 2명도 볼 수 있어요" (a number, never a name). */
-export const panelByRole = (t: T, c: Chip): string | null => (c.kind === 'people' && c.byRole !== undefined ? byRoleLine(t, c.byRole, c.where ?? 'folder') : null)
-
 /** The chip's accessible name. Apart: "3명이 봐요 · 팀장·관리자 2명도 볼 수 있어요" (a number, never a name; no role part at
  * 0); otherwise the panel's headline. */
 export function chipLabel(t: T, c: Chip): string {

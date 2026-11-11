@@ -19975,17 +19975,22 @@ users are office workers, not developers; the panel must make sense in a few sec
   changed).
 - **Save asks the server again, and asks before more access.** Save asks the preview again at once for the draft; if the
   answer differs from what was shown (someone changed a folder above, a group, a role), the new one shows and Save needs
-  another click ("This changed just now. Check the list and save again."). It asks the admin first when the answer says
-  someone gains access here or in a folder inside, or when the draft raises a setting compared with the stored rules
-  (a person or group added or raised, a "No access" row raised or removed, general access up through what the folder
-  above gives, a removed row of a switched-off person or a group with one): the head count misses switched-off people
-  and an "everyone" that names nobody today. The title says it ("Let 1 more person open it?", "Let 2 people edit it?",
-  "Give more access?"), the body names who, and its button asks the server once more before the write. Taking the
-  team's own files or skills from members asks in its own words ("Take access away?", "Save anyway"). Anything else
-  that only narrows saves straight, "What will happen" having named who.
+  another click ("This changed just now. Check the list and save again."). Whether to ask comes only from that answer:
+  someone in the team gains access here or in a folder inside (`changes`, exact for everyone counted), or the rules give
+  more to someone the head count cannot see (`latentMore`: a person switched off, whoever joins the team or a group the
+  rules name, an "everyone" that names nobody today). A guess in the web from the settings themselves was tried and
+  dropped in review: it asked "Give more access?" for a change that only lowered someone. The title says it ("Let 1
+  more person open it?", "Let 2 people edit it?", "Give more access?"), the body names the folder and who (losses in
+  the warning colour; "People who join later, or whose account is switched back on, will be able to open it." when
+  nobody counted gains), and its button asks the server once more before the write. Taking the team's own files or
+  skills from members asks in its own words ("Take access away?", "Their AI won't be able to open Company-wide
+  either.", "Save anyway"). Anything else that only narrows saves straight, "What will happen" having named who.
+  Leaving the panel (close, another folder, a link) while Save is on its way stops that Save at its next step; two
+  clicks are one Save.
 - **A team project's folder and everything inside it** are shown, not changed, and no admin endpoint is asked there
-  (the chip's tree ask too): the count (#341's split for the owner and admins), the project's lines and [Members], or
-  inside it "Open in Folder permissions". The owner chose project contents members-only (`feat/project-members-only`,
+  (the chip's tree ask too): the count (#341's split for the owner and admins, without its role line: the footer says
+  the owner and admins can always open it), the project's lines and [Members], or inside it "Open in Folder
+  permissions". The owner chose project contents members-only (`feat/project-members-only`,
   which refuses admin rule writes and answers there); until it lands Admin › Folder permissions still edits inside a
   project. A project made before outside `projects/` keeps the panel's editing, with its lines on top.
 - **Members learn nothing new.** Their panel says what #306 said, with the panel's one verb: "6 people can open it
@@ -19995,15 +20000,18 @@ users are office workers, not developers; the panel must make sense in a few sec
 - **The chip stays the count** (#341's rule: "3명" for the owner and admins, the total for members).
 - **Server:** the edit preview says what the folder above gives everyone in one field, `everyoneAbove: { access, folder
   }` (the permission function for a member nobody names, the folder's own rules left out; null at the team root): the
-  grouped `above` shows nobody when every member is named by a group rule. `POST /api/admin/folders` takes at most 200
+  grouped `above` shows nobody when every member is named by a group rule. And `latentMore`: the permission function,
+  before and after, at the folder and its rule folders below, for every switched-off person, a member nobody names and
+  one made-up member per group the rules name. `POST /api/admin/folders` takes at most 200
   rules (as PUT), and a rule row made meanwhile is a 409 with `params.reason: 'folder_exists'`.
-- **Phones:** the same panel in the app's bottom sheet, 44 px selects and ✕, Save and "What will happen" in the sheet's
-  footer, the confirm over the sheet, "Change there" swapping the sheet's content. #339's shared phone rows were not on
+- **Phones:** the same panel in the app's bottom sheet, 44 px selects and ✕, a row's second line wrapping (never cut),
+  Save and "What will happen" in the sheet's own footer (the Modal's footer slot, on computers too), the confirm over
+  the sheet, "Change there" swapping the sheet's content. #339's shared phone rows were not on
   dev yet; the rows use the same sizes and move to `CompactRow` when it lands.
 - Words: English first, then ko, id, ja, es; no "rule", "inherited", "grant" or path on screen.
 - Tests: `tests/security/folder-sharing.test.ts` (a member is refused every admin read and write of the panel and gets
-  the same audience answer; the save's server checks; the confirm decision on the real server's answers, including the
-  count-0 and switched-off cases); `tests/unit/access-edit-everyone-above.test.ts` (against the permission function on
+  the same audience answer; the save's server checks; the confirm decision on the real server's answers, including
+  people switched off on the server, empty groups and the count-0 "everyone"); `tests/unit/access-edit-everyone-above.test.ts` (against the permission function on
   random worlds); web unit `folder-sharing.test.ts` (rows from above, names, when Save asks, the answer asked again),
   `folder-sharing-panel.test.tsx` (per-folder drafts, the fresh ask, the confirm, 409), `folder-access.test.ts`; e2e
   `folder-access.spec.ts` (add, change, remove, general access, rows from above read only, the names who lose access, a

@@ -366,6 +366,10 @@ export const FolderEditPreview = z.object({
    * names would get here with no rules of its own, and the folder whose rule decides it ('' = the team root; null: no
    * rule on the way up lets them in). Null at the team root. Absent: an older server */
   everyoneAbove: z.object({ access: Access, folder: RelPath.nullable() }).nullable().optional(),
+  /** the rules give more access here or in a rule folder below to someone `changes` cannot count: a person switched
+   * off (when switched back on), or whoever joins the team or a group the rules name (an empty group counts nobody
+   * today). The Files page's panel asks before saving then too. Absent: an older server */
+  latentMore: z.boolean().optional(),
   /** less first, then more */
   changes: z.array(FolderEditChange),
   /** the rule folders below that change too, in the tree's order (at most 20; `belowMore` others) */
