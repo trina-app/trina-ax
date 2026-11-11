@@ -19956,15 +19956,18 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   page cannot draw, hide or fake it); gone when the call ends or the person presses 멈추기 (stop cancels every running
   call and denies open questions). The row still takes its place in the toolbar while it shows (the page moves down by
   it), as the site question and the notice line do.
-- **Kept unmistakable:** text that names who is in control, motion (the pulsing dot; static under "reduce motion"), the
-  only accent line on the screen, and the strongest button in the pane. The site question card keeps its accent border:
+- **Kept unmistakable:** text that names who is in control, motion (the pulsing dot; static under "reduce motion"), an
+  accent line across the whole top of the page (the only one there; the edge handle's accent line shows only under the
+  pointer or the keyboard), and the strongest button in the pane. The site question card keeps its accent border:
   it is a question to the person, not this signal.
 - **No solid colour before the first paint:** the toolbar view's body is never the accent colour. Under the toolbar,
   where the page goes, it shows the theme's canvas (`--bg`); while the tab's page loads, one quiet line "페이지를 여는
   중…" with a small spinner; with no tab and the AI not at work, the old one-line hint. A tab is put on screen
   (`setVisible`) only once its first real page commits (`did-navigate` to anything but about:blank) or fails with an
   error page: an empty tab (about:blank, white in dark mode too) is never shown, and its tab is called "새 탭", not
-  "about:blank". It stays attached with its size, so the AI's page reads and clicks see the same viewport as before; a
+  "about:blank". Left as is: from the commit to the site's first paint the tab shows its own white base for a moment, as
+  any browser does (showing it later, at its first paint, is not possible while it is hidden: a hidden page does not
+  paint). It stays attached with its size, so the AI's page reads and clicks see the same viewport as before; a
   screenshot of a still-empty tab draws it first. The window's own colour (behind the views before they draw) follows
   the system's light or dark look (`nativeTheme`), in place of a fixed light grey.
 - **Rejected:** keeping the orange bar in a softer tint (still a wash of colour on every call); a coloured frame of 1 px
@@ -19988,13 +19991,15 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   toolbar's view reaches 6 px to the left over the team page's right edge; that strip is transparent (the view's own
   background is `#00000000`, its page paints only the pane) and is the handle, full height: a 1 px line, the
   `col-resize` cursor, a 2 px accent line on hover, focus and while dragging, as `PanelDivider`. The toolbar view is kept
-  above the team page and the host strip for it. Drag it; double-click for the default width (45% of the window,
+  above the team page and the host strip for it. Cost, accepted: the team page's last 6 px take no clicks or wheel of
+  their own (a scrollbar shown all the time there is 6 px narrower to grab), as the web's divider takes 5 px of its
+  panel; the strip cannot sit over the browser's page instead, because the page's view is above the toolbar's. Drag it; double-click for the default width (45% of the window,
   forgotten); focus it (Tab in the toolbar) and use ←/→ (24 px, Shift 96 px), Home and End. It is a `separator` with its
   width and limits as aria values.
 - **Limits and memory, as the web's panels:** the team page keeps 360 px and the browser 400 px (the window's minimum
   width, 900 px, leaves room for both; where a window is narrower the browser's minimum wins). The width is kept as a
-  share of the window in `window.json` (`paneFraction`; absent: the default), written when a drag ends, on a key and on a
-  double-click as well as when the window closes, so a window resize keeps the share within the limits and a restart
+  share of the window in `window.json` (`paneFraction`; absent: the default), written when a drag ends, a moment after
+  the keys stop and on a double-click as well as when the window closes, so a window resize keeps the share within the limits and a restart
   brings it back. A press without a 3 px move changes nothing.
 - **Layout:** the edge's page sends the edge's screen position once per animation frame while dragging (the views move
   under the pointer, so not its own coordinates); the main process lays out the team page, the host strip, the toolbar
@@ -20004,8 +20009,8 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   the drag ends (or a click without a drag), the keyboard goes back to the view that had it before the press, if the
   toolbar still has it, that view is still on screen and no dialog or menu of the app is open; the team page's own
   element (the message box, its draft and caret) is kept by focusing the view. The press does not count as "the
-  person's last action was in the in-app browser", so a page load there still does not take the keyboard
-  (`keyboardTaken`). During the drag nothing else takes the keyboard. Giving it back during the drag was rejected: the
+  person's last action was in the in-app browser" (that is set back when the drag starts), so a page load there during
+  or after the drag still does not take the keyboard (`keyboardTaken`). During the drag nothing else takes the keyboard. Giving it back during the drag was rejected: the
   pointer capture of a drag in a view that lost the focus is not something to rely on across systems.
 - **Rejected:** a gutter of a few px between the two pages (always visible, narrows the browser); a separate view for
   the handle (not reachable by Tab from the toolbar); remembering px (overflows a smaller window).
@@ -20013,6 +20018,7 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   width, the edge from screen coordinates, keys, the grab strip; the channels answer only the toolbar), e2e
   `desktop/e2e/pane-resize.spec.ts` (a drag moves both views' bounds; the limits; a press without a move; a smaller and
   a bigger window; the width after a restart; keys, Shift, Home, End and their aria values; a double-click; the
-  message box keeps the keyboard, its draft and caret across a drag, typing goes on there; the address bar keeps it).
+  message box keeps the keyboard, its draft and caret across a drag, typing goes on there, also when the AI loads a
+  page in the browser during the drag; the address bar keeps it).
 - Version impact: **minor** (new desktop behaviour; no API, bridge or data change; `window.json` keeps its field).
   Ships with the next desktop release.

@@ -249,8 +249,8 @@ export class BrowserPane {
    * left over the team page's edge: that strip is the edge's handle (transparent, common/pane-width.ts), so the
    * toolbar view stays above the team page and the host strip. The active tab sits under the toolbar and above it; it
    * is not drawn (setVisible false) until its first real page commits: before that the toolbar view's own neutral
-   * surface and loading state show there, never a blank white page or a solid colour. The page keeps its size while
-   * the AI drives (the signal is in the toolbar).
+   * surface and loading state show there, never an empty white tab or a solid colour. The page is not framed or
+   * narrowed while the AI drives (the signal is in the toolbar; its row there moves the page down while it shows).
    */
   private layout() {
     if (this.disposed || this.host.win.isDestroyed()) return

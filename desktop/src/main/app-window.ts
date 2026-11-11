@@ -111,6 +111,8 @@ export class AppWindow {
   private beforeToolbarFocus?: { keys?: { view: WebContentsView; inPane: boolean }; at: number }
   /** the keyboard and personInPane just before the latest mouse press in the browser toolbar's view */
   private toolbarPress?: ToolbarPress
+  /** window.json is written a moment after the edge's keys stop */
+  private saveTimer?: NodeJS.Timeout
   /** origin the app view shows: the team address or its direct LAN address */
   private currentOrigin = ''
   private directOrigin: string | null = null
@@ -973,6 +975,9 @@ export class AppWindow {
     if (phase === 'start') {
       const press = this.toolbarPress && Date.now() - this.toolbarPress.at < 2000 ? this.toolbarPress : undefined
       this.drag = { press }
+      // a press on the edge is not the person acting in the in-app browser: a page load there during the drag (the AI
+      // at work) must not keep the keyboard (common/keyboard-focus.ts keyboardTaken)
+      if (press) this.personInPane = press.personInPane
       return
     }
     if (phase === 'move') {
@@ -997,7 +1002,9 @@ export class AppWindow {
     if (next === null) return
     const [w] = this.win.getContentSize()
     this.setPaneFraction(settlePane(next, w, this.paneFraction))
-    this.saveWindow()
+    // a held arrow key repeats: written once it stops
+    clearTimeout(this.saveTimer)
+    this.saveTimer = setTimeout(() => this.saveWindow(), 400)
   }
 
   private setPaneFraction(f: number | null) {
@@ -1008,6 +1015,7 @@ export class AppWindow {
 
   /** window.json: the window's size and the browser's width, kept across restarts (also written when the window closes) */
   private saveWindow() {
+    clearTimeout(this.saveTimer)
     if (this.win.isDestroyed()) return
     const [width, height] = this.win.getSize()
     this.o.store.saveWindow({ width, height, ...(this.paneFraction === null ? {} : { paneFraction: this.paneFraction }) })

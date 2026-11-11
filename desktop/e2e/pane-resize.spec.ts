@@ -5,9 +5,16 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { ACME, addTeam, bindWindow, chrome, close, dragEdge, launch, newUserData, paneViews, signIn, teamPage } from './helpers'
+import { ACME, addTeam, answer, bindWindow, call, chrome, close, dragEdge, launch, newTurn, newUserData, paneViews, result, SHOP, signIn, teamPage } from './helpers'
 
-const windowJson = (userData: string) => JSON.parse(readFileSync(join(userData, 'window.json'), 'utf8')) as { paneFraction?: number }
+/** window.json as the app wrote it (nothing yet: empty) */
+const windowJson = (userData: string): { paneFraction?: number } => {
+  try {
+    return JSON.parse(readFileSync(join(userData, 'window.json'), 'utf8')) as { paneFraction?: number }
+  } catch {
+    return {}
+  }
+}
 
 async function contentSize(app: ElectronApplication, width: number, height: number) {
   await app.evaluate(({ BaseWindow }, s) => BaseWindow.getAllWindows()[0]!.setContentSize(s.width, s.height), { width, height })
@@ -108,7 +115,8 @@ test('the focused edge: arrow keys, Shift, Home and End; a double-click resets',
     await expectEdge(app, 1080)
     await expect(edge).toHaveAttribute('aria-valuenow', '1080')
     await expect(edge).toBeFocused()
-    expect(windowJson(userData).paneFraction).toBeCloseTo(0.75, 3)
+    // written once the keys stop
+    await expect.poll(() => windowJson(userData).paneFraction).toBeCloseTo(0.75, 3)
     // a double-click: the default width again, nothing remembered
     await edge.dblclick()
     await expectEdge(app, 648)
@@ -191,6 +199,69 @@ test('a drag of the edge keeps the keyboard where it was: the team page\'s messa
     await expectEdge(app, 680)
     await expect.poll(() => keyboardAt(app)).toMatch(/\/pane\.html$/)
     expect(await c.evaluate(() => document.activeElement?.id)).toBe('pane-address')
+  } finally {
+    await close(app)
+  }
+})
+
+/** The person clicks an element of a view: the view gets the keyboard, then the press and release reach its page. */
+async function personClicks(app: ElectronApplication, p: Page, selector: string) {
+  const at = await p.locator(selector).evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+  })
+  await app.evaluate(({ webContents }, { url, x, y }) => {
+    const w = webContents.getAllWebContents().find((c) => c.getURL() === url)!
+    w.focus()
+    w.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+    w.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+  }, { url: p.url(), ...at })
+}
+
+test('the AI loads a page while the person drags the edge: the keyboard still goes back to the message box', async () => {
+  const app = await launch(newUserData())
+  try {
+    const page = await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
+    await (await page.context().newCDPSession(page)).send('Emulation.setFocusEmulationEnabled', { enabled: false })
+    await expect.poll(() => windowFocused(app), { timeout: 5000 }).toBe(true).catch(() => {})
+    test.skip(!(await windowFocused(app)), 'the window did not get the focus: another app is in front')
+    await contentSize(app, 1440, 900)
+    // the shop is allowed for this turn and open in the browser
+    newTurn()
+    const first = await call(ACME, 'navigate', { url: `${SHOP}/` })
+    await answer(app, '이번만 허용', 'site')
+    expect((await result(ACME, first.callId)).result.ok).toBe(true)
+    await expectEdge(app, 648)
+    // the person clicks into the team page's message box and has a draft there
+    await page.evaluate(() => {
+      const box = document.createElement('textarea')
+      box.id = 'message'
+      box.style.cssText = 'position:fixed;left:20px;bottom:20px;width:300px;height:60px'
+      document.body.append(box)
+    })
+    await personClicks(app, page, '#message')
+    await expect.poll(() => keyboardAt(app)).toMatch(/^http:\/\/acme\.localhost:19151/)
+    expect(await typeAtKeyboard(app, 'hi')).toMatch(/^http:\/\/acme\.localhost:19151/)
+    await expect.poll(() => page.evaluate(() => (document.getElementById('message') as HTMLTextAreaElement).value)).toBe('hi')
+
+    // the person holds the edge; meanwhile the AI opens another page in the browser
+    await dragEdge(app, 700, { release: false })
+    const nav = await call(ACME, 'navigate', { url: `${SHOP}/?during-drag=1` })
+    expect((await result(ACME, nav.callId)).result.ok).toBe(true)
+    // the page load did not keep the keyboard in the browser's tab
+    await expect.poll(() => keyboardAt(app)).not.toMatch(/shop\.test/)
+    await app.evaluate(({ BaseWindow }) => {
+      const win = BaseWindow.getAllWindows().find((w) => w.contentView.children.length > 0)!
+      const content = win.getContentBounds()
+      const v = (win.contentView.children as (Electron.View & { webContents?: Electron.WebContents })[]).find((x) => x.webContents?.getURL().endsWith('/pane.html'))!
+      const h = Math.round(v.getBounds().height / 2)
+      v.webContents!.sendInputEvent({ type: 'mouseUp', x: 3, y: h, globalX: content.x + 697, globalY: content.y + h, button: 'left', clickCount: 1 })
+    })
+    await expectEdge(app, 740)
+    // released: typing goes on in the message box
+    await expect.poll(() => keyboardAt(app)).toMatch(/^http:\/\/acme\.localhost:19151/)
+    expect(await typeAtKeyboard(app, 'yo')).toMatch(/^http:\/\/acme\.localhost:19151/)
+    await expect.poll(() => page.evaluate(() => (document.getElementById('message') as HTMLTextAreaElement).value)).toBe('hiyo')
   } finally {
     await close(app)
   }
