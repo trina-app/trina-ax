@@ -63,7 +63,7 @@ export function AiAppRows({ on, onConnect, connected = [] }: { on: boolean; onCo
               <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
             </span>
           )}
-          {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
+          {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0 max-md:h-11" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
         </li>
         )
       })}
@@ -184,7 +184,7 @@ export function ConnectorOff({ admin }: { admin: boolean }) {
       <CopyLine label={t('aiApps.setup.installer')} text="--public-host HOST --app-connectors" testId="ai-apps-setup-installer" />
       <CopyLine label={t('aiApps.setup.serverJson')} text={'"appConnectors": true'} testId="ai-apps-setup-json" />
       <CopyLine label={t('aiApps.setup.env')} text={`${PRODUCT.envPrefix}REMOTE_MCP_ORIGIN=https://team.example.com`} testId="ai-apps-setup-env" />
-      <a href={CONNECTOR_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:underline" data-testid="ai-apps-guide">
+      <a href={CONNECTOR_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:underline max-md:min-h-11" data-testid="ai-apps-guide">
         {t('appConnectors.guide')}
         <ExternalLink size={12} aria-hidden />
       </a>

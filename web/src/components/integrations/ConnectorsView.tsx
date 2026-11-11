@@ -95,7 +95,9 @@ export function discoverHits(t: ReturnType<typeof useT>, query: string, builtIns
 
 /** Discover, the section under the connections, like Claude's Connectors: "Top connectors" (Trina's own first, then the
  * best-known MCP services) and the rest under "More connectors" behind Show all. A card opens its page (onOpen); its +
- * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. */
+ * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. A phone (below
+ * 768 px): one row per service with hairlines between, no framed tiles (docs/DECISIONS.md "Admin and Settings on
+ * phones"). */
 export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
   /** its heading's id (useSectionIds) */
   titleId: string
@@ -145,11 +147,11 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
           </button>
         )}
       </div>
-      <ul className="grid gap-3 sm:grid-cols-2" data-testid="connector-list">{top}</ul>
+      <ul className={listCls} data-testid="connector-list">{top}</ul>
       {more.length > 0 && (
         <div id={moreId} hidden={!all} className="mt-6">
           <h4 className="mb-3 text-sm font-medium text-muted">{t('connectors.more')}</h4>
-          <ul className="grid gap-3 sm:grid-cols-2" data-testid="connector-list-more">{more}</ul>
+          <ul className={listCls} data-testid="connector-list-more">{more}</ul>
         </div>
       )}
       <p className="mt-5 text-sm text-muted">
@@ -162,8 +164,12 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
   )
 }
 
+/** The cards' list: two columns of tiles; a phone, one row each with a hairline between. */
+const listCls = 'grid gap-3 md:grid-cols-2 max-md:gap-0 max-md:divide-y max-md:divide-line max-md:border-y max-md:border-line'
+
 /** One Discover card: logo, name (a check for an official listing), one line, "by <maker>", and + or ✓ on the right.
- * The card opens the service's page; the + adds it without opening it. */
+ * The card opens the service's page; the + adds it without opening it. A phone: a row, the line cut to one, no "by"
+ * (the service's page says it), and a + of 44 px. */
 function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd }: {
   id: string
   logo: string
@@ -178,21 +184,21 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
   const t = useT()
   const body = (
     <>
-      <LogoTile src={logo} className="size-11" />
+      <LogoTile src={logo} className="size-11 max-md:size-9" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1 text-sm font-medium">
           <span className="truncate">{name}</span>
           {official && <Tooltip label={t('connectors.officialTip')} description><BadgeCheck size={14} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} /></Tooltip>}
         </span>
-        <span className="mt-0.5 line-clamp-2 text-xs text-muted">{line}</span>
-        <span className="mt-1 block text-xs text-faint">{by}</span>
+        <span className="mt-0.5 line-clamp-2 text-xs text-muted max-md:line-clamp-1">{line}</span>
+        <span className="mt-1 block text-xs text-faint max-md:hidden">{by}</span>
       </span>
     </>
   )
   return (
-    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover" data-testid="connector-card" data-id={id}>
+    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover max-md:items-center max-md:rounded-none max-md:bg-transparent max-md:px-0 max-md:py-1.5 max-md:hover:bg-transparent" data-testid="connector-card" data-id={id}>
       {onOpen ? (
-        <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2" onClick={onOpen} data-testid="connector-open">
+        <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2 max-md:items-center" onClick={onOpen} data-testid="connector-open">
           {body}
         </button>
       ) : (
@@ -200,14 +206,14 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
       )}
       {state === 'added' ? (
         <Tooltip label={t('integrations.discover.added', { name })}>
-          <span className="flex size-8 shrink-0 items-center justify-center text-ok" role="img" aria-label={t('integrations.discover.added', { name })} data-testid="connector-added">
+          <span className="flex size-8 shrink-0 items-center justify-center text-ok max-md:size-11" role="img" aria-label={t('integrations.discover.added', { name })} data-testid="connector-added">
             <Check size={16} aria-hidden />
           </span>
         </Tooltip>
       ) : state === 'off' ? (
-        <span className="shrink-0 pt-1.5 text-xs text-faint" data-testid="connector-off">{t('connectors.notOn')}</span>
+        <span className="shrink-0 pt-1.5 text-xs text-faint max-md:pt-0" data-testid="connector-off">{t('connectors.notOn')}</span>
       ) : (
-        <IconButton label={t('integrations.discover.add', { name })} className="shrink-0" onClick={onAdd} data-testid="connector-add">
+        <IconButton label={t('integrations.discover.add', { name })} className="shrink-0 max-md:size-11" onClick={onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
         </IconButton>
       )}

@@ -110,11 +110,14 @@ test('an admin who is not the owner reads the roles; the other pages keep their 
   // read, not a choice: the owner alone changes roles
   await expect(page.getByTestId('member-card-bob').locator('select')).toHaveCount(0)
   await expect(page.getByTestId('member-role-bob')).toHaveText(t['role.member'])
-  for (const [path, id] of [['/admin/groups', 'group-new'], ['/admin/usage', 'usage-csv']] as const) {
+  // Usage: Download CSV sits under the ⌄ of Usage limits on a phone (phone-list-pages.spec.ts)
+  for (const [path, id] of [['/admin/groups', 'group-new'], ['/admin/usage', 'usage-limits-link']] as const) {
     await page.goto(path)
     await expect(page.getByTestId(id)).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   }
+  await page.getByTestId('usage-limits-link-more').click()
+  await expect(page.getByTestId('usage-csv')).toBeVisible()
 })
 
 test('Connectors and AI apps say their name once on a phone (the bar), in Admin and in Settings', async ({ page }) => {

@@ -17,8 +17,9 @@ import { Button } from '../../components/ui'
 import { useAction } from './common'
 import { useUpdateInstall } from './jobs'
 
-/** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only) */
-const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
+/** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only): Home's
+ * attention rows, and Providers keeps such an account in sight on a phone */
+export const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
 /** an engine nobody set up: no program or API settings, or no sign-in or AI connection of its kind (the API engine's
  * not_logged_in is its key refused: set up, and broken) */
 const notSetUp = (e: EngineStatus) => e.status === 'not_installed' || (e.status === 'not_logged_in' && e.id !== 'api')

@@ -13,6 +13,8 @@ export interface AddMenuItem {
   icon?: ReactNode
   onSelect: () => void
   testId: string
+  /** not yet possible (Usage's Download CSV before the report is in): shown, skipped by the arrow keys */
+  disabled?: boolean
 }
 
 /** A primary button with a ⌄ menu of other ways to do it. `menuLabel`: the ⌄'s name ("More ways to invite").
@@ -29,8 +31,8 @@ export function SplitAction({ label, icon, onPrimary, items, testId, menuLabel, 
 }) {
   return (
     <div className="flex shrink-0 items-stretch" data-testid={`${testId}-group`}>
-      {/* a phone: 44 px, for a finger */}
-      <Button variant="primary" className="rounded-r-none max-md:min-h-11" onClick={onPrimary} data-testid={testId}>{icon}{icon ? ' ' : ''}{label}</Button>
+      {/* a phone: 44 px, for a finger (a height: the Button's own max-sm:min-h-10 wins over a max-md min-height) */}
+      <Button variant="primary" className="rounded-r-none max-md:h-11" onClick={onPrimary} data-testid={testId}>{icon}{icon ? ' ' : ''}{label}</Button>
       <ActionMenu items={items} label={menuLabel} testId={menuTestId} />
     </div>
   )
@@ -42,7 +44,7 @@ export function ActionMenu({ items, label, testId }: { items: AddMenuItem[]; lab
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
-  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])]
   useEffect(() => {
     if (!open) return
     menuItems()[0]?.focus()
@@ -87,7 +89,8 @@ export function ActionMenu({ items, label, testId }: { items: AddMenuItem[]; lab
               key={it.testId}
               role="menuitem"
               type="button"
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover max-md:min-h-11"
+              disabled={it.disabled}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent max-md:min-h-11"
               onClick={() => {
                 setOpen(false)
                 // the dialog this opens returns the focus to the button it was opened from
@@ -123,7 +126,7 @@ export function PageActions({ primary, more = [], menuLabel }: { primary: PageAc
   return (
     <>
       {more.map((a) => (
-        <Button key={a.testId} size="sm" onClick={a.onSelect} data-testid={a.buttonTestId ?? a.testId}>
+        <Button key={a.testId} size="sm" onClick={a.onSelect} disabled={a.disabled} data-testid={a.buttonTestId ?? a.testId}>
           {a.icon} {a.label}
         </Button>
       ))}

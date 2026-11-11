@@ -19695,3 +19695,45 @@ stayed on screen. Shared parts, so every page gets them (the remaining pages mov
   roles), only the search row sticky while the list scrolls, the other pages' buttons still there, Connectors and AI
   apps named once, 768 and 1440 px unchanged), `people-console.spec.ts`.
 - Version impact: **minor** (a visible change on phones; no API, data or permission change).
+
+### The list pages (feat/phone-list-pages, 2026-11-10)
+
+PR 2 of the plan: the list-style Admin and Settings pages on the shared parts above, from the audit's fix for each.
+Below 768 px only; computers and tablets are unchanged (the 1440 px screenshots match the ones before, clock times
+aside).
+
+- **Groups:** one `CompactRow` per group: the name, "N members" on the right and ⋯, the description under it only when
+  there is one. Removed on phones: the faces and the members' names (they are in the group's dialog). The row's ⋯
+  (`RowMenu`, Members' too) is 44 px on a phone: it is the only way to Edit and Delete.
+- **Folder permissions:** By folder / By person stays a segmented control; "Only folders with rules" goes under a
+  `PhoneFilters` button on the same row.
+- **Providers (Admin):** one row per engine: its name (a 44 px target), its state, check again (44 px) and the switch,
+  and under it only what is missing (a problem's fix, "Not set up"). Its accounts with Add account, and the dim line (how
+  it signs in, its models, when it was checked; the details say the same) open with the rest when the name is tapped. An
+  account that needs a look (`CREDENTIAL_PROBLEMS`, Home's own list) keeps the accounts in sight.
+- **Connectors (Admin and Settings):** Discover's tiles are rows with hairlines, the line cut to one, no "by <maker>"
+  (the service's page says it), and a 44 px +.
+- **AI apps (Admin and Settings):** Copy, Connect, Disconnect, Setup guide and Manage are 44 px tall.
+- **Plugins:** the sections without frames (`Card flat`); one line per plugin: its name (it opens what it does, who made
+  it and its permissions), its state and its main button (Install, Turn on / off). A trust warning and why it cannot be
+  installed stay in sight; the install prompt shows the permissions again before anything is installed. "No plugins
+  are installed yet" is one line, not a block.
+- **Slack:** the cards without frames; Turn on / off, Replace tokens and Remove are 44 px tall.
+- **Usage (Admin):** "Usage limits" with Download CSV under its ⌄ (`PageActions`; a menu item can now be `disabled`,
+  CSV until the report is in); the range stays beside one Filters button with Group, Person, Engine, Model, AI connection
+  and Clear; Group by is a view choice and sits beside the breakdown's heading ("Breakdown", so it is not said twice).
+  The numbers, the chart and the breakdown stand without frames: `StatCards` is the plan's stat grid (no frames on a
+  phone, three to a row when there are three, one size down so a nine-digit total keeps one line), not a second
+  component. With Group by on Skill, its note sits under the breakdown's heading too.
+- **Activity log:** the title is for screen readers (the bar says it); the search and one Filters button are the only
+  part that stays at the top (60 px, was 145); the kind, the person, the time and Clear open under it. The kinds wrap
+  there, so Spanish no longer needs 550 px. Activity log's own phone filters are gone.
+- **Settings › Providers:** the bar says "Providers" (it said "Settings"), and the card has no frame and no second title.
+- **Settings › Usage:** the title is for screen readers; the period and Refresh (44 px) go under the line, which was
+  squeezed to four lines; the three numbers share one row; the limits and the by-model list have no frames.
+- `Card flat` has no hairline after the page's last card. `SplitAction`'s main button is 44 px on a phone like its ⌄ (a
+  height: its max-md min-height lost to the Button's own max-sm one, so Usage limits stood 40 px beside a 44 px ⌄).
+- New strings: `common.moreActions` ("More actions", Usage's ⌄) and `usage.breakdownTitle` ("Breakdown").
+- Tests: `web/test/e2e/phone-list-pages.spec.ts` (every page in English and Spanish: nothing wider than the screen, the
+  main button on the first screen, the Filters open; then each page's own fix; a computer unchanged);
+  `activity-log.spec.ts`'s phone case follows the new filters.

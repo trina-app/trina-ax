@@ -86,7 +86,8 @@ export function UsageChart({ days, points, keys, title, desc, testId = 'usage-ch
   const activeDay = active !== null ? days[active] : null
 
   return (
-    <section className="rounded-xl border border-line bg-surface p-5" data-testid={testId} aria-labelledby={`${testId}-title`}>
+    // a phone: no frame (Admin › Usage on phones, docs/DECISIONS.md "Admin and Settings on phones")
+    <section className="rounded-xl border border-line bg-surface p-5 max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0" data-testid={testId} aria-labelledby={`${testId}-title`}>
       <h3 id={`${testId}-title`} className="text-base font-medium">{title}</h3>
       <p className="mt-1 text-sm text-muted">{desc}</p>
       {empty ? (
