@@ -4,7 +4,10 @@
 // People who cannot use AI are Admin › Home's own "needs attention" line, not repeated here.
 // While the welcome steps are unfinished the steps are the owner's checklist (docs/DECISIONS.md "W5"): this one hides,
 // and when the owner hid the setup row (✕), one quiet "시작 설정 다시 보기" brings it back (OwnerSetup).
-import { ChevronRight, Circle, RotateCcw, X } from 'lucide-react'
+// `compact` (Admin's list on a phone, PhoneRoot.tsx): one row, "Before you start · 2 left", that opens its steps in
+// place, so the list's groups stay on the first screen.
+import clsx from 'clsx'
+import { ChevronDown, ChevronRight, Circle, ListChecks, RotateCcw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, API } from '../../lib/api'
@@ -12,18 +15,19 @@ import { useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { IconButton } from '../../components/ui'
+import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { technicalEngineState } from './plain'
 
 /** Admin › Home's setup part for the owner: while the welcome steps are unfinished nothing but, when the setup row was
  * hidden, "시작 설정 다시 보기"; else the checklist below. Nothing until the steps' progress is read. */
-export function OwnerSetup() {
+export function OwnerSetup({ compact }: { compact?: boolean } = {}) {
   const t = useT()
   const loaded = useWelcome((s) => s.loaded)
   const progress = useWelcome((s) => s.progress)
   const [busy, setBusy] = useState(false)
   useEffect(() => { void useWelcome.getState().load().catch(() => {}) }, [])
   if (!loaded) return null
-  if (!progress || progress.finishedAt) return <OwnerChecklist />
+  if (!progress || progress.finishedAt) return <OwnerChecklist compact={compact} />
   if (!progress.dismissedAt) return null
   const back = () => {
     setBusy(true)
@@ -32,6 +36,12 @@ export function OwnerSetup() {
       () => toast({ level: 'error', text: t('error.network') }),
     ).finally(() => setBusy(false))
   }
+  if (compact)
+    return (
+      <PhoneListGroup testId="owner-setup">
+        <PhoneListRow icon={<RotateCcw size={16} />} title={t('setupRow.show')} onClick={back} disabled={busy} testId="owner-setup-show" />
+      </PhoneListGroup>
+    )
   return (
     <section data-testid="owner-setup">
       <button type="button" disabled={busy} onClick={back} className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface px-4 py-2.5 text-left text-sm hover:bg-hover disabled:opacity-60" data-testid="owner-setup-show">
@@ -54,8 +64,18 @@ const ITEMS: { step: keyof Steps; label: MessageKey; to: string }[] = [
   { step: 'backup', label: 'owner.check.backup', to: '/admin/system' },
 ]
 
-export function OwnerChecklist() {
+const OPEN_KEY = 'mycel.ownerChecklistOpen'
+
+export function OwnerChecklist({ compact }: { compact?: boolean } = {}) {
   const t = useT()
+  // the phone's folded row: open or not, kept for the tab, so Back from a step finds the list as it was left
+  const [open, setOpenState] = useState(() => {
+    try { return sessionStorage.getItem(OPEN_KEY) === '1' } catch { return false }
+  })
+  const setOpen = (v: boolean) => {
+    setOpenState(v)
+    try { sessionStorage.setItem(OPEN_KEY, v ? '1' : '0') } catch { /* this page only */ }
+  }
   const [hidden, setHidden] = useState(() => {
     try { return localStorage.getItem(CHECK_KEY) === '1' } catch { return false }
   })
@@ -87,6 +107,22 @@ export function OwnerChecklist() {
     try { localStorage.setItem(CHECK_KEY, '1') } catch { /* this tab only */ }
     setHidden(true)
   }
+  if (compact)
+    return (
+      <PhoneListGroup testId="owner-checklist">
+        <PhoneListRow
+          icon={<ListChecks size={16} />}
+          title={t('owner.check.title')}
+          value={t('owner.check.left', { count: left.length })}
+          onClick={() => setOpen(!open)}
+          expanded={open}
+          end={<ChevronDown size={16} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />}
+          testId="owner-checklist-toggle"
+        />
+        {open && left.map((it) => <PhoneListRow key={it.step} icon={<Circle size={15} />} title={t(it.label)} to={it.to} testId={`owner-check-${it.step}`} />)}
+        {open && <PhoneListRow icon={<X size={15} />} title={t('common.hide')} onClick={hide} testId="owner-checklist-hide" />}
+      </PhoneListGroup>
+    )
   return (
     <section aria-labelledby="owner-check" data-testid="owner-checklist">
       <div className="mb-2 flex items-center justify-between">

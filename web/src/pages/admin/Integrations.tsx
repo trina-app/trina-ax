@@ -117,7 +117,7 @@ export default function AdminIntegrations() {
             return (
               <ConnectorDetail testId="connector-detail" logo={`/icons/connectors/${c.logo}`} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={back}
                 action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span> : (
-                  <SplitAction label={t('aiApps.connect')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
+                  <SplitAction label={t('aiApps.connect')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
                     items={[
                       { label: t('connectors.connectTeam'), onSelect: () => setDialog({ connector: c, toList: true }), testId: 'connector-connect-team' },
                       { label: t('connectors.connectTemplate'), onSelect: () => setDialog({ connector: c, startAs: 'template', toList: true }), testId: 'connector-connect-template' },

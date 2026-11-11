@@ -14,6 +14,11 @@ import { Tooltip } from './Tooltip'
 /** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
 const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
 
+/** Inside it, below 768 px, every Button and IconButton is at least 44 px (Apple's minimum touch target) and a Switch
+ * takes taps from a 44 px box around it: the form pages on a phone (Admin › Team settings and System, Settings' own
+ * sections; docs/DECISIONS.md "Admin and Settings on phones"). Elsewhere buttons keep their sizes. */
+export const PhoneTargets = createContext(false)
+
 /** primary: the one main action; secondary (default): a bordered button; ghost: no border (also a plain "no": Deny on a
  * permission card, Skip, Reject of a suggestion, like Claude Code's "No"); danger: a destructive action with a border;
  * ghost-danger: a quiet destructive action beside others that removes or discards something (Delete a project, turn off
@@ -21,6 +26,7 @@ const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(n
  * own colour can win. */
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ghost-danger'
 export function Button({ variant = 'secondary', size = 'md', busy, className, children, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: 'sm' | 'md'; busy?: boolean }) {
+  const big = useContext(PhoneTargets)
   return (
     <button
       type="button"
@@ -30,7 +36,8 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       aria-busy={busy || props['aria-busy'] || undefined}
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-2.5 text-label max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
+        size === 'sm' ? 'h-8 px-2.5 text-label' : 'h-9 px-3.5 text-sm',
+        big ? 'max-md:min-h-11' : size === 'sm' ? 'max-sm:min-h-9' : 'max-sm:min-h-10',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
         // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
         // (a busy one, with its spinner, keeps the accent: it is working, not off)
@@ -59,8 +66,9 @@ export const noKeyRepeat = (e: React.KeyboardEvent) => {
  * keyboard focus. `tip`: other words for the tooltip, when the icon needs more than its name (they describe the button);
  * `tip={false}` only inside a <Tooltip> of its own. `danger`: a destructive icon action (Delete) that turns red on hover. */
 export function IconButton({ label, danger, className, children, tip = true, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; tip?: boolean | string }) {
+  const big = useContext(PhoneTargets)
   const button = (
-    <button type="button" aria-label={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', big && 'max-md:min-h-11 max-md:min-w-11', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
       {children}
     </button>
   )
@@ -692,8 +700,9 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
 /** `id` with `external`: the switch has no text of its own; a `<label htmlFor={id}>` elsewhere on its row names it (a
  * settings row with the words on the left and the switch on the right). */
 export function Switch({ checked, onChange, label, disabled, hideLabel, testId, id, external, describedBy }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; hideLabel?: boolean; testId?: string; id?: string; external?: boolean; describedBy?: string }) {
+  const big = useContext(PhoneTargets)
   return (
-    <label className={clsx('relative inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
+    <label className={clsx('relative inline-flex cursor-pointer items-center gap-2 text-sm', big && 'touch-hit', disabled && 'cursor-not-allowed opacity-60')}>
       <input id={id} type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} aria-describedby={describedBy} />
       <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 dark:peer-checked:after:bg-accent-ink" aria-hidden />
       {!(external && id) && <span className={hideLabel ? 'sr-only' : undefined}>{label}</span>}

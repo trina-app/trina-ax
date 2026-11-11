@@ -3,20 +3,17 @@
 // connections on the same page ("Top connectors" with Trina's own Google Drive first, then the MCP services of
 // lib/connectors.ts, the rest behind Show all); and a connector's page (ConnectorDetail: a big logo, the main action,
 // what it does and its tools), which takes the place of both sections until its way back.
-import { ArrowLeft, ArrowRight, BadgeCheck, Check, ChevronDown, Plus, Search } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { ArrowLeft, ArrowRight, BadgeCheck, Check, Plus, Search } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Button, IconButton, StickyHeader, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
+import { SplitAction, type AddMenuItem } from '../PageActions'
 
-export interface AddMenuItem {
-  label: string
-  icon?: ReactNode
-  onSelect: () => void
-  testId: string
-}
+// the split button (Add ⌄, a connector's Connect ⌄) is every page's now (components/PageActions.tsx)
+export { SplitAction, type AddMenuItem } from '../PageActions'
 
 /** `onAdd`: this person may add a connection by its address (owners and admins; without it no Add button, and a
  * member adds from Discover). `moreAdd`: other ways to add (Admin: ask a member to connect), in a small menu next to
@@ -31,19 +28,15 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
   const t = useT()
   return (
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      {/* a phone: the bar above says the name (Admin's and Settings' phone bar), so only the search row stays here */}
+      <h2 className="text-lg font-semibold tracking-tight max-md:sr-only">{title}</h2>
       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
         <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
           <input type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
         </div>
         {onAdd && (moreAdd?.length ? (
-          <div className="flex shrink-0 items-stretch" data-testid="integration-add-group">
-            <Button variant="primary" className="rounded-r-none" onClick={onAdd} data-testid="integration-add">
-              <Plus size={15} aria-hidden /> {t('integrations.add')}
-            </Button>
-            <AddMenu items={moreAdd} />
-          </div>
+          <SplitAction label={t('integrations.add')} icon={<Plus size={15} aria-hidden />} onPrimary={onAdd} items={moreAdd} testId="integration-add" menuLabel={t('integrations.addMore')} />
         ) : (
           <Button variant="primary" className="shrink-0" onClick={onAdd} data-testid="integration-add">
             <Plus size={15} aria-hidden /> {t('integrations.add')}
@@ -78,86 +71,6 @@ export function goToSection(id: string, frames = 10) {
   })
 }
 
-/** A primary button with a ⌄ menu of other ways to do it (a connector's page: Connect, or as a template). */
-export function SplitAction({ label, onPrimary, items, testId }: { label: string; onPrimary: () => void; items: AddMenuItem[]; testId: string }) {
-  return (
-    <div className="flex shrink-0 items-stretch" data-testid={`${testId}-group`}>
-      <Button variant="primary" className="rounded-r-none" onClick={onPrimary} data-testid={testId}>{label}</Button>
-      <AddMenu items={items} label="connectors.connectMore" />
-    </div>
-  )
-}
-
-/** The ⌄ half of the split Add button: a small menu of the other ways to add. A dialog opened from it gets the focus
- * back on this button when it closes (the item is gone with the menu). */
-function AddMenu({ items, label = 'integrations.addMore' }: { items: AddMenuItem[]; label?: 'integrations.addMore' | 'connectors.connectMore' }) {
-  const t = useT()
-  const box = useRef<HTMLDivElement>(null)
-  const button = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
-  useEffect(() => {
-    if (!open) return
-    menuItems()[0]?.focus()
-    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
-    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', outside)
-    return () => document.removeEventListener('mousedown', outside)
-  }, [open])
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (!open) return
-    if (e.key === 'Escape' || e.key === 'Tab') {
-      if (e.key === 'Escape') e.stopPropagation()
-      setOpen(false)
-      button.current?.focus()
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      const all = menuItems()
-      const at = all.indexOf(document.activeElement as HTMLElement)
-      all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus()
-    }
-  }
-  return (
-    <div ref={box} className="relative" onKeyDown={onKeyDown}>
-      <Tooltip label={t(label)}>
-        <button
-          ref={button}
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label={t(label)}
-          onClick={() => setOpen((v) => !v)}
-          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-sm:min-h-10"
-          data-testid="integration-add-more"
-        >
-          <ChevronDown size={15} aria-hidden />
-        </button>
-      </Tooltip>
-      {open && (
-        <div role="menu" aria-label={t(label)} className="absolute top-full right-0 z-30 mt-1 w-64 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          {items.map((it) => (
-            <button
-              key={it.testId}
-              role="menuitem"
-              type="button"
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover"
-              onClick={() => {
-                setOpen(false)
-                // the dialog this opens returns the focus to the button it was opened from
-                button.current?.focus()
-                it.onSelect()
-              }}
-              data-testid={it.testId}
-            >
-              {it.icon} {it.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** A connection fits the search box: its name or address. */
 export const matchesQuery = (i: Integration, query: string) => {
   const q = query.trim().toLowerCase()
@@ -183,7 +96,9 @@ export function discoverHits(t: ReturnType<typeof useT>, query: string, builtIns
 
 /** Discover, the section under the connections, like Claude's Connectors: "Top connectors" (Trina's own first, then the
  * best-known MCP services) and the rest under "More connectors" behind Show all. A card opens its page (onOpen); its +
- * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. */
+ * adds it at once (onAdd / onAddBuiltIn). With a search that nothing here fits, the section is not shown. A phone (below
+ * 768 px): one row per service with hairlines between, no framed tiles (docs/DECISIONS.md "Admin and Settings on
+ * phones"). */
 export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, builtIns = [], onAddBuiltIn, onOpen, onOpenBuiltIn, className }: {
   /** its heading's id (useSectionIds) */
   titleId: string
@@ -233,11 +148,11 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
           </button>
         )}
       </div>
-      <ul className="grid gap-3 sm:grid-cols-2" data-testid="connector-list">{top}</ul>
+      <ul className={listCls} data-testid="connector-list">{top}</ul>
       {more.length > 0 && (
         <div id={moreId} hidden={!all} className="mt-6">
           <h4 className="mb-3 text-sm font-medium text-muted">{t('connectors.more')}</h4>
-          <ul className="grid gap-3 sm:grid-cols-2" data-testid="connector-list-more">{more}</ul>
+          <ul className={listCls} data-testid="connector-list-more">{more}</ul>
         </div>
       )}
       <p className="mt-5 text-sm text-muted" data-testid="connector-not-listed">
@@ -256,8 +171,12 @@ export function ConnectorDiscover({ titleId, connected, query, onAdd, onCustom, 
   )
 }
 
+/** The cards' list: two columns of tiles; a phone, one row each with a hairline between. */
+const listCls = 'grid gap-3 md:grid-cols-2 max-md:gap-0 max-md:divide-y max-md:divide-line max-md:border-y max-md:border-line'
+
 /** One Discover card: logo, name (a check for an official listing), one line, "by <maker>", and + or ✓ on the right.
- * The card opens the service's page; the + adds it without opening it. */
+ * The card opens the service's page; the + adds it without opening it. A phone: a row, the line cut to one, no "by"
+ * (the service's page says it), and a + of 44 px. */
 function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd }: {
   id: string
   logo: string
@@ -272,21 +191,21 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
   const t = useT()
   const body = (
     <>
-      <LogoTile src={logo} className="size-11" />
+      <LogoTile src={logo} className="size-11 max-md:size-9" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1 text-sm font-medium">
           <span className="truncate">{name}</span>
           {official && <Tooltip label={t('connectors.officialTip')} description><BadgeCheck size={14} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} /></Tooltip>}
         </span>
-        <span className="mt-0.5 line-clamp-2 text-xs text-muted">{line}</span>
-        <span className="mt-1 block text-xs text-faint">{by}</span>
+        <span className="mt-0.5 line-clamp-2 text-xs text-muted max-md:line-clamp-1">{line}</span>
+        <span className="mt-1 block text-xs text-faint max-md:hidden">{by}</span>
       </span>
     </>
   )
   return (
-    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover" data-testid="connector-card" data-id={id}>
+    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover max-md:items-center max-md:rounded-none max-md:bg-transparent max-md:px-0 max-md:py-1.5 max-md:hover:bg-transparent" data-testid="connector-card" data-id={id}>
       {onOpen ? (
-        <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2" onClick={onOpen} data-testid="connector-open">
+        <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2 max-md:items-center" onClick={onOpen} data-testid="connector-open">
           {body}
         </button>
       ) : (
@@ -294,14 +213,14 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
       )}
       {state === 'added' ? (
         <Tooltip label={t('integrations.discover.added', { name })}>
-          <span className="flex size-8 shrink-0 items-center justify-center text-ok" role="img" aria-label={t('integrations.discover.added', { name })} data-testid="connector-added">
+          <span className="flex size-8 shrink-0 items-center justify-center text-ok max-md:size-11" role="img" aria-label={t('integrations.discover.added', { name })} data-testid="connector-added">
             <Check size={16} aria-hidden />
           </span>
         </Tooltip>
       ) : state === 'off' ? (
-        <span className="shrink-0 pt-1.5 text-xs text-faint" data-testid="connector-off">{t('connectors.notOn')}</span>
+        <span className="shrink-0 pt-1.5 text-xs text-faint max-md:pt-0" data-testid="connector-off">{t('connectors.notOn')}</span>
       ) : (
-        <IconButton label={t('integrations.discover.add', { name })} className="shrink-0" onClick={onAdd} data-testid="connector-add">
+        <IconButton label={t('integrations.discover.add', { name })} className="shrink-0 max-md:size-11" onClick={onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
         </IconButton>
       )}

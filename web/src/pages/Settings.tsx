@@ -32,7 +32,7 @@ import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/des
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { teamAddressHost } from '../lib/team-address'
-import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
+import { Badge, Button, CopyButton, EmptyState, Field, IconButton, PhoneTargets, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
@@ -52,8 +52,9 @@ import MyUsage from '../components/settings/MyUsage'
 export default function SettingsPane({ tab }: { tab: string }) {
   const me = useMeStrict()
   const browser = browserSettingsBridge()
+  // the form-like sections: 44 px buttons on a phone (components/ui.tsx PhoneTargets); the list-like ones are their own
   return (
-    <>
+    <PhoneTargets.Provider value={FORM_TABS.has(tab)}>
       {tab === 'profile' && <Profile />}
       {tab === 'security' && <Security />}
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
@@ -68,9 +69,11 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'providers' && <MyCredentials />}
       {tab === 'about' && <About />}
       {tab === 'account-delete' && <AccountDeletion key={`${me.user.id}:${me.session.id}`} />}
-    </>
+    </PhoneTargets.Provider>
   )
 }
+
+const FORM_TABS = new Set(['profile', 'security', 'browser', 'memory', 'allowances', 'notifications', 'about', 'account-delete'])
 
 /** `page`: the title is the section's own name, which a phone's bar already shows (SettingsDialog.tsx): there it is
  * kept for screen readers only. */
@@ -84,12 +87,13 @@ function Section({ title, children, desc, page }: { title: string; children: Rea
   )
 }
 
-/** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (on a
- * phone the control goes under its name). `framed`: a field with its own frame (the profile form's), which needs no
- * hairline under it on a phone. `quietHint`: on a phone the hint is for screen readers only (an error still shows). */
-function Row({ label, hint, htmlFor, hintId, hintError, framed, quietHint, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; quietHint?: boolean; children: React.ReactNode }) {
+/** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (below
+ * 768 px the control goes under its name). `framed`: a field with its own frame (the profile form's), which needs no
+ * hairline under it on a phone. `quietHint`: on a phone the hint is for screen readers only (an error still shows).
+ * `value`: a value to read, not a control (the username): it stays on the right on a phone too. */
+function Row({ label, hint, htmlFor, hintId, hintError, framed, quietHint, value, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; quietHint?: boolean; value?: boolean; children: React.ReactNode }) {
   return (
-    <div className={clsx('flex flex-col gap-2 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6', framed && 'max-md:border-b-0')}>
+    <div className={clsx('flex border-b border-line py-3 last:border-b-0 md:flex-row md:items-center md:justify-between md:gap-6', value ? 'items-start justify-between gap-4' : 'flex-col gap-2', framed && 'max-md:border-b-0')}>
       <div className="min-w-0">
         {htmlFor ? (
           <label htmlFor={htmlFor} className="text-sm text-ink">
@@ -104,7 +108,7 @@ function Row({ label, hint, htmlFor, hintId, hintError, framed, quietHint, child
           </p>
         )}
       </div>
-      <div className="min-w-0 sm:w-72 sm:max-w-[60%] sm:shrink-0">{children}</div>
+      <div className={clsx('min-w-0 md:w-72 md:max-w-[60%] md:shrink-0', value && 'max-md:max-w-[60%] max-md:text-right')}>{children}</div>
     </div>
   )
 }
@@ -205,26 +209,26 @@ function Profile() {
           )}
         </form>
         <div className="mt-2">
-          <Row label={t('auth.username')}>
-            <span className="block truncate text-sm text-muted sm:text-right" data-testid="profile-username">
+          <Row label={t('auth.username')} value>
+            <span className="block truncate text-sm text-muted md:text-right" data-testid="profile-username">
               {me.user.username}
             </span>
           </Row>
-          <Row label={t('settings.role')}>
+          <Row label={t('settings.role')} value>
             {/* phones: the role in words, not a badge */}
             {phone ? (
-              <span className="block text-sm text-muted sm:text-right">
+              <span className="block text-sm text-muted md:text-right">
                 {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
               </span>
             ) : (
-              <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted sm:justify-end">
+              <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted md:justify-end">
                 <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
               </span>
             )}
           </Row>
           {/* the team owner and the admins delete accounts: this asks them (App Store review 5.1.1(v)) */}
           <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
-            <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline sm:text-right" data-testid="account-deletion-link">
+            <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
               {t('accountDeletion.title')}
             </Link>
           </Row>
@@ -243,7 +247,7 @@ function Profile() {
                 aria-checked={checked}
                 lang={choice ?? undefined}
                 onClick={() => void setLocale(choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))}
-                className={clsx('rounded-lg border px-3 py-2 text-sm', checked ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}
+                className={clsx('rounded-lg border px-3 py-2 text-sm max-md:min-h-11', checked ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}
                 data-testid={`locale-${choice ?? 'team'}`}
               >
                 {label}
@@ -256,7 +260,7 @@ function Profile() {
       <Section title={t('settings.theme')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.theme')}>
           {(['system', 'light', 'dark'] as Theme[]).map((x) => (
-            <button key={x} type="button" role="radio" aria-checked={theme === x} onClick={() => void setTheme(x).catch(() => {})} className={clsx('rounded-lg border px-3 py-2 text-sm', theme === x ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}>
+            <button key={x} type="button" role="radio" aria-checked={theme === x} onClick={() => void setTheme(x).catch(() => {})} className={clsx('rounded-lg border px-3 py-2 text-sm max-md:min-h-11', theme === x ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}>
               {t(`settings.theme.${x}`)}
             </button>
           ))}
@@ -588,18 +592,19 @@ function Memories() {
       )}
       {items && (items.length > 0 || editing === 'new') && (
         <>
-          <ul className="divide-y divide-line rounded-xl border border-line" data-testid="memory-list">
+          {/* phones: plain rows under the section, like the devices (no frame around them) */}
+          <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="memory-list">
             {editing === 'new' && (
-              <li className="px-4 py-3 text-sm" data-testid="memory-new">
+              <li className="py-3 text-sm md:px-4" data-testid="memory-new">
                 <MemoryForm submitLabel={t('memory.add')} onSubmit={add} onCancel={() => setEditing(null)} testId="memory-form" />
               </li>
             )}
             {items.map((m) => editing === m.id ? (
-              <li key={m.id} className="px-4 py-3 text-sm" data-testid="memory-item" data-editing="true">
+              <li key={m.id} className="py-3 text-sm md:px-4" data-testid="memory-item" data-editing="true">
                 <MemoryForm initial={m.text} submitLabel={t('common.save')} onSubmit={(text) => update(m.id, text)} onCancel={() => setEditing(null)} testId="memory-form" />
               </li>
             ) : (
-              <li key={m.id} className="group flex items-start gap-2 px-4 py-3 text-sm" data-testid="memory-item">
+              <li key={m.id} className="group flex items-start gap-2 py-3 text-sm md:px-4" data-testid="memory-item">
                 <span className="min-w-0 flex-1">
                   <span className="block break-words whitespace-pre-wrap" data-testid="memory-text">{m.text}</span>
                   <span className="mt-0.5 block text-xs text-faint">

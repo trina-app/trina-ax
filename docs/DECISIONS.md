@@ -21118,3 +21118,199 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   route, the admin switch), `b-often-asked-words.test.ts` (the app's prompts against web/src/i18n, how words are read);
   the route in the P4 matrix; web unit `home-no-ai`, `often-asked`, `team-prepared`; e2e `often-asked.spec.ts`.
 - Version impact: **minor** (a Home section, a team setting on by default, migration 285, two Home sections removed).
+
+## Admin and Settings on phones: a list you tap into (feat/phone-admin-list, 2026-11-10, product owner)
+
+넣을 곳: Team AX core (`web/src/pages/admin/`, `web/src/components/settings/SettingsDialog.tsx`, `web/src/components/phone/`,
+`web/src/lib/backStack.ts`), 이유: the phone app is the web app in a web view, so its navigation is the web app's.
+
+The owner, with a screenshot of Admin on a phone: "Usually it's like iPhone Settings: a vertical scroll, and you tap
+into pages, no?" Below 768 px Admin was a sideways strip of 13 links (1,634 px wide, most of them off screen) above
+Home's cards; Settings already opened on a list, but its rows replaced the history, so the phone's own Back from a
+section left Settings. Plan: `docs/AGENTS/plan/20261110-1336-phone-admin-list.md` (the audit of every page at 390 px,
+the references, the review). This is the first part (navigation); the page patterns follow in their own PRs.
+
+- **Phones (below 768 px):** `/admin` is a list (`PhoneRoot.tsx`): the team's logo and "<team> admin", the scope line,
+  the "needs attention" rows (Home's), the owner's setup steps folded into one row ("Before you start · 2 left", opens in
+  place), then the menu's groups as rows with an icon, a short value ("2", "Claude Code", "$0.47", "5 min ago") or a
+  "N to fix" badge, and a chevron. Values are what Home reads already (`overview.tsx`, one hook for both; no new
+  request); a badge counts the attention rows that open that page, so the two never disagree; a source that failed
+  shows "—". Removed on phones: the strip, Home's cards and headings, the Home row, "Nothing needs attention".
+- **One phone list and one bar** (`components/phone/PhoneList.tsx`, `PhonePageBar.tsx`): Admin's list and the 나 list
+  (Settings) use the same rows (48 px, chevrons, values on the right, hairlines from the name); every phone page with ‹
+  uses the same bar (Admin's, Settings' sections, the top bar's pages under a tab). The phone top bar steps aside for
+  `/admin`, which draws the bar itself.
+- **‹ and its label.** ‹ is `useGoBack` as everywhere (lib/back.ts: back in history, else the list in place of the
+  entry). Its label names where Back goes: "‹ Admin", "‹ Settings", the admin page that opened this one ("‹ Usage"
+  over Team settings' limits); ‹ alone when Back goes somewhere without a name here (Admin opened from ☰ › Search) or to
+  the same page. It is shown only when it fits beside the centred title.
+- **The list is always under a page** (`lib/backStack.ts`). A page entered from outside its list's area (an Inbox
+  notice, a link in a chat or in Settings, a push opening the phone app, a pasted address) gets its entry replaced by
+  the list and is pushed again, keeping `?query` and `#hash`, so Back goes page → list → where you were (Android's
+  "synthetic back stack"). What is under each entry is noted once, when the app first shows it (App.tsx, before the
+  pages render), and used only for this and for the label: Back itself is still the router's history, as "Phone
+  navigation: four tabs" decided. Never on Back/Forward or a reload (except the document's first entry, which the router
+  also reports as POP), never for a page change inside the area, never on a resize or a computer, and only once the page
+  is final (after the old-address redirects and the owner-only check; a member's `/admin/...` still goes home). It runs
+  after the page shows (the router listens to the history only after its first render), which changes nothing on screen.
+- **Scroll:** a page pushed from the list starts at the top (Admin's layout stays mounted, so it carried the list's
+  place); Back to the list or a page puts its place back (trying for up to 2 s while the page reads its data again,
+  until the person scrolls); a replace (filters), a `#hash` or a query the page scrolls to itself (`?member=`,
+  `?focus=`, `?folder=`) is left to the page. Admin's overview is kept in memory for the session, so the list draws at
+  once on Back and does not jump; on Back the owner's server checks are not asked again within a minute (any other
+  opening, Home on a computer included, asks; Admin › System's own read forgets the kept ones).
+- **Settings on phones:** the same list (the Inbox count as a badge on its row; the Connections group shows Providers,
+  Connectors and AI apps instead of a lone "More" row), rows that push (computers keep replacing, so closing the dialog
+  still steps back once), the phone bar ("‹ Settings" and the section's name), the list under a section opened from a
+  link, both kept in place for Back. Since #364 (the Inbox as its own Activity page) the Inbox row opens `/activity`
+  and 알림 (the notification settings) is a row in its group like the others (batch PR "phone settings").
+- **Folder permissions:** on a phone, By folder ↔ By person replaces its entry (a view of one page adds no history).
+- **From 768 px** (the owner's decision): Admin is the menu column and a page, so tablets (768 to 1023 px) no longer
+  show the cut-off strip. Between 768 and 1023 px the column is a narrow rail, each page's name small under its icon
+  (not in a tip: a finger has no hover): beside the app's own 280 px sidebar, a column of the full width left the page
+  280 to 330 px. From 1024 px it is the named sidebar as before.
+- **Not checked yet:** the iPhone app's edge swipe over a page whose list was put under it (the list entry was never
+  drawn, so the swipe's preview may show the page itself). It needs a device; if it looks wrong, the list draws once
+  before the page is pushed again.
+- Tests: `web/test/unit/back-stack.test.tsx` (what is under an entry, when the list goes under a page, Back to a first
+  entry, the label, the scroll, the list's values and badges, the hook in a router, a resize), `phone-nav.test.tsx`,
+  `phone-me-files.test.tsx` (a phone's row pushes, a computer's replaces), `web/test/e2e/phone-admin.spec.ts` (the
+  list, row → page → Back with the place kept, a pasted address with its query used once, an in-app link, a page
+  opening another, Folder permissions' views, Settings' Back, a member, an admin who is not the owner, no page wider than
+  the screen in English and Spanish, 820 and 1440 px).
+- Version impact: **minor** (a visible change on phones and tablets; no API, data or permission change).
+
+### The page patterns (feat/phone-page-patterns, 2026-11-10)
+
+The owner, with Admin › Members & invites at 390 px: "All of the mobile settings are a problem": three buttons on two
+rows, the line under them, a search on its own row and "Role All" on another, rows of three lines, a 266 px header that
+stayed on screen. Shared parts, so every page gets them (the remaining pages move onto them in their own PRs):
+
+- **The page header** (`admin/common.tsx` `AdminPageHeader`, and the pages that draw their own: Connectors in Admin and
+  Settings, Settings › AI apps): below 768 px the bar says the page's name, so the title is for screen readers only;
+  the line keeps one line (More) with the page's buttons at its end (the plan put them at the end of the search row;
+  the line has more room for them, and a page without a search has them there too); only the search and filters row
+  stays at the top (one row of 44 px controls; Connectors' about 64 px). Computers and tablets: as before.
+- **`PageActions`** (`components/PageActions.tsx`): one main button; on a phone the other ways go under its ⌄ (the
+  split button Connectors had, moved here as `SplitAction` / `ActionMenu`). Members: "Invite to team" ⌄ "Add
+  directly", "Team invite link". Computers: every button, the main one last.
+- **`PhoneFilters`** (`components/PhoneFilters.tsx`): on a phone a "Filters" button with the number turned on sits at
+  the end of the search row and opens the filters under it (Activity log's way). A view choice (Group by) is not a
+  filter and is not passed to it.
+- **`CompactRow`** (`components/CompactRow.tsx`): the name, its chip on the right and ⋯ on one line; a second line only
+  when it adds something. Members: the role on the right (the owner's member ↔ admin stays a select there, drawn as
+  words and an arrow, 44 px tall); the username only when it is not the name; the email when the search matched it
+  only; the badges that need a look. The first member now shows about 280 px down a 844 px screen (about 450 before).
+- Removed on phones: the visible page title and its count (the bar says the name; the title, count included, stays
+  for screen readers), the secondary buttons (under ⌄), the filter's own row, the role's own line.
+- Folder permissions' detail column sticks under the part of the header that sticks (its controls row on a phone),
+  measured again when the width crosses 768 px.
+- Tests: `web/test/e2e/phone-page-patterns.spec.ts` (the bar's name and the hidden title, the ⌄ menu, search and
+  Filters on one row with the count, compact rows (one line, the username line, the email line, an admin's read-only
+  roles), only the search row sticky while the list scrolls, the other pages' buttons still there, Connectors and AI
+  apps named once, 768 and 1440 px unchanged), `people-console.spec.ts`.
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).
+
+### The list pages (feat/phone-list-pages, 2026-11-10)
+
+PR 2 of the plan: the list-style Admin and Settings pages on the shared parts above, from the audit's fix for each.
+Below 768 px only; computers and tablets are unchanged (the 1440 px screenshots match the ones before, clock times
+aside).
+
+- **Groups:** one `CompactRow` per group: the name, "N members" on the right and ⋯, the description under it only when
+  there is one. Removed on phones: the faces and the members' names (they are in the group's dialog). The row's ⋯
+  (`RowMenu`, Members' too) is 44 px on a phone: it is the only way to Edit and Delete.
+- **Folder permissions:** By folder / By person stays a segmented control; "Only folders with rules" goes under a
+  `PhoneFilters` button on the same row.
+- **Providers (Admin):** one row per engine: its name (a 44 px target), its state, check again (44 px) and the switch,
+  and under it only what is missing (a problem's fix, "Not set up"). Its accounts with Add account, and the dim line (how
+  it signs in, its models, when it was checked; the details say the same) open with the rest when the name is tapped. An
+  account that needs a look (`CREDENTIAL_PROBLEMS`, Home's own list) keeps the accounts in sight.
+- **Connectors (Admin and Settings):** Discover's tiles are rows with hairlines, the line cut to one, no "by <maker>"
+  (the service's page says it), and a 44 px +. Since #366 Settings › Connectors leads to the Connectors page
+  (`/connectors`, its own design), so this and the header above hold for Admin › Connectors only (batch PR "phone
+  settings").
+- **AI apps (Admin and Settings):** Copy, Connect, Disconnect, Setup guide and Manage are 44 px tall.
+- **Plugins:** the sections without frames (`Card flat`); one line per plugin: its name (it opens what it does, who made
+  it and its permissions), its state and its main button (Install, Turn on / off). A trust warning and why it cannot be
+  installed stay in sight; the install prompt shows the permissions again before anything is installed. "No plugins
+  are installed yet" is one line, not a block. Replaced before it shipped: #388 made Admin › Plugins cards and a page
+  per plugin, like Connectors, and the batch PR "phone settings" keeps #388's page (this part and its tests dropped).
+- **Slack:** the cards without frames; Turn on / off, Replace tokens and Remove are 44 px tall.
+- **Usage (Admin):** "Usage limits" with Download CSV under its ⌄ (`PageActions`; a menu item can now be `disabled`,
+  CSV until the report is in); the range stays beside one Filters button with Group, Person, Engine, Model, AI connection
+  and Clear; Group by is a view choice and sits beside the breakdown's heading ("Breakdown", so it is not said twice).
+  The numbers, the chart and the breakdown stand without frames: `StatCards` is the plan's stat grid (no frames on a
+  phone, three to a row when there are three, one size down so a nine-digit total keeps one line), not a second
+  component. With Group by on Skill, its note sits under the breakdown's heading too.
+- **Activity log:** the title is for screen readers (the bar says it); the search and one Filters button are the only
+  part that stays at the top (60 px, was 145); the kind, the person, the time and Clear open under it. The kinds wrap
+  there, so Spanish no longer needs 550 px. Activity log's own phone filters are gone.
+- **Settings › Providers:** the bar says "Providers" (it said "Settings"), and the card has no frame and no second title.
+- **Settings › Usage:** the title is for screen readers; the period and Refresh (44 px) go under the line, which was
+  squeezed to four lines; the numbers share one row (answers and the estimate since #347 left out the tokens; three
+  before); the limits and the by-model list have no frames.
+- `Card flat` has no hairline after the page's last card. `SplitAction`'s main button is 44 px on a phone like its ⌄ (a
+  height: its max-md min-height lost to the Button's own max-sm one, so Usage limits stood 40 px beside a 44 px ⌄).
+- New strings: `common.moreActions` ("More actions", Usage's ⌄) and `usage.breakdownTitle` ("Breakdown").
+- Tests: `web/test/e2e/phone-list-pages.spec.ts` (every page in English and Spanish: nothing wider than the screen, the
+  main button on the first screen, the Filters open; then each page's own fix; a computer unchanged);
+  `activity-log.spec.ts`'s phone case follows the new filters.
+
+### The form pages, and Team settings in groups (feat/phone-form-pages, 2026-11-10)
+
+Admin › Team settings was one page of about 6,700 px at 390 px, each of ~25 switches under its text, and a save bar that
+Back could leave behind; System put every value under its label; buttons on these pages were 32 to 36 px. The owner
+decided that Team settings splits into pages on phones and stays one page on computers.
+
+- **Team settings on a phone** (`pages/admin/teamSettingsGroups.ts`): `/admin/settings` is a list of its groups, each a
+  page at `/admin/settings/<group>` under "‹ Team settings" (the same `PhoneList`, bar and Back as Admin's list). The
+  groups are the page's own sections in the page's order, small ones together: General (name, language, logo, time zone,
+  update window), Keeping data, Members and AI, Voice input, AI engine (AI defaults, who picks the engine, members' own
+  accounts; one new name, "AI engine"), Usage limits, File list (#391's, saves on its own like the AI groups), Company
+  profile, and Dev environment where the server has it. 8 or 9 rows, all on the first screen. (A Knowledge graph group
+  went with the knowledge graph itself, "Knowledge graph removed" above; batch PR "phone settings".)
+- **Links into it.** On a phone a `#part` of the page opens its group in place of the link (`#ai-limits` → Usage limits,
+  `#speech` → Voice input, `#ai`, `#ts-time`, the old Providers tab's addresses), keeping the
+  `#hash`. Entered from outside Admin (an Inbox notice, a pasted address), both lists go under it, so Back walks group →
+  Team settings → Admin → where you were (`useListUnderPage` takes the lists outermost first); from inside Admin (Usage's
+  "Usage limits") nothing goes under it and "‹ Usage" goes back to Usage, as for Admin's own pages. A computer opening
+  `/admin/settings/<group>` gets the one page at that group (`#anchor`), and the page now scrolls to any of its parts'
+  `#hash` (only `#ai` and `#ai-limits` did), again while the parts above it load, for up to 2 s, until the person
+  scrolls. A window resized across 768 px moves between the two (the redirect says what is under the entry, so a resize
+  never builds a back stack).
+- **One form, kept.** The groups are drawn by the one Team settings page, which stays while the list and its groups
+  change, so a change in General is still there on the list and in Keeping data; the save bar shows on the list and on
+  the groups whose fields it saves (not on the ones that save on their own), sticky at the bottom. Leaving Team settings
+  with unsaved changes on a phone keeps the changed fields in memory (`lib/keptDraft.ts`, for the same person and
+  session, until the app reloads): put back over what is saved when it opens again, so nobody else's later change is
+  undone. The parts that save with their own button (AI defaults, who picks the engine, the dev environment) keep
+  their drafts the same way when their group is left, put back only while what is saved is still what they were
+  edited from. ‹ does not ask first, since nothing is lost. "Go to the field" from the list opens General at that field.
+  Computers: as before (nothing kept).
+- **Rows** (`admin/common.tsx`): `SettingRow` `inline` keeps a switch or a short number on the right of its name below
+  768 px, the line under the name (as Settings › Notifications' `PrefRow`); a select or a text field still goes under
+  the line, full width. A section or card whose name the phone bar shows keeps it for screen readers only
+  (`BarTitleProvider`). System's rows put the value on the right of the label (`text-right`), and a long one (the
+  connection, an address, the update state) under the label. Settings › Profile: username and role on the right.
+  The rows that switched at 640 px (`SettingRow`, Settings' `Row`, System's `Row`) switch at 768 px.
+- **44 px buttons** (`components/ui.tsx` `PhoneTargets`): inside it, below 768 px, `Button` and `IconButton` are at
+  least 44 px and a `Switch` takes taps from a 44 px box (`touch-hit`). Team settings, System and Settings' own sections
+  (Profile, Security & devices, Browser, Memory, Allowed for the AI, Notifications, About) use it; other pages keep their
+  sizes. Language and theme choices and System's "Show details" are 44 px; small icon buttons inside a line keep their
+  look with a 44 px box (`touch-hit`).
+- Removed on phones: Team settings' 6,700 px page (its groups' pages instead), a group's name repeated under the bar
+  (Dev environment keeps its title, which carries the Experiment badge), the frames around the lists in Memory, Allowed
+  for the AI and Browser (plain rows, as Security's devices).
+- Not changed: the keyboard's sheets (#336), the list pages (Groups, Folder permissions, Providers, Connectors, AI apps,
+  Plugins, Slack, Usage, Activity log: their own PR; the account menu of "Members' own accounts" is Providers' and keeps
+  its rows), Settings › Apps (its QR code shows only on a computer's browser already: a phone's browser and the phone
+  app know they are one).
+- Tests: `web/test/e2e/phone-form-pages.spec.ts` (list → group → ‹ and Back; the save bar on the list, kept after
+  leaving, saved; AI defaults' draft kept; "Go to the field" from the list; `#ai-limits`, `#speech`, `#ts-time` and the
+  old Providers address open their group, Back walks the lists; the dev environment's group only where the server has
+  it; switches on the right with the line under the name; System's values on the right and 44 px buttons; Profile's
+  44 px choices; no page wider than the screen in English and Spanish; a computer's one page and a group's address
+  there), `phone-admin.spec.ts` (Usage → Usage limits under "‹ Usage"), web unit `kept-draft.test.ts` (kept once, for
+  the same person and session, never over a newer saved value) and `back-stack.test.tsx` (two lists under a group).
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).
