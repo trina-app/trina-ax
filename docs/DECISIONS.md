@@ -19951,13 +19951,15 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
 - **Who sees it, not the folder path.** The line under the name says who sees the project by the rule and in the words
   of its page's 멤버 line, from one function (`whoSeesProject`), so the two cannot differ: "멤버 3명" for the owner and
   admins (its own people, `audienceSplit`), the total ("9명이 봐요") for anyone else, "나만 봐요", "나와 관리자만 봐요".
-  A personal project, whose page has no 멤버 line, says "나만 봐요", which tells it apart from a team project. No place
-  name: nearly every project lives in Projects, so it would say the same on every card.
+  A personal project, whose page has no 멤버 line, says "나만 봐요", which tells it apart from a team project. A project
+  in the trash says who sees it now ("나와 관리자만 봐요"; its page shows the trash note instead): #355 puts its trash
+  and "no members left" notes on this line. No place name: nearly every project lives in Projects, so it would say the
+  same on every card.
 - **No "updated 2 days ago".** A project has no last-activity time in the API; adding one is a server change, left
   for later.
 - **The page line**: "Keep the files, instructions and chats for one piece of work in one place." / "한 가지 일에
   필요한 파일, 지침, 채팅을 한곳에 모아 둬요." ("채팅", the app's word, rather than "대화").
 - **Left**: the folder path on the project page (above its files) and in the message box's project picker; the
   plain-words follow-up decides those.
-- Tests: e2e `project-list-menu` (the cards of a row are one height at 1440, one card per row at 390, the who line
-  and the empty line). Version impact: **patch** (layout and words on one page; no API or data change).
+- Tests: e2e `project-list-menu` (the cards of a row are one height at 1440, also beside a name that wraps; one card
+  per row at 390; the who line and the empty line). Version impact: **patch** (layout and words on one page; no API or data change).

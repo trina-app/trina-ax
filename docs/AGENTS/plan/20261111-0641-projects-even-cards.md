@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 06:41
 - Branch: `fix/projects-even-cards`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/pages/Projects.tsx`, web i18n, the Projects list e2e). Why: the Projects page is
   core UI in all five languages (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, layout and words on one page; no API, data or permission change
@@ -53,4 +53,8 @@ e2e specs (`project-list-menu`, `project-page`, `project-participants`, `shared-
 
 ## Result
 
-Filled in at the end.
+Built as planned in https://github.com/trina-app/trina-ax/pull/374. The cards of a row are one height (the grid
+stretches its cells; two lines' room for the instructions, "No instructions." when there are none). The path line
+became who sees the project, from `whoSeesProject`, which the 멤버 line on the project page now uses too. The page
+line is plain in all five languages. The e2e test puts a name that wraps beside two short ones, so the stretch itself
+is checked at 1440, and checks one card per row at 390. Not done: last activity (no such time in the API).

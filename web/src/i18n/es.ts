@@ -841,7 +841,7 @@ export const es: Record<MessageKey, string> = {
   'files.summary.askOwnFolderPrompt': "No tenía permiso de escritura en {path}. Guarde el mismo contenido dentro de mi carpeta {folder}.",
   'files.summary.askOwnFolderHiddenPrompt': "No se permitió el guardado anterior. Guarde el mismo contenido dentro de mi carpeta {folder}.",
   'projects.title': "Proyectos",
-  'projects.desc': "Reúne en un solo lugar los archivos, las instrucciones y los chats de un trabajo.",
+  'projects.desc': "Reúna en un solo lugar los archivos, las instrucciones y los chats de un trabajo.",
   'projects.new': "Nuevo proyecto",
   'projects.edit': "Editar proyecto",
   'projects.empty': "Aún no hay proyectos",
