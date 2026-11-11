@@ -66,6 +66,23 @@ let pickedBeforeSignIn = false
 /** team default as last seen, for the sign-in screen after a sign-out */
 let lastTeamDefault: Locale | null = null
 
+/** The next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads: on sign-out
+ * and when another person signs in over this one (App.tsx useSessionLifecycle). */
+export function forgetPersonInTab() {
+  forgetTeamAttach()
+  forgetStarters()
+  forgetSkillList()
+  forgetFileUploads()
+  forgetFolderUploads()
+}
+
+/** What a sign-out empties in this window (App.tsx sets it: the live connection, the stores). It runs before another
+ * person's sign-in over the signed-in one is shown, so no screen of the new person mounts on the last one's data. */
+let beforePersonSwitch: () => void = () => {}
+export function setBeforePersonSwitch(fn: () => void) {
+  beforePersonSwitch = fn
+}
+
 export const useSession = create<SessionState>((set, get) => ({
   status: { kind: 'loading' },
 
@@ -100,6 +117,12 @@ export const useSession = create<SessionState>((set, get) => ({
     const picked = storedLocale()
     if (opts?.adoptPick && pickedBeforeSignIn && picked && me.user.localeChoice === null && picked !== me.user.locale) pendingPick = picked
     pickedBeforeSignIn = false
+    const before = get().status
+    if (before.kind === 'signed-in' && before.me.user.id !== me.user.id) {
+      // another person signed in over this one (a reset link on a shared computer): a sign-out first
+      forgetPersonInTab()
+      beforePersonSwitch()
+    }
     applyMe(me)
     set({ status: { kind: 'signed-in', me } })
     if (pendingPick && !me.user.mustChangePassword) {
@@ -112,12 +135,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   signedOut(reason) {
-    // the next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads
-    forgetTeamAttach()
-    forgetStarters()
-    forgetSkillList()
-    forgetFileUploads()
-    forgetFolderUploads()
+    forgetPersonInTab()
     pendingPick = null
     pickedBeforeSignIn = false
     storeRecentLocale(null)

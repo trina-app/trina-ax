@@ -36,6 +36,13 @@ function watch(): () => void {
   }
 }
 
+/** Signed out, or another person signed in in this window (App.tsx): no count of the last person's stays, and an answer
+ * to a read made for them is dropped. */
+export function resetInbox() {
+  asked++
+  useInbox.setState({ unread: 0 })
+}
+
 /** The unread Inbox count, kept up to date while the caller is mounted. */
 export function useInboxUnread(): number {
   useEffect(watch, [])
