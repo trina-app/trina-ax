@@ -25,13 +25,14 @@
 // - One traversal at a time (Chromium, Android's WebView, applies two backs started together and lands one entry too
 //   far): history.go, back and forward are wrapped too. A traversal someone else started is on its way until its
 //   popstate (or 700 ms): no back of ours starts meanwhile, and an overlay opened meanwhile pushes its entry after it.
-//   A step of the phone's screen history (lib/historySteps.ts `stepping`) is the same: while one is on its way no back
-//   of ours starts (its step goes past the overlays' entries and its popstate closes their overlays as a Back does),
-//   and the entries of closed overlays it lands on are its to step past, not ours to skip.
+//   A step of the phone's screen history is the same: it says so with the window event `mycel:history-steps`
+//   (`detail.stepping` true when its first step starts, false when its last one ends; lib/historySteps.ts on the
+//   screen history's side). While one is on its way no back of ours starts (its step goes past the overlays' entries
+//   and its popstate closes their overlays as a Back does), the entries of closed overlays it lands on are its to step
+//   past, not ours to skip, and an app's history.go is its own count (not stretched over the overlays).
 // - A step back that the app takes from inside an overlay (React Router's navigate(-1): a page's ‹ while the @ list is
 //   open) is a step back from the page: it goes past the overlays' entries too, and they close.
 import { useEffect, useRef, useSyncExternalStore } from 'react'
-import { historyStepping, whenStepsDone } from './historySteps'
 
 /** The history-state field of an overlay's entry: its overlay's number. */
 export const OVERLAY = 'mycelOverlay'
@@ -80,6 +81,17 @@ let inFlight = false
 /** a traversal someone else started (the router's go, a ‹) is on its way: until its popstate, or this timer */
 let othersTimer: ReturnType<typeof setTimeout> | null = null
 const othersGoing = () => othersTimer !== null
+/** The window event the phone's screen history sends when its steps start and end (lib/historySteps.ts). */
+export const HISTORY_STEPS_EVENT = 'mycel:history-steps'
+/** a step of the screen history is on its way (HISTORY_STEPS_EVENT) */
+let screenStepping = false
+const historyStepping = () => screenStepping
+function onSteps(e: Event) {
+  const on = (e as CustomEvent<{ stepping?: unknown }>).detail?.stepping === true
+  if (on === screenStepping) return
+  screenStepping = on
+  if (!on) afterTraversal()
+}
 /** no back of ours may start now: one of ours, another's or a screen-history step is on its way */
 const busy = () => inFlight || othersGoing() || historyStepping()
 /** what the router did while it was: done again on the entry it lands on */
@@ -305,9 +317,8 @@ function schedule() {
 function flush() {
   flushQueued = false
   if (typeof window === 'undefined') return
-  // one traversal at a time: after the one on its way (landed and afterTraversal schedule this again)
-  if (historyStepping()) return whenStepsDone(afterTraversal)
-  if (inFlight || othersGoing()) return
+  // one traversal at a time: after the one on its way (its end calls afterTraversal, which schedules this again)
+  if (historyStepping() || inFlight || othersGoing()) return
   // closed ones without an entry go at once
   held = held.filter((h) => !(h.closing && h.entry !== 'on'))
   const on = held.filter((h) => h.entry === 'on')
@@ -338,10 +349,7 @@ function settle() {
 /** Runs `fn` once the history is where the open overlays say (the entries of those just closed are gone). */
 export function whenOverlaysSettled(fn: () => void) {
   if (!flushQueued && !busy()) fn()
-  else {
-    waiting.push(fn)
-    if (historyStepping()) whenStepsDone(afterTraversal)
-  }
+  else waiting.push(fn)
 }
 
 /** the windows listened to, by their addEventListener (a test's window is a new one each time) */
@@ -353,6 +361,7 @@ function install() {
   // capture, added when this module loads (before the router mounts): it runs before the router's own listener, so a
   // fixed-up address is what the router reads
   window.addEventListener('popstate', onPop, true)
+  window.addEventListener(HISTORY_STEPS_EVENT, onSteps)
   here = posOf(state())
 }
 
@@ -384,7 +393,6 @@ export function holdOverlayEntry(onBack: () => void): () => void {
   } else if (busy()) {
     // after the traversal on its way (a browser drops a push made meanwhile)
     h.entry = 'owed'
-    if (historyStepping()) whenStepsDone(afterTraversal)
   } else pushEntry(h)
   held.push(h)
   return () => {
@@ -429,6 +437,7 @@ export function resetOverlaysForTest() {
   flushQueued = false
   if (othersTimer !== null) clearTimeout(othersTimer)
   othersTimer = null
+  screenStepping = false
   held = []
   leftBehind.clear()
   fixes.clear()

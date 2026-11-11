@@ -3,8 +3,7 @@
 // backed off (all at once), unless an overlay opened in that moment takes it over; a page opened from inside an overlay
 // takes its entry; a replace while one is open reaches the page's entry under it; entries of closed overlays are skipped.
 import { afterEach, expect, test } from 'bun:test'
-import { holdOverlayEntry, isOverlayEntry, OVERLAY_DEPTH, resetOverlaysForTest, whenOverlaysSettled } from '../../src/lib/backCloses'
-import { stepping } from '../../src/lib/historySteps'
+import { HISTORY_STEPS_EVENT, holdOverlayEntry, isOverlayEntry, OVERLAY_DEPTH, resetOverlaysForTest, whenOverlaysSettled } from '../../src/lib/backCloses'
 import { FakeEvent, installDom, removeDom } from './dom-host'
 
 type State = Record<string, unknown> | null
@@ -298,20 +297,18 @@ test('a sheet\'s item that opens a screen already in the stack: the screen histo
   resetOverlaysForTest()
   const sheet = holdOverlayEntry(() => {})
   holdBack = true
-  let done!: () => void
-  const stepDone = new Promise<void>((r) => (done = r))
-  // the item: the sheet closes and the screen history goes back to Trina in the same tap (lib/screenHistory.ts)
-  const step = stepping(async () => {
-    globalThis.history.go(-2)
-    await stepDone
-  })
+  // the screen history's step (lib/historySteps.ts tells it with this event)
+  const steps = (on: boolean) => globalThis.dispatchEvent(Object.assign(new FakeEvent(HISTORY_STEPS_EVENT), { detail: { stepping: on } }) as unknown as Event)
+  // the item: the sheet closes and the screen history goes back to Trina in the same tap (lib/screenHistory.ts),
+  // counting the sheet's entry itself
+  steps(true)
+  globalThis.history.go(-2)
   sheet()
   await tick()
   // only the step: ours waits
   expect(gos).toEqual([-2])
   late.shift()!()
-  done()
-  await step
+  steps(false)
   await tick()
   expect(gos).toEqual([-2])
   expect(entries[at]!.url).toBe('/')
