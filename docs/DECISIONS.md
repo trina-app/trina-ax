@@ -20877,3 +20877,44 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   tool calls each, found by a team-wide grep that hit the list lines.
 - Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
   to its own AI provider from the first night after the update (`changes/file-list.md` says so).
+
+## Follow-ups 11-12 — 한 가지 말로 "볼 수 있음 / 고칠 수 있음", Mac App Store 먼저, 읽기 카드는 읽는다고 (fix/followups-1112, 2026-11-12, QA TC-282..TC-285, TC-287)
+
+- **Admin › Folder permissions speaks the panel's words** (TC-282). The access levels are "볼 수 있음 / 고칠 수 있음 /
+  열 수 없음" ("Can view / Can edit / No access"), as in the Files page's "Who can open it" (#346), wherever Admin shows a
+  level: the tree's "who sees it", the rules and the person-by-person reasons, the edit panel's choices and its before →
+  after lines, the remove preview, By person and the project members dialog (`access.*`, five languages). The basic
+  access choices say "모두 볼 수 있음 / 모두 고칠 수 있음", the counts line "열 수 있음 · 고칠 수 있음 · 열 수 없음", the
+  sentences that said "write" say "edit" ("그중 2개를 고칠 수 있어요"), and the server's "keep a rule" message quotes the
+  new "모두: 열 수 없음". Only words change: the page, its sections and what each choice saves are the same. The user
+  guide and the docs site use the same words.
+- **The user guide's Mac install: the Mac App Store first** (TC-283, `docs/guide/guide.html`), as Settings › Apps does
+  since #343: the store link (`editions/trina/branding/apps.json`), open the app, paste the invite link or team address,
+  "들어가기"; it updates there and shows no warning. The operator's .dmg is the second way, with its Gatekeeper steps and
+  the "damaged" warning box. The two are different apps, so switching signs in again.
+- **Who gains later, group by group** (TC-284). `FolderEditPreview.latent.groups[].edit` (optional): whether whoever
+  joins that group gets edit, from the same before/after permission checks. Someone who joins two groups counts for
+  them only when that gains more than either group gives alone (then it is said of both, as the most they get: the
+  confirm says more, never less); before, a pair named both groups for one group's gain, and one group's edit made the
+  line say "열거나 고칠 수" for all of them. The confirm says the groups whose new people can edit in one line ("열거나
+  고칠 수 있게 돼요") and the ones whose new people only open it in another ("열 수 있게 돼요"). An answer without the field
+  (an older server) is said as before. `latentMore` and when Save asks are unchanged.
+- **The ask-first card for a read says it reads** (TC-285, `roomsSeenConfirmRead`, `roomAiConfirmRead`, `readsLabel`).
+  After the AI read a conversation, a read from a connected service that asks first (an HTTP API's GET or HEAD, or a
+  read whose words carry an address) says "여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 다른 서비스에서 읽어 오기
+  전에도 먼저 물어봐요. 트리나가 무언가를 읽어 오려고 해요: AI PM에서 읽어 오기. 허용할까요?", and its request is
+  "읽어 올 내용", not "보낼 내용". Writes keep "무언가를 바꾸기 전에 먼저 물어봐요" and "보낼 내용". Words only: when the
+  card is asked and what yes allows are unchanged.
+- **Save after Cancel › Discard** (TC-287, `FolderSharing.tsx`). Discard marked the panel as left, which stops a Save on
+  its way, so every later Save stopped too until the panel was opened again. Now a discard is counted (`dropped`): the
+  Save that began before it stops at its next step, a later one saves. Leaving the panel (close, another folder, a link)
+  still stops a Save for good.
+- **The panel's list is busy until its first answer** (`aria-busy`), so the rows from the folders above, which come with
+  the answer, are not missing from a "done loading" list. The `folder-sharing-panel` web unit test waited on that
+  attribute and went on early under load (it failed in about 3 of 5 full runs); it also read the panel with `get` while a
+  new folder's panel was still loading, and a failed test left its panel mounted into the next one.
+- Tests: unit `access-edit-everyone-above` (per-group edit, a pair), `b-chat-rooms` and `c-integrations-tools` (the read
+  card), `a-folders-keep`; web unit `folder-sharing` (group lines), `folder-sharing-panel` (Discard then Save, a Discard
+  during Save's ask), `access-view`; e2e `folder-access` (two groups, Discard then Save) and the specs that read the
+  access words.
+- Version impact: **patch** (words, a fix, one optional field in the admin edit preview; no data change).
