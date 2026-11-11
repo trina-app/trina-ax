@@ -93,7 +93,9 @@ export function screenOf(to: string): Screen {
       return { tab: 'files', parent: path ? folder(dirOf(path)) : null, id: `folder:${path}`, tree: true }
     }
     case 'settings':
+      // a page under a section (the account deletion request is under the profile; 보안 › 비밀번호, 보안 › 기기 under 보안)
       if (b === 'account' && c === 'delete') return s('me', '/settings/profile')
+      if (c) return s('me', `/${seg.slice(0, -1).join('/')}`)
       return b ? s('me', '/settings') : s('me', null)
     case 'activity':
       return s('me', '/settings')
