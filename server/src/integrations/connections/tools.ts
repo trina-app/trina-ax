@@ -696,15 +696,15 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       const row = resolve(a.connection)
       if (!row) return null
       const read = a.method === 'GET' || a.method === 'HEAD'
-      // the address as this person may see it: a team's or a template's without a query of its admin (store.ts view)
-      const base = row.scope === 'personal' && !row.template_id ? row.url : bareUrl(row.url)
+      // the address exactly as call() builds it, as the connection's own card shows it (gate: "Sends to")
       let url: string
-      try { url = buildUrl(base, a.path, a.query) } catch { url = a.path }
+      try { url = buildUrl(row.url, a.path, a.query) } catch { url = a.path }
       const body = read || a.body === undefined || a.body === null ? null : a.body
       const lines = body !== null && typeof body === 'object' ? argLines(body, L) : { fields: [], exact: body === null }
       const text = [`${a.method} ${url}`, body === null ? '' : typeof body === 'string' ? body : JSON.stringify(body)].filter(Boolean).join('\n\n')
       const what = say(read ? 'cardRead' : 'cardChange', L, { name: row.name })
-      const fields = [{ name: tr('roomAiChangeAction', L), value: what }, { name: say('fieldAddress', L), value: url }, ...lines.fields]
+      // a read names the address it reads ("주소"); a change where it sends ("보내는 곳", as the connection's own card)
+      const fields = [{ name: tr('roomAiChangeAction', L), value: what }, { name: read ? tr('roomAiChangeAddress', L) : say('fieldAddress', L), value: url }, ...lines.fields]
       const marks = opaqueParts([text, ...fields.map((f) => f.value)].join('\n'))
       return { what, details: [{ label: say('sendsLabel', L), text, fields, ...(marks.length ? { marks } : {}), ...(lines.exact ? { exact: true as const } : {}) }] }
     },

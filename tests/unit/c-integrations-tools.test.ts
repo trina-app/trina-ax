@@ -73,7 +73,7 @@ describe('tools made per person', () => {
     const read = card({ connection: 'my_aipm', method: 'get', path: '/tasks', query: { status: 'open' } }, 'en')!
     expect(read.what).toBe('Read from AI PM')
     expect(read.details).toEqual([{ label: 'What it sends', text: `GET ${fake.base}/api/v1/tasks?status=open`, exact: true,
-      fields: [{ name: 'Action', value: 'Read from AI PM' }, { name: 'Sends to', value: `${fake.base}/api/v1/tasks?status=open` }] }])
+      fields: [{ name: 'Action', value: 'Read from AI PM' }, { name: 'Address', value: `${fake.base}/api/v1/tasks?status=open` }] }])
     expect(card({ connection: 'my_aipm', method: 'GET', path: '/tasks' }, 'ko')!.details[0]!.fields![0]).toEqual({ name: '하는 일', value: 'AI PM에서 읽어 오기' })
     const change = card({ connection: 'my_aipm', method: 'PATCH', path: '/tasks/42', body: { title: 'Q3 plan' } }, 'en')!
     expect(change.what).toBe('Change something in AI PM')

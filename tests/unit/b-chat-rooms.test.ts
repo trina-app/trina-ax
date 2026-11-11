@@ -848,7 +848,7 @@ describe('connected services after a room read: reads without a card, one card f
     const [detail, ...more] = get.cards[0]!.details as { label: string; text: string; fields?: { name: string; value: string }[]; exact?: true }[]
     expect(more).toEqual([])
     expect(detail).toMatchObject({ label: 'What it sends', text: `GET ${svc.base}/api/v1/tasks`, exact: true })
-    expect(detail!.fields).toEqual([{ name: 'Action', value: 'Read from AI PM' }, { name: 'Sends to', value: `${svc.base}/api/v1/tasks` }])
+    expect(detail!.fields).toEqual([{ name: 'Action', value: 'Read from AI PM' }, { name: 'Address', value: `${svc.base}/api/v1/tasks` }])
     expect(JSON.stringify(get.cards[0])).not.toMatch(/my_aipm|Api request|connection:|method:/)
     expect(svc.seen.length).toBe(requests + 1)
   })
