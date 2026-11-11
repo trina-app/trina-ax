@@ -282,6 +282,10 @@ export class TurnExec {
   private error: ApiErrorBody | null = null
   /** unknown: a usage without a cost and without a list price (API engine); ids: the provider's request ids */
   private usage = { i: 0, o: 0, c: 0, seen: false, unknown: false, ids: [] as string[] }
+  /** tokens of the model calls of the run under way (Claude Code's running usage), until its own total replaces them */
+  private runningUsage = { i: 0, o: 0 }
+  /** the person's "block" budget ran out during this answer: the answer ends with this (the budget message) */
+  private budgetHit: ApiErrorBody | null = null
   private dirty = false
   private saver: ReturnType<typeof setInterval> | null = null
   private clock: ReturnType<typeof setInterval> | null = null
@@ -421,6 +425,12 @@ export class TurnExec {
   stop(reason: 'stopped' | 'timeout' | 'shutdown' = 'stopped') {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
+    this.halt(reason)
+  }
+
+  /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
+   * in one place so they never drift apart. */
+  private halt(reason?: 'stopped' | 'timeout' | 'shutdown') {
     // a turn that waited for a person holds a slot again while its engine ends (ChatRuntime.turnEngineEnding)
     try { this.rt.turnEngineEnding(this) } catch (e) { this.rt.log.warn('taking the slot back for the stop failed', { err: e, turn: this.id }) }
     this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
@@ -429,8 +439,11 @@ export class TurnExec {
     this.activeCore?.turns.invalidate(this.id, reason)
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
+    // answers held for a slot never reach their tool (a card the person answered before the stop)
     this.dropHeldAnswers()
     try { this.handle?.kill() } catch { this.quarantine() }
+    // a later stop after a budget stop: one grace timer, the latest
+    if (this.stopGrace) clearTimeout(this.stopGrace)
     this.stopGrace = setTimeout(() => {
       if (this.status !== 'finished') this.quarantine()
     }, TURN_STOP_GRACE_MS)
@@ -932,7 +945,7 @@ export class TurnExec {
       const stopped: { reason: 'used' | 'ended' | null } = { reason: null }
       const meter = trial ? createTrialMeter(credentialsOf(rt.ctx), (r) => { stopped.reason ??= r }) : undefined
       await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
-        ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
+        beforeRound: () => this.checkBudget(), ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (stopped.reason && !this.stopReason) this.error = engineError(stopped.reason === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
@@ -943,7 +956,7 @@ export class TurnExec {
     }
     // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
     // limit, never for budgets, refusals or crashes
-    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
+    if (claude && !this.stopReason && !this.budgetHit && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
   }
 
   /** The AI connection for this attempt (credentials/resolve.ts), or null with the turn's error set: none for this
@@ -970,7 +983,7 @@ export class TurnExec {
   private switchCredential(engine: CredEngine, exclude: Set<string>): boolean {
     const { rt, spec } = this
     const f = this.credentialFailure
-    if (!f || this.stopReason || this.switches >= 2) return false
+    if (!f || this.stopReason || this.budgetHit || this.switches >= 2) return false
     exclude.add(f.id)
     const next = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
     if (!next.ok) return false
@@ -1135,6 +1148,47 @@ export class TurnExec {
     if (ev.type !== 'auth') this.handle?.kill()
   }
 
+  /** A run's tokens that its total never replaced (it crashed or was killed) count as they are. */
+  private foldRunningUsage() {
+    this.usage.i += this.runningUsage.i; this.usage.o += this.runningUsage.o
+    this.runningUsage = { i: 0, o: 0 }
+  }
+
+  /**
+   * The engine's usage so far on the turn row, at once (not only at the end): a budget sums the turn rows, so this
+   * person's other answers see it, and a turn cut off by a crash keeps what it used. Once the model proxy counted a
+   * request of this turn its numbers stand (authoritative, usage_source 'proxy': credentials/broker.ts replaces the
+   * engine's on its first count); the engine's only fill in a turn the proxy counted nothing of. 'engine_unpriced':
+   * the provider gave no cost for some request and the model has no list price, so the amount is the known part only
+   * (the usage page says "price unknown"; never shown as free).
+   */
+  private recordUsage() {
+    const u = this.usage, r = this.runningUsage
+    try {
+      this.rt.db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND (usage_source IS NULL OR usage_source <> 'proxy')")
+        .run(u.i + r.i, u.o + r.o, u.c, u.unknown ? 'engine_unpriced' : 'engine', this.id)
+    } catch (e) { this.rt.log.warn('recording the usage failed', { err: e, turn: this.id }) }
+  }
+
+  /**
+   * The person's "block" budget during the answer (admin/budgets.ts budgetBlock, the check before a turn starts): used
+   * up, the answer stops like Stop does (halt: the slot taken back, tools and model requests refused at once, open
+   * cards closed and answers held for a slot dropped, the engine ended, quarantined if it does not end in time; the API
+   * engine sees the turn's abort), but without a stop reason: the
+   * answer ends as an error with the budget message. The model proxy refuses its own requests at the budget already
+   * (onProxyEvent).
+   */
+  private checkBudget() {
+    if (this.budgetHit || this.stopReason || this.status === 'finished') return
+    let b: ReturnType<typeof budgetBlock> = null
+    try { b = budgetBlock(this.rt.db, this.spec.userId, this.spec.locale) } catch (e) { this.rt.log.warn('budget check failed', { err: e, turn: this.id }); return }
+    if (!b) return
+    this.budgetHit = { code: 'budget_exceeded', message: b.message }
+    this.proxyError ??= this.budgetHit
+    this.rt.log.info('answer stopped: budget used up', { turn: this.id, budget: b.budget.id })
+    this.halt()
+  }
+
   /** The engine started with (init check) or asked the model for (model proxy, M1) a tool outside the lockdown: the
    * answer stops with the lockdown error at once, never retried (the same engine would do it again). */
   private stopAtLockdown(reason: string, source: 'init' | 'proxy') {
@@ -1160,7 +1214,11 @@ export class TurnExec {
   /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
   private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void) {
     if (this.remainingWallMs() <= 0) this.expireWall()
-    if (this.stopReason) return { exit: null, stderr: '', notes: [] as string[] }
+    // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
+    // (other answers of this person may have used it up since the last attempt)
+    this.foldRunningUsage()
+    this.checkBudget()
+    if (this.stopReason || this.budgetHit) return { exit: null, stderr: '', notes: [] as string[] }
     if (!core.launcher) throw new CoreUnavailableError('engine launcher not running')
     lr = { ...lr, timeoutMs: Math.min(lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS, this.remainingWallMs()) }
     const h = core.launcher.launch(lr)
@@ -1299,9 +1357,18 @@ export class TurnExec {
         this.subtaskProgress(e.id, e.stats)
         return
       case 'usage':
-        this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0; this.usage.seen = true
+        // a running usage is one model call of the run under way; the run's total replaces those estimates
+        if (e.running) { this.runningUsage.i += e.inputTokens; this.runningUsage.o += e.outputTokens }
+        else { this.runningUsage = { i: 0, o: 0 }; this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0 }
+        this.usage.seen = true
         if (e.costUnknown) this.usage.unknown = true
         if (e.requestId && this.usage.ids.length < 50) this.usage.ids.push(e.requestId)
+        // counted at once, so this person's other answers see it. The budget is checked again only where the answer
+        // goes on after this call (Claude Code or the API engine asked for a tool, a sub-agent called the model); a
+        // run's total and the answer's last call never turn an answer that is complete into a budget error: the next
+        // answer is refused before it starts instead
+        this.recordUsage()
+        if (e.continues) this.checkBudget()
         return
       case 'error':
         errors.push(e)
@@ -3249,7 +3316,7 @@ export class TurnExec {
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
-    for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
+    for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason || this.budgetHit ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
     for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
@@ -3260,6 +3327,9 @@ export class TurnExec {
       else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
     }
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
+    // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
+    // (a broken lockdown stays what the person reads: it says more than the budget)
+    else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null
@@ -3311,11 +3381,8 @@ export class TurnExec {
       if (core) core.turns.revoke(this.id, turnStatus, this.error?.message)
       else db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(turnStatus, new Date().toISOString(), this.error?.message ?? null, this.id)
       if (this.usage.seen) {
-        // in company-key mode the model proxy already counted (authoritative); engine numbers only fill in otherwise
-        // 'engine_unpriced': the provider gave no cost for some request and the model has no list price, so the amount
-        // is the known part only (the usage page says "price unknown"; never shown as free)
-        db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND input_tokens = 0 AND output_tokens = 0")
-          .run(this.usage.i, this.usage.o, this.usage.c, this.usage.unknown ? 'engine_unpriced' : 'engine', this.id)
+        this.foldRunningUsage()
+        this.recordUsage()
         if (this.usage.ids.length) this.rt.log.info('provider request ids', { turn: this.id, requestIds: this.usage.ids })
       }
       this.rt.store.touchChat(this.spec.chatId)
