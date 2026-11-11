@@ -1729,7 +1729,7 @@ export const en: Record<MessageKey, string> = {
   "adminHome.when.date.dawn": "on {date} at {window}",
   "adminHome.when.date.day": "on {date} at {window}",
   "adminHome.when.date.night": "on the night of {date} at {window}",
-  "adminHome.after.hwp-plugin": "Writing and filling Hangul documents now needs the HWP plugin turned on",
+  "adminHome.after.hwp-plugin": "Writing and filling Hangul documents now needs the 'HWP Preview' plugin turned on",
   "adminHome.after.hwp-plugin.go": "Open plugins",
   "adminHome.after.dismiss": "Not needed",
   "adminHome.members": "{count, plural, one {# member} other {# members}}",

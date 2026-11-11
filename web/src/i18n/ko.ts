@@ -1728,7 +1728,7 @@ export const ko = {
   "adminHome.when.date.dawn": "{date} 새벽 {window}에",
   "adminHome.when.date.day": "{date} {window}에",
   "adminHome.when.date.night": "{date} 밤 {window}에",
-  "adminHome.after.hwp-plugin": "한글 문서 쓰기·채우기는 이제 HWP 플러그인이 켜져 있어야 돼요",
+  "adminHome.after.hwp-plugin": "한글 문서 쓰기·채우기는 이제 '한글 문서 미리보기' 플러그인을 켜야 쓸 수 있어요",
   "adminHome.after.hwp-plugin.go": "플러그인 열기",
   "adminHome.after.dismiss": "필요 없어요",
   "adminHome.members": "멤버 {count}명",

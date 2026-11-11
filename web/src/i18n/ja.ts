@@ -1699,7 +1699,7 @@ export const ja: Record<MessageKey, string> = {
   "adminHome.when.date.dawn": "{date}の早朝 {window} に",
   "adminHome.when.date.day": "{date} {window} に",
   "adminHome.when.date.night": "{date}の夜 {window} に",
-  "adminHome.after.hwp-plugin": "ハングル文書の作成・入力には、HWPプラグインをオンにしておく必要があります",
+  "adminHome.after.hwp-plugin": "ハングル文書の作成・入力には、「HWPプレビュー」プラグインをオンにしておく必要があります",
   "adminHome.after.hwp-plugin.go": "プラグインを開く",
   "adminHome.after.dismiss": "不要です",
   "adminHome.members": "{count, plural, one {メンバー#人} other {メンバー#人}}",

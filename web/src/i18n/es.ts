@@ -1699,7 +1699,7 @@ export const es: Record<MessageKey, string> = {
   "adminHome.when.date.dawn": "el {date} de madrugada ({window})",
   "adminHome.when.date.day": "el {date} ({window})",
   "adminHome.when.date.night": "la noche del {date} ({window})",
-  "adminHome.after.hwp-plugin": "Escribir y rellenar documentos Hangul ahora requiere tener activado el plugin HWP",
+  "adminHome.after.hwp-plugin": "Escribir y rellenar documentos Hangul ahora requiere tener activado el plugin «Vista previa de HWP»",
   "adminHome.after.hwp-plugin.go": "Abrir plugins",
   "adminHome.after.dismiss": "No hace falta",
   "adminHome.members": "{count, plural, one {# miembro} other {# miembros}}",
