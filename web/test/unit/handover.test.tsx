@@ -180,7 +180,7 @@ describe('the Home card and the Inbox rows', () => {
     expect(handoverNoticeText(T, 'ko', n({ me: 'from', to: null }))).toBe('팀장을 넘겼어요 · 나는 관리자예요')
     expect(handoverNoticeText(T, 'ko', n({ me: 'other', to: null }))).toBe('팀장이 바뀌었어요')
     expect(handoverNoticeLines(T, n())).toEqual([])
-    expect(handoverNoticeLines(T, n({ ended: { teamAi: 1, driveShares: 2, failed: 1 } }))).toEqual(['끊은 연결: 팀 AI 1개 · 드라이브 공유 2개', '끊지 못한 연결 1개 · 관리자 › 제공자·커넥터에서 끊을 수 있어요'])
+    expect(handoverNoticeLines(T, n({ ended: { teamAi: 1, driveShares: 2, failed: 1 } }))).toEqual(['끊은 연결: 팀 AI 1개 · 드라이브 공유 2개', '끊지 못한 연결 1개 · 관리자 › AI 계정·연결한 서비스에서 끊을 수 있어요'])
     expect(handoverNoticeLines(T, n({ ended: { teamAi: 0, driveShares: 1, failed: 0 } }))).toEqual(['끊은 연결: 드라이브 공유 1개'])
     expect(handoverNoticeLines(TEN, n({ ended: { teamAi: 1, driveShares: 2, failed: 0 } }))).toEqual(['Disconnected: 1 team AI · 2 Drive shares'])
     expect(handoverNoticeLines(T, n({ recovery: 'hosted' }))[0]).toStartWith('이 팀을 신청한 호스팅 계정')

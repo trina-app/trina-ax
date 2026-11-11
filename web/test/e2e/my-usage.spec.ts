@@ -35,9 +35,11 @@ test('the owner sees their own limits, answers by model and totals, can change t
   await expect(limits.nth(0)).toContainText(t['myUsage.limit.you.month'])
   await expect(limits.nth(0)).toContainText('42% used')
   await expect(limits.nth(1)).toContainText('Design group · daily')
-  await expect(page.getByTestId('my-usage-models').getByRole('listitem')).toHaveText([/Claude · sonnet\s*75%/, /Codex · Default model\s*25%/])
+  await expect(page.getByTestId('my-usage-models').getByRole('listitem')).toHaveText([/Claude · sonnet\s*75%/, /ChatGPT · Default model\s*25%/])
   await expect(page.getByTestId('my-usage-totals')).toContainText('12')
-  await expect(page.getByTestId('my-usage-totals')).toContainText('15,400')
+  // no tokens here (Admin › Usage has them)
+  await expect(page.getByTestId('my-usage-totals')).not.toContainText('15,400')
+  await expect(page.getByTestId('my-usage-totals')).not.toContainText(t['usage.tokens'])
   await expect(page.getByTestId('my-usage-team-link')).toHaveAttribute('href', '/admin/usage')
   // the period asks the server again
   const week = page.waitForRequest((r) => r.url().includes('/api/me/usage') && new URL(r.url()).searchParams.get('period') === 'week')

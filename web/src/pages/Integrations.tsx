@@ -1,4 +1,4 @@
-// Settings › Connectors (/settings/connectors; MCP and App connectors were two sections before, their addresses lead
+// Settings › Connected apps (/settings/connectors; Connectors before, and MCP and App connectors before that, their addresses lead
 // here): one page, like Claude's Connectors. Settings says "Just for you" above it (SettingsDialog.tsx); the title is the
 // same noun as Admin's. First, services an admin asked the person to connect as their own
 // (components/integrations/AnswerDialog.tsx), then "From <team>" (components/integrations/TemplatesView.tsx FromTeam):
@@ -8,9 +8,11 @@
 // "Connected" their connections to MCP servers and APIs (used only in their own chats). Then Discover: Google Drive
 // first, then known MCP services; a card opens its page (ConnectorDetail, in the place of the list until its way back)
 // and its + adds it at once. Nothing connected yet: one quiet line, then Discover. The search filters everything.
-// "Add" takes any MCP server or API by its address. Without personal connections allowed there is no Add and no
-// Discover. Not AI apps (pages/AiApps.tsx): that is the other direction, Claude using this server. ?drive=1 (old Drive
-// links, a notice) opens Google Drive's page.
+// "Add" takes any MCP server or API by its address: owners and admins only. A member reads "Not listed? Ask an admin
+// to add it." instead (the form's kind, sign-in method, headers and scopes are an admin's job; docs/DECISIONS.md "Plain
+// words for members"). Without personal connections allowed there is no Add and no Discover. Not AI apps
+// (pages/AiApps.tsx): that is the other direction, Claude using this server. ?drive=1 (old Drive links, a notice) opens
+// Google Drive's page.
 import { Cable } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -64,14 +66,15 @@ export default function Integrations() {
     replace: (i) => state.setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === i.id ? i : x)) } : d)),
     reload,
   })
-  // ?add=1 (from Search's "Add MCP") opens the add dialog once the list says members may add their own
+  // ?add=1 (from Search's "Connect an app") opens the add dialog once the list says members may add their own, for
+  // owners and admins (a member's Search goes to this page without it)
   const [params, setParams] = useSearchParams()
   const personalAllowed = state.data?.personalAllowed
   useEffect(() => {
     if (params.get('add') !== '1' || personalAllowed === undefined) return
-    if (personalAllowed) setDialog({})
+    if (personalAllowed && admin) setDialog({})
     setParams((p) => { p.delete('add'); return p }, { replace: true })
-  }, [params, personalAllowed, setParams])
+  }, [params, personalAllowed, admin, setParams])
   useEffect(() => {
     if (params.get('drive') !== '1') return
     setOpen({ kind: 'drive' })
@@ -98,7 +101,7 @@ export default function Integrations() {
   const offForMe = !admin ? [] : team && teamAll.data ? teamAll.data.filter((x) => !team.some((y) => y.id === x.id)) : null
   return (
     <section data-testid="integrations">
-      <ConnectorsHeader title={t('integrations.title')} query={query} onQuery={(q) => { setQuery(q); setOpen(null) }} onAdd={personalAllowed ? () => setDialog({ toList: !!open }) : undefined} />
+      <ConnectorsHeader title={t('integrations.title')} query={query} onQuery={(q) => { setQuery(q); setOpen(null) }} onAdd={personalAllowed && admin ? () => setDialog({ toList: !!open }) : undefined} />
       {/* hidden, not unmounted, while a connector's page is open: back on the list they are there at once */}
       <div hidden={detail}>
         <div className="[&:not(:empty)]:mb-5">
@@ -141,7 +144,12 @@ export default function Integrations() {
           const shownMine = mine.filter((i) => matchesQuery(i, query))
           const driveShown = driveListed && DRIVE.name.toLowerCase().includes(q.toLowerCase())
           const connections = shownMine.length > 0 || driveShown || !!fromTeamShown
-          if (q && !connections && !(d.personalAllowed && discoverHits(t, query, [driveCard]).count)) return <EmptyState title={t('integrations.noMatch', { q })} />
+          // a service a member looked for and did not find: where to go next (an owner or admin has Add above)
+          if (q && !connections && !(d.personalAllowed && discoverHits(t, query, [driveCard]).count)) return (
+            <EmptyState title={t('integrations.noMatch', { q })}>
+              {d.personalAllowed && !admin && <p data-testid="connector-ask-admin">{t('integrations.discover.customHint')} {t('integrations.discover.askAdmin')}</p>}
+            </EmptyState>
+          )
           // (not before "From <team>" has answered: the line would flash and go)
           const nothingYet = !mine.length && !driveListed && fromTeamShown === false
           return (
@@ -180,7 +188,7 @@ export default function Integrations() {
                   {/* nothing connected yet: no empty box, Discover leads */}
                   {nothingYet && !q && <p className="text-sm text-muted" data-testid="integrations-empty">{t('integrations.empty')}</p>}
                   <ConnectorDiscover titleId={ids.discover} className={connections ? 'border-t border-line pt-6' : undefined} connected={mine} query={query}
-                    onAdd={(c) => setDialog({ connector: c, toList: true })} onCustom={() => setDialog({ toList: true })}
+                    onAdd={(c) => setDialog({ connector: c, toList: true })} onCustom={admin ? () => setDialog({ toList: true }) : undefined}
                     builtIns={[driveCard]} onAddBuiltIn={connectDrive} onOpenBuiltIn={() => setOpen({ kind: 'drive' })} onOpen={(c) => setOpen({ kind: 'mcp', c })} />
                 </>
               )}

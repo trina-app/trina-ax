@@ -113,7 +113,7 @@ describe('translations', () => {
   test('English counts take the singular or the plural form', () => {
     expect(translate('en', 'steps.summary', { n: 1 })).toBe('1 step')
     expect(translate('en', 'steps.summary', { n: 3 })).toBe('3 steps')
-    expect(translate('en', 'files.summary.conflicts', { n: 1 })).toBe('1 conflict copy')
+    expect(translate('en', 'files.summary.conflicts', { n: 1 })).toBe('1 saved as a copy')
     expect(translate('en', 'members.days', { n: 1 })).toBe('1 day')
     expect(translate('en', 'rules.losingLine', { name: 'Lee', paths: 'a/', n: 1 })).toBe('Lee: a/ (1 chat continues without what the AI read there before)')
     expect(translate('ko', 'steps.summary', { n: 1 })).toContain('1')
