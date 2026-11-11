@@ -77,7 +77,9 @@ export class ChunkErrorBoundary extends Component<{ children?: ReactNode; resetK
     const { error, reloading } = this.state
     if (error === null || reloading) return
     const now = reloadForChunkError(error)
-    this.setState({ reloading: now, unsent: !now && unfinishedWork(), offline: false })
+    const unsent = !now && unfinishedWork()
+    // held back by something that ends by itself (an answer streaming, a draft): the line still says it loads by itself
+    this.setState({ reloading: now, unsent, offline: !now && !unsent && !mayReloadNow() && chunkReloadAllowed() })
     if (now || mayReloadNow()) return
     // held back: out of reach again, or something would be lost; asked again once that changes
     if (serverUnreachable()) return this.waitForConnection()

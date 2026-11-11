@@ -14,6 +14,7 @@ import { readDraft, writeDraft } from '../../src/lib/localData'
 import { useChats } from '../../src/store/chats'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
+import { roomDrafts } from '../../src/store/rooms'
 import { currentLocale, translate } from '../../src/i18n'
 import { pwaFile, staticBuildId } from '../../scripts/product-pages'
 
@@ -327,6 +328,25 @@ describe('a page part that failed while the connection was down (QA TC-231)', ()
       await Bun.sleep(25)
       expect(c.reloads.n).toBe(1)
     } finally { release(); c.restore(); ChunkErrorBoundary.retryMs = was }
+  })
+
+  test('a room reply typed, its box no longer on screen (the person went to Files): held back until it is sent or cleared', async () => {
+    const was = ChunkErrorBoundary.retryMs
+    ChunkErrorBoundary.retryMs = 5
+    useUi.setState({ conn: 'reconnecting' })
+    roomDrafts.set('room-1', 'tomorrow\'s meeting notes, please')
+    const c = caught()
+    try {
+      expect(reloadWouldLose()).toBe(true)
+      useUi.setState({ conn: 'open' })
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(0)
+      // it reloads by itself once that ends: the line keeps saying so
+      expect(c.b.state).toMatchObject({ offline: true, unsent: false })
+      roomDrafts.delete('room-1')
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(1)
+    } finally { roomDrafts.clear(); c.restore(); ChunkErrorBoundary.retryMs = was }
   })
 
   test('a reload a moment ago (the guard): the button stays and nothing is asked again', async () => {

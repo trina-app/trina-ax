@@ -82,6 +82,21 @@ describe('tools made per person', () => {
     // a text body is not lines: the text stays open (no "exact")
     expect(card({ connection: 'my_aipm', method: 'POST', path: '/notes', body: 'plain text' }, 'en')!.details[0]!.exact).toBeUndefined()
     for (const c of [read, change]) expect(JSON.stringify(c)).not.toMatch(/my_aipm|Api request|connection:/)
+    // a team connection whose admin put a query in its address: a member's card leaves it out (as the connection list
+    // and the AI's tool list do), so the request is not "exactly what is sent" and stays open
+    const now = new Date().toISOString()
+    A.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, created_at, updated_at)
+      VALUES ('qa-team-api', 'team', NULL, 'carol', 'http', 'Team API', 'teamapi', ?, 'none', 'connected', ?, ?)`).run(`${fake.base}/api/v1?tenant=acme-7`, now, now)
+    A.ctx.db.query("INSERT INTO integration_access (integration_id, subject_type, subject_id) VALUES ('qa-team-api', 'everyone', '')").run()
+    try {
+      const teamCard = turn('alice').tools.get('api_request')!.card!({ connection: 'team_teamapi', method: 'GET', path: '/tasks' }, 'en')!
+      expect(teamCard.details[0]!.fields![1]).toEqual({ name: 'Address', value: `${fake.base}/api/v1/tasks` })
+      expect(teamCard.details[0]!.exact).toBeUndefined()
+      expect(JSON.stringify(teamCard)).not.toContain('tenant')
+    } finally {
+      A.ctx.db.query("DELETE FROM integration_access WHERE integration_id = 'qa-team-api'").run()
+      A.ctx.db.query("DELETE FROM integrations WHERE id = 'qa-team-api'").run()
+    }
     // what call() would refuse: the shared words
     expect(card({ connection: 'nope', method: 'GET', path: '/tasks' }, 'en')).toBeNull()
     expect(card({ connection: 'my_aipm', method: 'GET', path: '/tasks', extra: 1 }, 'en')).toBeNull()

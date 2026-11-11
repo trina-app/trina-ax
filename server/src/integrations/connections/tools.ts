@@ -581,6 +581,14 @@ export const ApiRequestInput = z.object({
 
 const bad = (why: string) => new CallError(`path ${why}`, 'bad path')
 
+/** The address of one api_request as the person may see it on a card: their own connection's in full; a team's or a
+ * template's without a query its admin set (as store.ts view and the AI's tool list show it). `whole`: nothing was left
+ * out. A path call() would refuse is shown as the AI gave it. */
+function shownUrl(row: Row, path: string, query?: Record<string, unknown>): { url: string; whole: boolean } {
+  const base = row.scope === 'personal' && !row.template_id ? row.url : bareUrl(row.url)
+  try { return { url: buildUrl(base, path, query), whole: base === row.url } } catch { return { url: path, whole: base === row.url } }
+}
+
 /** The address of one api_request: under the connection's own address only (same origin, below its path). */
 export function buildUrl(base: string, rawPath: string, query?: Record<string, unknown>): string {
   const b = new URL(base)
@@ -696,11 +704,12 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       const row = resolve(a.connection)
       if (!row) return null
       const read = a.method === 'GET' || a.method === 'HEAD'
-      // the address exactly as call() builds it, as the connection's own card shows it (gate: "Sends to")
-      let url: string
-      try { url = buildUrl(row.url, a.path, a.query) } catch { url = a.path }
+      // the address as call() builds it, without a query a team's admin set (shownUrl): then the request below is not
+      // "exactly what is sent" and stays open
+      const { url, whole } = shownUrl(row, a.path, a.query)
       const body = read || a.body === undefined || a.body === null ? null : a.body
       const lines = body !== null && typeof body === 'object' ? argLines(body, L) : { fields: [], exact: body === null }
+      lines.exact = lines.exact && whole
       const text = [`${a.method} ${url}`, body === null ? '' : typeof body === 'string' ? body : JSON.stringify(body)].filter(Boolean).join('\n\n')
       const what = say(read ? 'cardRead' : 'cardChange', L, { name: row.name })
       // a read names the address it reads ("주소"); a change where it sends ("보내는 곳", as the connection's own card)
@@ -736,11 +745,13 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         let current = row
         if (a.method !== 'GET' && a.method !== 'HEAD') {
           // the address it calls first, then the body's values (a JSON body as lines; a text body stays open)
+          // the address as the person may see it (shownUrl: a team admin's query left out), on the card only
+          const seen = shownUrl(row, a.path, a.query).url
           const lines = (L: Locale) => {
             const body = a.body !== undefined && a.body !== null && typeof a.body === 'object' ? argLines(a.body, L) : { fields: [], exact: false }
-            return { fields: [{ name: say('fieldAddress', L), value: url }, ...body.fields], exact: body.exact }
+            return { fields: [{ name: say('fieldAddress', L), value: seen }, ...body.fields], exact: body.exact }
           }
-          confirmed = false !== await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
+          confirmed = false !== await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: seen }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }
