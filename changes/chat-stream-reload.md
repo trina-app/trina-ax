@@ -1,4 +1,4 @@
 - Opening or refreshing a chat while its answer is being written no longer makes the text jump in chunks or reload the chat again and again: text that arrives while the chat loads is kept and added once it is in.
 - A question you just sent (or a regenerated answer, or another branch you picked) no longer disappears when a slow reload of the chat finishes after it.
-- Sending a message no longer reloads the whole chat twice, so older messages you scrolled up to see stay on screen.
+- Sending a message no longer reloads the whole chat twice (which also took away older messages you had scrolled up to see).
 - A step that already finished no longer shows as running again after the chat reloads.

@@ -243,16 +243,21 @@ export const useChats = create<ChatsState>((set, get) => {
     const l: Load = { promise: Promise.resolve(), events: [], again: false }
     loads.set(chatId, l)
     l.promise = (async () => {
+      let failed = false
       try {
         for (let round = 0; ; round++) {
           l.again = false
           const used = await readThread(chatId)
           if (session !== generation || (used && !l.again) || round + 1 >= LOAD_ROUNDS) return
         }
+      } catch (e) {
+        failed = true
+        throw e
       } finally {
         if (loads.get(chatId) === l) loads.delete(chatId)
-        // what came over the socket meanwhile, on top of the server's copy (a piece still beyond it reloads again)
-        if (session === generation) for (const ev of l.events) get().handleEvent(ev)
+        // what came over the socket meanwhile, on top of the server's copy (a piece still beyond it reloads again);
+        // after a failed read the thread stays marked stale and the next piece tries again, not every held one
+        if (session === generation && !failed) for (const ev of l.events) get().handleEvent(ev)
       }
     })()
     return l.promise
@@ -427,8 +432,10 @@ export const useChats = create<ChatsState>((set, get) => {
       set((s) => ({ chats: s.chats.filter((c) => c.id !== id), others: id in s.others ? Object.fromEntries(Object.entries(s.others).filter(([k]) => k !== id)) : s.others }))
     },
 
+    // a caller reads because something changed (another person's turn started or ended): a read already on its way
+    // may be older than that, so it reads once more after it
     loadThread(chatId) {
-      return load(chatId, false)
+      return load(chatId, true)
     },
 
     async loadOlder(chatId) {

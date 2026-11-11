@@ -93,7 +93,7 @@ export function applyCreated(messages: ViewMessage[], msg: Message): ViewMessage
     next[own] = msg
     return next
   }
-  const at = messages.findLastIndex((m) => !m.local)
+  const at = messages.map((m) => !m.local).lastIndexOf(true)
   const last = at >= 0 ? messages[at] : undefined
   if ((last && msg.parentId === last.id) || (!last && msg.parentId === null)) return [...messages.slice(0, at + 1), msg, ...messages.slice(at + 1)]
   return 'stale'
@@ -153,8 +153,8 @@ export function prependPage(messages: ViewMessage[], older: Message[]): ViewMess
   return [...older.filter((m) => !have.has(m.id)), ...messages]
 }
 
-/** Steps of a running answer: the server's saved copy (up to 0.3 s old) and what the socket already said. A step the
- * socket saw end stays ended; steps the save does not have yet stay. */
+/** Steps of a running answer: the server's copy as it was read and what the socket said since. A step the socket saw
+ * end stays ended; steps the copy does not have yet stay. */
 function mergeSteps(saved: Step[], live: Step[]): Step[] {
   const byId = new Map(live.map((s) => [s.id, s]))
   const out = saved.map((s) => {
@@ -183,7 +183,10 @@ export function mergeFresh(current: ViewMessage[], fresh: Message[]): ViewMessag
     if (cur && m.status === 'streaming' && cur.status !== 'streaming' && !cur.local) return cur
     return m
   })
-  for (const m of current) if (m.local && !out.some((x) => x.id === m.id)) out.push(m)
+  // a question still "sending" whose server copy is in the page already (its message.created came during the read)
+  // is not shown twice
+  const sentCopy = (m: ViewMessage) => m.local?.state === 'sending' && fresh.some((x) => x.role === 'user' && x.parentId === m.parentId && x.content === m.content && x.author?.id === m.author?.id && !current.some((c) => c.id === x.id))
+  for (const m of current) if (m.local && !out.some((x) => x.id === m.id) && !sentCopy(m)) out.push(m)
   return out
 }
 

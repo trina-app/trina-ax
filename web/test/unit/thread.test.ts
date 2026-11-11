@@ -151,4 +151,12 @@ describe('reload and own messages', () => {
     const theirs = msg({ role: 'user', parentId: a.id, content: 'two', author: { id: 'pat', name: 'Pat' } })
     expect(applyCreated([a, local], theirs)).toEqual([a, theirs, local])
   })
+  test('a reload whose page has my question already does not show its "sending" copy as well', () => {
+    const a = msg({ role: 'assistant', content: 'one' })
+    const local = optimisticUserMessage({ id: uuidv7(), chatId: CHAT, parentId: a.id, content: 'two', author: { id: 'olga', name: 'Olga' }, attachments: [], clientMessageId: 'cm-12345678', now: new Date().toISOString() })
+    const saved = msg({ role: 'user', parentId: a.id, content: 'two', author: { id: 'olga', name: 'Olga' } })
+    const answer = msg({ role: 'assistant', parentId: saved.id, status: 'streaming' })
+    expect(mergeFresh([a, local], [a, saved, answer]).map((m) => m.id)).toEqual([a.id, saved.id, answer.id])
+    expect(mergeFresh([a, local], [a]).map((m) => m.id)).toEqual([a.id, local.id])
+  })
 })

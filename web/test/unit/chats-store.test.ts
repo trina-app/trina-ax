@@ -433,6 +433,38 @@ describe('reloads while an answer streams', () => {
     expect(calls.filter((c) => c.method === 'GET')).toEqual([])
   })
 
+  test('asking to read again while a read is on its way reads once more after it (another person\'s turn ended meanwhile)', async () => {
+    const a = msg({ role: 'assistant', status: 'streaming', content: '' })
+    let ended = false
+    const open = slowServer(() => ({ items: [ended ? { ...a, status: 'done', content: 'all' } : a], nextCursor: null }))
+    const first = useChats.getState().loadThread(CHAT)
+    await tick()
+    ended = true // the read above was answered before this
+    const second = useChats.getState().loadThread(CHAT)
+    ended = false
+    open()
+    await tick()
+    ended = true
+    open()
+    await Promise.all([first, second])
+    expect(gets()).toBe(2)
+    expect(useChats.getState().threads[CHAT]!.messages[0]!.content).toBe('all')
+  })
+
+  test('a read that fails does not start one more read per piece held during it', async () => {
+    const a = msg({ role: 'assistant', status: 'streaming', content: 'ab' })
+    useChats.setState({ threads: { [CHAT]: { messages: [a], nextCursor: null, stale: false } } })
+    const waiting: (() => void)[] = []
+    route = (_m, p) => (p.endsWith('/messages') ? new Promise<Response>((r) => waiting.push(() => r(json({ error: { code: 'internal', message: 'down' } }, 500)))) : json({ items: [] }))
+    delta(1, a.id, 4, 'ef') // gap: reload
+    for (let i = 0; i < 10; i++) delta(2 + i, a.id, 6 + i, 'x')
+    for (const w of waiting.splice(0)) w()
+    await tick()
+    await tick()
+    expect(gets()).toBe(1)
+    expect(useChats.getState().threads[CHAT]!.stale).toBe(true)
+  })
+
   test('a message from another device after one I am still sending goes after the last saved one, no reload', () => {
     const a = msg({ role: 'assistant', content: 'one' })
     useChats.setState({ threads: { [CHAT]: { messages: [a], nextCursor: null, stale: false } } })
