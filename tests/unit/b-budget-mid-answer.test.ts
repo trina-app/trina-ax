@@ -1,9 +1,12 @@
 // The person's "block" budget during an answer, not only before it starts (owner decision 2026-11-11): the engine's
 // usage goes on the turn row as it comes, so this person's other answers see it, the budget is checked again after
-// each usage and between the API engine's rounds, and a used-up budget ends the answer with the budget message.
+// each model call the answer goes on from (a tool asked for, a sub-agent's call) and between the API engine's rounds,
+// and a used-up budget ends the answer with the budget message.
 //   - Claude Code's running usage (one model call's tokens in its stream) stops the answer before the run's total
 //   - four answers of one person at once near the limit: all stop, the total stays near the limit
-//   - the API engine: the round whose usage used the budget up runs none of its tool calls, and no next round is sent
+//   - the API engine: the round whose usage used the budget up runs none of its tool calls; no next round is sent
+//   - an answer that is complete is never turned into a budget error: crossing the limit with its last call or its
+//     total, it stays done, and the next send is refused before it starts
 //   - an answer cut off keeps what it used; the model proxy's count replaces the engine's (never added to it)
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type EngineId } from '@mycel/shared/api'
@@ -84,8 +87,33 @@ describe('subscription engines: the running usage', () => {
     const ev = (event: unknown, parent?: string) => p.push(JSON.stringify({ type: 'stream_event', event, ...(parent ? { parent_tool_use_id: parent } : {}) }))
     expect(ev({ type: 'message_start', message: { usage: { input_tokens: 10, cache_read_input_tokens: 90, cache_creation_input_tokens: 5, output_tokens: 1 } } })).toEqual([])
     expect(ev({ type: 'message_start', message: { usage: { input_tokens: 7, output_tokens: 1 } } }, 'toolu_a')).toEqual([])
-    expect(ev({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 3 } }, 'toolu_a')).toEqual([{ type: 'usage', running: true, inputTokens: 7, outputTokens: 3 }])
-    expect(ev({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 40 } })).toEqual([{ type: 'usage', running: true, inputTokens: 105, outputTokens: 40 }])
+    // a sub-agent's call: the main run goes on after it
+    expect(ev({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 3 } }, 'toolu_a')).toEqual([{ type: 'usage', running: true, continues: true, inputTokens: 7, outputTokens: 3 }])
+    expect(ev({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 40 } })).toEqual([{ type: 'usage', running: true, continues: true, inputTokens: 105, outputTokens: 40 }])
+    // the main AI's last call (no tool asked for): counted, never a reason to stop
+    ev({ type: 'message_start', message: { usage: { input_tokens: 20 } } })
+    expect(ev({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } })).toEqual([{ type: 'usage', running: true, inputTokens: 20, outputTokens: 5 }])
+  })
+
+  test('a complete answer crossing the limit with its last call or its total stays done; the next send is refused', async () => {
+    budget('b-last', 50)
+    try {
+      // the run's total (100 / 20) crosses the limit
+      const chat = await newChat()
+      const a = await ask(h, alice, 'alice', chat.id, fake({ say: 'Full answer.' }), { ms: 30_000 })
+      expect(a.done.status).toBe('done')
+      expect(a.done.content).toBe('Full answer.')
+      await expect(h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'again', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })).rejects.toMatchObject({ body: { code: 'budget_exceeded' } })
+    } finally { drop('b-last') }
+    budget('b-last2', 50)
+    try {
+      // the answer's last model call (no tool asked for) crosses it before the total comes
+      const chat = await newChat()
+      const b = await ask(h, alice, 'alice', chat.id, fake({ say: 'Last call.' }, { callUsage: { input: 900, output: 10, last: true } }, { sleep: 300 }), { ms: 30_000 })
+      expect(b.done.status).toBe('done')
+      expect(b.done.content).toBe('Last call.')
+      await expect(h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'again', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })).rejects.toMatchObject({ body: { code: 'budget_exceeded' } })
+    } finally { drop('b-last2') }
   })
 
   test('under the budget the run\'s own total replaces the running estimates (never both)', async () => {
@@ -145,11 +173,24 @@ describe('the API engine: between rounds', () => {
       expect(done.error?.code).toBe('budget_exceeded')
       expect(done.content).not.toContain('Never said.')
       expect(seen).toHaveLength(2)
-      const calls = h.ctx.db.query("SELECT tool_use_id FROM tool_events WHERE turn_id = ? AND tool = 'list'").all(r.turnId) as { tool_use_id: string }[]
-      expect(calls.map((c) => c.tool_use_id)).not.toContain('c2')
+      // only the first round's tool call ran
+      expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM tool_events WHERE turn_id = ? AND tool = 'list'").get(r.turnId)).toEqual({ n: 1 })
       expect(turnRow(r.turnId)).toMatchObject({ input_tokens: 1100, output_tokens: 20 })
-      script.length = 0
-    } finally { drop('b-api') }
+    } finally { script.length = 0; drop('b-api') }
+  })
+
+  test('a last round (no tool calls) that crosses the limit: the answer stays done; the next send is refused', async () => {
+    budget('b-api-last', 100)
+    try {
+      script.push(sse({ text: 'Whole answer.', usage: { prompt_tokens: 500, completion_tokens: 10 } }))
+      const chat = await newChat('api' as EngineId)
+      const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'q', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], engine: 'api' as EngineId } })
+      const done = (await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)).data.message
+      expect(done.status).toBe('done')
+      expect(done.content).toBe('Whole answer.')
+      expect(turnRow(r.turnId)).toMatchObject({ input_tokens: 500, output_tokens: 10 })
+      await expect(h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'again', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], engine: 'api' as EngineId } })).rejects.toMatchObject({ body: { code: 'budget_exceeded' } })
+    } finally { script.length = 0; drop('b-api-last') }
   })
 
   test('runApiAgent: an abort during a round\'s usage, or before the next round, sends nothing more', async () => {

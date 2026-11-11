@@ -97,7 +97,9 @@ export class ClaudeStreamParser {
       const key = parent ?? ''
       if (e.type === 'message_start') this.callInput.set(key, inputOf(e.message?.usage))
       else if (e.type === 'message_delta' && e.usage && typeof e.usage === 'object') {
-        out.push({ type: 'usage', running: true, inputTokens: Math.max(this.callInput.get(key) ?? 0, inputOf(e.usage)), outputTokens: num(e.usage.output_tokens) })
+        // the main AI's call that ends without a tool call is the answer's last: counted, but never a reason to stop
+        const continues = !!parent || e.delta?.stop_reason === 'tool_use'
+        out.push({ type: 'usage', running: true, inputTokens: Math.max(this.callInput.get(key) ?? 0, inputOf(e.usage)), outputTokens: num(e.usage.output_tokens), ...(continues ? { continues: true } : {}) })
         this.callInput.delete(key)
       }
       if (parent) return out

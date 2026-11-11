@@ -435,6 +435,7 @@ export class TurnExec {
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
     this.dropHeldAnswers()
     try { this.handle?.kill() } catch { this.quarantine() }
+    if (this.stopGrace) clearTimeout(this.stopGrace) // a budget stop's (checkBudget)
     this.stopGrace = setTimeout(() => {
       if (this.status !== 'finished') this.quarantine()
     }, TURN_STOP_GRACE_MS)
@@ -1361,10 +1362,12 @@ export class TurnExec {
         this.usage.seen = true
         if (e.costUnknown) this.usage.unknown = true
         if (e.requestId && this.usage.ids.length < 50) this.usage.ids.push(e.requestId)
-        // counted at once, so this person's other answers see it, and the budget checked again (also between the API
-        // engine's rounds: its loop stops at the turn's abort before the next one)
+        // counted at once, so this person's other answers see it. The budget is checked again only where the answer
+        // goes on after this call (Claude Code or the API engine asked for a tool, a sub-agent called the model); a
+        // run's total and the answer's last call never turn an answer that is complete into a budget error: the next
+        // answer is refused before it starts instead
         this.recordUsage()
-        this.checkBudget()
+        if (e.continues) this.checkBudget()
         return
       case 'error':
         errors.push(e)

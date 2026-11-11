@@ -27,8 +27,9 @@ export const EngineEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session'), sessionId: z.string() }),
   /** costUnknown: the provider gave no cost and the model has no list price (never recorded as free); requestId: the
    * provider's id of the request (OpenRouter's generation id), for the log; running: one model call's tokens while
-   * the run goes on (Claude Code's stream), an estimate the run's own total replaces when it comes */
-  z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional(), costUnknown: z.boolean().optional(), requestId: z.string().optional(), running: z.boolean().optional() }),
+   * the run goes on (Claude Code's stream), an estimate the run's own total replaces when it comes; continues: the run
+   * goes on after this call (it asked for a tool, or it was a sub-agent's; Claude Code, the API engine), so a used-up budget may stop it there */
+  z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional(), costUnknown: z.boolean().optional(), requestId: z.string().optional(), running: z.boolean().optional(), continues: z.boolean().optional() }),
   /** status: the provider's HTTP status, when there was one */
   z.object({ type: z.literal('error'), code: EngineErrorCode, message: z.string(), status: z.number().int().optional() }),
   /** the engine stopped at the per-answer limit of tool rounds (Claude Code --max-turns: the team's answerStepLimit;

@@ -9,7 +9,8 @@
 //                                            an instruction planted in what a tool returned)
 //   @fake {"sleep": 300}                     wait
 //   @fake {"callUsage": {"input": 9, "output": 3}}  (Claude) one model call's tokens in the stream (message_start /
-//                                            message_delta), like Claude Code's partial messages, before the run's total
+//                                            message_delta), like Claude Code's partial messages, before the run's total;
+//                                            "last": true: the call ends the answer (end_turn), else it asked for a tool
 //   @fake {"toolStarted": "read", "args": {...}}  report a call of one of our tools that never finishes (a long
 //                                            download, a slow page): the step stays running until the turn ends
 //   @fake {"saySplit": "한글"}               one text delta whose stdout line is written in two pieces, cut inside
@@ -494,7 +495,7 @@ for (const d of directives) {
   else if (d.callUsage && !codex) {
     closeBlock()
     out({ type: 'stream_event', event: { type: 'message_start', message: { usage: { input_tokens: Number(d.callUsage.input ?? 0), output_tokens: 1 } } } })
-    out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: Number(d.callUsage.output ?? 0) } } })
+    out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: d.callUsage.last ? 'end_turn' : 'tool_use' }, usage: { output_tokens: Number(d.callUsage.output ?? 0) } } })
   }
   else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }

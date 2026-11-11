@@ -272,7 +272,9 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
       }
     }
   }
-  if (usage) counted(usageEvent(conf.model, usage, requestId))
+  // a round that asked for tools goes on after this usage (continues: the turn may stop it at the budget before its
+  // tool calls run); the answer's last round never does
+  if (usage) counted({ ...usageEvent(conf.model, usage, requestId), ...(calls.some(Boolean) && finish !== 'length' ? { continues: true } : {}) })
   // the model stopped at its output limit (max_tokens): the answer is cut off, and a tool call in it may be too (its
   // arguments half written). Nothing more is sent: another round would cost again and could only repeat the cut
   if (finish === 'length') {
