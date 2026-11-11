@@ -75,26 +75,33 @@ with its own client keeps the direct flow above, unchanged, even with the variab
 on only after the control plane answers that it serves this server (a signed `/status`, at start, then every 10
 minutes, every minute while it says no); until then the card says "Not available yet". Admin › Connected apps › Google
 Drive then shows `source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."),
-and the members' switch and team shares work as described above. The Set up dialog is the hosting service's on such a
-server from the start (`blocked: "hosted"`, no upload form, no redirect address shown), before and after the answer.
+and the members' switch and team shares work as described above. The Set up dialog is the hosting service's
+(`blocked: "hosted"`, no upload form, no redirect address shown): always on a hosted server, and on a self-installed one
+while the hosting service serves it. While it does not (not registered yet, or removed), a self-installed server's page
+still lets an admin set a client of its own, which then wins.
 
 **A self-installed server through the hosting service.** A self-installed server would otherwise need its own Google
 client, its own return address at Google and Google's review. Instead its operator can ask the hosting service to
 register it; for its people it then looks exactly like a hosted team (the same Google app, the same start page, the
 same admin page).
 
-1. On the server, as the server account: `admin.js google-broker-key` prints the relay public key (base64 SPKI, the
-   key every broker call is signed with; made on first use, also when the relay is off) and the server's public
-   address (`https://<tunnel.host>`, or "not set": set the public address first). `--json` prints
-   `{ publicKey, address }`. The private key is never printed.
-2. The hosting service's operator registers that key with that **exact** address (its ops CLI or ops API; audited).
-   The browser only ever comes back to the recorded address, never to one from a request.
-3. Set `MYCEL_GOOGLE_DRIVE_BROKER_URL` in the server's environment, and remove the server's own Google client (move
-   `client.json` away and unset `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`; keep a copy to switch back). Restart the server.
-   People connect Google again: connections made with the old client do not carry over.
+1. Set `MYCEL_GOOGLE_DRIVE_BROKER_URL` in the server's environment, and remove the server's own Google client (move
+   `client.json` away and unset `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`; keep a copy to switch back). Restart the server. It
+   makes its relay team key if it has none and asks the hosting service, which says no for now: the card says "Not
+   available yet".
+2. On the server, as the server account: `admin.js google-broker-key` prints the relay public key (base64 SPKI, the
+   key every broker call is signed with) and the server's public address (`https://<tunnel.host>`, or "not set": set
+   the public address first). `--json` prints `{ publicKey, address }`. The command only reads the key: before the
+   server made it, it says "start the server first" and exits 1 (`--json`: `{ error: "no_key" }`), so a run as root
+   never leaves a key file the server cannot read. The private key is never printed.
+3. The hosting service's operator registers that key with that **exact** address (its ops CLI or ops API; audited).
+   The browser only ever comes back to the recorded address, never to one from a request. Within a minute the server
+   asks again and Drive and the Google app cards turn on. People connect Google again: connections made with the old
+   client do not carry over.
 
-An unregistered server, or one the hosting service removed, stays at "Not available yet"; removing it stops its
-sign-ins and refreshes at once. To go back, put the client back and unset the variable.
+An unregistered server, or one the hosting service removed, stays at "Not available yet" (removing it stops its
+sign-ins and refreshes at once), and its admin page offers to set a client of its own again. To go back, put the client
+back (or set one on the page) and unset the variable.
 
 **Flow.** `POST /api/integrations/google-drive/authorize` (and the share authorize) asks the control plane to start
 (`begin()`): the same flow row, state and PKCE verifier as the direct flow, but the control plane makes the Google

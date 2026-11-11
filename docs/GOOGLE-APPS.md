@@ -112,10 +112,11 @@ through the hosting service too (`app` in refresh). Until Google has reviewed th
 users can sign in; a hosting service that does not offer an app yet (an older one answers `invalid_request`) makes that
 card say "Not available yet" (`reason: "service_limited"`) for ten minutes before it is tried again.
 
-On a registered self-installed server the cards look as on a hosted team: "Set up by the hosting service"
-(`blocked: "hosted"`, no redirect address shown), also before the hosting service answers. A card that already has a
-client of its own (written on this page, or the operator's `MYCEL_GOOGLE_<APP>_CLIENT_FILE`) keeps signing in with it
-and never calls the hosting service.
+On a self-installed server the hosting service serves, the cards look as on a hosted team: "Set up by the hosting
+service" (`blocked: "hosted"`, no redirect address shown). While it does not serve it (not registered yet, or removed),
+each card can be set up on the page as on any self-installed server. A card that has a client of its own (written on
+this page, or the operator's `MYCEL_GOOGLE_<APP>_CLIENT_FILE`) keeps signing in with it and never calls the hosting
+service.
 
 ## Disconnecting
 

@@ -21,12 +21,15 @@
 //    second time here, in the Drive store's own key context, like a direct token.
 //  - Nothing from these calls is logged; errors become DriveError codes without the answer's body.
 import crypto, { type KeyObject } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   DRIVE_BROKER_MAX_BODY_BYTES, DRIVE_BROKER_PATHS, driveBrokerAuthorization, driveBrokerConnectUrl, driveBrokerSigningString,
   type DriveBrokerOp, type DriveBrokerPurpose, type GoogleBrokerApp,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
 import { loadOrCreateKey } from '../../relay-client/registration'
+import { loadPrivateKey, publicKeyOf } from '@mycel/shared/relay-protocol'
 import { DriveError } from './store'
 import type { DriveFetch } from './client'
 
@@ -55,12 +58,18 @@ export function driveBrokerFor(ctx: AppContext, ownClient: boolean, clientFromEn
 }
 
 /** What a self-installed server's operator gives the hosting service to register it (`admin.js google-broker-key`): the
- * PUBLIC part of the relay team key every broker call is signed with (base64 SPKI, made on first use like
- * `relay-key`), and the server's public address (https://<tunnel.host>, the only address the browser may come back
- * to), or null when it has none. Never the private key. */
-export function googleBrokerKey(dataDir: string, tunnelHost: string | null | undefined): { publicKey: string; address: string | null } {
-  const { publicKey } = loadOrCreateKey(dataDir)
-  return { publicKey, address: tunnelHost ? `https://${tunnelHost}` : null }
+ * PUBLIC part of the relay team key every broker call is signed with (base64 SPKI), and the server's public address
+ * (https://<tunnel.host>, the only address the browser may come back to), or null when it has none. Never the private
+ * key. The key is only read, never made: the server makes it as its own account on start, and a command run as
+ * another account (root) must not leave a key file the server cannot read. publicKey null: no key yet. */
+export function googleBrokerKey(dataDir: string, tunnelHost: string | null | undefined): { publicKey: string | null; address: string | null } {
+  const address = tunnelHost ? `https://${tunnelHost}` : null
+  let pem: string
+  try { pem = fs.readFileSync(path.join(dataDir, 'relay', 'team-key.pem'), 'utf8') } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { publicKey: null, address }
+    throw e
+  }
+  return { publicKey: publicKeyOf(loadPrivateKey(pem)), address }
 }
 
 /** The configuration fingerprint of broker mode: connections made through one control plane origin belong together. */

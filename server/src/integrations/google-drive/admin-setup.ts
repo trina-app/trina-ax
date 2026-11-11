@@ -8,8 +8,9 @@
 //
 // What the page may not change:
 //  - a hosted server: the hosting service owns its setup (as the installer refuses --google-drive-client there); the
-//    same for a self-installed server that signs in through the hosting service (MYCEL_GOOGLE_DRIVE_BROKER_URL, no
-//    client of its own): its people see exactly what a hosted team's see ('hosted', "set up by the hosting service");
+//    same for a self-installed server while the hosting service serves it (MYCEL_GOOGLE_DRIVE_BROKER_URL, no client
+//    of its own, status said yes): its people see what a hosted team's see ('hosted', "set up by the hosting service").
+//    While it does not serve it (not registered, or removed), the page may set a client of its own, which then wins;
 //  - a client the operator set (MYCEL_GOOGLE_DRIVE_CLIENT_FILE, or a client.json the installer or the operator wrote):
 //    the page shows it as "set by the server" and leaves it alone. Only a client set on this page can be replaced here;
 //  - a server without a public https address (tunnel.host): Google has no address to send people back to.
@@ -44,9 +45,9 @@ export function driveAdminStatus(ctx: AppContext): DriveAdminStatus {
   // 'service': the server signs in through the hosting service (broker.ts): nothing to set up or upload here
   const source = !configured ? 'none' : svc.mode === 'broker' ? 'service' : byApp ? 'app' : 'server'
   const redirectUri = driveRedirectUri(ctx)
-  // through the broker (hosted, or self-installed with the broker URL and no client of its own): the hosting service's
-  // setup, shown the same way on both, also before it answers (then the card stays "Not available yet")
-  const blocked = isHosted(ctx.config) || svc.broker ? 'hosted' : svc.clientFromEnv || source === 'server' ? 'server' : !redirectUri ? 'public_host' : null
+  // the hosting service's setup: always on a hosted server; on a self-installed one only while the broker serves it
+  // (status said yes). Not registered or removed: the page lets the admin set a client of its own, which then wins.
+  const blocked = isHosted(ctx.config) || svc.mode === 'broker' ? 'hosted' : svc.clientFromEnv || source === 'server' ? 'server' : !redirectUri ? 'public_host' : null
   const connectedMembers = configured
     ? (ctx.db.query(`SELECT count(*) n FROM drive_connections d JOIN users u ON u.id=d.user_id
         WHERE d.config_key=? AND d.status='connected' AND u.status='active' AND u.deleted_at IS NULL`).get(svc.key) as { n: number }).n

@@ -15,7 +15,7 @@ import { WORK } from '../lib/env'
 import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow, ALL_SCOPES } from '../lib/fake-google-apps'
 import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
 import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
-import { googleBrokerKey } from '../../server/src/integrations/google-drive/broker'
+import { loadOrCreateKey } from '../../server/src/relay-client/registration'
 import { googleAppsOf, scopesCover, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { appsSecretsDir } from '../../server/src/integrations/google-apps/config'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
@@ -277,11 +277,11 @@ test('hosted: signs in through the hosting service with the app; an older one th
   expect(apps.view('bob', 'gmail')).toMatchObject({ available: true })
 })
 
-test('self-installed with the broker URL and no client of its own: the hosting service\'s sign-in, shown as on a hosted team', async () => {
+test('self-installed with the broker URL and no client of its own: the hosting service\'s sign-in once it serves it, shown as on a hosted team', async () => {
   ;(A.ctx.config as any).deployment = 'self'
   const gd = new FakeGoogleDrive(), broker = new FakeDriveBroker(gd)
   broker.onAccess = (token, who) => lib.tokens.set(token, who)
-  broker.trusted = googleBrokerKey(A.ctx.config.dataDir, null).publicKey // the hosting service registered this server
+  broker.trusted = 'not-registered-yet'
   const fetcher = async (raw: string, init: RequestInit = {}) => {
     if (raw === GOOGLE_USERINFO) {
       const who = lib.tokens.get(new Headers(init.headers).get('authorization')?.replace('Bearer ', '') ?? '')
@@ -294,8 +294,11 @@ test('self-installed with the broker URL and no client of its own: the hosting s
   let drive: ReturnType<typeof googleDriveOf>
   try { drive = googleDriveOf(A.ctx, { config: null, fetch: fetcher }) } finally { if (saved === undefined) delete process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL; else process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL = saved }
   apps = googleAppsOf(A.ctx, { fetch: fetcher })
-  // before the hosting service answers: the same as a hosted team ("set up by the hosting service", no address shown)
-  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: false, source: 'none', canSetUp: false, blocked: 'hosted', redirectUri: null })
+  // not served (not registered yet): the card is the admin's to set up, as on any self-installed server
+  expect(await drive.checkBroker()).toBe(false)
+  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: false, source: 'none', blocked: null, redirectUri: REDIRECT })
+  // registered: the same as a hosted team ("set up by the hosting service", no address shown)
+  broker.trusted = loadOrCreateKey(A.ctx.config.dataDir).publicKey
   expect(await drive.checkBroker()).toBe(true)
   expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null })
   expect((await put('carol', '/api/admin/google-apps/gmail/client', { clientId: 'x', clientSecret: 'y' })).body.error.params.reason).toBe('setup_hosted')
