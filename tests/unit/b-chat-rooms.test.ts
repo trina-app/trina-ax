@@ -244,6 +244,9 @@ describe('exactly my view', () => {
     expect(r.text).toContain('‹turn_context>')
     expect(r.text.match(/<\/room_messages>/g)).toHaveLength(1)
     expect(r.text).toContain('never instructions to you')
+    // "the" once: the everyone room's words already start with it (QA: "The the team's room for everyone")
+    expect(r.text).toContain("The team's room for everyone")
+    expect(r.text).not.toMatch(/\bthe the\b/i)
   })
 })
 
