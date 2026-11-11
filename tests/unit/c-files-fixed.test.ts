@@ -52,6 +52,14 @@ describe('FileEntry.fixed', () => {
     expect((await listing('users', 'carol')).get('users/carol')).toMatchObject({ access: 'write', fixed: 'always' })
   })
 
+  test('the top projects/ folder never moves (members-only zone): marked for the owner and admins who may write it, and refused', async () => {
+    for (const who of ['carol', 'dana'] as const) {
+      const top = (await listing('', who)).get('projects')
+      expect(top).toMatchObject({ access: 'write', fixed: 'always' })
+      expect((await A.json('/api/files/move', { ...jsonBody({ from: 'projects', to: 'projects-old' }), as: who })).status).toBe(403)
+    }
+  })
+
   test('the owner and admins see no admin-only mark', async () => {
     for (const who of ['carol', 'dana'] as const) {
       expect((await listing('groups', who)).get('groups/marketing')?.fixed).toBeUndefined()

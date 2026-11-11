@@ -326,8 +326,8 @@ export class TeamFiles {
     return this.entry(user, rules, r.segs)
   }
 
-  /** root, users/, users/<id>/, .system/ and the top projects/ never move or go to the trash; nor does a folder holding a skill pack's
-   * managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
+  /** root, users/, users/<id>/, .system/ and the top projects/ never move or go to the trash; nor does a folder holding
+   * a skill pack's managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
   private assertMovable(segs: string[]) {
     const why = this.unmovable(segs)
     if (why === 'protected') fileError('forbidden', 'protectedFolder')
