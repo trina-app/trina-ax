@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 00:58
 - Branch: `fix/schedule-room-name-last-run`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/pages/Scheduled.tsx`, `web/src/lib/scheduleText.ts`, a new pure helper for room names
   in a text, the chat bubble's text, `server/src/routes/memories.ts` and `server/src/chat/schedules.ts` for the last
   run's state, `shared/src/api/schedules.ts`). Why: scheduled tasks, chat and rooms are core (see
@@ -74,4 +74,11 @@ Out:
 
 ## Result
 
-Filled in at the end.
+Built as planned. Server: `Schedules.lastResult` (the outcome and when it came) and `isRunning`, sent as
+`Schedule.lastOutcomeAt` and `Schedule.running` (optional). Web: `lib/roomNames.ts` + `components/RoomNames.tsx` on the
+task page, the list card and the chat bubble (`UserText`); the block reads "Succeeded · 2 minutes ago" / "Running"
+under one heading (`scheduleText.ts runStateLabel`); the list is read again after Run now, on a run's `chat.updated`
+and after a reset connection. Differences: the unused `schedules.lastRun` text and the block's tooltip dot
+(`OutcomeDot`) went; the details' "Last run" time now is the same run's. Decision recorded: the creation path keeps the
+bare id (no token), see DECISIONS "A scheduled task's instruction names rooms by their names". Item 3 (the card in a
+weekly run's chat step) is a proposal in the PR, not built.
