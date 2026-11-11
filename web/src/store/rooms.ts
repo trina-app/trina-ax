@@ -295,6 +295,9 @@ interface RoomsState extends RoomsData {
   open: (roomId: string) => void
   close: (roomId: string) => void
   loadNewest: (roomId: string) => Promise<void>
+  /** the newest page read again into the timeline as it is (older pages and the reader's place stay); nothing for a
+   * window around an older message */
+  refreshNewest: (roomId: string) => Promise<void>
   loadOlder: (roomId: string) => Promise<void>
   /** the timeline as a window around this message (a link or a search result older than the newest page) */
   loadAround: (roomId: string, messageId: string) => Promise<void>
@@ -380,6 +383,20 @@ const nextThreadGen = (key: string) => {
   return g
 }
 
+/** The changes to the messages on screen (a new one, an edit, reactions, a thread's summary) made while a read of a page
+ * is on its way: the page is what the server had when it read it, so these are made again on it, or a message that
+ * came meanwhile would be gone (and the room read up to it). One list per read in flight. */
+type MessageChange = (d: RoomsData) => RoomsData
+const inFlight = new Set<MessageChange[]>()
+const watchChanges = () => {
+  const changes: MessageChange[] = []
+  inFlight.add(changes)
+  return { changes, done: () => inFlight.delete(changes) }
+}
+/** The page read, with the changes made while it was on its way made again on it (only its part: the rooms and the
+ * other places had them already). */
+const replayed = (s: RoomsData, changes: MessageChange[], fresh: Partial<RoomsData>): RoomsData => changes.reduce((d, f) => f(d), { ...s, ...fresh })
+
 const omit = <T,>(o: Record<string, T>, key: string) => {
   if (!(key in o)) return o
   const next = { ...o }
@@ -413,10 +430,16 @@ export const useRooms = create<RoomsState>((set, get) => {
       return { pending: list.length ? { ...s.pending, [roomId]: list } : omit(s.pending, roomId) }
     })
 
+  /** a change to the messages on screen, kept for each page read on its way too (watchChanges) */
+  const patchMessages = (f: MessageChange) => {
+    for (const list of inFlight) list.push(f)
+    set((s) => f(s))
+  }
+
   const post = async (roomId: string, p: PendingSend) => {
     try {
       const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
-      set((s) => withMessage(s, roomId, m, myId()))
+      patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
       const error = errorText(e, currentLocale(), t('error.network'))
@@ -487,13 +510,37 @@ export const useRooms = create<RoomsState>((set, get) => {
       // a failed read's error stays until this one answers: the page's calm notice stays while it reads again
       // (components/LoadError.tsx) instead of going and coming back
       set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true } } : {}))
+      const w = watchChanges()
       try {
         const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE } })
         if (gen !== timelineGen || get().openRoomId !== roomId) return
-        set({ timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } })
+        // the messages that came while it was read (my own send from a window around an older one too) stay
+        set((s) => ({ timeline: replayed(s, w.changes, { timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } }).timeline }))
       } catch (error) {
         if (gen !== timelineGen || get().openRoomId !== roomId) return
         set((s) => ({ timeline: { roomId, messages: s.timeline?.roomId === roomId ? s.timeline.messages : [], nextCursor: s.timeline?.roomId === roomId ? s.timeline.nextCursor : null, loading: false, error } }))
+      } finally {
+        w.done()
+      }
+    },
+
+    async refreshNewest(roomId) {
+      const tl = get().timeline
+      // a window around an older message reads the newest when it gets there
+      if (!tl || tl.roomId !== roomId || tl.newerCursor) return
+      // nothing on screen yet (the first read failed or is on its way): the newest page as a first read
+      if (!tl.messages.length) return get().loadNewest(roomId)
+      const gen = timelineGen
+      const w = watchChanges()
+      try {
+        const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE } })
+        if (gen !== timelineGen) return
+        // in place: the older pages loaded and the reader's place stay
+        set((s) => (s.timeline?.roomId === roomId && !s.timeline.newerCursor ? { timeline: replayed(s, w.changes, { timeline: { ...s.timeline, messages: mergeMessages(s.timeline.messages, page.items) } }).timeline } : {}))
+      } catch {
+        /* as it was; the next open reads it again */
+      } finally {
+        w.done()
       }
     },
 
@@ -515,14 +562,18 @@ export const useRooms = create<RoomsState>((set, get) => {
     async loadAround(roomId, messageId) {
       const gen = ++timelineGen
       set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true, error: null } } : {}))
+      const w = watchChanges()
       try {
         const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE, around: messageId } })
         if (gen !== timelineGen || get().openRoomId !== roomId) return
-        set({ timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, newerCursor: page.newerCursor ?? null, loading: false, error: null } })
+        // (a new message waits for the newer pages; an edit or a reaction meanwhile shows)
+        set((s) => ({ timeline: replayed(s, w.changes, { timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, newerCursor: page.newerCursor ?? null, loading: false, error: null } }).timeline }))
       } catch {
         // the newest page as it was (the message is not looked for again)
         if (gen !== timelineGen) return
         set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: false } } : {}))
+      } finally {
+        w.done()
       }
     },
 
@@ -567,13 +618,22 @@ export const useRooms = create<RoomsState>((set, get) => {
       const key = placeKey(roomId, rootId)
       const gen = nextThreadGen(key)
       set((s) => (s.threadViews[key] ? { threadViews: { ...s.threadViews, [key]: { ...s.threadViews[key]!, loading: true, error: null } } } : {}))
+      const w = watchChanges()
       try {
         const page = await api.call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: { limit: ROOM_PAGE } })
         if (gen !== threadGens.get(key)) return
-        set((s) => (s.threadViews[key] ? { threadViews: { ...s.threadViews, [key]: { ...s.threadViews[key]!, root: page.root, replies: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } } } : {}))
+        // the replies that came while it was read stay
+        set((s) => {
+          const tv = s.threadViews[key]
+          if (!tv) return {}
+          const read = replayed(s, w.changes, { threadViews: { [key]: { ...tv, root: page.root, replies: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } } })
+          return { threadViews: { ...s.threadViews, [key]: read.threadViews[key]! } }
+        })
       } catch (error) {
         if (gen !== threadGens.get(key)) return
         set((s) => (s.threadViews[key] ? { threadViews: { ...s.threadViews, [key]: { ...s.threadViews[key]!, loading: false, error } } } : {}))
+      } finally {
+        w.done()
       }
     },
 
@@ -599,10 +659,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       asked.set(key, seq)
       try {
         const r = await api.call(API.markRoomThreadRead, { params: { id: roomId, messageId: rootId }, body: { seq } })
-        set((s) => {
-          const d = withRoom(s, r.room)
-          const root = findMessage(d, roomId, rootId)
-          return root?.thread?.newReplies ? withThreadSummary(d, roomId, rootId, { ...root.thread, newReplies: false }) : d
+        set((s) => withRoom(s, r.room))
+        patchMessages((s) => {
+          const root = findMessage(s, roomId, rootId)
+          return root?.thread?.newReplies ? withThreadSummary(s, roomId, rootId, { ...root.thread, newReplies: false }) : s
         })
       } catch {
         if (asked.get(key) === seq) asked.delete(key)
@@ -642,7 +702,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async edit(roomId, messageId, body, mentions, mentionsAll) {
       const m = await api.call(API.editRoomMessage, { params: { id: roomId, messageId }, body: { body, mentions, ...(mentionsAll ? { mentionsAll: true } : {}) } })
-      set((s) => withUpdatedMessage(s, roomId, m))
+      patchMessages((s) => withUpdatedMessage(s, roomId, m))
     },
 
     async remove(roomId, messageId) {
@@ -651,7 +711,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       const m = findMessage(get(), roomId, messageId)
       if (m) {
         const { reactions: _r, ...rest } = m
-        set((s) => withUpdatedMessage(s, roomId, { ...rest, body: '', files: [], mentions: [], deletedAt: new Date().toISOString() }))
+        patchMessages((s) => withUpdatedMessage(s, roomId, { ...rest, body: '', files: [], mentions: [], deletedAt: new Date().toISOString() }))
       }
     },
 
@@ -667,12 +727,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       // the picker's "Recently used" (this browser, per person)
       const me = myRef()
       if (on && me) noteRecent(me.id, emoji)
-      set((s) => withReactions(s, roomId, messageId, toggledReactions(before, emoji, on, me)))
+      patchMessages((s) => withReactions(s, roomId, messageId, toggledReactions(before, emoji, on, me)))
       try {
         const r = await api.call(API.reactRoomMessage, { params: { id: roomId, messageId }, body: { emoji, on } })
-        set((s) => withReactions(s, roomId, messageId, r.reactions))
+        patchMessages((s) => withReactions(s, roomId, messageId, r.reactions))
       } catch (e) {
-        set((s) => withReactions(s, roomId, messageId, before))
+        patchMessages((s) => withReactions(s, roomId, messageId, before))
         toast({ level: 'warn', text: errorText(e, currentLocale(), t('error.network')) })
       }
     },
@@ -810,12 +870,12 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async shareAi(roomId, messageId) {
       const m = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId } })
-      set((s) => withMessage(s, roomId, m, myId()))
+      patchMessages((s) => withMessage(s, roomId, m, myId()))
     },
 
     async shareAnswer(chatId, messageId, body) {
       const r = await api.call(API.shareAnswerToRoom, { params: { id: chatId, messageId }, body })
-      if (r.status === 'sent') set((s) => withMessage(s, body.roomId, r.message, myId()))
+      if (r.status === 'sent') patchMessages((s) => withMessage(s, body.roomId, r.message, myId()))
       return r
     },
 
@@ -854,19 +914,19 @@ export const useRooms = create<RoomsState>((set, get) => {
         case 'room.message': {
           const { roomId, message } = ev.data
           const known = get().rooms.some((r) => r.id === roomId)
-          set((s) => withMessage(s, roomId, message, myId()))
+          patchMessages((s) => withMessage(s, roomId, message, myId()))
           // a room I was just added to whose "added" did not reach this window: its counts come from the server
           if (!known && get().loaded) void get().fetchRoom(roomId).catch(() => {})
           return
         }
         case 'room.message.updated':
-          set((s) => withUpdatedMessage(s, ev.data.roomId, ev.data.message))
+          patchMessages((s) => withUpdatedMessage(s, ev.data.roomId, ev.data.message))
           return
         case 'room.thread':
-          set((s) => withThreadSummary(s, ev.data.roomId, ev.data.rootId, ev.data.thread))
+          patchMessages((s) => withThreadSummary(s, ev.data.roomId, ev.data.rootId, ev.data.thread))
           return
         case 'room.reactions':
-          set((s) => withReactions(s, ev.data.roomId, ev.data.messageId, ev.data.reactions))
+          patchMessages((s) => withReactions(s, ev.data.roomId, ev.data.messageId, ev.data.reactions))
           return
         case 'room.read':
           // I read it in another window or on my phone: my position and badge for the room (nobody else's)
@@ -887,10 +947,11 @@ export const useRooms = create<RoomsState>((set, get) => {
           set((s) => withRoom(s, room))
           if (change === 'members') {
             set((s) => ({ members: omit(s.members, roomId) }))
-            // someone joined or left: the member list, and the reactions they took with them
+            // someone joined or left: the member list, and the reactions they took with them (in place: the reader keeps
+            // their place)
             if (get().openRoomId === roomId) {
               void get().loadMembers(roomId, true)
-              void get().loadNewest(roomId)
+              void get().refreshNewest(roomId)
             }
             for (const tv of Object.values(get().threadViews)) if (tv.roomId === roomId) void get().loadThread(roomId, tv.rootId)
           }
@@ -907,6 +968,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       useSideChats.getState().reset()
       timelineGen++
       threadGens.clear()
+      inFlight.clear()
       set({ ...EMPTY })
     },
   }
