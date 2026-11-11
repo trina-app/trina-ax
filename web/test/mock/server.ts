@@ -3279,6 +3279,7 @@ export class MockServer {
     engines: () => this.enginesResponse(),
     updateEngines: (c) => {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
+      if (c.body.defaultModel !== undefined) this.settings.defaultModel = c.body.defaultModel
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
       if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
