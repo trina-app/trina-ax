@@ -280,11 +280,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       <VoiceLive voice={voice} />
       {above}
       <div
-        className={clsx('mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
+        className={clsx('relative mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
         {...dropProps}
         data-testid="room-composer"
       >
-        {!voice.recording && mention.list}
+        {/* a phone: the "@" list floats over the newest messages, right above the box, instead of pushing the box (and,
+            with the keyboard up, the messages) out of sight */}
+        {!voice.recording && mention.list && <div className="max-md:absolute max-md:inset-x-0 max-md:bottom-full max-md:z-10 max-md:border-t max-md:border-line max-md:bg-canvas max-md:pb-1 max-md:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]">{mention.list}</div>}
         {/* the question about "@전체" (hidden while recording, like the "@" list) */}
         {ask && !voice.recording && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pt-2.5 max-md:px-4" data-testid="room-mention-all-confirm">
