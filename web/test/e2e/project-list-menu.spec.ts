@@ -278,7 +278,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('project-card')).toHaveCount(2)
       expect((await patch(page, '/api/admin/users/bob', { status: 'disabled' })).ok()).toBeTruthy()
       await page.reload()
-      await expect(card(page, 'Kite').getByTestId('project-card-state')).toHaveText(` · ${t['projects.noMembers']}`)
+      await expect(card(page, 'Kite').getByTestId('project-card-who')).toHaveText(t['projects.noMembers'])
       await expect(card(page, 'Falcon')).not.toContainText('멤버가 아니')
       expect((await patch(page, '/api/admin/users/bob', { status: 'active' })).ok()).toBeTruthy()
       await page.reload()

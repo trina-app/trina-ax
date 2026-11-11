@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, Project } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText } from '../../src/lib/folder-access'
+import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText, panelHeadline } from '../../src/lib/folder-access'
 import { editableHere } from '../../src/components/FolderAccess'
 import { byRoleLine } from '../../src/lib/whoByRole'
 
@@ -106,8 +106,10 @@ describe('the owner and admins\' chip says the count apart (docs/DECISIONS.md "W
     expect(chipLabel(ko, c)).toBe('3명이 봐요')
     expect(headlineText(ko, c)).toBe('3명이 봐요')
     expect(headlineText(en, c)).toBe('3 people see it')
-    // the panel's headline too (no split asked)
+    // the panel's headline too (no split asked), in the "Who can open it" panel's verb, with no "(owner and admins included)"
     expect(headlineText(ko, chipOf('project', { project: project({ audience: 3 }) })!)).toBe('3명이 봐요')
+    expect(panelHeadline(en, chipOf('project', { project: project({ audience: 3 }) })!, 'Acme')).toBe(en('folderAccess.openCountApart', { n: 3 }))
+    expect(panelHeadline(en, chipOf('project', { project: project({ audience: 3 }) })!, 'Acme')).not.toContain('admins')
     // nobody by its rules: still a count of its members, never "owner and admins only"
     expect(chipOf('project', { project: project({ audience: 0, audienceSplit: { direct: 0, byRole: 0 } }), apart: true })).toEqual({ kind: 'people', n: 0, members: true })
     // a project made before outside projects/: an ordinary folder, its split as before

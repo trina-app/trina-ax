@@ -98,7 +98,7 @@ test('the whole team, and a team project\'s folder with its own count and a way 
   await chip(page).click()
   await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Kite' }))
   // its members only (docs/DECISIONS.md "Project contents only for members"): no "(owner and admins included)"
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.people', { n: audience }))
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCountApart', { n: audience }))
   await page.getByTestId('folder-access-open-project').click()
   await expect(page).toHaveURL(new RegExp(`/projects/${p.id}`))
 })
@@ -322,16 +322,18 @@ test('a team project\'s folder and the folders inside it: shown, not changed, an
   await chip(page).click()
   await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Kite' }))
   await expect(page.getByTestId('folder-access-headline')).toBeVisible()
-  await expect(page.getByTestId('folder-access-footer')).toHaveText(t['folderAccess.adminsAlways'])
+  // no "the owner and admins can always open it" inside a project: they open it only as its members
+  await expect(page.getByTestId('folder-access-footer')).toHaveCount(0)
   await expect(page.getByTestId('sharing')).toHaveCount(0)
   await expect(panel(page).getByRole('combobox')).toHaveCount(0)
   await page.keyboard.press('Escape')
-  // inside it: the count, the way to Folder permissions, nothing to change
+  // inside it: the count, nothing to change
   await page.goto(`/files?path=${encodeURIComponent(p.folderPath + '/notes')}`)
   await chip(page).click()
   await expect(page.getByTestId('folder-access-headline')).toBeVisible()
   await expect(page.getByTestId('sharing')).toHaveCount(0)
-  await expect(page.getByTestId('folder-access-open-admin')).toHaveAttribute('href', `/admin/folders?folder=${encodeURIComponent(p.folderPath + '/notes')}`)
+  // and no way to Folder permissions, which changes nothing inside a project
+  await expect(page.getByTestId('folder-access-open-admin')).toHaveCount(0)
   expect(asked).toEqual([])
 })
 
@@ -422,7 +424,7 @@ test.describe('phone', () => {
 })
 
 // docs/DECISIONS.md "Project contents only for members"
-test('a team project\'s folder for its members and the owner: its members\' count, each person a member or not, no rules editor', async ({ page }) => {
+test('a team project\'s folder for its members and the owner: its members\' count, its Members button, no rules editor', async ({ page }) => {
   await signIn(page)
   const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Kite', participants: [{ subjectType: 'user', subjectId: 'bob' }] } })
   const p = (await made.json()) as { folderPath: string }
@@ -431,7 +433,7 @@ test('a team project\'s folder for its members and the owner: its members\' coun
   await expect(chip(page)).toHaveText(en('folderAccess.people', { n: 2 }))
   await expect(chip(page)).toHaveAccessibleName(en('folderAccess.people', { n: 2 }))
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.people', { n: 2 }))
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCountApart', { n: 2 }))
   await expect(page.getByTestId('folder-access-headline')).not.toContainText(t['accessTree.who.adminsOnly'])
   // said once, by the panel's own lines and its Members button: no lone "Members only", no way to Folder permissions
   // (it only says "Members only" there), no rules editor
@@ -439,12 +441,11 @@ test('a team project\'s folder for its members and the owner: its members\' coun
   await expect(page.getByTestId('folder-access-members-only')).toHaveCount(0)
   await expect(page.getByTestId('folder-access-all')).toHaveCount(0)
   await expect(page.getByTestId('folder-access-change')).toHaveCount(0)
-  // each person: a member or not, never the setting that decided
-  const reason = (name: string) => page.getByTestId('folder-access-admin').getByTestId('folder-person').filter({ hasText: name }).getByTestId('folder-person-reason')
-  await expect(reason('Bob')).toHaveText(t['accessView.why.member'])
-  await expect(reason('Olga')).toHaveText(t['accessView.why.member'])
-  await expect(reason('Dana')).toHaveText(t['accessView.why.notMember'])
-  await expect(page.getByTestId('folder-access-admin')).not.toContainText(t['rules.everyone'])
+  // no list of people and settings: the "Who can open it" panel asks no admin endpoint about a team project's folder,
+  // whose people are its members (the Members button above)
+  await expect(page.getByTestId('folder-access-admin')).toHaveCount(0)
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-members')).toBeVisible()
 })
 
 test('the projects folder takes no new folder or upload; a project\'s folder the owner is not in opens the project\'s page', async ({ page }) => {
