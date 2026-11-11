@@ -1081,6 +1081,7 @@ export const ko = {
   'chat.linkCopiedShared': "링크를 복사했어요 · 멤버 {n}명이 열 수 있어요",
   'chat.linkCopiedPrivate': "링크를 복사했어요 · 나만 열 수 있어요",
   'chat.sharedBusy': "{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.",
+  'chat.endingEarlier': "앞의 답이 끝나기를 기다리는 중이에요. 다른 채팅은 평소처럼 쓸 수 있어요.",
   'chat.sharedWaiting': "{name}님의 확인을 기다리는 중이에요.",
   "chat.sharedSafeOps": "이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.",
   'chat.sharedUploadLine': "프로젝트 폴더({folder})에 저장돼요 · 멤버 {n}명이 볼 수 있어요",

@@ -450,7 +450,8 @@ function ChatView({ chatId }: { chatId: string }) {
             placeholder={t('chat.reply')}
             footer={t('chat.footerAi')}
             who={who}
-            hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
+            hold={chat?.ending ? t('chat.endingEarlier') : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
             projectId={chat?.projectId ?? null}

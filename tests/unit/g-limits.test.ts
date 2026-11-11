@@ -154,6 +154,10 @@ describe('memory: queued answers wait while memory is short', () => {
     setAvailableMemoryForTests(0)
     expect(memoryAdmission(0, 3)).toBe(1) // nothing runs: one always may, so a small machine still answers
     expect(memoryAdmission(1, 3)).toBe(1)
+    // no slot in use, but idle engines are up (answers waiting for a person): none more starts without memory
+    expect(memoryAdmission(0, 3, 2)).toBe(0)
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + est + 1)
+    expect(memoryAdmission(0, 3, 2)).toBe(1)
   })
   test('with a plan the estimate is its per-answer high mark', () => {
     setPlanForTests(plan({ memoryMiB: 4096, maxConcurrency: 3 }))

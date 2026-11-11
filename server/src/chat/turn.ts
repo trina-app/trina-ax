@@ -297,6 +297,9 @@ export class TurnExec {
   private timeoutSource: 'active' | 'wall' | null = null
   private activeMs = 0
   private humanWaits = 0
+  /** card answers held back until the turn has a queue slot again (ChatRuntime.turnResuming): the turn gave its slot
+   * back while it waited for the person, and its engine goes on only once it holds one */
+  private heldAnswers: { requestId: string; value: unknown; resolve: (v: unknown) => void }[] = []
   private requests = new Map<string, OpenRequest>()
   /** what the server keeps beside an open connect_service card (chat/connect-service.ts), by its request id: the
    * connection the card made, so another key after a failed check goes to that same connection, and the connect still
@@ -371,6 +374,19 @@ export class TurnExec {
     return this.principal
   }
   get waitingForPerson() { return this.humanWaits > 0 }
+  /** a person answered, and the turn waits for a queue slot to go on (its time limit stays paused meanwhile) */
+  get waitingForSlot() { return this.heldAnswers.length > 0 }
+  /** The turn holds a slot again (ChatRuntime.grantResumes), or opened another card (it waits for a person again): the
+   * held answers reach the engine. */
+  resumeAnswers() {
+    for (const a of this.heldAnswers.splice(0)) a.resolve(a.value)
+  }
+  /** The turn stops or ends while answers wait for a slot: none of them reaches a tool (like a card the end closed). */
+  private dropHeldAnswers() {
+    if (!this.heldAnswers?.length) return
+    for (const a of this.heldAnswers.splice(0)) { this.cardMissing.set(a.requestId, 'ended'); a.resolve(null) }
+    try { this.rt.turnStopsWaiting(this) } catch (e) { this.rt.log.warn('leaving the slot queue failed', { err: e, turn: this.id }) }
+  }
 
   // ---------------- lifecycle ----------------
   async run() {
@@ -405,6 +421,7 @@ export class TurnExec {
     this.activeCore?.turns.invalidate(this.id, reason)
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
+    this.dropHeldAnswers()
     try { this.handle?.kill() } catch { this.quarantine() }
     this.stopGrace = setTimeout(() => {
       if (this.status !== 'finished') this.quarantine()
@@ -443,7 +460,7 @@ export class TurnExec {
   }
 
   private tick() {
-    if (this.humanWaits > 0 || this.status !== 'running') return
+    if (this.humanWaits > 0 || this.heldAnswers?.length || this.status !== 'running') return
     this.activeMs += 1000
     if (this.activeMs >= this.rt.turnTimeoutMs && !this.stopReason) {
       this.timeoutSource = 'active'
@@ -2995,6 +3012,8 @@ export class TurnExec {
       }, Math.min(o.timeoutMs, this.remainingWallMs()))
       this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null })
       this.humanWaits++
+      // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
+      if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
       const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request } }
       if (o.window) this.rt.hub.publishTo(this.spec.userId, o.window, ev)
       else this.rt.hub.publish(this.spec.userId, ev)
@@ -3060,6 +3079,13 @@ export class TurnExec {
     else this.rt.hub.publish(this.spec.userId, ev)
     this.cardsChanged(r.window, false)
     if (reason !== 'answered') this.cardMissing.set(requestId, reason === 'timeout' ? 'timeout' : 'ended')
+    // the last open card closed (answered or timed out): the turn needs its slot again before the engine goes on; with
+    // none free it waits first in line (ChatRuntime.turnResuming). A card the turn's end closed needs none.
+    if (reason !== 'turn_ended' && this.humanWaits === 0 && this.status === 'running' && !this.stopReason) {
+      let now = true
+      try { now = this.rt.turnResuming(this) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }) }
+      if (!now) { this.heldAnswers.push({ requestId, value, resolve: r.resolve }); return }
+    }
     r.resolve(value)
   }
 
@@ -3181,6 +3207,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     this.finishStep('text', () => this.flushText())
+    this.finishStep('held answers', () => this.dropHeldAnswers())
     // a room session: every read of this turn is in the read scope before the room decides where the answer goes
     if (this.room) { try { this.noteReads() } catch (e) { this.rt.log.warn('room read scope failed', { err: e, turn: this.id }) } }
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
