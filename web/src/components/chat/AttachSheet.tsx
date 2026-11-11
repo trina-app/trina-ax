@@ -24,7 +24,7 @@ export const iosWebKit = () =>
 /** What the 파일 row's input takes: on iOS any data file, so the Files browser opens without iOS's menu; elsewhere any. */
 export const filesAccept = () => (iosWebKit() ? 'application/octet-stream' : undefined)
 
-export function AttachSheet({ onFiles, onTeam, computer = true, icon, testId, buttonClassName }: {
+export function AttachSheet({ onFiles, onTeam, computer = true, icon, testId, filesTestId = 'attach-files-input', buttonClassName }: {
   /** files picked from the phone (pictures, a photo just taken, files) */
   onFiles: (files: File[]) => void
   /** opens the box's team-file picker; absent: no 팀 파일 row */
@@ -34,6 +34,8 @@ export function AttachSheet({ onFiles, onTeam, computer = true, icon, testId, bu
   /** the button's icon (the AI chat's +, a room's 📎) */
   icon: ReactNode
   testId: string
+  /** the 파일 row's input, by the name the box's own file input has on a computer */
+  filesTestId?: string
   buttonClassName?: string
 }) {
   const t = useT()
@@ -63,7 +65,7 @@ export function AttachSheet({ onFiles, onTeam, computer = true, icon, testId, bu
         <>
           <input ref={photos} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => take(e.target)} data-testid="attach-photos-input" />
           <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => take(e.target)} data-testid="attach-camera-input" />
-          <input ref={files} type="file" accept={filesAccept()} multiple hidden onChange={(e) => take(e.target)} data-testid="attach-files-input" />
+          <input ref={files} type="file" accept={filesAccept()} multiple hidden onChange={(e) => take(e.target)} data-testid={filesTestId} />
         </>
       )}
     </>

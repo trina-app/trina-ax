@@ -587,7 +587,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           />
           <div className="flex items-center justify-between gap-2 pr-2 pb-2 pl-1.5">
             {phone ? (
-              <AttachSheet onFiles={(all) => void files.addFiles(all)} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={15} aria-hidden />} testId="side-chat-attach" />
+              <AttachSheet onFiles={(all) => void files.addFiles(all)} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={15} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
             ) : (
               <>
                 <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="side-chat-attach">

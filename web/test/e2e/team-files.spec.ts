@@ -214,9 +214,10 @@ test('phone: the picker is a usable sheet', async ({ page }) => {
   await expect(dialog.getByTestId('picker-attach')).toBeInViewport()
   await dialog.getByTestId('picker-attach').click()
   await expect(page.locator('[data-testid="attachment-chip"][data-source="team"]')).toHaveCount(1)
-  // phone wording, and the camera inside the same menu
+  // the phone's attach sheet (components/chat/AttachSheet.tsx; phone-attach-sheet.spec.ts): the photos, the camera
+  // and files beside the team files, one picker each
   await page.getByTestId('attach-button').click()
-  await expect(page.getByTestId('attach-computer')).toContainText(/device|기기/)
-  await expect(page.getByTestId('attach-camera')).toBeVisible()
+  for (const id of ['attach-photos', 'attach-camera', 'attach-files', 'attach-team']) await expect(page.getByTestId(id)).toBeVisible()
+  await expect(page.getByTestId('attach-computer')).toHaveCount(0)
 })
 })

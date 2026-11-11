@@ -380,7 +380,7 @@ export default function Composer({
   // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
   // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
   const attachControls = phone ? (
-    <AttachSheet onFiles={(all) => void addFiles(all)} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={19} />} testId="attach-button" />
+    <AttachSheet onFiles={(all) => void addFiles(all)} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={19} />} testId="attach-button" filesTestId="file-input" />
   ) : (
     <>
       <div
