@@ -56,7 +56,7 @@ COPY --from=kit /kit /opt/trina-ax/kit
 SHELL ["/bin/bash", "-c"]
 ARG TRINA_AX_PACKAGE_GROUPS=""
 RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
-    test -f "$root/packages.sh" || { echo "this Dockerfile needs a kit with root/packages.json (the one list of packages)" >&2; exit 1; }; \
+    test -f "$root/packages.sh" || { echo "this Dockerfile needs a kit of release 0.5.0-beta.1 or later (it has root/packages.json, the one list of packages)" >&2; exit 1; }; \
     groups="minimal docker"; \
     for g in $TRINA_AX_PACKAGE_GROUPS; do \
       case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here (fonts, browser)" >&2; exit 1 ;; esac; \

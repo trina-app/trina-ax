@@ -25,7 +25,7 @@ import { errorResult, resultBytes, toBrowserResult, type PaneContent, type PaneR
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
 import { RepeatPromptHint, sameSite, siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope, type SiteSettings } from '../../common/site-permissions'
 import { isNotice, type PaneActivity } from '../../common/pane-activity'
-import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK, PRODUCT } from '@mycel/shared'
+import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK, PRODUCT, WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
 import { HostClassifier } from './classify'
@@ -707,9 +707,17 @@ export class BrowserPane {
     if (this.perms.setTeamPolicy(allowAll)) this.host.onSavePermissions(this.perms.toJSON())
   }
 
+  /** The person's "Allow all websites" for web reads from the team server (Me.user.webAllowAll): its change from on to
+   * off turns this browser back to 'ask'; on never widens it. */
+  setPersonPolicy(on: boolean) {
+    if (this.perms.setPersonPolicy(on)) this.host.onSavePermissions(this.perms.toJSON())
+  }
+
   /** What the pane's settings panel and Settings > Browser show. */
   siteSettings(): SiteSettings {
-    return this.perms.settings()
+    // the "Allow all websites" window (app-window.ts requestAllowAll) shows this version of the risk sentence: the team
+    // page skips its own confirm only when it is the version the server asks for
+    return { ...this.perms.settings(), riskVersion: WEB_ALLOW_ALL_WARNING_VERSION }
   }
 
   /** "Clear all" in the allowed-sites list: every saved site and office address of this team. */
