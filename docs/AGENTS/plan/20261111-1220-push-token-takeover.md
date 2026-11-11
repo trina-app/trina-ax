@@ -67,3 +67,5 @@ expired session or a switched-off account is replaced; the same person's second 
 the next person registers), and `push-label` now signs the first person out before the phone changes hands. Both new
 `push-native` tests failed before the fix. The permission matrix (`tests/security`) needs no change: an allowed write
 answering 409 is not a matrix problem, and its world has no gateway (503).
+
+PR: https://github.com/trina-app/trina-ax/pull/410
