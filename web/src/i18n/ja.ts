@@ -484,6 +484,7 @@ export const ja: Record<MessageKey, string> = {
   'voice.done': "録音を終了",
   'voice.recording': "録音中",
   'voice.transcribing': "文字起こし中…",
+  'voice.waiting': "ほかの音声入力が終わるのを待っています…",
   'voice.denied': "マイクへのアクセスがブロックされています。ブラウザーの設定でマイクを許可してください。",
   'voice.unsupported': "このブラウザーでは音声を録音できません。",
   'voice.tooLong': "録音が長すぎます。50 MB未満にしてください。",

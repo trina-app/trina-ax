@@ -4,7 +4,7 @@
 // question; the transcription job's own label.
 import { describe, expect, test } from 'bun:test'
 import { micState, voiceBlockedHere, voiceBlockedInRoom } from '../../src/lib/voice'
-import { CAP_MS, DRAG_CANCEL_PX, HOLD_MS, jobLabel, VoiceInput, WARN_MS, type KeyLike, type VoiceDeps, type VoiceNote } from '../../src/lib/voiceInput'
+import { CAP_MS, DRAG_CANCEL_PX, HOLD_MS, jobLabel, jobWaiting, VoiceInput, WARN_MS, type KeyLike, type VoiceDeps, type VoiceNote } from '../../src/lib/voiceInput'
 
 const me = (role: 'owner' | 'admin' | 'member', voiceInput?: boolean) => ({ user: { role }, team: { name: 'T', defaultLocale: 'en' as const, ...(voiceInput === undefined ? {} : { voiceInput }) } })
 
@@ -488,5 +488,11 @@ describe('a transcription job\'s own label', () => {
     expect(jobLabel({ message: '받아쓰는 중', progress: null })).toBe('받아쓰는 중')
     expect(jobLabel({ message: null, progress: 0.5 })).toBeNull()
     expect(jobLabel(undefined)).toBeNull()
+  })
+  test('a job that has not started waits for its turn (TC-154 F1): not "transcribing" yet', () => {
+    expect(jobWaiting({ status: 'queued' })).toBe(true)
+    expect(jobWaiting({ status: 'running' })).toBe(false)
+    expect(jobWaiting({ status: 'done' })).toBe(false)
+    expect(jobWaiting(undefined)).toBe(false) // not heard of yet (most jobs start at once): transcribing
   })
 })

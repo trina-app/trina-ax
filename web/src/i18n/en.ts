@@ -501,6 +501,7 @@ export const en: Record<MessageKey, string> = {
   'voice.done': 'Finish recording',
   'voice.recording': 'Recording',
   'voice.transcribing': 'Transcribing…',
+  'voice.waiting': 'Waiting for another voice input to finish…',
   'voice.denied': 'Microphone access is blocked. Allow the microphone in your browser settings.',
   'voice.unsupported': "This browser can't record audio.",
   'voice.tooLong': 'The recording is too long. Keep recordings under 50 MB.',
