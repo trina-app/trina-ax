@@ -55,18 +55,20 @@ describe('start-up on a database an update must migrate', () => {
     let done = false
     void run.finally(() => { done = true })
     const seen: { status: number; body: Record<string, unknown> }[] = []
+    const others: { status: number; code: string }[] = []
     while (!done) {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2000) })
         seen.push({ status: r.status, body: await r.json() as Record<string, unknown> })
-        const other = await fetch(`http://127.0.0.1:${port}/api/me`)
-        expect(other.status).toBe(503)
-        expect(((await other.json()) as { error: { code: string } }).error.code).toBe('unavailable')
+        const other = await fetch(`http://127.0.0.1:${port}/api/me`, { signal: AbortSignal.timeout(2000) })
+        others.push({ status: other.status, code: ((await other.json()) as { error: { code: string } }).error.code })
       } catch { /* not listening yet, or just stopped */ }
       await Bun.sleep(30)
     }
     expect(await run).toBe(true)
     expect(seen.length).toBeGreaterThan(0)
+    expect(others.length).toBeGreaterThan(0)
+    for (const x of others) expect(x).toEqual({ status: 503, code: 'unavailable' })
     for (const s of seen) {
       expect(s.status).toBe(503)
       expect(s.body).toMatchObject({ ok: false, status: 'migrating', version: '9.9.9', migrating: { pending: 1 } })
@@ -140,13 +142,28 @@ describe('pre-migrate copies do not pile up', () => {
     const gone = Bun.spawnSync(['true']).pid
     const dead = path.join(x.backups, `.pending-migration-${gone}-abcdef`)
     const live = path.join(x.backups, `.pending-migration-${process.ppid}-abcdef`)
+    // this process's own pid: an earlier start with the same pid was killed (pids repeat in a container)
+    const reused = path.join(x.backups, `.pending-migration-${process.pid}-abcdef`)
     const unnamedOld = path.join(x.backups, '.pending-migration-Qw3rty')
     const unnamedNew = path.join(x.backups, '.pending-migration-Zx9cvb')
-    for (const d of [dead, live, unnamedOld, unnamedNew]) { fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'snapshot.db'), 'x') }
+    for (const d of [dead, live, reused, unnamedOld, unnamedNew]) { fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'snapshot.db'), 'x') }
     const old = new Date(Date.now() - 7 * 3600_000)
     fs.utimesSync(unnamedOld, old, old)
     openDb(x.file, { migrationsDir: x.mig }).close()
     const left = fs.readdirSync(x.backups).filter((n) => n.startsWith('.pending-migration-')).sort()
     expect(left).toEqual([path.basename(live), path.basename(unnamedNew)].sort())
+  })
+
+  test('a copy made before the last restore is kept: the database went back to older data since', () => {
+    const x = oldDb('restored', 'CREATE TABLE c (id INTEGER PRIMARY KEY); INSERT INTO nope VALUES (1);')
+    expect(() => openDb(x.file, { migrationsDir: x.mig })).toThrow(/nope/)
+    const first = fs.readdirSync(x.backups).filter((n) => n.startsWith('pre-migrate-'))
+    expect(first).toHaveLength(1)
+    // a restore after that copy (applyPendingRestore writes restore-result.json)
+    const later = new Date(Date.now() + 2000)
+    fs.writeFileSync(path.join(path.dirname(x.file), 'restore-result.json'), '{}')
+    fs.utimesSync(path.join(path.dirname(x.file), 'restore-result.json'), later, later)
+    expect(() => openDb(x.file, { migrationsDir: x.mig })).toThrow(/nope/)
+    expect(fs.readdirSync(x.backups).filter((n) => n.startsWith('pre-migrate-'))).toHaveLength(2)
   })
 })

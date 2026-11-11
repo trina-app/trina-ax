@@ -77,17 +77,28 @@ export async function migrateBeforeStart(o: MigrateBeforeStartOptions): Promise<
         { status: 503, headers: { 'retry-after': '30', 'cache-control': 'no-store' } })
     }, o.peerIp),
   })
+  let removeHandlers = () => {}
   try {
     const child = Bun.spawn([process.execPath, o.entry], {
       env: { ...process.env, [MIGRATE_DB_ENV]: o.file, ...(o.migrationsDir ? { MYCEL_MIGRATE_DIR: o.migrationsDir } : {}) },
       stdin: 'ignore', stdout: 'pipe', stderr: 'inherit',
     })
     childPid = child.pid
+    // main.ts sets its signal handlers only after start(). Until then: SIGHUP (mycel-ctl apply-plan / notices-set,
+    // passed on by the bootstrap to this pid only) must not end this process and leave the migrator running alone;
+    // SIGTERM / SIGINT stop the migrator too (its transaction rolls back) and end the start.
+    const onHup = () => o.log.info('SIGHUP while the database is updated: plan and notices are read when the server has started')
+    const onStop = (sig: NodeJS.Signals) => { child.kill('SIGTERM'); standIn.stop(true); process.exit(128 + (sig === 'SIGINT' ? 2 : 15)) }
+    process.on('SIGHUP', onHup)
+    process.on('SIGTERM', onStop)
+    process.on('SIGINT', onStop)
+    removeHandlers = () => { process.off('SIGHUP', onHup); process.off('SIGTERM', onStop); process.off('SIGINT', onStop) }
     let error = ''
     const lines = (async () => {
       let buf = ''
+      const dec = new TextDecoder()
       for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
-        buf += new TextDecoder().decode(chunk)
+        buf += dec.decode(chunk, { stream: true })
         let i: number
         while ((i = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, i); buf = buf.slice(i + 1)
@@ -105,6 +116,7 @@ export async function migrateBeforeStart(o: MigrateBeforeStartOptions): Promise<
     o.log.info('database updated', { pending, seconds: Math.round((Date.now() - Date.parse(since)) / 1000) })
     return true
   } finally {
+    removeHandlers()
     standIn.stop(true)
   }
 }

@@ -455,7 +455,7 @@ func TestUpdateWaitsWhileMigrating(t *testing.T) {
 	mkArchive(t, signedBundle(t, "0.3.0", priv, "old launcher"), arch2, nil)
 	began := time.Now()
 	code, out, _ = tb.ctl("", "update", "--bundle", arch2, "--pubkey", k, "--json")
-	if took := time.Since(began); code == 0 || took < 4*time.Second || took > 30*time.Second {
+	if took := time.Since(began); code == 0 || took < 4*time.Second || took > 30*time.Second || !strings.Contains(out, "updating its database") {
 		t.Fatalf("migrating forever: %d after %v %s", code, took, out)
 	}
 }

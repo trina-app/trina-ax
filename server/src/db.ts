@@ -230,7 +230,7 @@ function backupBeforeMigrate(db: Database, dir: string, expectedVersions: Set<nu
     if (!matches) return
     fs.chmodSync(partial, 0o600)
     fs.renameSync(partial, out)
-    removeSameSchemaCopies(dir, out, expectedVersions)
+    removeSameSchemaCopies(dir, out, expectedVersions, path.dirname(db.filename))
   } finally {
     fs.rmSync(staging, { recursive: true, force: true })
   }
@@ -254,8 +254,10 @@ function removeStaleStaging(dir: string) {
     if (!n.startsWith(STAGING_PREFIX)) continue
     const m = /^(\d+)-/.exec(n.slice(STAGING_PREFIX.length))
     const f = path.join(dir, n)
+    // this process's own pid: a killed earlier start that had it too (pids repeat in a container); ours comes next
+    const pid = m ? Number(m[1]) : 0
     try {
-      if (m ? processAlive(Number(m[1])) : Date.now() - fs.statSync(f).mtimeMs < STAGING_UNNAMED_GRACE_MS) continue
+      if (m ? pid !== process.pid && processAlive(pid) : Date.now() - fs.statSync(f).mtimeMs < STAGING_UNNAMED_GRACE_MS) continue
       fs.rmSync(f, { recursive: true, force: true })
     } catch { /* another process removed it first */ }
   }
@@ -264,14 +266,19 @@ function removeStaleStaging(dir: string) {
 /** The copy just made replaces older copies of the same schema (the same applied migrations): earlier tries of this
  * update that did not finish (the newest copy has the newer data). Only copies whose name sorts before this one's (the
  * name starts with the time): processes copying at the same moment never remove each other's, the last one stays.
- * Copies of other schemas go by the backup retention (system/backup.ts prune). */
-function removeSameSchemaCopies(dir: string, keep: string, versions: Set<number>) {
+ * A copy made before the last restore (<data>/restore-result.json, system/backup.ts) stays: the database went back to
+ * older data since, so that copy may hold data the new one lacks. Copies of other schemas go by the backup retention
+ * (system/backup.ts prune). */
+function removeSameSchemaCopies(dir: string, keep: string, versions: Set<number>, dataDir: string) {
   let names: string[] = []
   try { names = fs.readdirSync(dir) } catch { return }
   const mine = path.basename(keep)
+  let restoredAt = 0
+  try { restoredAt = fs.statSync(path.join(dataDir, 'restore-result.json')).mtimeMs } catch {}
   for (const n of names) {
     const f = path.join(dir, n)
     if (!PRE_MIGRATE_FILE.test(n) || n >= mine) continue
+    try { if (fs.statSync(f).mtimeMs <= restoredAt) continue } catch { continue }
     let same = false
     try {
       const copy = new Database(f, { readonly: true })

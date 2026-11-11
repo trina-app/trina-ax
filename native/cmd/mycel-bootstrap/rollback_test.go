@@ -421,6 +421,10 @@ func TestDyingWhileMigratingCountsAttempts(t *testing.T) {
 	f.updating("1.0.0", "1.1.0")
 	stop := f.start()
 	st := f.waitFor("rolled back", func(st appState) bool { return len(st.History) == 1 })
+	// the roll-back is recorded before 1.0.0 starts
+	for until := time.Now().Add(30 * time.Second); len(f.startList()) < 4 && time.Now().Before(until); {
+		time.Sleep(20 * time.Millisecond)
+	}
 	if code := stop(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:45
 - Branch: `fix/large-db-update`
-- Status: in progress
+- Status: done
 - Where: server/src (db.ts, main.ts, a start-up migrator), native/cmd/mycel-bootstrap, native/cmd/mycel-ctl. Why: the
   update path and its watchdog live there (docs/REPOSITORY-RULES.md).
 - Version impact: patch: a bug fix in the update path, no API or data format change.
@@ -49,4 +49,10 @@ update.
 
 ## Result
 
-(at the end)
+Built as planned. After the independent review: SIGHUP during the migration is ignored and SIGTERM/SIGINT stop the
+migrator (main.ts sets its handlers only after start()); a staging folder with this process's own pid counts as stale
+(pids repeat in a container); same-schema copies made before the last restore are kept; the deadline while migrating is
+now + --health-timeout until start + --migrate-timeout, so a start right after a long migration gets the usual time
+(bound: --migrate-timeout + --health-timeout). Checked on a 1.5 GB database (dev server): /api/health 503 migrating with
+copy progress, then 200; killed twice mid-copy, the next start left one copy. Follow-ups: the office Mac updater
+(server/src/office/update.ts, 150 s) and the Docker HEALTHCHECK (unhealthy while migrating).

@@ -16,7 +16,8 @@
 // restarting a build that can never read the database (decision: fix/update-rollback-schema-too-new, 2026-11-11).
 // A new version that has to update a large database first (a copy, then the migrations: minutes on several GB) answers
 // /api/health 503 {status: "migrating", version} meanwhile (server/src/system/migrate-start.ts). While it says so with
-// the version the bootstrap started, the deadline moves to now + --health-timeout, never past start + --migrate-timeout;
+// the version the bootstrap started, the deadline moves to now + --health-timeout; still migrating after start +
+// --migrate-timeout, it is rolled back;
 // progress goes to the log every minute. Dying still counts towards --max-attempts (QA TC-278, 2026-11-12).
 // Normal crashes restart after 1 s; more than 5 crashes in 5 minutes back off 1, 2, 4 ... 60 s. launchd's KeepAlive
 // only restarts the bootstrap itself.
@@ -261,14 +262,17 @@ func healthy(url, version string) bool {
 	return s == isHealthy
 }
 
-// extendDeadline: a version that reports migrating gets --health-timeout from now, never past start + --migrate-timeout
-// (and never less than it had)
+// extendDeadline: a version that reports migrating gets --health-timeout from now (never less than it had), so the
+// start after a long migration has the usual time; still migrating past start + --migrate-timeout: no more time (the
+// wait is bounded by --migrate-timeout + --health-timeout)
 func extendDeadline(deadline, started, now time.Time) time.Time {
-	d := now.Add(*healthTimeout)
-	if limit := started.Add(*migrateTimeout); d.After(limit) {
-		d = limit
+	if now.After(started.Add(*migrateTimeout)) {
+		if deadline.After(now) {
+			return now
+		}
+		return deadline
 	}
-	if d.After(deadline) {
+	if d := now.Add(*healthTimeout); d.After(deadline) {
 		return d
 	}
 	return deadline
@@ -533,7 +537,7 @@ func run() int {
 				if hs == migrating {
 					deadline = extendDeadline(deadline, started, time.Now())
 					if !sawMigrating || time.Since(migrateLogged) >= migrateLogEvery {
-						logf("version %s is updating its database (%s), %v so far; waiting until at most %v after its start",
+						logf("version %s is updating its database (%s), %v so far; waiting while it does, at most %v after its start",
 							v, orDash(progress), time.Since(started).Round(time.Second), *migrateTimeout)
 						migrateLogged = time.Now()
 					}
