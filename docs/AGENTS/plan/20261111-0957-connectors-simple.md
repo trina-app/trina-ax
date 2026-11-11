@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 09:57
 - Branch: `feat/connectors-simple`
-- Status: in progress
+- Status: done
 - Where: `web/`. Why: the page and its labels are web UI only; no server or API change (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a simpler layout and a new name for an existing page, nothing new to set up
 
@@ -89,4 +89,11 @@ e2e specs named above, and a hands-on walk in the QA team as owner, admin and me
 
 ## Result
 
-Filled in at the end.
+Built as planned, web only. Differences after review:
+- Discover counts every connection the person can use (their own, the team's, template-made) as connected, so a
+  team-provided service is not offered again.
+- "Set up" shows only for what Admin can set up (Google not set up, Drive without a Google client); a card that is off
+  for other reasons is left out. A Google app that needs a new sign-in stays in Your connectors.
+- A member whose team has set nothing up sees one empty state that says to ask an admin.
+- "Off for you" rows are gone from this page (Admin › Connected apps lists them).
+Not changed (UI only): server texts that still say "Settings › Connected apps" and docs/site/use/mcp.md; follow-up.
