@@ -91,3 +91,46 @@ describe('words', () => {
     expect(translate('ko', 'auth.linkCopied')).toBe('링크를 복사했어요')
   })
 })
+
+describe('the copy inside the tap', () => {
+  // a stand-in document: execCommand answers what the browser would; the textarea is put in and taken out again
+  const fakeDoc = (answer: boolean | 'throw') => {
+    const log: string[] = []
+    const area = { value: '', readOnly: false, style: { cssText: '' }, setAttribute() {}, select: () => log.push('select'), setSelectionRange: () => log.push('range') }
+    const doc = {
+      activeElement: null,
+      createElement: () => area,
+      execCommand: (c: string) => { log.push(`exec:${c}:${area.value}`); if (answer === 'throw') throw new Error('no'); return answer },
+      body: { appendChild: () => log.push('in'), removeChild: () => log.push('out') },
+    }
+    return { doc: doc as never, log, area }
+  }
+  test('the synchronous copy worked: copied now (the store link goes ahead)', async () => {
+    const { copyInTap } = await import('../../src/lib/copy-in-tap')
+    const { doc, log, area } = fakeDoc(true)
+    const writes: string[] = []
+    const r = copyInTap('https://acme.trina.app/invite/abc', { doc, clipboard: { writeText: async (t) => { writes.push(t) } } })
+    expect(r.now).toBe(true)
+    expect(await r.later).toBe(true)
+    expect(writes).toEqual(['https://acme.trina.app/invite/abc'])
+    expect(area.readOnly).toBe(true)
+    expect(log).toEqual(['in', 'select', 'range', 'exec:copy:https://acme.trina.app/invite/abc', 'out'])
+  })
+  test('an in-app browser with no Clipboard API and a refused copy: not copied (the page stays)', async () => {
+    const { copyInTap } = await import('../../src/lib/copy-in-tap')
+    for (const answer of [false, 'throw'] as const) {
+      const { doc, log } = fakeDoc(answer)
+      const r = copyInTap('x', { doc, clipboard: undefined })
+      expect(r).toEqual({ now: false, later: null })
+      expect(log.at(-1)).toBe('out') // the textarea never stays behind
+    }
+  })
+  test('the Clipboard API refuses: its answer is false, never a throw', async () => {
+    const { copyInTap } = await import('../../src/lib/copy-in-tap')
+    const r = copyInTap('x', { doc: fakeDoc(false).doc, clipboard: { writeText: () => Promise.reject(new Error('NotAllowedError')) } })
+    expect(r.now).toBe(false)
+    expect(await r.later).toBe(false)
+    const thrown = copyInTap('x', { doc: fakeDoc(false).doc, clipboard: { writeText: () => { throw new Error('sync') } } })
+    expect(thrown.later).toBeNull()
+  })
+})

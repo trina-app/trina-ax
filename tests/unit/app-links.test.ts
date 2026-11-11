@@ -93,4 +93,12 @@ describe("Apple's Smart App Banner on the join pages", () => {
     for (const ua of [MAC, ANDROID]) expect((await get(`/invite/${TOKEN}`, ua)).html).not.toContain('apple-itunes-app')
     for (const p of ['/', '/login', '/settings', `/reset-password/${TOKEN}`, '/invite', `/invite/${TOKEN}/x`]) expect((await get(p, IPHONE)).html).not.toContain('apple-itunes-app')
   })
+  test('the page with the banner follows a new build', async () => {
+    const first = (await get('/join', IPHONE)).html
+    expect((await get('/join', IPHONE)).html).toBe(first)
+    fs.writeFileSync(path.join(dist, 'index.html'), '<!doctype html><html><head><title>new build</title></head><body></body></html>')
+    const next = (await get('/join', IPHONE)).html
+    expect(next).toContain('new build')
+    expect(next).toContain('apple-itunes-app')
+  })
 })

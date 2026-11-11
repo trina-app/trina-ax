@@ -18,6 +18,7 @@ import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
 import { getAppHref, joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin } from '../lib/team-link'
 import { platform } from '../lib/pwa'
+import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
@@ -434,6 +435,9 @@ function OpenInApp({ path }: { path: string }) {
 function JoinChoices({ path, children }: { path: string; children: ReactNode }) {
   const t = useT()
   const [web, setWeb] = useState(false)
+  // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
+  // link to copy by hand ('failed'); both offer the store as a plain link
+  const [manual, setManual] = useState<null | 'checking' | 'copied' | 'failed'>(null)
   const store = getAppHref(platform(), clientKind(), APP_DOWNLOADS)
   if (!store || web)
     return (
@@ -443,25 +447,65 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
         <OpenInApp path={path} />
       </>
     )
-  const copyAndGo = async (e: React.MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault()
-    // this page's own link (the team link's token from memory: the address bar no longer has it), for the person's
-    // own paste in the app; the store address stays the fixed one, with nothing of it
-    const copied = await navigator.clipboard?.writeText(window.location.origin + path).then(() => true, () => false)
-    toast(copied ? { level: 'success', text: t('auth.linkCopied') } : { level: 'warn', text: t('auth.linkNotCopied') })
-    window.location.assign(store)
+  // this page's own link (the team link's token from memory: the address bar no longer has it), for the person's own
+  // paste in the app; the store address stays the fixed one, with nothing of it
+  const link = window.location.origin + path
+  const onAndroid = platform() === 'android'
+  const copied = () => {
+    setManual('copied')
+    toast({ level: 'success', text: t('auth.linkCopied') })
   }
+  // the copy runs inside the tap; when it worked, the tap's own navigation to the store goes ahead (no scripted
+  // navigation after an await: Safari and iOS web views treat those differently). When it did not, the page stays,
+  // so nobody installs with nothing to paste
+  const tap = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const r = copyInTap(link, { doc: document, clipboard: navigator.clipboard })
+    if (r.now) {
+      toast({ level: 'success', text: t('auth.linkCopied') })
+      return
+    }
+    e.preventDefault()
+    setManual('checking')
+    void (r.later ?? Promise.resolve(false)).then((ok) => (ok ? copied() : setManual('failed')))
+  }
+  const copyAgain = () => {
+    const r = copyInTap(link, { doc: document, clipboard: navigator.clipboard })
+    if (r.now) return copied()
+    void r.later?.then((ok) => ok && copied())
+  }
+  const goLabel = t(onAndroid ? 'auth.goDownloadPage' : 'auth.goAppStore')
   return (
     <div data-testid="get-app">
       <a
         href={store}
         rel="noreferrer noopener"
-        onClick={(e) => void copyAndGo(e)}
+        onClick={tap}
         className="flex min-h-10 w-full items-center justify-center rounded-lg bg-accent px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover"
         data-testid="get-app-store"
       >
         {t('auth.getApp')}
       </a>
+      {manual === 'failed' && (
+        <div className="mt-3 flex flex-col gap-2" data-testid="get-app-manual">
+          <p role="alert" className="text-sm text-ink">{t('auth.linkNotCopied')}</p>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={link}
+              aria-label={t('auth.inviteLinkLabel')}
+              onFocus={(e) => e.currentTarget.select()}
+              className={clsx(inputCls, 'min-w-0 flex-1')}
+              data-testid="get-app-link"
+            />
+            <Button onClick={copyAgain} data-testid="get-app-copy">{t('common.copy')}</Button>
+          </div>
+        </div>
+      )}
+      {(manual === 'failed' || manual === 'copied') && (
+        <p className="mt-2 text-center text-sm">
+          <a href={store} rel="noreferrer noopener" className="text-accent-text underline" data-testid="get-app-go">{goLabel}</a>
+        </p>
+      )}
       <p className="mt-2 text-center text-sm text-muted" data-testid="get-app-hint">{t('auth.getAppHint')}</p>
       <OpenInApp path={path} />
       <p className="mt-4 text-center text-sm">

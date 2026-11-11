@@ -155,3 +155,44 @@ test('a computer: the form as before, no banner, no button', async ({ page, brow
   await expect(p.locator('meta[name="apple-itunes-app"]')).toHaveCount(0)
   await ctx.close()
 })
+
+// an in-app browser (KakaoTalk, Instagram, Line): no Clipboard API and a refused copy. The person must not reach the
+// store with nothing to paste: the page stays, says so, shows the link to copy by hand and a separate store link
+test('a browser that cannot copy: the page stays, with the link to copy and a separate App Store link', async ({ page, browser }) => {
+  await reset(page)
+  await signIn(page)
+  const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  const { ctx, outside } = await phone(browser, UA.iphone)
+  await ctx.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get: () => undefined })
+    const real = Document.prototype.execCommand
+    Document.prototype.execCommand = function (this: Document, cmd: string, ...rest: [boolean?, string?]) {
+      return cmd === 'copy' && !(window as unknown as { copyWorks?: boolean }).copyWorks ? false : real.call(this, cmd, ...rest)
+    }
+  })
+  const p = await ctx.newPage()
+  await p.goto(`/invite/${token}`)
+  const origin = new URL(p.url()).origin
+  await p.getByTestId('get-app-store').click()
+  await expect(p.getByTestId('get-app-manual')).toBeVisible()
+  expect(new URL(p.url()).pathname).toBe(`/invite/${token}`)
+  expect(outside).toEqual([])
+  await expect(p.getByRole('alert')).toHaveText(ko('auth.linkNotCopied'))
+  await expect(p.getByTestId('get-app-link')).toHaveValue(`${origin}/invite/${token}`)
+  expect(await p.getByTestId('get-app-link').getAttribute('readonly')).not.toBeNull()
+  const go = p.getByTestId('get-app-go')
+  await expect(go).toHaveText(ko('auth.goAppStore'))
+  expect(await go.getAttribute('href')).toBe(APP_STORE)
+  await shot(p, 'iphone-invite-no-copy')
+  // "복사" again, in a browser where the copy works now
+  await p.evaluate(() => ((window as unknown as { copyWorks?: boolean }).copyWorks = true))
+  await p.getByTestId('get-app-copy').click()
+  await expect(p.getByText(ko('auth.linkCopied'))).toBeVisible()
+  await expect(p.getByTestId('get-app-manual')).toHaveCount(0)
+  await expect(go).toBeVisible()
+  // the store link is the tap's own navigation, with no Referer and no token
+  await go.click()
+  await p.waitForURL(APP_STORE)
+  expect(outside).toEqual([{ url: APP_STORE, referer: null }])
+  await ctx.close()
+})

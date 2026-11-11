@@ -57,6 +57,9 @@ beyond what iOS detection already gives, desktop browsers (unchanged), our own a
 
 ## Result
 
+- Review fixes: the button is a real link and the copy runs inside the tap (`web/src/lib/copy-in-tap.ts`); when
+  the copy fails the page stays with the link to copy by hand and a separate store link; the banner page is cached.
+
 - iPhone browser: Smart App Banner (`app-id=6829192435`, no `app-argument`) on `/invite/*` and `/join`; the button copies
   the link and opens the App Store listing. Android browser: the button copies and opens ax.trina.app/download; "Open in
   the app" keeps the intent with `S.browser_fallback_url` = that page. Computers and our apps: unchanged.

@@ -20695,7 +20695,16 @@ universal links / app links); without it, the phone's browser lands on the join 
   The app's first-run box already takes a pasted invite or team link as it is (`parseTeamInput`, both copies; tested).
   The app never reads the clipboard by itself (no paste on launch: iOS 16+ "Allow Paste" prompts, and it would read
   whatever else is there); no fingerprinting, no deferred deep link service. The clipboard copy is the person's own,
-  for their own paste. If the copy fails, the toast says to tap the invite link again after installing.
+  for their own paste.
+- **The copy runs inside the tap, and a failed copy never reaches the store** (review, 2026-11-11): the button is a real
+  `<a href={store}>`, so the store opens as the tap's own navigation (no scripted navigation after an await, which
+  Safari and iOS web views treat differently). In the tap the Clipboard API write starts (not awaited) and a hidden
+  read-only textarea + `execCommand('copy')` answers at once (`copyInTap`, `web/src/lib/copy-in-tap.ts`). Copied: the
+  link goes ahead. Not known to be copied (in-app browsers such as KakaoTalk, Instagram or Line often have no
+  `navigator.clipboard` or refuse it): the page stays; when the Clipboard API then says yes, "Link copied" and a plain
+  "Go to the App Store" link; otherwise the warning, the link in a read-only field with a "Copy" button, and the same
+  separate store link (Android: "Go to the download page"). The banner page is kept in memory until index.html
+  changes.
 - **Apple's Smart App Banner** (`<meta name="apple-itunes-app" content="app-id=…">`) is added by the server
   (`serveWeb`, `server/src/routes/web-static.ts`; `smartAppBanner`, `shared/src/app-links.ts`) to the HTML of
   `/invite/<token>` and `/join` only, and only for an iPhone/iPad/iPod user agent (`Vary: User-Agent`); Safari reads it
