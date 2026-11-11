@@ -385,7 +385,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
       <NavLink to="/scheduled" className={active} data-testid="nav-scheduled">
         <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
       </NavLink>
-      <NavLink to="/settings/notifications" className={active} onClick={(e) => settingsOpenedFrom(e.currentTarget)} data-testid="nav-inbox">
+      <NavLink to="/activity" className={active} data-testid="nav-inbox">
         <Bell size={16} aria-hidden /> {t('inbox.title')}
         {unread > 0 && (
           // aria-label on a plain span is not read: the number is hidden from screen readers and the words are sr-only
