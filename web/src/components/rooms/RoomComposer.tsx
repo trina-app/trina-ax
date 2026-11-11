@@ -310,7 +310,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last */}
             <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
               <div className="flex h-composer-line shrink-0 items-center">
-                <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="room-attach">
+                <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
                   <Paperclip size={18} />
                 </IconButton>
               </div>
