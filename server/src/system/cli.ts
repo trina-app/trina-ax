@@ -34,7 +34,9 @@
 //   google-broker-key [--json]                   for a self-installed server that signs in to Google through the hosting
 //                                                service: the relay public key (SPKI base64) and this server's public
 //                                                address, to register there (integrations/google-drive/broker.ts).
-//                                                Never the private key. Plain text, or JSON { publicKey, address }
+//                                                Never the private key, and never makes one: exit 1 "start the
+//                                                server first" (JSON { error: "no_key" }) before the server made it.
+//                                                Plain text, or JSON { publicKey, address }
 //
 // For the hosted service's root tool (mycel-ctl / mycel-enroll, control-plane 3.5.3, system/cloud-admin.ts):
 //   relay-key [--sign-register <slug> <ts>] [--sign-rotate <teamId>] [--sign-reattach <tenantId> <teamId> <ts>]
@@ -388,6 +390,13 @@ export async function main(argv: string[]): Promise<number> {
     // the key and address the hosting service's operator registers for a self-installed server's Google sign-in
     case 'google-broker-key': {
       const r = googleBrokerKey(cfg.dataDir, cfg.tunnel?.host)
+      // read only: the server makes the key as its own account; a root run must not leave one it cannot read
+      if (!r.publicKey) {
+        const message = 'no relay key yet: start the server first (with MYCEL_GOOGLE_DRIVE_BROKER_URL set it makes the key), then run this again'
+        if (args.includes('--json')) out({ error: 'no_key', message, address: r.address })
+        else console.error(`error: ${message}`)
+        return 1
+      }
       if (args.includes('--json')) { out(r); return 0 }
       console.log(`public key: ${r.publicKey}`)
       console.log(`address:    ${r.address ?? 'not set (set tunnel.host first: the hosting service sends people back only to this address)'}`)
