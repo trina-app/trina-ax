@@ -3465,6 +3465,8 @@ export const ko = {
   "teamLink.skipBody": "함께 쓰는 사람이 있어야 팀 스킬이 쌓여요. 지금 한두 명만 초대해 볼까요?",
   "teamLink.joinSub": "이 링크로 바로 가입할 수 있어요. {date}까지 쓸 수 있어요.",
   "teamLink.joinSubSkill": "가입하면 바로 '{skill}' 스킬을 써 볼 수 있어요.",
+  "teamLink.signedInBody": "지금 {name}(으)로 로그인되어 있어요. 이 링크는 팀에 새로 들어올 사람을 위한 거예요. 참여하려면 먼저 로그아웃해 주세요.",
+  "teamLink.signOutJoin": "로그아웃하고 참여하기",
   "teamLink.problem.expired": "기간이 지난 초대 링크예요. 링크를 보낸 분께 새 링크를 부탁해 주세요.",
   "teamLink.problem.used_up": "이 링크로 들어올 수 있는 인원이 다 찼어요. 링크를 보낸 분께 새 링크를 부탁해 주세요.",
   "teamLink.problem.revoked": "더 이상 쓰지 않는 초대 링크예요. 링크를 보낸 분께 새 링크를 부탁해 주세요.",

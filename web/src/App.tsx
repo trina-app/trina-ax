@@ -1,6 +1,6 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { ApiError, errorText } from './lib/api'
@@ -31,7 +31,7 @@ import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
-import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { afterJoinTarget, clearAfterJoin, readJoinToken } from './lib/team-link'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
@@ -308,9 +308,14 @@ export default function App() {
   )
 }
 
-/** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. */
-function AfterJoin() {
+/** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. The join page
+ * takes the link's token out of the address as soon as it opens, so a token still there (read once: the page below takes
+ * it out too) is a team link opened while someone was signed in already: say who, and offer to sign out and join, as an
+ * invite does (QA TC-200). */
+export function AfterJoin() {
+  const [opened] = useState(() => readJoinToken(window.location).cleanUrl !== null)
   useEffect(() => () => clearAfterJoin(), [])
+  if (opened) return <InviteWhileSignedIn />
   return <Navigate to={afterJoinTarget()} replace />
 }
 
