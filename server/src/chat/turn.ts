@@ -38,8 +38,9 @@ import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
+import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
@@ -707,6 +708,8 @@ export class TurnExec {
     }
     if (this.stopReason) return
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
+    // a chat started from a skill is called by the skill's name people read, not "/card-news" (title.ts)
+    if (invoked && skillPlaceholderTitle(rt.db, spec.chatId, invoked.skill, skillAlias(invoked.skill.path))) rt.publishChat(spec.userId, spec.chatId, 'updated')
     // a project's skill: anyone who writes the project's folder may have written it (outside content, as project
     // instructions are: chat/runtime.ts projectTaints)
     if (invoked?.skill.project) this.taint()
