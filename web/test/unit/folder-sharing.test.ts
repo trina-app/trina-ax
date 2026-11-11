@@ -194,7 +194,7 @@ describe('who gains later, in the confirm (QA TC-232)', () => {
     ]
     expect(lines.length).toBeGreaterThan(8)
     for (const l of lines) expect([l, /이\(가\)|은\(는\)|\(으\)로|을\(를\)|\(이\)|\(가\)/.test(l)]).toEqual([l, false])
-    expect(ko('folderAccess.willOpen', { names: 'Dan' })).toBe('Dan도 열 수 있게 돼요')
+    expect(ko('folderAccess.willOpen', { names: 'Dan' })).toBe('열 수 있게 되는 사람: Dan')
   })
 })
 

@@ -20631,9 +20631,14 @@ that it is trying again, and the content back by itself.
   the current version" and wait for a click. Now, while out of reach, it says it loads by itself once the connection is
   back ("연결이 끊겨서 이 부분을 불러오지 못했어요. 다시 연결되면 저절로 불러와요.") and, when the live connection is open
   again, asks the same reload as before (`reloadForChunkError`): never while something would be lost (an upload, a
-  recording, a draft, a message not sent) and at most once per 5 minutes in a tab. Then the Reload button stays, as
-  before. A reload, not a second import: browsers may keep a failed module import, so trying the import again is not
-  reliable.
+  recording, a draft, a message not sent, an answer still streaming) and at most once per 5 minutes in a tab. Held back
+  by something that would be lost, it asks again every 3 seconds while connected, as the update watcher does (an answer
+  that was streaming when the connection dropped ends a moment after it is back); the line promises "by itself" only
+  when nothing has to be finished first and the 5-minute guard allows it, else the Reload button stays, as before. A
+  reload, not a second import: browsers may keep a failed module import, so trying the import again is not reliable.
+  A reply typed in a room's box now counts as a draft too, also when its box is no longer on screen (`RoomComposer`
+  marks it busy; `reloadWouldLose` counts every non-empty `roomDrafts` entry, which lives only in this tab's memory),
+  for this reload and the one after a server update.
 - **Home's goal card reads the goal again after a connection failure** (TC-231, `HomeGoal`): the same `useAutoRetry` as
   `LoadError` (backoff, and at once when the live connection is back). A read that fails keeps the card on screen; a
   refusal or a missing goal still shows nothing.
@@ -20641,15 +20646,23 @@ that it is trying again, and the content back by itself.
   says for whoever joins the team, people switched off and whoever joins the groups whether one of them would get edit
   somewhere (at the folder or a rule folder inside), from the same before/after permission checks as `latentMore`. The
   confirm says "열 수 있게 돼요" for view and keeps "열거나 고칠 수 있게 돼요" for edit, and for an answer without the field.
-  Korean lines of the panel no longer put "이(가)", "은(는)", "(으)로" or "을(를)" after a name: "Dan도 열 수 있게 돼요",
-  "더 이상 열 수 없게 되는 사람: Dan", "'영업' 폴더로 돌아가기".
+  Korean lines of the panel no longer put "이(가)", "은(는)", "(으)로" or "을(를)" after a name, in one pattern: "열 수
+  있게 되는 사람: Dan", "더 이상 열 수 없게 되는 사람: Dan", "사용 중지가 풀리면 열 수 있게 되는 사람: Dan", "'영업' 폴더로
+  돌아가기". One line per kind: when one of its groups (or people switched off) gets edit, the line says "열거나 고칠 수"
+  for all of them (the safe side).
 - **A tool may give the room card its own words** (TC-233, `TurnTool.card`, `ChatToolSet.card`, `TurnExec.toolCard`).
   Words only: whether the card is asked and what yes allows are unchanged. `api_request` after a room read: "{service}에서
-  읽어 오기" for GET and HEAD, "{service}에서 무언가 바꾸기" otherwise, the address it calls ("보내는 곳"; a team's or a
-  template's without the query, as `view` shows it), a JSON body as lines, and the exact request (`GET https://…`) behind
-  "보내는 내용 그대로 보기". The connection's key name (`team_x`) and the AI's arguments are not on the card.
+  읽어 오기" for GET and HEAD, "{service}에서 무언가 바꾸기" otherwise, the address it calls ("주소" for a read, "보내는
+  곳" for a change), a JSON body as lines, and the exact request (`GET https://…`) behind "보내는 내용 그대로 보기". The
+  address is the one the person may see (`shownUrl`): their own connection's in full, a team's or a template's without a
+  query its admin set, as the connections list and the AI's tool list show it; the connection's own card now does the
+  same (it showed the admin's query to members). With a query left out the request is not "exactly what is sent" and
+  stays open. The connection's key name (`team_x`) and the AI's
+  arguments are not on the card. The room card's lead line ("…바꾸기 전에 먼저 물어봐요") stays: some APIs change
+  something on a GET, which is why a read asks here at all.
 - **A switched-off AI, for the owner and admins** (TC-234, `engineOffAdmin`): "이 AI는 팀에서 꺼져 있어요. 관리자 › AI
-  계정에서 켜거나 다른 AI를 골라 주세요." Members keep "관리자가 이 AI를 꺼 두었어요."
+  계정에서 켜거나 다른 AI를 골라 주세요." Only when it is Admin's switch that is off (not an AI this installation lacks
+  or the API AI without its settings). Members keep "관리자가 이 AI를 꺼 두었어요."
 - **A broken connection's reason for someone who cannot fix it** (TC-235, `reasonText(code, locale, can)`): a member on
   a team connection, or anyone but an admin on the address of a connection made from a team template, reads "서비스에
   연결하지 못했어요. 관리자에게 알려 주세요." for an address problem and "이 서비스에 쓰는 팀의 키나 로그인이 안 돼요.
