@@ -6,7 +6,8 @@
 // with your accounts, MCP servers and Google Drive in one place, plus the team connections you may use; AI apps: outside
 // AI apps such as Claude using this server) · App (notices, the apps to install, about).
 // The same groups as Admin's menu, which has no AI group either. Every section is just for you (Admin is the team's).
-// "Browser" is there only inside a desktop app that offers it. Old addresses: /settings/integrations (MCP) and
+// "Browser" is there inside a desktop app that offers it, and wherever the team lets members turn on "Allow all
+// websites" for the AI's web reads (Me.team.webAllowAll). Old addresses: /settings/integrations (MCP) and
 // /settings/drive (Connectors), /settings/credentials (Providers, /settings/providers), SettingsDialog.tsx. "Dev
 // environment sites" (the sites the person allowed for her own dev-environment commands, and her Full internet switch)
 // is there while the dev environment on srt is on for her.
@@ -45,12 +46,17 @@ const TABS: SettingsTab[] = [
   { id: 'about', label: 'settings.about', find: 'settings.find.about', icon: Info, group: 'app' },
 ]
 
-/** The tabs to show: "browser" only when the desktop app offers Settings > Browser (lib/desktop.ts browserSettingsBridge),
+/** The tabs to show: "browser" only when the desktop app offers Settings > Browser (lib/desktop.ts browserSettingsBridge)
+ * or the team lets members allow all websites for the AI's web reads (Me.team.webAllowAll),
  * "providers" only when the member may have their own AI accounts (or still has one), "dev-env-sites" only when the dev
  * environment on srt is on for the person (GET /api/dev-env/sites state is not 'off'). */
 export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false): SettingsTab[] {
   return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites))
 }
+
+/** Is there a Browser section: inside a desktop app that offers its site setting, or while the team lets members allow
+ * all websites for the AI's web reads (Me.team.webAllowAll), on every client. */
+export const browserTabShown = (desktopBridge: boolean, teamWebAllowAll: boolean | undefined) => desktopBridge || teamWebAllowAll === true
 
 /** Whether the search box finds a section: by its name or by the words of what is inside it ("비밀번호" finds 보안·기기).
  * `q` is the search text, trimmed and in lower case. */

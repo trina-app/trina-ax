@@ -8,7 +8,8 @@
 //   server cannot be reached.
 import { app as electronApp, BaseWindow, dialog, net, Notification, session, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
-import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
+import { applyMePolicy } from '../common/me-policy'
+import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
 import { asksOutside, firstRunLinks, healthVerdict, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { LinkGate } from '@mycel/shared/team-link'
@@ -707,8 +708,9 @@ export class AppWindow {
       if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
       this.folderPerson({ signedIn: true, userId: me.data.user.id })
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
-      const allowAll = me.data.team.browserAllowAll
-      if (typeof allowAll === 'boolean' && pane && this.pane === pane) pane.setTeamPolicy(allowAll)
+      // the team's policy and the person's "Allow all websites" for the AI's web reads (followed when it goes off, never
+      // when it goes on): common/me-policy.ts
+      if (pane && this.pane === pane) applyMePolicy(pane, me.data)
       if (me.data.team.name && me.data.team.name !== team.label) {
         this.saveTeams(updateTeam(this.teams, team.id, { label: me.data.team.name.slice(0, 200) }))
         this.team = findTeam(this.teams, team.id)
@@ -856,7 +858,8 @@ export class AppWindow {
         type: 'warning',
         title: t(L, 'allowAll.title'),
         message: t(L, 'allowAll.message', { team: this.team.label }),
-        detail: t(L, 'allowAll.detail'),
+        // the one risk sentence every place that turns it on shows (shared/src/web-allow-all.ts)
+        detail: `${t(L, 'allowAll.detail')}\n\n${WEB_ALLOW_ALL_RISK[L] ?? WEB_ALLOW_ALL_RISK.en}`,
         buttons: [t(L, 'allowAll.cancel'), t(L, 'allowAll.confirm')],
         // Enter / Escape / closing the dialog keep asking
         defaultId: 0,

@@ -215,7 +215,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         // within the link budget, unless one carries what the AI sent before (an echo: always a card)
         if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)], 'fetched', webEcho(ctx.db, chatId, [a.url, r.url]))
         page?.ok({ url: r.url, ...(r.title ? { title: r.title } : {}), chars: r.text.trim().length, text: r.text, ...(r.html !== undefined ? { html: r.html } : {}), fetch: { ...o.fetch, blockedIps } })
-        return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
+        return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : how === 'all' ? ' (all websites allowed)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
       } catch (e) {
         page?.failed(why, hop)
         throw e
