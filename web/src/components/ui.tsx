@@ -98,17 +98,21 @@ export function SidebarSectionTitle({ open, onToggle, controls, children, testId
 }
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
- * tied to the control with aria-describedby. */
-export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: ReactNode }) {
+ * tied to the control with aria-describedby. `aside` (a password field's eye button) sits over the control's right edge, outside the label, so
+ * the control's name stays the label's words; the control then keeps room for it (pr-11). */
+export function Field({ label, children, hint, error, aside }: { label: string; children: ReactNode; hint?: string; error?: ReactNode; aside?: ReactNode }) {
   const id = useId()
   const note = error || hint
   const control = note && isValidElement(children) ? cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>, { 'aria-describedby': id, 'aria-invalid': error ? true : undefined }) : children
+  const labelled = (
+    <label className="block">
+      <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
+      {control}
+    </label>
+  )
   return (
     <div className="block">
-      <label className="block">
-        <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
-        {control}
-      </label>
+      {aside ? <div className="relative">{labelled}<div className="absolute right-0 bottom-0 flex h-9 items-center max-sm:h-10">{aside}</div></div> : labelled}
       {hint && !error && (
         <span id={id} className="mt-1 block text-xs text-faint">
           {hint}
