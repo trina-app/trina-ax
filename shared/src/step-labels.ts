@@ -162,8 +162,24 @@ export const STEP_TEXT = {
   /** a sub-agent's part of the answer (Claude Code's Agent tool); {d} is the AI's own short description of it */
   subtask: t('하위 작업: {d}', 'Sub-task: {d}', 'Subtugas: {d}', "サブタスク：{d}", "Subtarea: {d}"),
   credentialSwitchInvalid: t('AI 계정이 거절되어 다른 계정으로 이어서 답해요', 'The AI account was refused; continuing with another one', 'Akun AI ditolak; dilanjutkan dengan akun lain', "AIアカウントが拒否されたため、別のアカウントで続けます", "Se rechazó la cuenta de IA; se continúa con otra"),
+  // after a step's own line (" · <these>"): why the call went on without a card (server/src/chat/turn.ts coverStep,
+  // chat/schedule-cover.ts). COVER_STEP_KEYS: localizeStep and stepPlace know them at the end of any line
+  /** the step of a call a room grant let through, after its own words */
+  roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this room', 'diizinkan: selalu di ruang ini', "常に許可で実行", "permitido: siempre en esta sala"),
+  /** the step of a call this answer's [이번만 허용] for its folder let through */
+  roomOnceStep: t('이번만 허용으로 진행', 'allowed once in this answer', 'diizinkan sekali di jawaban ini', "今回だけ許可で実行", "permitido esta vez en esta respuesta"),
+  /** the step of a scheduled run's save or send that its task's card allowed (chat/schedule-cover.ts) */
+  scheduleCoverStep: t('예약 작업에서 허용', 'allowed on the scheduled task', 'diizinkan di tugas terjadwal', "定期タスクで許可", "permitido en la tarea programada"),
+  /** the step of a call that made a new file in the person's own folder after a room read, with no card */
+  ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta"),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
+
+/** Steps whose line is someone's own words after a template (a question, a memory, a sub-task) or the server's notice. */
+const TEXT_STEP_TOOLS = new Set(['ask_user', 'remember', 'forget', 'agent', 'refusal', 'demo_replay', 'engine', 'attachment'])
+
+/** The words that may end any step's line after " · ": why the call went on without a card (STEP_TEXT above). */
+export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep'] as const satisfies readonly StepTextKey[]
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso")
@@ -352,12 +368,26 @@ const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_ex
  */
 export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
   if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label }
-  const at = label.lastIndexOf(' · ')
+  // a call let through without a card ends in " · <why>" (QA 2026-11-11: the 2nd and 3rd saves after one card's
+  // "이번만 허용" showed their raw path): the path is before it, and the why stays after the path in words
+  const cover = coverWhy(label)?.end ?? null
+  const line = cover ? label.slice(0, -cover.length) : label
+  const at = line.lastIndexOf(' · ')
   if (at < 0) return { label }
-  const tail = label.slice(at + 3)
+  const tail = line.slice(at + 3)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
   const named = placeName(path, locale)
-  return named ? { label: `${label.slice(0, at + 3)}${named}${suffix}`, path } : { label }
+  return named ? { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path } : { label }
+}
+
+/** The " · <why>" a line ends in when its call went on without a card (COVER_STEP_KEYS, in any language), with its key,
+ * or null. */
+function coverWhy(label: string): { end: string; key: (typeof COVER_STEP_KEYS)[number] } | null {
+  for (const key of COVER_STEP_KEYS) for (const l of LOCALES) {
+    const end = ` · ${STEP_TEXT[key][l]}`
+    if (label.endsWith(end) && label.length > end.length) return { end, key }
+  }
+  return null
 }
 
 /** "Remembered: {text}" -> /^Remembered: ([\s\S]*)$/ with the names of the captured parts. */
@@ -450,5 +480,10 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   if (tool === 'box_shell' && label) label = resuffix(label, locale)
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
   const detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
-  return { label: label ?? step.label, ...(detail !== undefined ? { detail } : {}) }
+  // why a call went on without a card, at the end of a tool's line: in the screen's language too (not in the words of
+  // a question, a memory or a sub-task, which are the AI's or the person's)
+  let out = label ?? step.label
+  const why = step.kind === 'tool' && !TEXT_STEP_TOOLS.has(tool) ? coverWhy(out) : null
+  if (why) out = `${out.slice(0, -why.end.length)} · ${STEP_TEXT[why.key][locale] ?? STEP_TEXT[why.key].en}`
+  return { label: out, ...(detail !== undefined ? { detail } : {}) }
 }

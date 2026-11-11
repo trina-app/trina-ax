@@ -397,7 +397,9 @@ test('the HWP plugin to-do shows with a button to the plugin, and "not needed" k
   await expect(row).toContainText(t['adminHome.after.hwp-plugin'])
   await row.getByRole('button', { name: t['adminHome.after.hwp-plugin.go'] }).click()
   await expect(page).toHaveURL(/\/admin\/plugins\?focus=app\.trina\.hwp-preview$/)
-  await expect(page.locator('[data-plugin="app.trina.hwp-preview"]').first()).toBeFocused()
+  // the link opens the plugin's own page
+  await expect(page.getByTestId('plugin-detail')).toHaveAttribute('data-plugin', 'app.trina.hwp-preview')
+  await expect(page.getByTestId('plugin-back')).toBeFocused()
 
   await page.goto('/admin')
   await page.getByTestId('attention-after-hwp-plugin').getByRole('button', { name: t['adminHome.after.dismiss.label'].replace('{todo}', t['adminHome.after.hwp-plugin']) }).click()

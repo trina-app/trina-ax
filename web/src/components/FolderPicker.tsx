@@ -1,7 +1,7 @@
 // Pick a folder of the team folder (only what the person can see). Used by "save to the team folder", move,
 // projects and the admin folder rules.
 import clsx from 'clsx'
-import { ChevronRight, Folder, FolderPlus, Home, Lock } from 'lucide-react'
+import { ChevronRight, Folder, FolderPlus, Home, Lock, Signpost } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FileEntry, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -130,9 +130,16 @@ export default function FolderPicker({
               >
                 <Folder size={15} className="text-accent-text" aria-hidden />
                 <span className="min-w-0 flex-1 truncate" title={f.name}>{words.name(f.path, f.name)}</span>
-                {f.access !== 'write' && (
+                {/* a folder listed with no access of its own is one you pass through to folders inside that are open to
+                    you (a project, a group): said as on the Files screen, not "No access" (QA TC-157) */}
+                {f.access === 'read' && (
                   <span className="inline-flex items-center gap-1 text-xs text-faint">
-                    <Lock size={12} aria-hidden /> {t(f.access === 'read' ? 'files.readOnly' : 'files.noAccess')}
+                    <Lock size={12} aria-hidden /> {t('files.readOnly')}
+                  </span>
+                )}
+                {f.access !== 'write' && f.access !== 'read' && (
+                  <span className="inline-flex items-center gap-1 text-xs text-faint" title={t('files.navigationOnly')} data-testid="picker-pass-through">
+                    <Signpost size={12} aria-hidden /> {t('files.passThroughShort')}
                   </span>
                 )}
               </button>

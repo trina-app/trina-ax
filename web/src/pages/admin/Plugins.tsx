@@ -1,19 +1,23 @@
-// Admin > Plugins (docs/PLUGINS.md): what the company has installed, the official list, and package files. Installing
+// Admin > Plugins (docs/PLUGINS.md), laid out like Connected apps (components/integrations/ConnectorsView.tsx): the
+// title row (search, Install from file), "Installed" as cards (not shown while nothing is installed), "Discover" with
+// the official list as cards, and a plugin's page in place of both (what it is, what it will do, the details). Installing
 // always goes through the permission prompt: the server checks the package first (official pin or signature, files,
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
-import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { AlertTriangle, ArrowLeft, ArrowUpCircle, BadgeCheck, BookOpen, Cable, Check, Cpu, FileText, FileUp, Globe, Languages, Loader2, Minus, Plus, Puzzle, Search, type LucideIcon } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
-import type { PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
+import type { PluginKind, PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, EmptyState, Modal, confirmDialog } from '../../components/ui'
-import { AdminPageHeader, Card, Loadable, useLoad } from './common'
+import { Badge, Button, EmptyState, IconButton, Modal, StickyHeader, confirmDialog, inputCls } from '../../components/ui'
+import { Tooltip } from '../../components/Tooltip'
+import { CardMenu } from '../../components/integrations/AppConnectorCard'
+import { Loadable, useLoad } from './common'
 
 type T = ReturnType<typeof useT>
 
@@ -141,53 +145,6 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
   )
 }
 
-function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void }) {
-  const t = useT()
-  const locale = useLocale()
-  const [busy, setBusy] = useState(false)
-  const run = async (fn: () => Promise<unknown>, ok: string) => {
-    setBusy(true)
-    try { await fn(); toast({ level: 'success', text: ok }); reload() } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) } finally { setBusy(false) }
-  }
-  const status = p.status === 'enabled' ? <Badge tone="ok">{t('plugins.status.enabled')}</Badge>
-    : p.status === 'disabled' ? <Badge>{t('plugins.status.disabled')}</Badge>
-    : <Badge tone="warn">{p.enabled ? t('plugins.status.enabled') + ' · ' : ''}{t('plugins.status.unsupported')}</Badge>
-  return (
-    <li className="space-y-2 px-4 py-3" data-testid="plugin-installed" data-plugin={p.id}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{p.name}</span>
-        <span className="text-xs text-muted">{t('plugins.version', { version: p.version })}</span>
-        <TrustBadge trust={p.trust} verifiedBy={p.verifiedBy} />
-        {status}
-      </div>
-      <p className="text-sm text-muted">{p.description}</p>
-      <HwpWriting id={p.id} />
-      <p className="text-xs text-faint">
-        {t('plugins.publisher', { name: p.publisher.name })} · {p.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · {t('plugins.platforms', { list: platformText(t, p.platforms) })}
-      </p>
-      {p.unsupported && <p className="text-sm text-warn" data-testid="plugin-unsupported">{t(`plugins.unsupported.${p.unsupported}` as MessageKey)}</p>}
-      <Permissions items={p.permissions} showGrant />
-      {p.skills.length > 0 && <p className="text-xs text-muted">{t('plugins.skills', { list: p.skills.map((s) => s.split('/').slice(-2, -1)[0]).join(', ') })}</p>}
-      <div className="flex flex-wrap gap-2 pt-1">
-        {p.enabled
-          ? <Button size="sm" busy={busy} onClick={() => void run(() => api.call(API.disablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.disabled', { name: p.name }))} data-testid="plugin-disable">{t('plugins.disable')}</Button>
-          : <Button size="sm" variant="primary" busy={busy} disabled={p.status === 'unsupported'} onClick={() => void run(() => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.enabled', { name: p.name }))} data-testid="plugin-enable">{t('plugins.enable')}</Button>}
-        {p.previousVersion && (
-          <Button size="sm" busy={busy} onClick={() => void run(() => api.call(API.rollbackPlugin, { params: { id: p.id }, body: {} }), t('plugins.done.rolledBack', { name: p.name, version: p.previousVersion! }))} data-testid="plugin-rollback">
-            <RotateCcw size={14} aria-hidden /> {t('plugins.rollback', { version: p.previousVersion })}
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" busy={busy} data-testid="plugin-remove" onClick={async () => {
-          if (!(await confirmDialog({ title: t('plugins.removeTitle', { name: p.name }), body: t('plugins.removeBody'), confirm: t('plugins.remove'), danger: true }))) return
-          await run(() => api.call(API.uninstallPlugin, { params: { id: p.id } }), t('plugins.done.removed', { name: p.name }))
-        }}>
-          <Trash2 size={14} aria-hidden /> {t('plugins.remove')}
-        </Button>
-      </div>
-    </li>
-  )
-}
-
 /** One licence ("MIT") stays on the line; a list of them ("MIT AND Apache-2.0 AND …") is long and noisy there. */
 export const longLicense = (license: string) => /\s(AND|OR)\s/i.test(license) || license.length > 24
 
@@ -211,130 +168,350 @@ export function PluginMeta({ text, license }: { text: string; license: string })
   )
 }
 
-function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => Promise<void>; fileInstall: boolean }) {
-  const t = useT()
-  // the server may first download the package from the release feed
-  const [busy, setBusy] = useState(false)
-  // installed and up to date: the full text is already in "Installed" above, so here one line and a link to it
-  if (c.installedVersion && !c.updateAvailable) {
-    return (
-      <li className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm" data-testid="plugin-catalog" data-plugin={c.id} data-compact>
-        <span className="font-medium">{c.name}</span>
-        <Badge tone="ok">{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>
-        <button
-          type="button"
-          className="ml-auto text-xs font-medium text-accent-text underline-offset-2 hover:underline"
-          onClick={() => {
-            const el = [...document.querySelectorAll<HTMLElement>('[data-testid="plugin-installed"]')].find((x) => x.dataset.plugin === c.id)
-            if (!el) return
-            el.tabIndex = -1
-            el.scrollIntoView({ block: 'center' })
-            el.focus({ preventScroll: true })
-          }}
-          data-testid="plugin-catalog-show-installed"
-        >
-          {/* the visible words start the name (a voice command says them); the plugin name follows for screen readers */}
-          {t('adminux.plugins.showInstalled')}
-          <span className="sr-only">: {c.name}</span>
-        </button>
-      </li>
-    )
-  }
+/** A plugin has no logo of its own: a tile with the icon of what it is (a file preview, skills, a program…), the size
+ * and corner of a connector's logo tile. */
+const KIND_ICONS: [PluginKind, LucideIcon][] = [['preview', FileText], ['skill-pack', BookOpen], ['connector-preset', Cable], ['region-pack', Globe], ['locale-pack', Languages], ['native-tool', Cpu]]
+function PluginTile({ kinds, big }: { kinds: PluginKind[]; big?: boolean }) {
+  const Icon = KIND_ICONS.find(([k]) => kinds.includes(k))?.[1] ?? Puzzle
   return (
-    <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{c.name}</span>
-        <span className="text-xs text-muted">{t('plugins.version', { version: c.version })}</span>
-        {c.recommended && <span data-testid="plugin-recommended"><Badge tone="accent">{t('plugins.recommended')}</Badge></span>}
-        {c.installedVersion && <Badge>{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>}
-      </div>
-      <p className="text-sm text-muted">{c.description}</p>
-      <HwpWriting id={c.id} />
-      <PluginMeta text={`${t('plugins.publisher', { name: c.publisher.name })} · ${t('plugins.platforms', { list: platformText(t, c.platforms) })}`} license={c.license} />
-      {c.recommended && <p className="text-xs text-muted">{t('plugins.recommendedHint')}</p>}
-      <Permissions items={c.permissions} />
-      {c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (
-        <Button size="sm" variant="primary" busy={busy} disabled={busy} onClick={async () => { setBusy(true); try { await review(c.id) } finally { setBusy(false) } }} data-testid="plugin-catalog-install">{c.installedVersion ? t('plugins.update', { version: c.version }) : t('plugins.install')}</Button>
-      )}
-      {c.availability === 'file' && (!c.installedVersion || c.updateAvailable) && (
-        <p className="text-sm text-muted" data-testid="plugin-from-file">{t(fileInstall ? 'plugins.availability.file' : 'plugins.availability.fileHosted')}</p>
-      )}
-      {c.availability === 'pending_clearance' && <p className="text-sm text-warn" data-testid="plugin-not-yet">{t('plugins.availability.pending')}</p>}
-      {c.availability === 'unsupported' && (
-        <p className="text-sm text-warn" data-testid="plugin-not-supported">{t('plugins.availability.unsupported')} {c.unsupported ? t(`plugins.unsupported.${c.unsupported}` as MessageKey) : ''}</p>
-      )}
+    <span className={`flex shrink-0 items-center justify-center border border-line bg-surface text-ink ${big ? 'size-16 rounded-xl' : 'size-11 rounded-lg'}`} data-testid="plugin-tile">
+      <Icon size={big ? 28 : 20} strokeWidth={1.75} aria-hidden />
+    </span>
+  )
+}
+
+/** The check next to an official plugin's name, as next to an official connector's. */
+function OfficialMark({ size }: { size: number }) {
+  const t = useT()
+  return <Tooltip label={t('plugins.trust.official')}><BadgeCheck size={size} className="shrink-0 text-muted" role="img" aria-label={t('plugins.trust.official')} /></Tooltip>
+}
+
+/** Turn on / off, roll back and remove for an installed plugin: one at a time, each with its toast. */
+function useInstalledActions(reload: () => void) {
+  const t = useT()
+  const locale = useLocale()
+  const [busy, setBusy] = useState(false)
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setBusy(true)
+    try { await fn(); toast({ level: 'success', text: ok }); reload(); return true } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }); return false } finally { setBusy(false) }
+  }
+  return {
+    busy,
+    enable: (p: InstalledPlugin) => run(() => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.enabled', { name: p.name })),
+    disable: (p: InstalledPlugin) => run(() => api.call(API.disablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.disabled', { name: p.name })),
+    rollback: (p: InstalledPlugin) => run(() => api.call(API.rollbackPlugin, { params: { id: p.id }, body: {} }), t('plugins.done.rolledBack', { name: p.name, version: p.previousVersion ?? '' })),
+    /** true once it was removed (the admin may also cancel) */
+    remove: async (p: InstalledPlugin) => {
+      if (!(await confirmDialog({ title: t('plugins.removeTitle', { name: p.name }), body: t('plugins.removeBody'), confirm: t('plugins.remove'), danger: true }))) return false
+      return run(() => api.call(API.uninstallPlugin, { params: { id: p.id } }), t('plugins.done.removed', { name: p.name }))
+    },
+  }
+}
+
+function Toggle({ p, a }: { p: InstalledPlugin; a: ReturnType<typeof useInstalledActions> }) {
+  const t = useT()
+  return p.enabled
+    ? <Button size="sm" busy={a.busy} onClick={() => void a.disable(p)} data-testid="plugin-disable">{t('plugins.disable')}</Button>
+    : <Button size="sm" variant="primary" busy={a.busy} disabled={p.status === 'unsupported'} onClick={() => void a.enable(p)} data-testid="plugin-enable">{t('plugins.enable')}</Button>
+}
+
+/** ⋯ of an installed plugin: what an admin rarely does with it. `update`: the official list has a newer version that
+ * can be installed here. */
+function InstalledMenu({ p, a, update, onRemoved }: { p: InstalledPlugin; a: ReturnType<typeof useInstalledActions>; update?: { version: string; run: () => void }; onRemoved?: () => void }) {
+  const t = useT()
+  return (
+    <CardMenu label={t('appConnectors.more', { name: p.name })} testId="plugin-more" items={[
+      ...(update ? [{ label: t('plugins.update', { version: update.version }), onSelect: update.run, disabled: a.busy, testId: 'plugin-update' }] : []),
+      ...(p.previousVersion ? [{ label: t('plugins.rollback', { version: p.previousVersion }), onSelect: () => void a.rollback(p), disabled: a.busy, testId: 'plugin-rollback' }] : []),
+      { label: t('plugins.remove'), onSelect: () => void a.remove(p).then((gone) => { if (gone) onRemoved?.() }), danger: true, disabled: a.busy, testId: 'plugin-remove' },
+    ]} />
+  )
+}
+
+/** A card of either section, in the style of a Discover card of Connected apps: the tile, the name, a line or two, and
+ * the actions on the right. The card opens the plugin's page. */
+function PluginCard({ id, testId, kinds, name, official, line, lineTone, foot, actions, onOpen }: {
+  id: string
+  testId: string
+  kinds: PluginKind[]
+  name: string
+  official: boolean
+  line: ReactNode
+  lineTone?: 'warn'
+  foot?: ReactNode
+  actions: ReactNode
+  onOpen: () => void
+}) {
+  return (
+    <li className="relative flex items-start gap-3 rounded-xl bg-subtle p-3 transition hover:bg-hover" data-testid={testId} data-plugin={id}>
+      <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2" onClick={onOpen} data-testid="plugin-open">
+        <PluginTile kinds={kinds} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1 text-sm font-medium">
+            <span className="truncate">{name}</span>
+            {official && <OfficialMark size={14} />}
+          </span>
+          <span className={`mt-0.5 line-clamp-2 text-xs ${lineTone === 'warn' ? 'text-warn' : 'text-muted'}`} data-testid="plugin-line">{line}</span>
+          {foot && <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">{foot}</span>}
+        </span>
+      </button>
+      <span className="flex shrink-0 items-center gap-1">{actions}</span>
     </li>
   )
 }
+
+/** on, off, or installed but not usable on this server */
+function statusText(t: T, p: InstalledPlugin): string {
+  if (p.status === 'enabled') return t('plugins.status.enabled')
+  if (p.status === 'disabled') return t('plugins.status.disabled')
+  return `${p.enabled ? `${t('plugins.status.enabled')} · ` : ''}${t('plugins.status.unsupported')}`
+}
+
+/** The newer version of the official list, when it can be installed on this server from the list. */
+const updateFor = (c: CatalogPlugin | undefined) => (c?.installedVersion && c.updateAvailable && c.availability === 'available' ? c.version : null)
+
+function InstalledCard({ p, c, reload, review, onOpen }: { p: InstalledPlugin; c: CatalogPlugin | undefined; reload: () => void; review: (id: string) => Promise<void>; onOpen: () => void }) {
+  const t = useT()
+  const a = useInstalledActions(reload)
+  const newer = updateFor(c)
+  return (
+    <PluginCard id={p.id} testId="plugin-installed" kinds={p.kinds} name={p.name} official={p.trust === 'official'} onOpen={onOpen}
+      line={statusText(t, p)} lineTone={p.status === 'unsupported' ? 'warn' : undefined}
+      foot={<>
+        <span>{t('plugins.version', { version: p.version })}</span>
+        {p.trust !== 'official' && <Badge tone="warn">{t(`plugins.trust.${p.trust}`)}</Badge>}
+        {newer && <span data-testid="plugin-update-badge"><Badge tone="accent">{t('plugins.update', { version: newer })}</Badge></span>}
+      </>}
+      actions={<>
+        <Toggle p={p} a={a} />
+        <InstalledMenu p={p} a={a} update={newer ? { version: newer, run: () => void review(p.id) } : undefined} />
+      </>}
+    />
+  )
+}
+
+/** The right side of a Discover card and the main action of a plugin's page that is not installed (or has an update):
+ * install through the permission prompt, or why not here. The server may first download the package. */
+function useReview(review: (id: string) => Promise<void>, id: string) {
+  const [busy, setBusy] = useState(false)
+  return { busy, run: async () => { setBusy(true); try { await review(id) } finally { setBusy(false) } } }
+}
+
+function DiscoverCard({ c, review, onOpen }: { c: CatalogPlugin; review: (id: string) => Promise<void>; onOpen: () => void }) {
+  const t = useT()
+  const r = useReview(review, c.id)
+  const newer = updateFor(c)
+  const todo = !c.installedVersion || c.updateAvailable
+  return (
+    <PluginCard id={c.id} testId="plugin-catalog" kinds={c.kinds} name={c.name} official onOpen={onOpen} line={c.description}
+      foot={<>
+        <span>{t('plugins.publisher', { name: c.publisher.name })}</span>
+        {c.recommended && <span data-testid="plugin-recommended"><Badge tone="accent">{t('plugins.recommended')}</Badge></span>}
+      </>}
+      actions={!todo ? (
+        <Tooltip label={t('plugins.discover.added', { name: c.name })}>
+          <span className="flex size-8 items-center justify-center text-ok" role="img" aria-label={t('plugins.discover.added', { name: c.name })} data-testid="plugin-added">
+            <Check size={16} aria-hidden />
+          </span>
+        </Tooltip>
+      ) : c.availability === 'available' ? (
+        <IconButton label={newer ? t('plugins.update', { version: newer }) : t('plugins.discover.add', { name: c.name })} disabled={r.busy} aria-busy={r.busy || undefined} onClick={() => void r.run()} data-testid="plugin-catalog-install">
+          {r.busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : newer ? <ArrowUpCircle size={16} aria-hidden /> : <Plus size={16} aria-hidden />}
+        </IconButton>
+      ) : (
+        <span className="pt-1.5 text-xs text-faint" data-testid="plugin-card-off">
+          {t(c.availability === 'unsupported' ? 'plugins.status.unsupported' : c.availability === 'file' ? 'plugins.card.file' : 'plugins.card.pending')}
+        </span>
+      )}
+    />
+  )
+}
+
+/** A plugin's page in place of the lists, like a connector's page: back, a big tile, the name with its version and
+ * publisher, the main action on the right; then what it is, what it will do, and the details. `p`: installed here;
+ * `c`: its entry in the official list (a plugin from a file has none). */
+function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: InstalledPlugin | undefined; c: CatalogPlugin | undefined; fileInstall: boolean; reload: () => void; review: (id: string) => Promise<void>; onBack: () => void }) {
+  const t = useT()
+  const titleId = useId()
+  const back = useRef<HTMLButtonElement>(null)
+  const a = useInstalledActions(reload)
+  const of = (p ?? c)!
+  const r = useReview(review, of.id)
+  // the card that opened this page is gone: the keyboard starts on the way back
+  useEffect(() => { back.current?.focus() }, [])
+  const newer = updateFor(c)
+  const todo = !!c && (!c.installedVersion || c.updateAvailable)
+  const official = p ? p.trust === 'official' : true
+  return (
+    <section aria-labelledby={titleId} className="space-y-6" data-testid="plugin-detail" data-plugin={of.id}>
+      <div className="rounded-2xl bg-subtle p-5 sm:p-6">
+        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={onBack} data-testid="plugin-back">
+          <ArrowLeft size={15} aria-hidden /> {t('admin.plugins')}
+        </button>
+        <div className="flex flex-wrap items-center gap-4">
+          <PluginTile kinds={of.kinds} big />
+          <div className="min-w-0 flex-1">
+            <h3 id={titleId} className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+              <span className="truncate">{of.name}</span>
+              {official && <OfficialMark size={18} />}
+            </h3>
+            <p className="mt-0.5 text-sm text-muted">{t('plugins.version', { version: of.version })} · {t('plugins.publisher', { name: of.publisher.name })}</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {todo && c?.availability === 'available' && (
+              <Button variant="primary" busy={r.busy} onClick={() => void r.run()} data-testid="plugin-detail-install">{newer ? t('plugins.update', { version: newer }) : t('plugins.install')}</Button>
+            )}
+            {p && <Toggle p={p} a={a} />}
+            {p && <InstalledMenu p={p} a={a} onRemoved={c ? undefined : onBack} />}
+          </div>
+        </div>
+        {(p || c?.recommended) && (
+          <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="plugin-detail-state">
+            {p && <Badge tone={p.status === 'enabled' ? 'ok' : p.status === 'disabled' ? 'neutral' : 'warn'}>{statusText(t, p)}</Badge>}
+            {p && <TrustBadge trust={p.trust} verifiedBy={p.verifiedBy} />}
+            {!p && c?.recommended && <span data-testid="plugin-recommended"><Badge tone="accent">{t('plugins.recommended')}</Badge></span>}
+            {!p && c?.recommended && <span className="text-xs text-muted">{t('plugins.recommendedHint')}</span>}
+          </div>
+        )}
+        {p?.unsupported && <p className="mt-3 text-sm text-warn" data-testid="plugin-unsupported">{t(`plugins.unsupported.${p.unsupported}` as MessageKey)}</p>}
+        {todo && c?.availability === 'file' && <p className="mt-3 text-sm text-muted" data-testid="plugin-from-file">{t(fileInstall ? 'plugins.availability.file' : 'plugins.availability.fileHosted')}</p>}
+        {c?.availability === 'pending_clearance' && <p className="mt-3 text-sm text-warn" data-testid="plugin-not-yet">{t('plugins.availability.pending')}</p>}
+        {c?.availability === 'unsupported' && (
+          <p className="mt-3 text-sm text-warn" data-testid="plugin-not-supported">{t('plugins.availability.unsupported')} {c.unsupported ? t(`plugins.unsupported.${c.unsupported}` as MessageKey) : ''}</p>
+        )}
+      </div>
+      <div className="max-w-3xl space-y-2">
+        <p className="text-sm leading-relaxed text-ink/90">{of.description}</p>
+        <HwpWriting id={of.id} />
+      </div>
+      <div>
+        <h4 className="mb-3 text-base font-semibold">{t('plugins.prompt.does')}</h4>
+        {p ? <Permissions items={p.permissions} showGrant /> : <Permissions items={of.permissions} />}
+        {p && p.skills.length > 0 && <p className="mt-3 text-sm text-muted">{t('plugins.skills', { list: p.skills.map((s) => s.split('/').slice(-2, -1)[0]).join(', ') })}</p>}
+      </div>
+      <div>
+        <h4 className="mb-2 text-base font-semibold">{t('plugins.details')}</h4>
+        <PluginMeta text={`${of.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · ${t('plugins.platforms', { list: platformText(t, of.platforms) })}`} license={of.license} />
+      </div>
+    </section>
+  )
+}
+
+const sectionTitle = 'mb-3 text-sm font-semibold'
 
 export default function Plugins() {
   const t = useT()
   const locale = useLocale()
   const state = useLoad(() => api.call(API.listPlugins))
   const [plan, setPlan] = useState<PluginPlan | null>(null)
+  const [query, setQuery] = useState('')
+  // a plugin's page (its id), in place of the lists; ?focus=<plugin id> opens it (a link from elsewhere in Admin)
+  const [params] = useSearchParams()
+  const [open, setOpen] = useState<string | null>(() => params.get('focus'))
   const file = useRef<HTMLInputElement>(null)
+  const installedId = useId()
+  const discoverId = useId()
   const reload = () => void state.reload()
-  // ?focus=<plugin id> (an Admin Home to-do): bring that plugin's card into view once the list is there
-  const focus = useSearchParams()[0].get('focus')
-  const listed = state.data !== null
-  useEffect(() => {
-    if (!focus || !listed) return
-    const el = [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === focus)
-    if (!el) return
-    el.tabIndex = -1
-    el.scrollIntoView({ block: 'center' })
-    el.focus({ preventScroll: true })
-  }, [focus, listed])
   const inspect = async (fn: () => Promise<PluginPlan>) => {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }
+  const review = (id: string) => inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))
+  // back from a plugin's page: the keyboard returns to the card that opened it
+  const back = () => {
+    const id = open
+    setOpen(null)
+    requestAnimationFrame(() => [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === id)?.querySelector<HTMLElement>('[data-testid="plugin-open"]')?.focus())
+  }
   return (
     <>
-    <AdminPageHeader title={t('admin.plugins')} />
+    <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="plugins-header">
+      <h2 className="text-lg font-semibold tracking-tight">{t('admin.plugins')}</h2>
+      <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+        <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
+          <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
+          <input type="search" value={query} onChange={(e) => { setQuery(e.target.value); setOpen(null) }} placeholder={t('plugins.search')} aria-label={t('plugins.search')} className={`${inputCls} pl-9`} data-testid="plugin-search" />
+        </div>
+        {state.data?.fileInstall && (
+          <>
+            <input ref={file} type="file" accept=".trinaplugin" className="hidden" data-testid="plugin-file-input" onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (f) void inspect(() => api.call(API.inspectPluginFile, { body: { fields: {}, file: f, filename: f.name } }))
+            }} />
+            <Button className="shrink-0" onClick={() => file.current?.click()} data-testid="plugin-install-file"><FileUp size={15} aria-hidden /> {t('plugins.installFile')}</Button>
+          </>
+        )}
+      </div>
+    </StickyHeader>
     <Loadable state={state}>
-      {(d: PluginList) => (
-        <>
-          {d.trustWarnings.length > 0 && (
-            <p className="mb-4 flex items-start gap-2 rounded-xl border border-warn bg-warn-soft px-4 py-3 text-sm text-warn" role="alert" data-testid="plugin-dev-trust">
-              <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
-              {t('plugins.devTrust', { list: d.trustWarnings.map((w) => t(`plugins.devTrust.${w}`)).join(', ') })}
-            </p>
-          )}
-          <Card title={t('plugins.installed')} desc={d.trust.hosted ? t('plugins.hosted') : t('plugins.desc')} actions={d.fileInstall && (
-            <>
-              <input ref={file} type="file" accept=".trinaplugin" className="hidden" data-testid="plugin-file-input" onChange={(e) => {
-                const f = e.target.files?.[0]
-                e.target.value = ''
-                if (f) void inspect(() => api.call(API.inspectPluginFile, { body: { fields: {}, file: f, filename: f.name } }))
-              }} />
-              <Button size="sm" onClick={() => file.current?.click()} data-testid="plugin-install-file"><FileUp size={14} aria-hidden /> {t('plugins.installFile')}</Button>
-            </>
-          )}>
-            {d.installed.length
-              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-installed">{d.installed.map((p) => <InstalledRow key={p.id} p={p} reload={reload} />)}</ul>
-              : <EmptyState icon={<Puzzle size={26} />} title={t('plugins.installedEmpty')} />}
-          </Card>
-          <Card title={t('plugins.catalog')} desc={t(`plugins.catalog.${d.catalogSource}` as MessageKey)}>
-            {d.catalog.length
-              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-catalog">{d.catalog.map((c) => <CatalogRow key={c.id} c={c} fileInstall={d.fileInstall} review={(id) => inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))} />)}</ul>
-              : <p className="text-sm text-muted">{t('plugins.catalog.none')}</p>}
-          </Card>
-          {d.imports.length > 0 && (
-            <Card title={t('plugins.imports')} desc={t('plugins.importsDesc')}>
-              <ul className="-m-4 divide-y divide-line">
-                {d.imports.map((f) => (
-                  <li key={f.name} className="flex items-center gap-2 px-4 py-2 text-sm">
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{f.name}</span>
-                    <span className="text-xs text-faint">{formatSize(f.size, locale)}</span>
-                    <Button size="sm" onClick={() => void inspect(() => api.call(API.inspectPluginSource, { body: { source: 'import', name: f.name } }))}>{t('plugins.review')}</Button>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
-          {plan && <PlanDialog plan={plan} onClose={() => setPlan(null)} onDone={() => { setPlan(null); reload() }} />}
-        </>
-      )}
+      {(d: PluginList) => {
+        const shownPage = open ? { p: d.installed.find((x) => x.id === open), c: d.catalog.find((x) => x.id === open) } : null
+        const q = query.trim().toLocaleLowerCase()
+        const fits = (x: { name: string; description: string }) => !q || `${x.name} ${x.description}`.toLocaleLowerCase().includes(q)
+        const installed = d.installed.filter(fits)
+        const catalog = d.catalog.filter(fits)
+        const imports = d.imports.filter((f) => !q || f.name.toLocaleLowerCase().includes(q))
+        return (
+          <>
+            {d.trustWarnings.length > 0 && (
+              <p className="mb-4 flex items-start gap-2 rounded-xl border border-warn bg-warn-soft px-4 py-3 text-sm text-warn" role="alert" data-testid="plugin-dev-trust">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
+                {t('plugins.devTrust', { list: d.trustWarnings.map((w) => t(`plugins.devTrust.${w}`)).join(', ') })}
+              </p>
+            )}
+            {shownPage && (shownPage.p || shownPage.c) ? (
+              <PluginDetail key={open} p={shownPage.p} c={shownPage.c} fileInstall={d.fileInstall} reload={reload} review={review} onBack={back} />
+            ) : q && !installed.length && !catalog.length && !imports.length ? (
+              <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
+            ) : (
+              <>
+                {/* what plugins are and who installs them, right under the title */}
+                {!q && <p className="mb-5 max-w-3xl text-sm text-muted" data-testid="plugins-note">{d.trust.hosted ? t('plugins.hosted') : t('plugins.desc')}</p>}
+                {/* nothing installed yet: no heading and no empty box, Discover leads (as on Connected apps) */}
+                {installed.length > 0 && (
+                  <section aria-labelledby={installedId} data-testid="plugins-installed-section">
+                    <h3 id={installedId} className={sectionTitle}>{t('plugins.installed')}</h3>
+                    <ul className="grid gap-3 sm:grid-cols-2" data-testid="plugins-installed">
+                      {installed.map((p) => <InstalledCard key={p.id} p={p} c={d.catalog.find((x) => x.id === p.id)} reload={reload} review={review} onOpen={() => setOpen(p.id)} />)}
+                    </ul>
+                  </section>
+                )}
+                {(catalog.length > 0 || (!q && d.catalogSource === 'none')) && (
+                  <section aria-labelledby={discoverId} className={installed.length > 0 ? 'mt-6 border-t border-line pt-6' : undefined} data-testid="plugins-discover">
+                    <h3 id={discoverId} className={sectionTitle}>{t('connectors.discover')}</h3>
+                    <div className="mb-3 flex items-center gap-2">
+                      <h4 className="flex items-center gap-2 text-sm font-medium text-muted">
+                        {q ? t('connectors.results') : t('plugins.catalog')}
+                        <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="plugin-count">{catalog.length}</span>
+                      </h4>
+                    </div>
+                    {catalog.length > 0
+                      ? <ul className="grid gap-3 sm:grid-cols-2" data-testid="plugins-catalog">{catalog.map((c) => <DiscoverCard key={c.id} c={c} review={review} onOpen={() => setOpen(c.id)} />)}</ul>
+                      : <p className="text-sm text-muted">{t('plugins.catalog.none')}</p>}
+                    {d.catalogSource !== 'none' && <p className="mt-4 text-xs text-faint" data-testid="plugins-catalog-source">{t(`plugins.catalog.${d.catalogSource}` as MessageKey)}</p>}
+                  </section>
+                )}
+                {imports.length > 0 && (
+                  <section className="mt-6 border-t border-line pt-6" data-testid="plugins-imports">
+                    <h3 className="text-sm font-semibold">{t('plugins.imports')}</h3>
+                    <p className="mt-1 mb-2 text-xs text-muted">{t('plugins.importsDesc')}</p>
+                    <ul className="-mx-2 divide-y divide-line">
+                      {imports.map((f) => (
+                        <li key={f.name} className="flex items-center gap-2 px-2 py-2 text-sm">
+                          <span className="min-w-0 flex-1 truncate font-mono text-xs">{f.name}</span>
+                          <span className="text-xs text-faint">{formatSize(f.size, locale)}</span>
+                          <Button size="sm" onClick={() => void inspect(() => api.call(API.inspectPluginSource, { body: { source: 'import', name: f.name } }))}>{t('plugins.review')}</Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
+            )}
+            {plan && <PlanDialog plan={plan} onClose={() => setPlan(null)} onDone={() => { setPlan(null); reload() }} />}
+          </>
+        )
+      }}
     </Loadable>
     </>
   )

@@ -19,6 +19,7 @@ import { addSources, type ReadSource } from '../../server/src/chat/read-scope'
 import { unshareUncheckedChats } from '../../server/src/chat/shared'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { newAnswerRecord } from '../../server/src/chat/shared-answers'
+import { seenOnceShared } from '../../web/src/lib/sharedChat'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -195,6 +196,8 @@ describe('the check', () => {
     // the key: shared
     const ok = await share('alice', id, r.confirmKey)
     expect(ok.status).toBe('shared')
+    // the dialog's number is the one the line under the box and the copy-link toast say (QA TC-070: 3 vs 4)
+    if (ok.status === 'shared') expect(seenOnceShared(r.audience)).toBe(ok.chat.shared!.audience)
     expect(audits(id)).toEqual([{ actor: 'alice', audience: 3, people: 1, unknown: false, memories: false, confirmed: true }])
   })
 
