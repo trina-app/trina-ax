@@ -212,7 +212,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
   'server/src/chat/project-members.ts': { why: 'the members card\'s words (ko next to en/id/ja/es), and the Korean particles that may follow a name in the person\'s own words (a word list the red mark\'s check matches, not screen text), the honorifics and group words a name given may end with (word lists the name match strips, not screen text)', also: /^const (PARTICLE|HONORIFICS|GROUP_WORDS) = / },
   'server/src/chat/often-asked.ts': { why: '"what my group often asks": the Korean titles and particles after a name that make a plain word stand for a person (patterns the name check matches, not screen text)', also: /^const KO_TITLES = |\(\?:한테\|에게\|께서\||\(\?:의\|과\|와\|하고\|도\)\)/ },
-  'server/src/chat/often-asked-words.ts': { why: '"what my group often asks": the Korean function words, plain verbs and endings a sentence is read with (word lists, not screen text), and the Korean first lines of the app\'s own box prompts (matched, checked against web/src/i18n by b-often-asked-words.test.ts)', also: /^\s*[가-힣 ]+$|^\s*"(?:[^"\\]|\\.)*",$/ },
+  'server/src/chat/often-asked-words.ts': { why: '"what my group often asks": the Korean function words, plain verbs and endings a sentence is read with (word lists, not screen text), and the Korean first lines of the app\'s own box prompts (matched, checked against web/src/i18n by b-often-asked-words.test.ts)', also: /^ {2}[가-힣 ]+$|^ {4}"(?:[^"\\]|\\.)*",$/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or
