@@ -54,17 +54,30 @@ const loadMermaid = () =>
 export const mermaidTheme = (dark: boolean) => (dark ? 'dark' : 'neutral')
 /** drawn diagrams, by theme and source */
 const drawn = new Map<string, string>()
+/** One drawing at a time, each with its own theme: Mermaid's settings are global and its render reads them when it
+ * runs, so a theme set for one drawing must not reach another still waiting. */
+let drawing: Promise<unknown> = Promise.resolve()
+const drawMermaid = (theme: ReturnType<typeof mermaidTheme>, code: string): Promise<string> => {
+  const next = drawing.then(async () => {
+    const m = await loadMermaid()
+    m.initialize({ startOnLoad: false, securityLevel: 'strict', theme })
+    return (await m.render(`mmd-${Math.random().toString(36).slice(2)}`, code)).svg
+  })
+  drawing = next.catch(() => {})
+  return next
+}
 
 /** A Mermaid diagram in an answer. Shows the source while it is still being written or doesn't parse. */
 export function MermaidBlock({ code }: { code: string }) {
   const t = useT()
-  const dark = useDarkTheme()
-  const key = `${mermaidTheme(dark)}\n${code}`
-  const [svg, setSvg] = useState<string | null>(() => drawn.get(key) ?? null)
+  const theme = mermaidTheme(useDarkTheme())
+  const key = `${theme}\n${code}`
+  // the picture shown and the theme it was drawn with (the last one stays while the other look's is drawn)
+  const [shown, setShown] = useState<{ svg: string; theme: string } | null>(() => (drawn.has(key) ? { svg: drawn.get(key)!, theme } : null))
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (drawn.has(key)) {
-      setSvg(drawn.get(key)!)
+      setShown({ svg: drawn.get(key)!, theme })
       setFailed(false)
       return
     }
@@ -75,10 +88,7 @@ export function MermaidBlock({ code }: { code: string }) {
       const draw = async () => {
         if (document.visibilityState !== 'visible') await new Promise((r) => document.addEventListener('visibilitychange', r, { once: true }))
         await document.fonts.ready
-        const m = await loadMermaid()
-        // the theme of this look, set just before this drawing (one renderer for the page)
-        m.initialize({ startOnLoad: false, securityLevel: 'strict', theme: mermaidTheme(dark) })
-        return (await m.render(`mmd-${Math.random().toString(36).slice(2)}`, code)).svg
+        return drawMermaid(theme, code)
       }
       try {
         const out = await draw().catch(async () => {
@@ -87,7 +97,7 @@ export function MermaidBlock({ code }: { code: string }) {
         })
         drawn.set(key, out)
         if (live) {
-          setSvg(out)
+          setShown({ svg: out, theme })
           setFailed(false)
         }
       } catch {
@@ -98,11 +108,12 @@ export function MermaidBlock({ code }: { code: string }) {
       live = false
       clearTimeout(timer)
     }
-  }, [key, code, dark])
-  if (svg && !failed)
+  }, [key, code, theme])
+  if (shown && !failed)
     return (
-      // securityLevel strict: mermaid sanitizes labels (DOMPurify) and turns off click handlers
-      <div role="img" aria-label={t('md.diagram')} className="not-prose my-3 flex justify-center overflow-x-auto rounded-lg border border-line bg-white p-4 dark:bg-surface [&_svg]:h-auto [&_svg]:max-w-full" data-theme={mermaidTheme(dark)} data-testid="md-mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
+      // securityLevel strict: mermaid sanitizes labels (DOMPurify) and turns off click handlers. The card is the colour
+      // of the theme the picture was drawn with
+      <div role="img" aria-label={t('md.diagram')} className={clsx('not-prose my-3 flex justify-center overflow-x-auto rounded-lg border border-line p-4 [&_svg]:h-auto [&_svg]:max-w-full', shown.theme === 'dark' ? 'bg-surface' : 'bg-white')} data-theme={shown.theme} data-testid="md-mermaid" dangerouslySetInnerHTML={{ __html: shown.svg }} />
     )
   return <CodeBlock lang="mermaid" code={code} />
 }

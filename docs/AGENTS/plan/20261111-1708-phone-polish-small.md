@@ -43,4 +43,5 @@ Settings is left alone.
 
 ## Result
 
-All items but 6 done; see the PR.
+All items but 6 done. Review: Mermaid drawings run one at a time with their own theme (the settings are global), the card
+shows the theme the picture was drawn with; the ✦ line keeps "privately"; the e2e measures every language's line.

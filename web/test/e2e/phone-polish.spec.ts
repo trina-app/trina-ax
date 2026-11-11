@@ -93,12 +93,17 @@ test('an empty DM: the box\'s line fits on one line; the side chat has no "Open 
   await routeRoom(page, { members: [{ id: 'ben', name: '벤' }], kind: 'dm' })
   await page.goto(`/rooms/${ROOM_ID}`)
   const box = page.getByTestId('room-input')
-  await expect(box).toHaveAttribute('placeholder', /트리나/)
-  // one line: the box is as tall as a box with one line of text in it
-  const empty = (await box.boundingBox())!.height
-  await box.fill('a')
-  expect((await box.boundingBox())!.height).toBe(empty)
-  await box.fill('')
+  await expect(box).toHaveAttribute('placeholder', t['rooms.placeholderEmpty'])
+  // both lines of the empty box, in every language, fit the box's text width at 390 px (measured in its own font)
+  const lines = Object.entries(DICTS).flatMap(([loc, d]) => [`${loc}: ${d['rooms.placeholderEmpty']}`, `${loc}: ${d['rooms.placeholderEmptySide']}`])
+  const over = await box.evaluate((el, all) => {
+    const cs = getComputedStyle(el)
+    const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    const ctx = document.createElement('canvas').getContext('2d')!
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+    return all.filter((x) => ctx.measureText(x.slice(x.indexOf(': ') + 2)).width > room).map((x) => `${x} (${Math.round(room)} px)`)
+  }, lines)
+  expect(over).toEqual([])
   await shot(page, 'after-7-empty-dm.png')
   await page.getByTestId('room-side-chat-button').click()
   const side = page.getByTestId('side-chat-panel')

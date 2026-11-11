@@ -3802,7 +3802,7 @@ export const ko = {
   "rooms.editLabel": "메시지 수정",
   "rooms.placeholder": "메시지 보내기",
   "rooms.placeholderEmpty": "메시지 · @트리나에게 묻기",
-  "rooms.placeholderEmptySide": "메시지 · ✦로 트리나에게 묻기",
+  "rooms.placeholderEmptySide": "메시지 · ✦로 따로 묻기",
   "rooms.removeFile": "{name} 빼기",
   "rooms.uploading": "{name} 올리는 중…",
   "rooms.tooBig": "{name}은(는) {max}보다 커서 보낼 수 없어요.",

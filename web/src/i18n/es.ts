@@ -3759,7 +3759,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.editLabel": "Editar mensaje",
   "rooms.placeholder": "Escriba un mensaje",
   "rooms.placeholderEmpty": "Mensaje · pregunte a @Trina",
-  "rooms.placeholderEmptySide": "Mensaje · ✦ para preguntar a Trina",
+  "rooms.placeholderEmptySide": "Mensaje · ✦ en privado",
   "rooms.removeFile": "Quitar {name}",
   "rooms.uploading": "Subiendo {name}…",
   "rooms.tooBig": "{name} supera {max} y no se puede enviar.",

@@ -3803,7 +3803,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.editLabel": "Edit pesan",
   "rooms.placeholder": "Tulis pesan",
   "rooms.placeholderEmpty": "Pesan · tanya @Trina",
-  "rooms.placeholderEmptySide": "Pesan · ✦ untuk tanya Trina",
+  "rooms.placeholderEmptySide": "Pesan · ✦ tanya pribadi",
   "rooms.removeFile": "Hapus {name}",
   "rooms.uploading": "Mengunggah {name}…",
   "rooms.tooBig": "{name} lebih besar dari {max} dan tidak bisa dikirim.",

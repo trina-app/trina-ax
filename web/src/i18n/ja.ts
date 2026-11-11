@@ -3759,7 +3759,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.editLabel": "メッセージを編集",
   "rooms.placeholder": "メッセージを入力",
   "rooms.placeholderEmpty": "メッセージ · @トリナに聞く",
-  "rooms.placeholderEmptySide": "メッセージ · ✦でトリナに聞く",
+  "rooms.placeholderEmptySide": "メッセージ · ✦で個別に質問",
   "rooms.removeFile": "{name}を外す",
   "rooms.uploading": "{name}をアップロード中…",
   "rooms.tooBig": "{name}は{max}を超えているため送信できません。",
