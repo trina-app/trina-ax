@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:40
 - Branch: `fix/app-connect-retry`
-- Status: in progress
+- Status: done
 - Where: phone app (`mobile/App.tsx`, `mobile/src/strings.ts`) and the shared link gate (`shared/src/team-link.ts` with its byte-identical phone copy). Why: a phone app bug (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix in the phone app with no API or data change
 
@@ -42,4 +42,7 @@ reuses only that confirmed offer for the same host, and never after another link
 
 ## Result
 
-Filled in at the end.
+Built as planned. `LinkGate.retry(host)` (shared and phone copy), LinkAsk's Try again for `unreachable` and a failed
+save, `linkUnreachable` (en, ko). The source check in `tests/unit/mobile-security.test.ts` now accepts the gate's
+`retry` next to `answer`. Checked: team-link, mobile-security and mobile-bridge tests, full `bun run typecheck`, the
+phone app's `tsc`, check:docs. Not yet on a phone: needs the next app build.
