@@ -191,7 +191,8 @@ func verifyVersion(v string) error {
 // ---------- health ----------
 
 type serverConfig struct {
-	Listen struct {
+	DataDir string `json:"dataDir"`
+	Listen  struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"listen"`
@@ -385,8 +386,15 @@ func forwardTarget(st appState, v string) string {
 // nowhere (the result the server, mycel-ctl update and the update hold already know). Then it waits (stopAndWait).
 func block(st *appState, v, why string) bool {
 	st.Pending, st.PendingSince, st.Forward, st.Attempts = nil, nil, nil, 0
-	detail := "stopped: " + why + ". Restore the database backup made before the update (data/backups/pre-migrate-*.db) " +
-		"or install a version that starts. The server starts again when app/current changes, or on SIGHUP to the bootstrap " +
+	// st.Current stays the version before this update although app/current points at v: until v is healthy, current
+	// means "the last version that ran" (the update protocol; the stop reason, the history's `from` once v starts after
+	// a SIGHUP, and the version clean-up keeping that build all read it); st.Blocked.Version names v
+	restore := "Restore the database backup made before the update (data/backups/pre-migrate-*.db)"
+	if f := newestPreMigrate(); f != "" {
+		restore = "Restore the database backup made before the update: " + f + " (the newest data/backups/pre-migrate-*.db)"
+	}
+	detail := "stopped: " + why + ". " + restore + "; everything recorded in the app since the update (messages, settings, " +
+		"the history of file changes) will be lost; the files in the team folder stay as they are. Or install a version that starts. The server starts again when app/current changes, or on SIGHUP to the bootstrap " +
 		"(Linux: systemctl kill -s HUP <id>-server.service; macOS: launchctl kill HUP system/<label>.server)"
 	st.Blocked = &blockedState{Version: v, Since: time.Now().UTC().Format(time.RFC3339Nano), Detail: detail}
 	record(st, sp(v), v, "rolled_back", detail)
@@ -395,6 +403,42 @@ func block(st *appState, v, why string) bool {
 		return stopAndWait(v, detail, false)
 	}
 	return stopAndWait(v, detail, true)
+}
+
+// backupsDir: where the server copies the database before migrations (server/src/db.ts: <dataDir>/backups)
+func backupsDir() string {
+	dataDir := filepath.Join(filepath.Dir(*appDir), "data")
+	if b, err := os.ReadFile(*configFile); err == nil {
+		var c serverConfig
+		if json.Unmarshal(b, &c) == nil && c.DataDir != "" {
+			dataDir = c.DataDir
+			if !filepath.IsAbs(dataDir) {
+				dataDir = filepath.Join(filepath.Dir(*configFile), dataDir) // as server/src/app-config.ts resolves it
+			}
+		}
+	}
+	return filepath.Join(dataDir, "backups")
+}
+
+// newestPreMigrate: the newest pre-migrate-*.db (names start with an ISO time, so the largest name is the newest);
+// "" when there is none or the folder cannot be read
+func newestPreMigrate() string {
+	dir := backupsDir()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, e := range ents {
+		n := e.Name()
+		if e.Type().IsRegular() && strings.HasPrefix(n, "pre-migrate-") && strings.HasSuffix(n, ".db") && n > best {
+			best = n
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return filepath.Join(dir, best)
 }
 
 // stopAndWait waits while the server is stopped at v, then sets up one more watched try when app/current still points
@@ -407,6 +451,8 @@ func stopAndWait(v, detail string, persisted bool) bool {
 	if cur, err := currentVersion(); err == nil && cur == v {
 		// one more try of the same version, watched like a forwarded one: no roll-back, stops again after --max-attempts
 		st.Forward, st.Attempts = sp(v), 0
+	} else if err == nil && str(st.Pending) != cur {
+		st.Current = sp(cur) // an administrator pointed app/current elsewhere: that is what runs now
 	}
 	st.Blocked = nil
 	_ = writeState(st)
@@ -474,6 +520,9 @@ func run() int {
 		}
 		if st.Blocked != nil {
 			st.Blocked = nil // app/current changed (an update, an administrator)
+			if str(st.Pending) != v {
+				st.Current = sp(v) // an administrator pointed it elsewhere: that is what runs now
+			}
 			_ = writeState(st)
 		}
 		pending := str(st.Pending) == v
