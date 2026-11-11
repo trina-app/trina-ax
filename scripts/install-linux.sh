@@ -475,6 +475,7 @@ if [ "$CMD" = check ]; then
     if [ -n "$f" ]; then say "check: engine $n: $f -> $BASE/app/engines/$n/<sha12>/$n (pinned version $(lockget "$n" version))"
     else say "check: engine $n $(lockget "$n" version): download $(lockget "$n" url) (sha256 $(lockget "$n" sha256 | cut -c1-12)…)"; fi
   done
+  say "check: packages, the browser, Python programs and engines are installed while a running server keeps running; it stops only to switch versions"
   CUR_T=$(readlink "$BASE/app/current" 2>/dev/null || true)
   case "$CUR_T" in
     versions/"$VERSION") say "check: version $VERSION is installed: repair" ;;
@@ -687,7 +688,7 @@ SRV_GRP=$SRV_USER; AGT_GRP=$AGT_USER
 AGT_GID=$(id -g "$AGT_USER")
 say "accounts: $SRV_USER=$SRV_UID $AGT_USER=$AGT_UID"
 
-# ---- stop the units and every process of both accounts before touching their folders ----
+# ---- wait for an update that runs ----
 # an update that holds root/.update.lock (mycel-ctl update) is replacing root files: wait for it instead of racing it
 # (as long as the update job may take: TimeoutStartSec=2h)
 # (the lock stays with this installer until it exits; stop_units then stops an update job that is still only waiting)
@@ -697,6 +698,66 @@ if [ -d "$BASE/root" ] && [ ! -L "$BASE/root" ] && command -v flock >/dev/null 2
   exec 9<"$BASE/root/.update.lock"   # flock(2) needs no write access
   flock -n 9 || { say "waiting for an update that is running (mycel-ctl update)"; flock -w 7200 9 || die "an update (mycel-ctl update) is still running after 2 hours; run the installer again when it is done"; }
 fi
+# ---- 6b) the slow steps, while the server still runs: an update or a repair stops it only for the switch ----
+# The distribution packages are in (3). Here the pinned headless browser and the list's Python programs are downloaded,
+# built and started once next to the versions in use (packages.sh prepares them in folders of their own and leaves
+# current as it is), and the engines named with --engine are downloaded and checked. After the stop below, steps 7b and 8
+# only switch to them, so a slow mirror or download does not add to the time the team server is down.
+# (After the update lock above: a `mycel-ctl update` that runs finishes first and cannot switch these away.)
+# Root-only, on disk (/tmp may be a small tmpfs); removed when the installer ends.
+DL_WORK=$(mktemp -d /var/tmp/mycel-install.XXXXXX)
+trap 'rm -rf "$KIT_WORK" "$RKIT" "$ITMP" "$DL_WORK"' EXIT
+PY_NOT_READY=" "
+if [ "$LIST_OK" = 1 ]; then
+  if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
+    say "browser: preparing chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) while the server runs"
+    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); }
+  fi
+  # (a repair without --from reads the installed version's packages.sh, which may be older than this script: without
+  # pk_python_prepare, step 7b builds the venv as before)
+  if declare -F pk_python_prepare >/dev/null; then
+    for PY in $(pk_pythons "$PROFILE"); do
+      say "python: preparing $PY $(pk_py "$PY" version) while the server runs"
+      # not in a subshell: pk_python_install below knows what this run built (PK_PY_PREPARED)
+      pk_python_prepare "$PK_OPT/python/$PY" "$PY" || PY_NOT_READY+="$PY "
+    done
+  fi
+fi
+download() {  # url sha256 size out
+  local url=$1 sha=$2 size=$3 out=$4
+  [[ "$url" =~ ^https://[A-Za-z0-9./_+%-]+$ ]] || die "engines.lock.json: bad address $url"
+  curl --proto =https --proto-redir =https --tlsv1.2 -fsSL --retry 3 -o "$out" "$url" || die "downloading $url failed"
+  [ "$(sha256sum "$out" | cut -d' ' -f1)" = "$sha" ] || { rm -f "$out"; die "$url: SHA-256 does not match engines.lock.json"; }
+  if [[ "$size" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %s "$out")" != "$size" ]; then rm -f "$out"; die "$url: size does not match engines.lock.json"; fi
+}
+from_cache() {  # name sha256 file-name out: the host's read-only engine cache (hosted tenants, spec 3.5.2)
+  local c="$ENGINE_CACHE/$1/${2:0:12}/$3"
+  [ -f "$c" ] && [ ! -L "$c" ] || return 1
+  cp "$c" "$4" && [ "$(sha256sum "$4" | cut -d' ' -f1)" = "$2" ] || { rm -f "$4"; return 1; }
+}
+# the pinned engines named without FILE: $DL_WORK/engine-<name>, a Linux program of this arch (step 8 installs it)
+for name in claude codex; do
+  if [ "$name" = claude ]; then req=$CLAUDE_REQ src=$CLAUDE_FILE; else req=$CODEX_REQ src=$CODEX_FILE; fi
+  [ -n "$req" ] && [ -z "$src" ] || continue
+  stage="$DL_WORK/engine-$name"
+  sha=$(lockget "$name" sha256) url=$(lockget "$name" url) size=$(lockget "$name" size)
+  if [ "$name" = claude ]; then
+    from_cache claude "$sha" claude "$stage" || download "$url" "$sha" "$size" "$stage"
+  else
+    member=$(lockget codex member)
+    [[ "$member" =~ ^[A-Za-z0-9._-]+$ ]] || die "engines.lock.json: bad codex member name"
+    if ! from_cache codex "$sha" codex "$stage"; then
+      download "$url" "$sha" "$size" "$DL_WORK/codex.tar.gz"
+      mkdir -m 700 "$DL_WORK/codex-x"
+      tar -xzf "$DL_WORK/codex.tar.gz" -C "$DL_WORK/codex-x" --no-same-owner --no-same-permissions "$member" || die "codex: $member not in the release archive"
+      [ -f "$DL_WORK/codex-x/$member" ] && [ ! -L "$DL_WORK/codex-x/$member" ] || die "codex: $member is not a file"
+      mv "$DL_WORK/codex-x/$member" "$stage"; rm -rf "$DL_WORK/codex-x" "$DL_WORK/codex.tar.gz"
+    fi
+  fi
+  [ "$(elf_arch "$stage")" = "$ARCH" ] || die "engine $name: the download is not a Linux $ARCH program"
+done
+
+# ---- stop the units and every process of both accounts before touching their folders ----
 stop_units
 kill_accounts
 
@@ -863,7 +924,7 @@ install -o root -g root -m 644 "$ITMP/firewall.conf.json" "$BASE/root/firewall.c
 if [ "$LIST_OK" = 1 ]; then
   BROWSER_V=""
   if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
-    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); }
+    # (downloaded and tested in 6b: here only current moves; a version that is not ready leaves one that runs)
     if BROWSER=$(pk_browser_switch "$PK_OPT/chrome-headless-shell" "linux-$ARCH"); then
       pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "$BROWSER" || die "writing /etc/default/$ID failed"
       BROWSER_V=$(pk__current_version "$PK_OPT/chrome-headless-shell")
@@ -878,8 +939,9 @@ if [ "$LIST_OK" = 1 ]; then
   fi
   # the list's Python programs (default groups): a venv each in /opt/trina/python/<name>, current -> the pinned one. The
   # server finds the program there by itself; a failure only warns (Gmail, Calendar, Docs and Sheets stay off)
+  # (built in 6b; one that failed there is not built again while the server is stopped: a current that runs stays)
   for PY in $(pk_pythons "$PROFILE"); do
-    if PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY"); then say "python: $PY $(pk_py "$PY" version) ($PYPATH)"
+    if [[ "$PY_NOT_READY" != *" $PY "* ]] && PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY"); then say "python: $PY $(pk_py "$PY" version) ($PYPATH)"
     else
       warn "$PY was not installed (see above), so what needs it stays off; \`sudo $0 repair\` tries again"
       SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete) SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }$PY not installed"
@@ -890,18 +952,6 @@ if [ "$LIST_OK" = 1 ]; then
 fi
 
 # ---- 8) engines: app/engines/<name>/<sha12>/<name>, current -> <sha12> ----
-download() {  # url sha256 size out
-  local url=$1 sha=$2 size=$3 out=$4
-  [[ "$url" =~ ^https://[A-Za-z0-9./_+%-]+$ ]] || die "engines.lock.json: bad address $url"
-  curl --proto =https --proto-redir =https --tlsv1.2 -fsSL --retry 3 -o "$out" "$url" || die "downloading $url failed"
-  [ "$(sha256sum "$out" | cut -d' ' -f1)" = "$sha" ] || { rm -f "$out"; die "$url: SHA-256 does not match engines.lock.json"; }
-  if [[ "$size" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %s "$out")" != "$size" ]; then rm -f "$out"; die "$url: size does not match engines.lock.json"; fi
-}
-from_cache() {  # name sha256 file-name out: the host's read-only engine cache (hosted tenants, spec 3.5.2)
-  local c="$ENGINE_CACHE/$1/${2:0:12}/$3"
-  [ -f "$c" ] && [ ! -L "$c" ] || return 1
-  cp "$c" "$4" && [ "$(sha256sum "$4" | cut -d' ' -f1)" = "$2" ] || { rm -f "$4"; return 1; }
-}
 # the engine's version, as the engine account inside bwrap with no network (root never runs an engine)
 engine_version() {  # path
   runuser -u "$AGT_USER" -- /usr/bin/env -i PATH=/usr/bin:/bin bwrap --unshare-all --die-with-parent --new-session \
@@ -927,21 +977,8 @@ for name in claude codex; do
         esac
       fi
     else
-      sha=$(lockget "$name" sha256) url=$(lockget "$name" url) size=$(lockget "$name" size)
-      if [ "$name" = claude ]; then
-        from_cache claude "$sha" claude "$stage" || download "$url" "$sha" "$size" "$stage"
-      else
-        member=$(lockget codex member)
-        [[ "$member" =~ ^[A-Za-z0-9._-]+$ ]] || die "engines.lock.json: bad codex member name"
-        if ! from_cache codex "$sha" codex "$stage"; then
-          download "$url" "$sha" "$size" "$ITMP/codex.tar.gz"
-          mkdir -m 700 "$ITMP/codex-x"
-          tar -xzf "$ITMP/codex.tar.gz" -C "$ITMP/codex-x" --no-same-owner --no-same-permissions "$member" || die "codex: $member not in the release archive"
-          [ -f "$ITMP/codex-x/$member" ] && [ ! -L "$ITMP/codex-x/$member" ] || die "codex: $member is not a file"
-          mv "$ITMP/codex-x/$member" "$stage"; rm -rf "$ITMP/codex-x" "$ITMP/codex.tar.gz"
-        fi
-      fi
-      [ "$(elf_arch "$stage")" = "$ARCH" ] || die "engine $name: the download is not a Linux $ARCH program"
+      # downloaded and checked in 6b, before the stop
+      mv "$DL_WORK/engine-$name" "$stage"
     fi
     sha=$(sha256sum "$stage" | cut -c1-12)
     dir="$BASE/app/engines/$name/$sha"
