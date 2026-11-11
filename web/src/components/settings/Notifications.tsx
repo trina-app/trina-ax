@@ -50,7 +50,7 @@ export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId' | '
  * opens its Connect as ?template=. */
 export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'template' | 'needsKey'>) => {
   const template = item.template?.id ?? item.needsKey?.templateId
-  return template ? `/settings/connectors?template=${encodeURIComponent(template)}` : `/settings/connectors?request=${encodeURIComponent(item.sourceId)}`
+  return template ? `/connectors?template=${encodeURIComponent(template)}` : `/connectors?request=${encodeURIComponent(item.sourceId)}`
 }
 
 export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
@@ -113,7 +113,7 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
-  if (item.link === 'connections') return { to: '/settings/connectors?drive=1', testId: 'notification-connections-link' }
+  if (item.link === 'connections') return { to: '/connectors/google-drive', testId: 'notification-connections-link' }
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }

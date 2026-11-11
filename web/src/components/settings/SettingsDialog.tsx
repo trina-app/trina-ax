@@ -95,9 +95,10 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const shown = tabs.filter((x) => sectionMatches(x, q, t))
   const groups = SETTINGS_GROUPS.map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
   const waiting = (tab === 'providers' && own === null) || (tab === 'dev-env-sites' && sites === null)
-  // Google Drive and MCP were sections of their own: both are Connectors now (Drive's page open for a Drive link)
-  if (tab === 'drive') return <Navigate to="/settings/connectors?drive=1" replace />
-  if (tab === 'integrations') return <Navigate to={`/settings/connectors${location.search}`} replace />
+  // Connectors is its own page in the sidebar now (pages/Connectors.tsx): its section here leads there, with what its
+  // address asked for (?add=1, ?template=, ?request=); Google Drive and MCP were sections of their own before that
+  if (tab === 'connectors' || tab === 'integrations') return <Navigate to={`/connectors${location.search}`} replace />
+  if (tab === 'drive') return <Navigate to="/connectors/google-drive" replace />
   // AI connections are now AI providers (the same accounts, by provider)
   if (tab === 'credentials') return <Navigate to="/settings/providers" replace />
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: /settings instead (the
