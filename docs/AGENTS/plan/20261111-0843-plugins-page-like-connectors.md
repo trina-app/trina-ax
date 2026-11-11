@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 08:43
 - Branch: `feat/plugins-page-like-connectors`
-- Status: in progress
+- Status: done
 - Where: `web/src/pages/admin/Plugins.tsx`. Why: plugins are a core admin screen (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a screen is laid out again; no API, data or behaviour of installing changes
 
@@ -49,4 +49,13 @@ Out: the server, the API, the permission prompt's content, plugin logos in the p
 
 ## Result
 
-(filled in at the end)
+Built as planned in `web/src/pages/admin/Plugins.tsx`: the title row with search and Install from file, "Installed" and
+"Discover" as cards, and a plugin's page. Differences from the plan:
+
+- The card menu (⋯) of the connector cards (`CardMenu`) is reused for Update, Roll back and Remove.
+- The line "No plugins are installed yet." and the link "Show in Installed" are gone with the boxes they were in; six
+  short texts were added (search, the + and ✓ labels, "Details", and two reasons on a card).
+- `admin-home.spec.ts`: the HWP to-do's link (`?focus=`) now opens the plugin's page, with the keyboard on its way back.
+
+Checked: `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run --cwd web test` (2264 pass), and the
+Playwright specs `plugins`, `ux-quick-check` and `admin-home` (25 pass). The full web e2e was not run.
