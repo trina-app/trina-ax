@@ -183,6 +183,33 @@ after 7 days) and can withdraw a waiting request; the admin never sees the key o
 `331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
 their own".
 
+## A member asks for an app
+
+The other direction: a member who opens an app the team has not set up (Google Drive, Gmail, Google Calendar, Google
+Docs, Google Sheets: the apps an admin sets up once for everyone) taps **Ask admin to add it** on its page, like an app
+request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line; afterwards
+the page says "Request sent", opened again "Already asked", and the app's card says "Asked".
+
+- Only those five ids, only while the app is not set up (`POST /api/integrations/service-requests {service}`). The
+  server refuses any other name (400 `unknown_service`: no free text from a member reaches an admin), an app the member
+  can connect already (409 `can_connect`), one an admin turned off for members or this computer cannot run (409
+  `not_requestable`), and owners and admins (403: they set it up themselves). Listed MCP services are not asked for:
+  a member adds those with their own account.
+- One open request per member and app; asking again while it is open answers `already` and sends nothing. At most 10
+  new requests per member a day (429). Audited `service_request.ask`.
+- The owner and the admins get one notice per app in Activity (`service.request`, table `service_request_notices`),
+  armed again (unread, on top) by each new ask: "Alice asked to add Gmail", "Erin and 2 others asked to add Gmail". Its
+  row opens the app's setup in Admin › Connected apps. The names are read when the inbox is shown; someone who is no
+  longer an owner or admin sees the app only.
+- Once members can connect the app (an admin set it up, or turned the members' switch on after that; also a setup made
+  elsewhere, checked every 30 seconds), the requests close, the admins' notice counts as read and says "Added", and each
+  member who asked gets one notice that it is ready (`service.ready`), which opens its page. Inbox only, never an OS
+  push. Requests also close after 30 days, or when their member leaves or becomes an owner or admin; then they may ask
+  again.
+- Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,
+  `service-request-notices.ts`, migration `343_c_service_requests.sql`; web `components/integrations/AskAdmin.tsx`.
+  Decisions: [DECISIONS.md](DECISIONS.md) "A member asks an admin to add an app".
+
 ## Connecting from a chat
 
 A person says in a chat "connect Higgsfield" (or Notion, Linear, GitHub, any MCP server or HTTP API, or their Google

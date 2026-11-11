@@ -22,6 +22,7 @@ import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
 import { GOAL_PEOPLE, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
+import { serviceRequestOut } from '../integrations/service-request-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
 const OFFER_BATCH = 500
@@ -49,7 +50,9 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : 'notification_inbox'
+export type ServiceRequestEvent = Extract<NotificationEventType, 'service.request' | 'service.ready'>
+const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -57,8 +60,9 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
- * a transfer, a locked password check: migration 270) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices'] as const
+ * a transfer, a locked password check: migration 270) and a member's ask to add an app with its answer (migration 343)
+ * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'service_request_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -149,6 +153,26 @@ export class Notifications {
    * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
+  }
+  /** A member asked to add an app the team has not set up (integrations/service-requests.ts): one notice per owner or
+   * admin and app (the source is the app's id). A new ask arms it again (unread, its time now: it moves up and names
+   * the newest asker) instead of adding a second row, so many asks are one notice. Shown always: there is no setting
+   * for it, and someone waits. */
+  serviceRequested(userId: string, service: string, at = new Date().toISOString()) {
+    if (!this.active(userId)) return
+    const again = this.ctx.db.query("UPDATE service_request_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='service.request' AND source_id=?").run(at, userId, service)
+    if (again.changes) { this.signal(userId); return }
+    this.record(userId, 'service.request', service, at, true)
+  }
+  /** The app a member asked for can be connected now: one quiet notice for them (the source is the request's id).
+   * Inbox only, never an OS push. */
+  serviceReady(userId: string, requestId: string, at = new Date().toISOString()) {
+    this.record(userId, 'service.ready', requestId, at, true)
+  }
+  /** No request for the app waits any more: the owners' and admins' notice for it counts as read. */
+  settleServiceRequests(service: string) {
+    const rows = this.ctx.db.query("UPDATE service_request_notices SET read_at=? WHERE event_type='service.request' AND source_id=? AND read_at IS NULL RETURNING user_id").all(new Date().toISOString(), service) as { user_id: string }[]
+    for (const u of new Set(rows.map((r) => r.user_id))) if (this.active(u)) this.signal(u)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
@@ -430,6 +454,10 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: null,
         ...(q && host ? { request: { name: q.name, host } } : {}) }
     }
+    // a member's ask to add an app: for an owner or admin, who asks (the newest asker by name, and how many others)
+    // while any request waits, else who asked in the round that ended; the app only for someone who is neither now.
+    // The asker's answer: the app, to connect (never who set it up)
+    if (isServiceRequestEvent(row.event_type)) return serviceRequestOut(this.ctx.db, row)
     // the owner sees who asks (a name, nothing else) and goes to Admin › AI connections
     if (row.event_type === 'onboarding.ai_request') {
       const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(row.source_id) as { name: string } | null
@@ -661,4 +689,19 @@ export function notifyDriveShareReconnect(ctx: AppContext, _shareId: string, sou
 export function notifyTemplateReconnect(ctx: AppContext, userId: string, templateId: string, version: number) {
   try { notificationsOf(ctx).templateReconnect(userId, templateId, version) }
   catch { ctx.log.warn('template reconnect notice deferred') }
+}
+/** A member asked to add an app: told to each owner and admin (one notice per person and app). */
+export function notifyServiceRequested(ctx: AppContext, userIds: Iterable<string>, service: string) {
+  for (const userId of new Set(userIds)) {
+    try { notificationsOf(ctx).serviceRequested(userId, service) }
+    catch { ctx.log.warn('app request notice deferred') }
+  }
+}
+export function notifyServiceReady(ctx: AppContext, userId: string, requestId: string) {
+  try { notificationsOf(ctx).serviceReady(userId, requestId) }
+  catch { ctx.log.warn('app ready notice deferred') }
+}
+export function settleServiceRequestNotices(ctx: AppContext, service: string) {
+  try { notificationsOf(ctx).settleServiceRequests(service) }
+  catch { ctx.log.warn('app request notice not marked read') }
 }

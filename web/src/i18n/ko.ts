@@ -4787,6 +4787,23 @@ export const ko = {
   "audit.act.google_app.client_set": "Google 앱 설정 (Gmail, Calendar, Docs, Sheets)",
   "audit.act.google_app.members_switch": "멤버의 개인 Google 앱 연결 허용 변경",
   "audit.act.google_app.write_policy": "Google 앱에서 바꾸기 전에 AI가 물어볼지 변경",
+  "serviceRequest.ask": "관리자에게 추가 요청하기",
+  "serviceRequest.sent": "요청을 보냈어요",
+  "serviceRequest.already": "이미 요청했어요",
+  "serviceRequest.waiting": "{name} 준비가 끝나면 알려 드릴게요.",
+  "serviceRequest.asked": "요청함",
+  "serviceRequest.failed": "요청을 보내지 못했어요. 다시 해 주세요.",
+  "serviceRequest.tooMany": "오늘은 요청을 많이 보냈어요. 내일 다시 해 주세요.",
+  "serviceRequest.canConnect": "{name}: 이미 추가됐어요. 지금 바로 연결할 수 있어요.",
+  "serviceRequest.notRequestable": "지금은 {name} 추가를 요청할 수 없어요.",
+  "notifications.event.service.request": "멤버가 앱 추가를 요청했어요",
+  "notifications.event.service.requestNamed": "{name}님이 {service} 추가를 요청했어요",
+  "notifications.event.service.requestMore": "{name}님 외 {n}명이 {service} 추가를 요청했어요",
+  "notifications.event.service.requestSomeone": "멤버가 {service} 추가를 요청했어요",
+  "notifications.serviceRequest.added": "추가됨",
+  "notifications.event.service.ready": "요청한 앱이 준비됐어요.",
+  "notifications.event.service.readyNamed": "{service} 준비가 끝났어요. 지금 연결할 수 있어요.",
+  "audit.act.service_request.ask": "관리자에게 앱 추가 요청",
 } as const
 
 export type MessageKey = keyof typeof ko

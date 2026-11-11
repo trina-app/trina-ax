@@ -105,6 +105,7 @@ import path from 'node:path'
 import { MockPlugins } from './plugins'
 import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
+import { isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
@@ -283,7 +284,13 @@ export class MockServer {
     | { kind: 'lead_joined'; inviteId: string; leadFor: string; joinerId: string; joinedAt: string }
     | { kind: 'transferred'; me: 'from' | 'to' | 'other'; fromId: string; toId: string; fromName: string; toName: string; ended: { teamAi: number; driveShares: number; failed: number } }
     | { kind: 'reauth_locked' }
+    // a member's ask to add an app (server/src/integrations/service-requests.ts): one per owner or admin and app, and
+    // the member's "ready" once they can connect it
+    | { kind: 'service_request'; service: RequestableService }
+    | { kind: 'service_ready'; service: RequestableService; requestId: string }
   ))[] = []
+  /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
+  serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
   teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
@@ -520,6 +527,7 @@ export class MockServer {
     this.invites = []
     this.handover = MockServer.handoverDefault()
     this.inbox = []
+    this.serviceRequests = []
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
@@ -1086,7 +1094,42 @@ export class MockServer {
     this.inbox.unshift({ id: uuidv7(), userId, createdAt: now(), readAt: null, ...n } as MockServer['inbox'][number])
     this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
   }
+  /** like server/src/integrations/service-requests.ts serviceState */
+  serviceState(service: RequestableService): 'not_set_up' | 'available' | 'other' {
+    if (service === 'google-drive') return this.driveClient === 'none' ? 'not_set_up' : this.driveMembers ? 'available' : 'other'
+    const r = this.googleApps.reasonOf(this.googleApps.app(service)!)
+    return r === 'not_set_up' ? 'not_set_up' : r === null || r === 'service_limited' ? 'available' : 'other'
+  }
+  /** like settleServiceRequests: an app members can connect now closes its asks (each member hears it is ready), a member
+   * who left or became an admin closes theirs; with none left the admins' notice counts as read */
+  settleServiceRequests() {
+    const at = now(), touched = new Set<RequestableService>()
+    for (const r of this.serviceRequests.filter((x) => !x.closedAt)) {
+      const u = this.users.find((x) => x.id === r.userId)
+      const reason = !u || u.status !== 'active' || u.role !== 'member' ? 'left' as const : this.serviceState(r.service) === 'available' ? 'added' as const : null
+      if (!reason) continue
+      r.closedAt = at; r.reason = reason; touched.add(r.service)
+      if (reason === 'added') this.note(r.userId, { kind: 'service_ready', service: r.service, requestId: r.id })
+    }
+    for (const s of touched) if (!this.serviceRequests.some((x) => x.service === s && !x.closedAt)) {
+      for (const n of this.inbox) if (n.kind === 'service_request' && n.service === s) n.readAt ??= at
+    }
+  }
+  serviceNoticeItem(n: Extract<MockServer['inbox'][number], { kind: 'service_request' | 'service_ready' }>): InboxNotification {
+    const code = n.kind === 'service_request' ? 'service.request' as const : 'service.ready' as const
+    const base = { id: n.id, eventType: code, sourceId: n.kind === 'service_request' ? n.service : n.requestId, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
+    const viewer = this.users.find((x) => x.id === n.userId)
+    if (n.kind === 'service_ready' || !viewer || viewer.role === 'member') return { ...base, serviceRequest: { service: n.service } }
+    const nameOf = (r: { userId: string }) => this.users.find((u) => u.id === r.userId)?.name ?? null
+    const newest = (a: { createdAt: string }, b: { createdAt: string }) => b.createdAt.localeCompare(a.createdAt)
+    const open = this.serviceRequests.filter((r) => r.service === n.service && !r.closedAt).sort(newest)
+    if (open.length) return { ...base, serviceRequest: { service: n.service, name: nameOf(open[0]!), others: open.length - 1, open: true } }
+    const last = this.serviceRequests.filter((r) => r.service === n.service && r.closedAt).map((r) => r.closedAt!).sort().at(-1)
+    const round = this.serviceRequests.filter((r) => r.service === n.service && r.closedAt === last).sort(newest)
+    return { ...base, serviceRequest: { service: n.service, name: round[0] ? nameOf(round[0]) : null, others: Math.max(0, round.length - 1), open: false, ...(round.some((r) => r.reason === 'added') ? { added: true as const } : {}) } }
+  }
   inboxItem(n: MockServer['inbox'][number]): InboxNotification {
+    if (n.kind === 'service_request' || n.kind === 'service_ready') return this.serviceNoticeItem(n)
     const viewer = this.users.find((x) => x.id === n.userId)
     const code = n.kind === 'lead_joined' ? 'owner.lead_joined' : n.kind === 'transferred' ? 'owner.transferred' : 'owner.reauth_locked'
     const base = { id: n.id, eventType: code, sourceId: n.id, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
@@ -3522,7 +3565,7 @@ export class MockServer {
       return { flowId: f!.id, state: f!.polls++ < 1 ? 'pending' : 'ready', account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), reason: null }
     },
     cancelDriveFlow: () => { this.driveShareFlow = null; return undefined },
-    setDriveMembers: (c) => { this.driveMembers = c.body.on; return this.driveAdminStatus() },
+    setDriveMembers: (c) => { this.driveMembers = c.body.on; this.settleServiceRequests(); return this.driveAdminStatus() },
     listDriveShares: () => ({ items: this.driveShares.map((x) => ({ ...x, usedBy: this.driveShareUsers(x) })) }),
     authorizeDriveShare: (c) => {
       this.driveShareFlow = { id: 'share-flow-' + uuidv7(), shareId: c.body.shareId ?? null, polls: 0 }
@@ -3582,6 +3625,7 @@ export class MockServer {
         if (!Array.isArray(j!.web!.redirect_uris) || !j!.web!.redirect_uris.includes(redirect)) fail('bad_request', 400, 'drive_client_redirect')
       }
       this.driveClient = 'app'
+      this.settleServiceRequests()
       return this.driveAdminStatus()
     },
 
@@ -3617,12 +3661,41 @@ export class MockServer {
         }
         app.client = 'app'
       }
+      this.settleServiceRequests()
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
     setGoogleAppMembers: (c) => {
       const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
       app.members = c.body.on
+      this.settleServiceRequests()
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
+    },
+    // a member asks the owner and the admins to add an app (like server/src/integrations/service-requests.ts)
+    myServiceRequests: (c) => ({ items: this.serviceRequests.filter((r) => r.userId === c.user.id && !r.closedAt).map((r) => ({ service: r.service, askedAt: r.createdAt })) }),
+    askService: (c) => {
+      const service = c.body.service
+      if (!isRequestableService(service)) return fail('bad_request', 400, undefined, undefined, { reason: 'unknown_service' })
+      if (c.user.role !== 'member') fail('forbidden', 403, undefined, undefined, { reason: 'admin' })
+      this.settleServiceRequests()
+      const open = this.serviceRequests.find((r) => r.userId === c.user.id && r.service === service && !r.closedAt)
+      if (open) return { service, state: 'already' as const, askedAt: open.createdAt }
+      const st = this.serviceState(service)
+      if (st === 'available') fail('conflict', 409, undefined, undefined, { reason: 'can_connect' })
+      if (st === 'other') fail('conflict', 409, undefined, undefined, { reason: 'not_requestable' })
+      const day = new Date(Date.now() - 86_400_000).toISOString()
+      if (this.serviceRequests.filter((r) => r.userId === c.user.id && r.createdAt > day).length >= SERVICE_REQUESTS_PER_DAY) fail('rate_limited', 429, undefined, undefined, { reason: 'rate_limited' })
+      const at = now()
+      this.serviceRequests.push({ id: uuidv7(), userId: c.user.id, service, createdAt: at, closedAt: null, reason: null })
+      for (const a of this.users.filter((u) => (u.role === 'owner' || u.role === 'admin') && u.status === 'active')) {
+        // one notice per admin and app: a new ask arms it again (unread, now, on top)
+        const i = this.inbox.findIndex((n) => n.userId === a.id && n.kind === 'service_request' && n.service === service)
+        if (i >= 0) {
+          const [n] = this.inbox.splice(i, 1)
+          this.inbox.unshift({ ...n!, readAt: null, createdAt: at })
+          this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+        } else this.note(a.id, { kind: 'service_request', service })
+      }
+      return { service, state: 'sent' as const, askedAt: at }
     },
 
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
@@ -4514,8 +4587,8 @@ export class MockServer {
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
     else if (p === '/__test/cloud') this.cloud = body.on !== false
-    else if (p === '/__test/google-apps') this.googleApps.control(body)
-    else if (p === '/__test/drive-client') this.driveClient = body.on === false ? 'none' : 'app'
+    else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
+    else if (p === '/__test/drive-client') { this.driveClient = body.on === false ? 'none' : 'app'; this.settleServiceRequests() }
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null

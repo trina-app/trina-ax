@@ -20877,3 +20877,34 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   tool calls each, found by a team-wide grep that hit the list lines.
 - Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
   to its own AI provider from the first night after the update (`changes/file-list.md` says so).
+
+## A member asks an admin to add an app — 멤버가 관리자에게 앱 추가를 요청한다 (feat/ask-admin-service, 2026-11-11, product owner, QA TC-286)
+
+- **What.** The owner said yes ("그래 ㄱㄱ") to a member asking for an app the team has not set up. Before, a member
+  on such an app's page saw "Your admin hasn't set up Gmail yet." and a Connect button that did nothing. Now **Ask admin
+  to add it** takes the place of both; afterwards "Request sent", opened again "Already asked", and the card in the list
+  says "Asked". Slack's app requests are the model: one button, the admins hear about it, the member hears back.
+- **Which apps.** Only the five an admin sets up once for everyone: Google Drive, Gmail, Google Calendar, Google Docs
+  and Google Sheets, and only while not set up. The server holds the list (`REQUESTABLE_SERVICES`) and refuses any other
+  name, so no free text from a member reaches an admin. Left out on purpose: the listed MCP services (a member adds
+  those with their own account, and asking for something you can add yourself is refused too); "Not listed?" (it names
+  no app in the list, so its line stays); an app an admin turned **off** for members (that was the admin's choice: no
+  button, the reason stays as before); when the team turned personal connections off (members see no listed services,
+  and asking for a team connection there is a bigger change). Owners and admins cannot ask (they set it up).
+- **One notice per app, not per ask.** Each owner and admin has one Activity row per app ("Alice asked to add Gmail",
+  "Erin and 2 others asked to add Gmail", newest asker first); a new ask makes it unread again and moves it up. The row
+  opens the app's setup in Admin › Connected apps, with a small "Set up Gmail" button inside it. Names are read when the
+  inbox is shown, never stored with the notice; someone who is no longer an owner or admin sees the app only.
+- **Closing.** When members can connect the app (an admin set it up, or turned the members' switch on after that; a
+  setup made elsewhere is caught by a 30-second check), its requests close, the admins' notice is marked read and says
+  "Added", and each asker gets one quiet notice ("Gmail is ready. You can connect it now.", inbox only, never an OS
+  push) that opens its page. Set up but off for members does not close them: the member still cannot connect it.
+  Requests also close after the inbox's 30 days, or when their member leaves or becomes an owner or admin.
+- **Limits.** One open request per member and app (a partial unique index; "already" sends nothing), at most 10 new
+  requests per member a day. Nothing a member gets names an admin ("Admins are never named", above).
+- **Data.** Migration 343 (342 is taken by an open PR): `service_requests` and `service_request_notices` (the notices'
+  own table, as the others: notification_inbox has a fixed event list). Additive, reader 1.
+- Tests: `tests/unit/c-service-requests.test.ts`, web unit `service-requests`, e2e `integrations.spec.ts` (member asks,
+  owner sets it up from the notice, member hears it is ready; phone width), `google-apps.spec.ts` and `drive.spec.ts`
+  (the button in place of the disabled Connect).
+- Version impact: **minor** (a new API, two inbox events, one migration). Needed in the core too (potenlab/team-ax).

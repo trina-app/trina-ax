@@ -48,6 +48,9 @@ export const P4_SPECS: Record<string, Spec> = {
   googleAppsAdminStatus: { build: c => c.get('/api/admin/google-apps'), scope: 'byLevel' },
   setGoogleAppClient: { build: c => c.put('/api/admin/google-apps/gmail/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
   setGoogleAppMembers: { build: c => c.put('/api/admin/google-apps/gmail/members', { on: true }), scope: 'byLevel' },
+  // a member's ask to add an app (routes/google-apps.ts): one's own only; owners and admins set it up themselves (403)
+  myServiceRequests: { build: c => c.get('/api/integrations/service-requests?userId=alice'), scope: 'self' },
+  askService: { build: c => c.post('/api/integrations/service-requests?userId=alice', { service: 'google-drive' }), scope: 'members' },
   listDriveShares: { build: c => c.get('/api/admin/google-drive/shares'), scope: 'byLevel' },
   authorizeDriveShare: { build: c => c.post('/api/admin/google-drive/shares/authorize', {}), scope: 'byLevel' },
   completeDriveShareFlow: { build: c => c.post('/api/admin/google-drive/shares/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'byLevel' },

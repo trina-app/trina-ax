@@ -18,6 +18,7 @@ import { RoomNotifySettings } from './RoomNotifySettings'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
+import { builtInName } from '../../lib/googleApps'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings) */
 const workKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
@@ -67,6 +68,19 @@ const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
 
 type T = ReturnType<typeof useT>
 
+/** A member's ask to add an app (shared/src/api/service-requests.ts): to an owner or admin, who asks ("Alice and 2
+ * others asked to add Gmail"); to the member who asked, that it is ready. Never an admin's name. */
+const serviceRequestText = (item: InboxNotification, sr: NonNullable<InboxNotification['serviceRequest']>, t: T) => {
+  const service = builtInName(sr.service)
+  if (item.code === 'service.ready') return t('notifications.event.service.readyNamed', { service })
+  if (!sr.name) return t('notifications.event.service.requestSomeone', { service })
+  return sr.others ? t('notifications.event.service.requestMore', { name: sr.name, n: sr.others, service }) : t('notifications.event.service.requestNamed', { name: sr.name, service })
+}
+
+/** Where an app's setup is in Admin › Connected apps: Google Drive's page, or a Google app's. */
+export const serviceSetupLink = (service: NonNullable<InboxNotification['serviceRequest']>['service']) =>
+  service === 'google-drive' ? '/admin/connectors?drive=1' : `/admin/connectors?app=${encodeURIComponent(service)}`
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -82,6 +96,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
+  if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
   if (item.template) return t(item.code === 'integration.template_reconnect' ? 'notifications.event.integration.template_reconnectNamed' : 'notifications.event.integration.templateNamed', { name: item.template.name })
   const title = item.schedule?.title
   if (item.code === 'schedule.failure' && item.needsKey) return title
@@ -112,6 +127,9 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
   if (item.link === 'connections') return { to: '/connectors/google-drive', testId: 'notification-connections-link' }
+  // a member's ask: the app's setup while one waits (an owner or admin), the app's page once it is ready (the member)
+  if (item.code === 'service.request' && item.serviceRequest?.open) return { to: serviceSetupLink(item.serviceRequest.service), testId: 'notification-service-request-link' }
+  if (item.code === 'service.ready' && item.serviceRequest) return { to: `/connectors/${encodeURIComponent(item.serviceRequest.service)}`, testId: 'notification-service-ready-link' }
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
