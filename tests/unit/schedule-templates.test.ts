@@ -52,7 +52,8 @@ test('queued template snapshots survive schedule deletion and tool paths cannot 
   expect(validateTemplateTurn(h.ctx, 'olga', 't')).toBe(true)
   expect(templateToolRefusal(h.ctx, 'olga', 't', 'read', { file_path: 'shared/x.md' })).toBeNull()
   expect(templateToolRefusal(h.ctx, 'olga', 't', 'write', { file_path: 'users/olga/reports/daily.md' })).toBeNull()
-  for (const [name, args] of [['write', { file_path: 'shared/x.md' }], ['read', { file_path: 'users/olga/private.md' }], ['write', { file_path: 'users/olga/reports/run.sh' }], ['edit', { file_path: 'users/olga/reports/a.md' }], ['share_file', {}], ['glob', {}]] as const)
+  // knowledge_explore: the removed knowledge graph's tool, refused like any tool the template does not list
+  for (const [name, args] of [['write', { file_path: 'shared/x.md' }], ['read', { file_path: 'users/olga/private.md' }], ['write', { file_path: 'users/olga/reports/run.sh' }], ['edit', { file_path: 'users/olga/reports/a.md' }], ['share_file', {}], ['glob', {}], ['knowledge_explore', { query: 'x', path: 'shared' }]] as const)
     expect(templateToolRefusal(h.ctx, 'olga', 't', name, args)).toBeTruthy()
   h.ctx.db.query("UPDATE users SET status='disabled' WHERE id='olga'").run()
   expect(() => validateTemplateTurn(h.ctx, 'olga', 't')).toThrow()

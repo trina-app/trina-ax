@@ -10,7 +10,7 @@ import { FILE_TOOLS } from '@mycel/shared'
  * private to the person until they post one.
  */
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'agent',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   // this room's own files (chat/room-tools.ts roomSessionTools): what they read joins the read scope as the room
   'room_file', 'save_room_file',
@@ -38,7 +38,7 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
  * signed-in browser (box_shell; the in-app browser is off for room turns as a whole, chat/turn.ts).
  */
 export const ROOM_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'knowledge_explore', 'skill', 'find_skills', 'ask_user',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
   // this room's files: the asking message's attachments and earlier ones the person sees (read, or a copy saved)
   'room_file', 'save_room_file',
@@ -73,7 +73,7 @@ export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
 }
 
 /** Tools that look through a folder and everything under it; in a shared chat without a path, the project folder. */
-export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob', 'knowledge_explore'])
+export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob'])
 
 /**
  * Tools that change nothing (they read, search, ask the person, or answer in the session's own chat). In a room every
@@ -82,7 +82,7 @@ export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob', 'knowl
  * people's words, and one of them may tell the AI to change something.
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'list', 'glob', 'grep', 'read', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
+  'list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
   'room_file', 'room_thread', 'project_chats', 'project_chat',
 ])
 
@@ -95,7 +95,7 @@ export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
  * calls to steps first in, first out per tool), skill, find_skills and hwp_render (not needed side by side).
  */
 export const PARALLEL_READ_TOOLS: ReadonlySet<string> = new Set(
-  ['list', 'glob', 'grep', 'read', 'knowledge_explore'].filter((t) => ROOM_READ_ONLY_TOOLS.has(t)))
+  ['list', 'glob', 'grep', 'read'].filter((t) => ROOM_READ_ONLY_TOOLS.has(t)))
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
 export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'save_as']
