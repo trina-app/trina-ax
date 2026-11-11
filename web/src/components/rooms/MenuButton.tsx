@@ -17,6 +17,7 @@ import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
 import { dismissKeyboard } from '../../lib/viewport'
+import { useOverlayEntry } from '../../lib/backCloses'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 
 export interface MenuItem {
@@ -89,6 +90,9 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
   const menu = useRef<HTMLDivElement>(null)
   /** when a long press opened it: the finger lifting right after is no choice of an item */
   const pressedAt = useRef(0)
+  // a phone's sheet: Back closes it, not the page under it (lib/backCloses.ts); an item that opens a page or a dialog
+  // takes its history entry over
+  useOverlayEntry(open, () => setOpen(false))
   useEffect(() => {
     if (!open) return
     // a phone's sheet over the page: the on-screen keyboard goes down first (a long press while typing), so the sheet

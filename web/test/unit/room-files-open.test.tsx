@@ -24,7 +24,7 @@ import { BEN, CY, ME, message, room } from './rooms-fixtures'
 const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
 const locale = useLocaleStore.getState().locale
 beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
-afterEach(() => { closeSidePanel(); closeImageViewer(false) })
+afterEach(() => { closeSidePanel(); closeImageViewer() })
 afterAll(() => { removeDom(); useLocaleStore.setState({ locale }) })
 
 const team = room({ name: 'Marketing' })
@@ -173,7 +173,7 @@ test('a Hangul file has a preview only while the HWP preview is on, within what 
       expect(getSidePanel()).toBeNull()
     } finally {
       await page.unmount()
-      closeImageViewer(false)
+      closeImageViewer()
       useSession.setState({ status })
     }
   }

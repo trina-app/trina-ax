@@ -39,6 +39,7 @@ import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { aiName } from '../lib/tabs'
+import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap } from './ui'
@@ -58,6 +59,8 @@ import { useRooms } from '../store/rooms'
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
   const setOpen = useUi((s) => s.setSearchOpen)
+  // phones: Back closes search and stays on the page; a result opened takes its history entry (lib/backCloses.ts)
+  useOverlayEntry(open, () => setOpen(false))
   // a person with no DM, chosen in the palette: the new-DM list with them ticked, after the palette has closed
   const [dmWith, setDmWith] = useState<string | null>(null)
   return (

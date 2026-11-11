@@ -38,6 +38,7 @@ import { api, API, errorText } from '../../lib/api'
 import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
 import { formatDate, formatDateTime } from '../../lib/format'
 import { closeImageViewer, getImageViewer } from '../../lib/imageViewer'
+import { useOverlayEntry } from '../../lib/backCloses'
 import { markerOf } from '../../lib/sessionMarkers'
 import { quotes, sendTargets } from '../../lib/sideChatSend'
 import { aiName } from '../../lib/tabs'
@@ -237,6 +238,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   /** 🕘: the room's side chats, newest first (null: the list is not open) */
   const [history, setHistory] = useState<Chat[] | null>(null)
   const [historyBusy, setHistoryBusy] = useState(false)
+  // phones: Back closes the list and shows the chat again, not the whole side chat (lib/backCloses.ts)
+  useOverlayEntry(!!history, () => setHistory(null))
   // session markers: the chat this panel shows is on screen in this window, as a full chat is (store/sessionMarkers.ts
   // marks its answer seen: no "New answer" dot in Trina history, no notification); not while the 🕘 list covers it
   const listOpen = !!history
@@ -434,7 +437,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const view = (s: SentHere) => {
     if (getImageViewer()) handedOff.viewer.add(roomId)
     if (s.to === 'thread' && s.rootId) handedOff.thread.add(roomId)
-    closeImageViewer(true, () => {
+    closeImageViewer(() => {
       if (s.to === 'thread' && s.rootId) return navigate(`/rooms/${s.roomId}/t/${s.rootId}?m=${s.messageId}`, { state: { fromRoom: true } })
       if (!window.matchMedia?.('(min-width: 48rem)').matches) useRooms.getState().setSide(s.roomId, null)
       navigate(`/rooms/${s.roomId}?m=${s.messageId}`, { replace: window.location.pathname === `/rooms/${s.roomId}` })

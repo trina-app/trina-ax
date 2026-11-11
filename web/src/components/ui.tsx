@@ -9,6 +9,7 @@ import { useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { writeRich } from '../lib/clipboard'
 import { edgeFade } from '../lib/edgeFade'
+import { useOverlayEntry } from '../lib/backCloses'
 import { Tooltip } from './Tooltip'
 
 /** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
@@ -270,6 +271,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
   useFocusTrap(ref, open, onClose, returnTo)
+  // phones: Back closes the dialog (the one on top first), not the page under it (lib/backCloses.ts)
+  useOverlayEntry(open, onClose)
   if (!open) return null
   return (
     // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert

@@ -40,7 +40,7 @@ beforeAll(() => {
     return new Response('hello text', { status: 200, headers: { 'content-type': 'text/plain', 'content-length': '10' } })
   }) as typeof fetch
 })
-afterEach(() => closeImageViewer(false))
+afterEach(() => closeImageViewer())
 afterAll(() => {
   globalThis.fetch = saved.fetch
   ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = saved.ResizeObserver

@@ -233,7 +233,16 @@ export default function Sidebar() {
       ) : (
         // the phone drawer: the AI's history only (파일, the Inbox and Admin are tabs or in the 나 tab there)
         <div className="space-y-0.5 px-2">
-          <button type="button" className={clsx(nav, 'w-full')} onClick={() => setSearchOpen(true)}>
+          {/* search takes the drawer's place (and its history entry): Back closes search and shows the page */}
+          <button
+            type="button"
+            className={clsx(nav, 'w-full')}
+            onClick={() => {
+              close()
+              setSearchOpen(true)
+            }}
+            data-testid="drawer-search"
+          >
             <Search size={16} aria-hidden /> {t('sidebar.search')}
           </button>
           <NavLink to="/projects" className={active} onClick={close}>

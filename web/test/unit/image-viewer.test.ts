@@ -6,7 +6,8 @@
 // where the sheet settles after a drag; when a PDF's thumbnails fit beside the document.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Attachment, type Me, type RoomFile } from '@mycel/shared/api'
-import { attachmentItem, closeImageViewer, closeViewerSheet, documentSwipe, getImageViewer, getViewerSheet, localItem, notePage, openImageViewer, openViewerSheet, orderEntries, pdfRailFits, roomFileItem, roomItem, sheetSnap, showEntry, skipLeftEntry, stepTargets, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
+import { attachmentItem, closeImageViewer, closeViewerSheet, documentSwipe, getImageViewer, getViewerSheet, localItem, openImageViewer, openViewerSheet, orderEntries, pdfRailFits, roomFileItem, roomItem, sheetSnap, showEntry, stepTargets, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
+import { resetOverlaysForTest } from '../../src/lib/backCloses'
 import { FakeEvent, installDom, removeDom } from './dom-host'
 
 /** an element at a place on the page (document order is `pos`) */
@@ -175,93 +176,92 @@ describe('a room\'s files beside its pictures', () => {
 })
 
 describe('Back closes the viewer', () => {
+  // the history entries themselves are lib/backCloses.ts's (test/unit/back-closes.test.ts): here, what the viewer and
+  // its phone sheet do with them
   type State = Record<string, unknown> | null
   let stack: State[] = []
   let at = 0
-  let backs = 0
-  let forwards = 0
+  let gos: number[] = []
   /** a browser's back lands a moment later (a task); `late` holds it until the test lets it land */
   let late: (() => void) | null = null
   let holdBack = false
   const pop = () => globalThis.dispatchEvent(new FakeEvent('popstate') as unknown as Event)
+  const travel = (n: number) => {
+    const land = () => { at = Math.max(0, Math.min(stack.length - 1, at + n)); pop() }
+    if (holdBack) late = land
+    else land()
+  }
   const fakeHistory = () => ({
     get state() { return stack[at] ?? null },
     pushState(s: State) { stack = [...stack.slice(0, at + 1), s]; at = stack.length - 1 },
-    back() {
-      backs++
-      const land = () => { at = Math.max(0, at - 1); pop() }
-      if (holdBack) late = land
-      else land()
-    },
-    forward() { forwards++; if (at < stack.length - 1) { at++; pop() } },
+    replaceState(s: State) { stack[at] = s },
+    back() { gos.push(-1); travel(-1) },
+    forward() { gos.push(1); travel(1) },
+    go(n: number) { gos.push(n); travel(n) },
   })
+  const tick = () => new Promise((r) => setTimeout(r, 1))
   afterEach(() => {
-    closeImageViewer(false)
+    closeImageViewer()
+    resetOverlaysForTest()
     removeDom()
   })
   const start = () => {
     installDom()
     stack = [{ idx: 3, key: 'k1', usr: null }]
     at = 0
-    backs = 0
-    forwards = 0
+    gos = []
     late = null
     holdBack = false
     Object.defineProperty(globalThis, 'history', { configurable: true, writable: true, value: fakeHistory() })
+    resetOverlaysForTest()
   }
   const open = () => {
     const e = entry('a', el(1))
     openImageViewer({ group: null, entry: e, opener: null, openerKey: 'a' })
   }
 
-  test('opening adds one entry that keeps the router\'s state; ✕ goes back off it', () => {
+  test("opening adds one entry that keeps the router's state; ✕ goes back off it", async () => {
     start()
     open()
     expect(stack).toHaveLength(2)
     expect(stack[1]).toMatchObject({ idx: 3, key: 'k1' })
     closeImageViewer()
     expect(getImageViewer()).toBeNull()
-    expect(backs).toBe(1)
+    await tick()
+    expect(gos).toEqual([-1])
     expect(at).toBe(0)
   })
-  test('the browser\'s Back closes it', () => {
+  test("the browser's Back closes it", () => {
     start()
     open()
-    at = 0
-    globalThis.dispatchEvent(new FakeEvent('popstate') as unknown as Event)
+    globalThis.history.back()
     expect(getImageViewer()).toBeNull()
-    expect(backs).toBe(0)
+    expect(at).toBe(0)
   })
-  test('a page change closes it without going back (its entry is no longer the current one)', () => {
+  test('a page opened while it is open takes its entry: closing it then goes back nowhere', async () => {
     start()
     open()
-    // the router pushed the new page on top
-    stack.push({ idx: 4, key: 'k2' })
-    at = 2
-    closeImageViewer(false)
+    globalThis.history.pushState({ idx: 4, key: 'k2' }, '')
+    closeImageViewer()
+    await tick()
     expect(getImageViewer()).toBeNull()
-    expect(backs).toBe(0)
+    expect(gos).toEqual([])
+    expect(stack).toHaveLength(2)
   })
-  test("closed with something to do after: it runs once the back has landed (the room page's own change of address is not undone)", () => {
+  test("closed with something to do after: it runs once the back has landed (the room page's own change of address is not undone)", async () => {
     start()
     holdBack = true
     open()
     const ran: number[] = []
-    closeImageViewer(true, () => ran.push(at))
+    closeImageViewer(() => ran.push(at))
     expect(getImageViewer()).toBeNull()
+    await tick()
     expect(ran).toEqual([])
     late!()
     expect(ran).toEqual([0])
     // nothing open: at once
-    closeImageViewer(true, () => ran.push(-1))
+    closeImageViewer(() => ran.push(-1))
     expect(ran).toEqual([0, -1])
-    // closed by a page change (no back): at once too
-    holdBack = false
-    open()
-    stack.push({ idx: 4, key: 'k2' })
-    at = 2
-    closeImageViewer(false, () => ran.push(at))
-    expect(ran).toEqual([0, -1, 2])
   })
   test('stepping to another picture adds no entry', () => {
     start()
@@ -270,49 +270,18 @@ describe('Back closes the viewer', () => {
     expect(getImageViewer()?.entry.item.key).toBe('b')
     expect(stack).toHaveLength(2)
   })
-  test('closed and opened again before the back has landed: its entry is added once the back lands, and it stays open', () => {
+  test('closed and opened again in the same moment: the new one takes the entry over, nothing goes back', async () => {
     start()
-    holdBack = true
     open()
     closeImageViewer()
     open()
-    // nothing pushed while the back is on its way
+    await tick()
+    expect(gos).toEqual([])
     expect(stack).toHaveLength(2)
-    late!()
     expect(getImageViewer()).not.toBeNull()
-    expect(at).toBe(1)
-    expect(stack[1]).toMatchObject({ idx: 3, key: 'k1' })
-    // and ✕ goes back off the new entry
-    holdBack = false
     closeImageViewer()
+    await tick()
     expect(at).toBe(0)
-  })
-  test('Back past a viewer\'s entry that a page change left behind: on to the page before it', () => {
-    start()
-    // ImageViewerHost's listener, which sees every landing
-    globalThis.addEventListener('popstate', skipLeftEntry)
-    try {
-      notePage()
-      open()
-      // a notice opened another page on top while the viewer was open
-      stack.push({ idx: 4, key: 'k2' })
-      at = 2
-      closeImageViewer(false)
-      notePage()
-      // Back: lands on the left-behind entry (the same page again), which goes on back
-      at = 1
-      skipLeftEntry()
-      expect(backs).toBe(1)
-      expect(at).toBe(0)
-      // Forward from the page below onto it goes on forward
-      notePage()
-      at = 1
-      skipLeftEntry()
-      expect(forwards).toBe(1)
-      expect(at).toBe(2)
-    } finally {
-      globalThis.removeEventListener('popstate', skipLeftEntry)
-    }
   })
 
   // ---- a phone's sheet over the viewer (the file's thread or Trina) ----
@@ -327,172 +296,86 @@ describe('Back closes the viewer', () => {
     // opened twice: still one entry
     openViewerSheet()
     expect(stack).toHaveLength(3)
-    // Back (the browser's, Android's through the phone app): the sheet goes, the viewer stays
-    at = 1
-    pop()
+    globalThis.history.back()
     expect(getViewerSheet()).toBe(false)
     expect(getImageViewer()).not.toBeNull()
-    // Forward onto it: the sheet again
-    at = 2
-    pop()
-    expect(getViewerSheet()).toBe(true)
-    // Back twice: the sheet, then the viewer; nothing of ours went back by itself
-    at = 1
-    pop()
-    at = 0
-    pop()
-    expect(getViewerSheet()).toBe(false)
+    globalThis.history.back()
     expect(getImageViewer()).toBeNull()
-    expect(backs).toBe(0)
+    expect(at).toBe(0)
   })
-  test("the sheet's ✕ (a drag down, a tap beside it, Esc) goes back off its entry only", () => {
+  test("the sheet's ✕ (a drag down, a tap beside it, Esc) goes back off its entry only", async () => {
     start()
     open()
     openViewerSheet()
     closeViewerSheet()
     expect(getViewerSheet()).toBe(false)
-    expect(backs).toBe(1)
+    await tick()
+    expect(gos).toEqual([-1])
     expect(at).toBe(1)
     expect(getImageViewer()).not.toBeNull()
     // closed already: nothing more
     closeViewerSheet()
-    expect(backs).toBe(1)
+    await tick()
+    expect(gos).toEqual([-1])
     // ✕ on the viewer then: off its own entry, back on the page
     closeImageViewer()
+    await tick()
     expect(at).toBe(0)
   })
-  test('the viewer closed with its sheet open goes back off both, one at a time, then runs what waits', () => {
+  test('the viewer closed with its sheet open goes back off both in one step, then runs what waits', async () => {
     start()
     holdBack = true
     open()
     openViewerSheet()
     const ran: number[] = []
-    closeImageViewer(true, () => ran.push(at))
+    closeImageViewer(() => ran.push(at))
     expect(getImageViewer()).toBeNull()
     expect(getViewerSheet()).toBe(false)
-    // the second back waits for the first to land
-    expect(backs).toBe(1)
-    late!()
-    expect(at).toBe(1)
-    expect(backs).toBe(2)
+    await tick()
+    expect(gos).toEqual([-2])
     expect(ran).toEqual([])
     late!()
     expect(at).toBe(0)
     expect(ran).toEqual([0])
   })
-  test('the sheet closed and the viewer right after, before the first back has landed: two backs, never three', () => {
-    start()
-    holdBack = true
-    open()
-    openViewerSheet()
-    closeViewerSheet()
-    closeImageViewer()
-    expect(backs).toBe(1)
-    late!()
-    expect(backs).toBe(2)
-    late!()
-    expect(at).toBe(0)
-    expect(backs).toBe(2)
-  })
-  test("a picture or file opened from the sheet's thread is shown whole: the sheet gives way, the viewer stays", () => {
+  test("a picture or file opened from the sheet's thread is shown whole: the sheet gives way, the viewer stays", async () => {
     start()
     open()
     openViewerSheet()
     openImageViewer({ group: null, entry: entry('b', el(2)), opener: null, openerKey: 'b' })
     expect(getViewerSheet()).toBe(false)
+    await tick()
     expect(at).toBe(1)
     expect(getImageViewer()?.entry.item.key).toBe('b')
     closeImageViewer()
+    await tick()
     expect(at).toBe(0)
   })
-  test("Back past the viewer's and its sheet's entries a page change left behind: on past both, either way", () => {
+  test("a link in the sheet opened a page: Back from it goes past the viewer's entry left under it, Forward over it", async () => {
     start()
-    globalThis.addEventListener('popstate', skipLeftEntry)
-    try {
-      notePage()
-      open()
-      openViewerSheet()
-      // a link in the sheet opened another page on top
-      stack.push({ idx: 4, key: 'k2' })
-      at = 3
-      closeImageViewer(false)
-      notePage()
-      holdBack = true
-      // Back lands on the sheet's entry: on back
-      at = 2
-      pop()
-      expect(backs).toBe(1)
-      // the router shows the page under it meanwhile (the entries have its idx): the way is kept all the same
-      notePage()
-      late!()
-      expect(at).toBe(1)
-      expect(backs).toBe(2)
-      late!()
-      expect(at).toBe(0)
-      // Forward from the page below crosses both onto the page on top
-      holdBack = false
-      notePage()
-      at = 1
-      pop()
-      expect(at).toBe(3)
-      expect(forwards).toBe(2)
-    } finally {
-      globalThis.removeEventListener('popstate', skipLeftEntry)
-    }
+    open()
+    openViewerSheet()
+    // the page takes the sheet's entry; the viewer's stays under it
+    globalThis.history.pushState({ idx: 4, key: 'k2' }, '')
+    closeImageViewer()
+    await tick()
+    expect(stack).toHaveLength(3)
+    globalThis.history.back()
+    expect(at).toBe(0)
+    globalThis.history.forward()
+    expect(at).toBe(2)
   })
-  test("closed with its sheet open, then Forward and Back: Forward stops on the sheet's entry, Back goes past both to the page, and leaves no way of going back stuck", () => {
+  test("closed with its sheet open, then Forward: back on the page, nothing stuck", async () => {
     start()
-    globalThis.addEventListener('popstate', skipLeftEntry)
-    try {
-      notePage()
-      open()
-      openViewerSheet()
-      closeImageViewer()
-      expect(at).toBe(0)
-      // the two entries stay ahead as Forward entries: Forward crosses the viewer's onto the sheet's, with nothing after
-      globalThis.history.forward()
-      expect(at).toBe(2)
-      // Back: past both, on the page (before, every Back bounced from the viewer's entry to the sheet's)
-      globalThis.history.back()
-      expect(at).toBe(0)
-      // and again: the same, nothing bounces
-      globalThis.history.forward()
-      expect(at).toBe(2)
-      globalThis.history.back()
-      expect(at).toBe(0)
-      // a page pushed from the sheet's entry after a Forward: Back from it goes past both
-      globalThis.history.forward()
-      expect(at).toBe(2)
-      stack = [...stack.slice(0, 3), { idx: 4, key: 'k2' }]
-      at = 3
-      notePage()
-      globalThis.history.back()
-      expect(at).toBe(0)
-    } finally {
-      globalThis.removeEventListener('popstate', skipLeftEntry)
-    }
-  })
-  test('without a sheet: Forward onto a closed viewer\'s entry stays there; a page pushed from it, then Back, goes past it once', () => {
-    start()
-    globalThis.addEventListener('popstate', skipLeftEntry)
-    try {
-      notePage()
-      open()
-      closeImageViewer()
-      globalThis.history.forward()
-      expect(at).toBe(1)
-      stack = [...stack.slice(0, 2), { idx: 4, key: 'k2' }]
-      at = 2
-      notePage()
-      globalThis.history.back()
-      expect(at).toBe(0)
-      // nothing left over: Forward from the page goes on past it to the page on top
-      notePage()
-      globalThis.history.forward()
-      expect(at).toBe(2)
-    } finally {
-      globalThis.removeEventListener('popstate', skipLeftEntry)
-    }
+    open()
+    openViewerSheet()
+    closeImageViewer()
+    await tick()
+    expect(at).toBe(0)
+    globalThis.history.forward()
+    expect(at).toBe(0)
+    globalThis.history.back()
+    expect(at).toBe(0)
   })
 })
 
