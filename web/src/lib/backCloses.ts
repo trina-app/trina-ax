@@ -48,7 +48,8 @@ interface Held {
   depth: number
 }
 
-let seq = 0
+// numbers new to this page load: an entry left from before a reload never passes for an overlay open now
+let seq = Math.floor(Math.random() * 2 ** 30)
 /** the overlays open now, oldest first */
 let held: Held[] = []
 /** entries a page was pushed on top of while their overlay was open under the top one: Forward goes on over them */
