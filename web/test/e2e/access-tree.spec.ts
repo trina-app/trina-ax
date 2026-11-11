@@ -405,7 +405,8 @@ for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) 
     if (narrow) {
       await expect(tree(page)).toBeHidden()
       await expect(missing.getByRole('heading', { name: t['accessTree.notFound'] })).toBeFocused()
-      await page.getByTestId('folder-detail-back').click()
+      // a phone (TC-267): the folder is a page of its own, the bar's ‹ is the way back
+      await page.getByTestId('admin-back').click()
     } else {
       await expect(tree(page)).toBeVisible()
       await expect(tree(page).locator('[aria-selected="true"]')).toHaveCount(0)
@@ -421,7 +422,8 @@ for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) 
     await expect(detail(page)).toHaveAttribute('data-path', 'docs/deep1/deep2/deep3/deep4')
     await expect(item(page, 'docs/deep1/deep2/deep3/deep4')).toHaveAttribute('aria-selected', 'true')
     if (narrow) {
-      await page.getByTestId('folder-detail-back').click()
+      // a phone (TC-267): the folder is a page of its own, the bar's ‹ is the way back
+      await page.getByTestId('admin-back').click()
       await expect(item(page, 'docs/deep1/deep2/deep3/deep4')).toBeFocused()
     }
 
@@ -432,7 +434,8 @@ for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) 
     await expect(item(page, 'shared')).toHaveAttribute('aria-selected', 'true')
     if (narrow) {
       await expect(tree(page)).toBeHidden()
-      await page.getByTestId('folder-detail-back').click()
+      // a phone (TC-267): the folder is a page of its own, the bar's ‹ is the way back
+      await page.getByTestId('admin-back').click()
     }
     // the Tab stop is the chosen row
     await expect(item(page, 'shared')).toHaveAttribute('tabindex', '0')
@@ -445,7 +448,8 @@ for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) 
   })
 }
 
-test('the By folder tab goes back to the tree from a chosen folder, a missing one too (375px)', async ({ page }) => {
+test('a phone: a chosen folder is a page of its own, without the two views\' switch; ‹ goes back to the tree, a missing one too (375px)', async ({ page }) => {
+  // since TC-267 the folder's page has no page header (its line, Add folder, By folder / By person): ‹ is the way back
   await page.setViewportSize({ width: 375, height: 812 })
   await reset(page)
   await signIn(page)
@@ -453,13 +457,14 @@ test('the By folder tab goes back to the tree from a chosen folder, a missing on
   await page.goto('/admin/folders?folder=shared')
   await expect(detail(page)).toHaveAttribute('data-path', 'shared')
   await expect(tree(page)).toBeHidden()
-  await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).click()
+  await expect(page.getByRole('tab', { name: t['accessView.byFolder'], exact: true })).toHaveCount(0)
+  await page.getByTestId('admin-back').click()
   await expect(tree(page)).toBeVisible()
   await expect(page).not.toHaveURL(/folder=/)
-  // a missing one (a phone has no menu link beside the page: Admin's list is a step back)
+  // a missing one
   await page.goto(`/admin/folders?folder=${encodeURIComponent('gone/away')}`)
   await expect(page.getByTestId('folder-detail-missing')).toBeVisible()
-  await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).click()
+  await page.getByTestId('admin-back').click()
   await expect(tree(page)).toBeVisible()
   await expect(page.getByTestId('folder-detail-missing')).toHaveCount(0)
 })
