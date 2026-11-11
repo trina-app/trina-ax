@@ -95,13 +95,18 @@ if (resolverRules.length) app.commandLine.appendSwitch('host-resolver-rules', re
 
 protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false } }])
 
-if (!app.requestSingleInstanceLock()) app.quit()
+// One app at a time (audit row 38): a second start (on Windows and Linux every trina-ax:// link) hands its command line
+// to the first one ('second-instance' below) and exits at once. app.quit() did not: will-quit holds the first quit back
+// to write cookies, so the second app could still reach whenReady, open a window, start the updater and write
+// teams.json next to the first one. app.exit skips will-quit; and the second app sets up nothing (`primary`).
+const primary = app.requestSingleInstanceLock()
+if (!primary) app.exit(0)
 
 // Links from outside (`trina-ax://open?url=<team link>`, the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase 2"):
 // the packaged app answers the scheme (the dmg, Mac App Store and Microsoft Store builds also declare it in their
 // manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
-if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
-else if (process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
+if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
+else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
 /** Every link goes to screen ④ (AppWindow.offerLink), never straight to a team. */
@@ -116,7 +121,7 @@ function onLink(url: string) {
   win.win.focus()
 }
 // macOS hands links over here, also the one that launched the app (before ready)
-app.on('open-url', (e, url) => {
+if (primary) app.on('open-url', (e, url) => {
   e.preventDefault()
   onLink(url)
 })
@@ -395,54 +400,59 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(async () => {
-  const uiSes = session.fromPartition('mycel-ui')
-  uiSes.protocol.handle(UI_SCHEME, serveUi)
-  for (const s of [uiSes, session.defaultSession]) {
-    s.setPermissionRequestHandler((_wc, _p, done) => done(false))
-    s.setPermissionCheckHandler(() => false)
-  }
-  // nothing in this app may create <webview> or open windows on its own
-  app.on('web-contents-created', (_e, wc) => {
-    wc.on('will-attach-webview', (ev) => ev.preventDefault())
-  })
-  registerIpc()
-  await createWindow()
-  updater.start()
-})
-
-app.on('second-instance', (_e, argv) => {
-  if (win && !win.win.isDestroyed()) {
-    if (win.win.isMinimized()) win.win.restore()
-    win.win.focus()
-  }
-  // Windows and Linux: a link opens a second instance with the link as an argument
-  const link = linkFromArgv(argv)
-  if (link) onLink(link)
-})
-app.on('activate', () => {
-  if (!win) void createWindow()
-})
 // write cookies of the open team (page and browser) to disk before quitting. The window is already closed by
 // will-quit (Cmd+Q, Quit, the last window on Windows), so the team is the one it showed last (lastTeam).
 let flushed = false
 let lastTeam: string | undefined
-app.on('before-quit', () => debug('before-quit'))
-app.on('will-quit', (e) => {
-  debug('will-quit', flushed)
-  if (flushed) return
-  e.preventDefault()
-  const id = win?.team?.id ?? lastTeam
-  const sessions = id ? [session.fromPartition(partitionFor(id, 'app')), session.fromPartition(partitionFor(id, 'browser'))] : []
-  debug('flushing cookies of', id ?? 'no team')
-  void Promise.race([Promise.all(sessions.map((s) => s.cookies.flushStore().catch(() => {}))), new Promise((r) => setTimeout(r, 2000))]).finally(() => {
-    flushed = true
-    // quit again from a new task: a quit asked while Electron still handles the one just held back is ignored (the
-    // first Cmd+Q only closed the window)
-    setTimeout(() => app.quit(), 0)
-  })
-})
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
+// only the app that holds the lock
+if (primary) {
+  app.whenReady().then(async () => {
+    const uiSes = session.fromPartition('mycel-ui')
+    uiSes.protocol.handle(UI_SCHEME, serveUi)
+    for (const s of [uiSes, session.defaultSession]) {
+      s.setPermissionRequestHandler((_wc, _p, done) => done(false))
+      s.setPermissionCheckHandler(() => false)
+    }
+    // nothing in this app may create <webview> or open windows on its own
+    app.on('web-contents-created', (_e, wc) => {
+      wc.on('will-attach-webview', (ev) => ev.preventDefault())
+    })
+    registerIpc()
+    await createWindow()
+    updater.start()
+  })
+
+  app.on('second-instance', (_e, argv) => {
+    if (win && !win.win.isDestroyed()) {
+      if (win.win.isMinimized()) win.win.restore()
+      win.win.focus()
+    }
+    // Windows and Linux: a link opens a second instance with the link as an argument
+    const link = linkFromArgv(argv)
+    if (link) onLink(link)
+  })
+  app.on('activate', () => {
+    if (!win) void createWindow()
+  })
+  // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
+  app.on('before-quit', () => debug('before-quit'))
+  app.on('will-quit', (e) => {
+    debug('will-quit', flushed)
+    if (flushed) return
+    e.preventDefault()
+    const id = win?.team?.id ?? lastTeam
+    const sessions = id ? [session.fromPartition(partitionFor(id, 'app')), session.fromPartition(partitionFor(id, 'browser'))] : []
+    debug('flushing cookies of', id ?? 'no team')
+    void Promise.race([Promise.all(sessions.map((s) => s.cookies.flushStore().catch(() => {}))), new Promise((r) => setTimeout(r, 2000))]).finally(() => {
+      flushed = true
+      // quit again from a new task: a quit asked while Electron still handles the one just held back is ignored (the
+      // first Cmd+Q only closed the window)
+      setTimeout(() => app.quit(), 0)
+    })
+  })
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+}

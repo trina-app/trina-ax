@@ -233,7 +233,7 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(welcome).toContain('const LINK_READY_MS = 650')
     expect(welcome).toContain('disabled: busy || !linkReady,')
     // a development run never takes the scheme over by itself
-    expect(main).toContain("if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
+    expect(main).toContain("if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
   })
   test('the dmg, Mac App Store and Microsoft Store builds declare the scheme', async () => {
     const base = (await import('../../desktop/electron-builder.config')).default as { protocols?: { name: string; schemes: string[] }[] }

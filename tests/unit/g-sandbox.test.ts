@@ -147,6 +147,34 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
     }
   })
 
+  // audit row 37: the Mac disk ignores case, so .Codex/Hooks.json is the same file as .codex/hooks.json; the denies
+  // must match every spelling
+  test('Codex: the lockdown files cannot be written under another spelling of their names', () => {
+    const cx = path.join(CHAT, '.codex')
+    for (const d of ['skills/x', 'plugins']) fs.mkdirSync(path.join(cx, d), { recursive: true })
+    const ci = fs.existsSync(path.join(CHAT, '.CODEX')) // a case-sensitive disk: the other spellings are other files
+    for (const ll of [false, true]) {
+      for (const f of ['.Codex/hooks.json', '.codex/HOOKS.json', '.CODEX/Models_Cache.json', '.codex/Config.TOML', '.codex/Catalog.json', '.codex/agents.md',
+        '.Codex/Skills/x/SKILL.md', '.codex/PLUGINS/p.json']) expect(probe(ll, 'write', path.join(CHAT, f)), f).toBe(false)
+      if (ci) expect(probe(ll, 'write', path.join(CHAT, '.Codex', 'logs_2.sqlite'))).toBe(true)
+    }
+  })
+
+  // audit row 37: renaming the folder away, writing hooks.json into it under its new name and renaming it back
+  test('Codex: CODEX_HOME itself cannot be renamed, replaced or removed', () => {
+    const cx = path.join(CHAT, '.codex')
+    fs.mkdirSync(cx, { recursive: true })
+    for (const ll of [false, true]) {
+      expect(probe(ll, 'rename', cx, path.join(CHAT, '.cx'))).toBe(false)
+      expect(probe(ll, 'rename', path.join(CHAT, '.CODEX'), path.join(CHAT, '.cx'))).toBe(false)
+      expect(probe(ll, 'symlink', '/tmp', path.join(CHAT, '.codex2'))).toBe(true)
+      expect(probe(ll, 'rename', path.join(CHAT, '.codex2'), cx)).toBe(false)
+      fs.rmSync(path.join(CHAT, '.codex2'), { force: true })
+      expect(probe(ll, 'write', path.join(cx, 'logs_2.sqlite'))).toBe(true)
+    }
+    expect(fs.lstatSync(cx).isDirectory()).toBe(true)
+  })
+
   test('no process list', () => {
     for (const ll of [false, true]) expect(probe(ll, 'procs')).toBe(false)
   })
