@@ -84,6 +84,9 @@ export function useLongPress(onLong: () => void, ms = 500) {
   }
 }
 
+/** a menu's items the keyboard can reach: those that are not off */
+const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].filter((el) => el.getAttribute('disabled') === null)
+
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
 export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode }) {
@@ -100,7 +103,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
     // is in sight; the draft stays and the keyboard comes back only when the person taps the box again
     if (!window.matchMedia?.('(min-width: 48rem)').matches) dismissKeyboard()
     // the keyboard goes into the menu; a finger that opened it does not need a focus ring on the first item
-    if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? menu.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)'))?.focus({ preventScroll: true })
+    if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? usable(menu.current)[0])?.focus({ preventScroll: true })
     const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(false)
     document.addEventListener('pointerdown', h)
     return () => document.removeEventListener('pointerdown', h)
@@ -175,7 +178,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
       return
     }
     if (e.key === 'Tab') return setOpen(false)
-    const list = [...(menu.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') ?? [])]
+    const list = usable(menu.current)
     const i = list.indexOf(document.activeElement as HTMLElement)
     const go = (n: number) => {
       e.preventDefault()
