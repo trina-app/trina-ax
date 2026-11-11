@@ -88,8 +88,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByRole('dialog')).toHaveCount(0)
       // the header's mark and the line under the box, as for any shared chat
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
-      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 멤버 2명이 볼 수 있어요')
-      await expect(seenLine(page)).toContainText('멤버 2명이 이 채팅을 볼 수 있어요.')
+      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 프로젝트 사람 2명이 볼 수 있어요')
+      await expect(seenLine(page)).toContainText('프로젝트 사람 2명이 이 채팅을 볼 수 있어요.')
       // nothing to share any more in the menu
       await page.getByTestId('chat-menu').click()
       await expect(page.getByTestId('chat-share')).toHaveCount(0)
@@ -230,7 +230,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 사람들과 공유했어요' })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(page.getByTestId('chat-shared')).toBeVisible()
-      await expect(seenLine(page)).toContainText('멤버 2명이 이 채팅을 볼 수 있어요.')
+      await expect(seenLine(page)).toContainText('프로젝트 사람 2명이 이 채팅을 볼 수 있어요.')
       await audit(page, 'shared chat after sharing')
       const b = await bob(browser)
       await b.goto(`/c/${before}`)

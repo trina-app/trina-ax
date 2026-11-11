@@ -313,8 +313,11 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     const m = await page()
     try {
       await m.until(() => cards(m).length === 5, 'the cards')
-      expect(within(card(m, 'Acme old'), 'project-card-state')!.textContent).toBe(` · ${ko('projects.noMembers')}`)
+      // the card's who-sees line says it (dev's cards say who sees it in place of the folder path)
+      expect(within(card(m, 'Acme old'), 'project-card-who')!.textContent).toBe(ko('projects.noMembers'))
+      expect(within(card(m, 'Acme old'), 'project-card-state')).toBeNull()
       expect(ko('projects.noMembers')).toBe('남은 멤버 없음')
+      expect(within(card(m, 'Acme gone'), 'project-card-who')!.textContent).toBe(`${ko('projects.noMembers')} · ${ko('chat.project.inTrash')}`)
       expect(within(card(m, 'Acme gone'), 'project-card-state')!.textContent).toBe(` · ${ko('chat.project.inTrash')}`)
       // a personal project with nobody else: nothing said
       expect(within(card(m, 'Acme launch'), 'project-card-state')).toBeNull()

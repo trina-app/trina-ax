@@ -168,10 +168,11 @@ describe('what the AI may never put in the trash, admins and the owner included'
         // an expired upload link holds nothing back; an ordinary file is fine
         expect(planOf(who, ['shared/upload-done']).items.map((i) => i.rel)).toEqual(['shared/upload-done'])
       }
-      // a member who writes the project: its folder and its skills are skill folders
+      // a member who writes the project: its folder is a project's folder (QA TC-016), its skills are skill folders
       for (const p of ['projects/falcon', 'projects/falcon/skills', 'projects/falcon/skills/launch', 'projects/falcon/skills/launch/SKILL.md']) {
         const r = refusedOf('alice', [p])
-        expect({ p, error: r && /skill folder/.test(r[0]!.error) ? 'ok' : r?.[0]?.error ?? null }).toEqual({ p, error: 'ok' })
+        const want = p === 'projects/falcon' ? /a project's folder/ : /skill folder/
+        expect({ p, error: r && want.test(r[0]!.error) ? 'ok' : r?.[0]?.error ?? null }).toEqual({ p, error: 'ok' })
       }
     } finally { fx.managed = before }
     for (const p of ['shared/holds-rule/locked/a.md', 'skills/team-rules.md', 'groups/marketing/skills/brief/SKILL.md', 'shared/upload-here/old.pdf', 'users/carol/.attachments/c1/pic.png']) expect(has(p)).toBe(true)
@@ -216,11 +217,19 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
   }
   const project = (name: string, folder: string, by = 'carol') =>
     h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(uuidv7(), name, folder, by, new Date().toISOString())
+  /** The owner and an admin as members of a team project's folder in projects/: they read it only so (docs/DECISIONS.md
+   * "Project contents only for members") */
+  const members = (folder: string) => {
+    const id = uuidv7()
+    h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(id, folder)
+    for (const u of ['carol', 'dana']) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', ?, 'write')").run(uuidv7(), id, u)
+  }
   const R = AI_TRASH_FOLDER_REFUSAL
 
   test('a project: where a project is deleted (the Projects screen) and by whom, not the skill reason, with no skills in it or with some', () => {
     put('projects/Acme Launch/brief.md')
     project('Acme Launch', 'projects/Acme Launch')
+    members('projects/Acme Launch')
     // the owner and an admin delete it themselves
     stays('projects/Acme Launch', R.project(true), { guard: true })
     expect(R.project(true)).toBe('a project\'s folder, or a folder that holds one: it does not go to the trash from a chat. The user deletes the project on the Projects screen, where a team project\'s own folder can go to the trash with it')
@@ -295,6 +304,7 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
     put(`${nfc}/brief.md`)
     // the project's row keeps the name decomposed (as macOS may hand it in): still the project's folder
     project('견적 2026', nfc.normalize('NFD'))
+    members(nfc)
     stays(nfc, R.project(true), { guard: true })
     for (const [asked, onDisk, why] of [['GROUPS/marketing', 'groups/marketing', R.group(true)], ['groups/MARKETING', 'groups/marketing', R.group(true)], [nfc.normalize('NFD'), nfc, R.project(true)], ['Projects/견적 2026'.normalize('NFD'), nfc, R.project(true)]] as const) {
       for (const who of ['carol', 'dana']) {
@@ -315,14 +325,20 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_rule2', 'f_del_rule2', 'user', 'carol', 'write')").run()
     stays('shared/locked-plan', R.rule(true))
     expect(R.rule(true)).toBe('a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. The user deletes it on the Files screen')
-    // no project, no group, no skills in it: what the place is
+    // no project, no group, no skills in it: what the place is, to a member of the team who reads it; the owner and
+    // admins read a folder right in projects/ only as its members (docs/DECISIONS.md "Project contents only for members")
     put('projects/old-launch/notes.md')
-    stays('projects/old-launch', R.projectsPlace(true), { guard: true })
+    for (const who of ['carol', 'dana', 'alice']) expect(refusedOf(who, ['projects/old-launch'])?.[0]?.error).toMatch(/not found or no access/)
+    // alice writes it through a rule on projects/ (which never reaches in for the owner and admins)
+    if (!h.ctx.db.query("SELECT 1 FROM folders WHERE path = 'projects'").get()) h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_del_projects', 'projects')").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_projects_alice', (SELECT id FROM folders WHERE path = 'projects'), 'user', 'alice', 'write')").run()
+    stays('projects/old-launch', R.projectsPlace(false), { who: ['alice'], guard: true })
     put('groups/old-team/notes.md')
     stays('groups/old-team', R.groupsPlace(true), { guard: true })
     // a skills folder in it now (any letter case): the skill reason, as before
     put('projects/old-launch/Skills/x/SKILL.md', '---\nname: x\ndescription: x\n---\nx\n')
-    stays('projects/old-launch', AI_SKILL_TRASH_REFUSAL, { guard: true })
+    stays('projects/old-launch', AI_SKILL_TRASH_REFUSAL, { who: ['alice'], guard: true })
+    h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_del_projects_alice'").run()
     // a top-level folder: the owner and an admin delete it themselves, a member is told an admin does
     expect(refusedOf('carol', ['shared'])?.[0]?.error).toBe('a top-level folder never goes to the trash from a chat; the user deletes it on the Files screen')
     expect(refusedOf('alice', ['shared'])?.[0]?.error).toBe('a top-level folder never goes to the trash from a chat; an admin deletes it on the Files screen')

@@ -101,7 +101,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await saved).postDataJSON()).toMatchObject({ shareChats: true })
       await expect(dialog).toHaveCount(0)
       // the box says who will see a new chat, and offers a file from the computer too (it goes into the project folder)
-      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 4명이 볼 수 있어요.')
+      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 4명이 볼 수 있어요.')
       await page.getByTestId('attach-button').click()
       await expect(page.getByTestId(vp.phone ? 'attach-camera' : 'attach-computer')).toBeVisible()
       await expect(page.getByTestId('attach-team')).toBeVisible()
@@ -144,14 +144,14 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await signIn(page)
       const id = await project(page)
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
+      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
       await page.getByTestId('composer-input').fill('출시 일정 정리해 줘')
       await page.getByTestId('send').click()
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
       const chatId = page.url().split('/c/')[1]!
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
-      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 멤버 2명이 볼 수 있어요')
-      await expect(seenLine(page)).toHaveText(vp.phone ? '멤버 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 멤버 2명이 이 채팅을 볼 수 있어요.`)
+      await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 프로젝트 사람 2명이 볼 수 있어요')
+      await expect(seenLine(page)).toHaveText(vp.phone ? '프로젝트 사람 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 프로젝트 사람 2명이 이 채팅을 볼 수 있어요.`)
       // my own message carries my name too (a screenshot passed around still says who asked); the creator renames and
       // deletes, nobody moves it
       await expect(page.getByTestId('message-author')).toHaveText('Olga')
@@ -587,7 +587,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const chip = page.getByTestId('attachment-chip')
       const line = page.getByTestId('shared-upload-line')
       // Olga and Bob read marketing/: the count is the one the line under the box gives
-      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
+      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
       // 📎 > from the computer (the file input behind it): the chip as usual, one line under it, no refusal
       await page.getByTestId('file-input').setInputFiles(memo)
       await expect(chip).toHaveAttribute('data-status', 'done')
@@ -689,7 +689,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('project-members-save').click()
       await page.getByTestId('dialog-confirm').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      await expect(seenLine(page)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
+      await expect(seenLine(page)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
       // the 멤버 line: its members (Olga and Bob)
       await expect(page.getByTestId('project-members')).toContainText('멤버2명')
 
@@ -698,9 +698,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('send').click()
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
-      await expect(seenLine(page)).toHaveText(vp.phone ? '멤버 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 멤버 2명이 이 채팅을 볼 수 있어요.`)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '프로젝트 사람 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 프로젝트 사람 2명이 이 채팅을 볼 수 있어요.`)
       await shots(page, 'chat-two')
-      await seenLine(page).getByRole('button', { name: '멤버 2명이 이 채팅을 볼 수 있어요.' }).click()
+      await seenLine(page).getByRole('button', { name: '프로젝트 사람 2명이 이 채팅을 볼 수 있어요.' }).click()
       await page.getByTestId('participant-remove-user-bob').click()
       await page.getByTestId('project-members-save').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -731,7 +731,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const theirs = ((await (await post(page, '/api/projects', { name: 'With Bob', scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: 'bob' }] })).json()) as { id: string }).id
       expect((await patch(page, `/api/projects/${theirs}`, { shareChats: true })).ok()).toBeTruthy()
       await b.goto(`/projects/${theirs}`)
-      await expect(seenLine(b)).toHaveText('새 채팅은 멤버 2명이 볼 수 있어요.')
+      await expect(seenLine(b)).toHaveText('새 채팅은 프로젝트 사람 2명이 볼 수 있어요.')
       await expect(b.getByTestId('project-members')).toContainText('2명')
       await expect(seenLine(b).getByRole('button')).toHaveCount(0)
       await audit(b, 'project box, a member who cannot change the members')
