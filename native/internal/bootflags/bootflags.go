@@ -34,7 +34,7 @@ func MigrateTimeout(args []string) time.Duration {
 			i++
 			val = args[i]
 		}
-		if v, err := time.ParseDuration(val); err == nil {
+		if v, err := time.ParseDuration(strings.Trim(val, `"'`)); err == nil {
 			d = v
 		}
 	}

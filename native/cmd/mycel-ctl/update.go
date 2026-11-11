@@ -1224,7 +1224,7 @@ func (u *updater) updateApp(dir, v string) error {
 			return err
 		}
 	}
-	migrateWait := bootflags.MigrateTimeout(bootstrapCommand(u.in))
+	migrateWait := bootflags.MigrateTimeout(bootstrapCommand(u.e, u.in, systemd))
 	switched := time.Now()
 	deadline := switched.Add(u.healthTimeout)
 	// a roll-back is reported once it has lasted rollbackGrace: when the old version cannot read the database the new
@@ -1283,10 +1283,20 @@ func (u *updater) updateApp(dir, v string) error {
 
 // bootstrapCommand: the command line of the bootstrap that watches the update, for the flags `update` must agree with
 // (native/internal/bootflags: --migrate-timeout, how long after the switch a version that reports it is updating its
-// database is waited for). The installed server unit's ExecStart, a drop-in's (<unit>.d/*.conf, in name order; an empty
-// ExecStart= resets) last; without a unit, the one the installer and supervise use (bootstrapArgv).
-func bootstrapCommand(in *Install) []string {
-	unit := filepath.Join(systemdUnitDir, in.ID+"-server.service")
+// database is waited for). Under systemd the server unit's ExecStart as systemd has loaded it (drop-ins, quoting and
+// line continuations applied: `systemctl show -p ExecStart`); else, or when that says nothing, the installed unit file
+// and its drop-ins (<unit>.d/*.conf in name order, an empty ExecStart= resets); without a unit, the one the installer
+// and supervise use (bootstrapArgv).
+func bootstrapCommand(e *env, in *Install, systemd bool) []string {
+	unitName := in.ID + "-server.service"
+	if systemd {
+		if out, err := exec.Command(e.systemctl, "show", "-p", "ExecStart", "--value", unitName).Output(); err == nil {
+			if argv := execStartArgv(string(out)); len(argv) > 0 {
+				return argv
+			}
+		}
+	}
+	unit := filepath.Join(systemdUnitDir, unitName)
 	files := []string{unit}
 	if d, err := filepath.Glob(filepath.Join(unit+".d", "*.conf")); err == nil {
 		files = append(files, d...) // Glob sorts
@@ -1299,10 +1309,11 @@ func bootstrapCommand(in *Install) []string {
 			continue
 		}
 		for _, line := range strings.Split(string(b), "\n") {
-			v, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
-			if !ok {
+			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if !ok || strings.TrimSpace(k) != "ExecStart" {
 				continue
 			}
+			v = strings.TrimSpace(v)
 			found = true
 			argv = strings.Fields(strings.TrimLeft(v, "-@:+!"))
 		}
@@ -1311,6 +1322,20 @@ func bootstrapCommand(in *Install) []string {
 		return bootstrapArgv(in)
 	}
 	return argv
+}
+
+// execStartArgv: the arguments of the last command in `systemctl show -p ExecStart --value`
+// ("{ path=/x ; argv[]=/x --a b ; ignore_errors=no ; ... }"), nil when there is none
+func execStartArgv(show string) []string {
+	i := strings.LastIndex(show, "argv[]=")
+	if i < 0 {
+		return nil
+	}
+	rest := show[i+len("argv[]="):]
+	if j := strings.Index(rest, " ;"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.Fields(rest)
 }
 
 // rollbackGrace: how long a roll-back must last before `update` reports it (the old version's start and exit 75, then

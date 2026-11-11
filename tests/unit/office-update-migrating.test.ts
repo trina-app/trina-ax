@@ -4,12 +4,16 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { healthAnswer, isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from '../../server/src/office/health'
 import { HEALTH_WAIT_MS, waitVersion, type UpdateDeps } from '../../server/src/office/update'
+import { waitHealthy } from '../../server/src/office/cli'
 
 describe('healthAnswer', () => {
   test('answers, migrating (with progress) and no answer', () => {
     expect(healthAnswer(200, { ok: true, version: '0.3.0' })).toBe('0.3.0')
     expect(healthAnswer(503, { ok: false, status: 'migrating', version: '0.3.0', migrating: { pending: 2, copiedBytes: 3 << 20, dbBytes: 8 << 20 } }))
       .toEqual({ migrating: '0.3.0', progress: '2 migrations pending, copy before migrating 3 of 8 MB' })
+    // the copy is done (its staging folder is gone) or not started: no MB figure that looks reset
+    expect(healthAnswer(503, { ok: false, status: 'migrating', version: '0.3.0', migrating: { pending: 2, copiedBytes: 0, dbBytes: 8 << 20 } }))
+      .toEqual({ migrating: '0.3.0', progress: '2 migrations pending' })
     expect(healthAnswer(503, { ok: false, status: 'migrating', version: '0.3.0' })).toEqual({ migrating: '0.3.0', progress: '' })
     // through the tunnel a stand-in answers without version: not usable for a wait on 127.0.0.1
     expect(healthAnswer(503, { ok: false, status: 'migrating' })).toBeNull()
@@ -27,7 +31,7 @@ describe('healthAnswer', () => {
   })
   afterAll(() => server.stop(true))
   test('probeHealth reads a 503 "migrating" answer', async () => {
-    expect(await probeHealth(port)).toEqual({ migrating: '0.3.0', progress: '1 migrations pending, copy before migrating 0 of 1 MB' })
+    expect(await probeHealth(port)).toEqual({ migrating: '0.3.0', progress: '1 migrations pending' })
     expect(await probeHealth(19822)).toBeNull() // nothing listens
   })
 })
@@ -87,5 +91,50 @@ describe('waitVersion while the new version updates its database', () => {
     const g = deps(() => '0.2.0')
     expect((await waitVersion(4000, '0.3.0', g.d, HEALTH_WAIT_MS)).version).toBe('0.2.0')
     expect(g.elapsed()).toBeLessThanOrEqual(HEALTH_WAIT_MS + 2000)
+  })
+})
+
+// office.js install (run by office-install.sh --update, and by hand): a real server on 127.0.0.1 that migrates for a
+// while, then answers
+describe('waitHealthy (office.js install)', () => {
+  const port = 19823
+  let migrateUntil = 0
+  const server = Bun.serve({
+    hostname: '127.0.0.1', port,
+    fetch: () => Date.now() < migrateUntil
+      ? Response.json({ ok: false, status: 'migrating', version: '0.3.0' }, { status: 503 })
+      : Response.json({ ok: true, version: '0.3.0' }),
+  })
+  afterAll(() => server.stop(true))
+  const s = { appPort: port }
+
+  test('by hand: waits past `seconds` while it migrates, then up', async () => {
+    migrateUntil = Date.now() + 1500
+    const said: string[] = []
+    const t = Date.now()
+    expect(await waitHealthy(s, 1, { pollMs: 100, say: (l) => said.push(l) })).toBe('up')
+    expect(Date.now() - t).toBeGreaterThanOrEqual(1400)
+    expect(said[0]).toContain('updating its database')
+  })
+
+  test('by hand: bounded, "still-migrating" when the migration outlasts migrateMs', async () => {
+    migrateUntil = Date.now() + 60_000
+    const t = Date.now()
+    expect(await waitHealthy(s, 1, { pollMs: 100, migrateMs: 800 })).toBe('still-migrating')
+    expect(Date.now() - t).toBeLessThan(2500)
+  })
+
+  test('under the updater: waits a while itself (a previous updater only waits 150 s), then leaves the rest to the updater', async () => {
+    migrateUntil = Date.now() + 60_000
+    const t = Date.now()
+    expect(await waitHealthy(s, 1, { pollMs: 100, migratingIsUp: true, updaterMs: 700 })).toBe('migrating')
+    expect(Date.now() - t).toBeGreaterThanOrEqual(600)
+    expect(Date.now() - t).toBeLessThan(2500)
+    migrateUntil = Date.now() + 300 // ends within the installer's own wait: up
+    expect(await waitHealthy(s, 1, { pollMs: 100, migratingIsUp: true, updaterMs: 5000 })).toBe('up')
+  })
+
+  test('nothing listens: false after `seconds`', async () => {
+    expect(await waitHealthy({ appPort: 19824 }, 1, { pollMs: 100 })).toBe(false)
   })
 })

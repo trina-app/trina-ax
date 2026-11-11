@@ -464,6 +464,16 @@ func TestUpdateWaitsWhileMigrating(t *testing.T) {
 	}
 }
 
+func TestExecStartArgv(t *testing.T) {
+	show := "{ path=/var/lib/mycel/root/mycel-bootstrap ; argv[]=/var/lib/mycel/root/mycel-bootstrap --app /var/lib/mycel/app --migrate-timeout 90m ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\n"
+	if got := strings.Join(execStartArgv(show), " "); got != "/var/lib/mycel/root/mycel-bootstrap --app /var/lib/mycel/app --migrate-timeout 90m" {
+		t.Fatalf("%q", got)
+	}
+	if execStartArgv("") != nil || execStartArgv("\n") != nil {
+		t.Fatal("empty")
+	}
+}
+
 func TestUpdateRefusals(t *testing.T) {
 	tb := newTestBase(t, "0.1.0")
 	systemdRunDir = filepath.Join(t.TempDir(), "none")

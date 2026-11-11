@@ -20,6 +20,7 @@ func TestMigrateTimeout(t *testing.T) {
 		{[]string{"x", "--migrate-timeout"}, DefaultMigrateTimeout},
 		{[]string{"x", "--", "--migrate-timeout", "5m"}, DefaultMigrateTimeout},
 		{[]string{"x", "--migrate-timeouts", "5m"}, DefaultMigrateTimeout},
+		{[]string{"x", "--migrate-timeout", `"2h"`}, 2 * time.Hour}, // a unit file's quotes
 	} {
 		if got := MigrateTimeout(c.args); got != c.want {
 			t.Errorf("%q: %v, want %v", c.args, got, c.want)

@@ -421,25 +421,33 @@ function setupLinks(s: OfficeSettings, origins: string[]): { local: string; desk
 }
 
 /** Wait for the server on 127.0.0.1. A version that updates a large database first answers "migrating" meanwhile
- * (office/health.ts): with `migratingIsUp` (the updater's run, TEAMAX_UPDATE_RUN: the updater waits for it, and kills an
- * installer that takes 10 minutes) that counts as started; otherwise the wait goes on while it says so, `seconds` from
- * its last "migrating" and at most MIGRATE_WAIT_MS in all, with a line every minute. */
-async function waitHealthy(s: OfficeSettings, seconds: number, o: { migratingIsUp?: boolean; say?: (line: string) => void } = {}): Promise<'up' | 'migrating' | false> {
+ * (office/health.ts). The wait goes on while it says so, `seconds` from its last "migrating" and at most
+ * MIGRATE_WAIT_MS in all, with a line every minute; 'still-migrating' when that ran out. Under the updater
+ * (`migratingIsUp`, TEAMAX_UPDATE_RUN) it returns 'migrating' after UPDATER_MIGRATE_WAIT_MS instead: the updater waits
+ * for the rest, and kills an installer that takes 10 minutes. That first part of the wait is here and not only in the
+ * updater because the updater that runs this install is the previous version's (an updater without this change waits
+ * 150 s and does not know "migrating"): a migration that ends within it gets through such an update too. */
+export async function waitHealthy(s: Pick<OfficeSettings, 'appPort'>, seconds: number, o: { migratingIsUp?: boolean; say?: (line: string) => void; migrateMs?: number; updaterMs?: number; pollMs?: number } = {}): Promise<'up' | 'migrating' | 'still-migrating' | false> {
   const start = Date.now()
-  let end = start + seconds * 1000, said = 0
+  const migrateMs = o.migrateMs ?? MIGRATE_WAIT_MS
+  let end = start + seconds * 1000, said = 0, migrating = false
   for (;;) {
     const h = await probeHealth(s.appPort, 1500)
+    const now = Date.now()
     if (typeof h === 'string') return 'up'
+    migrating = isMigrating(h)
     if (isMigrating(h)) {
-      if (o.migratingIsUp) return 'migrating'
-      const now = Date.now()
-      end = now - start < MIGRATE_WAIT_MS ? Math.max(end, now + seconds * 1000) : Math.min(end, now)
+      if (o.migratingIsUp && now - start >= (o.updaterMs ?? UPDATER_MIGRATE_WAIT_MS)) return 'migrating'
+      end = now - start < migrateMs ? Math.max(end, now + seconds * 1000) : Math.min(end, now)
       if (o.say && now - said >= 60_000) { o.say(`the server is updating its database (${h.progress || '-'}), ${Math.round((now - start) / 1000)} s so far ...`); said = now }
     }
-    if (Date.now() >= end) return false
-    await Bun.sleep(1000)
+    if (now >= end) return migrating ? 'still-migrating' : false
+    await Bun.sleep(o.pollMs ?? 1000)
   }
 }
+/** how long `office.js install` under the updater waits for a migrating server itself: the updater kills the installer
+ * after 10 minutes (update.ts), which may spend 4 of them on a new headless browser before it stops the server */
+export const UPDATER_MIGRATE_WAIT_MS = 4 * 60_000
 
 /** accounts.js / admin.js of this bundle (or the sources in a checkout) with this installation's config */
 function runTool(home: string, tool: 'accounts' | 'admin', args: string[], stdin: 'inherit' | 'ignore' = 'ignore', onJson?: (j: Record<string, unknown>) => string): number {
@@ -665,7 +673,9 @@ async function restartServer(s: OfficeSettings) {
   if (!fs.existsSync(officePaths(s.home).plist(s.label))) return
   if (agent.loaded()) { agent.stop(); await Bun.sleep(1000) }
   console.log(`${PRODUCT.displayName}: ${agent.start()}`)
-  if (!(await waitHealthy(s, 90))) console.log(`the server did not answer within 90 s; see ${officePaths(s.home).officeLog}`)
+  const up = await waitHealthy(s, 90, { say: (l) => console.log(l) })
+  if (up === 'still-migrating') console.log(`the server is still updating its database; see ${officePaths(s.home).officeLog}`)
+  else if (!up) console.log(`the server did not answer within 90 s; see ${officePaths(s.home).officeLog}`)
 }
 
 /** true when the internet address answers afterwards (else the reason is printed and `set` exits 1) */
@@ -847,6 +857,7 @@ export async function main(argv: string[]): Promise<number> {
       lines(`LaunchAgent ${p.plist(s.label)}: ${agent.start()}`)
       lines('waiting for the server ...')
       const up = await waitHealthy(s, 90, { migratingIsUp: process.env.TEAMAX_UPDATE_RUN === '1', say: lines })
+      if (up === 'still-migrating') { lines(`the server was still updating its database after ${Math.round(MIGRATE_WAIT_MS / 60_000)} min; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       if (!up) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       if (up === 'migrating') lines('the server is updating its database before it starts; the update waits for it')
       const tl = await syncTunnelAgent(s)

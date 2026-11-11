@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 18:35
 - Branch: `fix/office-update-migrating`
-- Status: in progress
+- Status: done
 - Where: server/src/office (update.ts, cli.ts, a small health.ts), native/cmd/mycel-ctl, native/cmd/mycel-bootstrap,
   a tiny shared Go package in native/internal, docs/OFFICE.md. Why: the update paths live there (docs/REPOSITORY-RULES.md).
 - Version impact: patch: a bug fix in the update path, no API or data format change.
@@ -25,9 +25,11 @@ In:
 - update.ts waitVersion: while the version it waits for says migrating, the deadline moves to now + the health wait;
   no more time once that has lasted MIGRATE_WAIT_MS from the switch (the same rule as the bootstrap's extendDeadline);
   progress in the update log once a minute; failure messages say "still updating its database".
-- cli.ts `install`: under the updater (TEAMAX_UPDATE_RUN=1) a "migrating" answer counts as started (the updater waits,
-  its 10-minute installer timeout would kill a longer wait); a hand-run install keeps waiting while it migrates, bounded
-  the same way. `teamax status` says "updating its database".
+- cli.ts `install`: under the updater (TEAMAX_UPDATE_RUN=1) it waits for a migrating server itself for 4 minutes (the
+  updater that runs it is the previous version's, which waits only 150 s and does not know "migrating"), then counts it
+  as started (the updater waits for the rest; its 10-minute installer timeout would kill a longer wait); a hand-run
+  install keeps waiting while it migrates, bounded the same way. `teamax status` says "updating its database";
+  `teamax update now` follows the run for MIGRATE_WAIT_MS longer.
 - Go: native/internal/bootflags holds the --migrate-timeout default and reads it from a bootstrap command line; the
   bootstrap's flag default uses it; `mycel-ctl update` reads the bootstrap's ExecStart in <id>-server.service (and its
   drop-ins) and uses that value, the default when it is not set.
@@ -46,3 +48,9 @@ Out: a "migrating" page for the desks on the LAN port (the stand-in serves only 
 
 No migration. Office: the wait is still bounded (MIGRATE_WAIT_MS + health wait). A unit with an unparseable
 --migrate-timeout: the bootstrap itself would refuse to start, mycel-ctl uses the default.
+
+## Result
+
+Done as planned, plus (from the review) the installer's own 4-minute wait for an update run by an older updater, and
+`systemctl show` for the ExecStart. Left: `<id>-update.service` has TimeoutStartSec=2h, so a --migrate-timeout above
+about 100 minutes would let systemd stop a scheduled `mycel-ctl update` first (the default 60 min fits).

@@ -24,7 +24,10 @@ export function healthAnswer(status: number, body: unknown): HealthAnswer {
   if (status === 503 && j.status === MIGRATING_STATUS) {
     const m = j.migrating
     const mb = (n: unknown) => (typeof n === 'number' ? Math.floor(n / 2 ** 20) : 0)
-    const progress = m && typeof m.pending === 'number' ? `${m.pending} migrations pending, copy before migrating ${mb(m.copiedBytes)} of ${mb(m.dbBytes)} MB` : ''
+    // copiedBytes is the copy in progress; the server removes its staging folder when the copy is done, so 0 is "not
+    // started or done" and the MB figure is shown only while it grows
+    const copied = m && typeof m.copiedBytes === 'number' && m.copiedBytes > 0 ? `, copy before migrating ${mb(m.copiedBytes)} of ${mb(m.dbBytes)} MB` : ''
+    const progress = m && typeof m.pending === 'number' ? `${m.pending} migrations pending${copied}` : ''
     return { migrating: j.version, progress }
   }
   return null
