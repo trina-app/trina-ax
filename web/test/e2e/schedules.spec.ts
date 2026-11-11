@@ -68,6 +68,13 @@ test('the Last run block: one heading, the run on its way after Run now, then it
   await expect(instructions).toContainText('참여하지 않은 대화방')
   await expect(instructions).not.toContainText(SALES)
   await expect(instructions).not.toContainText(HR)
+  // a copy of the instruction gives the ids a run reads, never a name
+  await instructions.locator('p').first().selectText()
+  await page.keyboard.press('ControlOrMeta+c')
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  expect(copied).toContain(`room_id ${SALES}`)
+  expect(copied).toContain(`room_id ${HR}`)
+  expect(copied).not.toContain('영업팀')
   const history = item.getByTestId('schedule-history')
   await expect(history).toContainText('아직 실행한 적이 없어요.')
   await item.getByTestId('schedule-run-now').click()

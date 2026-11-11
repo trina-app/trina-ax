@@ -19682,8 +19682,14 @@ after **Run now** until a reload.
   `room_id <id>`, `room_id=<id>`, `room id: <id>`, `room:<id>`, `[#room room_id=<id>]` and a token read as `#<name>`
   (a 1:1 chat: the other person's name, as the app names it everywhere: `roomTitle`). A bare id reads as a name only when
   it is one of the viewer's rooms; any other bare id stays as written (it may be a file's or a thread's), and so does an
-  id in a web address, a path or a query (a copied link keeps working). The pattern takes one run of spaces before the
-  id: two runs that can trade characters made a long run of spaces cost seconds in every bubble (review).
+  id in a web address, a path, a query, a Markdown link (`[label](room:<id>)`), code (a backtick span or a fenced block)
+  or a quoted value (`"roomId":"<id>"`): data someone pasted. The matching is linear in the text (one run of spaces
+  before an id; the places an id stays as written walked with one pointer): two review rounds found a long run of spaces,
+  and many links with many ids, costing seconds in every bubble. The component reads only the rooms the text names from
+  the room list and keeps its parts until the text or those rooms change (a message in another room draws nothing).
+- **A copy gives the ids.** A selection of the instruction or of a question copies each room as it is written
+  (`copyRoomIds`, the span's `data-raw`), so a copied instruction still names the room a run reads; a token of a room the
+  viewer is not in copies as `room:<id>`, never its title.
 - **Access rule.** The names come only from the viewer's own room list (`GET /api/rooms`, the rooms they are in now,
   not archived; the store keeps it current with room events). A room the viewer is not in reads "a conversation you're
   not in" (ko "참여하지 않은 대화방"), never its name. On the Scheduled pages that holds for a token too (the text is
@@ -19710,12 +19716,16 @@ after **Run now** until a reload.
   has `lastOutcomeAt` (when the last result came: the run's end, or when an occurrence was skipped;
   `Schedules.lastResult`) and `running` (a run of it is queued or running; its chat is `lastChatId`:
   `Schedules.isRunning`). Both optional: an older server's block uses `lastRunAt`.
-- **Refresh:** the page reads the list again right after Run now's answer, when a run's chat changes (`chat.updated`
-  for a new chat, or for the chat of a task's last run: a run starting or ending; a few events of one run are read once)
-  and after a reset connection (`reloadAsked`), as other pages do. No polling, no new box.
+- **Refresh:** the page reads the list again right after Run now's answer; when the chat of a task's last run changes
+  (`chat.updated`: that run starting or ending; a few events of one run are read once; other chats never); when a task
+  is due (`nextDueRead`: its time plus 10 s for the server's tick, again every 10 s for up to 3 minutes while it is due
+  and not started, so a run at its time is known and its end followed); and after a reset connection (`reloadAsked`), as
+  other pages do. No polling while nothing is due, no new box.
 - Tests: `web/test/unit/room-names.test.tsx` (every form, a 1:1 chat, the access rule with and without a token, a viewer
-  who left, the list not loaded, ids in links and paths, long runs of spaces, the bubble), `web/test/unit/scheduled-view.test.tsx` (one heading, "Succeeded · 2
-  minutes ago", running, a failure, an older server), `tests/unit/schedule-edit.test.ts` (run now: `running`, then
-  `lastOutcomeAt` = the turn's end, `lastRunAt` untouched), e2e `web/test/e2e/schedules.spec.ts` (the room names, Run
-  now followed to its result without a reload).
+  who left or was taken out (the room event), the list not loaded, ids in links, paths, code and quoted values, long
+  runs of spaces, many links with many ids, what a copy gives, the bubble of a room the viewer is not in),
+  `web/test/unit/scheduled-view.test.tsx` (one heading, "Succeeded · 2 minutes ago", running, a failure, an older
+  server, when a due run is looked for), `tests/unit/schedule-edit.test.ts` (run now: `running`, then `lastOutcomeAt` =
+  the turn's end, `lastRunAt` untouched), e2e `web/test/e2e/schedules.spec.ts` (the room names, a copy of the
+  instruction, Run now followed to its result without a reload).
 - Version impact: **patch** (two optional response fields; corrected words; no data change).

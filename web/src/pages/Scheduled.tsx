@@ -13,13 +13,13 @@ import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatRelative } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
-import { cardLine, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
+import { cardLine, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import AskCard from '../components/chat/AskCard'
-import { WithRoomNames } from '../components/RoomNames'
+import { copyRoomIds, WithRoomNames } from '../components/RoomNames'
 import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
@@ -29,9 +29,10 @@ import { Tooltip } from '../components/Tooltip'
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
 
-/** The person's own tasks and the team time zone they run in, kept fresh when another screen changes them, when a run
- * starts or ends (its chat's chat.updated: a new chat, or the chat of a task's last run) and after a reset connection,
- * so the "Last run" block follows a run without a reload. */
+/** The person's own tasks and the team time zone they run in, kept fresh when another screen changes them, when a
+ * task's run changes (chat.updated of a task's last run chat: Run now's from its answer on, a run at its time once the
+ * list is read again at that time, lib/scheduleText.ts nextDueRead), and after a reset connection, so the "Last run"
+ * block follows a run without a reload. */
 function useScheduleList() {
   const t = useT(), locale = useLocale()
   const [items, setItems] = useState<Schedule[] | null>(null)
@@ -62,10 +63,18 @@ function useScheduleList() {
     const offs = [
       schedulesChanged.on(() => void load()),
       reloadAsked.on(() => void load()),
-      chatChanged.on((ev) => { if (ev.change === 'created' || shown.current?.some((x) => x.lastChatId === ev.chatId)) soon() }),
+      chatChanged.on((ev) => { if (shown.current?.some((x) => x.lastChatId === ev.chatId)) soon() }),
     ]
     return () => { life.current++; if (timer) clearTimeout(timer); for (const off of offs) off() }
   }, [load])
+  // a run at its time: read again when the first one is due (and, while one is due and not started, again a little
+  // later: the server starts it at its next tick), so its chat is known and its end is followed
+  useEffect(() => {
+    const wait = nextDueRead(items, Date.now())
+    if (wait === null) return
+    const timer = setTimeout(() => void load(), wait)
+    return () => clearTimeout(timer)
+  }, [items, load])
   const replace = (u: Schedule) => { revision.current++; setItems((cur) => cur?.map((x) => (x.id === u.id ? u : x)) ?? null) }
   const add = (u: Schedule) => { revision.current++; setItems((cur) => [u, ...(cur ?? []).filter((x) => x.id !== u.id)]) }
   const drop = (id: string) => { revision.current++; setItems((cur) => cur?.filter((x) => x.id !== id) ?? null) }
@@ -400,7 +409,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
             ) : (
               <>
                 {/* a room the AI named by its id reads as its name, for a viewer in it (components/RoomNames.tsx) */}
-                <p className={clsx('break-words whitespace-pre-wrap', !more && long && 'line-clamp-3')}><WithRoomNames text={s.prompt} /></p>
+                <p className={clsx('break-words whitespace-pre-wrap', !more && long && 'line-clamp-3')} onCopy={copyRoomIds}><WithRoomNames text={s.prompt} /></p>
                 {long && (
                   <button type="button" aria-expanded={more} onClick={() => setMore((v) => !v)} className="mt-1 text-xs text-accent-text hover:underline">
                     {t(more ? 'scheduled.showLess' : 'scheduled.showMore')}

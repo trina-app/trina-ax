@@ -86,3 +86,24 @@ export const sourceName = (x: NonNullable<Schedule['saveSources']>[number], t: T
 /** The list card's save line, the shape of a template's folders line: "저장: shared/주간보고", or "저장 폴더를 다시 확인해
  *  주세요" when its permission lapsed (server/src/chat/schedule-scope.ts); '' for a task without a save folder. */
 export const saveLine = (s: Schedule, t: T) => (!s.saveFolder ? '' : s.saveLapsed ? t('scheduled.saveLapsed') : t('scheduled.saveLine', { folder: s.saveFolder }))
+
+/** how long after a task's due time the page looks for its run (the server starts runs at a tick every 30 s), and how
+ * long it keeps looking for a run that is due and not started (the server may be busy or catching up) */
+export const RUN_AT_DUE = 10_000
+const DUE_LOOK = 3 * 60_000
+/** When to read the list again for a run at its time: the next time a task is due (or retried), plus RUN_AT_DUE; for a
+ * task due a moment ago whose run has not started yet, RUN_AT_DUE from now. null: nothing is due. */
+export function nextDueRead(items: readonly Schedule[] | null, now: number): number | null {
+  let best: number | null = null
+  for (const x of items ?? []) {
+    if (x.running) continue
+    for (const iso of [x.enabled ? x.nextRunAt : null, x.retryAt ?? null]) {
+      const due = iso ? Date.parse(iso) : NaN
+      if (!Number.isFinite(due) || due < now - DUE_LOOK) continue
+      const wait = Math.max(due - now, 0) + RUN_AT_DUE
+      if (best === null || wait < best) best = wait
+    }
+  }
+  // setTimeout takes at most 2^31-1 ms (about 24 days)
+  return best === null ? null : Math.min(best, 2 ** 31 - 1)
+}

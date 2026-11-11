@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Schedule } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { cardLine, onceDate, outcomeReason, outcomeTone, scheduleState } from '../../src/lib/scheduleText'
+import { cardLine, nextDueRead, onceDate, outcomeReason, outcomeTone, RUN_AT_DUE, scheduleState } from '../../src/lib/scheduleText'
 import { snippetAround, titleFirst } from '../../src/components/SearchDialog'
 import { ScheduleView } from '../../src/pages/Scheduled'
 
@@ -169,6 +169,22 @@ describe('scheduled task page', () => {
     // an occurrence that did not run keeps its own words (they never said "last run")
     const skipped = history(decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: ago(60_000), lastOutcome: 'budget_exceeded', lastOutcomeAt: ago(60_000) })))
     expect(skipped).toContain(t('scheduleTemplates.outcome.budget_exceeded'))
+  })
+
+  test('a run at its time is looked for when it is due (no chat event names it before the list knows its chat)', () => {
+    const now = Date.parse('2026-11-11T09:00:00Z')
+    const at = (ms: number) => new Date(now + ms).toISOString()
+    const daily = { ...base, repeat: 'daily' as const, date: null }
+    // the next due time, plus a moment for the server's tick
+    expect(nextDueRead([{ ...daily, nextRunAt: at(60_000) }, { ...daily, id: 'b', nextRunAt: at(3600_000) }], now)).toBe(60_000 + RUN_AT_DUE)
+    // due a moment ago and not started yet: again shortly; long past, or paused, or already running: not looked for
+    expect(nextDueRead([{ ...daily, nextRunAt: at(-30_000) }], now)).toBe(RUN_AT_DUE)
+    expect(nextDueRead([{ ...daily, nextRunAt: at(-3600_000) }], now)).toBeNull()
+    expect(nextDueRead([{ ...daily, enabled: false, nextRunAt: at(60_000) }], now)).toBeNull()
+    expect(nextDueRead([{ ...daily, running: true, nextRunAt: at(60_000) }], now)).toBeNull()
+    // a run retried after a full queue
+    expect(nextDueRead([{ ...daily, nextRunAt: null, retryAt: at(5000) }], now)).toBe(5000 + RUN_AT_DUE)
+    expect(nextDueRead(null, now)).toBeNull()
   })
 
   test('the block\'s words exist in every language', () => {
