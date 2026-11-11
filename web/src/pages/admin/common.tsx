@@ -2,7 +2,8 @@
 import clsx from 'clsx'
 import { Building2, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
-import { errorText } from '../../lib/api'
+import type { Locale } from '@mycel/shared/api'
+import { ApiError, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -298,11 +299,44 @@ export function SecretBox({ label, value, note, testId = 'secret-value', large }
   )
 }
 
-/** Ask for the owner's password again (update / restore / connection / owner transfer). */
-export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<void> }) {
+/**
+ * The words for a password the server refused (owner-reauth / admin-reauth: 403 with fields['body.password']), to show
+ * under the dialog's password field; null for any other error (that one is a toast).
+ */
+export function passwordRefusal(e: unknown, locale: Locale): string | null {
+  return e instanceof ApiError && e.body.fields?.['body.password'] ? errorText(e, locale, '') : null
+}
+
+/**
+ * Run a ReauthDialog's request: `{ value }` when it worked, `{ refused }` with the words for a refused password (give
+ * them back to the dialog, which stays open), null for any other error (toasted; close the dialog).
+ */
+export function useReauthCall() {
+  const t = useT()
+  const locale = useLocale()
+  return async <T,>(fn: () => Promise<T>): Promise<{ value: T } | { refused: string } | null> => {
+    try {
+      return { value: await fn() }
+    } catch (e) {
+      const refused = passwordRefusal(e, locale)
+      if (refused) return { refused }
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return null
+    }
+  }
+}
+
+/**
+ * Ask for the owner's password again (update / restore / connection / owner transfer). `onConfirm` may give back the
+ * words for a refused password (passwordRefusal): they show under the field, the dialog stays open and the field is
+ * selected for another try (QA TC-221: restore closed the dialog and the owner started over).
+ */
+export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
   const t = useT()
   const [pw, setPw] = useState('')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
   return (
     <Modal
       open
@@ -317,10 +351,17 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
             variant={danger ? 'danger' : 'primary'}
             busy={busy}
             disabled={!pw}
+            data-testid="reauth-confirm"
             onClick={async () => {
               setBusy(true)
-              await onConfirm(pw)
+              setError(null)
+              const refused = await onConfirm(pw)
               setBusy(false)
+              if (refused) {
+                setError(refused)
+                input.current?.focus()
+                input.current?.select()
+              }
             }}
           >
             {confirm}
@@ -329,8 +370,8 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
       }
     >
       <div className="mb-3 text-sm text-muted">{body}</div>
-      <Field label={t('system.passwordAgain')}>
-        <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+      <Field label={t('system.passwordAgain')} error={error ?? undefined}>
+        <input ref={input} data-autofocus data-testid="reauth-password" className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => { setPw(e.target.value); setError(null) }} />
       </Field>
     </Modal>
   )

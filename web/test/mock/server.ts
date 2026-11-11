@@ -3431,6 +3431,19 @@ export class MockServer {
       void c
       return { status: 202, body: { jobId: id } }
     },
+    // the restore: owner-reauth like the server (a wrong password is 403 with fields['body.password']); the job only
+    // stages it (the server applies it at its next start)
+    startRestore: (c) => {
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.', { 'body.password': 'wrong password' })
+      const id = uuidv7()
+      const job: Job = { id, kind: 'restore', status: 'running', progress: 0, message: 'Checking the backup', result: null, error: null, createdAt: now(), finishedAt: null }
+      this.jobs.set(id, job)
+      setTimeout(() => {
+        Object.assign(job, { status: 'done', progress: 1, result: { backupId: c.body.backupId, restoredAt: now(), lostSince: now() }, finishedAt: now() })
+        this.publish({ type: 'job.done', data: { job } })
+      }, 200)
+      return { status: 202, body: { jobId: id } }
+    },
     connection: () => this.connection,
     updateConnection: (c) => {
       if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)

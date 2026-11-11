@@ -12,7 +12,7 @@ import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
+import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
@@ -658,6 +658,7 @@ function Backups({ onChanged }: { onChanged: () => void }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
+  const reauth = useReauthCall()
   const state = useLoad(async () => (await api.call(API.listBackups)).items)
   const runner = useJobRunner()
   const [restore, setRestore] = useState<{ id: string; createdAt: string } | null>(null)
@@ -716,10 +717,13 @@ function Backups({ onChanged }: { onChanged: () => void }) {
           confirm={t('system.restore')}
           onClose={() => setRestore(null)}
           onConfirm={async (password) => {
-            const id = restore.id
+            // a wrong password stays in the dialog, under the field (QA TC-221); it closes once the restore started
+            const r = await reauth(() => api.call(API.startRestore, { body: { password, backupId: restore.id } }))
+            if (r && 'refused' in r) return r.refused
             setRestore(null)
+            if (!r) return
             await runner.run(
-              () => act(() => api.call(API.startRestore, { body: { password, backupId: id } })),
+              async () => r.value,
               () => toast({ level: 'success', text: t('system.restoreDone'), sticky: true, action: { label: t('update.reload'), run: () => location.reload() } }),
             )
           }}
