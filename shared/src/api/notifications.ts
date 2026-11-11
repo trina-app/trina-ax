@@ -78,6 +78,9 @@ export const InboxNotification = z.object({
   /** 'project.joined' only (docs/DECISIONS.md "Project contents only for members"): who started to see the project (a
    * name while the account is there) and the project while the reader of the notice still sees it (link 'project') */
   projectJoined: z.object({ name: z.string().nullable(), project: z.object({ id: z.string(), name: z.string() }).nullable() }).optional(),
+  /** 'onboarding.ai_request' only: true when the member tried to use Trina but it is not set up yet (the AI could not
+   * start, POST /api/me/ai-not-ready/tell), not a wait for an AI connection; older servers omit it */
+  notReady: z.literal(true).optional(),
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it */
   joined: z.object({ name: z.string() }).optional(),

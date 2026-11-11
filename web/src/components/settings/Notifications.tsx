@@ -98,6 +98,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'credential.change' && item.credentialChange) return credentialChangeText(item.credentialChange, t)
   if (item.code === 'room.dm' || item.code === 'room.mention') return roomText(item, t)
   if (item.code === 'dev_env.job' || item.code === 'dev_env.box') return devEnvText(item, t)
+  // "tried to use Trina but it isn't set up yet" (POST /api/me/ai-not-ready/tell), with the name while the account is there
+  if (item.code === 'onboarding.ai_request' && item.notReady) return item.requester ? t('notifications.event.onboarding.ai_notReadyNamed', { name: item.requester.name }) : t('notifications.event.onboarding.ai_notReady')
   if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })
   if (item.code === 'skills.merge_waiting' && item.merges) return t('notifications.event.skills.merge_waitingN', { n: item.merges.n })
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
