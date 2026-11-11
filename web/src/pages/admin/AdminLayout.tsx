@@ -246,7 +246,8 @@ export default function AdminLayout() {
               <NavLink
                 key={s.id}
                 to={s.id ? `/admin/${s.id}` : '/admin'}
-                end
+                // an item's own page (/admin/connectors/<id>, /admin/plugins/<id>) keeps its page marked
+                end={!s.id}
                 className={({ isActive }) =>
                   clsx('flex rounded-lg hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', wide ? 'items-center gap-2.5 px-3 py-1.5 text-sm' : 'w-full flex-col items-center gap-1 px-1 py-2 text-center text-micro leading-tight', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
                 }
