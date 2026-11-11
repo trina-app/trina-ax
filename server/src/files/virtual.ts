@@ -9,8 +9,8 @@ export interface VirtualFile { text: string; mtimeMs: number }
 
 export interface VirtualFiles {
   /** the virtual files this person sees whose folder is `base` or below it (actual names; [] = the whole team), by
-   * team path */
-  under(user: Principal, rules: RuleSet, base: readonly string[]): Map<string, VirtualFile>
+   * team path; `accept`: only paths it takes are rendered (glob's pattern) */
+  under(user: Principal, rules: RuleSet, base: readonly string[], accept?: (path: string) => boolean): Map<string, VirtualFile>
   /** the virtual file at exactly this team path (actual names of its folder) for this person, or null */
   at(user: Principal, rules: RuleSet, segs: readonly string[]): VirtualFile | null
 }

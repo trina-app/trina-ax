@@ -13,7 +13,7 @@ import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
-import type { SourceLoc } from '@mycel/shared/api'
+import { isFileListName, type SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
 import { makePlaceIndex, placesOfLines, readPlaceIndex, writePlaceIndex, type PlaceIndex } from './place-index'
 
@@ -661,6 +661,8 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   /** files whose content (or the fact that they match) went into the result */
   const files = new Set<string>()
   const seen = new Map<string, boolean>()
+  const listFolders = new Set([...(d.virtual?.keys() ?? [])].map((k) => k.slice(0, Math.max(0, k.lastIndexOf('/')))))
+  const shadowed = (rel: string) => !!d.virtual?.size && isFileListName(rel.slice(rel.lastIndexOf('/') + 1)) && listFolders.has(rel.slice(0, Math.max(0, rel.lastIndexOf('/'))))
   const ok = (shown: string, real: string) => {
     if (!seen.has(real)) {
       // a virtual file was rendered for this person: every line of it passed visiblePath already
@@ -685,8 +687,8 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   }
   // `keep` runs after the access check, so grep reads only files that this user can see
   const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true, virtualPass = false) => (rec: string) => {
-    // a real file where this person has a virtual one: the virtual one stands in for it
-    const real = (m: { real: string } | null) => m && (virtualPass || !d.virtual?.has(m.real))
+    // a real file where this person has a virtual one (its name in any letter case): the virtual one stands in for it
+    const real = (m: { real: string } | null) => m && (virtualPass || !shadowed(m.real))
     if (o.mode === 'content') {
       let j: any; try { j = JSON.parse(rec) } catch { return }
       if (j.type !== 'match' && j.type !== 'context') return
@@ -808,7 +810,8 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       fs.writeFileSync(dst, text, { mode: 0o400, flag: 'wx' })
     }
     const vmap = (p: string) => { const r = strip(p); return d.virtual!.has(r) ? { shown: r, real: r } : null }
-    const r0 = await runRg(d.rg, [...common, '--glob-case-insensitive', ...(nameGlob ? ['--glob', nameGlob] : []), ...patArgs, '--', '.'], virtualDir, recSep, handler(vmap, () => true, true), d.timeoutMs, rgOpts)
+    // a share of the time: the lists are small next to the team folder, and pass 1 gets its own
+    const r0 = await runRg(d.rg, [...common, '--glob-case-insensitive', ...(nameGlob ? ['--glob', nameGlob] : []), ...patArgs, '--', '.'], virtualDir, recSep, handler(vmap, () => true, true), Math.min(d.timeoutMs, 10_000), rgOpts)
     if (r0.code === 2 && !r0.killed && !out.length && /regex|parse|error/i.test(r0.err)) throw new ToolError('invalid pattern: ' + r0.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r0.err) ? ' (look-around and backreferences are not supported)' : ''))
     if (r0.killed === 'timeout') return stopped()
   }

@@ -297,10 +297,10 @@ export class FileService {
     if (!this.virtual || !segs.length || !isFileListName(segs[segs.length - 1]!)) return null
     try { return this.virtual.at(ctx.user, rules, [...segs.slice(0, -1), FILE_LIST_NAME]) } catch { return null }
   }
-  /** The person's file lists in a folder and below it. */
-  private virtualUnder(ctx: ToolCtx, rules: RuleSet, base: readonly string[]): Map<string, VirtualFile> {
+  /** The person's file lists in a folder and below it (`accept`: only these paths). */
+  private virtualUnder(ctx: ToolCtx, rules: RuleSet, base: readonly string[], accept?: (path: string) => boolean): Map<string, VirtualFile> {
     if (!this.virtual) return new Map()
-    try { return this.virtual.under(ctx.user, rules, base) } catch { return new Map() }
+    try { return this.virtual.under(ctx.user, rules, base, accept) } catch { return new Map() }
   }
   /** A tool path that names a file list: its folder's actual names, the list's path and the person's list (or null when
    * there is none for them: the path is then an ordinary one). */
@@ -326,9 +326,12 @@ export class FileService {
       const fold = (x: string) => (this.fx.caseInsensitive ? x.toLowerCase() : x)
       const g = new Bun.Glob(fold(a.pattern.normalize('NFC')))
       const prefix = r.segs.length ? r.segs.join('/') + '/' : ''
-      const lists = [...this.virtualUnder(ctx, rules, r.segs).keys()].filter((p) => g.match(fold(p.startsWith(prefix) ? p.slice(prefix.length) : p)) || g.match(fold(p))).sort()
+      const match = (p: string) => g.match(fold(p.startsWith(prefix) ? p.slice(prefix.length) : p)) || g.match(fold(p))
+      const lists = [...this.virtualUnder(ctx, rules, r.segs, match).keys()].sort()
       if (lists.length) {
-        const rest = res.files.filter((f) => !lists.includes(f))
+        // a real file of that name (any letter case) in a folder with a list: the list stands in for it
+        const shadowed = new Set(lists.map((l) => l.slice(0, l.lastIndexOf('/'))))
+        const rest = res.files.filter((f) => !(isFileListName(f.slice(f.lastIndexOf('/') + 1)) && shadowed.has(f.slice(0, Math.max(0, f.lastIndexOf('/'))))))
         const all = [...lists, ...rest]
         res.truncated ||= all.length > 100
         res.files = all.slice(0, 100)
@@ -352,9 +355,10 @@ export class FileService {
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
       lang: personLocale(this.db, ctx.user.id),
     })
-    // a file list's lines are read like its folder's files (same access), but never an answer's source: the answer cites
-    // the real file the AI opens next
-    for (const f of res.files) ctx.files.readPaths.add(f)
+    // a file list's lines are read like its folder's files (same access): its folder joins the read scope (the list is
+    // not on disk, so it cannot be looked up as a file), never as an answer's source: the answer cites the real file
+    // the AI opens next
+    for (const f of res.files) ctx.files.readPaths.add(virtual.has(f) ? f.slice(0, Math.max(0, f.lastIndexOf('/'))) : f)
     if ((a.output_mode ?? 'files_with_matches') === 'content') {
       const locs = new Map<string, SourceLoc[]>()
       for (const h of res.hits) if (h.loc) locs.set(h.path, [...(locs.get(h.path) ?? []), h.loc])
@@ -373,7 +377,8 @@ export class FileService {
     // the person's file list (not on disk): its lines, numbered; read like its folder's files, never an answer's source
     const vp = this.virtualPath(ctx, a.file_path)
     if (vp) {
-      ctx.files.readPaths.add(vp.rel)
+      // its folder joins the read scope (same access as the list; the list itself is not on disk)
+      ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
       return numberedLines(vp.rel, vp.file.text, a)
     }
     const e = ext(a.file_path)
