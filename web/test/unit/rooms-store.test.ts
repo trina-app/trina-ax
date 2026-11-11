@@ -545,6 +545,99 @@ describe('handleEvent', () => {
     expect(useRooms.getState().rooms[0]).toMatchObject({ unreadCount: 0, mentioned: false, lastReadSeq: 9, threadsUnread: 0 })
     expect(totalUnread(useRooms.getState().rooms)).toBe(0)
   })
+
+  // 11-11 web audit row 71
+  test('back after a lost connection: no member list stays as it was (a members change missed meanwhile), the rooms on screen read theirs again', async () => {
+    const open = room({ name: 'open' }), beside = room({ name: 'beside a file' }), other = room({ name: 'other' })
+    const rootId = uuidv7()
+    const mem = (u: { id: string; name: string }) => ({ user: u, joinedAt: at(0) })
+    useRooms.setState({ rooms: [open, beside, other], loaded: true, openRoomId: open.id, timeline: tl(open.id), threadViews: views({ roomId: beside.id, rootId, root: null, replies: [] }),
+      members: { [open.id]: [mem(ME)], [beside.id]: [mem(ME)], [other.id]: [mem(ME)] } })
+    routes['/api/rooms'] = { items: [open, beside, other] }
+    routes[`/api/rooms/${open.id}/messages`] = { items: [], nextCursor: null }
+    routes[`/api/rooms/${open.id}/members`] = { items: [mem(ME), mem(BEN)] }
+    routes[`/api/rooms/${beside.id}/members`] = { items: [mem(ME), mem(CY)] }
+    routes[`/api/rooms/${other.id}/members`] = { items: [mem(ME), mem(BEN)] }
+    await useRooms.getState().resync()
+    const s = useRooms.getState()
+    expect(s.members[open.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+    expect(s.members[beside.id]!.map((m) => m.user.id)).toEqual([ME.id, CY.id])
+    // not on screen: gone, not read now
+    expect(s.members).not.toHaveProperty(other.id)
+    expect(calls).not.toContain(`GET /api/rooms/${other.id}/members`)
+    // opening it later reads the list (Bob added while away is there)
+    useRooms.getState().close(open.id)
+    useRooms.getState().open(other.id)
+    await tick(); await tick()
+    expect(useRooms.getState().members[other.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+  })
+
+  test("a member list read before a members change (or a resync) answering late does not put the old list back", async () => {
+    const r = room()
+    const mem = (u: { id: string; name: string }) => ({ user: u, joinedAt: at(0) })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id), members: { [r.id]: [mem(ME)] } })
+    // the first read waits; the one after the event answers at once
+    let release: (res: Response) => void = () => {}
+    const fake = globalThis.fetch
+    let first = true
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (first && String(input).includes('/members')) { first = false; return new Promise<Response>((res) => { release = res }) }
+      return fake(input, init)
+    }) as typeof fetch
+    const old = useRooms.getState().loadMembers(r.id, true)
+    routes[`/api/rooms/${r.id}/members`] = { items: [mem(ME), mem(BEN)] }
+    useRooms.getState().handleEvent({ type: 'room.updated', seq: 1, at: Date.now(), data: { roomId: r.id, change: 'members', room: r } })
+    await tick(); await tick()
+    expect(useRooms.getState().members[r.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+    release(new Response(JSON.stringify({ items: [mem(ME)] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    await old
+    expect(useRooms.getState().members[r.id]!.map((m) => m.user.id)).toEqual([ME.id, BEN.id])
+  })
+
+  // 11-11 web audit row 76
+  test('hiding the open room goes to the list only once the server has it; refused, the room stays on screen', async () => {
+    const went: string[] = []
+    setNavigator((to) => went.push(to))
+    try {
+      const r = room({ kind: 'dm' })
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      // refused (offline, a 404 here): no navigation, shown again
+      await expect(useRooms.getState().setHidden(r.id, true)).rejects.toBeTruthy()
+      expect(went).toEqual([])
+      expect(useRooms.getState().rooms[0]!.hidden).toBeUndefined()
+      // the server has it: then to the list
+      routes[`/api/rooms/${r.id}/hidden`] = { ...r, hidden: true }
+      const p = useRooms.getState().setHidden(r.id, true)
+      expect(useRooms.getState().rooms[0]!.hidden).toBe(true)
+      expect(went).toEqual([])
+      await p
+      expect(went).toEqual(['/rooms'])
+    } finally { setNavigator(null) }
+  })
+
+  // 11-11 web audit row 77
+  test("a refused reaction undoes only my own tap: someone else's reaction that came meanwhile stays", async () => {
+    const r = room()
+    const m = message({ roomId: r.id, seq: 1, reactions: [{ emoji: '👍', count: 1, mine: true, users: [ME] }] })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [m]) })
+    const reactions = () => useRooms.getState().timeline!.messages[0]!.reactions
+    const others = (list: NonNullable<ReturnType<typeof reactions>>) => useRooms.getState().handleEvent({ type: 'room.reactions', seq: 2, at: Date.now(), data: { roomId: r.id, messageId: m.id, reactions: list } })
+    // on, refused: Ben's 🎉 and his 👍 (the server's list, without my refused 🔥) stay; my 🔥 goes
+    const p = useRooms.getState().react(r.id, m.id, '🔥', true)
+    others([{ emoji: '👍', count: 2, mine: true, users: [ME, BEN] }, { emoji: '🎉', count: 1, mine: false, users: [BEN] }])
+    await p
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, mine: true, users: [ME, BEN] }, { emoji: '🎉', count: 1, mine: false, users: [BEN] }])
+    // off, refused: mine comes back, Cy's 🎉 that came meanwhile stays
+    const q = useRooms.getState().react(r.id, m.id, '👍', false)
+    expect(reactions()![0]).toMatchObject({ emoji: '👍', count: 1, mine: false })
+    others([{ emoji: '👍', count: 1, mine: false, users: [BEN] }, { emoji: '🎉', count: 2, mine: false, users: [BEN, CY] }])
+    await q
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }, { emoji: '🎉', count: 2, mine: false, users: [BEN, CY] }])
+    // a tap that changed nothing (on where mine already) undoes nothing
+    others([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }])
+    await useRooms.getState().react(r.id, m.id, '👍', true)
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }])
+  })
 })
 
 describe('the AI in a room', () => {
