@@ -71,8 +71,10 @@ export function applyDone(messages: ViewMessage[], final: Message): ViewMessage[
 }
 
 /**
- * A message created elsewhere (another window/device of the same person). If it continues the visible branch it is
- * appended; if we already have it, it is updated; otherwise the visible branch changed → 'stale'.
+ * A message created elsewhere (another window/device of the same person), or my own question saved before its POST
+ * answered. If we already have it, it is updated; my question takes the place of its "sending" copy; if it continues
+ * the visible branch (the last message the server knows, not one still being sent) it goes after it; otherwise the
+ * visible branch changed → 'stale'.
  */
 export function applyCreated(messages: ViewMessage[], msg: Message): ViewMessage[] | 'stale' {
   const i = messages.findIndex((m) => m.id === msg.id)
@@ -83,8 +85,17 @@ export function applyCreated(messages: ViewMessage[], msg: Message): ViewMessage
     next[i] = cur.status === 'streaming' && msg.status === 'streaming' && cur.content.length > msg.content.length ? { ...msg, content: cur.content, steps: cur.steps } : msg
     return next
   }
-  const last = messages.at(-1)
-  if ((last && msg.parentId === last.id) || (!last && msg.parentId === null)) return [...messages, msg]
+  // the server's copy of a question this page is sending (the event can come before the POST's answer); a copy whose
+  // parent is not known yet (sent before the messages were in) answers under the server's active leaf: not matched
+  const own = msg.role === 'user' ? messages.findIndex((m) => m.local?.state === 'sending' && m.parentId === msg.parentId && m.content === msg.content && m.author?.id === msg.author?.id) : -1
+  if (own >= 0) {
+    const next = messages.slice()
+    next[own] = msg
+    return next
+  }
+  const at = messages.map((m) => !m.local).lastIndexOf(true)
+  const last = at >= 0 ? messages[at] : undefined
+  if ((last && msg.parentId === last.id) || (!last && msg.parentId === null)) return [...messages.slice(0, at + 1), msg, ...messages.slice(at + 1)]
   return 'stale'
 }
 
@@ -142,6 +153,19 @@ export function prependPage(messages: ViewMessage[], older: Message[]): ViewMess
   return [...older.filter((m) => !have.has(m.id)), ...messages]
 }
 
+/** Steps of a running answer: the server's copy as it was read and what the socket said since. A step the socket saw
+ * end stays ended; steps the copy does not have yet stay. */
+function mergeSteps(saved: Step[], live: Step[]): Step[] {
+  const byId = new Map(live.map((s) => [s.id, s]))
+  const out = saved.map((s) => {
+    const l = byId.get(s.id)
+    return l && s.status === 'running' && l.status !== 'running' ? l : s
+  })
+  const have = new Set(saved.map((s) => s.id))
+  for (const l of live) if (!have.has(l.id)) out.push(l)
+  return out
+}
+
 /**
  * Replace the thread with a fresh REST page while keeping local optimistic messages that the server doesn't know
  * yet, and keeping streamed text that is ahead of the server's last save.
@@ -150,15 +174,19 @@ export function mergeFresh(current: ViewMessage[], fresh: Message[]): ViewMessag
   const byId = new Map(current.map((m) => [m.id, m]))
   const out: ViewMessage[] = fresh.map((m) => {
     const cur = byId.get(m.id)
-    if (cur && m.status === 'streaming' && cur.status === 'streaming' && cur.content.length > m.content.length && cur.content.startsWith(m.content)) {
-      return { ...m, content: cur.content }
+    if (cur && m.status === 'streaming' && cur.status === 'streaming') {
+      const ahead = cur.content.length > m.content.length && cur.content.startsWith(m.content)
+      return { ...m, content: ahead ? cur.content : m.content, steps: mergeSteps(m.steps, cur.steps) }
     }
     // a reload that left the server while the answer was still running, answered after message.done: the finished
     // message is newer (staging 2026-10-22: the answer stayed cut at its first line until the page was reloaded)
     if (cur && m.status === 'streaming' && cur.status !== 'streaming' && !cur.local) return cur
     return m
   })
-  for (const m of current) if (m.local && !out.some((x) => x.id === m.id)) out.push(m)
+  // a question still "sending" whose server copy is in the page already (its message.created came during the read)
+  // is not shown twice; one sent before any message was in (no parent) cannot be told from an older question
+  const sentCopy = (m: ViewMessage) => m.local?.state === 'sending' && m.parentId !== null && fresh.some((x) => x.role === 'user' && x.parentId === m.parentId && x.content === m.content && x.author?.id === m.author?.id && !current.some((c) => c.id === x.id))
+  for (const m of current) if (m.local && !out.some((x) => x.id === m.id) && !sentCopy(m)) out.push(m)
   return out
 }
 

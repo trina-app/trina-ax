@@ -3,8 +3,8 @@
 // team address, every phone and desktop app with one way to get it, components/settings/AppList.tsx, and in a web browser
 // only the guide to install the page as an app, components/settings/InstallGuide.tsx),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
-// connections are made by the owner in Admin > AI connections), and the MCP connections the AI may use with the
-// member's own accounts (Integrations.tsx). Profile ends with "계정 삭제 요청", its own page under the profile
+// connections are made by the owner in Admin > AI connections). Connectors is its own page now (pages/Connectors.tsx;
+// its section here leads there). Profile ends with "계정 삭제 요청", its own page under the profile
 // (/settings/account/delete, components/settings/AccountDeletion.tsx).
 import clsx from 'clsx'
 import { Brain, ChevronDown, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
@@ -45,7 +45,6 @@ import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settin
 import { MemoryForm } from '../components/settings/MemoryForm'
 import AiApps from './AiApps'
 import MyUsage from '../components/settings/MyUsage'
-import Integrations from './Integrations'
 
 /** One section of the Settings dialog (components/settings/SettingsDialog.tsx, which owns the list, the address and
  * which sections there are): `tab` is one of settingsTabs(), or 'account-delete' (the page under the profile). */
@@ -61,7 +60,6 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll) && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
       {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} />}
-      {tab === 'connectors' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}

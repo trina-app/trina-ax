@@ -136,7 +136,8 @@ export const TIMELINE_SQL = '(m.thread_root_id IS NULL OR m.also_in_room = 1)'
  * line. A deleted one keeps the replies it has; new ones need it not deleted (Rooms.send). */
 export const threadable = (m: Pick<MessageRow, 'thread_root_id' | 'visibility' | 'event'>) => !m.thread_root_id && m.visibility === 'room' && !m.event
 
-function refsOf(db: Database, ids: Iterable<string | null>): Map<string, UserRef> {
+/** People by id as rooms name them (UserRef), the ones still there. */
+export function refsOf(db: Database, ids: Iterable<string | null>): Map<string, UserRef> {
   const want = [...new Set([...ids].filter((x): x is string => !!x))]
   const out = new Map<string, UserRef>()
   if (!want.length) return out
@@ -189,7 +190,7 @@ export const fileOut = (f: FileRow): RoomFile => ({
 })
 
 /** The rows of a list that are hidden from `viewer` (one of their hidden old answers, or in its thread). */
-function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: Pick<MemberRow, 'user_id'>): Set<string> {
+export function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: Pick<MemberRow, 'user_id'>): Set<string> {
   const keys = [...new Set(rows.flatMap((r) => (r.thread_root_id ? [r.id, r.thread_root_id] : [r.id])))]
   if (!viewer.user_id || !keys.length) return new Set()
   const out = new Set<string>()

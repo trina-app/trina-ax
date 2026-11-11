@@ -6,15 +6,26 @@ import { driveSignInUrl } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
 import { Button, confirmDialog } from '../ui'
 
+/** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
+ * Sheets: integrations/GoogleAppConnector.tsx) are the same steps on their own addresses. `current`: the connection once
+ * a flow says it was completed elsewhere (another window confirmed it). */
+export interface SignInOps<C> {
+  authorize: () => Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }>
+  poll: (id: string) => Promise<DriveFlow>
+  complete: (id: string, opts: { membersOn?: true }) => Promise<C>
+  cancel: (id: string) => Promise<unknown>
+  current: () => Promise<C>
+}
+
 /**
- * Connecting the person's own Google account to Drive (Settings > MCP, and a chat's connect_service card):
- * authorize in a window reserved during the click (the phone app: the browser), poll the flow, then the person
- * confirms the account they signed in with. `onConnected`: the connection once it is complete (here or in another
- * window). `generation` is shared with the caller's own requests: starting over makes older answers stale. `reason`:
- * why the last start or flow failed, as the server says it ("drive_broker_unavailable", a flow's "consent_denied"), for
- * a caller that words it (the welcome steps' 도구 연결); `resume`: a flow this session started before a reload.
+ * Connecting the person's own Google account (Drive, or one Google app): authorize in a window reserved during the
+ * click (the phone app: the browser), poll the flow, then the person confirms the account they signed in with.
+ * `onConnected`: the connection once it is complete (here or in another window). `generation` is shared with the
+ * caller's own requests: starting over makes older answers stale. `reason`: why the last start or flow failed, as the
+ * server says it ("drive_broker_unavailable", a flow's "consent_denied"), for a caller that words it (the welcome steps'
+ * 도구 연결); `resume`: a flow this session started before a reload.
  */
-export function useDriveFlow(onConnected: (c: Connection) => void) {
+export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void) {
   const [flow, setFlow] = useState<DriveFlow | null>(null)
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -26,6 +37,8 @@ export function useDriveFlow(onConnected: (c: Connection) => void) {
   const popup = useRef<Window | null>(null)
   const connected = useRef(onConnected)
   connected.current = onConnected
+  const calls = useRef(ops)
+  calls.current = ops
   useEffect(() => () => { generation.current++; popup.current?.close() }, [])
   useEffect(() => {
     if (!flow || !['pending', 'exchanging'].includes(flow.state)) return
@@ -33,12 +46,12 @@ export function useDriveFlow(onConnected: (c: Connection) => void) {
     const g = generation.current, id = flow.flowId
     const poll = async () => {
       try {
-        const next = await api.call(API.driveFlow, { params: { id } })
+        const next = await calls.current.poll(id)
         if (!active || g !== generation.current) return
         setFlow(next)
         if (next.state === 'ready') popup.current?.close()
         if (next.state === 'completed') {
-          const r = await api.call(API.myDriveConnection)
+          const r = await calls.current.current()
           if (active && g === generation.current) { setFlow(null); setAuthorizationUrl(null); connected.current(r) }
         }
         if (['failed', 'expired'].includes(next.state)) { setError(true); setReason(next.reason ?? next.state) }
@@ -54,7 +67,7 @@ export function useDriveFlow(onConnected: (c: Connection) => void) {
     // Reserve the web popup during the click. If blocked, show the same checked URL as a normal link.
     if (!mobileApp()) { popup.current = window.open('about:blank', '_blank'); if (popup.current) popup.current.opener = null; setPopupBlocked(!popup.current) }
     try {
-      const result = await api.call(API.authorizeDrive, { body: {} })
+      const result = await calls.current.authorize()
       if (g !== generation.current) return
       const url = driveSignInUrl(result, !!mobileApp())
       setAuthorizationUrl(url)
@@ -68,7 +81,7 @@ export function useDriveFlow(onConnected: (c: Connection) => void) {
   const resume = async (id: string) => {
     const g = generation.current
     try {
-      const f = await api.call(API.driveFlow, { params: { id } })
+      const f = await calls.current.poll(id)
       if (g === generation.current && ['pending', 'exchanging', 'ready'].includes(f.state)) setFlow(f)
     } catch { /* gone: nothing to resume */ }
   }
@@ -76,18 +89,18 @@ export function useDriveFlow(onConnected: (c: Connection) => void) {
     if (!flow) return
     const id = flow.flowId, g = ++generation.current
     setBusy(true); setFlow(null); setAuthorizationUrl(null); popup.current?.close()
-    try { await api.call(API.cancelDriveFlow, { params: { id } }) }
+    try { await calls.current.cancel(id) }
     catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
   }
   /** `membersOn`: the members' switch is off and the owner or admin confirming turns it on with the connection (the
-   * press named that) */
+   * press named that; Google Drive only) */
   const complete = async (opts: { membersOn?: true } = {}) => {
     if (flow?.state !== 'ready') return
     const g = ++generation.current
     setBusy(true); setError(false); setReason(null)
     try {
-      const r = await api.call(API.completeDriveFlow, { params: { id: flow.flowId }, body: opts.membersOn ? { membersOn: true } : {} })
+      const r = await calls.current.complete(flow.flowId, opts)
       if (g !== generation.current) return
       setFlow(null); setAuthorizationUrl(null); popup.current?.close(); connected.current(r)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null) } }
@@ -95,6 +108,21 @@ export function useDriveFlow(onConnected: (c: Connection) => void) {
   }
   const inProgress = !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state)
   return { flow, authorizationUrl, busy, setBusy, error, setError, reason, popupBlocked, generation, start, resume, cancel, complete, inProgress }
+}
+export type SignInFlowState = ReturnType<typeof useSignInFlow>
+
+const DRIVE_OPS: SignInOps<Connection> = {
+  authorize: () => api.call(API.authorizeDrive, { body: {} }),
+  poll: (id) => api.call(API.driveFlow, { params: { id } }),
+  complete: (id, opts) => api.call(API.completeDriveFlow, { params: { id }, body: opts.membersOn ? { membersOn: true } : {} }),
+  cancel: (id) => api.call(API.cancelDriveFlow, { params: { id } }),
+  current: () => api.call(API.myDriveConnection),
+}
+
+/** Connecting the person's own Google Drive (Connectors, and a chat's connect_service card): useSignInFlow on Drive's
+ * addresses. */
+export function useDriveFlow(onConnected: (c: Connection) => void) {
+  return useSignInFlow(DRIVE_OPS, onConnected)
 }
 export type DriveFlowState = ReturnType<typeof useDriveFlow>
 

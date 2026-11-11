@@ -46,7 +46,7 @@ import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf } from '../notifications/service'
-import { scheduleRunOutcome } from './schedule-outcome'
+import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
 import type { ChatRuntime } from './runtime'
@@ -300,6 +300,8 @@ export class TurnExec {
   private registered = false
   private thinkingStep: Step | null = null
   private toolNames = new Map<string, string>()
+  /** a scheduled run's connection calls that only read (their tool_use ids): look-ups for the run's result */
+  private lookUpCalls = new Set<string>()
   /** the query of each running web search (its echo in the result is the AI's text, never a source) */
   private searchQueries = new Map<string, string>()
   /** Codex searches the model proxy took and whose item has not ended yet (chat/codex-search-step.ts) */
@@ -1176,6 +1178,8 @@ export class TurnExec {
         // a plain step under its sub-task
         const tool = CLAUDE_AGENT_TOOL_NAMES.includes(e.name) && !e.parentId ? 'agent' : e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
+        // a connection's call that only reads (its own mark, from these arguments): a look-up for a scheduled run's result
+        if (this.spec.clientKind === 'schedule' && this.readsOnly(tool, e.input)) { this.lookUpCalls.add(e.id); this.lookUpCalls.add(stepId(e.id)) }
         // the engine's own tools (web search, sub-agents) leave their echo marks here; the server's tools when they are
         // called (chat/tools.ts), before the call reaches the service (tools/connection-urls.ts)
         if (!e.name.startsWith(TEAM_TOOL_PREFIX)) recordSent(this.rt.db, this.spec.chatId, e.input)
@@ -1729,8 +1733,13 @@ export class TurnExec {
    * run or a draft): no room card (confirmRoomChange); the tool's card asks every time and leads with the room line
    * (TurnPerson.roomsSeen, chat/tools.ts). */
   ownCard(tool: string): boolean {
+    // a room session's own Google app tool (chat/tools.ts roomConnection): its own card asks every change, with the
+    // room line, and its reads need no room card (their answers stay private to the asker: rooms/ai.ts decide)
+    if (this.roomConnection(tool)) return !this.restricted && this.spec.clientKind !== 'schedule'
     return (ROOMS_SEEN_OWN_CARD_TOOLS.has(tool) || !!this.toolSet?.connection(tool)) && !this.room && !this.shared && !this.restricted && this.spec.clientKind !== 'schedule' && readRooms(this)
   }
+  /** one of the asker's own Google apps' tools in a team chat room's session */
+  roomConnection(tool: string): boolean { return !!this.room && !this.shared && !!this.toolSet?.roomConnection?.(tool) }
   /** a connection tool's call that only reads (chat/tools.ts ChatToolSet.readsOnly); false for anything else */
   readsOnly(name: string, args: unknown): boolean { return this.toolSet?.readsOnly(name, args) ?? false }
   /** ...that may go without the room card: a read by the service's own mark, not api_request's GET (ChatToolSet.readsFree) */
@@ -1898,7 +1907,8 @@ export class TurnExec {
     // unless its arguments carry an address or a random-looking part (tools/url-gate.ts carriesAddress: then this card);
     // its arguments go to the service the person or the team connected. api_request's GET or HEAD asks here (the method
     // is the AI's choice; some APIs act on a GET)
-    if (own && this.ownCard(tool) && this.readsFree(tool, input) && !carriesAddress(input)) return null
+    const mine = own || this.roomConnection(tool)
+    if (mine && this.ownCard(tool) && this.readsFree(tool, input) && !carriesAddress(input)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
     const w = roomChangeWrites(tool, this.cardInput(tool, input), (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
@@ -1908,7 +1918,7 @@ export class TurnExec {
     }
     // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
     // move or copy of a skill or instruction file is still refused
-    if (own && this.ownCard(tool) && !this.readsOnly(tool, input)) return null
+    if (mine && this.ownCard(tool) && !this.readsOnly(tool, input)) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -3143,9 +3153,17 @@ export class TurnExec {
       // terminal scheduled turn, and an inbox event cannot change once recorded (chat/schedule-outcome.ts).
       // '(connect)' rows are bridge connection checks (mcp/socket.ts), not tool calls.
       if (this.spec.clientKind === 'schedule') {
-        const refused = (db.query("SELECT count(*) AS n FROM tool_events WHERE turn_id = ? AND ok = 0 AND tool <> '(connect)'").get(this.id) as { n: number }).n
-        const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error' && !s.paused && !s.stopped).length
-        db.query('UPDATE turns SET run_outcome = ? WHERE id = ?').run(scheduleRunOutcome({ status: turnStatus, content: this.content, failedTools: refused + failedSteps, limited: !!stopReason }), this.id)
+        // only a refused or failed call that would have changed something counts; a look-up the AI worked past (a page
+        // it could not open, a file that was not there) needs nobody (schedule-outcome.ts isLookUpTool). Their number
+        // goes to the log only
+        const lookUp = (tool: string | null | undefined, id: string | null | undefined, kind?: string) => kind === 'web_search' || isLookUpTool(tool) || (!!id && this.lookUpCalls.has(id))
+        const refused = (db.query("SELECT tool, tool_use_id FROM tool_events WHERE turn_id = ? AND ok = 0 AND tool <> '(connect)'").all(this.id) as { tool: string; tool_use_id: string | null }[])
+        const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error' && !s.paused && !s.stopped)
+        const changes = refused.filter((r) => !lookUp(r.tool, r.tool_use_id)).length + failedSteps.filter((s) => !lookUp(s.tool, s.id, s.kind)).length
+        // one call can have both an audit row and a step: counted once
+        const lookUps = new Set([...refused.filter((r) => lookUp(r.tool, r.tool_use_id)).map((r, i) => r.tool_use_id ?? `row${i}`), ...failedSteps.filter((s) => lookUp(s.tool, s.id, s.kind)).map((s) => s.id)]).size
+        if (lookUps) this.rt.log.info('scheduled run: look-ups that did not work', { turn: this.id, n: lookUps })
+        db.query('UPDATE turns SET run_outcome = ? WHERE id = ?').run(scheduleRunOutcome({ status: turnStatus, content: this.content, failedTools: changes, limited: !!stopReason }), this.id)
       }
       const core = this.registered ? this.activeCore : null
       if (core) core.turns.revoke(this.id, turnStatus, this.error?.message)

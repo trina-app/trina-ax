@@ -20,6 +20,8 @@ import { ToolError } from '../policy/errors'
 import type { RouteModule } from './module'
 import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
+import { registerGoogleAppsRoutes } from './google-apps'
+import { googleAppsOf } from '../integrations/google-apps/service'
 import { registerIntegrationRoutes } from './integrations'
 import { registerIntegrations } from '../integrations/connections/tools'
 import { registerPluginRoutes } from './plugins'
@@ -36,9 +38,12 @@ export const filesRoutes: RouteModule = {
     registerCTools(ctx)
     // external-service connections: each person's tools are made at the start of their turn
     registerIntegrations(ctx)
+    // Gmail, Calendar, Docs and Sheets: the library runs while one of them is set up (integrations/google-apps/)
+    try { googleAppsOf(ctx) } catch (e) { ctx.log.error('Google apps failed to start; they stay off', { err: e }) }
   },
   register(kit, ctx) {
     registerDriveRoutes(kit, ctx)
+    registerGoogleAppsRoutes(kit, ctx)
     registerIntegrationRoutes(kit, ctx)
     registerPluginRoutes(kit, ctx)
     const C = componentC(ctx)

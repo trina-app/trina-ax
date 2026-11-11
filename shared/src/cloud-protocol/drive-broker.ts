@@ -65,6 +65,25 @@ export const DRIVE_BROKER_CONNECT_PATH = '/drive-broker/connect'
 /** where the control plane sends the browser back on the team's own address (the team server's Drive callback) */
 export const DRIVE_BROKER_TEAM_RETURN_PATH = '/api/integrations/google-drive/callback'
 export const DRIVE_BROKER_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
+/** where the control plane sends the browser back for a Google app other than Drive (the team server's callback) */
+export const GOOGLE_APPS_BROKER_TEAM_RETURN_PATH = '/api/integrations/google-apps/callback'
+/**
+ * The Google apps the broker signs in to besides Drive, each with its ONE fixed set of scopes (the control plane asks
+ * Google for exactly this set and requires all of it in Google's answer). `openid email profile` let the team
+ * server's Google Workspace MCP server check whose token it is (Google's userinfo). A start or refresh without `app`
+ * is Drive, as before: an older team server never sends it, and an older control plane refuses a request with it
+ * (invalid_request), which the team server shows as "not available yet".
+ */
+const G = 'https://www.googleapis.com/auth/'
+const IDENTITY = ['openid', `${G}userinfo.email`, `${G}userinfo.profile`]
+export const GOOGLE_APP_BROKER_SCOPES = {
+  gmail: [...IDENTITY, `${G}gmail.readonly`, `${G}gmail.send`, `${G}gmail.compose`, `${G}gmail.modify`, `${G}gmail.labels`, `${G}gmail.settings.basic`],
+  calendar: [...IDENTITY, `${G}calendar`, `${G}calendar.readonly`, `${G}calendar.events`],
+  docs: [...IDENTITY, `${G}documents`, `${G}documents.readonly`, `${G}drive.readonly`, `${G}drive.file`],
+  sheets: [...IDENTITY, `${G}spreadsheets`, `${G}spreadsheets.readonly`, `${G}drive.readonly`, `${G}drive.file`],
+} as const
+export type GoogleBrokerApp = keyof typeof GOOGLE_APP_BROKER_SCOPES
+export const GOOGLE_BROKER_APPS = Object.keys(GOOGLE_APP_BROKER_SCOPES) as GoogleBrokerApp[]
 export const DRIVE_BROKER_MAX_BODY_BYTES = 16_384
 export const DRIVE_BROKER_MAX_SKEW_MS = 60_000
 export const DRIVE_BROKER_STATE_TTL_MS = 10 * 60_000
@@ -73,9 +92,10 @@ export const DRIVE_BROKER_HANDOFF_TTL_MS = 2 * 60_000
 export const DRIVE_BROKER_PURPOSES = ['personal', 'share'] as const
 export type DriveBrokerPurpose = (typeof DRIVE_BROKER_PURPOSES)[number]
 
-export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnState: string; codeChallenge: string }
+/** `app`: a Google app other than Drive (only with purpose "personal"); left out: Drive. */
+export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnState: string; codeChallenge: string; app?: GoogleBrokerApp }
 export interface DriveBrokerRedeem { v: 1; handoff: string; codeVerifier: string }
-export interface DriveBrokerRefresh { v: 1; refreshToken: string }
+export interface DriveBrokerRefresh { v: 1; refreshToken: string; app?: GoogleBrokerApp }
 export interface DriveBrokerStatus { v: 1 }
 export interface DriveBrokerStartAnswer { authorizationUrl: string; connectUrl?: string; expiresAt: string }
 export interface DriveBrokerTokenAnswer { access_token: string; expires_in: number; scope: string; token_type: string; refresh_token?: string }
@@ -114,13 +134,21 @@ const SEALED = /^ev1\.[A-Za-z0-9_-]{1,32}\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{24,8
 const exactly = (o: Record<string, unknown>, keys: string[]) => Object.keys(o).every((k) => keys.includes(k)) && keys.every((k) => k in o)
 const plain = (raw: unknown): Record<string, unknown> | null => typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as Record<string, unknown> : null
 
+/** the optional `app` field: null when absent (Drive), the app, or false when present but not one of the apps */
+function parseApp(o: Record<string, unknown> | null): GoogleBrokerApp | null | false {
+  if (!o || !('app' in o)) return null
+  return typeof o.app === 'string' && (GOOGLE_BROKER_APPS as string[]).includes(o.app) ? o.app as GoogleBrokerApp : false
+}
+
 export function parseDriveBrokerStart(raw: unknown): DriveBrokerStart | null {
   const o = plain(raw)
-  if (!o || !exactly(o, ['v', 'purpose', 'returnState', 'codeChallenge']) || o.v !== 1) return null
+  const app = parseApp(o)
+  if (!o || app === false || !exactly(o, ['v', 'purpose', 'returnState', 'codeChallenge', ...(app ? ['app'] : [])]) || o.v !== 1) return null
   if (!(DRIVE_BROKER_PURPOSES as readonly unknown[]).includes(o.purpose)) return null
+  if (app && o.purpose !== 'personal') return null
   if (typeof o.returnState !== 'string' || !B64URL43.test(o.returnState)) return null
   if (typeof o.codeChallenge !== 'string' || !B64URL43.test(o.codeChallenge)) return null
-  return { v: 1, purpose: o.purpose as DriveBrokerPurpose, returnState: o.returnState, codeChallenge: o.codeChallenge }
+  return { v: 1, purpose: o.purpose as DriveBrokerPurpose, returnState: o.returnState, codeChallenge: o.codeChallenge, ...(app ? { app } : {}) }
 }
 
 export function parseDriveBrokerRedeem(raw: unknown): DriveBrokerRedeem | null {
@@ -133,9 +161,10 @@ export function parseDriveBrokerRedeem(raw: unknown): DriveBrokerRedeem | null {
 
 export function parseDriveBrokerRefresh(raw: unknown): DriveBrokerRefresh | null {
   const o = plain(raw)
-  if (!o || !exactly(o, ['v', 'refreshToken']) || o.v !== 1) return null
+  const app = parseApp(o)
+  if (!o || app === false || !exactly(o, ['v', 'refreshToken', ...(app ? ['app'] : [])]) || o.v !== 1) return null
   if (typeof o.refreshToken !== 'string' || !SEALED.test(o.refreshToken)) return null
-  return { v: 1, refreshToken: o.refreshToken }
+  return { v: 1, refreshToken: o.refreshToken, ...(app ? { app } : {}) }
 }
 
 export function parseDriveBrokerStatus(raw: unknown): DriveBrokerStatus | null {

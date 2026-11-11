@@ -768,10 +768,10 @@ export const pageColumn = 'mx-auto w-full max-w-5xl'
 
 /** A page's full-width title bar: it keeps its line and stays at the top while the page scrolls; its contents line up
  * with the page's column (pageColumn). */
-export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({ title, desc, actions, testId }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; testId?: string }) {
   const { ref } = useStickyHeader<HTMLDivElement>()
   return (
-    <div ref={ref} data-sticky-header className={clsx(stickyCls, 'shrink-0 border-b border-line')}>
+    <div ref={ref} data-sticky-header data-testid={testId} className={clsx(stickyCls, 'shrink-0 border-b border-line')}>
       <div className={clsx(pageColumn, 'flex flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5')}>
       <div className="min-w-0">
         {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}

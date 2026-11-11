@@ -103,11 +103,16 @@ test('Settings: named groups Account, Connections, App (Providers first in Conne
   }
   // no AI group any more: Providers is under Connections, Memory under Account
   await expect(list.getByTestId('settings-group-ai')).toHaveCount(0)
-  for (const path of ['/settings/profile', '/settings/providers', '/settings/integrations', '/settings/connectors']) {
+  for (const path of ['/settings/profile', '/settings/providers']) {
     await page.goto(path)
     await expect(page.getByTestId('settings-content').getByTestId('page-scope')).toHaveText(t['scope.you'])
   }
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.title'], exact: true })).toBeVisible()
+  // Connectors is its own page in the sidebar: its section and the older addresses lead there
+  for (const path of ['/settings/integrations', '/settings/connectors']) {
+    await page.goto(path)
+    await expect(page).toHaveURL(/\/connectors$/)
+  }
+  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.title'], exact: true })).toBeAttached()
 })
 
 test('phone width: the Admin list and the Settings list keep every item without sideways page scroll', async ({ page }) => {

@@ -90,7 +90,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const waiting = (tab === 'providers' && own === null) || (tab === 'dev-env-sites' && sites === null)
   // phones: a section opened from a link gets the list under it, once it is the section that stays; the list and the
   // open section each keep their place for Back (lib/backStack.ts)
-  const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'credentials'
+  const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'connectors' || tab === 'credentials'
   const valid = !!tab && !waiting && !redirecting && tabs.some((x) => x.id === tab)
   // the Activity page (#364) is the 나 tab's too: 알림 opened from its gear goes back to it, with no list put between
   useListUnderPage('/settings', phone, valid && !page, ['/activity'])
@@ -100,9 +100,10 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   useKeptScroll(contentRef, 'settings-section', phone && !!tab && !waiting)
   const back = useGoBack(page ? `/settings/${tab}` : '/settings')
   const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => settingsPageName(p, t))
-  // Google Drive and MCP were sections of their own: both are Connectors now (Drive's page open for a Drive link)
-  if (tab === 'drive') return <Navigate to="/settings/connectors?drive=1" replace />
-  if (tab === 'integrations') return <Navigate to={`/settings/connectors${location.search}`} replace />
+  // Connectors is its own page in the sidebar now (pages/Connectors.tsx): its section here leads there, with what its
+  // address asked for (?add=1, ?template=, ?request=); Google Drive and MCP were sections of their own before that
+  if (tab === 'connectors' || tab === 'integrations') return <Navigate to={`/connectors${location.search}`} replace />
+  if (tab === 'drive') return <Navigate to="/connectors/google-drive" replace />
   // AI connections are now AI providers (the same accounts, by provider)
   if (tab === 'credentials') return <Navigate to="/settings/providers" replace />
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app while the team does not
