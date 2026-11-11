@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:24
 - Branch: `fix/file-link-phone`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/pages/FileView.tsx`, a web unit test). Why: the file screen is core (see
   docs/REPOSITORY-RULES.md).
 - Version impact: patch, a link opens what it names on phones; no API, data or wording change
@@ -44,4 +44,16 @@ link is unchanged.
 
 ## Result
 
-(filled in at the end)
+Built as planned, in `web/src/pages/FileView.tsx` only. Its effect's cleanup (the redirect going away, which happens
+when the router draws the folder's address) opens the panel one tick later; a second mount (React StrictMode in
+development) cancels an early one. `lib/backCloses.ts` and `Layout` are unchanged.
+
+Test: `web/test/unit/file-view-link.test.tsx` (the panel is first drawn when the folder's address is on screen, with
+the link's place; it failed on the old FileView: the panel was drawn while nothing of the files screen was there; a
+folder link opens no panel).
+
+On a local server (Chromium): at 390 px the link opens the file's preview (before: only the folder, reproduced on the
+same server); Back closes the preview and shows the folder; another Back goes to the page before. At 1440 px it opens
+as before. `bun run typecheck` (web), `check:i18n`, `check:docs` pass. In a run of several web test files,
+`phone-nav.test.tsx` "never pushes > no history state at all" fails after `back-closes.test.ts` and
+`phone-me-files.test.tsx`, also without this change (it passes alone); not touched here.
