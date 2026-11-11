@@ -1028,7 +1028,7 @@ export const ja: Record<MessageKey, string> = {
   "teamSettings.projectCreators": "メンバーがチームプロジェクトを作成できる",
   "teamSettings.row.projectCreatorsDesc": "オフにすると、チームプロジェクトを作成できるのはオーナーと管理者だけになります。個人プロジェクトは誰でも作成できます。",
   "teamSettings.oftenAsked": "チームでよくある質問を表示",
-  "teamSettings.row.oftenAskedDesc": "新しいチャットの入力欄の下に、同じグループやチームの何人かが尋ねた質問を、名前や数字を除いて言い換えて表示します。誰が尋ねたかは誰にもわかりません。1日1回、チームのAIを使います。",
+  "teamSettings.row.oftenAskedDesc": "新しいチャットの入力欄の下に、同じグループやチームの何人かが尋ねた質問を一般的な言葉で表示します。誰が尋ねたかは誰にもわかりません。1日1回チームのAIアカウントで作成します(ない場合は表示されません)。",
   'chat.sharedLabel': "共有チャット",
   'chat.shared': "共有チャット · プロジェクトの{n, plural, one {#人} other {#人}}が閲覧できます",
   'chat.footerShared': "AIは誤ることがあります。重要な情報は確認してください。プロジェクトの{n, plural, one {#人} other {#人}}がこのチャットを閲覧できます。",

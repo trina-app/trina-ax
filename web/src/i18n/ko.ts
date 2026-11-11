@@ -1052,7 +1052,7 @@ export const ko = {
   "teamSettings.projectCreators": "팀원이 팀 프로젝트를 만들 수 있음",
   "teamSettings.row.projectCreatorsDesc": "끄면 팀장과 관리자만 팀 프로젝트를 만들어요. 내 프로젝트는 누구나 만들 수 있어요.",
   "teamSettings.oftenAsked": "팀이 자주 묻는 질문 보여 주기",
-  "teamSettings.row.oftenAskedDesc": "새 채팅 입력창 아래에, 같은 부서나 팀에서 여러 명이 물은 질문을 이름·숫자 없이 다듬어 보여 줘요. 누가 물었는지는 아무도 몰라요. 하루 한 번 팀의 AI를 써요.",
+  "teamSettings.row.oftenAskedDesc": "새 채팅의 입력창 아래에, 같은 부서나 팀에서 여러 명이 물은 질문을 일반적인 말로 보여 줘요. 누가 물었는지는 아무도 몰라요. 하루 한 번 팀 AI 계정으로 만들어요(없으면 보이지 않아요).",
   'chat.sharedLabel': "공유 채팅",
   'chat.shared': "공유 채팅 · 프로젝트 사람 {n}명이 볼 수 있어요",
   'chat.footerShared': "AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 프로젝트 사람 {n}명이 이 채팅을 볼 수 있어요.",

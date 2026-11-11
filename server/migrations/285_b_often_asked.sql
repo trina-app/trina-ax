@@ -10,6 +10,11 @@
 --   group_member_since: since when each person is in a group (a question counts for a group only from then). Kept by
 --     triggers on group_members, so every way of adding someone is covered: a person removed and added back within
 --     10 seconds (one edit of the group, which deletes and adds every member) keeps the date; later, it starts again.
+--   group_count_from: a group counts no question from before its last real removal (someone taken out and not added
+--     back within 10 seconds), so shrinking a group around one person cannot single out what that person asked. The
+--     removal of someone still out is their row's left_at; this table keeps it once they are added back.
+--   chat_project_left: when a chat left a project (moved out, or its project deleted): what was typed while it was a
+--     project chat never counts, only what comes after.
 --   settings `oftenAsked.since`: only questions sent from then count (this build's first start; the time the switch
 --     was last turned on).
 -- Additive only (reader 1): an older build does not know the tables and never reads them; its group edits leave the
@@ -32,7 +37,24 @@ CREATE TABLE group_member_since (
 );
 INSERT INTO group_member_since (group_id, user_id, since)
   SELECT group_id, user_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM group_members;
+CREATE TABLE group_count_from (
+  group_id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+  since TEXT NOT NULL
+);
+CREATE TABLE chat_project_left (
+  chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+  left_at TEXT NOT NULL
+);
+CREATE TRIGGER chat_project_left_mark AFTER UPDATE OF project_id ON chats
+  WHEN OLD.project_id IS NOT NULL AND (NEW.project_id IS NULL OR NEW.project_id <> OLD.project_id) BEGIN
+  INSERT INTO chat_project_left (chat_id, left_at) VALUES (NEW.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  ON CONFLICT (chat_id) DO UPDATE SET left_at = excluded.left_at;
+END;
 CREATE TRIGGER group_member_since_add AFTER INSERT ON group_members BEGIN
+  INSERT INTO group_count_from (group_id, since)
+    SELECT NEW.group_id, left_at FROM group_member_since
+    WHERE group_id = NEW.group_id AND user_id = NEW.user_id AND left_at IS NOT NULL AND left_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 seconds')
+  ON CONFLICT (group_id) DO UPDATE SET since = max(group_count_from.since, excluded.since);
   INSERT INTO group_member_since (group_id, user_id, since) VALUES (NEW.group_id, NEW.user_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   ON CONFLICT (group_id, user_id) DO UPDATE SET
     since = CASE WHEN group_member_since.left_at IS NULL OR group_member_since.left_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 seconds')

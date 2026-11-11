@@ -40,7 +40,7 @@ export function oftenAskedSystemPrompt(locale: Locale): string {
     '',
     '## Each suggestion',
     `- In ${LANGUAGE[locale]}, one line, at most ${OFTEN_ASKED_TEXT_MAX} characters, written the way a person would type it to you ("Summarize this meeting note into action items").`,
-    "- Use words that the grouped lines share, and plain task words (summarize, write, translate, report, meeting, email). Never a name of a person, company, customer, product, project, place or chat room; never a number, date, file or folder name, link or placeholder; no quotes, brackets or emoji.",
+    "- Use only nouns that every line of the group has (as the lines write them), with plain verbs (summarize, write, translate, check). A word only some of the lines have makes the suggestion unusable. Never a name of a person, company, customer, product, project, place or chat room; never a number, date, file or folder name, link or placeholder; no quotes, brackets, symbols or emoji.",
     "- Leave out lines about one person's own life or about other people: health, pay, leaving a job, complaints about someone, legal or family matters, anything private. Leave out greetings, thanks, tests and lines that only make sense inside their chat.",
     '- A group needs at least 3 lines that ask for the same thing. Fewer, clearer groups are better; none is fine.',
     '- When a suggestion shown now still fits a group, keep its wording exactly.',

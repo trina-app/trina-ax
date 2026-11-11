@@ -45,9 +45,9 @@ type Skill = SkillInfo & { uses?: number }
 
 /** The skill's file in Files (its folder, the file selected). */
 export const skillFileLink = (path: string) => `/files?path=${encodeURIComponent(parentPath(path))}&select=${encodeURIComponent(path)}`
-/** A new chat with "/<name> " in the message box. */
 /** The text a skill row puts in the composer: the slash command and a space for the request. */
 export const skillPrompt = (name: string) => '/' + name + ' '
+/** A new chat with "/<name> " in the message box. */
 export const skillChatLink = (name: string) => `/?prompt=${encodeURIComponent(skillPrompt(name))}`
 
 /** The folder of a team or group skill below its skills root, when it sits in a subfolder ("general" for

@@ -10,8 +10,8 @@ import { newId } from '../../server/src/db'
 import { ChatStore } from '../../server/src/chat/store'
 import { setSetting, updateTeamSettings } from '../../server/src/admin/settings'
 import {
-  buildSnapshot, isAppPrompt, LAST_RUN_KEY, masker, oftenAskedFor, oftenAskedSwitched, passing, questionLine, readQuestions, SINCE_KEY, storeLists,
-  teamNames, type AiItem,
+  buildSnapshot, genericShape, isAppPrompt, LAST_RUN_KEY, masker, oftenAskedFor, oftenAskedSwitched, passing, questionLine, readQuestions, SINCE_KEY,
+  storeLists, teamNames, type AiItem,
 } from '../../server/src/chat/often-asked'
 
 const e = makeEnv('b-often-asked'), store = new ChatStore(e.db)
@@ -21,7 +21,7 @@ const PEOPLE = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']
 afterAll(() => e.db.close())
 
 beforeEach(() => {
-  for (const t of ['often_asked_items', 'slack_threads', 'safe_ops_chats', 'onboarding_file_ranks', 'turns', 'messages', 'chats', 'projects', 'room_members', 'rooms']) e.db.query(`DELETE FROM ${t}`).run()
+  for (const t of ['often_asked_items', 'slack_threads', 'safe_ops_chats', 'onboarding_file_ranks', 'chat_project_left', 'turns', 'messages', 'chats', 'projects', 'room_members', 'rooms', 'group_count_from']) e.db.query(`DELETE FROM ${t}`).run()
   e.db.query("DELETE FROM group_members WHERE group_id LIKE 'g-%'").run()
   e.db.query("DELETE FROM groups WHERE id LIKE 'g-%'").run()
   e.db.query("DELETE FROM users WHERE id LIKE 'p%'").run()
@@ -224,6 +224,103 @@ describe('the checks on the AI\'s answer', () => {
     ask('p4', '인수 검토 정리해 줘')
     const s2 = snap()
     expect(passing(s2, s2.audiences.find((a) => a.key === 'g-ops')!, [{ text: '인수 검토 정리해 줘', ids: idsOf(s2, '인수') }])).toHaveLength(1)
+  })
+})
+
+describe('the attacks the security review tried (each one must fail)', () => {
+  /** p1–p5 asked something, so the team has its 5 askers */
+  function floor() { for (const p of ['p1', 'p2', 'p3', 'p4', 'p5']) ask(p, '회의록 요약해 줘') }
+
+  test('a longer word never passes from a shorter one people typed ("Williams" from "will", "Salesforce" from "sales")', () => {
+    floor()
+    for (const p of ['p1', 'p2', 'p3']) { ask(p, 'will you write an email about the contract'); ask(p, 'sales contract proposal draft') }
+    const s = snap()
+    const a = team(s)
+    expect(passing(s, a, [{ text: 'Write an email to Williams about the contract', ids: idsOf(s, 'will') }])).toEqual([])
+    expect(passing(s, a, [{ text: 'Draft the Salesforce contract proposal', ids: idsOf(s, 'sales') }])).toEqual([])
+    // what they did type passes
+    expect(passing(s, a, [{ text: 'Write an email about the contract', ids: idsOf(s, 'will') }])).toHaveLength(1)
+  })
+
+  test('one person\'s topic never passes with others who only share a verb or another word', () => {
+    floor()
+    ask('p1', 'Update my resume for the job interview at Samsung'); ask('p2', 'Update the weekly report'); ask('p3', 'Update the price list')
+    ask('p1', '삼성 면접 이력서 수정해 줘'); ask('p2', '주간 보고서 수정해 줘'); ask('p3', '가격표 수정해 줘')
+    const s = snap()
+    const a = team(s)
+    expect(passing(s, a, [{ text: 'Update my resume for a job interview', ids: idsOf(s, 'Update') }])).toEqual([])
+    expect(passing(s, a, [{ text: '이력서 수정해 줘', ids: idsOf(s, '수정') }])).toEqual([])
+    // a sentence of verbs only says nothing: no item
+    expect(passing(s, a, [{ text: 'Update it', ids: idsOf(s, 'Update') }])).toEqual([])
+  })
+
+  test('given names, names written together, Japanese names and accents are masked and never pass', () => {
+    e.db.query("INSERT INTO users (id, username, name, role) VALUES ('p8', 'minsu', '김민수', 'member'), ('p9', 'seoyeon', '이 서연', 'member'), ('q1', 'tanaka', '田中 太郎', 'member'), ('q2', 'li', 'Li Wei', 'member'), ('q3', 'jgarcia', 'José García', 'member')").run()
+    const n = teamNames(e.db)
+    const mask = masker(n)
+    expect(mask('민수한테 메일 써 줘')).toBe('(person)한테 메일 써 줘')
+    expect(mask('이서연한테 보고서 보내 줘')).toBe('(person)한테 보고서 보내 줘')
+    expect(mask('田中にメールを書いて')).toBe('(person)にメールを書いて')
+    expect(mask('田中太郎さんへの返信')).toBe('(person)への返信')
+    expect(mask('Ask Li about it, do it now')).toBe('Ask (person) about it, do it now')
+    expect(mask('Email Jose Garcia today')).toBe('Email (person) today')
+    for (const text of ['민수한테 메일 써 줘', '이서연한테 보고서 보내 줘', '田中へのメールを作成', 'Email Jose about the report', 'Ask Li about the report'])
+      expect({ text, ok: genericShape(text, n) }).toEqual({ text, ok: false })
+    expect(genericShape('Ask the team about the report', n)).toBe(true)
+    e.db.query("DELETE FROM users WHERE id IN ('p8', 'p9', 'q1', 'q2', 'q3')").run()
+  })
+
+  test('invisible characters, emoji and symbols are never in a sentence', () => {
+    const n = teamNames(e.db)
+    for (const text of ['Sales​force 보고서 써 줘', '회의록 요약 😀', '회의록 → 요약', '회의록 요약 ①', '회의록 요약 $'])
+      expect({ text, ok: genericShape(text, n) }).toEqual({ text, ok: false })
+    expect(genericShape('회의록 요약해 줘', n)).toBe(true)
+  })
+
+  // (these two follow the real clock: the triggers stamp the time they run)
+  const ago = (days: number) => new Date(Date.now() - days * 86400_000).toISOString()
+  const realNow = () => new Date(Date.now() + 60_000)
+
+  test('a chat that was in a project counts only what came after it left', () => {
+    e.db.query("INSERT INTO projects (id, name, folder_path) VALUES ('pr1', 'Atlas', 'projects/atlas')").run()
+    const c = ask('p1', 'TYPED in the project', { chat: { project_id: 'pr1' }, at: ago(2) })
+    expect(readQuestions(e.db, realNow())).toEqual([])
+    // the project deleted (its chats set free) or the chat moved out: the old question still never counts
+    e.db.query('UPDATE chats SET project_id = NULL WHERE id = ?').run(c)
+    expect(readQuestions(e.db, realNow())).toEqual([])
+    const later = store.insertMessage({ chatId: c, content: 'TYPED after it left', parentId: (e.db.query('SELECT active_leaf_id AS id FROM chats WHERE id = ?').get(c) as { id: string }).id, authorId: 'p1', role: 'user', status: 'done' })
+    e.db.query('UPDATE messages SET created_at = ? WHERE id = ?').run(new Date(Date.now() + 1000).toISOString(), later)
+    e.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, user_message_id, client_kind) VALUES (?, ?, 'p1', 'claude-code', 'done', ?, 'web')").run(newId(), c, later)
+    e.db.query('UPDATE chats SET active_leaf_id = ?, updated_at = ? WHERE id = ?').run(later, new Date(Date.now() + 1000).toISOString(), c)
+    expect(readQuestions(e.db, realNow()).map((q) => q.content)).toEqual(['TYPED after it left'])
+  })
+
+  test('shrinking a group around one person restarts its count: what they asked before never counts there', () => {
+    group('g-x', 'X', ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], ago(10))
+    for (const p of ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']) ask(p, '연봉 자료 요약해 줘', { at: ago(5) })
+    const groupOf = () => buildSnapshot(e.db, e.files.rules(), { now: realNow(), random: () => 0.5 }).audiences.find((a) => a.key === 'g-x')!
+    expect(groupOf().entries).toHaveLength(6)
+    // one edit of the group (everyone deleted and added back at once) changes nothing
+    e.db.query("DELETE FROM group_members WHERE group_id = 'g-x'").run()
+    for (const p of ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']) e.db.query("INSERT INTO group_members (group_id, user_id) VALUES ('g-x', ?)").run(p)
+    expect(groupOf().entries).toHaveLength(6)
+    // p6 taken out for real (yesterday, not added back within 10 seconds): nothing from before counts for the group
+    e.db.query("DELETE FROM group_members WHERE group_id = 'g-x' AND user_id = 'p6'").run()
+    e.db.query("UPDATE group_member_since SET left_at = ? WHERE group_id = 'g-x' AND user_id = 'p6'").run(ago(1))
+    expect(groupOf().entries).toEqual([])
+    // added back later: the group still counts only from that removal
+    e.db.query("INSERT INTO group_members (group_id, user_id) VALUES ('g-x', 'p6')").run()
+    expect(e.db.query("SELECT COUNT(*) n FROM group_count_from WHERE group_id = 'g-x'").get()).toEqual({ n: 1 })
+    expect(groupOf().entries).toEqual([])
+  })
+
+  test('turned off and on while the AI wrote: what it was given is from before, nothing is stored', () => {
+    for (const p of ['p1', 'p2', 'p3', 'p4', 'p5']) ask(p, '회의록 요약해 줘')
+    const s = snap()
+    oftenAskedSwitched(e.db, false, NOW)
+    oftenAskedSwitched(e.db, true, new Date('2026-11-19T00:00:00.000Z'))
+    storeLists(e.db, s, [{ text: '회의록 요약해 줘', ids: idsOf(s, '회의록') }], NOW)
+    expect(e.db.query('SELECT COUNT(*) n FROM often_asked_items').get()).toEqual({ n: 0 })
   })
 })
 

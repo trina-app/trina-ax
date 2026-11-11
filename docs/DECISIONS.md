@@ -20902,13 +20902,15 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
 - **What counts.** Only what a person typed in the app (every turn of the message from the web, desktop or phone app)
   in their own AI chat, on its active branch, in the last 30 days, **and only since the switch was turned on** (this
   build's first start; turning it on again starts again). Never: project chats (own or shared; #355 makes their contents
-  members-only), room AI sessions, side chats (they quote other people's room messages), Slack threads, confidential
+  members-only; a chat moved out of a project, or freed when its project was deleted, counts only what came after:
+  `chat_project_left`, kept by a trigger), room AI sessions, side chats (they quote other people's room messages), Slack threads, confidential
   chats (and nothing while safe operations are on), scheduled runs and server-made requests (a skill merge), auto-sent
   messages, skill runs ("/name …"), the app's own prompts (one list of templates in five languages, checked against
   web/src/i18n), a sentence already on a list, deleted chats, disabled accounts. Only the first line that is not a quote,
   at most 200 characters (longer: pasted text). Masked before the AI sees it: links, emails, digit runs, secrets, `@`
-  mentions, people's names (full, Latin parts, a surname or given name with a title: "김 과장", "田中さん"), project names,
-  group chat names. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
+  mentions, people's names (full and written together, "이서연" for "이 서연"; every part of 2+ letters, so a Korean or
+  Japanese given name or surname alone, "민수", "田中"; Latin parts as whole words, 2-letter ones as written, accents
+  ignored; a one-letter surname with a title, "김 과장"), project names, group chat names. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
   line, at most 40 a person and 600 in all (taken in turns), in random order with meaningless ids; never who wrote it.
 - **The AI.** Once a day (from 05:00 team time, 20 h after the last; 28 h after it at any hour; a try waits 3 h), one
   call of the file list's reader (file-list/engine-reader.ts, `ReadOptions`): no tools, Haiku or Codex's nano/mini, a
@@ -20917,21 +20919,27 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   route can open. A failed call logs its kind only. It groups the lines and writes one sentence per group in the team's
   language, reusing a sentence shown now when it still fits; the answer is read defensively (known ids, strings).
 - **The server's checks** decide everything else, per audience (the team, each group), and drop a sentence rather than
-  repair it: (1) one line, 4–80 characters, no digit, link, email, `@`, `#`, path, file name, bracket or masked name;
-  (2) every word is on a fixed list (function words, plain task words in five languages) or typed by **3 or more
-  people of the audience** (Korean and Japanese by two-letter pieces after a known ending, others whole or by their
-  start), so a name one or two people typed, a transliteration, a translation or a longer form never passes; (3) **3 or
-  more different people** of the audience back it: a line of theirs in the item holds a word of the sentence that is not
-  a function word (the AI's grouping is a candidate only); (4) the people behind it, and behind each word, are not all
-  inside **one circle that leaves someone of the audience out** (a group, a team project's people by rule, a group
-  chat of 3+): three people of Sales make no item for the whole team.
+  repair it: (1) one line, at most 80 characters, letters, spaces and plain punctuation only (no digit, link, email,
+  `@`, `#`, path, file name, bracket, symbol, emoji or invisible character) and none of the masked names; (2) it has at
+  least one topic word: every word that is not a function word or a plain verb or manner word (fixed lists in five
+  languages, never a noun: "report", "resume", "회의록" are topics); (3) **3 or more different people** of the audience
+  typed **every** topic word of it in their own lines of the item (Korean and Japanese: the word, or without a known
+  ending, as it stands in their line; other languages: the word, its plural, or a longer word of theirs that starts
+  with it, never a shorter one: "Williams" never comes from "will", "Salesforce" never from "sales"), so a name one or
+  two people typed, a transliteration, a translation or a longer form never passes, and people who only share a verb
+  never back someone else's topic; (4) those people are not all inside **one circle that leaves someone of the
+  audience out** (a group, a team project's people by rule, a group chat of 3+): three people of Sales make no item for
+  the whole team. The AI's grouping is a candidate only; it is told to use only nouns every grouped line has.
 - **Enough people.** A group or the team has a list only when **5 or more of its members asked something** in the
   window (the review proposed 10; the owner chose 5); a list shows only with 3 or more items. A group counts a person's
   questions only from the day they joined (`group_member_since`, kept by triggers on `group_members`; one edit of a
-  group, which deletes and adds everyone at once, keeps the dates; someone added back later starts again).
+  group, which deletes and adds everyone at once, keeps the dates; someone added back later starts again), and nothing
+  from before its last real removal (`group_count_from`): shrinking a group around one person cannot single out what
+  they asked before.
 - **Lists change slowly.** An item that stops passing stays 3 days, then goes; that is also the longest a deleted chat
-  or a person who left stays behind, and a list no run renewed for 3 days is gone. Order: how many people backed it,
-  then the text (never time). Stored: the sentence, its audience, its place and when it last passed; never a person, a
+  or a person who left stays behind, and a list no run renewed for 3 days is gone. Order: the item's place on the day
+  it last passed (most people first), a held item keeping its own, so the order does not show which ones are fading.
+  Switched off and on while the AI wrote: nothing is stored from that call. Stored: the sentence, its audience, its place and when it last passed; never a person, a
   count or the material.
 - **Who sees which.** Read at request time: only a group's current members get its list; owners and admins get what
   they would get as members; no admin view of the lists or the lines. Not on a project's new chat, the demo screen or
@@ -20940,8 +20948,10 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   주기"), on by default. Off: every list deleted at once, the route answers nothing, no call, and what is sent while
   off never counts. **No personal switch**: nothing anyone typed is shown, and a switch on every person's screen would
   suggest it is.
-- **Known limits.** People who agree to ask the same thing can still learn a little about the others; the floor, the
-  hold, join dates and circles make it slow and vague, and group changes are in the activity log. The checks cannot read
+- **Known limits.** People who agree to ask the same thing can still learn a little about the others: in a group of 5,
+  two who type the same new question and watch whether it shows learn that a third person typed it too (any "3 or
+  more" rule allows this; the floor, the hold, join dates, removals restarting a group and circles make it slow and
+  vague, and group changes are in the activity log). The checks cannot read
   meaning: a sentence of words 3+ people share can still name a shared topic, and personal topics are left out by the
   instructions, not by a check. People who share something outside any group, project or group chat are not a circle.
   Everyone sees the sentences in the team's language.
@@ -20949,7 +20959,9 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   "suggested" list with a small heading, which the look follows. None mines co-workers' prompts (Microsoft 365 Copilot
   shares a prompt only when someone shares it), hence the stricter rules.
 - Tests: `tests/unit/b-often-asked.test.ts` (what counts, the masks, every check, circles, the floor, join dates, the
-  hold, who gets which, the switch), `b-often-asked-run.test.ts` (what the call is given, the answer, no chat, the
+  hold, who gets which, the switch, and every attack of the security review: longer words, one person's topic with
+  others' verbs, given names and names written together, invisible characters, chats that left a project, a shrunk
+  group, the switch flipped mid-call), `b-often-asked-run.test.ts` (what the call is given, the answer, no chat, the
   route, the admin switch), `b-often-asked-words.test.ts` (the app's prompts against web/src/i18n, how words are read);
   the route in the P4 matrix; web unit `home-no-ai`, `often-asked`, `team-prepared`; e2e `often-asked.spec.ts`.
 - Version impact: **minor** (a Home section, a team setting on by default, migration 285, two Home sections removed).
