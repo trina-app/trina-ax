@@ -106,6 +106,20 @@ const outbox = new Map<string, { chatId: string; clientMessageId: string; conten
  * cap the thread is simply reloaded from REST when the message appears.
  */
 const pending = new Map<string, Pending>()
+/**
+ * chatId -> the reload of its messages that is running (one per chat at a time). Answer text, steps and new messages
+ * that arrive meanwhile wait in `events` and are applied on top of the server's copy once it is in (overlap is cut by
+ * offset, ws.ts); without that, each piece after the copy was read looked like a gap and started yet another reload.
+ * `again`: newer data was asked for while it ran (a gap, a branch changed elsewhere, a reconnect), read once more.
+ */
+type Load = { promise: Promise<void>; events: ServerEvent[]; again: boolean }
+const loads = new Map<string, Load>()
+/** chatId -> local changes of the visible branch (a send, regenerate or edit answered, a branch switch): a reload that
+ * began before one is read again instead of used (it would take the new question and answer away) */
+const changes = new Map<string, number>()
+const changed = (chatId: string) => changes.set(chatId, (changes.get(chatId) ?? 0) + 1)
+/** a reload asked for again and again (the server keeps changing the branch) gives up after this many reads */
+const LOAD_ROUNDS = 3
 /** requests closed lately: a listTurnRequests answer computed before the close must not bring the card back */
 const closedRequests = new Set<string>()
 let generation = 0
@@ -193,7 +207,63 @@ export const useChats = create<ChatsState>((set, get) => {
   const markStale = (chatId: string) => {
     if (!get().threads[chatId]) return
     setThread(chatId, (t) => ({ ...t, stale: true }))
-    void get().loadThread(chatId)
+    load(chatId, true).catch(() => {})
+  }
+
+  /** One read of the thread from REST; false: a local change came in meanwhile, so its answer was not used. */
+  const readThread = async (chatId: string): Promise<boolean> => {
+    const session = generation, epoch = queueEpoch, change = changes.get(chatId) ?? 0
+    // open ask_user / browser site cards come with the thread: after a reload or a resync the events that opened
+    // them are not replayed, and the running turn would otherwise wait for an answer nobody can give
+    const before = new Set(Object.keys(get().requests))
+    const [page, open, queue] = await Promise.all([
+      api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE } }),
+      api.call(API.listTurnRequests, { params: { id: chatId } }).catch(() => null),
+      api.call(API.getChatQueue, { params: { id: chatId } }).catch(() => null),
+    ])
+    if (session !== generation) return true
+    if ((changes.get(chatId) ?? 0) !== change) return false
+    setThread(chatId, (t) => ({ messages: mergeFresh(t.messages, page.items), nextCursor: page.nextCursor, stale: false }))
+    flushPending(chatId, page.items.map((m) => m.id))
+    for (const m of thread(chatId).messages) if (m.role === 'assistant' && m.status !== 'streaming') { remember(finishedMessages, m.id); clearQueue(m.id) }
+    if (queue) acceptQueue(chatId, queue, epoch)
+    if (open) set((s) => ({ requests: mergeOpenRequests(s.requests, chatId, open.items, before) }))
+    return true
+  }
+
+  /** Reload a chat's messages, one reload per chat at a time; `fresh`: one already running is not new enough, so it
+   * reads once more when it is done (a missed piece, a reconnect). */
+  const load = (chatId: string, fresh: boolean): Promise<void> => {
+    const running = loads.get(chatId)
+    if (running) {
+      if (fresh) running.again = true
+      return running.promise
+    }
+    const session = generation
+    const l: Load = { promise: Promise.resolve(), events: [], again: false }
+    loads.set(chatId, l)
+    l.promise = (async () => {
+      try {
+        for (let round = 0; ; round++) {
+          l.again = false
+          const used = await readThread(chatId)
+          if (session !== generation || (used && !l.again) || round + 1 >= LOAD_ROUNDS) return
+        }
+      } finally {
+        if (loads.get(chatId) === l) loads.delete(chatId)
+        // what came over the socket meanwhile, on top of the server's copy (a piece still beyond it reloads again)
+        if (session === generation) for (const ev of l.events) get().handleEvent(ev)
+      }
+    })()
+    return l.promise
+  }
+  /** Events of a chat whose messages are being read: kept for after (true), or not (false). */
+  const held = (chatId: string, ev: ServerEvent) => {
+    const l = loads.get(chatId)
+    if (!l) return false
+    if (l.events.length < PENDING_EVENTS_MAX) l.events.push(ev)
+    else l.again = true
+    return true
   }
 
   const clearQueue = (messageId: string) => {
@@ -250,6 +320,7 @@ export const useChats = create<ChatsState>((set, get) => {
         steps: [...posted.steps.filter(s => !liveSteps.has(s.id)), ...existing.steps],
       } }
     }
+    changed(chatId)
     setThread(chatId, (t) => ({ ...t, messages: mergeTurnStarted(t.messages, started, o) }))
     // text or steps that raced ahead of this response mean the turn is already running: no queue position
     const early = pending.get(started.assistantMessage.id)
@@ -321,6 +392,8 @@ export const useChats = create<ChatsState>((set, get) => {
       outputMessages.clear()
       outbox.clear()
       pending.clear()
+      loads.clear()
+      changes.clear()
       closedRequests.clear()
       set(initial())
     },
@@ -354,22 +427,8 @@ export const useChats = create<ChatsState>((set, get) => {
       set((s) => ({ chats: s.chats.filter((c) => c.id !== id), others: id in s.others ? Object.fromEntries(Object.entries(s.others).filter(([k]) => k !== id)) : s.others }))
     },
 
-    async loadThread(chatId) {
-      const session = generation, epoch = queueEpoch
-      // open ask_user / browser site cards come with the thread: after a reload or a resync the events that opened
-      // them are not replayed, and the running turn would otherwise wait for an answer nobody can give
-      const before = new Set(Object.keys(get().requests))
-      const [page, open, queue] = await Promise.all([
-        api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE } }),
-        api.call(API.listTurnRequests, { params: { id: chatId } }).catch(() => null),
-        api.call(API.getChatQueue, { params: { id: chatId } }).catch(() => null),
-      ])
-      if (session !== generation) return
-      setThread(chatId, (t) => ({ messages: mergeFresh(t.messages, page.items), nextCursor: page.nextCursor, stale: false }))
-      flushPending(chatId, page.items.map((m) => m.id))
-      for (const m of thread(chatId).messages) if (m.role === 'assistant' && m.status !== 'streaming') { remember(finishedMessages, m.id); clearQueue(m.id) }
-      if (queue) acceptQueue(chatId, queue, epoch)
-      if (open) set((s) => ({ requests: mergeOpenRequests(s.requests, chatId, open.items, before) }))
+    loadThread(chatId) {
+      return load(chatId, false)
     },
 
     async loadOlder(chatId) {
@@ -440,6 +499,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       const page = await api.call(API.selectBranch, { params: { id: chatId }, body: { messageId } })
       if (session !== generation) return
+      changed(chatId)
       setThread(chatId, () => ({ messages: page.items, nextCursor: page.nextCursor, stale: false }))
     },
 
@@ -474,14 +534,14 @@ export const useChats = create<ChatsState>((set, get) => {
 
     async reloadAll() {
       const open = Object.keys(get().threads)
-      await Promise.allSettled([get().loadChats(true), ...open.map((id) => get().loadThread(id))])
+      await Promise.allSettled([get().loadChats(true), ...open.map((id) => load(id, true))])
     },
 
     handleEvent(ev) {
       switch (ev.type) {
         case 'message.created': {
           const { chatId, message } = ev.data
-          if (!get().threads[chatId]) return
+          if (held(chatId, ev) || !get().threads[chatId]) return
           const r = applyCreated(thread(chatId).messages, message)
           if (r === 'stale') markStale(chatId)
           else {
@@ -495,7 +555,7 @@ export const useChats = create<ChatsState>((set, get) => {
           const d = { messageId, offset, text, ...(reset ? { reset } : {}) }
           clearQueue(messageId)
           remember(outputMessages, messageId)
-          if (!get().threads[chatId]) return
+          if (held(chatId, ev) || !get().threads[chatId]) return
           const r = applyDelta(thread(chatId).messages, d)
           if (r.kind === 'applied') setThread(chatId, (t) => ({ ...t, messages: r.messages }))
           else if (r.kind === 'unknown') {
@@ -512,7 +572,7 @@ export const useChats = create<ChatsState>((set, get) => {
           const { chatId, messageId, step } = ev.data
           clearQueue(messageId)
           remember(outputMessages, messageId)
-          if (!get().threads[chatId]) return
+          if (held(chatId, ev) || !get().threads[chatId]) return
           const r = applyStep(thread(chatId).messages, messageId, step)
           if (r) setThread(chatId, (t) => ({ ...t, messages: r }))
           else {

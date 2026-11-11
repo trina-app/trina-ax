@@ -302,3 +302,146 @@ describe('robustness', () => {
     expect(calls.filter((c) => c.method === 'GET' && c.path === `/api/chats/${CHAT}/messages`).length).toBe(1)
   })
 })
+
+describe('reloads while an answer streams', () => {
+  const gets = () => calls.filter((c) => c.method === 'GET' && c.path === `/api/chats/${CHAT}/messages`).length
+  /** REST answers that wait until `open()`: the page is read at that moment */
+  function slowServer(page: () => unknown) {
+    const waiting: (() => void)[] = []
+    route = (_m, p) => {
+      if (p.endsWith('/requests')) return json({ items: [] })
+      if (p.endsWith('/queue')) return json({ state: 'idle', turnId: null, messageId: null, position: null })
+      return new Promise<Response>((r) => waiting.push(() => r(json(page()))))
+    }
+    return () => { for (const w of waiting.splice(0)) w() }
+  }
+  const delta = (seq: number, messageId: string, offset: number, text: string) =>
+    useChats.getState().handleEvent({ type: 'message.delta', seq, at: 0, data: { chatId: CHAT, messageId, offset, text } })
+
+  test('opening a chat while its answer streams: the pieces that arrive during the read are kept, one read only', async () => {
+    const a = msg({ role: 'assistant', status: 'streaming', content: '' })
+    let saved = 'Hello'
+    const open = slowServer(() => ({ items: [{ ...a, content: saved }], nextCursor: null }))
+    const loading = useChats.getState().loadThread(CHAT)
+    // the server saved "Hello" when it read the page; these went out meanwhile, the last one past the saved text
+    delta(1, a.id, 3, 'lo')
+    delta(2, a.id, 5, ' wor')
+    delta(3, a.id, 9, 'ld')
+    saved = 'Hello'
+    open()
+    await loading
+    await tick()
+    expect(useChats.getState().threads[CHAT]!.messages[0]!.content).toBe('Hello world')
+    expect(gets()).toBe(1)
+    expect(calls.length).toBe(3)
+  })
+
+  test('a gap during a reload that is running does not start a second one; the pieces are applied after it', async () => {
+    const a = msg({ role: 'assistant', status: 'streaming', content: 'ab' })
+    useChats.setState({ threads: { [CHAT]: { messages: [a], nextCursor: null, stale: false } } })
+    const open = slowServer(() => ({ items: [{ ...a, content: 'abcdef' }], nextCursor: null }))
+    delta(1, a.id, 4, 'ef') // gap: reload
+    await tick()
+    expect(gets()).toBe(1)
+    for (let i = 0; i < 5; i++) delta(2 + i, a.id, 6 + i, String(i)) // more pieces while it runs
+    await tick()
+    expect(gets()).toBe(1)
+    open()
+    await tick()
+    await tick()
+    expect(useChats.getState().threads[CHAT]!.messages[0]!.content).toBe('abcdef01234')
+    expect(gets()).toBe(1)
+    expect(calls.length).toBe(3)
+    expect(useChats.getState().threads[CHAT]!.stale).toBe(false)
+  })
+
+  test('a reload that answers after my send was answered is not used: the question and answer stay', async () => {
+    const u = msg({ role: 'user', content: 'first' })
+    const a = msg({ role: 'assistant', parentId: u.id, content: 'one' })
+    useChats.setState({ threads: { [CHAT]: { messages: [u, a], nextCursor: null, stale: false } } })
+    const s = started(a.id, 'second')
+    let afterSend = false
+    const waiting: (() => void)[] = []
+    route = (m, p) => {
+      if (m === 'POST') return json(s, 202)
+      if (p.endsWith('/requests')) return json({ items: [] })
+      if (p.endsWith('/queue')) return json({ state: 'idle', turnId: null, messageId: null, position: null })
+      const items = afterSend ? [u, a, s.userMessage!, s.assistantMessage] : [u, a]
+      return new Promise<Response>((r) => waiting.push(() => r(json({ items, nextCursor: null }))))
+    }
+    const loading = useChats.getState().loadThread(CHAT) // slow: read before the send
+    await useChats.getState().send({ chatId: CHAT, content: 'second', attachments: [], author: me })
+    await tick()
+    afterSend = true
+    for (const w of waiting.splice(0)) w() // the old read answers late
+    await tick()
+    expect(useChats.getState().threads[CHAT]!.messages.map((m) => m.id)).toEqual([u.id, a.id, s.userMessage!.id, s.assistantMessage.id])
+    for (const w of waiting.splice(0)) w() // it read again, now with the new messages
+    await loading
+    expect(useChats.getState().threads[CHAT]!.messages.map((m) => m.id)).toEqual([u.id, a.id, s.userMessage!.id, s.assistantMessage.id])
+    expect(gets()).toBe(2)
+  })
+
+  test('a branch switch is not undone by a reload that was on its way', async () => {
+    const u = msg({ role: 'user', content: 'q' })
+    const other = msg({ role: 'assistant', parentId: u.id, content: 'other branch' })
+    const old = msg({ role: 'assistant', parentId: u.id, content: 'old branch' })
+    useChats.setState({ threads: { [CHAT]: { messages: [u, old], nextCursor: null, stale: false } } })
+    let switched = false
+    const waiting: (() => void)[] = []
+    route = (m, p) => {
+      if (m === 'POST') { switched = true; return json({ items: [u, other], nextCursor: null }) }
+      if (p.endsWith('/requests')) return json({ items: [] })
+      if (p.endsWith('/queue')) return json({ state: 'idle', turnId: null, messageId: null, position: null })
+      const items = switched ? [u, other] : [u, old]
+      return new Promise<Response>((r) => waiting.push(() => r(json({ items, nextCursor: null }))))
+    }
+    const loading = useChats.getState().loadThread(CHAT) // read before the switch: the old branch
+    await tick()
+    await useChats.getState().selectBranch(CHAT, other.id)
+    await tick()
+    for (const w of waiting.splice(0)) w()
+    await tick()
+    for (const w of waiting.splice(0)) w()
+    await loading
+    expect(useChats.getState().threads[CHAT]!.messages.map((m) => m.id)).toEqual([u.id, other.id])
+  })
+
+  test('my own question and its answer coming over the socket do not reload the chat, and older messages stay', async () => {
+    const older = msg({ role: 'user', content: 'older' })
+    const a = msg({ role: 'assistant', parentId: older.id, content: 'one' })
+    useChats.setState({ threads: { [CHAT]: { messages: [older, a], nextCursor: 'more', stale: false } } })
+    const s = started(a.id, 'two')
+    const user = { ...s.userMessage!, author: { id: me.id, name: me.name } }
+    let release!: () => void
+    route = () => new Promise<Response>((r) => (release = () => r(json({ ...s, userMessage: user }, 202))))
+    await useChats.getState().send({ chatId: CHAT, content: 'two', attachments: [], author: me })
+    const h = useChats.getState().handleEvent
+    // the server's events come before the POST's answer
+    h({ type: 'message.created', seq: 1, at: 0, data: { chatId: CHAT, message: user } })
+    h({ type: 'message.created', seq: 2, at: 0, data: { chatId: CHAT, message: s.assistantMessage } })
+    h({ type: 'message.delta', seq: 3, at: 0, data: { chatId: CHAT, messageId: s.assistantMessage.id, offset: 0, text: 'Hi' } })
+    let t = useChats.getState().threads[CHAT]!
+    expect(t.messages.map((m) => m.id)).toEqual([older.id, a.id, user.id, s.assistantMessage.id])
+    expect(t.messages.at(-1)!.content).toBe('Hi')
+    release()
+    await tick()
+    t = useChats.getState().threads[CHAT]!
+    expect(t.messages.map((m) => m.id)).toEqual([older.id, a.id, user.id, s.assistantMessage.id])
+    expect(t.messages.at(-1)!.content).toBe('Hi')
+    expect(t.nextCursor).toBe('more')
+    expect(calls.filter((c) => c.method === 'GET')).toEqual([])
+  })
+
+  test('a message from another device after one I am still sending goes after the last saved one, no reload', () => {
+    const a = msg({ role: 'assistant', content: 'one' })
+    useChats.setState({ threads: { [CHAT]: { messages: [a], nextCursor: null, stale: false } } })
+    route = () => new Promise<Response>(() => {})
+    void useChats.getState().send({ chatId: CHAT, content: 'mine', attachments: [], author: me })
+    const there = msg({ role: 'user', parentId: a.id, content: 'from the phone', author: { id: me.id, name: me.name } })
+    useChats.getState().handleEvent({ type: 'message.created', seq: 1, at: 0, data: { chatId: CHAT, message: there } })
+    const t = useChats.getState().threads[CHAT]!
+    expect(t.messages.map((m) => m.content)).toEqual(['one', 'from the phone', 'mine'])
+    expect(calls.filter((c) => c.method === 'GET')).toEqual([])
+  })
+})
