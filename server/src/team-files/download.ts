@@ -1,7 +1,16 @@
 // Streaming downloads with Range (tab 4 "다운로드").
-// - Whole file: the body is Bun.file(path). Bun.serve sends it with sendfile (measured: 600 MB to a slow client at
-//   ~30 MB RSS, while a pull ReadableStream reached 1.6 GB because Bun.serve has no backpressure), and the relay
-//   client reads it lazily in 256 KB pieces.
+// - Whole file (and a resumed download to the end, routes/downloads.ts): fileBody(). On Linux the body is
+//   Bun.file(path), which Bun.serve sends with sendfile (measured: 600 MB to a slow client at ~30 MB RSS, while a pull
+//   ReadableStream reached 1.6 GB because Bun.serve has no backpressure), and the relay client reads it lazily in
+//   256 KB pieces. Elsewhere (macOS: the office Mac, dev) never sendfile: XNU's sendfile allocates its buffers (M_WAIT)
+//   and reads the file into them before it looks at the socket's non-blocking flag, so a slow client of a file that is
+//   not in memory parked the server's only JS thread in the kernel (QA TC-222: /api/health unanswered for 352 s,
+//   `sample` in sendfile, state U). Bun 1.4 stopped using it on macOS for this reason (oven-sh/bun#33728). There a file
+//   up to WHOLE_MAX is read whole on Bun's thread pool (an in-memory body keeps its Content-Length: Bun 1.3.12 drops
+//   the header of a stream body and sends it chunked; it is what Bun itself does for a Bun.file body over TLS, the
+//   office Mac's LAN listener), a bigger one goes as our pull stream. The cost on Bun 1.3.12, which has no backpressure
+//   for either: what a slow client has not taken yet stays in memory (at most the file, freed when the download ends
+//   or the client leaves). Bun 1.4 applies backpressure to stream bodies.
 // - Range: Bun 1.3.12 mishandles Bun.file().slice() bodies once anything reads response.body (the stream runs past
 //   the slice end; slice().stream() never ends) — both happen on the relay path. So a range is served from our own
 //   pull stream over [start, end], and one response carries at most RANGE_MAX bytes (Content-Range says what was
@@ -16,16 +25,23 @@ import { mimeOf } from './service'
 
 export const RANGE_MAX = 8 * 1024 * 1024
 const READ = 256 * 1024
+/** pieces of a whole-file stream and of a whole read: fewer reads for hundreds of MB */
+const WHOLE_READ = 1024 * 1024
+/** without sendfile (macOS), a body up to this size is read whole, so it keeps its Content-Length (see the top) */
+export const WHOLE_MAX = 256 * 1024 * 1024
 
-/** Exactly bytes [start, end] of a file, read on demand. */
-export function rangeStream(abs: string, start: number, end: number): ReadableStream<Uint8Array> {
+/** Bun.file bodies (sendfile) only where sendfile cannot block the JS thread: Linux (see the top of this file). */
+export const SENDFILE = process.platform === 'linux'
+
+/** Exactly bytes [start, end] of a file, read on demand (on Bun's thread pool: the JS thread never waits on the disk). */
+export function rangeStream(abs: string, start: number, end: number, piece = READ): ReadableStream<Uint8Array> {
   let fd: number | null = null
   let pos = start
   const close = () => { if (fd !== null) { try { fs.closeSync(fd) } catch {} fd = null } }
   return new ReadableStream<Uint8Array>({
     start() { fd = openChecked(abs).fd },
     pull(ctl) {
-      const want = Math.min(READ, end + 1 - pos)
+      const want = Math.min(piece, end + 1 - pos)
       if (want <= 0 || fd === null) { close(); ctl.close(); return }
       const buf = new Uint8Array(want)
       return new Promise<void>((res, rej) => fs.read(fd!, buf, 0, want, pos, (err, n) => {
@@ -39,6 +55,29 @@ export function rangeStream(abs: string, start: number, end: number): ReadableSt
     },
     cancel() { close() },
   })
+}
+
+/**
+ * The body for bytes [start, size - 1] of a file: the whole file (start 0) or a download resumed to its end. Linux:
+ * Bun.file (sendfile, constant memory). Elsewhere (see the top): read whole up to WHOLE_MAX, else our stream, so a slow
+ * client cannot stop the server. `size` is the size the caller put in Content-Length; the body never runs past it.
+ */
+export async function fileBody(abs: string, start: number, size: number, o: { sendfile?: boolean; wholeMax?: number } = {}): Promise<Blob | Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>> {
+  if (o.sendfile ?? SENDFILE) return start === 0 ? Bun.file(abs) : Bun.file(abs).slice(start)
+  if (size - start > (o.wholeMax ?? WHOLE_MAX)) return rangeStream(abs, start, size - 1, WHOLE_READ)
+  const { fd } = openChecked(abs)
+  try {
+    const buf = new Uint8Array(size - start)
+    let got = 0
+    while (got < buf.length) {
+      const n = await new Promise<number>((res, rej) => fs.read(fd, buf, got, Math.min(WHOLE_READ * 8, buf.length - got), start + got, (err, k) => err ? rej(err) : res(k)))
+      if (n === 0) break
+      got += n
+    }
+    return got === buf.length ? buf : buf.subarray(0, got)
+  } finally {
+    fs.closeSync(fd)
+  }
 }
 
 /** Types a browser would run (scripts of every name: JavaScript, ECMAScript, JScript, LiveScript; active documents: HTML,
@@ -68,7 +107,7 @@ export function parseRange(h: string | null | undefined, size: number): { start:
   return { start, end }
 }
 
-export function streamFile(o: { abs: string; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string }): Response {
+export async function streamFile(o: { abs: string; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string }): Promise<Response> {
   const { fd, st } = openChecked(o.abs)
   fs.closeSync(fd)
   const size = st.size
@@ -94,10 +133,9 @@ export function streamFile(o: { abs: string; name: string; req: Request; disposi
     headers.set('Content-Range', `bytes */${size}`)
     throw new HttpError('range_not_satisfiable', undefined, { status: 416 })
   }
-  const file = Bun.file(o.abs)
   if (!range) {
     headers.set('Content-Length', String(size))
-    return new Response(o.req.method === 'HEAD' || size === 0 ? null : file, { status: 200, headers })
+    return new Response(o.req.method === 'HEAD' || size === 0 ? null : await fileBody(o.abs, 0, size), { status: 200, headers })
   }
   const end = Math.min(range.end, range.start + RANGE_MAX - 1)
   headers.set('Content-Range', `bytes ${range.start}-${end}/${size}`)

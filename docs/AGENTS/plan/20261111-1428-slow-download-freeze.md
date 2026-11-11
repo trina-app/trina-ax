@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:28
 - Branch: `fix/slow-download-freeze`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/team-files/download.ts`, `server/src/routes/downloads.ts`; tests; DECISIONS C).
   Why: the file download path of the core, used by every edition.
 - Version impact: patch; no API or data change (same status codes, headers and bytes)
@@ -32,17 +32,21 @@ its bytes slowly and everyone else is served normally.
 
 ## Change
 
-1. `fileBody(abs, start, size)` in `team-files/download.ts`: on Linux `Bun.file` (sendfile, constant memory) as now;
-   elsewhere (macOS) our pull stream over `[start, size-1]`, read on Bun's thread pool in 1 MB pieces, so the JS
-   thread never waits in the kernel.
+1. `fileBody(abs, start, size)` in `team-files/download.ts`: on Linux `Bun.file` (sendfile, constant memory) as now.
+   Elsewhere (macOS) never sendfile: a file up to 256 MB (`WHOLE_MAX`) is read whole on Bun's thread pool and sent
+   from memory, which keeps its Content-Length (Bun 1.3.12 drops the Content-Length of a stream body and sends it
+   chunked; this is what Bun already did for a `Bun.file` body over TLS, the office Mac's LAN listener); a bigger file
+   goes as our pull stream in 1 MB pieces. The JS thread never waits in the kernel.
 2. `streamFile` (downloads, previews, versions, room files, intro deck, promo video) and `routes/downloads.ts`
    (desktop installers, 110-200 MB, often through the office tunnel) use it for whole files and to-the-end ranges.
+   Both are async now (callers already await them; tests of `serveDownload` too).
 3. Comments and DECISIONS C ("Bun 1.3.12 함정") say why and what it costs.
 
 Trade-off on macOS: without backpressure in Bun 1.3.12, the bytes a slow client has not taken yet stay in the server's
-memory (at most the file's size per download, freed when it ends or the client leaves). That replaces a freeze of the
-whole server. Over TLS it is less than today (Bun read every file whole). The real cure is Bun 1.4 (stream bodies with
-backpressure, no `sendfile` on macOS); then this stream needs no change. A Bun upgrade is the release owner's call.
+memory (at most the file's size per download, freed when it ends or the client leaves); files over 256 MB go chunked
+on a direct connection (no size in the browser's download list; through the relay the size is kept). That replaces a
+freeze of the whole server. The real cure is Bun 1.4 (stream bodies with backpressure, no `sendfile` on macOS); then
+the stream needs no change. A Bun upgrade is the release owner's call.
 
 Out: `web-static.ts` (app files, a few MB, read on every page load so in memory) keeps `Bun.file`; noted in the PR.
 
@@ -66,4 +70,16 @@ No migration, no API change. Linux unchanged. macOS: memory as above; throughput
 
 ## Result
 
-(filled in at the end)
+Built as in Change. Differences from the first plan: a pure stream lost the Content-Length on direct connections
+(found by the new test), so files up to 256 MB are read whole instead.
+
+Checked on a local dev server (macOS, Bun 1.3.12):
+- Before (earlier in the day, a Mac under memory pressure): cold 900 MB file, `curl --limit-rate 1M` direct for 25 s:
+  the client got 0 bytes, `/api/health` timed out for 352 s, the main thread sat in `sendfile`. After the reboot the
+  same run no longer froze the unchanged server (the trigger needs the kernel short of memory), so the "after" below
+  shows the new path works, not a fresh fail-before.
+- After: the same slow download of a new cold 900 MB file: 26 MB in 25 s, 75 health probes, max 181 ms; server memory
+  peaked at 964 MB and went back to 80 MB when the client left. Fast direct downloads: 900 MB in 1.1 s (chunked),
+  400 MB in 0.5 s, 200 MB in 0.27 s with Content-Length; sha256 equal. Through the relay: Content-Length kept, sha256
+  equal, a 1 MB/s download kept the server at 56-123 MB. HEAD keeps Content-Length.
+- Unit: `tests/unit/file-body.test.ts` (new) and the 53 test files that touch the download routes: 1046 pass.
