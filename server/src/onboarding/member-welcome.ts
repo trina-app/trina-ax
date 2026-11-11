@@ -3,7 +3,7 @@
 //
 // recordJoin runs once for every way someone joins a team that exists: the team link (auth/team-links.ts), a
 // single-use invite (auth/accounts.ts) and an admin's "Add directly" (admin/users.ts). It only keeps who invited them
-// and when (member_welcome, migration 342). The "{name} joined the team" line in the everyone room and the owners'
+// and when (member_welcome, migration 284). The "{name} joined the team" line in the everyone room and the owners'
 // team.joined notice are dev's (rooms/service.ts memberJoined, notifications/service.ts notifyTeamJoined; docs/DECISIONS.md
 // "A new member is told to the team"): an invite and the team link send them at the join. For "Add directly" they wait
 // for the person's first successful sign-in (firstSignIn, from auth/service.ts signIn), once: an account made by an

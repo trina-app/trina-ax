@@ -21388,7 +21388,7 @@ extended to "Add directly"), no admin-written welcome message yet, the photo row
 rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-welcome.md`.
 
 - **Who gets the card.** Someone who joined with a team link, a single-use invite or an admin's "Add directly"
-  (`member_welcome`, migration 342: invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at, added_by,
+  (`member_welcome`, migration 284: invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at, added_by,
   announced_at), written at
   the join (`onboarding/member-welcome.ts recordJoin`). Admins who were invited get it too: they are new people as well.
   Never the team's creator (their start is the welcome steps) and nobody who joined before this release. Never an
@@ -21460,4 +21460,4 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   `member-welcome.test.tsx` (the rows and done states, the inviter line with and without, say hi, ask, all set, Hide,
   a phone, no AI: tell the owner once, connect my own, the row back when AI answers; first names; the join title; the ✦
   line once).
-- Version impact: **minor** (a new endpoint, migration 342 and a visible change on an invited person's first screen).
+- Version impact: **minor** (a new endpoint, migration 284 and a visible change on an invited person's first screen).
