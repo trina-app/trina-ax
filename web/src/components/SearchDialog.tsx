@@ -412,12 +412,14 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]
     const m = ok(mcp)
-    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: '/settings/connectors?add=1' })
+    // owners and admins go straight to the add-by-address form; a member to the page, which lists the services to
+    // connect (the form is an admin's job). "MCP" and the page's name still find it.
+    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin ? '/settings/connectors?add=1' : '/settings/connectors', terms: `MCP ${t('integrations.title')}` })
     list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0
     list.push({
-      key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/settings/notifications', terms: `${t('inbox.title')} ${t('notifications.title')}`,
+      key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/activity', terms: `${t('inbox.title')} ${t('notifications.title')}`,
       sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,
     })
     // the team menu's items (owners and admins), found by their words: "Invite teammates", "Members & invites" too

@@ -129,7 +129,7 @@ export function cardNext(end: CardEnd, where = 'in a chat'): string {
 type L5 = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): L5 => ({ ko, en, id, ja, es })
 // the web app's own labels (web/src/i18n: sidebar.files, files.trash, sidebar.settings, admin.title, admin.folders,
-// admin.groups, rooms.title, sideChat.open)
+// admin.groups, rooms.title, sideChat.open, integrations.title)
 const LABEL = {
   files: t('파일', 'Files', 'File', 'ファイル', 'Archivos'),
   trash: t('휴지통', 'Trash', 'Sampah', 'ゴミ箱', 'Papelera'),
@@ -139,6 +139,7 @@ const LABEL = {
   groups: t('부서', 'Groups', 'Grup', 'グループ', 'Grupos'),
   rooms: t('대화', 'Conversations', 'Percakapan', 'トーク', 'Conversaciones'),
   sideChat: t('✦ {name}에게 따로 묻기', '✦ Ask {name} privately', '✦ Tanya {name} secara pribadi', '✦ {name}に個別に質問', '✦ Preguntar a {name} en privado'),
+  connected: t('연결한 서비스', 'Connected apps', 'Aplikasi terhubung', '連携サービス', 'Apps conectadas'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
 const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA')
@@ -147,8 +148,9 @@ const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'ト�
 export const SCREEN = {
   files: (L: Locale) => `the Files screen ("${LABEL.files[L]}")`,
   trash: (L: Locale) => `the Files screen's trash ("${LABEL.files[L]} › ${LABEL.trash[L]}")`,
-  settingsMcp: (L: Locale) => `Settings › MCP ("${LABEL.settings[L]} › MCP")`,
-  adminMcp: (L: Locale) => `Admin › MCP ("${LABEL.admin[L]} › MCP")`,
+  // the connections pages ("MCP" before #289; one name in Settings and Admin since the plain-words change)
+  settingsMcp: (L: Locale) => `Settings › Connected apps ("${LABEL.settings[L]} › ${LABEL.connected[L]}")`,
+  adminMcp: (L: Locale) => `Admin › Connected apps ("${LABEL.admin[L]} › ${LABEL.connected[L]}")`,
   adminFolders: (L: Locale) => `Admin › Folder permissions ("${LABEL.admin[L]} › ${LABEL.folders[L]}")`,
   adminGroups: (L: Locale) => `Admin › Groups ("${LABEL.admin[L]} › ${LABEL.groups[L]}")`,
   adminSettings: (L: Locale) => `Admin ("${LABEL.admin[L]}")`,

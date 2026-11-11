@@ -28,7 +28,7 @@ Saram/chat-proto 12개 명시 파일과 ee/cloud는 [PUBLICATION](PUBLICATION.md
 
 AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 코드(`server/src/files/hwpx-write.ts`, `hwpx-template.ts`, `hwpx-check.ts`, `zip-write.ts`)가 쓴다. 제3자 코드·서식 파일·문서를 넣지 않았고 새 의존성도 없다(XML 검사는 기존 `saxes`, zip 읽기는 기존 SheetJS). 한컴의 공개 OWPML(KS X 6101)·HWP 문서와 한글이 저장한 파일의 구조를 참고했고, python-hwpx(Apache-2.0)와 pypandoc-hwpx(MIT)는 파일 구조의 선례로 읽기만 했다. 한컴 공개 문서 참고 문구와 상표 안내는 [NOTICE](../NOTICE)에 있다. 기본 서식이 이름으로 가리키는 글꼴(함초롬바탕·함초롬돋움)은 파일에 넣지 않는다: 문서를 여는 한글이 가진 글꼴을 쓴다. 이미 있는 .hwpx를 채우는 편집기(edit_hwp, 2026-11-03)도 이 저장소의 코드(`server/src/files/hwpx-edit.ts`, `zip-write.ts`의 읽기)이고 새 의존성이 없다. .hwp(HWP 5.x)를 채우는 편집기(같은 도구, 2026-11-03)도 이 저장소의 코드(`server/src/files/hwp-edit.ts`, `hwp-changes.ts`, 복합 파일을 읽고 쓰는 `cfb.ts`)다. 새 의존성이 없다(압축은 Node의 zlib, 읽기 대조는 기존 SheetJS). 한컴의 공개 HWP 5.0 문서와 한글이 저장한 파일의 구조를 참고했다. 시험에 쓴 한글 저장 견본(hwplib의 sample_hwp, Apache-2.0, 법령정보센터의 법령 별지 서식)은 저장소에 넣지 않았고, `MYCEL_HWP_SAMPLES`로 폴더를 줄 때만 읽는다. hwplib의 코드는 읽지도 가져오지도 않았다. 고친 문단의 줄 배치 캐시(`hp:linesegarray`)를 지우는 이유는 python-hwpx(Apache-2.0)의 문서에서 읽었고, 코드는 가져오지 않았다. 테스트 문서는 테스트 코드가 만든 가상의 문서다.
 
-앱 웹 번들의 React/KaTeX/pdf.js/Office/viewer/vendor/폰트, 서버의 web-push와 semantic runtime, desktop의 Electron/Chromium 등은 최종 artifact에서 실제 포함 버전·전이 구성요소를 확정해야 한다. lockfile/단일 SPDX metadata만으로 모든 저작권 문구·복합 라이선스를 대체하지 않는다. JSZip의 선택형 허락, pako의 복합 허락, libvips의 별도 LGPL 및 linked library 고지도 구분한다.
+앱 웹 번들의 React/KaTeX/pdf.js/Office/viewer/vendor/폰트, 서버의 web-push, desktop의 Electron/Chromium 등은 최종 artifact에서 실제 포함 버전·전이 구성요소를 확정해야 한다. lockfile/단일 SPDX metadata만으로 모든 저작권 문구·복합 라이선스를 대체하지 않는다. JSZip의 선택형 허락, pako의 복합 허락, libvips의 별도 LGPL 및 linked library 고지도 구분한다.
 
 최종 release에는 파일/패키지·버전·출처 revision·SHA·허락 원문·저작권·수정 내역·선택한 제공 방식이 연결된 목록과 고지 묶음을 넣는다. 필요한 대응 소스·설치/재링크 자료를 보존하고 실제 zip/tar/app/image/web output에 포함되는지 검사한다.
 
@@ -41,7 +41,8 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
   받음, 목록은 mcpservers.org 기준"이었고 `docs/INTEGRATIONS.md`는 "svgl.app과 Simple Icons"만 적었다. 커밋 메시지와 PR
   본문에는 출처가 없다. 어느 파일이 어디서 왔는지는 어디에도 기록되지 않았다.
 - 그래서 처음 넣은 39개 중 출처가 확인된 파일은 0개, 미확인 39개다. 2026-11-05에 더한 `google-drive.svg`(앱 커넥터의
-  Google Drive)와 `claude.svg`(앱 커넥터의 Claude·Claude Code)는 받은 곳과 날짜를 표에 적었다. 그중 13개는 파일 형식(`role="img"`,
+  Google Drive)와 `claude.svg`(앱 커넥터의 Claude·Claude Code), 2026-11-11에 더한 `codex.svg`(AI 앱의 Codex)는 받은 곳과 날짜를
+  표에 적었다. 그중 13개는 파일 형식(`role="img"`,
   `viewBox="0 0 24 24"`, 서비스 이름의 `<title>`, 한 가지 `fill` 색)이 Simple Icons의 배포 형식과 같다. 이것은 추정이고
   출처 확인이 아니다. `higgsfield.png`, `monday.png`, `calendly.svg`를 포함한 나머지는 파일에서도 단서가 없다.
 - 이용 조건은 출처를 알아야 적을 수 있어서 모두 "미확인"이다. 출처와 무관하게 각 로고는 그 소유자의 상표다.
@@ -60,6 +61,7 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | `clickup.svg` | 미확인 | 미확인 | viewBox `0 0 64 64`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudflare.svg` | 미확인 | 미확인 | viewBox `0 0 256 116`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudinary.svg` | 미확인 | 미확인 | viewBox `0 0 256 168`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `codex.svg` | https://svgl.app/library/codex_light.svg (2026-11-11 받음; `style`·`width`·`height` 속성만 뺌) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Codex 로고는 OpenAI의 상표이고 OpenAI 브랜드 지침을 따른다 | viewBox `0 0 24 24`; `<title>Codex</title>`; 한 가지 `fill`(`#111`) path, 스크립트·외부 참조 없음; Settings › AI apps와 Admin › AI apps의 Codex에 쓴다 |
 | `figma.svg` | 미확인 | 미확인 | viewBox `0 0 54 80`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `gitlab.svg` | 미확인 | 미확인 | viewBox `0 0 32 32`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `google-drive.svg` | https://svgl.app/library/drive.svg (2026-11-05 받음) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Google Drive 로고는 Google의 상표이고 Google 브랜드 지침을 따른다 | viewBox `0 0 87.3 78`; 여섯 색 path, 스크립트·외부 참조 없음; Settings › App connectors와 Admin › App connectors의 Google Drive에 쓴다 |

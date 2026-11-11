@@ -112,7 +112,6 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
   'server/src/connectors/remote-mcp/upload.ts': { why: "the Korean name of the app's 팀 스킬 page, quoted in English text for an outside AI (not screen text)", also: /\(팀 스킬\)/ },
   'server/src/connectors/remote-mcp/guide.ts': { why: "the Korean name of the app's 팀 스킬 page, quoted in English text for an outside AI (not screen text)", also: /\(팀 스킬\)/ },
-  'server/src/knowledge-graph/documents/index.ts': { why: 'Korean particles, fillers and endings the document search drops or matches with words (not screen text)', also: /^(const (KO_FORMS|HANGUL_WORD|HANGUL_RE|ASK_KO|KO_PAST|KO_END|KO_END_NOUNISH) = |\s+'[가-힣 ]+'( \+|\)\.split\(' '\)\))$|\s+'이고', |.*\/\^\[ㄱ-ㆎᄀ-ᇿ\]\+\$\/)/ },
   'server/src/chat/schedule-templates.ts': { why: 'template schedule names and the instruction the AI is given (ko next to en/id/ja/es)' },
   'server/src/devenv/jobs.ts': { why: 'dev environment job and box stop notices (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
@@ -212,7 +211,6 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
   'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
   'server/src/chat/project-members.ts': { why: 'the members card\'s words (ko next to en/id/ja/es), and the Korean particles that may follow a name in the person\'s own words (a word list the red mark\'s check matches, not screen text), the honorifics and group words a name given may end with (word lists the name match strips, not screen text)', also: /^const (PARTICLE|HONORIFICS|GROUP_WORDS) = / },
-  'server/src/knowledge-graph/documents/text.ts': { why: 'Korean particles, endings, stopwords and generic document titles for the knowledge graph\'s search tokenizer, and its Hangul range (word lists, not screen text)', also: /^const (HANGUL|KO_SUFFIX) = |^\s+'[^']*'(, '[^']*')*(,|\]\)?)$/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

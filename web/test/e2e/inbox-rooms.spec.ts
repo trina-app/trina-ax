@@ -49,7 +49,7 @@ test('a thread row says who and where with the newest line and the count; a clic
   await signIn(page)
   const state = await routeInbox(page)
   await routeThread(page)
-  await page.goto('/settings/notifications')
+  await page.goto('/activity')
   const rows = page.getByTestId('notification-room-row')
   await expect(rows).toHaveCount(5)
   const first = rows.first()
@@ -72,11 +72,13 @@ test('a thread row says who and where with the newest line and the count; a clic
   await expect(run).toHaveAttribute('href', `/c/${id(500)}`)
   await expect(run.getByTestId('notification-text')).toHaveText('"주간 보고서 정리" 예약 작업이 끝났어요.')
   await expect(run.locator('time')).toBeVisible()
-  await expect(page.getByTestId('notifications-inbox')).not.toContainText('결과 열기')
+  await expect(page.getByTestId('activity')).not.toContainText('결과 열기')
   await expect(page.getByRole('link', { name: /주간 보고서 정리/ })).toHaveCount(1)
-  const box = (await run.boundingBox())!, time = (await run.locator('time').boundingBox())!, rowTime = (await first.locator('time').boundingBox())!
-  expect(Math.abs(time.x + time.width - (rowTime.x + rowTime.width))).toBeLessThan(2)
+  // Activity reads like Slack's: the time right after the name, on the first line, in every row
+  const box = (await run.boundingBox())!, time = (await run.locator('time').boundingBox())!
+  const firstBox = (await first.boundingBox())!, rowTime = (await first.locator('time').boundingBox())!
   expect(time.y - box.y).toBeLessThan(24)
+  expect(rowTime.y - firstBox.y).toBeLessThan(24)
   // the click: the thread, the reply in the middle of it picked out and in sight, the notice read
   await first.click()
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${ROOT}\\?m=${TARGET.id}$`))
@@ -97,7 +99,7 @@ test('Inbox screenshots: 1440 and 390, light and dark', async ({ browser }) => {
       await signIn(page)
       await routeInbox(page)
       await routeThread(page)
-      await page.goto('/settings/notifications')
+      await page.goto('/activity')
       await expect(page.getByTestId('notification-room-row')).toHaveCount(5)
       await page.waitForTimeout(300)
       await page.screenshot({ path: `${dir}/inbox-${name}-${scheme}.png` })

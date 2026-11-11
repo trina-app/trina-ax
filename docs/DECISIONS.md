@@ -11123,7 +11123,8 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
   upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,
   classes, callers and callees across the team's folders that hold code, from CodeGraph indexes kept up to date after
-  file changes. Details, limits and measurements: [KNOWLEDGE-GRAPH.md](KNOWLEDGE-GRAPH.md).
+  file changes. Details, limits and measurements were in docs/KNOWLEDGE-GRAPH.md (removed with the knowledge graph on
+  2026-11-11, "Knowledge graph removed" below; in git history).
 - **CodeGraph is found, not bundled.** MIT (fine in AGPL-3.0), but each platform's package is about 280 MB with its own
   Node.js runtime, more than the rest of a Linux bundle. It is looked up on the PATH or named in `server.json`
   (`knowledgeGraph.codegraph`). Without it the feature is off and Admin says to install it.
@@ -19766,6 +19767,178 @@ between them. Decided after two product reviews.
   clicked DM row do not move, the headings in order and their look in both themes, "접기" stays; with `SHOTS_DIR`, the
   screenshots at 1440×900 and 1280×800, light and dark).
 - Version impact: **patch** (the order of an opened list and three words; no API or data change).
+
+## A scheduled task's instruction names rooms by their names — 예약 작업 지시문의 대화방은 이름으로 (fix/schedule-room-name-last-run, 2026-11-11)
+
+QA on dev (e2d645ff): a scheduled task the AI made from a chat showed its instruction as "… room_id 01a1ba5f-…" on the
+task page and in each run's question; and the task page's run block said "Last run" three times and did not change
+after **Run now** until a reload.
+
+- **Why the id is in the text, and stays there.** The AI is given a room the person picked as its id
+  (`chat/turn.ts roomRefsBlock`, `[#room room_id=…]` for earlier messages), `room_read` reads a room by its id ("never a
+  room found by its name instead"), and `schedule_create` asks for an instruction that "works without this conversation".
+  So the AI writes the id into the instruction, and a run needs it: a name is ambiguous, can change, and is set by the
+  room's members. The stored instruction is not changed; only what people read is.
+- **Decision: the creation path does not store a "#" token (`#[name](room:<id>)`) instead.** A token puts the room's
+  name into the stored text, and that text is copied into every run's question (`messages.content`): the name would
+  freeze at the time of creation (a renamed room shows the old name), and it would travel to wherever that text goes
+  (the API sends a message's content as stored, so hiding it in the app is not enough). The bare id carries no name and
+  is resolved for each viewer when it is shown. A token is still read the same way when one is there.
+- **Shown as the name, for a viewer in the room** (`web/src/lib/roomNames.ts`, `components/RoomNames.tsx`): on the task
+  page's instruction, the list card's preview and in a chat's question bubble (a run's question is its instruction),
+  `room_id <id>`, `room_id=<id>`, `room id: <id>`, `room:<id>`, `[#room room_id=<id>]` and a token read as `#<name>`
+  (a 1:1 chat: the other person's name, as the app names it everywhere: `roomTitle`). A bare id reads as a name only when
+  it is one of the viewer's rooms; any other bare id stays as written (it may be a file's or a thread's), and so does an
+  id in a web address, a path, a query, a Markdown link (`[label](room:<id>)`), code (a backtick span or a fenced block)
+  or a quoted value (`"roomId":"<id>"`): data someone pasted. The matching is linear in the text (one run of spaces
+  before an id; the places an id stays as written walked with one pointer): two review rounds found a long run of spaces,
+  and many links with many ids, costing seconds in every bubble. The component reads only the rooms the text names from
+  the room list and keeps its parts until the text or those rooms change (a message in another room draws nothing).
+- **A copy gives the ids.** A selection of the instruction or of a question copies each room as it is written
+  (`copyRoomIds`, the span's `data-raw`), so a copied instruction still names the room a run reads; a token of a room the
+  viewer is not in copies as `room:<id>`, never its title.
+- **Access rule.** The names come only from the viewer's own room list (`GET /api/rooms`, the rooms they are in now,
+  not archived; the store keeps it current with room events). A room the viewer is not in reads "a conversation you're
+  not in" (ko "참여하지 않은 대화방"), never its name. On the Scheduled pages that holds for a token too (the text is
+  the AI's). Until the list is loaded (or when it could not be), an id stays as written and a token there shows "#…": no
+  claim either way, and no name. Runs and their chats are never shared (`share-chat.ts scheduled_run`), so today the
+  viewer is the task's owner, who may have left the room since; the rule holds for any viewer.
+- **One exception, kept: a token in a chat bubble.** The bubble cannot tell a run's question from a message the person
+  typed, and a "#" chip the person picked keeps the title it was picked by, as before (`tokenTitles`). So a token in a
+  run's question would show its stored title. That is unlikely: the AI never sees tokens (they reach it as `[#room N]`
+  and `[#room room_id=…]`); only `schedule_create`'s `reads` description shows the form. The task page itself never
+  shows a token's title to someone outside the room.
+- **Left as they are:** the schedule card (create, edit, check again) shows the instruction exactly as it runs, ids
+  included: it is the confirmation of what runs, and a room's name is set by its members (any member of a group chat),
+  so it must not change how the instruction reads at the moment of the yes (the card names the rooms of `reads` by name
+  already). The edit dialog's text box keeps the stored text, so an edit keeps the id. A message waiting in the send
+  queue shows its text as typed.
+- **The "Last run" block: one heading, then the state and when.** "Succeeded · 2 minutes ago" (the time on hover in
+  full), "Running" while a run is queued or running (linked to its chat with "Open chat"), a failure in its colour with
+  the reason under it, an occurrence that did not run in its own words ("Usage limit prevented the run"). The list card
+  and the line under the title keep "Last run failed": they have no heading. The details' "Last run" time is the same
+  run's.
+- **Run now is that run.** `runNow` moves only `last_chat_id` (not `last_run_at`, "Scheduled tasks: run now, edit,
+  pause"), so the block took the time of the last run at its time and the result of the run before it. `Schedule` now
+  has `lastOutcomeAt` (when the last result came: the run's end, or when an occurrence was skipped;
+  `Schedules.lastResult`) and `running` (a run of it is queued or running; its chat is `lastChatId`:
+  `Schedules.isRunning`). Both optional: an older server's block uses `lastRunAt`.
+- **Refresh:** the page reads the list again right after Run now's answer; when the chat of a task's last run changes
+  (`chat.updated`: that run starting or ending; a few events of one run are read once; other chats never); when a task
+  is due (`nextDueRead`: its time plus 10 s for the server's tick, again every 10 s for up to 3 minutes while it is due
+  and not started, so a run at its time is known and its end followed); and after a reset connection (`reloadAsked`), as
+  other pages do. No polling while nothing is due, no new box.
+- Tests: `web/test/unit/room-names.test.tsx` (every form, a 1:1 chat, the access rule with and without a token, a viewer
+  who left or was taken out (the room event), the list not loaded, ids in links, paths, code and quoted values, long
+  runs of spaces, many links with many ids, what a copy gives, the bubble of a room the viewer is not in),
+  `web/test/unit/scheduled-view.test.tsx` (one heading, "Succeeded · 2 minutes ago", running, a failure, an older
+  server, when a due run is looked for), `tests/unit/schedule-edit.test.ts` (run now: `running`, then `lastOutcomeAt` =
+  the turn's end, `lastRunAt` untouched), e2e `web/test/e2e/schedules.spec.ts` (the room names, a copy of the
+  instruction, Run now followed to its result without a reload).
+- Version impact: **patch** (two optional response fields; corrected words; no data change).
+
+## Knowledge graph removed — 지식 그래프를 없앤다; the AI finds files with list, glob, grep and read (chore/remove-knowledge-graph, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`server/src/knowledge-graph/` and its callers, the Files search, Admin › Team settings, the
+bundles), 이유: chat, files and the AI are core. Plan: `docs/AGENTS/plan/20261111-0135-remove-knowledge-graph.md`.
+Replaces "K — Knowledge graph" (2026-11-06), "지식 그래프로 더 빠른 답" and "뜻으로도 찾는 지식 그래프" (2026-11-07).
+
+- **Why.** On the same dev build with the knowledge graph on and off, the AI found the same files either way (a
+  2,204-file test folder, the 92 questions that finished). The index alone put the right file in its top 5 for 28% of
+  hard questions, where a plain file-name search got 57%. It saved about 27% of input tokens on easy questions and used
+  more on others. It leaked stale text: text taken out of a file stayed searchable, and the AI quoted it, until the
+  folder was indexed again (30 s to overnight). After every restart on Linux nothing was indexed for 10–15 minutes, and
+  on a 4 GB server searches took 1–7 s while it indexed and the meaning indexer went over its 800 MiB cap. Anthropic's
+  guidance is to start with agentic search (semantic search is "less accurate, more difficult to maintain"); the Claude
+  Code team found grep and glob beat vector databases and indexing ("stale indexes, permission complexity").
+- **Gone.** The document index and its search worker, search by meaning (multilingual-e5-small, the embedding process,
+  `@huggingface/transformers` with onnxruntime and sharp, `scripts/vendor-semantic.ts`), the CodeGraph code map, the
+  `knowledge_explore` tool, the `<document_matches>` lookup before the model and its prompt rules, the Files search's
+  "관련 문서" rows, Admin › Team settings › Knowledge graph and `/api/admin/knowledge-graph`, `scripts/bench/quality/`.
+  The old `search` tool stays removed.
+- **Stays.** The Files search lists exact-line matches as before the knowledge graph, and a word no file has says
+  "nothing found" (QA TC-061). The MCP connection's side-by-side read-only calls stay for `list`, `glob`, `grep` and
+  `read`. The document-question benchmark (`scripts/bench/run.ts`) stays, without an index to wait for.
+- **Old data.** The first start deletes `<data>/knowledge-graph/` (copies of private document text and code; renamed at
+  once and deleted in the background, so a large one does not hold the start) and the downloaded model in
+  `<data>/models/Xenova/multilingual-e5-small`, with one info line. Whisper's models stay; a link is removed and never
+  followed, so a host's shared `MYCEL_MODELS_DIR` is never touched. Migration 339 deletes the switch's settings rows.
+- **Old configs and content.** A `server.json` with `knowledgeGraph` still loads: the key is ignored and the start logs
+  once that it is obsolete (CONFIGURATION.md). Older chats keep their `knowledge_explore` steps with their label, and
+  old Activity rows keep theirs. Scheduled templates never stored a tool list (their scope is two folders); a call of
+  the old tool is refused like any tool a template does not list.
+- **Release notes.** The knowledge graph's first part (the code map and the document index) shipped in 0.5.0-beta.1;
+  waves 1–3 never did, so their notes leave "Unreleased" (the side-by-side reads keep theirs) and
+  `changes/remove-knowledge-graph.md` says what goes, including the older `search` tool (`MYCEL_SEMANTIC=on`, shipped
+  until 0.5.0-beta.1), whose removal note was one of those lines, and its model, which that note said would stay.
+- Version impact: **minor** (0.x): a feature and an admin API are removed; nothing an installed team set up stops
+  loading.
+## Plain words for members — 멤버 화면은 쉬운 말로 (fix/plain-words-member-screens, 2026-11-11, product owner)
+
+Trina AX is used by ordinary office workers, almost never developers (owner rule, 2026-11-11). A read-only audit of
+`dev` listed where the app talks like a developer tool; the owner approved its top 15 and two decisions. This is the
+first of two PRs: the words on the screens members see. Chat errors, the AI's confirmation cards and step labels are
+server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0051-plain-words-member-screens.md`.
+
+- **One plain name per page, in Settings and in Admin.** #289 kept the same noun in both and let the container say
+  whose ("Just for you" / "Applies to everyone in `<team>`"). The audit proposed "My AI accounts" for Settings; "My" is
+  the scope word #289 dropped ("My connectors" was its rejected first version), so both say the same: **AI accounts**
+  (was Providers; ko AI 계정), **Connected apps** (was Connectors; ko 연결한 서비스), **Use from other AI apps** (was AI
+  apps; ko 다른 AI 앱에서 쓰기). The Settings section "Codex" is **ChatGPT** (people know the product, not the engine),
+  and so is the web's name for that AI everywhere else (`ENGINE_LABEL`: the composer's list, the switch line, the
+  answer's button, My usage), as Claude Code was already "Claude"; Admin › AI accounts keeps the engine rows' own names.
+  The page line says "Your questions use your own account first, then the team's." Every pointer follows: the stale
+  "Settings › MCP" (schedule reasons and notice, template note, team settings, the AI's own screen names in
+  `policy/refusal.ts` SCREEN, the connection tools' and connect tool's "can fix it in …"), "Settings › App connectors"
+  (the Slack link message), "Admin › AI connections" (the owners' AI-account notices), "Admin › Providers or
+  Connectors" (handover), "in Providers" (Members), "the AI engines page" (owner onboarding). The schedule texts keep
+  "your own key": the template notices and the connect card say "key" too. The trial and AI-connection errors
+  that point at a missing "Admin › AI connections" are chat errors: the second PR points them at "Admin › AI accounts".
+- **No "MCP" on member screens.** The empty line ("No apps connected yet"), Search's tab ("Apps" / 서비스) and action
+  ("Connect an app" / 서비스 연결하기; "MCP" still finds it), the onboarding tools step ("Connect another tool"), the
+  notice ("An admin asked you to connect an app."), "Other apps" in Use from other AI apps, and the connectors page's
+  "Popular apps", "More apps", "Search apps". A connection's line under its name says what a known service does (the
+  Discover card's line) instead of "MCP server"; one added by its address keeps "MCP server" / "API". "AI provider"
+  in the Drive privacy line and the key warning is "AI company". Admin's form keeps "MCP server / API", sign-in method,
+  headers and scopes: an expert task. The setup steps in Use from other AI apps keep Claude Code's `/mcp` and the
+  "Other apps" dialog's MCP and OAuth words (another app's own terms; folding them under "For developers" is later).
+- **Members do not add a service by its address** (owner decision). Settings › Connected apps shows a member no Add
+  button and, under Discover, "Not listed? Ask an admin to add it." in place of the address link (also under "Nothing
+  matches" when their search finds nothing); `?add=1` (Search, old links) no longer opens the form for them, and
+  Search's action takes them to the page. Owners and admins keep both
+  (the link reads "Add one by its address"). A member's existing connections, Discover's cards and the AI's connect card
+  in chat are unchanged. There is no member → admin request in the app: the existing request goes the other way (an
+  admin asks a member to connect), so the line tells the member to ask; the admin then adds it for the team or sends
+  that request. A button that notifies the admins is an open question for the owner.
+- **No model id under an answer.** It read like an error code ("claude-sonnet", on a server a dated id). People who may
+  choose the AI (owner, admins, people the admin allowed: `canChooseEngine`) get a small info button at the end of the
+  answer's actions whose tooltip, and toast on touch, says "Answered by Claude Sonnet": the label from the model list
+  they pick from, the AI's name ("Claude") when the model is not in it, the raw id only when nothing else is known
+  (`answeredByName`; a gateway's model, whose label is its id, is said once). Everyone else sees nothing. Like ChatGPT
+  and Claude, which stamp no model on a reply. The engine list it reads loads once: answers that ask while it is on its
+  way share the one request (`store/engines.ts`).
+- **"Engine" becomes "AI"** (owner decision; DESIGN-SYSTEM's copy rule listed "AI engine" as a user word and now lists
+  "AI or the AI's name"). Composer picker "Default AI", its list "Choose an AI", Settings › Profile "AI for new chats"
+  with the field "AI", the switch line "Switched to Claude. It carries on from the conversation so far.", the dev-mode
+  banner, the owner's AI-settings notice, Settings' search words, Admin's AI accounts line.
+- **The rest of the top 15 that is words only.** Use from other AI apps: "Connection address", "Signing out where you
+  allowed the app, or disconnecting it, ends the app's access." (the login it was allowed in, not every login),
+  "Connected AI apps". Files: a folder you can only go through reads "Only some folders" (its line "Only some folders
+  inside are open to you"), not "Pass-through only"; a conflict
+  copy is a **separate copy** ("Saved as a separate copy", "1 saved as a copy", "yours was saved next to it as …"); the
+  file name the server gives the copy still says "conflict copy" (`lib/paths.ts` recognizes it), a follow-up. The skill
+  suggestion and the skills-folder note name "team skill" and "the Projects folder", not `skills/` and `projects/`.
+  The project members dialog says "Access an admin set separately", "set by an admin", "After saving, only the members
+  here can see this project…", "The project's creator is added back as a member." instead of rules and floors. Settings
+  › Usage: no token tile (Admin › Usage keeps tokens), "A rough estimate, not a bill.", "Your answers by AI".
+- **Left for later** (structural, not words): Claude Code and other apps folded under "For developers", plain model
+  names in the usage rows, the onboarding skills block folded, the draft prompt that names `users/<id>`, raw error codes
+  and validator text (item 15).
+- Tests: web unit `answered-by` (the name, who sees it), the changed strings in `i18n`, `handover`, `welcome`; e2e
+  `integrations` (a member: no Add, the ask line, `?add=1` opens nothing), and the specs that read the old words
+  (settings, connectors, credentials, Drive, AI apps, search, engine choice, files, chat, onboarding, states, my usage).
+  Server unit `refusal-texts` (the screen names).
+- Version impact: **patch** (words, one control fewer for members, the model id behind a button; no API or data change).
 
 ## Allow all websites covers the AI's web reads (feat/allow-all-sites-card, 2026-11-11, product owner)
 

@@ -245,16 +245,27 @@ export class Schedules {
   /** The last run's result: 'done' only for a clean success; a finished run with refused/failed tools is 'problems',
    *  a finished run without an answer is 'error' (chat/schedule-outcome.ts). */
   lastOutcome(userId: string, id: string): LastOutcome | null {
-    const row = this.db.query(`SELECT code, run_outcome FROM (
+    return this.lastResult(userId, id)?.outcome ?? null
+  }
+
+  /** lastOutcome with when it came: the run's end, or when an occurrence was skipped. A "Run now" run moves only
+   *  last_chat_id (runNow), so the Scheduled page shows this time for the last run, not last_run_at. */
+  lastResult(userId: string, id: string): { outcome: LastOutcome; at: string | null } | null {
+    const row = this.db.query(`SELECT code, run_outcome, at FROM (
       SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
       UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT 'needs_key' code, NULL run_outcome, created_at at FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT 'project_gone' code, NULL run_outcome, created_at at FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null; at: string | null } | null
     if (!row) return null
-    if (row.code !== 'done') return row.code
+    if (row.code !== 'done') return { outcome: row.code, at: row.at }
     const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
-    return outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error'
+    return { outcome: outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error', at: row.at }
+  }
+
+  /** A run of this task is queued or running now (its chat is last_chat_id: start() commits it with the turn). */
+  isRunning(s: Pick<ScheduleRow, 'id' | 'user_id'>): boolean {
+    return this.runningChat(s) !== null
   }
 
   /** lastOutcome 'needs_key': the template the last skipped run needed, by the name it had then. */
@@ -333,7 +344,7 @@ export class Schedules {
   }
 
   /** The chat of a run of this task that is queued or running now, or null. */
-  private runningChat(s: ScheduleRow): string | null {
+  private runningChat(s: Pick<ScheduleRow, 'id' | 'user_id'>): string | null {
     return (this.db.query("SELECT chat_id FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, s.user_id) as { chat_id: string } | null)?.chat_id ?? null
   }
 

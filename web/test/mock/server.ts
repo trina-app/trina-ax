@@ -60,7 +60,7 @@
 // as when the owner changed meanwhile)} until the next reset; signing in sets lastSeenAt (the ··· menu needs it).
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
-import type { KnowledgeGraphStatus, LocalSpeechTool, SourceLoc } from '@mycel/shared/api'
+import type { LocalSpeechTool } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -335,6 +335,8 @@ export class MockServer {
   aiAllowances: AiAllowance[] = []
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
+  /** how long a "Run now" run takes before it ends (POST /__test/schedule `runMs`) */
+  scheduleRunMs = 200
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
@@ -363,9 +365,6 @@ export class MockServer {
   /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon (the sidebar header); the tab
    * and app icons stay the product's */
   teamIcon: TeamIconFile | null = null
-  /** Admin › Team settings › Knowledge graph (server/src/knowledge-graph/): made-up folders; POST /__test/knowledge-graph
-   * {available?: boolean} says whether CodeGraph is "installed" */
-  kg: KnowledgeGraphStatus = mockKnowledgeGraph(true)
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
   /** an admin chose the speech provider (stored); false: like server/src/admin/settings.ts, it reads OpenRouter while the
    * team's key is set and off without it (speechNow) */
@@ -537,6 +536,7 @@ export class MockServer {
     this.memories = []
     this.aiAllowances = []
     this.schedules = []
+    this.scheduleRunMs = 200
     this.budgets = []
     this.versions = []
     this.trash = []
@@ -569,7 +569,6 @@ export class MockServer {
     this.integrationTemplates = []
     this.settings = defaultSettings()
     this.teamIcon = null
-    this.kg = mockKnowledgeGraph(true)
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.speechChosen = true
     this.transcribeChats = []
@@ -678,30 +677,6 @@ export class MockServer {
     // a skills folder only admins can read (POST /__test/skills puts skills there): members never see its skills
     if (path === 'skills/임원' || path.startsWith('skills/임원/')) return user.role === 'member' ? 'none' : 'read'
     return 'write'
-  }
-
-  /** The passages the made-up knowledge graph holds of a file (GET /api/files/search's documents): the sections of a
-   * Markdown or text file under their headings, and the known text of the sample PDFs and spreadsheets with their place. */
-  passagesOf(path: string): { loc: SourceLoc | null; text: string }[] {
-    const known: Record<string, { loc: SourceLoc; text: string }[]> = {
-      'docs/handbook.pdf': [{ loc: { kind: 'page', page: 1 }, text: 'Company Handbook 2026 Section 1: Working hours are flexible.' }],
-      'docs/quote-form.pdf': [{ loc: { kind: 'page', page: 1 }, text: '견적서 2026 공급가액 합계 1,500,000원' }],
-      'docs/spend.xlsx': [{ loc: { kind: 'sheet', sheet: 'Q3 spend', range: 'A1:B3' }, text: 'month spend July 1200 August 900' }],
-      'docs/sources/report.pdf': Array.from({ length: 6 }, (_, i) => ({ loc: { kind: 'page' as const, page: i + 1 }, text: `Sales report page ${i + 1}` })),
-    }
-    if (known[path]) return known[path]!
-    const n = this.files.get(path)
-    if (!n?.data || !/\.(md|txt)$/i.test(path)) return []
-    const out: { loc: SourceLoc | null; text: string }[] = []
-    let heading: string | null = null
-    let body: string[] = []
-    const flush = () => { const text = body.join(' ').replace(/\s+/g, ' ').trim(); if (text) out.push({ loc: heading ? { kind: 'heading', heading } : null, text }); body = [] }
-    for (const line of dec.decode(n.data).split('\n')) {
-      const h = /^#{1,6}\s+(.+)$/.exec(line)
-      if (h) { flush(); heading = h[1]!.trim().slice(0, 200) } else body.push(line)
-    }
-    flush()
-    return out
   }
 
   entry(path: string, n: FileNode, user: User): FileEntry {
@@ -2562,8 +2537,7 @@ export class MockServer {
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
     },
     // like server/src/team-files/content-search.ts: the lines that contain q (any case) in the text files the caller can
-    // read, and, while the knowledge graph's documents part is on, one row per document with a passage that holds a word
-    // of q (its best passage, cut around the first word, and its place)
+    // read
     searchFileContents: (c) => {
       const q = String(c.query.q ?? '').trim().normalize('NFC')
       const base = String(c.query.path ?? '')
@@ -2575,20 +2549,7 @@ export class MockServer {
         if (!/\.(md|txt|csv|html|json)$/i.test(p)) continue
         dec.decode(n.data!).split('\n').forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
       }
-      if (!this.kg.documents.enabled) return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
-      const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 2 || (w.length === 1 && w.charCodeAt(0) > 0x7f))
-      const documents: { path: string; name: string; loc: SourceLoc | null; snippet: string; score: number }[] = []
-      for (const [p] of visible) {
-        let best: { loc: SourceLoc | null; text: string; score: number; at: number } | null = null
-        for (const x of this.passagesOf(p)) {
-          const low = x.text.toLowerCase()
-          const hits = words.map((w) => low.indexOf(w)).filter((i) => i >= 0)
-          if (hits.length && (!best || hits.length > best.score)) best = { ...x, score: hits.length, at: Math.min(...hits) }
-        }
-        if (best) documents.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), loc: best.loc, snippet: cut(best.text, best.at), score: best.score })
-      }
-      documents.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
-      return { items, documents: documents.slice(0, 20).map(({ score: _s, ...d }) => d), truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
+      return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
     },
     recentFiles: (c) => {
       const items = [...this.files.entries()]
@@ -3324,43 +3285,6 @@ export class MockServer {
       this.publish(TEAM_ICON_CHANGED)
       return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: bytes.byteLength }
     },
-    // like server/src/routes/knowledge-graph.ts: on needs CodeGraph; off clears the folders; added folders outside users/
-    knowledgeGraphStatus: () => this.kg,
-    updateKnowledgeGraph: (c) => {
-      if (c.body.enabled === true && !this.kg.available) throw new Fail('conflict', 409, 'CodeGraph is not installed', undefined, { reason: 'unavailable' })
-      if (c.body.added !== undefined) {
-        const added = c.body.added as string[]
-        for (const a of added) {
-          if (a.startsWith('users')) throw new Fail('validation', 400, 'personal', { 'body.added': 'personal' }, { reason: 'personal' })
-          if (!/^[\w.-]+(\/[\w.-]+)*$/.test(a) || a.startsWith('nope')) throw new Fail('validation', 400, 'not found', { 'body.added': 'not_found' }, { reason: 'not_found' })
-        }
-        this.kg = { ...this.kg, added: [...new Set(added)] }
-      }
-      if (c.body.enabled === false) this.kg = { ...this.kg, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, diskBytes: 0, busy: 0 }
-      if (c.body.enabled === true && !this.kg.enabled) this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added, documents: this.kg.documents }
-      // documents: off deletes the index (nothing listed); on brings the made-up folders back
-      if (c.body.documents === false) this.kg = { ...this.kg, documents: mockKgDocuments(false) }
-      if (c.body.documents === true && !this.kg.documents.enabled) this.kg = { ...this.kg, documents: mockKgDocuments(true) }
-      return this.kg
-    },
-    // like the server: part code, documents or (none) both, of the parts that are on
-    rebuildKnowledgeGraph: (c) => {
-      const part = c.body.part as 'code' | 'documents' | undefined
-      const code = this.kg.enabled && part !== 'documents', docs = this.kg.documents.enabled && part !== 'code'
-      if (!code && !docs) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
-      const d = this.kg.documents
-      this.kg = {
-        ...this.kg,
-        ...(code ? { roots: this.kg.roots.map((r) => ({ ...r, status: 'pending' as const, files: 0, symbols: 0 })), busy: this.kg.roots.length } : {}),
-        documents: docs ? { ...d, folders: d.folders.map((f) => ({ ...f, status: 'pending' as const })), busy: d.folders.length } : d,
-      }
-      // the rebuild "finishes" a moment later
-      setTimeout(() => {
-        const fresh = mockKnowledgeGraph(true)
-        this.kg = { ...this.kg, ...(code ? { roots: fresh.roots, busy: 0 } : {}), documents: docs ? fresh.documents : this.kg.documents }
-      }, 1500)
-      return this.kg
-    },
     deleteTeamIcon: () => {
       if (this.teamIcon) this.publish(TEAM_ICON_CHANGED)
       this.teamIcon = null
@@ -3801,11 +3725,20 @@ export class MockServer {
       const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
       if (x.needsReview) throw new Fail('conflict', 409, '이 예약 작업은 확인 카드 없이 만들어져서 멈춰 뒀어요.', undefined, { reason: 'schedule_review' })
       if (/budget/.test(x.title)) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 내일 오전 12:00부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.')
-      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+      // the run is queued (running) when the answer comes and ends a moment later, with the chat.updated of its end, as
+      // the server's turn does (chat/turn.ts finish: the result is written before the event)
+      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'queued' }
       this.chats.push(chat)
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'created', chat } })
       x.lastChatId = chat.id
-      x.lastOutcome = 'done'
+      x.running = true
+      setTimeout(() => {
+        // a reset in between (the next test): nothing to end
+        if (!this.schedules.includes(x)) return
+        Object.assign(x, { running: false, lastOutcome: 'done', lastOutcomeAt: now() })
+        Object.assign(chat, { runState: 'idle', updatedAt: now() })
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }, this.scheduleRunMs)
       const { userId: _, ...out } = x
       return { schedule: out, chatId: chat.id }
     },
@@ -4475,7 +4408,6 @@ export class MockServer {
       this.deckThumbs = body.thumbs !== false
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
-    else if (p === '/__test/knowledge-graph') this.kg = mockKnowledgeGraph(body.available !== false)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
@@ -4505,6 +4437,7 @@ export class MockServer {
       // a scheduled task the owner confirmed on its card (or a template: templateId), for Settings › Scheduled tasks
       const owner = this.users.find((u) => u.role === 'owner')!
       const tpl = typeof body.templateId === 'string' ? body.templateId as 'daily-file-index' | 'weekly-summary' : null
+      if (typeof body.runMs === 'number') this.scheduleRunMs = body.runMs
       this.schedules.push({ userId: owner.id, id: uuidv7(), title: String(body.title ?? '주간 회의록 요약'), prompt: String(body.prompt ?? '매주 월요일 shared/회의록 에서 지난주 회의록을 읽고 users/olga/주간요약.md 에 정리해 줘.'),
         repeat: tpl === 'weekly-summary' ? 'weekly' : tpl ? 'daily' : (body.repeat as Schedule['repeat'] | undefined) ?? 'weekly', time: '09:00', weekday: tpl === 'daily-file-index' ? null : 1, day: null, date: null, projectId: null,
         enabled: body.enabled !== false, resumeBlockedReason: null, nextRunAt: body.enabled === false ? null : new Date(Date.now() + 86400_000).toISOString(), lastRunAt: null, lastChatId: null, needsReview: false, reviewSince: null,
@@ -5292,41 +5225,3 @@ function officeFixtures(): [string, Uint8Array][] {
   return (office = out)
 }
 
-/** Made-up folders for Admin › Team settings › Knowledge graph (no real team's). */
-function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
-  const documents = mockKgDocuments(true)
-  if (!available) return { available: false, version: null, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, added: [], diskBytes: 0, busy: 0, documents }
-  const at = new Date(Date.now() - 4 * 60_000).toISOString()
-  return {
-    available: true, version: '1.5.0', enabled: true, added: [],
-    roots: [
-      { path: 'projects/web-app', source: 'auto', status: 'ready', files: 128, symbols: 1840, lastSyncAt: at },
-      { path: 'projects/data-pipeline', source: 'auto', status: 'indexing', files: 0, symbols: 0, lastSyncAt: null },
-      { path: 'shared', source: 'auto', status: 'ready', files: 1, symbols: 3, lastSyncAt: at },
-    ],
-    personal: { folders: 2, files: 14, symbols: 96 }, diskBytes: 23_400_000, busy: 0, documents,
-  }
-}
-
-/** The documents part of the made-up knowledge graph: on (the default) with three folders and three files that could
- * not be read, or off (nothing indexed). */
-function mockKgDocuments(on: boolean): KnowledgeGraphStatus['documents'] {
-  if (!on) return { enabled: false, folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
-  const at = new Date(Date.now() - 2 * 60_000).toISOString()
-  return {
-    enabled: true,
-    folders: [
-      { path: 'projects/marketing', source: 'auto', status: 'ready', documents: 84, failed: 2, lastUpdatedAt: at },
-      { path: 'projects/web-app', source: 'auto', status: 'ready', documents: 12, failed: 0, lastUpdatedAt: at },
-      { path: 'shared', source: 'auto', status: 'ready', documents: 40, failed: 1, lastUpdatedAt: at },
-    ],
-    personal: { folders: 2, documents: 31, failed: 1 },
-    documents: 136,
-    failed: [
-      { path: 'projects/marketing/campaign-final.pptx', reason: 'too_big' },
-      { path: 'projects/marketing/scan-2024.pdf', reason: 'empty' },
-      { path: 'shared/old-contract.hwp', reason: 'unreadable' },
-    ],
-    failedCount: 3, lastUpdatedAt: at, diskBytes: 8_200_000, busy: 0,
-  }
-}

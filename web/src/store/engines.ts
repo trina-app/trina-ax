@@ -18,6 +18,9 @@ interface EnginesState {
   load: (force?: boolean) => Promise<void>
 }
 
+// the request on its way: everything that asks while it is (each answer's "answered by" button) waits for that one
+let loading: Promise<void> | null = null
+
 export const useEngines = create<EnginesState>((set, get) => ({
   loaded: false,
   canChoose: false,
@@ -25,15 +28,19 @@ export const useEngines = create<EnginesState>((set, get) => ({
   models: {},
   defaultEngine: 'claude-code',
   defaultModel: null,
-  async load(force) {
-    if (get().loaded && !force) return
-    try {
-      const r = await api.call(API.chatEngines)
+  load(force) {
+    if (get().loaded && !force) return Promise.resolve()
+    if (loading && !force) return loading
+    const run: Promise<void> = api.call(API.chatEngines).then((r) => {
       const models: EnginesState['models'] = {}
       for (const e of r.engines) models[e.id] = e.models
       set({ loaded: true, canChoose: r.canChoose, engines: r.engines.map((e) => e.id), models, defaultEngine: r.defaultEngine, defaultModel: r.defaultModel })
-    } catch {
+    }, () => {
       set({ loaded: true, canChoose: false, engines: [], models: {} })
-    }
+    }).finally(() => {
+      if (loading === run) loading = null
+    })
+    loading = run
+    return run
   },
 }))

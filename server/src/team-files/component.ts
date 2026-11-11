@@ -97,30 +97,33 @@ export function componentC(ctx: AppContext): ComponentC {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
       const own = path.join(dir, `stt-in-${crypto.randomUUID()}`)
       fs.renameSync(file, own)
-      return jobs.start({
-        kind: 'transcribe', userId,
-        run: async (h) => {
-          try {
-            // the team's speech provider when the job runs (Admin > Team settings): off (default), OpenRouter, this server
-            const opts = { language: o.language, locale: locale(userId) }
-            const s = getTeamSettings(ctx.db)
-            // voice input also tells how fast whisper.cpp is here, before the first video read needs it
-            if (s.speechProvider === 'local') return await transcribe(stt, own, name, { ...opts, onTimed: (ms, sec) => { if (sec > 0) recordLocalSpeed(ctx.db, localModelName(stt.model), stt.threads, ms, sec) } }, h)
-            if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
-            if (!sendable()) throw SPEECH_CONFIDENTIAL()
-            const key = readSpeechKey(credentialsOf(ctx))
-            if (!key) throw SPEECH_NO_KEY()
-            // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
-            const model = speechKeySource(ctx.db) === 'hosted' ? HOSTED_SPEECH_MODEL : s.speechModel
-            // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts);
-            // that, or a provider failure's second try, sends the recording again only while voice input is still on
-            // OpenRouter and the chat has not become confidential
-            return await transcribeOpenRouter(stt, key, model, own, name, { ...opts, team: teamDefaultLocale(ctx.db), again: () => getTeamSettings(ctx.db).speechProvider === 'openrouter' && sendable() }, h)
-          } finally { fs.rmSync(own, { force: true }) }
-        },
-        // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
-        discard: () => fs.rmSync(own, { force: true }),
-      })
+      // refused (5 waiting jobs per person: 429): the caller cleans up the old path, which is empty now
+      try {
+        return jobs.start({
+          kind: 'transcribe', userId,
+          run: async (h) => {
+            try {
+              // the team's speech provider when the job runs (Admin > Team settings): off (default), OpenRouter, this server
+              const opts = { language: o.language, locale: locale(userId) }
+              const s = getTeamSettings(ctx.db)
+              // voice input also tells how fast whisper.cpp is here, before the first video read needs it
+              if (s.speechProvider === 'local') return await transcribe(stt, own, name, { ...opts, onTimed: (ms, sec) => { if (sec > 0) recordLocalSpeed(ctx.db, localModelName(stt.model), stt.threads, ms, sec) } }, h)
+              if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
+              if (!sendable()) throw SPEECH_CONFIDENTIAL()
+              const key = readSpeechKey(credentialsOf(ctx))
+              if (!key) throw SPEECH_NO_KEY()
+              // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
+              const model = speechKeySource(ctx.db) === 'hosted' ? HOSTED_SPEECH_MODEL : s.speechModel
+              // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts);
+              // that, or a provider failure's second try, sends the recording again only while voice input is still on
+              // OpenRouter and the chat has not become confidential
+              return await transcribeOpenRouter(stt, key, model, own, name, { ...opts, team: teamDefaultLocale(ctx.db), again: () => getTeamSettings(ctx.db).speechProvider === 'openrouter' && sendable() }, h)
+            } finally { fs.rmSync(own, { force: true }) }
+          },
+          // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
+          discard: () => fs.rmSync(own, { force: true }),
+        })
+      } catch (e) { fs.rmSync(own, { force: true }); throw e }
     },
     sweep() {
       const r: Record<string, number> = {}

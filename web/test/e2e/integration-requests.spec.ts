@@ -181,7 +181,7 @@ test('Add connection menu: ask a member in a popup, the request is a row, withdr
   // the Team connection item opens the team dialog, like the main button
   await page.getByTestId('integration-add-more').click()
   await page.getByTestId('integration-add-team').click()
-  await expect(page.getByRole('dialog').getByRole('heading', { name: '팀 커넥터 추가' })).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '팀 서비스 추가' })).toBeVisible()
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
 
