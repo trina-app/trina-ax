@@ -1,0 +1,5 @@
+- When an update could not start and the server stopped, the message now names the newest database copy made before the update and says plainly that what was recorded in the app since the update (messages, settings) is lost if it is put back; the files in the team folder stay. Admin › System › Health no longer says the server "went back" to the version it stopped at: it says what happened and that nothing else is needed now that it runs again.
+- After an update that failed once and then started on the second try, Admin › System › Health says so next to the version.
+- When an administrator points the server at another version after such a stop, `state.json` names that version as the current one.
+- Admin › Plugins no longer offers "Roll back to …" when this server no longer trusts that earlier version (it was only refused).
+- Turning a skill pack off no longer removes empty folders outside the team folder when `skills/` was replaced by a link.

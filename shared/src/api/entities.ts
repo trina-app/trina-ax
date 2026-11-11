@@ -215,6 +215,13 @@ export const Chat = z.object({
   /** the AI asked me something in this chat and waits (an open ask_user / connect_service card shown in every window;
    * a card for one desktop window only is not counted). Absent = no. */
   waiting: z.literal(true).optional(),
+  /** the earlier answer here ended, but the end of the AI's work is not confirmed yet (the server's quarantined slot,
+   * at most a few minutes past the answer's time limit): the chat takes no new message until then and says so; other
+   * chats work as usual. Absent = no. */
+  ending: z.literal(true).optional(),
+  /** I answered the AI here, and the answer waits for a free place among the team's running answers to go on (the AI
+   * gave its place back while it waited for me). Absent = no. */
+  waitingForPlace: z.literal(true).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
@@ -531,6 +538,11 @@ export const FileEntry = z.object({
    * but the AI cannot read it and in-app previews are off, so "Ask AI" and "add to chat" are not offered. Absent on
    * every other entry (and from servers before this field) */
   downloadOnly: z.literal(true).optional(),
+  /** a folder the caller may write that they still may not rename, move or put in the trash (file listings only,
+   * GET /api/files/tree): 'admin' only the owner or an admin may (a group, project or rule folder, shared/, skills/, or
+   * one holding such a folder; never sent to the owner or an admin), 'always' nobody may (a personal folder, a folder
+   * holding a plugin's managed folder). Absent everywhere else and from older servers: the server still decides. */
+  fixed: z.enum(['admin', 'always']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 

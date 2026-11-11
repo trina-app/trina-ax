@@ -12,7 +12,7 @@ import { markBusy } from './busy'
 import { RecorderError, useRecorder } from './recorder'
 import type { TextEdit } from './textTokens'
 import { uploadFile } from './upload'
-import { CAP_MS, jobLabel, VoiceInput, WARN_MS, type VoiceNote } from './voiceInput'
+import { CAP_MS, jobLabel, jobWaiting, VoiceInput, WARN_MS, type VoiceNote } from './voiceInput'
 import { useLocale, useT } from '../i18n'
 import { useJobs, waitForJob } from '../store/jobs'
 
@@ -310,8 +310,9 @@ export function useVoiceInput(o: VoiceInputOptions) {
   })
 
   const job = useJobs((s) => (jobId ? s.jobs[jobId] : undefined))
-  /** the job's own words while it runs (a model download, a conversion), with how far it is */
-  const progressText = phase === 'transcribing' ? jobLabel(job) : null
+  /** the job's own words while it runs (a model download, a conversion), with how far it is; while it waits for its
+   * turn, that it waits */
+  const progressText = phase !== 'transcribing' ? null : jobWaiting(job) ? t('voice.waiting') : jobLabel(job)
   const leftMs = CAP_MS - recorder.seconds * 1000
   const hint =
     phase !== 'recording'

@@ -10,6 +10,7 @@ import { useUi } from '../store/ui'
 import { writeRich } from '../lib/clipboard'
 import { edgeFade } from '../lib/edgeFade'
 import { Tooltip } from './Tooltip'
+import { MenuButton } from './rooms/MenuButton'
 
 /** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
 const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
@@ -97,17 +98,21 @@ export function SidebarSectionTitle({ open, onToggle, controls, children, testId
 }
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
- * tied to the control with aria-describedby. */
-export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: ReactNode }) {
+ * tied to the control with aria-describedby. `aside` (a password field's eye button) sits over the control's right edge, outside the label, so
+ * the control's name stays the label's words; the control then keeps room for it (pr-11). */
+export function Field({ label, children, hint, error, aside }: { label: string; children: ReactNode; hint?: string; error?: ReactNode; aside?: ReactNode }) {
   const id = useId()
   const note = error || hint
   const control = note && isValidElement(children) ? cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>, { 'aria-describedby': id, 'aria-invalid': error ? true : undefined }) : children
+  const labelled = (
+    <label className="block">
+      <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
+      {control}
+    </label>
+  )
   return (
-    <div className="block">
-      <label className="block">
-        <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
-        {control}
-      </label>
+    <div className="block" data-field>
+      {aside ? <div className="relative">{labelled}<div className="absolute right-0 bottom-0 flex h-9 items-center max-sm:h-10" data-testid="field-aside">{aside}</div></div> : labelled}
       {hint && !error && (
         <span id={id} className="mt-1 block text-xs text-faint">
           {hint}
@@ -638,10 +643,16 @@ export function TabPanel({ base, value, className, children, ...rest }: { base: 
 
 /** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. The keyboard follows
  * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. `panels`:
- * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content. */
-export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean; panels: string }) {
+ * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content.
+ * A phone (below 768px), segmented: the row takes the width it is given (the page's, or what a button beside it
+ * leaves: Folder permissions' Filters), its choices of equal width and 44px tall, never scrolling sideways; an item's `short` is its word there ("Mine" for "My suggestions"). When a choice's word does not
+ * fit its share (a long language, five choices), the row is one picker row instead, "Available skills ⌄", whose
+ * sheet lists them all (rooms/MenuButton.tsx), so nothing is cut or hidden off the side. Computers keep the row. */
+export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string; short?: string }[]; label: string; segmented?: boolean; panels: string }) {
   const list = useRef<HTMLDivElement>(null)
   useEdgeFade(list)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const fitted = !!segmented && phone
   // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
   // then, so a row that fits never moves the page.
   useEffect(() => {
@@ -652,11 +663,28 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     const b = tab.getBoundingClientRect()
     if (b.left < r.left || b.right > r.right) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [value, items.length])
+  // a phone's segmented row: whether every word fits its equal share, measured on a hidden copy of the row (so the
+  // picker can turn back into the row when the screen turns wider)
+  const probe = useRef<HTMLDivElement>(null)
+  const [fits, setFits] = useState(true)
+  const words = items.map((it) => it.short ?? it.label).join('\n')
+  useLayoutEffect(() => {
+    const row = probe.current
+    if (!fitted || !row) return
+    const measure = () => setFits(items.length <= 5 && [...row.querySelectorAll<HTMLElement>('[data-word]')].every((w) => w.scrollWidth <= w.clientWidth + 0.5))
+    measure()
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    ro?.observe(row)
+    return () => ro?.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitted, words])
   // the tabs pattern: one Tab stop (the chosen tab); Left / Right (round), Home and End move to a tab and choose it
   const current = items.some((it) => it.id === value) ? value : items[0]?.id
   // the tab chosen last, also before the page shows it (a choice can render later: keys pressed quickly go on from it)
   const chosen = useRef(current)
   chosen.current = current
+  const picker = useRef<HTMLButtonElement>(null)
+  const [pick, setPick] = useState(0)
   const onKeyDown = (e: React.KeyboardEvent) => {
     const i = items.findIndex((it) => it.id === chosen.current)
     const n = items.length
@@ -666,6 +694,67 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     chosen.current = items[to]!.id
     onChange(items[to]!.id)
     list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+  }
+  const segment = 'flex min-h-11 min-w-0 items-center justify-center rounded-md px-2 text-label font-medium'
+  if (fitted) {
+    const now = items.find((it) => it.id === current)
+    return (
+      <div className="relative min-w-0 flex-1" data-testid="tabs-phone" data-fits={fits ? 'row' : 'picker'}>
+        {/* the row as it would be drawn, out of sight: each word against its share */}
+        <div ref={probe} aria-hidden className="pointer-events-none invisible absolute inset-x-0 top-0 grid h-0 auto-cols-[minmax(0,1fr)] grid-flow-col gap-0.5 overflow-hidden p-0.5">
+          {items.map((it) => (
+            <span key={it.id} className={segment}>
+              <span data-word className="block min-w-0 overflow-hidden whitespace-nowrap">{it.short ?? it.label}</span>
+            </span>
+          ))}
+        </div>
+        {fits ? (
+          <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className="grid w-full auto-cols-[minmax(0,1fr)] grid-flow-col gap-0.5 rounded-lg bg-subtle p-0.5">
+            {items.map((it) => (
+              <button
+                key={it.id}
+                role="tab"
+                type="button"
+                id={tabIds(panels, it.id).tab}
+                aria-controls={tabIds(panels, it.id).panel}
+                aria-selected={value === it.id}
+                tabIndex={it.id === current ? 0 : -1}
+                onClick={() => onChange(it.id)}
+                className={clsx(segment, 'focus-visible:-outline-offset-2', value === it.id ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted')}
+              >
+                <span className="truncate">{it.short ?? it.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            {/* the chosen tab's place: it names the panel below (TabPanel's aria-labelledby) */}
+            <button
+              ref={picker}
+              type="button"
+              id={current ? tabIds(panels, current).tab : undefined}
+              aria-haspopup="menu"
+              aria-label={`${label}: ${now?.label ?? ''}`}
+              onClick={() => setPick((n) => n + 1)}
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg bg-subtle px-3 text-left text-sm font-medium text-ink"
+              data-testid="tabs-picker"
+            >
+              <span className="min-w-0 flex-1 truncate">{now?.label}</span>
+              <ChevronDown size={16} className="shrink-0 text-faint" aria-hidden />
+            </button>
+            <MenuButton
+              label={label}
+              heading={label}
+              className="contents"
+              buttonClassName="hidden!"
+              openRequest={pick}
+              focusBack={() => picker.current?.focus()}
+              items={items.map((it) => ({ label: it.label, checked: it.id === current, onSelect: () => onChange(it.id), testId: `tabs-pick-${it.id}` }))}
+            />
+          </>
+        )}
+      </div>
+    )
   }
   return (
     <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('edge-fade flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>

@@ -205,7 +205,7 @@ export class EngineReader implements Reader {
       const take = (l: string) => {
         if (!l.trim()) return
         for (const e of parser.push(l)) {
-          if (e.type === 'usage') { usage.input += e.inputTokens; usage.output += e.outputTokens; usage.costUsd += e.costUsd ?? 0 }
+          if (e.type === 'usage' && !e.running) { usage.input += e.inputTokens; usage.output += e.outputTokens; usage.costUsd += e.costUsd ?? 0 }
           else if (e.type === 'error') errors.push({ code: e.code, message: e.message })
           else if (e.type === 'tool_start') { toolUse = true; h.kill() }
         }

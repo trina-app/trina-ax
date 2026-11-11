@@ -119,9 +119,11 @@ describe('trust is checked again under the current settings', () => {
     await reset()
     pluginsOf(app.ctx).reconfigure({ trust: devTrust({ MYCEL_PLUGINS_ALLOW_UNSIGNED: '1', MYCEL_PLUGINS_TEST_KEYS: key.pub }) })
     expect((await installOn(skillPack({ keyPem: null }).bytes)).body).toMatchObject({ trust: 'unverified' })
-    expect((await installOn(skillPack({ keyPem: key.pem, version: '1.1.0' }).bytes)).body).toMatchObject({ trust: 'test', previousVersion: '1.0.0' })
+    expect((await installOn(skillPack({ keyPem: key.pem, version: '1.1.0' }).bytes)).body).toMatchObject({ trust: 'test', previousVersion: '1.0.0', previousTrusted: true })
     pluginsOf(app.ctx).reconfigure({ trust: devTrust({ MYCEL_PLUGINS_TEST_KEYS: key.pub }) })
     expect(pluginsOf(app.ctx).usable(ID)).toBe(true)
+    // the ⋯ menu leaves the rollback out (it would only be refused)
+    expect(pluginsOf(app.ctx).view(ID, 'en')).toMatchObject({ previousVersion: '1.0.0', previousTrusted: false })
     const r = await post(`/api/admin/plugins/${ID}/rollback`)
     expect(r.status).toBe(409)
     expect(r.body.error.params.reason).toBe('signature')
@@ -185,6 +187,25 @@ describe('placing skills never follows a link', () => {
     expect(fs.existsSync(managed(skillFile))).toBe(false)
     expect(fs.readFileSync(copy, 'utf8')).toContain('meeting-minutes')
     fs.rmSync(copy)
+  })
+
+  test('turning it off with skills/ replaced by a link removes no empty folder where the link points', async () => {
+    await reset()
+    pluginsOf(app.ctx).reconfigure({ trust: prodTrust(key.pub) })
+    await installOn(skillPack({ keyPem: key.pem }).bytes)
+    const skills = managed('skills'), aside = managed('skills-aside')
+    const empty = path.join(outside, ID, 'meeting-minutes')
+    fs.mkdirSync(empty, { recursive: true })
+    fs.renameSync(skills, aside)
+    fs.symlinkSync(outside, skills)
+    try {
+      await post(`/api/admin/plugins/${ID}/disable`)
+      expect(fs.existsSync(empty)).toBe(true)
+    } finally {
+      fs.unlinkSync(skills)
+      fs.renameSync(aside, skills)
+      fs.rmSync(path.join(outside, ID), { recursive: true, force: true })
+    }
   })
 
   test('a link planted at skills/ itself is refused', async () => {

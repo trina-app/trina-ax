@@ -151,9 +151,16 @@ function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
  * (the composer keeps the text; Chat.shared.answering shows the same line). */
 function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
   if (!rt.activeTurn(a.row.id)) return
+  // the earlier answer ended, but the end of its engine is not confirmed yet (Chat.ending): say so, plainly
+  if (rt.endingUnconfirmed(a.row.id)) fail('conflict', tr('earlierAnswerEnding', locale), { params: { reason: 'earlier_answer_ending' } })
   const runner = rt.activeTurnUser(a.row.id)
   if (a.shared && runner && runner !== me) fail('conflict', tr('sharedChatBusy', locale, { name: rt.store.userRef(runner)?.name ?? '' }), { params: { reason: 'shared_chat_busy' } })
   fail('conflict', tr('turnInProgress', locale))
+}
+
+/** Switching versions (selectBranch) waits for the chat's answer, whoever asked: one plain 409 for everyone. */
+function branchBusyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale) {
+  if (rt.activeTurn(a.row.id)) fail('conflict', tr('branchWhileAnswering', locale), { params: { reason: 'branch_while_answering' } })
 }
 
 const isClientIdClash = (e: unknown) => /UNIQUE constraint failed: messages\.chat_id, messages\.client_message_id/.test(String((e as Error)?.message ?? e))
@@ -169,6 +176,7 @@ export const chatsRoutes: RouteModule = {
   register(kit, ctx) {
     const rt = getChatRuntime(ctx)
     const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
+    const branchBusy = (a: ChatAccess, locale: Locale) => branchBusyCheck(rt, a, locale)
     /** a project as the API shows it to `p`, with its shared chats (chat/shared.ts projectShare, `viewer`'s upload right)
      * and who changes its members (chat/project-access.ts membersView) */
     const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string, creators?: Map<string, Principal | null>, aud: Audiences = new Audiences(ctx.db, ctx.files)) => {
@@ -339,6 +347,9 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
 
     kit.handle(API.createChat, ({ c, body, auth }) => {
+      // a used-up block limit: no new chat either, so a refused first question (Home) leaves no empty chat behind;
+      // the composer keeps the text and shows the refusal (QA TC-215)
+      checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
       // a chat made in a project that shares its chats is a shared chat, from its first moment and for good (never a
       // personal project, never while safe operations are on: chat/shared.ts sharesNewChats)
@@ -577,8 +588,12 @@ export const chatsRoutes: RouteModule = {
     })
 
     kit.handle(API.selectBranch, ({ c, params, body, auth }) => {
-      const chat = chatOf(rt, c, auth, params.id, 'continue').row
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      const chat = a.row
       messageInChat(rt, chat.id, body.messageId)
+      // not while an answer runs or waits (anyone's, in a shared chat): the live answer would drop off the branch on
+      // screen and the next message would continue from the other one
+      branchBusy(a, c.get('locale'))
       const leaf = rt.store.newestLeafUnder(chat.id, body.messageId)
       ctx.db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(leaf, chat.id)
       return messagesPage(rt, { ...chat, active_leaf_id: leaf }, undefined, 50, auth.user.id, c.get('locale'))

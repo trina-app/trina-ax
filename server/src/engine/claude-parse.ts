@@ -70,6 +70,8 @@ export class ClaudeStreamParser {
   refused = false
   /** the run ended at --max-turns (the per-answer limit of tool rounds): a 'limit' event, not an error */
   maxTurns = false
+  /** the input tokens of the model call under way (its message_start), of the main AI ('') and of each sub-agent */
+  private callInput = new Map<string, number>()
   text = ''
   push(line: string): EngineEvent[] {
     let ev: any
@@ -88,8 +90,19 @@ export class ClaudeStreamParser {
       const stats = agentStats(ev.usage)
       if (typeof ev.tool_use_id === 'string' && stats) out.push({ type: 'agent_progress', id: ev.tool_use_id, stats })
     } else if (ev.type === 'stream_event') {
-      if (parent) return out
       const e = ev.event ?? {}
+      // one model call's tokens as soon as it ends (input from its start, output from its last delta), the main AI's
+      // and each sub-agent's: the turn counts them while the run goes on, so a used-up budget stops the answer before
+      // the run's total comes (result below: it includes the sub-agents and replaces these)
+      const key = parent ?? ''
+      if (e.type === 'message_start') this.callInput.set(key, inputOf(e.message?.usage))
+      else if (e.type === 'message_delta' && e.usage && typeof e.usage === 'object') {
+        // the main AI's call that ends without a tool call is the answer's last: counted, but never a reason to stop
+        const continues = !!parent || e.delta?.stop_reason === 'tool_use'
+        out.push({ type: 'usage', running: true, inputTokens: Math.max(this.callInput.get(key) ?? 0, inputOf(e.usage)), outputTokens: num(e.usage.output_tokens), ...(continues ? { continues: true } : {}) })
+        this.callInput.delete(key)
+      }
+      if (parent) return out
       if (e.type === 'content_block_start' && e.content_block?.type === 'text') { this.textOpen = true; if (this.text && !this.text.endsWith('\n\n')) { this.text += '\n\n'; out.push({ type: 'text', delta: '\n\n' }) } }
       else if (e.type === 'content_block_delta' && e.delta?.type === 'text_delta') { this.sawDeltas = true; this.text += e.delta.text; out.push({ type: 'text', delta: e.delta.text }) }
       else if (e.type === 'content_block_delta' && e.delta?.type === 'thinking_delta') out.push({ type: 'thinking', delta: e.delta.thinking ?? '' })
@@ -138,7 +151,6 @@ export class ClaudeStreamParser {
       // include the sub-agents (review S7). Same sums as before: input = input + cache read + cache creation.
       const u = ev.usage ?? {}
       const models = ev.modelUsage && typeof ev.modelUsage === 'object' ? Object.values(ev.modelUsage as Record<string, any>) : []
-      const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
       const usage = models.length
         ? { inputTokens: models.reduce((a, m) => a + num(m?.inputTokens) + num(m?.cacheReadInputTokens) + num(m?.cacheCreationInputTokens), 0), outputTokens: models.reduce((a, m) => a + num(m?.outputTokens), 0) }
         : { inputTokens: num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens), outputTokens: num(u.output_tokens) }
@@ -154,5 +166,9 @@ export class ClaudeStreamParser {
     return out
   }
 }
+
+const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0)
+/** input tokens of one model call, the same sum as the run's total: input + cache read + cache creation */
+const inputOf = (u: any) => (u && typeof u === 'object' ? num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens) : 0)
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])

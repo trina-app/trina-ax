@@ -3,21 +3,25 @@
 // ripgrep may enter (hidden sub-folders are excluded before anything is opened) and visiblePath() checks every hit
 // again (name rules, server folders, read access, regular single-link file). Nothing else is ever listed. A name matches
 // when it holds every word of the text, in any order and any case (shared/src/search-text.ts searchWords, as ⌘K's room
-// files and messages: "budget q4" finds "Q4 Budget.xlsx").
+// files and messages: "budget q4" finds "Q4 Budget.xlsx"). ⌘K also asks for folders (`folders`): the folders the file
+// screen would show the caller (siblingVisible), found by a walk of folders only (QA TC-230: "주간" found no folder).
 import fs from 'node:fs'
+import path from 'node:path'
 import { searchWords } from '@mycel/shared'
 import type { FileEntry, FileList } from '@mycel/shared/api'
 import { allowedRoots, excludeArgs, runRg } from '../files/search'
-import { authorize, visiblePath } from '../policy/authorize'
+import { authorize, siblingVisible, visiblePath } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import type { TeamFiles } from './service'
 
 /** ripgrep options for listing names only (no size limit: big files are attachable too) */
 const RG_LIST = ['--files', '--null', '--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--no-messages']
 const HIT_CAP = 5000
+/** folders looked at for folder names, at most (a walk of folders only; files are not opened) */
+const FOLDER_SCAN = 20_000
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
 
-export async function findFiles(files: TeamFiles, userId: string, q: string, base: string, limit: number): Promise<FileList> {
+export async function findFiles(files: TeamFiles, userId: string, q: string, base: string, limit: number, o: { folders?: boolean } = {}): Promise<FileList> {
   const user = files.principal(userId)
   const rules = files.rules()
   const b = authorize(files.fx, rules, user, base, 'list')
@@ -36,8 +40,38 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
     if (st) hits.push({ rel, st })
     if (hits.length >= HIT_CAP) return false
   }, cfg.grepTimeoutMs)
-  hits.sort((x, y) => y.st.mtimeMs - x.st.mtimeMs || x.rel.localeCompare(y.rel))
-  return { items: hits.slice(0, limit).map((h) => files.entry(user, rules, h.rel.split('/'), h.st)), truncated: hits.length > limit || r.killed !== null }
+  const byTime = (x: { rel: string; st: fs.Stats }, y: { rel: string; st: fs.Stats }) => y.st.mtimeMs - x.st.mtimeMs || x.rel.localeCompare(y.rel)
+  hits.sort(byTime)
+  // folders first: there are few, and the one asked for must not fall behind thirty files
+  const dirs: FolderHits = o.folders ? await findFolders(files, user, rules, b.segs, words) : []
+  dirs.sort(byTime)
+  const all = [...dirs, ...hits]
+  return { items: all.slice(0, limit).map((h) => files.entry(user, rules, h.rel.split('/'), h.st)), truncated: all.length > limit || r.killed !== null || !!dirs.scanCut }
+}
+
+type FolderHits = { rel: string; st: fs.Stats }[] & { scanCut?: boolean }
+
+/** Folders under `base` whose name holds every word, among those the file screen shows the caller (siblingVisible:
+ * name rules, server folders, may list it). Only listable folders are entered; links are not followed. */
+async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['principal']>, rules: ReturnType<TeamFiles['rules']>, base: string[], words: string[]): Promise<FolderHits> {
+  const out: FolderHits = []
+  const queue: string[][] = [base]
+  for (let seen = 0; queue.length; seen++) {
+    if (seen >= FOLDER_SCAN) { out.scanCut = true; break }
+    const dir = queue.shift()!
+    let names: fs.Dirent[]
+    try { names = await fs.promises.readdir(path.join(files.root, ...dir), { withFileTypes: true }) } catch { continue }
+    for (const e of names) {
+      if (!e.isDirectory() || !siblingVisible(files.fx, rules, user, dir, e.name)) continue
+      const segs = [...dir, e.name]
+      queue.push(segs)
+      const folded = fold(e.name)
+      if (!words.every((w) => folded.includes(w))) continue
+      try { out.push({ rel: segs.join('/'), st: fs.lstatSync(path.join(files.root, ...segs)) }) } catch {}
+      if (out.length >= HIT_CAP) return out
+    }
+  }
+  return out
 }
 
 /** Files changed lately (file screen, uploads, AI saves) that the caller can read now, newest first. */

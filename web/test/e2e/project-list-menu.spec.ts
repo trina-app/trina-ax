@@ -263,7 +263,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 
 // docs/DECISIONS.md "Project contents only for members": the owner's card of a team project she is not in has Rename,
 // Members and Delete; deleting moves it to the trash (the card stays and says so), deleting again is for good; a team
-// project nobody active is in says "남은 멤버 없음".
+// project nobody active is in says "남은 멤버 없음"; its instructions do not come, so the card says "멤버만 내용을 볼 수
+// 있어요." with a lock, never "지침이 없어요.". SHOTS_DIR set: the list as an admin who is not in it, as a picture.
 for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }, { name: '390', phone: true, use: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' as const } }]) {
   test.describe(`a project the owner is not in, on the list at ${vp.name}`, () => {
     test.use(vp.use)
@@ -311,6 +312,31 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await dialog.getByTestId('dialog-confirm').click()
       await expect(card(page, 'Falcon')).toHaveCount(0)
       expect((await page.request.get(`/api/projects/${falcon}?manage=1`)).status()).toBe(404)
+    })
+
+    test('an admin who is not in it: a lock and "멤버만 내용을 볼 수 있어요." in place of its instructions, as tall as the others', async ({ page }) => {
+      await reset(page, { withAdmin: true })
+      await signIn(page, { username: 'dana', password: 'dana password 1' })
+      // Bob's project with instructions Dana does not get, and her own one without any
+      await post(page, '/__test/project', { name: 'Falcon', by: 'bob', instructions: 'Falcon: answer in short bullet points.' })
+      expect((await post(page, '/api/projects', { name: 'Launch', scope: 'team', instructions: '' })).status()).toBe(201)
+      await page.goto('/projects')
+      await expect(page.getByTestId('project-card')).toHaveCount(2)
+      const about = (name: string) => card(page, name).getByTestId('project-card-about')
+      await expect(about('Falcon')).toHaveText(t['projects.cardMembersOnly'])
+      await expect(about('Falcon').locator('svg')).toHaveCount(1)
+      await expect(card(page, 'Falcon')).not.toContainText(t['projects.noInstructions'])
+      await expect(card(page, 'Falcon')).not.toContainText('short bullet points')
+      // her own project without instructions still says so
+      await expect(about('Launch')).toHaveText(t['projects.noInstructions'])
+      const box = async (name: string) => (await card(page, name).getByRole('link').boundingBox())!
+      expect(Math.round((await box('Falcon')).height)).toBe(Math.round((await box('Launch')).height))
+      // the lock on the line's first line, not on a line of its own
+      const lock = (await about('Falcon').locator('svg').boundingBox())!
+      const line = (await about('Falcon').boundingBox())!
+      expect(lock.y - line.y).toBeLessThan(line.height / 2)
+      await audit(page, 'cards of a project the admin is not in')
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/projects-not-a-member-${vp.name}-light.png` })
     })
   })
 }

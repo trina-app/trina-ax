@@ -88,7 +88,9 @@ void (async () => {
       restricted.push({ path: d.path, action: a })
       cb(a)
     }))
-  const grants = hardenAppSession(ses, () => [team])
+  // why a refused folder of the team page's own pick was refused (the window would say it; here it answers deny)
+  const told: string[] = []
+  const grants = hardenAppSession(ses, () => [team], async (why) => { told.push(why); return 'deny' })
   grants.person({ signedIn: true, userId: 'u-alex' })
 
   const folder = join(app.getPath('documents'), 'company')
@@ -150,7 +152,7 @@ void (async () => {
   out.otherOrigin = await drop(folder)
   out.otherOriginDownloads = await drop(app.getPath('downloads'))
   const named: Record<string, string> = { [app.getPath('downloads')]: 'downloads', [home]: 'home', [app.getPath('appData')]: 'appData' }
-  console.log('FOLDER_RESULT ' + JSON.stringify({ out, fromChromium, restricted: restricted.map((r) => ({ ...r, path: named[r.path] ?? 'other' })) }))
+  console.log('FOLDER_RESULT ' + JSON.stringify({ out, fromChromium, restricted: restricted.map((r) => ({ ...r, path: named[r.path] ?? 'other' })), told }))
   win.destroy()
   server.close()
   app.exit(0)

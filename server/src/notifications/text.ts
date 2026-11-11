@@ -47,6 +47,14 @@ export const TEXT = {
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** the button on a room notification that marks the room (or the thread) read without opening the app */
 export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído' }
+/** a phone whose notifications another person's live session gets (push-service.ts registerDevice): never says who */
+export const PHONE_TAKEN: Record<Locale, string> = {
+  ko: '이 휴대폰 알림은 지금 다른 계정이 받고 있어요. 그 계정에서 로그아웃한 뒤 다시 켜 주세요.',
+  en: 'Another account gets this phone\'s notifications right now. Sign out of that account, then turn them on again.',
+  id: 'Notifikasi ponsel ini sedang diterima akun lain. Keluar dari akun itu, lalu aktifkan lagi.',
+  ja: 'この端末の通知は今、別のアカウントが受け取っています。そのアカウントからログアウトしてから、もう一度オンにしてください。',
+  es: 'Otra cuenta recibe ahora las notificaciones de este teléfono. Cierre la sesión de esa cuenta y vuelva a activarlas.',
+}
 
 /** The words of a room notice's title on a device ("민준 · #마케팅 › 스레드": rooms/inbox.ts roomLabel, shown by the web
  * app's service worker), the same as the app's (rooms.thread, rooms.all, rooms.aiName, rooms.nameSep,

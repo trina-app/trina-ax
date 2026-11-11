@@ -8,6 +8,9 @@
 //   @fake {"tool": …, "followResult": true}  also run the "@fake {…}" directives found in the result (an AI that follows
 //                                            an instruction planted in what a tool returned)
 //   @fake {"sleep": 300}                     wait
+//   @fake {"callUsage": {"input": 9, "output": 3}}  (Claude) one model call's tokens in the stream (message_start /
+//                                            message_delta), like Claude Code's partial messages, before the run's total;
+//                                            "last": true: the call ends the answer (end_turn), else it asked for a tool
 //   @fake {"toolStarted": "read", "args": {...}}  report a call of one of our tools that never finishes (a long
 //                                            download, a slow page): the step stays running until the turn ends
 //   @fake {"saySplit": "한글"}               one text delta whose stdout line is written in two pieces, cut inside
@@ -16,6 +19,7 @@
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
 //   @fake {"claudeFail": "usage limit"}     the same, as Claude only (Codex goes on: the limit fallback)
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
+//   @fake {"diskFull": true}                 exit 1 with Node's "ENOSPC: no space left on device" on stderr (every time)
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
 //   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
@@ -487,10 +491,17 @@ for (const d of directives) {
       message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Web search results for query: "${q}"\n\nLinks: ${JSON.stringify(d.webSearch.textLinks ?? d.webSearch.hits ?? [])}\n\n${d.webSearch.wrote ?? ''}` }] } })
     await Bun.sleep(Number(d.webSearch.pause ?? 150))
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
+  // (Claude) one model call ends, with its tokens in the stream (message_start / message_delta), before the run's total
+  else if (d.callUsage && !codex) {
+    closeBlock()
+    out({ type: 'stream_event', event: { type: 'message_start', message: { usage: { input_tokens: Number(d.callUsage.input ?? 0), output_tokens: 1 } } } })
+    out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: d.callUsage.last ? 'end_turn' : 'tool_use' }, usage: { output_tokens: Number(d.callUsage.output ?? 0) } } })
+  }
   else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })
   else if (d.claudeFail) { if (!codex) finish({ error: String(d.claudeFail) }) }
+  else if (d.diskFull) { process.stderr.write("Error: ENOSPC: no space left on device, write\n"); process.exit(1) }
   else if (d.crashOnce) {
     const marker = path.join(process.cwd(), '.crashed-once')
     if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(3) }

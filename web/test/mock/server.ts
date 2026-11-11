@@ -36,8 +36,9 @@
 // (the team's speech provider and whether an OpenRouter key is set; chosen false: not chosen, read from the key),
 // GET-or-POST /__test/transcribe-chats (the chat id each voice input named, null for a new chat; a confidential chat's
 // recording with OpenRouter is refused, 403), POST
-// /__test/transcribe-progress {message, progress, ms} (the next transcription jobs say that label first, as a server that
-// downloads its speech model does, and end after `ms`; until the next reset).
+// /__test/transcribe-progress {message, progress, ms, queuedMs?} (the next transcription jobs say that label first, as a
+// server that downloads its speech model does, and end after `ms`; until the next reset). queuedMs: each waits that long
+// for its turn first (another voice input holds the one transcription slot), saying nothing until it starts.
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
@@ -65,6 +66,7 @@ import type { FileListStatus } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
+import type { MemberWelcome } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -105,6 +107,7 @@ import path from 'node:path'
 import { MockPlugins } from './plugins'
 import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
+import { isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
@@ -283,14 +286,23 @@ export class MockServer {
     | { kind: 'lead_joined'; inviteId: string; leadFor: string; joinerId: string; joinedAt: string }
     | { kind: 'transferred'; me: 'from' | 'to' | 'other'; fromId: string; toId: string; fromName: string; toName: string; ended: { teamAi: number; driveShares: number; failed: number } }
     | { kind: 'reauth_locked' }
+    // a member's ask to add an app (server/src/integrations/service-requests.ts): one per owner or admin and app, and
+    // the member's "ready" once they can connect it
+    | { kind: 'service_request'; service: RequestableService }
+    | { kind: 'service_ready'; service: RequestableService; requestId: string }
     // someone started to see a project I am in (an owner or admin who added themselves: server/src/chat/project-joins.ts)
     | { kind: 'project_joined'; joinerId: string; projectId: string }
   ))[] = []
+  /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
+  serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
   teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
+  /** an invited person's welcome card on Home (server/src/onboarding/member-welcome.ts): none in these tests unless one
+   * sets it (POST /__test/member-welcome {welcome}), as for the team's creator and people who joined before it existed */
+  memberWelcome: MemberWelcome | null = null
   /** a saved welcome row: finished once 회사 소개 is answered (saved or put off) and 내 스킬, 팀 파일, 도구 연결 and the
    * invite are each done or put off, not while 내 스킬 waits for a computer (server/src/onboarding/welcome.ts
    * welcomeFinished, docs/DECISIONS.md "W6") */
@@ -367,6 +379,8 @@ export class MockServer {
   connection: ConnectionStatus = defaultConnection()
   /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
   teamAddress: string | null = null
+  /** GET /api/admin/backups' lastRestore (POST /__test/last-restore): none until a test sets it */
+  lastRestore: import('@mycel/shared/api').LastRestore | null = null
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
@@ -391,7 +405,7 @@ export class MockServer {
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
-  transcribeProgress: { message: string; progress: number | null; ms: number } | null = null
+  transcribeProgress: { message: string; progress: number | null; ms: number; queuedMs: number } | null = null
   /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
    * ffmpeg (localMissing: the tools 'local' lacks) */
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
@@ -534,9 +548,11 @@ export class MockServer {
     this.invites = []
     this.handover = MockServer.handoverDefault()
     this.inbox = []
+    this.serviceRequests = []
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
+    this.memberWelcome = null
     this.companyProfile = null
     this.packExamples = {}
     this.packsFail = false
@@ -621,6 +637,7 @@ export class MockServer {
     this.pluginManaged.clear()
     this.connection = defaultConnection()
     this.teamAddress = null
+    this.lastRestore = null
     if (!this.setupNeeded) this.seed()
     // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
     if (o.withAdmin && !this.setupNeeded) {
@@ -1157,7 +1174,42 @@ export class MockServer {
     this.inbox.unshift({ id: uuidv7(), userId, createdAt: now(), readAt: null, ...n } as MockServer['inbox'][number])
     this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
   }
+  /** like server/src/integrations/service-requests.ts serviceState */
+  serviceState(service: RequestableService): 'not_set_up' | 'available' | 'other' {
+    if (service === 'google-drive') return this.driveClient === 'none' ? 'not_set_up' : this.driveMembers ? 'available' : 'other'
+    const r = this.googleApps.reasonOf(this.googleApps.app(service)!)
+    return r === 'not_set_up' ? 'not_set_up' : r === null ? 'available' : 'other'
+  }
+  /** like settleServiceRequests: an app members can connect now closes its asks (each member hears it is ready), a member
+   * who left or became an admin closes theirs; with none left the admins' notice counts as read */
+  settleServiceRequests() {
+    const at = now(), touched = new Set<RequestableService>()
+    for (const r of this.serviceRequests.filter((x) => !x.closedAt)) {
+      const u = this.users.find((x) => x.id === r.userId)
+      const reason = !u || u.status !== 'active' || u.role !== 'member' ? 'left' as const : this.serviceState(r.service) === 'available' ? 'added' as const : null
+      if (!reason) continue
+      r.closedAt = at; r.reason = reason; touched.add(r.service)
+      if (reason === 'added') this.note(r.userId, { kind: 'service_ready', service: r.service, requestId: r.id })
+    }
+    for (const s of touched) if (!this.serviceRequests.some((x) => x.service === s && !x.closedAt)) {
+      for (const n of this.inbox) if (n.kind === 'service_request' && n.service === s) n.readAt ??= at
+    }
+  }
+  serviceNoticeItem(n: Extract<MockServer['inbox'][number], { kind: 'service_request' | 'service_ready' }>): InboxNotification {
+    const code = n.kind === 'service_request' ? 'service.request' as const : 'service.ready' as const
+    const base = { id: n.id, eventType: code, sourceId: n.kind === 'service_request' ? n.service : n.requestId, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
+    const viewer = this.users.find((x) => x.id === n.userId)
+    if (n.kind === 'service_ready' || !viewer || viewer.role === 'member') return { ...base, serviceRequest: { service: n.service } }
+    const nameOf = (r: { userId: string }) => this.users.find((u) => u.id === r.userId)?.name ?? null
+    const newest = (a: { createdAt: string }, b: { createdAt: string }) => b.createdAt.localeCompare(a.createdAt)
+    const open = this.serviceRequests.filter((r) => r.service === n.service && !r.closedAt).sort(newest)
+    if (open.length) return { ...base, serviceRequest: { service: n.service, name: nameOf(open[0]!), others: open.length - 1, open: true } }
+    const last = this.serviceRequests.filter((r) => r.service === n.service && r.closedAt).map((r) => r.closedAt!).sort().at(-1)
+    const round = this.serviceRequests.filter((r) => r.service === n.service && r.closedAt === last).sort(newest)
+    return { ...base, serviceRequest: { service: n.service, name: round[0] ? nameOf(round[0]) : null, others: Math.max(0, round.length - 1), open: false, ...(round.some((r) => r.reason === 'added') ? { added: true as const } : {}) } }
+  }
   inboxItem(n: MockServer['inbox'][number]): InboxNotification {
+    if (n.kind === 'service_request' || n.kind === 'service_ready') return this.serviceNoticeItem(n)
     const viewer = this.users.find((x) => x.id === n.userId)
     if (n.kind === 'project_joined') {
       // who, while the account is there; the project while the reader still sees it (link 'project' then)
@@ -1775,6 +1827,8 @@ export class MockServer {
         ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
       : /^\/intro-deck\b/.test(prompt)
         ? (/deck-fail/i.test(prompt) ? '소개서를 끝까지 만들지 못했어요. 다시 해 볼까요?' : '회사 소개서를 만들었어요. 바꾸고 싶은 장이나 문구가 있으면 말씀해 주세요.')
+      : /big numbers/i.test(prompt)
+        ? '채널별 매출이에요.\n\n| 채널 | 이번 달 매출 | 지난달 매출 | 주문 수 | 메모 |\n|---|---|---|---|---|\n| 온라인 스토어 | 1,234,567,890원 | ₩987,654,321 | 12,345건 | 주말 할인 행사 덕분에 늘었어요 |\n| 오프라인 매장 | 98,765,432원 | ₩87,654,321 | 3,210건 | 비슷해요 |\n'
       : /한 줄로/.test(prompt)
         ? '로고 시안은 수요일까지 2개 받기로 했어요. 피드백은 금요일 회의 전에 이 스레드에 모아요.'
       : prompt.includes('answered:')
@@ -2713,7 +2767,9 @@ export class MockServer {
       const base = String(c.query.path ?? '')
       const items = [...this.files.entries()]
         // like the server (policy/authorize.ts visiblePath): download-only files are not search hits
-        .filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        // folders too when asked (⌘K: folders=1), first, like the server
+        .filter(([p, n]) => (n.type === 'file' || (c.query.folders === '1' && n.type === 'folder')) && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        .sort(([, a], [, b]) => (a.type === b.type ? 0 : a.type === 'folder' ? -1 : 1))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
     },
@@ -3105,6 +3161,13 @@ export class MockServer {
     },
     // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the general pack once
     getWelcome: () => ({ progress: this.welcome }),
+    // an invited person's welcome card (shared/src/api/member-welcome.ts): none by default; Hide ends it, Ask marks its row
+    getMemberWelcome: () => ({ welcome: this.memberWelcome }),
+    updateMemberWelcome: (c) => {
+      if (c.body.hide) this.memberWelcome = null
+      else if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
+      return { welcome: this.memberWelcome }
+    },
     updateWelcome: (c) => {
       const at = now()
       const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
@@ -3412,6 +3475,7 @@ export class MockServer {
     engines: () => this.enginesResponse(),
     updateEngines: (c) => {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
+      if (c.body.defaultModel !== undefined) this.settings.defaultModel = c.body.defaultModel
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
       if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
@@ -3550,7 +3614,7 @@ export class MockServer {
         { id: 'maint-1', level: 'info' as const, text: '오늘 밤 2시에 점검이 있어요', link: 'https://status.teamax.example', until: null, dismissible: true },
       ],
     }),
-    listBackups: () => ({ items: [{ id: 'b1', kind: 'daily', createdAt: now(), size: 123456, scope: 'full' }] }),
+    listBackups: () => ({ items: [{ id: 'b1', kind: 'daily', createdAt: now(), size: 123456, scope: 'full' }], lastRestore: this.lastRestore }),
     startBackup: (c) => {
       const id = uuidv7()
       const job: Job = { id, kind: 'backup', status: 'running', progress: 0, message: 'Backing up', result: null, error: null, createdAt: now(), finishedAt: null }
@@ -3561,6 +3625,19 @@ export class MockServer {
         this.publish({ type: 'job.done', data: { job } })
       }, 200)
       void c
+      return { status: 202, body: { jobId: id } }
+    },
+    // the restore: owner-reauth like the server (a wrong password is 403 with fields['body.password']); the job only
+    // stages it (the server applies it at its next start)
+    startRestore: (c) => {
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.', { 'body.password': 'wrong password' })
+      const id = uuidv7()
+      const job: Job = { id, kind: 'restore', status: 'running', progress: 0, message: 'Checking the backup', result: null, error: null, createdAt: now(), finishedAt: null }
+      this.jobs.set(id, job)
+      setTimeout(() => {
+        Object.assign(job, { status: 'done', progress: 1, result: { backupId: c.body.backupId, restoredAt: now(), lostSince: now() }, finishedAt: now() })
+        this.publish({ type: 'job.done', data: { job } })
+      }, 200)
       return { status: 202, body: { jobId: id } }
     },
     connection: () => this.connection,
@@ -3655,7 +3732,7 @@ export class MockServer {
       return { flowId: f!.id, state: f!.polls++ < 1 ? 'pending' : 'ready', account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), reason: null }
     },
     cancelDriveFlow: () => { this.driveShareFlow = null; return undefined },
-    setDriveMembers: (c) => { this.driveMembers = c.body.on; return this.driveAdminStatus() },
+    setDriveMembers: (c) => { this.driveMembers = c.body.on; this.settleServiceRequests(); return this.driveAdminStatus() },
     listDriveShares: () => ({ items: this.driveShares.map((x) => ({ ...x, usedBy: this.driveShareUsers(x) })) }),
     authorizeDriveShare: (c) => {
       this.driveShareFlow = { id: 'share-flow-' + uuidv7(), shareId: c.body.shareId ?? null, polls: 0 }
@@ -3715,6 +3792,7 @@ export class MockServer {
         if (!Array.isArray(j!.web!.redirect_uris) || !j!.web!.redirect_uris.includes(redirect)) fail('bad_request', 400, 'drive_client_redirect')
       }
       this.driveClient = 'app'
+      this.settleServiceRequests()
       return this.driveAdminStatus()
     },
 
@@ -3750,12 +3828,41 @@ export class MockServer {
         }
         app.client = 'app'
       }
+      this.settleServiceRequests()
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
     setGoogleAppMembers: (c) => {
       const app = this.googleApps.app(c.params.app) ?? fail('not_found', 404)
       app.members = c.body.on
+      this.settleServiceRequests()
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
+    },
+    // a member asks the owner and the admins to add an app (like server/src/integrations/service-requests.ts)
+    myServiceRequests: (c) => ({ items: this.serviceRequests.filter((r) => r.userId === c.user.id && !r.closedAt).map((r) => ({ service: r.service, askedAt: r.createdAt })) }),
+    askService: (c) => {
+      const service = c.body.service
+      if (!isRequestableService(service)) return fail('bad_request', 400, undefined, undefined, { reason: 'unknown_service' })
+      if (c.user.role !== 'member') fail('forbidden', 403, undefined, undefined, { reason: 'admin' })
+      this.settleServiceRequests()
+      const open = this.serviceRequests.find((r) => r.userId === c.user.id && r.service === service && !r.closedAt)
+      if (open) return { service, state: 'already' as const, askedAt: open.createdAt }
+      const st = this.serviceState(service)
+      if (st === 'available') fail('conflict', 409, undefined, undefined, { reason: 'can_connect' })
+      if (st === 'other') fail('conflict', 409, undefined, undefined, { reason: 'not_requestable' })
+      const day = new Date(Date.now() - 86_400_000).toISOString()
+      if (this.serviceRequests.filter((r) => r.userId === c.user.id && r.createdAt > day).length >= SERVICE_REQUESTS_PER_DAY) fail('rate_limited', 429, undefined, undefined, { reason: 'rate_limited' })
+      const at = now()
+      this.serviceRequests.push({ id: uuidv7(), userId: c.user.id, service, createdAt: at, closedAt: null, reason: null })
+      for (const a of this.users.filter((u) => (u.role === 'owner' || u.role === 'admin') && u.status === 'active')) {
+        // one notice per admin and app: a new ask arms it again (unread, now, on top)
+        const i = this.inbox.findIndex((n) => n.userId === a.id && n.kind === 'service_request' && n.service === service)
+        if (i >= 0) {
+          const [n] = this.inbox.splice(i, 1)
+          this.inbox.unshift({ ...n!, readAt: null, createdAt: at })
+          this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+        } else this.note(a.id, { kind: 'service_request', service })
+      }
+      return { service, state: 'sent' as const, askedAt: at }
     },
 
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
@@ -4526,10 +4633,18 @@ export class MockServer {
 
   transcribeJob(user: User): string {
     const id = uuidv7()
-    const job: Job = { id, kind: 'transcribe', status: 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
-    this.jobs.set(id, job)
     const slow = this.transcribeProgress
-    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), 50)
+    const wait = slow?.queuedMs ?? 0
+    const job: Job = { id, kind: 'transcribe', status: wait ? 'queued' : 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
+    this.jobs.set(id, job)
+    // like the server: a job says when it starts (until then the box says it waits for its turn)
+    const started = () => {
+      job.status = 'running'
+      this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: null, message: null } })
+    }
+    if (wait) setTimeout(started, wait)
+    else started()
+    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), wait + 50)
     setTimeout(() => {
       Object.assign(job, { status: 'done', progress: 1, result: { text: '받아쓴 문장입니다', language: 'ko', durationSec: 2 }, finishedAt: now() })
       this.publish({ type: 'job.done', data: { job } })
@@ -4647,8 +4762,10 @@ export class MockServer {
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
     else if (p === '/__test/cloud') this.cloud = body.on !== false
-    else if (p === '/__test/google-apps') this.googleApps.control(body)
-    else if (p === '/__test/drive-client') this.driveClient = body.on === false ? 'none' : 'app'
+    else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
+    else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
+    else if (p === '/__test/member-welcome') this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null
+    else if (p === '/__test/drive-client') { this.driveClient = body.on === false ? 'none' : 'app'; this.settleServiceRequests() }
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/often-asked') this.oftenAsked = { team: (body.team as string[] | undefined) ?? [], groups: (body.groups as Record<string, string[]> | undefined) ?? {} }
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
@@ -4666,6 +4783,7 @@ export class MockServer {
     else if (p === '/__test/pack-install-fail') this.packInstallFails = Number(body.times ?? 1)
     else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
+    else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
@@ -4712,7 +4830,7 @@ export class MockServer {
       this.speechChosen = body.chosen !== false
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
-    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000) }
+    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)

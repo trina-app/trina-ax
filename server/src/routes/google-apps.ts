@@ -1,5 +1,7 @@
 // Gmail, Google Calendar, Google Docs and Google Sheets (contract: shared/src/api/google-apps.ts; logic:
-// server/src/integrations/google-apps/service.ts). Registered by the files route module next to Google Drive's.
+// server/src/integrations/google-apps/service.ts). Registered by the files route module next to Google Drive's. Also a
+// member's ask to add one of these apps or Google Drive (shared/src/api/service-requests.ts;
+// server/src/integrations/service-requests.ts): an admin's setup closes the asks it answers.
 import { API } from '@mycel/shared/api'
 import type { GoogleAppId } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -9,6 +11,7 @@ import type { AppContextC } from '../http/env'
 import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
+import { afterServiceSetup, askService, myServiceRequests } from '../integrations/service-requests'
 
 /** the app in the path, or not found */
 function appOf(raw: string | undefined): GoogleAppId {
@@ -39,8 +42,19 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.disconnectGoogleApp, ({ auth, params }) => safe(() => svc().disconnect(auth.user.id, appOf(params.app))))
   // Admin › Connectors: one card per app (the route checks the admin role)
   kit.handle(API.googleAppsAdminStatus, () => safe(() => svc().adminList()))
-  kit.handle(API.setGoogleAppClient, ({ auth, params, body }) => safe(() => svc().setClient(auth.user.id, appOf(params.app), body)))
-  kit.handle(API.setGoogleAppMembers, ({ auth, params, body }) => safe(() => svc().setMembers(auth.user.id, appOf(params.app), body.on)))
+  kit.handle(API.setGoogleAppClient, ({ auth, params, body }) => safe(() => {
+    const app = appOf(params.app), st = svc().setClient(auth.user.id, app, body)
+    afterServiceSetup(ctx, app)
+    return st
+  }))
+  kit.handle(API.setGoogleAppMembers, ({ auth, params, body }) => safe(() => {
+    const app = appOf(params.app), st = svc().setMembers(auth.user.id, app, body.on)
+    afterServiceSetup(ctx, app)
+    return st
+  }))
+  // a member asks the owner and the admins to add an app the team has not set up; the person comes from the session
+  kit.handle(API.myServiceRequests, ({ auth }) => myServiceRequests(ctx, auth.user.id))
+  kit.handle(API.askService, ({ auth, body }) => askService(ctx, auth.user, body.service))
   // Google (or the hosting service) sends the browser back here; which app is in the flow its state names
   kit.raw('GET', CALLBACK_PATH, async (c) => {
     let ok = false

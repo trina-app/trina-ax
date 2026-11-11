@@ -31,6 +31,14 @@ export interface MenuItem {
   hint?: string
 }
 
+/** The items in a phone's sheet (below 768px): what cannot be undone (delete) last, whatever order the caller gave,
+ * under a hairline (`dangerLine` on the first of them), as iOS sheets have it; a computer's menu keeps the order. */
+function sheetOrder(items: MenuItem[]): MenuItem[] {
+  if (typeof window === 'undefined' || window.matchMedia?.('(min-width: 48rem)').matches) return items
+  return [...items.filter((it) => !it.danger), ...items.filter((it) => it.danger)]
+}
+const dangerLine = "max-md:relative max-md:mt-2 max-md:before:absolute max-md:before:inset-x-3 max-md:before:-top-1 max-md:before:border-t max-md:before:border-line max-md:before:content-['']"
+
 /** px a computer's menu keeps clear of the window's edges, and between it and its button */
 export const MENU_EDGE = 8
 const MENU_GAP = 4
@@ -227,7 +235,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           {/* the menu's name (aria-label above), shown: not one of its items */}
           {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
           {sheetTitle && <p aria-hidden className="truncate px-3 pt-2 pb-2 text-sm text-muted md:hidden" data-testid="menu-sheet-title">{sheetTitle}</p>}
-          {items.map((it) => (
+          {sheetOrder(items).map((it, i, all) => (
             <button
               key={it.label}
               role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
@@ -240,7 +248,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
                 if (hiddenButton() && focusBack && menu.current?.contains(document.activeElement)) focusBack()
                 it.onSelect()
               }}
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover')}
+              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover', it.danger && i > 0 && !all[i - 1]!.danger && dangerLine)}
               data-testid={it.testId}
             >
               {it.icon}

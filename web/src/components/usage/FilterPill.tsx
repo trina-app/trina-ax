@@ -1,7 +1,8 @@
 // A filter in the Claude Console style: a rounded pill that reads "Label  Value ⌄". It is a native <select> inside the
 // pill, so the keyboard, screen readers and phone pickers all work as usual; the pill only draws the frame and the label.
+// The ⌄ is the one every <select> draws (index.css), with its room on the right: the pill adds none of its own (two
+// arrows showed side by side).
 import clsx from 'clsx'
-import { ChevronDown } from 'lucide-react'
 import { useId } from 'react'
 
 export function FilterPill<T extends string>({ label, value, options, onChange, testId, className, neutral }: {
@@ -33,7 +34,7 @@ export function FilterPill<T extends string>({ label, value, options, onChange, 
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-full min-w-0 max-w-[14rem] cursor-pointer appearance-none truncate bg-transparent pr-8 font-medium text-ink outline-none [field-sizing:content]"
+        className="h-full min-w-0 max-w-[14rem] cursor-pointer truncate bg-transparent font-medium text-ink outline-none [field-sizing:content]"
         data-testid={testId}
       >
         {options.map((o) => (
@@ -42,7 +43,6 @@ export function FilterPill<T extends string>({ label, value, options, onChange, 
           </option>
         ))}
       </select>
-      <ChevronDown size={14} aria-hidden className="pointer-events-none absolute right-2.5 text-muted" />
     </div>
   )
 }
