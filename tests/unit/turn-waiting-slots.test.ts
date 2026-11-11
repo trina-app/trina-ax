@@ -109,8 +109,16 @@ test('an answered turn waits for a slot first in line, and never more answers wo
   expect(await waitFor(() => turnStatus(second.turnId) === 'running')).toBe(true)
   // the person answers a while b holds the only slot: a waits for it, its time limit paused, its answer held back
   const ea = execOf(a)!
+  const updates: (true | undefined)[] = []
+  const publish = rt.hub.publish.bind(rt.hub)
+  spies.push(spyOn(rt.hub, 'publish').mockImplementation(((u: string, ev: any) => {
+    if (ev.type === 'chat.updated' && ev.data?.chat?.id === a) updates.push(ev.data.chat.waitingForPlace)
+    return publish(u, ev)
+  }) as any))
   expect(ea.answer(cardOf(ea)!, 'ask_user', ['yes'])).toBe('ok')
   expect(ea.waitingForSlot).toBe(true)
+  // the chat heard it: one update saying it waits for a free place
+  expect(updates.filter((x) => x === true).length).toBe(1)
   expect(answers.has(a)).toBe(false)
   expect(rt.slotsInUse()).toBe(1)
   // the chat says it waits for a free place
@@ -128,6 +136,8 @@ test('an answered turn waits for a slot first in line, and never more answers wo
   expect(answers.get(a)).toEqual(['yes'])
   expect(ea.waitingForSlot).toBe(false)
   expect(chatView(rt, 'olga', rt.store.chatRow(a)!).waitingForPlace).toBeUndefined()
+  // and the one that came when it went on clears the line
+  expect(updates.at(-1)).toBeUndefined()
   await Bun.sleep(50)
   expect(turnStatus(third.turnId)).toBe('queued')
   expect(rt.slotsInUse()).toBe(1)
@@ -268,6 +278,57 @@ test('an answered turn whose tool call would time out waiting for a slot goes on
   expect(answers.get(a)).toEqual(['yes'])
   bDone.open()
   expect(await waitFor(() => rt.runningCount() === 0)).toBe(true)
+}, 30_000)
+
+test('the tool timeout counts from when the tool asked: a card queued behind another, and an answer held behind an open card', async () => {
+  await setup('overdue-cards', 1)
+  const a = newChat(), b = newChat()
+  const got: string[] = []
+  engines.set(a, async (exec) => {
+    const ask = (q: string, exclusive: boolean) => exec.waitForPerson({ kind: 'ask_user', requestId: crypto.randomUUID(), question: q } as any, { timeoutMs: 60_000, exclusive })
+      .then((v) => { got.push(`${q}=${JSON.stringify(v)}`) })
+    // one destructive card at a time: the second question waits behind it, its tool call already started
+    await Promise.all([ask('first', true), ask('second', false)])
+  })
+  const first = send(a)
+  await waitFor(() => execOf(a)?.openRequests().length === 1)
+  const bDone = gate()
+  engines.set(b, () => work(() => bDone.p))
+  const second = send(b)
+  await waitFor(() => turnStatus(second.turnId) === 'running')
+  const ea = execOf(a)!
+  await Bun.sleep(300)
+  rt.slotWaitMaxMs = 250
+  // the first card's answer: held (no slot) until overdue, then the second card opens with its own early start
+  ea.answer(cardOf(ea)!, 'ask_user', ['1'])
+  expect(await waitFor(() => got.length === 1 && ea.openRequests().length === 1)).toBe(true)
+  ea.answer(cardOf(ea)!, 'ask_user', ['2'])
+  // overdue at once (its tool asked > 250 ms ago, not when its card showed), though b still holds the only slot
+  await Bun.sleep(20)
+  expect(got).toEqual(['first=["1"]', 'second=["2"]'])
+  expect(await waitFor(() => turnStatus(first.turnId) === 'done', { timeoutMs: 3000 })).toBe(true)
+  // two cards side by side: an answer held behind the open one reaches its tool before its tool call would end
+  rt.slotWaitMaxMs = 60 * 60_000
+  bDone.open()
+  await waitFor(() => rt.runningCount() === 0)
+  const c = newChat()
+  const gotC: unknown[] = []
+  engines.set(c, async (exec) => {
+    const ask = (q: string) => exec.waitForPerson({ kind: 'ask_user', requestId: crypto.randomUUID(), question: q } as any, { timeoutMs: 60_000 }).then((v) => { gotC.push(v) })
+    await Promise.all([ask('one?'), ask('two?')])
+  })
+  const third = send(c)
+  await waitFor(() => execOf(c)?.openRequests().length === 2)
+  const ec = execOf(c)!
+  ec.answer(ec.openRequests()[0]!.request.requestId, 'ask_user', ['1'])
+  await Bun.sleep(50)
+  expect(gotC).toEqual([])
+  rt.slotWaitMaxMs = 0
+  expect(await waitFor(() => gotC.length === 1, { timeoutMs: 3000 })).toBe(true)
+  expect(ec.waitingForPerson).toBe(true)
+  ec.answer(ec.openRequests()[0]!.request.requestId, 'ask_user', ['2'])
+  expect(await waitFor(() => turnStatus(third.turnId) === 'done')).toBe(true)
+  expect(gotC).toEqual([['1'], ['2']])
 }, 30_000)
 
 test('a chat whose earlier answer is still ending says so, and a send there gets that plain message', async () => {

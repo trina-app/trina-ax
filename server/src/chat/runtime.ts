@@ -225,6 +225,10 @@ export class ChatRuntime {
   private lastConcurrency = 0
   /** queued answers are waiting for memory (schedule() below); the watcher re-checks every MEMORY_RECHECK_MS */
   private memoryHeld = false
+  /** queued answers wait because LIVE_ENGINES_PER_SLOT × the limit engines are up (logged once per change) */
+  private capHeld = false
+  /** turns whose chat was told they wait for a free place (Chat.waitingForPlace): told again when they go on */
+  private placeTold = new Set<string>()
   private memoryCheckedAt = 0
   private capacityWatcher: ReturnType<typeof setInterval>
   /** a fixed --max-turns (tests); null: the team setting, read when each answer starts */
@@ -269,7 +273,7 @@ export class ChatRuntime {
         else if ((this.memoryHeld || this.dispatchRetry) && Date.now() - this.memoryCheckedAt >= MEMORY_RECHECK_MS) this.schedule()
         if (this.quarantined.size && Date.now() - this.probedAt >= this.quarantineProbeMs) void this.probeQuarantined()
         // an answered turn whose tool call would time out waiting for a slot goes on (grantResumes)
-        if (this.resuming.length) this.grantResumes()
+        if (this.parked.size) this.grantResumes()
       }
       catch (err) { this.log.error('queue capacity refresh failed', { err }) }
     }, 250)
@@ -421,15 +425,16 @@ export class ChatRuntime {
   }
   /** The turn holds no slot now (it waits for a person, or for a slot after an answer). */
   isParked(exec: TurnExec): boolean { return this.running.get(exec.id) === exec && this.parked.has(exec.id) }
-  /** The last open card of a parked turn closed: it needs a slot to go on. True when it has one now; false: it waits
-   * first in line and grantResumes calls exec.resumeAnswers() when one is free. */
+  /** The last open card of a parked turn closed (its answer already held, TurnExec.heldAnswers): it needs a slot to go
+   * on. True when it has one now (the answers went on); false: it waits first in line and grantResumes calls
+   * exec.resumeAnswers() when one is free. */
   turnResuming(exec: TurnExec): boolean {
     if (this.running.get(exec.id) !== exec || !this.parked.has(exec.id)) return true
     if (!this.resuming.includes(exec.id)) this.resuming.push(exec.id)
     this.grantResumes()
     const now = !this.parked.has(exec.id)
-    // the chat says it waits for a free place (Chat.waitingForPlace), once its answer is held back
-    if (!now) queueMicrotask(() => this.publishPlace(exec))
+    // the chat says it waits for a free place (Chat.waitingForPlace)
+    if (!now && !this.placeTold.has(exec.id)) { this.placeTold.add(exec.id); this.publishPlace(exec) }
     return now
   }
   /** The chat of a turn waiting for a slot after an answer, or no longer: its chat.updated (a room's AI has none). */
@@ -459,6 +464,15 @@ export class ChatRuntime {
    * whose tool call would end before a slot is free (slotWaitMaxMs after its card opened) goes on over the limit. */
   private grantResumes() {
     const limit = this.concurrency()
+    // an answer held while another card of its turn is still open: it reaches its tool before the tool call would end
+    // (the turn stays parked: it still waits for a person)
+    for (const id of this.parked) {
+      const exec = this.running.get(id)
+      if (exec?.waitingForPerson && exec.waitingForSlot && exec.heldSinceMs() >= this.slotWaitMaxMs) {
+        this.log.warn('an answer held behind an open card goes on: its tool call would end first', { turn: id })
+        try { exec.resumeAnswers() } catch (err) { this.log.error('resuming an answered turn failed', { err, turn: id }) }
+      }
+    }
     for (let i = 0; i < this.resuming.length;) {
       const id = this.resuming[i]!
       const exec = this.running.get(id)
@@ -470,10 +484,9 @@ export class ChatRuntime {
       if (this.slotsInUse() >= limit) this.log.warn('an answered turn goes on over the limit: its tool call would end first', { turn: id })
       this.resuming.splice(i, 1)
       this.parked.delete(id)
-      // answers were held (its chat said it waits for a place): the chat hears that it goes on
-      const told = exec.waitingForSlot
       try { exec.resumeAnswers() } catch (err) { this.log.error('resuming an answered turn failed', { err, turn: id }) }
-      if (told) this.publishPlace(exec)
+      // its chat said it waits for a place: the chat hears that it goes on
+      if (this.placeTold.delete(id)) this.publishPlace(exec)
     }
   }
   /** The person's engine sessions were reset (access shrank) while these turns ran: they end without stashing. */
@@ -520,6 +533,11 @@ export class ChatRuntime {
     // answered turns waiting for a slot (grantResumes above) go before every queued answer
     // and the engines up (waiting ones too) stay under LIVE_ENGINES_PER_SLOT × the limit: past it, answers stay queued
     const liveCap = LIVE_ENGINES_PER_SLOT * limit
+    const capHeld = this.queued.length > 0 && this.running.size >= liveCap && this.slotsInUse() < limit
+    if (capHeld !== this.capHeld) {
+      if (capHeld) this.log.warn('queued answers wait: too many engines up (answers waiting for a person)', { live: this.running.size, cap: liveCap, queued: this.queued.length })
+      this.capHeld = capHeld
+    }
     while (!this.resuming.some((id) => !this.running.get(id)?.waitingForPerson) && this.slotsInUse() < room && this.running.size < liveCap && this.queued.length) {
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
       const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
@@ -623,6 +641,7 @@ export class ChatRuntime {
     this.running.delete(exec.id)
     this.quarantined.delete(exec.id)
     this.parked.delete(exec.id)
+    this.placeTold.delete(exec.id)
     this.turnStopsWaiting(exec)
     this.queueRevision++
     this.positions.delete(exec.id)

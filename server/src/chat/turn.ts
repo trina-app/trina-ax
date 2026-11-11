@@ -143,7 +143,8 @@ export interface TurnSpec extends QueueTiming {
  * that failed (chat/turn.ts sharedReadText). */
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
-interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt?: number }
+/** openedAt: when the tool call asked (performance.now()), for the engine's tool timeout (ChatRuntime.slotWaitMaxMs) */
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -378,7 +379,7 @@ export class TurnExec {
   get waitingForSlot() { return this.heldAnswers.length > 0 }
   /** how long ago the oldest held answer's card opened (its tool call started then), ms; 0: none held */
   heldSinceMs(): number {
-    if (!this.heldAnswers?.length) return 0
+    if (!this.heldAnswers.length) return 0
     return performance.now() - Math.min(...this.heldAnswers.map((a) => a.openedAt))
   }
   /** The turn holds a slot again (ChatRuntime.grantResumes): the held answers reach the engine. */
@@ -2994,7 +2995,9 @@ export class TurnExec {
   private exclusiveCard: Promise<void> | null = null
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
-  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<unknown> {
+  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
+    // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
+    o = { ...o, askedAt: o.askedAt ?? performance.now() }
     if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
@@ -3010,13 +3013,13 @@ export class TurnExec {
     }
     return shown
   }
-  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
+  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.remainingWallMs() <= 0) this.expireWall()
         this.closeRequest(request.requestId, null, 'timeout')
       }, Math.min(o.timeoutMs, this.remainingWallMs()))
-      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: performance.now() })
+      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now() })
       this.humanWaits++
       // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
       if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
@@ -3089,9 +3092,16 @@ export class TurnExec {
     // turn has a slot again. Another card still open: the answer waits with the turn. The last one: the turn takes the
     // next free slot, first in line (ChatRuntime.turnResuming). A card the turn's end closed needs none.
     if (reason !== 'turn_ended' && this.status === 'running' && !this.stopReason) {
-      let now = true
-      try { now = !this.rt.isParked(this) || (this.humanWaits === 0 && this.rt.turnResuming(this)) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }) }
-      if (!now) { this.heldAnswers.push({ requestId, value, resolve: r.resolve, openedAt: r.openedAt ?? performance.now() }); return }
+      let parked = false
+      try { parked = this.rt.isParked(this) } catch (e) { this.rt.log.warn('reading the slot state failed', { err: e, turn: this.id }) }
+      if (parked) {
+        // held first: a grant (now, or later by grantResumes) hands it on with resumeAnswers
+        this.heldAnswers.push({ requestId, value, resolve: r.resolve, openedAt: r.openedAt })
+        if (this.humanWaits === 0) {
+          try { this.rt.turnResuming(this) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }); this.resumeAnswers() }
+        }
+        return
+      }
     }
     r.resolve(value)
   }
