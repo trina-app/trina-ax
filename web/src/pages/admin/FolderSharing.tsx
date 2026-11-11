@@ -128,22 +128,30 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
   useEffect(() => () => {
     left.current = true
   }, [])
+  /** how many times the changes were dropped (the leave question's Discard): a Save started before stops at its next
+   * step, one started after goes on. Cancel › Discard keeps the panel, so it is not `left` (QA TC-287: it was, and every
+   * later Save stopped until the panel was opened again) */
+  const dropped = useRef(0)
   // the write itself is on its way: the panel goes without asking (the save lands). Before it (Save's fresh ask, its
   // confirm), leaving asks, and dropping the changes stops that Save
   /** the leave question is open: a Save whose fresh answer comes meanwhile does not write (the admin may be dropping it) */
   const leaving = useRef(false)
-  const askToLeave = async () => {
+  /** `stay`: Cancel, which drops the changes and keeps the panel open on this folder */
+  const askToLeave = async (o: { stay?: boolean } = {}) => {
     if (!edited || d.saving) return true
     leaving.current = true
     try {
       const ok = await confirmDialog({ title: t('folderAccess.discardTitle'), body: t('folderAccess.discardBody'), confirm: t('accessEdit.discard'), danger: true })
-      if (ok) left.current = true
+      if (ok) {
+        dropped.current += 1
+        if (!o.stay) left.current = true
+      }
       return ok
     } finally {
       leaving.current = false
     }
   }
-  guard.current = askToLeave
+  guard.current = () => askToLeave()
   useEffect(() => () => {
     guard.current = async () => true
   }, [guard])
@@ -202,12 +210,15 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
     saving.current = true
     setBusy(true)
     setChangedNow(false)
+    // the panel went, or these changes were dropped (Cancel › Discard) since this Save began: it stops
+    const run = dropped.current
+    const gone = () => left.current || dropped.current !== run
     try {
       const shown = data
       const hash = d.base.hash
       // asked again now, for exactly this draft: what is saved is what the admin was shown
       const fresh = await d.askNow()
-      if (!fresh || !shown || left.current) return
+      if (!fresh || !shown || gone()) return
       // another admin changed this folder: the note says so (the draft kept); the next Save decides
       if (hash !== null && fresh.hash !== hash) return
       if (!sameOutcome(shown, fresh)) {
@@ -235,16 +246,16 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
           confirm: ask.widen ? t('folderAccess.giveAccess') : t('folderAccess.saveAnyway'),
           danger: !ask.widen,
         })
-        if (!ok || left.current) return
+        if (!ok || gone()) return
         // a confirm left open covers nothing: asked once more before the write
         const again = await d.askNow()
-        if (left.current) return
+        if (gone()) return
         if (!again || again.hash !== fresh.hash || !sameOutcome(fresh, again)) {
           if (again && again.hash === fresh.hash) setChangedNow(true)
           return
         }
       }
-      if (left.current || leaving.current) return
+      if (gone() || leaving.current) return
       const saved = await d.save()
       if (saved) reload()
     } finally {
@@ -304,7 +315,9 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
         }}
       />
 
-      <ul ref={listRef} className={clsx('divide-y divide-line transition-opacity', dim && 'opacity-60')} data-testid="sharing-list" aria-busy={dim || undefined}>
+      {/* busy until the answer for the draft on screen is in, the first one too: the rows from the folders above come
+          with it */}
+      <ul ref={listRef} className={clsx('divide-y divide-line transition-opacity', dim && 'opacity-60')} data-testid="sharing-list" aria-busy={(!ready && !d.preview.error) || undefined}>
         {draft.named.map((n, i) => {
           const k = `${n.subjectType}:${n.subjectId}`
           const u = n.subjectType === 'user' ? userById.get(n.subjectId) : undefined
@@ -409,7 +422,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
             {edited ? (
               <>
                 <Button variant="ghost" onClick={() => void (async () => {
-                  if (await askToLeave()) {
+                  if (await askToLeave({ stay: true })) {
                     setDraft(d.initial)
                     setChangedNow(false)
                   }
