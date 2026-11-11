@@ -2106,7 +2106,7 @@ export const en: Record<MessageKey, string> = {
   'budgets.perMonth': 'Per month',
   'budgets.tokens': 'Token limit',
   'budgets.usd': 'Spending limit (USD)',
-  'budgets.usdHint': 'Amounts only build up with API key connections. 0 means no amount limit.',
+  'budgets.usdHint': 'An estimate of what the same use would cost through the API. Answers through a login can add up too. 0 means no amount limit.',
   'budgets.action': 'When exceeded',
   'budgets.warn': 'Warn only',
   'budgets.block': 'Block',

@@ -7,6 +7,7 @@ import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { MyUsage as MyUsageData, MyUsageLimit } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { limitResetText } from '@mycel/shared'
 import { formatDateTime, formatNumber, formatRelative, formatUsd } from '../../lib/format'
 import { usageShares } from '../../lib/usage-share'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -43,7 +44,8 @@ export default function MyUsage() {
   // the last answer stays on screen while a new period loads, so the page does not jump
   const d = state.data
   const tz = me.server.timeZone
-  const when = (iso: string) => formatDateTime(iso, locale, tz)
+  // when a limit is free again: 24-hour time, so its midnight never reads as noon (shared limitResetText)
+  const when = (iso: string) => limitResetText(new Date(iso), locale, tz)
   const limitName = (l: MyUsageLimit) =>
     t(`myUsage.limit.${l.scope}.${l.period}` as MessageKey, { name: l.name ?? t('myUsage.groupRemoved') })
   const top = d?.limits[0]

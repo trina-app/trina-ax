@@ -2105,7 +2105,7 @@ export const ko = {
   'budgets.perMonth': '한 달',
   'budgets.tokens': '토큰 한도',
   'budgets.usd': '금액 한도 (USD)',
-  'budgets.usdHint': 'API 키 연결에서만 금액이 쌓여요. 0이면 금액 한도 없음.',
+  'budgets.usdHint': '같은 사용량을 API로 썼을 때의 추정 금액이에요. 로그인으로 받은 답도 쌓일 수 있어요. 0이면 금액 한도 없음.',
   'budgets.action': '넘으면',
   'budgets.warn': '경고만',
   'budgets.block': '사용 막기',

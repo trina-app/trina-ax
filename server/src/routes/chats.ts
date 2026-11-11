@@ -325,6 +325,9 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
 
     kit.handle(API.createChat, ({ c, body, auth }) => {
+      // a used-up block limit: no new chat either, so a refused first question (Home) leaves no empty chat behind;
+      // the composer keeps the text and shows the refusal (QA TC-215)
+      checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
       // a chat made in a project that shares its chats is a shared chat, from its first moment and for good (never a
       // personal project, never while safe operations are on: chat/shared.ts sharesNewChats)

@@ -311,6 +311,17 @@ describe('usage limits (tab 5 "사용 한도 도달")', () => {
       expect(err?.code).toBe('budget_exceeded')
       expect(err?.message).toContain('오늘 AI 사용 한도를 다 썼어요')
       expect(err?.message).toContain('다시 쓸 수 있어요')
+      // the day ends at midnight, said so it cannot read as noon ("오전 12:00"; QA TC-215)
+      expect(err?.message).toMatch(/\d+월 \d+일 0시부터 다시 쓸 수 있어요/)
+      expect(err?.message).not.toContain('오전')
+      // no new chat either: a first question from Home leaves no empty chat behind, in the same words
+      const chats = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM chats WHERE user_id = 'carol'").get() as { n: number }).n
+      const before = chats()
+      const refusedNew = await h.api('carol').call(API.createChat, { body: {} }).then(() => null, (e: unknown) => e as ApiError)
+      expect(refusedNew?.status).toBe(429)
+      expect(refusedNew?.code).toBe('budget_exceeded')
+      expect(refusedNew?.message).toBe(err?.message)
+      expect(chats()).toBe(before)
       expect(await code(h.api('carol').call(API.regenerate, { params: { id: chat.id, messageId: first.started.assistantMessage.id }, body: {} }))).toBe('429 budget_exceeded')
       // nothing was queued for the refused sends
       expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM turns WHERE user_id = 'carol'").get()).toEqual({ n: 2 })
