@@ -11,7 +11,7 @@ import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES } from '../../server/src/routes'
-import { appCsp, frameCsp, safeFile, sandboxPolicy, SANDBOX_RECEIVER, serveWeb, SVG_ICON_CSP } from '../../server/src/routes/web-static'
+import { appCsp, frameCsp, isNoticeManifest, safeFile, sandboxPolicy, SANDBOX_RECEIVER, serveWeb, SVG_ICON_CSP } from '../../server/src/routes/web-static'
 import { artifactCsp, SANDBOX_FRAME_URL } from '../../web/src/lib/artifacts'
 import { WORK } from '../lib/env'
 
@@ -240,5 +240,57 @@ describe('web app serving', () => {
     expect(script).not.toMatch(/clonable\s*=/)
     const r = await get('/sandbox/frame?v=2026')
     expect(r.headers.get('x-dns-prefetch-control')).toBe('off')
+  })
+})
+
+describe('the notice manifest (/licenses/manifest.json): no build fingerprint to signed-out callers on the internet', () => {
+  const MANIFEST = '{"release":{"version":"9.8.7"},"packages":[{"id":"left-pad@1.3.0"}]}\n'
+  let realResolve: AppContext['services']['sessions']['resolve']
+  beforeAll(() => {
+    write(path.join(DIST, 'licenses', 'manifest.json'), MANIFEST)
+    write(path.join(DIST, 'licenses', 'README.txt'), 'Release notice evidence\n')
+    write(path.join(DIST, 'LICENSE'), 'GNU AFFERO GENERAL PUBLIC LICENSE\n')
+    // a request with x-test-user is signed in (the real session service needs a database row and a cookie)
+    const sessions = ctx.services.sessions
+    realResolve = sessions.resolve.bind(sessions)
+    sessions.resolve = async (req, info) => req.headers.get('x-test-user') ? { user: { id: 'u1', role: 'member' } } as never : realResolve(req, info)
+  })
+  afterAll(() => { ctx.services.sessions.resolve = realResolve })
+  const fetchAs = (p: string, via: 'relay' | 'direct' | 'local', o: { tunnel?: boolean; as?: string; ip?: string } = {}) =>
+    app.fetch(new Request('http://acme.localhost' + p, { headers: o.as ? { 'x-test-user': o.as } : {} }), { ip: o.ip ?? '203.0.113.7', via, tunnel: o.tunnel, port: 19172 })
+
+  test('signed out through the relay or the office internet address: 404, also for other spellings of the path', async () => {
+    for (const p of ['/licenses/manifest.json', '/licenses/%6Danifest.json', '/licenses/manifest%2Ejson', '/%6Cicenses/manifest.json', '/licenses/manifest.json?x=1']) {
+      for (const r of [await fetchAs(p, 'relay'), await fetchAs(p, 'relay', { ip: '127.0.0.1' }), await fetchAs(p, 'direct', { tunnel: true })]) {
+        expect(r.status).toBe(404)
+        expect(r.headers.get('cache-control')).toBe('private, no-store')
+        const body = await r.text()
+        expect(body).not.toContain('9.8.7')
+        expect(body).not.toContain('left-pad')
+      }
+    }
+  })
+  test('signed in through the relay, and this server / the office network signed out: the manifest, never cached', async () => {
+    for (const r of [await fetchAs('/licenses/manifest.json', 'relay', { as: 'member' }), await fetchAs('/licenses/manifest.json', 'direct', { tunnel: true, as: 'member' }),
+      await fetchAs('/licenses/manifest.json', 'direct', { ip: '192.168.1.50' }), await fetchAs('/licenses/manifest.json', 'local', { ip: '127.0.0.1' })]) {
+      expect(r.status).toBe(200)
+      expect(r.headers.get('cache-control')).toBe('private, no-store')
+      expect(await r.text()).toBe(MANIFEST)
+    }
+  })
+  test('the licence texts and the notice README stay public through the relay (the notice obligations)', async () => {
+    for (const p of ['/LICENSE', '/licenses/README.txt']) {
+      const r = await fetchAs(p, 'relay')
+      expect(r.status).toBe(200)
+      expect(r.headers.get('cache-control')).toBe('no-cache')
+    }
+  })
+  test('isNoticeManifest matches the file served, not the spelling', () => {
+    expect(isNoticeManifest(DIST, '/licenses/manifest.json')).toBe(true)
+    expect(isNoticeManifest(DIST, '/licenses/%6danifest.json')).toBe(true)
+    expect(isNoticeManifest(DIST, '/licenses/README.txt')).toBe(false)
+    expect(isNoticeManifest(DIST, '/manifest.webmanifest')).toBe(false)
+    expect(isNoticeManifest(DIST, '/licenses/missing.json')).toBe(false)
+    expect(isNoticeManifest(path.join(BASE, 'nope'), '/licenses/manifest.json')).toBe(false)
   })
 })

@@ -298,6 +298,25 @@ const iconSvg = (p: string, file: string) => file.toLowerCase().endsWith('.svg')
 /** A path whose last part has a file extension (a static file, not a page of the app). */
 const hasExtension = (p: string) => /\.[A-Za-z0-9]{1,10}$/.test(p.slice(p.lastIndexOf('/') + 1))
 
+/**
+ * The notice manifest (scripts/release-notices.ts, web/dist/licenses/manifest.json or a bundle's web/licenses/) names the
+ * exact release and every package with its version and hashes: the same build fingerprint /api/health hides from
+ * signed-out callers on the internet (routes/web.ts decides who gets it). Matched on the file served, so `%6D`, a
+ * different case on a case-insensitive disk (the office Mac) or `licenses//` spellings cannot get around it.
+ */
+export function isNoticeManifest(dist: string, urlPath: string): boolean {
+  // most requests are not for it: no disk lookup unless the name can match
+  let name: string
+  try { name = decodeURIComponent(urlPath).toLowerCase() } catch { return false }
+  if (!name.endsWith('/manifest.json')) return false
+  const root = path.resolve(dist)
+  const file = safeFile(root, urlPath)
+  if (!file) return false
+  let realRoot: string
+  try { realRoot = fs.realpathSync(root) } catch { return false }
+  return path.relative(realRoot, file).split(path.sep).join('/').toLowerCase() === 'licenses/manifest.json'
+}
+
 /** The handler behind GET * (also used by the web client's mock server in its end-to-end tests). */
 export function serveWeb(req: Request, o: WebOptions): Response | null {
   const url = new URL(req.url)
