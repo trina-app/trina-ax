@@ -186,6 +186,12 @@ describe('desktop apps', () => {
     expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: 'none', owner: false, server: 'hosted-feed' }))).not.toContain('apps-owner-hint')
     expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: [win], owner: true, server: 'hosted-feed' }))).not.toContain('apps-owner-hint')
     expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: desktop('mac', true), downloads: 'none', owner: true, server: 'hosted-feed' }))).not.toContain('apps-owner-hint')
+    // an office Mac server with a Mac App Store listing: the owner is told to add only the Windows installer
+    const office = renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: 'none', owner: true, server: 'office' }))
+    expect(office).toContain('data-testid="apps-owner-hint"')
+    expect(office).toContain('-x64.exe')
+    expect(office).not.toContain('.dmg')
+    expect(renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: web('mac'), downloads: 'none', owner: true, server: 'office' }))).toContain('mac-universal.dmg')
     // a loading list (no store build) is a skeleton, not an empty state
     expect(renderToStaticMarkup(createElement(ComputerApps, { links: ACME, client: web('mac'), downloads: null, owner: false }))).toContain('animate-pulse')
   })

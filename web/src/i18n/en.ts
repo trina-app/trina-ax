@@ -1636,6 +1636,7 @@ export const en: Record<MessageKey, string> = {
   'apps.macArm64Only': 'Apple Silicon (M1 or later) Macs only',
   'apps.macIntelOnly': 'Intel Macs only',
   'apps.noDownloadsOwner': 'On the team server Mac, run ~/TeamAX/teamax desktop add <installer> in Terminal and it appears here. Or put the installers ({productFile}-Setup-…-x64.exe, {productFile}-…-mac-universal.dmg) in the same folder as the office zip and run office-install.sh again.',
+  'apps.noDownloadsOwnerWindows': 'On the team server Mac, run ~/TeamAX/teamax desktop add <installer> in Terminal and the Windows app appears here. Or put the Windows installer ({productFile}-Setup-…-x64.exe) in the same folder as the office zip and run office-install.sh again. Macs get the app from the App Store.',
   'apps.noDownloadsFeed': 'The Windows app appears here by itself about 15 minutes after the team server starts or updates.',
   'apps.noDownloadsOwnerFeed': 'The server downloads it from {feed} and checks its signature, and the Windows apps then update from here. If it does not appear, Admin › System › Diagnostics says why ("Windows app"; docs/INSTALL-LINUX.en.md).',
   'apps.noDownloadsOwnerLinux': 'This server has no release feed. Copy the release files to the server and run trina_admin desktop-refresh --from <folder> there (docs/INSTALL-LINUX.en.md, "Windows app").',

@@ -6,7 +6,7 @@ import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
-import { keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
 import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
@@ -104,6 +104,9 @@ export const useSession = create<SessionState>((set, get) => ({
           rememberSetupToken(linked)
           const token = linked ?? keptSetupToken()
           const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
+          // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
+          // per-address token limit that everyone behind this address shares
+          if (!s.needed) forgetSetupToken()
           lastTeamDefault = s.defaultLocale ?? null
           // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
           useLocaleStore.getState().setLocale(pickLocale(storedLocale(), s.defaultLocale))

@@ -110,7 +110,9 @@ export function ComputerApps({ links, client, downloads, owner, server = 'office
   const locale = useLocale()
   if (downloads === null && !client.store) return <Skeleton lines={2} />
   const rows = computerApps(links, client, Array.isArray(downloads) ? downloads : [])
-  const ownerHint = owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted" data-testid="apps-owner-hint">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>
+  // an office Mac server with a Mac App Store listing: only the Windows installer is the owner's to add
+  const hintKey = server === 'office' && links.mac ? 'apps.noDownloadsOwnerWindows' : OWNER_HINT[server]
+  const ownerHint = owner && hintKey && <p className="mt-2 text-xs text-muted" data-testid="apps-owner-hint">{t(hintKey, { feed: FEED_HOST })}</p>
   if (noComputerApps(rows, client))
     return (
       <>

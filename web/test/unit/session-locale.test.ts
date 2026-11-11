@@ -190,10 +190,14 @@ describe('setup status asks with the setup link token', () => {
       await session().load()
       expect(seen.find((s) => s.url.endsWith('/api/setup'))?.token).toBe('setup-token-0123')
       expect(session().status.kind).toBe('setup')
-      forgetSetupToken()
+      // the server does not take it (spent or wrong): it is forgotten, not sent again on the next load
+      answer(false)
+      await session().load()
+      expect(session().status.kind).toBe('signed-out')
       seen = []
       await session().load()
       expect(seen.find((s) => s.url.endsWith('/api/setup'))?.token).toBeNull()
+      forgetSetupToken()
     } finally {
       if (desc) Object.defineProperty(globalThis, 'sessionStorage', desc)
       else Reflect.deleteProperty(globalThis, 'sessionStorage')

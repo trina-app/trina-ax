@@ -160,11 +160,17 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   // the office public address (internet): the owner account is made on the Mac itself or from an office desk, never
   // from the internet, whatever token is sent (http/tunnel.ts). Checked first, so the answer (403) is the same before
   // and after setup: a 409 "already set up" told the internet whether the team exists yet.
-  if (c.get('info').tunnel) fail('forbidden', msg('setupNotRemote', locale))
-  if (userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
-  const guard = tokenGuard(ctx, c.get('info').ip)
+  const info = c.get('info')
+  if (info.tunnel) fail('forbidden', msg('setupNotRemote', locale))
+  // through the relay the token comes first: without it the answer is the same counted 403 before and after setup
+  // (the token is spent at setup), so a POST with a made-up token does not tell the internet whether the team exists.
+  // This server and the office network keep the 409 "already set up" first (installers and scripts read it).
+  const relay = info.via === 'relay'
+  if (!relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
+  const guard = tokenGuard(ctx, info.ip)
   const expected = ctx.config.setupToken
   if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
+  if (relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   return authOf(ctx).signIn(c, id, 'web', 'cookie')

@@ -1635,6 +1635,7 @@ export const ko = {
   'apps.macArm64Only': 'Apple Silicon(M1 이후) 맥 전용',
   'apps.macIntelOnly': 'Intel 맥 전용',
   'apps.noDownloadsOwner': '팀 서버 맥의 터미널에서 ~/TeamAX/teamax desktop add <설치 파일> 을 실행하면 여기에 나타나요. 또는 설치 파일({productFile}-Setup-…-x64.exe, {productFile}-…-mac-universal.dmg)을 office zip과 같은 폴더에 두고 office-install.sh를 다시 실행해도 돼요.',
+  'apps.noDownloadsOwnerWindows': '팀 서버 맥의 터미널에서 ~/TeamAX/teamax desktop add <설치 파일> 을 실행하면 Windows 앱이 여기에 나타나요. 또는 Windows 설치 파일({productFile}-Setup-…-x64.exe)을 office zip과 같은 폴더에 두고 office-install.sh를 다시 실행해도 돼요. 맥은 App Store에서 앱을 받아요.',
   'apps.noDownloadsFeed': '팀 서버가 시작하거나 업데이트하고 15분쯤 지나면 Windows 앱이 여기에 저절로 나타나요.',
   'apps.noDownloadsOwnerFeed': '서버가 {feed}에서 받아 서명을 확인하고, Windows 앱은 여기서 업데이트돼요. 나타나지 않으면 관리자 › 시스템 › 진단의 "Windows 앱" 줄에 이유가 있어요(docs/INSTALL-LINUX.md 8a).',
   'apps.noDownloadsOwnerLinux': '이 서버에는 릴리스 피드가 없어요. 릴리스 파일을 서버에 복사하고 서버에서 trina_admin desktop-refresh --from <폴더>를 실행하세요(docs/INSTALL-LINUX.md 8a).',
