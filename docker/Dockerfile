@@ -50,6 +50,9 @@ COPY --from=kit /kit /opt/trina-ax/kit
 # HTML to PDF is not in the default image (a smaller image, less to attack; most Docker teams do not need it). It comes
 # with --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser": the CJK fonts, the browser's libraries and the pinned
 # chrome-headless-shell in /opt/trina/chrome-headless-shell (root's; the server finds it there by itself).
+# Gmail, Google Calendar, Docs and Sheets are in the default image: the google-apps group (python3 and its venv module)
+# and the list's Python program in /opt/trina/python/workspace-mcp (root's; the server finds it there). A kit from
+# before that group has none.
 SHELL ["/bin/bash", "-c"]
 ARG TRINA_AX_PACKAGE_GROUPS=""
 RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
@@ -59,10 +62,12 @@ RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
       case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here (fonts, browser)" >&2; exit 1 ;; esac; \
     done; \
     . "$root/packages.sh"; pk_load "$root/packages.json"; \
+    if pk_groups google-apps >/dev/null 2>&1; then groups="$groups google-apps"; fi; \
     pk_apt_install -- $(pk_packages "$(pk_distro)" "$(pk_arch)" $groups); \
     if pk_artifacts $groups | grep -qx chrome-headless-shell; then \
       pk_browser_install /opt/trina/chrome-headless-shell "linux-$(pk_arch)" >/dev/null; \
     fi; \
+    for p in $(pk_pythons $groups); do pk_python_install "/opt/trina/python/$p" "$p" >/dev/null; done; \
     rm -rf /var/lib/apt/lists/*
 # Fixed ids: the files in the volume belong to these numbers, so every image version must use the same ones (the same
 # numbers as the hosted tenant image). System range, no login shell, locked password: install-linux.sh checks all three.

@@ -46,7 +46,9 @@
 #                         installs the default groups, the same as the hosted image: CJK fonts, the dev environment's
 #                         tools (nothing is turned on: scripts/dev-env/srt/install-srt.sh does that) and the pinned
 #                         headless browser for HTML to PDF in /opt/trina/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER
-#                         in /etc/default/<id>). Kept for repair / update; --no-minimal turns the default groups back on.
+#                         in /etc/default/<id>) and the Google Workspace library for Gmail, Calendar, Docs and Sheets
+#                         (a Python venv in /opt/trina/python/workspace-mcp). Kept for repair / update; --no-minimal
+#                         turns the default groups back on.
 #   --skip-apt            do not install distribution packages (they must already be there; the browser is still
 #                         downloaded unless --minimal)
 #   --image-mode          install only, for a template build (scripts/image/customize.sh: virt-customize, no running
@@ -456,6 +458,7 @@ if [ "$CMD" = check ]; then
     if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
       say "check: browser chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) -> $PK_OPT/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER in /etc/default/$ID)"
     fi
+    for PY in $(pk_pythons "$PROFILE"); do say "check: python $PY $(pk_py "$PY" version) -> $PK_OPT/python/$PY (a venv; pip installs the list's wheels by sha256)"; done
   fi
   if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then say "check: preflight ok: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-400)"
   else
@@ -860,6 +863,15 @@ if [ "$LIST_OK" = 1 ]; then
   else
     pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"
   fi
+  # the list's Python programs (default groups): a venv each in /opt/trina/python/<name>, current -> the pinned one. The
+  # server finds the program there by itself; a failure only warns (Gmail, Calendar, Docs and Sheets stay off)
+  for PY in $(pk_pythons "$PROFILE"); do
+    if PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY"); then say "python: $PY $(pk_py "$PY" version) ($PYPATH)"
+    else
+      warn "$PY was not installed (see above), so what needs it stays off; \`sudo $0 repair\` tries again"
+      SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete) SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }$PY not installed"
+    fi
+  done
   pk_write_synced "$BASE/root/packages.synced" "$(pk_sha256 "$KROOT/packages.json")" "$SYNC_RESULT" "$SYNC_DETAIL" "$BROWSER_V" \
     || die "writing $BASE/root/packages.synced failed"
 fi
