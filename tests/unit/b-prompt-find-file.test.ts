@@ -21,12 +21,13 @@ describe('asked for an existing file', () => {
   test('the rule: search first, never a new file in its place, say so and list the closest, then ask; no web search', () => {
     const r = FIND_FILE_RULE
     // a message that only names a document asks for it, not for a new one (cr06 "외주 개발 용역 계약서")
-    expect(r).toContain('Asked for an existing file, or given only its name: search first.')
-    // names in other words, both languages and the usual version words; then contents; then open what looks right
-    expect(r).toContain('Glob names (other words, both languages, variants like 최종, v2, old, copy)')
-    expect(r).toContain('grep contents')
+    expect(r).toContain('Asked for a file, even by name only, find the existing one first:')
+    // names and contents in other words, both languages and the usual version words, folders too (cr06's file has an
+    // English name and text in a folder named 외주); then open what looks right
+    expect(r).toContain('glob file and folder names, grep contents, using other words, both languages and variants (최종, v2, old, copy)')
     expect(r).toContain('open likely files, images and PDFs too')
-    expect(r).toContain('Never write, copy, draw or generate a new file in its place unless asked.')
+    // not instead of it, and not next to it either (cr12 found the draft, then wrote another)
+    expect(r).toContain('Never write, copy, draw or generate a file unless asked to.')
     expect(r).toContain('If nothing matches, say so and list the closest files with paths; only then ask where it is.')
     expect(r).toContain('Never search the web for team files.')
     // about 120 tokens on Claude's tokenizer (Korean words cost more): it goes into every new session's instructions
@@ -41,7 +42,7 @@ describe('asked for an existing file', () => {
     expect(buildTurnPrompt(h.ctx.files, input({ confidential: 'server', tools: [] }))).toContain(FIND_FILE_RULE)
   })
 
-  test('once, after "to create a new file, call write directly", so a new file asked for is still made at once', () => {
+  test('once, after "To create a new file, call write directly", so a new file asked for is still made at once', () => {
     const p = buildTurnPrompt(h.ctx.files, input())
     expect(p.split(FIND_FILE_RULE).length).toBe(2)
     expect(p.indexOf('To create a new file, call write directly.')).toBeLessThan(p.indexOf(FIND_FILE_RULE))
