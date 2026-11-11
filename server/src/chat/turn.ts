@@ -655,6 +655,8 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나") or of a shared project chat
       memories: this.room || this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
+      browserInDesktopApp: !this.browser && !this.restricted && !this.room && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
       history: fresh ? rt.history(userMsg.parent_id, !!this.room, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared, sideRoom,

@@ -1701,7 +1701,7 @@ export const id: Record<MessageKey, string> = {
   "adminHome.when.date.dawn": "dini hari {date} ({window})",
   "adminHome.when.date.day": "{date} ({window})",
   "adminHome.when.date.night": "malam {date} ({window})",
-  "adminHome.after.hwp-plugin": "Menulis dan mengisi dokumen Hangul sekarang memerlukan plugin HWP yang aktif",
+  "adminHome.after.hwp-plugin": "Menulis dan mengisi dokumen Hangul sekarang memerlukan plugin 'Pratinjau HWP' yang aktif",
   "adminHome.after.hwp-plugin.go": "Buka plugin",
   "adminHome.after.dismiss": "Tidak perlu",
   "adminHome.members": "{count} anggota",
