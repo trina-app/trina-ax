@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { HWP_PLUGIN_ID, HwpReason, type HwpPage } from '@mycel/shared/hwp'
 import { api, API, isApiError } from '../../lib/api'
 import { useT } from '../../i18n'
@@ -21,6 +21,17 @@ export default function HwpView({ source, download, startPage }: { source: HwpSo
   const [reason, setReason] = useState<HwpReason | 'missing' | 'quarantined' | null>(null)
   const [held, setHeld] = useState('')
   const where = source.kind === 'team' ? `team:${source.path}` : `room:${source.roomId}/${source.fileId}`
+  // The document the pages on screen come from (each page carries its sourceHash). Pages are asked for by path, so
+  // after someone replaced the file the next page came from the new one: "3 / 5쪽" right after page 2 of the old one
+  // (QA TC-226). A page of another document is not shown in its place: the preview starts again at page 1 of the new
+  // version and says so, until the person turns a page.
+  const shownDoc = useRef<{ where: string; hash: string } | null>(null)
+  const [replaced, setReplaced] = useState(false)
+  useEffect(() => setReplaced(false), [where])
+  const turn = (to: number) => {
+    setReplaced(false)
+    setPage(to)
+  }
   useEffect(() => {
     const ctrl = new AbortController()
     let url: string | undefined
@@ -30,6 +41,13 @@ export default function HwpView({ source, download, startPage }: { source: HwpSo
       : api.call(API.roomFileHwpPreview, { params: { id: source.roomId, fileId: source.fileId }, query: { page }, signal: ctrl.signal })
     asked.then(r => {
       if (ctrl.signal.aborted) return
+      const before = shownDoc.current?.where === where ? shownDoc.current.hash : null
+      shownDoc.current = { where, hash: r.sourceHash }
+      if (before !== null && before !== r.sourceHash) {
+        setReplaced(true)
+        // page 1 of the new version comes next (this effect again)
+        if (page !== 1) return setPage(1)
+      }
       const bytes = Uint8Array.from(atob(r.png), c => c.charCodeAt(0))
       url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }))
       setShown({ url, meta: r })
@@ -63,10 +81,11 @@ export default function HwpView({ source, download, startPage }: { source: HwpSo
   </div>
   return <section className="flex flex-col gap-3 p-3" data-testid="hwp-view" aria-label={t('hwp.viewer')}>
     <nav className="flex flex-wrap items-center justify-center gap-3" aria-label={t('hwp.pages')}>
-      <Button variant="secondary" disabled={page <= 1 || !shown} onClick={() => setPage(n => n - 1)} data-testid="hwp-previous">{t('hwp.previous')}</Button>
+      <Button variant="secondary" disabled={page <= 1 || !shown} onClick={() => turn(page - 1)} data-testid="hwp-previous">{t('hwp.previous')}</Button>
       <span role="status">{shown ? t('hwp.page', { page, count: shown.meta.pageCount }) : t('common.loading')}</span>
-      <Button variant="secondary" disabled={!shown || page >= shown.meta.pageCount} onClick={() => setPage(n => n + 1)} data-testid="hwp-next">{t('hwp.next')}</Button>
+      <Button variant="secondary" disabled={!shown || page >= shown.meta.pageCount} onClick={() => turn(page + 1)} data-testid="hwp-next">{t('hwp.next')}</Button>
     </nav>
+    {replaced && <p className="text-center text-sm text-warn" role="status" data-testid="hwp-replaced">{t('hwp.replaced')}</p>}
     {shown && <>
       <p className="text-xs text-muted">{t('hwp.limitations')}</p>
       <img src={shown.url} width={shown.meta.width} height={shown.meta.height} alt={t('hwp.page', { page, count: shown.meta.pageCount })} className="mx-auto h-auto max-w-full bg-white shadow-sm" data-testid="hwp-page" />

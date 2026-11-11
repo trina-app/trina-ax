@@ -192,3 +192,9 @@ export function mergeFresh(current: ViewMessage[], fresh: Message[]): ViewMessag
 
 /** The newest assistant message still running in this branch. */
 export const runningMessage = (messages: ViewMessage[]) => [...messages].reverse().find((m) => m.role === 'assistant' && m.status === 'streaming')
+
+/** The message rows' buttons (version arrows, edit, regenerate) wait while an answer runs or a question is sending,
+ * while the chat is read-only, and while someone else's answer runs in a shared chat: its live answer is not on this
+ * screen, but switching versions then would drop it off the branch (the server answers 409 branch_while_answering). */
+export const rowButtonsWait = (messages: ViewMessage[], o: { readOnly: boolean; othersTurn: unknown }) =>
+  !!runningMessage(messages) || messages.some((m) => m.local?.state === 'sending') || o.readOnly || !!o.othersTurn

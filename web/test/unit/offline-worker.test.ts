@@ -59,6 +59,25 @@ test('the navigation fallback is self-contained, uncached, localized and reports
   expect(w.cached).toEqual([])
 })
 
+test('with nothing stored on the device the offline page follows the phone\'s own language (QA TC-207)', async () => {
+  const w = worker(async () => { throw new TypeError('offline') })
+  const html = await (await w.fetch('/')!).text()
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)![1]!
+  for (const [recent, languages, expected] of [
+    [null, ['ko-KR', 'en-US'], 'ko'], [null, ['fr-FR', 'ja-JP'], 'ja'], [null, ['fr-FR'], 'en'], [null, [], 'en'],
+    ['en', ['ko-KR'], 'en'], // a language chosen on this device still wins
+  ] as const) {
+    const nodes = Object.fromEntries(['title', 'hint', 'retry'].map(key => [key, { textContent: '', onclick: undefined as (() => void) | undefined }]))
+    const document = { documentElement: { lang: '' }, getElementById: (key: string) => nodes[key] }
+    vm.runInNewContext(script, {
+      document, location: { reload: () => {} }, window: {}, navigator: { languages, language: languages[0] },
+      localStorage: { getItem: (key: string) => key === 'mycel.recentLocale' ? recent : null },
+    })
+    expect(document.documentElement.lang).toBe(expected)
+    expect(nodes.title!.textContent).toBe(DICTS[expected]['conn.cantReach'])
+  }
+})
+
 test('normal 503 documents pass through and index, API and chat data never enter the static cache', async () => {
   const response = new Response('<h1>Maintenance</h1>', { status: 503 })
   const w = worker(async () => response)

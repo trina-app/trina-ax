@@ -128,7 +128,7 @@ test('the old addresses lead to Connectors: /settings/drive opens Drive\'s page,
   await expect(page.getByTestId('connectors-header')).toBeVisible()
 })
 
-test('a server without a Google client: Drive is "not set up" in Popular and its page says the admin turns it on', async ({ page }) => {
+test('a server without a Google client: Drive is "not set up" in Popular and a member asks an admin to add it from its page', async ({ page }) => {
   await reset(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/connectors')
@@ -136,8 +136,14 @@ test('a server without a Google client: Drive is "not set up" in Popular and its
   await expect(driveCard(page).getByTestId('connector-off')).toHaveText('아직 설정 안 됨')
   await expect(driveCard(page).getByTestId('connector-add')).toHaveCount(0)
   await driveCard(page).getByTestId('connector-open').click()
-  await expect(detail(page).getByTestId('drive-detail-line')).toHaveText('관리자가 먼저 켜야 해요')
-  await expect(detail(page).getByTestId('drive-connect')).toBeDisabled()
+  // "Ask admin to add it" takes the place of the Connect that cannot work and of "관리자가 먼저 켜야 해요"
+  await expect(detail(page).getByTestId('drive-connect')).toHaveCount(0)
+  await expect(detail(page).getByTestId('drive-detail-line')).toHaveCount(0)
+  await detail(page).getByTestId('service-ask').click()
+  await expect(detail(page).getByTestId('service-asked')).toHaveAttribute('data-state', 'sent')
+  await expect(detail(page).getByTestId('service-asked-note')).toHaveText('Google Drive 준비가 끝나면 알려 드릴게요.')
+  await page.goto('/connectors')
+  await expect(driveCard(page).getByTestId('connector-off')).toHaveText('요청 보냄')
 })
 
 test('a Drive that needs a new sign-in says so on the page, with Reconnect', async ({ page }) => {

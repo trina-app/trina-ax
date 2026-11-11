@@ -9,7 +9,7 @@ import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from '../tools/web-allo
 import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
 import { fail } from '../http/errors'
-import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatus } from '../auth/accounts'
+import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
 import { getUser, setUserLocale } from '../auth/users'
@@ -28,14 +28,12 @@ export const authRoutes: RouteModule = {
   register(kit, ctx) {
     const a = () => authOf(ctx)
 
-    // the office internet address never offers the first-run setup (it is refused there anyway, accounts.ts setup): it
-    // shows the sign-in page and does not tell the internet whether the team is set up yet (attack review finding 2;
-    // round 4: no team name either, setupStatus). The default language still changes when the owner picks another
-    // one at setup: accepted, it is the sign-in page's language (docs/DECISIONS.md "보안 4차").
-    kit.handle(API.setupStatus, ({ c }) => {
-      const s = setupStatus(ctx)
-      return c.get('info').tunnel ? { ...s, needed: false } : s
-    })
+    // the internet is not told whether the team is set up yet (attack review finding 2; round 4: no team name either):
+    // the office internet address never offers the first-run setup (it is refused there anyway, accounts.ts setup),
+    // the relay only to a visitor with the setup token (accounts.ts setupStatusFor). The default language still
+    // changes when the owner picks another one at setup: accepted, it is the sign-in page's language
+    // (docs/DECISIONS.md "보안 4차").
+    kit.handle(API.setupStatus, ({ c }) => setupStatusFor(c, ctx))
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
 

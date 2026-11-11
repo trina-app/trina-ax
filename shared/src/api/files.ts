@@ -115,6 +115,9 @@ export const HistoryResponse = z.object({
   currentSha256: z.string().nullable().optional(),
   /** the caller may restore versions (write access to the path; the same check POST /api/files/restore makes) */
   canRestore: z.boolean().optional(),
+  /** why canRestore is false although the caller may write the path: the file's folder is in the trash (restore the
+   * folder first, POST /api/files/trash/:id/restore) */
+  restoreBlocked: z.enum(['folderInTrash']).nullable().optional(),
   /** the content as it is now and who saved it (author null: not known, e.g. changed outside the app); null: the file
    * does not exist. `version`: the number it has in the list (one above the newest stored version). */
   current: z.object({
@@ -208,6 +211,8 @@ export const FindFilesQuery = z.object({
   /** optional folder to search under (default: the whole team folder) */
   path: RelPath.default(''),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  /** '1': folders whose name matches too, first (⌘K; the composer's file picker attaches files only) */
+  folders: z.literal('1').optional(),
 })
 /** Content search for people (the file screen, R2-ETC-02): the query is literal text, never a pattern. */
 export const FILE_SEARCH_QUERY_MAX = 200
@@ -305,7 +310,7 @@ export const FILES = {
   attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it).' }),
   attachTeamFile: endpoint({ method: 'POST', path: '/api/attachments/team-file', auth: 'user', owner: 'C', status: 201, body: AttachTeamFileBody, response: Attachment, summary: 'Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn).' }),
   discardAttachment: endpoint({ method: 'DELETE', path: '/api/attachments/:id', auth: 'user', owner: 'C', response: DiscardAttachmentResult, summary: 'Take an unsent team-file attachment of the caller out of its chat. A file they uploaded from their computer into a shared project chat, never sent and unchanged in its place, goes to the team trash (trashed: true); anything else stays where it is.' }),
-  findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name holds every word of q (in any order and any case), among the files the caller can read (newest first).' }),
+  findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name holds every word of q (in any order and any case), among the files the caller can read (newest first); with folders=1 also such folders the caller can see, first.' }),
   searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person.' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
   createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start.` }),

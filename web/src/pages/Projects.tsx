@@ -11,13 +11,14 @@
 // line opens the members dialog for whoever may change them), and deleting the project says its shared chats go to their
 // creators' trash. My pinned
 // chats there come first, the most recently pinned first, with the sidebar's pin before the title (docs/DECISIONS.md
-// "Pinned chats"; pinning is the sidebar row's "···").
+// "Pinned chats"). A chat row's "···" has the sidebar row's items by the same rules (components/chat/chatMenuItems.tsx).
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 멤버 for people who may change
 // its members (the members dialog, without leaving the list), 링크 복사 for everyone. Under its name a card says who
 // sees the project in the words of its page's 멤버 line ("멤버 3명", "나만 봐요": whoSeesProject; no folder path), then
-// keeps two lines for the first paragraph of its instructions ("지침이 없어요." when it has none): the cards of a row
-// are one height, and one without instructions does not leave a hole under it.
+// keeps two lines for the first paragraph of its instructions ("지침이 없어요." when it has none; a lock and "멤버만 내용을
+// 볼 수 있어요." on a project whose contents I may not see): the cards of a row are one height, and one without
+// instructions does not leave a hole under it.
 // Members (docs/DECISIONS.md "Project members in one panel"): a team project's page has a 멤버 line after 파일 with
 // who sees it, in the words of the line under the box ("나만 봐요", "나와 관리자만 봐요" or "N명이 봐요"); 관리 opens the members dialog (components/ProjectMembersDialog.tsx) for whoever may change
 // them, and for anyone else the line opens to say who does. /projects/:id?members=1 opens the dialog.
@@ -30,7 +31,7 @@
 // members dialog) loads the page again. Deleting a team project in projects/ moves it to the trash with its folder; a
 // project in the trash says so on its page with 되돌리기 (the owner and admins; gone once the server says its folder
 // was deleted for good) and 완전히 삭제, and has no name menu there.
-import { ArchiveRestore, FileText, FolderKanban, Folder, Link2, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
+import { ArchiveRestore, FileText, FolderKanban, Folder, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
@@ -54,7 +55,8 @@ import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
 import { whoSeesText } from '../components/chat/WhoSees'
 import { whoSees } from '../lib/sharedChat'
-import { useChatLinkItem } from '../components/chat/copyChatLink'
+import { useChatMenuItems } from '../components/chat/chatMenuItems'
+import { MoveToProjectDialog } from '../components/chat/ChatProject'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
@@ -71,6 +73,11 @@ const chatOrder = (a: Chat, b: Chat) =>
   a.pinnedAt || b.pinnedAt
     ? (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
     : a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : -1
+
+/** A chat of the list as it is now, with the faces of who wrote in it it had: those come with the list only, not with a
+ * chat event or an action's answer. */
+const keepFaces = (old: Chat | undefined, chat: Chat): Chat =>
+  old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
 
 /** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
 const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
@@ -221,11 +228,24 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { proj
 
 /** A card's lines under the name: who sees the project, in its 멤버 line's words (and "in the trash" while it is), and
  * its instructions' first paragraph as plain text in two lines' room, also when it is shorter or there is none
- * ("지침이 없어요.", faint). */
+ * ("지침이 없어요.", faint). A project whose contents I may not see (Project.member false: the owner or an admin who is
+ * not a member) comes without its instructions, so in their place a lock and "멤버만 내용을 볼 수 있어요." (faint); one
+ * in the trash says nothing there (nobody sees its contents then, and its line above says it is in the trash). */
 function ProjectCardLines({ project: p }: { project: Project }) {
   const t = useT()
   const who = whoSeesProject(t, p, 'projects.whoMembers')
-  const about = p.instructions ? firstParagraph(p.instructions) : ''
+  const hidden = p.member === false
+  const about = !hidden && p.instructions ? firstParagraph(p.instructions) : ''
+  const none = hidden ? (
+    p.inTrash ? null : (
+      <>
+        <Lock size={12} className="mr-1 inline-block align-[-1px]" aria-hidden />
+        {t('projects.cardMembersOnly')}
+      </>
+    )
+  ) : (
+    t('projects.noInstructions')
+  )
   return (
     <>
       {(who || p.inTrash) && (
@@ -235,7 +255,7 @@ function ProjectCardLines({ project: p }: { project: Project }) {
         </span>
       )}
       {/* 'block' would cancel line-clamp's display */}
-      <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || t('projects.noInstructions')}</span>
+      <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || none}</span>
     </>
   )
 }
@@ -324,15 +344,17 @@ export function ProjectList() {
 
 /** A chat on a project's page: its title and when it last changed. A shared chat has the people icon before the title
  * and the faces of the people who wrote in it before the time (ChatFaces: one person with the name); a chat of mine
- * has neither. The title gives way first: the faces and the time keep their room. */
-export function ProjectChatRow({ chat: c }: { chat: Chat }) {
+ * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the sidebar row's
+ * items by the same rules (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on
+ * a phone. */
+export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat: Chat; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
   const more = useRef<HTMLButtonElement>(null)
-  // 링크 복사: the chat's address for a teammate ("여기서 작업 중이에요"); the keyboard waits on "…" afterwards
-  const linkItem = useChatLinkItem(c, 'project-chat-copy-link', (fn) => () => (more.current?.focus(), void fn()))
+  // the keyboard waits on "…" after an item (a dialog it opens gives it back there)
+  const items = useChatMenuItems(c, { testId: 'project-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onChanged, onRemoved })
   return (
     <div className="group relative">
     <Link ref={row} to={`/c/${c.id}`} className="group -mx-2 flex items-center gap-4 rounded-md py-3 pr-10 pl-2 text-sm hover:bg-hover max-md:pr-12" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
@@ -354,9 +376,10 @@ export function ProjectChatRow({ chat: c }: { chat: Chat }) {
     <MenuButton
       label={t('rooms.menu.rowLabel', { name: c.title || t('chat.untitled') })}
       tip={t('rooms.menu.label')}
-      items={[linkItem]}
+      items={items}
       sheetTitle={c.title || t('chat.untitled')}
-      className="absolute top-1/2 right-0 -translate-y-1/2"
+      // centred by flex, not a transform: a transform here would hold the phone's fixed bottom sheet inside this box
+      className="absolute inset-y-0 right-0 flex items-center"
       buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
       buttonRef={more}
       testId="project-chat-menu"
@@ -378,6 +401,8 @@ export function ProjectHome() {
   const [files, setFiles] = useState<{ entries: FileEntry[]; more: boolean; failed?: boolean } | null>(null)
   const [editing, setEditing] = useState(false)
   const [sharing, setSharing] = useState(false)
+  // a chat row's ⋯ 프로젝트 변경
+  const [moving, setMoving] = useState<Chat | null>(null)
   // 나를 멤버로 추가 or 되돌리기 under way
   const [busy, setBusy] = useState<'join' | 'restore' | null>(null)
   // 되돌리기 refused because its folder was deleted for good from the trash meanwhile: no 되돌리기 any more (it would
@@ -450,10 +475,21 @@ export function ProjectHome() {
       const old = cur.find((c) => c.id === chatId)
       const rest = cur.filter((c) => c.id !== chatId)
       if (change === 'deleted' || change === 'purged' || !chat || chat.deletedAt || chat.projectId !== projectId) return old ? rest : cur
-      const next = old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
+      const next = keepFaces(old, chat)
       return [next, ...rest].sort(chatOrder)
     })
   }), [projectId])
+
+  // a row's rename, pin or move, without waiting for its chat event: the row as it is now, in its place (a pin moves it
+  // up); moved to another project, it goes
+  const chatHere = (chat: Chat) => setChats((cur) => {
+    if (!cur) return cur
+    const old = cur.find((c) => c.id === chat.id)
+    const rest = cur.filter((c) => c.id !== chat.id)
+    if (!old || chat.projectId !== projectId) return rest
+    const next = keepFaces(old, chat)
+    return [next, ...rest].sort(chatOrder)
+  })
 
   // ?members=1 opens the members dialog once the project is here, for whoever may change them; otherwise it goes
   useEffect(() => {
@@ -678,7 +714,7 @@ export function ProjectHome() {
             <ul className="divide-y divide-line">
               {chats?.map((c) => (
                 <li key={c.id}>
-                  <ProjectChatRow chat={c} />
+                  <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => setChats((cur) => cur && cur.filter((y) => y.id !== x.id))} />
                 </li>
               ))}
             </ul>
@@ -687,6 +723,7 @@ export function ProjectHome() {
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
       {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={membersSaved} />}
+      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
       {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) }) }} />}
     </div>
   )

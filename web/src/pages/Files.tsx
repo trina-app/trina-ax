@@ -21,7 +21,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { folderGeneration } from '../lib/folderRuns'
 import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
@@ -273,16 +273,29 @@ export default function Files() {
     }
   }, [path, load, loadProjects])
 
+  // 더 보기 belongs to the listing on screen when it was pressed: another folder opened (or a reload) before the next
+  // page came back, that page is dropped. Added anyway, a subfolder showed its own files plus the parent's next 200
+  // (QA TC-240), and those rows pointed at another folder
+  const mores = useRef(0)
+  useEffect(() => {
+    mores.current++
+    setLoadingMore(false)
+  }, [path])
   const more = async () => {
     if (!tree?.nextCursor) return
+    const ask = ++mores.current
+    const listing = loads.current
+    const from = tree.path
+    const current = () => listing === loads.current
     setLoadingMore(true)
     try {
       const r = await api.call(API.tree, { query: { path, limit: 200, cursor: tree.nextCursor } })
-      setTree((cur) => (cur ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : r))
+      if (!current()) return
+      setTree((cur) => (cur && cur.path === from ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : cur))
     } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      if (current()) toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
-      setLoadingMore(false)
+      if (ask === mores.current) setLoadingMore(false)
     }
   }
 
@@ -313,6 +326,8 @@ export default function Files() {
   }, [order])
   const chosen = useMemo(() => tree?.entries.filter((e) => checked.has(e.path)) ?? [], [tree, checked])
   const movable = chosen.filter(canChange)
+  /** selected folders the person may write but not move or trash (a group's folder for a member, QA TC-224) */
+  const fixedChosen = chosen.filter(isFixed).length
   const shareable = chosen.filter(canShare)
   const allState = selectionState(checked, order)
   useEffect(() => {
@@ -370,7 +385,9 @@ export default function Files() {
    * people; one toast. `select`: as reportBatch. */
   const moveItems = async (items: readonly FileEntry[], folder: string, select = true) => {
     const ok = items.filter(canChange)
-    const skipped = items.length - ok.length
+    const fixed = items.filter(isFixed).length
+    const skipped = items.length - ok.length - fixed
+    const skipWords = [skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null, fixed ? t('files.bulk.skipFixed', { n: fixed }) : null].filter(Boolean).join(' ')
     setRunning('move')
     try {
       const r = await moveMany(ok, folder, {
@@ -384,7 +401,7 @@ export default function Files() {
         {
           done: (n) => t('files.bulk.moved', { n, path: words.path(folder) || t('files.root') }),
           failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
-          skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
+          skipped: skipWords || null,
         },
         undefined,
         select,
@@ -426,8 +443,8 @@ export default function Files() {
   const bulkDelete = async () => {
     const items = movable
     if (!items.length) return
-    const skipped = chosen.length - items.length
-    const body = skipped ? `${t('files.deleteBody')} ${t('files.bulk.readOnlyLeft', { n: skipped })}` : t('files.deleteBody')
+    const skipped = chosen.length - items.length - fixedChosen
+    const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
     if (!(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
     setRunning('delete')
     try {
@@ -455,28 +472,35 @@ export default function Files() {
     // "read-only folder" for a folder the person can write and dropped the file (e2e mobile upload on a slow server).
     if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
     const folder = into ?? path
-    for (const file of list) {
-      const item = addFileUpload(file.name, folder)
-      const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
-      // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
-      const release = markBusy('upload')
-      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
-        () => {
-          patchFileUpload(item.id, { status: 'done' })
-          setTimeout(() => dropFileUpload(item.id), 4000)
-          if (onScreen.current?.path === folder) void onScreen.current.load()
-        },
-        (e) => {
-          if (item.abort.signal.aborted) {
-            // cancelled: drop the server's half-received session too (it holds disk space and counts against the
-            // person's open uploads for a day otherwise)
-            if (item.abort.signal.reason !== SIGNED_OUT) void cancelUpload(file, target, api)
-            return dropFileUpload(item.id)
-          }
-          patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
-        },
-      )
-    }
+    for (const file of list) sendFile(file, folder, addFileUpload(file.name, folder))
+  }
+  /** One file of startUploads, and its 다시 시도 after a failure: the same file to the same name (a large one goes on
+   * from the chunks the server has; a small one that did arrive is kept by the server, no "(2)"; QA TC-223). */
+  const sendFile = (file: File, folder: string, item: { id: number; abort: AbortController }) => {
+    const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
+    // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
+    const release = markBusy('upload')
+    uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
+      () => {
+        patchFileUpload(item.id, { status: 'done' })
+        setTimeout(() => dropFileUpload(item.id), 4000)
+        if (onScreen.current?.path === folder) void onScreen.current.load()
+      },
+      (e) => {
+        if (item.abort.signal.aborted) {
+          // cancelled: drop the server's half-received session too (it holds disk space and counts against the
+          // person's open uploads for a day otherwise)
+          if (item.abort.signal.reason !== SIGNED_OUT) void cancelUpload(file, target, api)
+          return dropFileUpload(item.id)
+        }
+        const retry = () => {
+          const again = { id: item.id, abort: new AbortController() }
+          patchFileUpload(item.id, { status: 'uploading', error: undefined, progress: null, abort: again.abort, retry: undefined })
+          sendFile(file, folder, again)
+        }
+        patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')), retry })
+      },
+    )
   }
 
   /** Upload a read folder into this folder, or into `into`, with the same check for write access as for a file. */
@@ -836,7 +860,8 @@ export default function Files() {
           {anyChecked && !dragging ? (
             <BulkBar
               count={chosen.length}
-              readOnly={chosen.length - movable.length}
+              readOnly={chosen.length - movable.length - fixedChosen}
+              fixed={fixedChosen}
               canMove={movable.length > 0}
               canShare={shareable.length > 0}
               running={running}
@@ -894,7 +919,7 @@ export default function Files() {
                 )}
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
-                  <EmptyState icon={<Upload size={28} />} title={canAdd ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
+                  <EmptyState icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
                     {canAdd && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}
@@ -1011,7 +1036,7 @@ export default function Files() {
 }
 
 /** The selection's actions, in place of the breadcrumbs while something is selected. */
-function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare, onDelete, onClear }: { count: number; readOnly: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void }) {
+function BulkBar({ count, readOnly, fixed, canMove, canShare, running, onMove, onShare, onDelete, onClear }: { count: number; readOnly: number; fixed: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void }) {
   const t = useT()
   return (
     // a narrow page (a phone, or a desktop with the file panel open): line 1 has the count, the read-only badge and ×,
@@ -1024,6 +1049,12 @@ function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare,
       {readOnly > 0 && (
         <Badge tone="warn">
           <Lock size={11} aria-hidden /> {t('files.bulk.readOnlyIn', { n: readOnly })}
+        </Badge>
+      )}
+      {/* writable folders that only an admin (or nobody) may move: a group's or a project's folder (QA TC-224) */}
+      {fixed > 0 && (
+        <Badge tone="warn">
+          <Lock size={11} aria-hidden /> {t('files.bulk.fixedIn', { n: fixed })}
         </Badge>
       )}
       <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 @max-2xl:order-last @max-2xl:ml-0 @max-2xl:basis-full @max-2xl:justify-start">
@@ -1086,6 +1117,9 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   // through
   const dimTitle = membersOnly ? t('projects.membersOnly') : t('files.navigationOnly')
   const writable = e.access === 'write'
+  // rename, move and trash: off on a folder the server marks fixed, with the reason under them (QA TC-224: a member
+  // pressed them on their group's folder only to read "only an admin can")
+  const changeable = writable && !e.fixed
   const menuId = useId()
   // phones (`pressSelect`): a long press selects the row (or takes it out of the selection), and the click that ends it
   // does not open it; while something is selected (`selecting`) a tap does the same instead of opening
@@ -1273,15 +1307,16 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
                 <Copy size={14} aria-hidden /> {t('files.share')}
               </button>
             )}
-            <button role="menuitem" type="button" className={item} disabled={!writable} onClick={onRename}>
+            <button role="menuitem" type="button" className={item} disabled={!changeable} onClick={onRename} aria-describedby={writable && e.fixed ? `${menuId}-fixed` : undefined} data-testid="file-rename">
               <Pencil size={14} aria-hidden /> {t('files.rename')}
             </button>
-            <button role="menuitem" type="button" className={item} disabled={!writable} onClick={onMove}>
+            <button role="menuitem" type="button" className={item} disabled={!changeable} onClick={onMove} aria-describedby={writable && e.fixed ? `${menuId}-fixed` : undefined} data-testid="file-move">
               <FolderInput size={14} aria-hidden /> {t('files.move')}
             </button>
-            <button role="menuitem" type="button" className={clsx(item, 'text-danger')} disabled={!writable} onClick={onDelete}>
+            <button role="menuitem" type="button" className={clsx(item, 'text-danger')} disabled={!changeable} onClick={onDelete} aria-describedby={writable && e.fixed ? `${menuId}-fixed` : undefined} data-testid="file-trash">
               <Trash2 size={14} aria-hidden /> {t('files.moveToTrash')}
             </button>
+            {writable && e.fixed && <p id={`${menuId}-fixed`} className="px-2 pb-1.5 text-xs text-muted" data-testid="file-fixed-reason">{t(e.fixed === 'admin' ? 'files.fixedAdmin' : 'files.fixedAlways')}</p>}
           </div>
         )}
       </td>
@@ -1296,6 +1331,8 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
   // every stored version is an earlier content of the file (the newest one is what it was before the last change),
   // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
   const [current, setCurrent] = useState<{ sha256: string | null; canRestore: boolean }>({ sha256: null, canRestore: true })
+  // why there is no 되돌리기: the file's folder is in the trash (it comes back first; QA TC-229)
+  const [blocked, setBlocked] = useState<HistoryResponse['restoreBlocked']>(null)
   // the content as it is now with the person who saved it, and the changes (created / edited / moved / ...)
   const [now, setNow] = useState<NonNullable<HistoryResponse['current']> | null>(null)
   const [events, setEvents] = useState<FileHistoryEvent[]>([])
@@ -1308,6 +1345,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
         if (!live) return
         setItems([...r.items].sort((a, b) => b.version - a.version))
         setCurrent({ sha256: r.currentSha256 ?? null, canRestore: r.canRestore ?? true })
+        setBlocked(r.restoreBlocked ?? null)
         setNow(r.current ?? null)
         setEvents(r.events ?? [])
       },
@@ -1336,6 +1374,12 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     <Modal open onClose={onClose} title={t('files.historyOf', { name: baseName(path) })} width={600}>
       {error && <ErrorNote>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={4} />}
+      {blocked === 'folderInTrash' && (
+        <p className="mb-2 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-sm text-muted" data-testid="history-folder-in-trash">
+          <Trash2 size={14} className="mt-0.5 shrink-0" aria-hidden />
+          {t('files.versionsFolderInTrash')}
+        </p>
+      )}
       {items && !items.length && !now && !events.length && <p className="text-sm text-muted">{t('files.noHistory')}</p>}
       {items && (items.length > 0 || now) && (
         <ul className="divide-y divide-line" data-testid="history-list">

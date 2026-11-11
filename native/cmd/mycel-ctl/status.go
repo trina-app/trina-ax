@@ -194,7 +194,15 @@ func health(port int, timeout time.Duration) map[string]any {
 	defer r.Body.Close()
 	var h map[string]any
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-	if json.Unmarshal(b, &h) != nil || r.StatusCode != 200 {
+	if json.Unmarshal(b, &h) == nil && r.StatusCode == 503 && h["status"] == "migrating" {
+		// the server is updating its database before it starts (server/src/system/migrate-start.ts)
+		out := map[string]any{"ok": false, "status": "migrating", "error": "updating its database"}
+		if v, ok := h["version"].(string); ok {
+			out["version"] = v
+		}
+		return out
+	}
+	if h == nil || r.StatusCode != 200 {
 		return map[string]any{"ok": false, "error": fmt.Sprintf("HTTP %d", r.StatusCode)}
 	}
 	out := map[string]any{"ok": h["ok"] == true}

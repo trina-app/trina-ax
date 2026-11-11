@@ -28,7 +28,7 @@ import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
 import { SkillFormDialog } from '../components/skills/SkillForm'
 import { SkillEditorsLine } from './admin/SkillManagers'
-import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, pageColumn, promptDialog } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, pageColumn, promptDialog, useMediaQuery } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
@@ -125,12 +125,14 @@ export default function Skills() {
 
   // suggestions and share proposals to the person's groups, together
   const waiting = (overview?.pendingReview ?? 0) + (overview?.sharesToReview ?? 0)
-  const tabs: { id: Tab; label: string }[] = [
+  const count = waiting ? ` (${waiting})` : ''
+  // `short`: a phone's word, so the four fit the width (components/ui.tsx Tabs)
+  const tabs: { id: Tab; label: string; short: string }[] = [
     // what everyone can use, members included (before: a member's page listed no skill at all)
-    { id: 'skills', label: t('skills.tabSkills') },
-    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${waiting ? ` (${waiting})` : ''}` }] : []),
-    { id: 'mine', label: t('skills.tabMine') },
-    ...(isAdmin(me) ? [{ id: 'changes' as const, label: t('skills.tabChanges') }] : []),
+    { id: 'skills', label: t('skills.tabSkills'), short: t('skills.tabSkillsShort') },
+    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${count}`, short: `${t('skills.tabReviewShort')}${count}` }] : []),
+    { id: 'mine', label: t('skills.tabMine'), short: t('skills.tabMineShort') },
+    ...(isAdmin(me) ? [{ id: 'changes' as const, label: t('skills.tabChanges'), short: t('skills.tabChangesShort') }] : []),
   ]
   const current = tabs.some((x) => x.id === tab) ? tab : 'skills'
   const panels = useId()
@@ -365,6 +367,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
   const [content, setContent] = useState(s.content)
   const [preview, setPreview] = useState(true)
   const contentTabs = useId()
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const nameBad = isDir ? !!name.trim() && !(FOLDER_NAME.test(name.trim()) && name.trim().length <= 64) : name.includes('/')
@@ -471,7 +474,8 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
         )}
         {dir && dir.scriptsDropped > 0 && <p className="text-xs text-muted">{t('skills.folderScripts', { n: dir.scriptsDropped })}</p>}
         <div>
-          <Tabs value={preview ? 'preview' : 'edit'} onChange={(v) => setPreview(v === 'preview')} items={[{ id: 'preview', label: t('skills.preview') }, { id: 'edit', label: t('skills.edit') }]} label={t('suggest.content')} panels={contentTabs} />
+          {/* a phone: the two as one segmented row of 44px (a computer keeps the small pills) */}
+          <Tabs segmented={phone} value={preview ? 'preview' : 'edit'} onChange={(v) => setPreview(v === 'preview')} items={[{ id: 'preview', label: t('skills.preview') }, { id: 'edit', label: t('skills.edit') }]} label={t('suggest.content')} panels={contentTabs} />
           <TabPanel base={contentTabs} value={preview ? 'preview' : 'edit'}>
             {preview ? (
               <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-line px-3 py-2 text-sm" data-testid="review-preview">

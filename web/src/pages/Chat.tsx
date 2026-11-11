@@ -30,14 +30,14 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { useStickToBottom } from '../lib/stickToBottom'
+import { CHAT_ROW, holdPlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
-import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
+import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
@@ -165,6 +165,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const question = useChats((s) => composerQuestion(s.requests, chatId))
   const choosing = useChats((s) => choiceWaiting(s.requests, chatId))
   const busy = !!running || messages.some((m) => m.local?.state === 'sending')
+  const rowsBusy = rowButtonsWait(messages, { readOnly, othersTurn })
   /** who asked the question an answer answers (a shared chat: edit, regenerate and "send to a room" are for one's own) */
   const askedBy = (m: { parentId: string | null }) => messages.find((x) => x.id === m.parentId)?.author?.id
   const mine = (id: string | undefined) => !shared || id === me.user.id
@@ -210,11 +211,10 @@ function ChatView({ chatId }: { chatId: string }) {
     list.onScroll()
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
-      const before = el.scrollHeight
+      // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
+      const keep = holdPlace(el, CHAT_ROW)
       await loadOlder(chatId).catch(() => {})
-      requestAnimationFrame(() => {
-        if (scroller.current) scroller.current.scrollTop += scroller.current.scrollHeight - before
-      })
+      requestAnimationFrame(keep)
       setOlderBusy(false)
     }
   }
@@ -408,14 +408,14 @@ function ChatView({ chatId }: { chatId: string }) {
               if (m.role === 'user')
                 return (
                   <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
+                    <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
                   </ViewerMeta>
                 )
               const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
               const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
               return (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
                 </ViewerMeta>
               )
             })}
@@ -430,6 +430,8 @@ function ChatView({ chatId }: { chatId: string }) {
           <SharedReadOnly />
         ) : (
           <>
+          {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
+          {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
@@ -450,7 +452,8 @@ function ChatView({ chatId }: { chatId: string }) {
             placeholder={t('chat.reply')}
             footer={t('chat.footerAi')}
             who={who}
-            hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
+            hold={chat?.ending ? t('chat.endingEarlier') : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false } : undefined}
             projectId={chat?.projectId ?? null}

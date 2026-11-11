@@ -6,7 +6,7 @@
 // again" instead, which opens its schedule card here; edits go through ScheduleEditDialog. New tasks are made by the AI
 // in a chat (its card) or from a template. Only presentation moved: the API is the same (shared/src/api/schedules.ts).
 import clsx from 'clsx'
-import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Search, ShieldAlert, Trash2, X } from 'lucide-react'
+import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
@@ -23,7 +23,9 @@ import { copyRoomIds, WithRoomNames } from '../components/RoomNames'
 import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
-import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn } from '../components/ui'
+import { MenuButton } from '../components/rooms/MenuButton'
+import { PhoneBarAction } from '../components/phone/PhoneBarAction'
+import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn, useMediaQuery } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
@@ -143,6 +145,26 @@ function NewTaskMenu({ onTemplate, testId }: { onTemplate: () => void; testId: s
   )
 }
 
+/** A phone's "+" in the top bar (phone/PhoneBarAction.tsx): the same two ways to start, as a bottom sheet. */
+function NewTaskSheet({ onTemplate }: { onTemplate: () => void }) {
+  const t = useT()
+  const inChat = useStartInChat()
+  return (
+    <MenuButton
+      label={t('scheduled.newTask')}
+      sheetTitle={t('scheduled.newTask')}
+      icon={<Plus size={22} aria-hidden />}
+      muted
+      buttonClassName="size-11"
+      testId="new-task-phone"
+      items={[
+        { label: t('scheduled.newInChat'), icon: <MessageSquarePlus size={18} aria-hidden />, onSelect: inChat, testId: 'new-task-chat' },
+        { label: t('scheduled.newFromTemplate'), icon: <LayoutTemplate size={18} aria-hidden />, onSelect: onTemplate, testId: 'new-task-template' },
+      ]}
+    />
+  )
+}
+
 function ScheduleCard({ s }: { s: Schedule }) {
   const t = useT(), locale = useLocale()
   const waiting = scheduleState(s) === 'review'
@@ -185,9 +207,18 @@ export function ScheduledList() {
   const q = query.trim().toLowerCase()
   const shown = items?.filter((s) => !q || scheduleName(s, t).toLowerCase().includes(q)) ?? []
   const closeSearch = () => { setQuery(''); setSearching(false) }
+  // a phone: "+" in the top bar opens the two ways to start as a sheet, and the search is a field over the list (no
+  // title row of buttons under the bar)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      {/* the page's title bar like the other pages (Projects, Trash): full width, with its bottom line */}
+      {phone ? (
+        <>
+          <h1 className="sr-only">{t('settings.schedules')}</h1>
+          <PhoneBarAction><NewTaskSheet onTemplate={() => setTemplateOpen(true)} /></PhoneBarAction>
+        </>
+      ) : (
+      /* the page's title bar like the other pages (Projects, Trash): full width, with its bottom line */
       <PageHeader
         title={t('settings.schedules')}
         actions={
@@ -214,7 +245,14 @@ export function ScheduledList() {
           </>
         }
       />
+      )}
       <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
+        {phone && items && items.length > 0 && (
+          <div className="relative mb-2">
+            <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} h-11 pl-9`} data-testid="scheduled-search" />
+          </div>
+        )}
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && (
@@ -550,9 +588,19 @@ export function ScheduledTask() {
     } catch (e) { fail(e) }
   }
   const project = s?.projectId ? projects?.find((p) => p.id === s.projectId) ?? null : null
+  // a phone: "Edit" in the top bar and a red "Delete" row at the end of the page, as an iOS app has them (the name is
+  // the page's big heading; no second bar with the name as a menu)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6" testId="scheduled-topline">
+      {phone && s && (
+        <PhoneBarAction>
+          <button type="button" onClick={() => setEditing(true)} className="flex h-11 items-center rounded-md px-3 text-sm font-medium text-accent-text hover:bg-hover" data-testid="schedule-edit-bar">
+            {t('common.edit')}
+          </button>
+        </PhoneBarAction>
+      )}
+      <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6 max-md:hidden" testId="scheduled-topline">
         <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
           {/* phones: the top bar above says 예약 작업, with its ‹ (components/PhoneTopBar.tsx) */}
           <Link to="/scheduled" className="shrink-0 text-muted hover:text-ink max-md:hidden">{t('settings.schedules')}</Link>
@@ -583,6 +631,11 @@ export function ScheduledTask() {
           <ScheduleView s={s} tz={tz || null} project={project} running={running}
             onToggle={() => void toggle(s)} onRunNow={() => void runNow(s)} onReview={() => void openReview(s)}
             review={review ? <AskCard key={review.request.requestId} req={review} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} /> : undefined} />
+        )}
+        {phone && s && (
+          <button type="button" onClick={() => void remove(s)} className="mt-8 flex min-h-11 w-full items-center justify-center rounded-lg bg-subtle px-4 text-sm font-medium text-danger" data-testid="schedule-delete-row">
+            {t('schedules.delete')}
+          </button>
         )}
       </div>
       {editing && s && (

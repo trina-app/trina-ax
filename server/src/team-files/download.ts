@@ -46,7 +46,10 @@ export function rangeStream(abs: string, start: number, end: number): ReadableSt
  * text/plain when shown inline. */
 const ACTIVE = /^(text\/html|application\/xhtml|image\/svg|text\/xml|application\/xml|text\/xsl|text\/mathml|text\/vnd\.wap\.wml)|^[^;]*\+xml\b|^(text|application)\/(x-)?(java|ecma|j|live)script\b/i
 
-export function contentDisposition(kind: 'inline' | 'attachment', name: string): string {
+/** The download's file name. NFC: a name stored decomposed (typed on a Mac before names were composed) would show as
+ * split letters on Windows (QA TC-225). */
+export function contentDisposition(kind: 'inline' | 'attachment', stored: string): string {
+  const name = stored.normalize('NFC')
   const ascii = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').normalize('NFC').replace(/[^\x20-\x7e]/g, '_').replace(/["\\;]/g, '_') || 'file'
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase())}`
 }

@@ -123,6 +123,46 @@ export function watchListSize(
   }
 }
 
+/** The message rows holdPlace keeps in place: a room's or a thread's (components/rooms/RoomMessages.tsx, as
+ * lib/messageCopy.ts finds them) and an AI chat's (components/chat/Messages.tsx). */
+export const ROOM_ROW = '[data-testid="room-message"]'
+export const CHAT_ROW = '[data-message-id]'
+
+type Rect = { getBoundingClientRect(): { top: number; bottom: number } }
+/** What holdPlace needs of the list. */
+export type HoldBox = Rect & { scrollTop: number; style: { overflowAnchor: string }; querySelectorAll(rows: string): Iterable<Rect & { isConnected: boolean }> }
+
+/**
+ * Older messages are about to be put above the ones on screen (a list scrolled up to its top: the AI chat, a room, a
+ * thread): keep the message the reader is looking at where it is (QA TC-237). Notes the first row in sight (`rows`:
+ * what marks a message row) and its place in the list's content, and turns the browser's own scroll anchoring off for
+ * the list meanwhile. The returned function, called once the older messages are on screen, scrolls the list down by how
+ * far that row moved down (what came in above it) and turns anchoring back on.
+ * Before, the list added the height it grew by (scrollHeight) on top of what the browser's scroll anchoring had done
+ * already (Chromium, current Safari): the view jumped down by a whole page. Doing it here, once, gives the same result
+ * whether the engine anchors or not (an older iPhone does not), at the very top too, and what grew below the row (a
+ * streaming answer, a new message) is not counted. A row that is gone by then: the list stays as it is.
+ */
+export function holdPlace(scroller: HoldBox, rows: string): () => void {
+  const top = () => scroller.getBoundingClientRect().top
+  let row: (Rect & { isConnected: boolean }) | null = null
+  for (const r of scroller.querySelectorAll(rows)) {
+    if (r.getBoundingClientRect().bottom > top()) { row = r; break }
+  }
+  /** the row's top in the list's content (not on screen: what the reader scrolls does not count) */
+  const at = (r: Rect) => r.getBoundingClientRect().top - top() + scroller.scrollTop
+  const before = row ? at(row) : 0
+  const anchor = scroller.style.overflowAnchor
+  scroller.style.overflowAnchor = 'none'
+  return () => {
+    if (row?.isConnected) {
+      const added = at(row) - before
+      if (Math.abs(added) >= 1) scroller.scrollTop += added
+    }
+    scroller.style.overflowAnchor = anchor
+  }
+}
+
 /** A message list's scrolling, the same in every list. Put `scroller` on the scrolling box and `content` on the box of
  * its messages; call `onScroll()` first in the list's scroll handler and `follow()` in a layout effect on what makes
  * the list grow (new messages, a streaming answer). `stick` is true while it follows the newest message (set it to true

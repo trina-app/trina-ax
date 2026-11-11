@@ -29,7 +29,7 @@ import type { RelayLog } from './log.ts'
 import { renderMetrics, type MetricsSource } from './metrics.ts'
 import { OpsApi } from './ops-api.ts'
 import { DEFAULT_PAGE_LINKS, PAGE_RETRY_AFTER, PAGE_STATUS, htmlPage, pageMessage, pickLang, type PageKind, type PageLinks } from './pages.ts'
-import { ipInRanges, unmapIp } from './proxies.ts'
+import { ipInRanges, unmapIp, visitorKey } from './proxies.ts'
 import type { KeyRow, Registry, TeamRow } from './registry.ts'
 
 export const RELAY_VERSION = '0.2.0'
@@ -81,9 +81,19 @@ interface TeamState {
   rejected: number
   /** a live previous instance was replaced: tell the new one once it is connected */
   replacedPrevious: string | null
+  /** open HTTP streams per visitor (visitorKey of the client address; memory only, never logged) */
+  perVisitor: Map<string, number>
 }
 
-interface StreamTrack { s: Stream; ctl: Ctl; waitingHeadSince: number | null }
+interface StreamTrack {
+  s: Stream
+  ctl: Ctl
+  waitingHeadSince: number | null
+  /** HTTP: the visitor's answer, the last time the visitor's socket took a chunk of it, and how to cut it */
+  res?: http.ServerResponse
+  lastTake?: number
+  cut?: () => void
+}
 
 export interface RelayStats {
   uptimeS: number
@@ -121,7 +131,8 @@ export class RelayServer {
   readonly counters = {
     ctlConnects: 0, ctlDrops: 0, silentDrops: 0, stallDrops: 0, authFail: 0, replaced: 0,
     http: 0, httpOffline: 0, ws: 0, wsOffline: 0, notifications: 0,
-    httpSuspended: 0, httpUnknown: 0, httpMaintenance: 0, httpRedirect: 0, wsSuspended: 0, wsUnknown: 0,
+    httpSuspended: 0, httpUnknown: 0, httpMaintenance: 0, httpRedirect: 0, httpVisitorLimit: 0, clientStalls: 0,
+    wsSuspended: 0, wsUnknown: 0,
     bytesIn: 0, bytesOut: 0, regPow: 0, regClaim: 0, regOperator: 0, tlsClientErrors: 0,
   }
 
@@ -377,6 +388,8 @@ export class RelayServer {
       this.counters.httpSuspended++
       return this.sendPage(req, res, row.suspend_reason === 'billing' || row.suspend_reason === 'canceled' ? 'team_suspended_billing' : 'team_suspended')
     }
+    const visitor = visitorKey(this.clientIp(req) ?? 'unknown')
+    if (this.overVisitorCap(row.id, visitor)) return this.refuseOverCap(req, res)
     const ctl = await this.connFor(row.id, req)
     if (res.destroyed || req.destroyed) return
     if (!ctl) {
@@ -391,7 +404,23 @@ export class RelayServer {
     }
     const meta = this.meta(req, 'http')
     if (!meta) { res.shouldKeepAlive = false; return this.sendPage(req, res, 'bad_request') }
-    this.proxyHttp(req, res, ctl, meta)
+    // again after the wait: requests that waited for a free stream must not all get one past the cap
+    if (this.overVisitorCap(row.id, visitor)) return this.refuseOverCap(req, res)
+    this.proxyHttp(req, res, ctl, meta, visitor)
+  }
+
+  /**
+   * One visitor (address; IPv6 by /64) may hold only part of a team's streams: 1,100 connections from one machine that
+   * never read their answers took all 1,024 streams of a team and nobody else could open it (QA TC-199).
+   */
+  private overVisitorCap(teamId: string, visitor: string): boolean {
+    return this.cfg.maxStreamsPerIp > 0 && (this.teams.get(teamId)?.perVisitor.get(visitor) ?? 0) >= this.cfg.maxStreamsPerIp
+  }
+
+  private refuseOverCap(req: http.IncomingMessage, res: http.ServerResponse): void {
+    this.counters.httpVisitorLimit++
+    res.shouldKeepAlive = false
+    this.sendPage(req, res, 'team_busy')
   }
 
   /** A live control connection for the team; waits up to the restart hold for one to appear. */
@@ -431,7 +460,7 @@ export class RelayServer {
   private teamState(id: string, name: string): TeamState {
     let t = this.teams.get(id)
     if (!t) {
-      t = { id, name, instance: null, conns: new Set(), offlineAt: null, waiters: new Set(), bytesIn: 0, bytesOut: 0, streams: 0, lastNotify: new Map(), rejected: 0, replacedPrevious: null }
+      t = { id, name, instance: null, conns: new Set(), offlineAt: null, waiters: new Set(), bytesIn: 0, bytesOut: 0, streams: 0, lastNotify: new Map(), rejected: 0, replacedPrevious: null, perVisitor: new Map() }
       this.teams.set(id, t)
     }
     if (name) t.name = name
@@ -483,13 +512,14 @@ export class RelayServer {
 
   // ------------------------------------------------------------------ HTTP proxy
 
-  private proxyHttp(req: http.IncomingMessage, res: http.ServerResponse, ctl: Ctl, meta: OpenMeta): void {
+  private proxyHttp(req: http.IncomingMessage, res: http.ServerResponse, ctl: Ctl, meta: OpenMeta, visitor: string): void {
     this.counters.http++
     const team = ctl.team!
     const s = ctl.mux!.open(meta)
-    const track: StreamTrack = { s, ctl, waitingHeadSince: null }
+    const track: StreamTrack = { s, ctl, waitingHeadSince: null, res, lastTake: Date.now() }
     this.tracks.add(track)
     team.streams++
+    team.perVisitor.set(visitor, (team.perVisitor.get(visitor) ?? 0) + 1)
     const t0 = Date.now()
     let reqBytes = 0
     let resBytes = 0
@@ -526,6 +556,9 @@ export class RelayServer {
       clearIdle()
       this.tracks.delete(track)
       team.streams--
+      const left = (team.perVisitor.get(visitor) ?? 1) - 1
+      if (left > 0) team.perVisitor.set(visitor, left)
+      else team.perVisitor.delete(visitor)
       team.bytesIn += reqBytes
       team.bytesOut += resBytes
       this.counters.bytesIn += reqBytes
@@ -584,10 +617,21 @@ export class RelayServer {
       }
     }
     // response DATA -> client. Window goes back only once the client socket took the bytes.
+    // Every chunk the visitor's socket takes is progress; the sweep cuts an answer whose waiting bytes made none for
+    // clientStallMs (a visitor that stopped reading holds a team stream and relay buffers until then, not forever).
+    const took = () => { track.lastTake = Date.now() }
     s.onData = (b) => {
       resBytes += b.byteLength
-      if (res.write(b)) s.consumed(b.byteLength)
+      // nothing was waiting for this visitor (an answer that paused, e.g. a stream of events): the clock starts now
+      if (!res.writableLength) track.lastTake = Date.now()
+      if (res.write(b, took)) s.consumed(b.byteLength)
       else owed += b.byteLength
+    }
+    track.cut = () => {
+      this.counters.clientStalls++
+      if (!s.done) s.rst(RstCode.CANCEL, 'visitor stopped reading')
+      res.destroy()
+      finish()
     }
     res.on('drain', () => { if (owed) { const n = owed; owed = 0; s.consumed(n) } })
     s.onEnd = () => {
@@ -946,6 +990,12 @@ export class RelayServer {
       if (now - tr.waitingHeadSince > this.cfg.stallMs && now - c.mux.lastRecv > this.cfg.stallMs) {
         c.probeAt = now
         c.mux.ping()
+      }
+    }
+    // visitors that stopped reading their answer: cut it (frees the team stream, the socket and its buffers)
+    if (this.cfg.clientStallMs > 0) {
+      for (const tr of this.tracks) {
+        if (tr.res && tr.res.writableLength > 0 && now - (tr.lastTake ?? now) > this.cfg.clientStallMs) tr.cut?.()
       }
     }
     // registry changes: suspended teams and rotated keys lose their connections

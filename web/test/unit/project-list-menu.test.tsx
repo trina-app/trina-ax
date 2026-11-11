@@ -11,8 +11,10 @@
 //   see) just leaves the list, and my chats keep it, as the server does.
 // - members only (docs/DECISIONS.md "Project contents only for members"): the list asks with manage=1; the owner's or
 //   an admin's card of a project they are not in has 이름 바꾸기, 멤버 and 삭제 (Project.canManage), no "not a member" tag;
-//   a team project nobody active is in says "남은 멤버 없음"; deleting a team project in projects/ moves it to the
-//   trash (its own confirm, the card stays and says so), and deleting one in the trash is for good.
+//   its instructions do not come, so the card says "멤버만 내용을 볼 수 있어요." with a lock (nothing while it is in the
+//   trash), not "지침이 없어요."; a team project nobody active is in says "남은 멤버 없음"; deleting a team project in
+//   projects/ moves it to the trash (its own confirm, the card stays and says so), and deleting one in the trash is
+//   for good.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
@@ -303,6 +305,31 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       await m.click('dialog-confirm')
       await m.until(() => cards(m).some((c) => c.textContent?.includes('Acme legal 2027')), 'the new name')
       expect(calls.filter((c) => c.key.startsWith('PATCH'))).toEqual([{ key: `PATCH /api/projects/${OUTSIDE}`, url: `/api/projects/${OUTSIDE}`, body: { name: 'Acme legal 2027' } }])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a card of a project I am not in: a lock and "멤버만 내용을 볼 수 있어요." in place of its instructions, never "지침이 없어요."', async () => {
+    list = [...list, outside(), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: true, inTrash: true, audience: 0 })]
+    const m = await page()
+    try {
+      await m.until(() => cards(m).length === 5, 'the cards')
+      const about = (name: string) => within(card(m, name), 'project-card-about')!
+      // its instructions do not come to me, so the card says why there are none, in plain words, with the lock
+      expect(about('Acme legal').textContent).toBe(ko('projects.cardMembersOnly'))
+      expect(ko('projects.cardMembersOnly')).toBe('멤버만 내용을 볼 수 있어요.')
+      expect(translate('en', 'projects.cardMembersOnly')).toBe("Only members can see what's inside.")
+      expect(about('Acme legal').querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+      // in the same two lines' room, faint
+      expect(about('Acme legal').getAttribute('class')).toContain('min-h-[2lh]')
+      expect(about('Acme legal').getAttribute('class')).toContain('text-faint')
+      // in the trash nobody sees its contents: nothing said there (its line above says it is in the trash)
+      expect(about('Acme gone').textContent).toBe('')
+      expect(about('Acme gone').getAttribute('class')).toContain('min-h-[2lh]')
+      // a project of mine without instructions still says so, without the lock
+      expect(about('Acme launch').textContent).toBe(ko('projects.noInstructions'))
+      expect(about('Acme launch').querySelector('svg')).toBeNull()
     } finally {
       await m.unmount()
     }

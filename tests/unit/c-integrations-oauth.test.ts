@@ -9,6 +9,7 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf, type Integrations } from '../../server/src/integrations/connections/service'
 import { getRow } from '../../server/src/integrations/connections/store'
 import { createLogger } from '../../server/src/log'
+import { policyGeneration } from '../../server/src/safe-ops/publication'
 
 setDefaultTimeout(30_000)
 
@@ -159,6 +160,80 @@ test('refresh: ahead of expiry and once for many calls; after a 401; a refused r
   await expect(svc.callTool(row(), 'search_tasks', {})).rejects.toThrow(/sign-in/)
   expect(row()).toMatchObject({ status: 'needs_auth', last_error: 'sign_in' })
   expect(everything()).not.toContain('CANARY-')
+})
+
+test('a refresh that ends after the connection changed keeps the new tokens (the service rotates refresh tokens): it still works, not "sign in again"', async () => {
+  // QA TC-198: an admin switches a tool off while a member's call refreshes the team connection's token
+  const team = await create({ scope: 'team' })
+  const f = await olga.call('POST', `/api/integrations/${team.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(f.authorizationUrl)))).status).toBe(200)
+  const row = () => getRow(h.ctx.db, team.id)!
+  const refreshOf = () => (svc.box.open(`team:team:${team.id}`, row().secret_enc!, row().key_version) as any).tokens.refreshToken as string
+  const before = refreshOf()
+  fake.now += 3_600_000 + 1
+  let release!: () => void
+  fake.delayRefresh = () => new Promise<void>((r) => { release = r })
+  const call = svc.callTool(row(), 'search_tasks', { q: 1 })
+  await new Promise((r) => setTimeout(r, 100))
+  fake.delayRefresh = null
+  await olga.call('POST', `/api/integrations/${team.id}/tools`, { name: 'create_task', enabled: false })
+  release()
+  // the call that started before the change is asked again, as before
+  await expect(call).rejects.toThrow(/changed/)
+  expect(fake.refreshCount).toBe(1)
+  expect(fake.refresh.has(before)).toBe(false) // rotated: the old refresh token no longer works
+  expect(refreshOf()).not.toBe(before)
+  // the next call uses the kept token: no new refresh, no sign-in asked
+  await svc.callTool(row(), 'search_tasks', { q: 2 })
+  expect(fake.refreshCount).toBe(1)
+  expect(row().status).not.toBe('needs_auth')
+  // and when it runs out again, the kept refresh token works
+  fake.now += 3_600_000 + 1
+  await svc.callTool(row(), 'search_tasks', { q: 3 })
+  expect(fake.refreshCount).toBe(2)
+  expect(row().status).not.toBe('needs_auth')
+  expect(everything()).not.toContain('CANARY-')
+})
+
+test('a refresh that ends after the sign-in went (the address moved) does not store its tokens', async () => {
+  const team = await create({ scope: 'team' })
+  const f = await olga.call('POST', `/api/integrations/${team.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(f.authorizationUrl)))).status).toBe(200)
+  const row = () => getRow(h.ctx.db, team.id)!
+  fake.now += 3_600_000 + 1
+  let release!: () => void
+  fake.delayRefresh = () => new Promise<void>((r) => { release = r })
+  const call = svc.callTool(row(), 'search_tasks', { q: 1 })
+  await new Promise((r) => setTimeout(r, 100))
+  fake.delayRefresh = null
+  await olga.call('PATCH', `/api/integrations/${team.id}`, { url: `${fake.base}/mcp-oauth?tenant=7` })
+  release()
+  await expect(call).rejects.toThrow(/changed/)
+  expect(fake.refreshCount).toBe(1)
+  expect(row().secret_enc).toBeNull()
+  expect(row().status).toBe('needs_auth')
+})
+
+test('a token refresh and a call that fails are not a policy change; signing out is (audit 11-11 row 18)', async () => {
+  const { id } = await connect()
+  const row = () => getRow(h.ctx.db, id)!
+  const g = policyGeneration(h.ctx.db)
+  const before = row().secret_enc
+  // the access token runs out: one refresh rewrites the sealed tokens, nothing else
+  fake.now += 3_600_000 + 1
+  await svc.callTool(row(), 'search_tasks', { q: 1 })
+  expect(fake.refreshCount).toBe(1)
+  expect(row().secret_enc).not.toBe(before)
+  expect(policyGeneration(h.ctx.db)).toBe(g)
+  // the service refuses the next refresh: the connection asks to sign in again (its status), still no policy change
+  fake.access.clear(); fake.refresh.clear()
+  await expect(svc.callTool(row(), 'search_tasks', {})).rejects.toThrow(/sign-in/)
+  expect(row().status).toBe('needs_auth')
+  expect(policyGeneration(h.ctx.db)).toBe(g)
+  // signing out (the sealed tokens go, the version moves on) is still a policy change
+  await olga.call('PATCH', `/api/integrations/${id}`, { clearSecret: true })
+  expect(row().secret_enc).toBeNull()
+  expect(policyGeneration(h.ctx.db)).toBeGreaterThan(g)
 })
 
 test('deleting: the local tokens go first, then the service is asked to revoke them', async () => {
