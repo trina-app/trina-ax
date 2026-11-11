@@ -30,7 +30,7 @@ test('the owner\'s Home without AI: one card; "Claude 구독 연결" opens the s
   await expect(page.getByTestId('composer-input')).toBeVisible()
   // the three ways at once (no "다른 방법" fold), equal rows that fit the phone, Claude first and recommended
   await expect(card.getByTestId('welcome-ai-ways').getByRole('button')).toHaveText(['Claude 구독 연결추천', 'ChatGPT 구독 연결', 'API 키로 연결'])
-  await expect(card.getByTestId('welcome-ai-engines')).toHaveText('OpenRouter 같은 다른 AI는 AI 엔진 화면에서')
+  await expect(card.getByTestId('welcome-ai-engines')).toHaveText('OpenRouter 같은 다른 AI 서비스는 관리자 › AI 계정에서')
   await expect(card.getByTestId('welcome-ai-other')).toHaveCount(0)
   const rows = await card.getByTestId('welcome-ai-ways').getByRole('button').evaluateAll((bs) => bs.map((b) => ({ width: b.getBoundingClientRect().width, fits: b.scrollWidth <= b.clientWidth })))
   expect(new Set(rows.map((r) => r.width)).size).toBe(1)

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 00:51
 - Branch: `fix/plain-words-member-screens`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (web i18n, `pages/Integrations.tsx`, `components/integrations/ConnectorsView.tsx`,
   `components/SearchDialog.tsx`, `components/chat/Messages.tsx`, one server notice string, docs). Why: the words are
   core UI in all five languages (see docs/REPOSITORY-RULES.md)
@@ -37,17 +37,18 @@ In:
   "Ask an admin to add it." instead. Owners and admins keep both.
 - i18n-only items of the rest of the top 15: AI-apps page words (connection address, the footer), the Files
   "pass-through" chip and its tooltip, "conflict copy", the skill-suggestion and skills-folder lines without raw paths,
-  the project members dialog's "rules" words, the member usage page's token/API words, the owner onboarding's
-  "AI engines page".
+  the project members dialog's "rules" words, the member usage page's token/API words (and its token tile), the owner
+  onboarding's "AI engines page".
 - "Engine" in member-facing strings: composer picker, Settings › Profile "AI for new chats", the engine-switch line,
+  the web's name for the Codex AI ("ChatGPT"),
   the dev-mode banner, the owner's AI-settings notice, search words.
 - DESIGN-SYSTEM copy rule, DECISIONS entry, `changes/plain-words-member-screens.md`, the docs site's menu names.
 
 Out:
 - Chat errors, confirmation cards, step labels (server-sent; the other plain-words PR).
-- Structural changes the audit also proposes: folding Claude Code under "For developers", dropping the members' token
-  tile, plain model names in usage rows, collapsing the onboarding skills block, the draft prompt that names
-  `users/<id>`, raw error codes (item 15). Hardcoded engine labels (`ENGINE_LABEL`) stay.
+- Structural changes the audit also proposes: folding Claude Code under "For developers", plain model names in usage
+  rows, collapsing the onboarding skills block, the draft prompt that names
+  `users/<id>`, raw error codes (item 15).
 - A member → admin request in the app: no such flow exists (the existing one goes admin → member). Open question.
 
 ## Steps
@@ -73,4 +74,11 @@ full web e2e.
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR #347. Settings and Admin say AI accounts · Connected apps · Use from other AI apps (one name in
+both, no "My": the container says whose, as #289 decided). Members get "Not listed? Ask an admin to add it." instead of
+the address form (also under "Nothing matches"); there is no member → admin request in the app, so the line says to
+ask. The answer's model id is an info button for people who choose the AI. Beyond the plan, after the review: the web
+names the Codex AI "ChatGPT" everywhere (`ENGINE_LABEL`), a known service's row says what it does instead of "MCP
+server", "AI provider" is "AI company", the member usage page has no token tile, and the pointers the first pass missed
+(the connect tool, the Slack link message, the owners' AI-account notices) name the new pages. The schedule texts keep
+"your own key", like the template notices. Left for later as planned: the structural items and the server-sent text.

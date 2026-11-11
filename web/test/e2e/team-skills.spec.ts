@@ -417,7 +417,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await lastAnswer(page).hover()
   await lastAnswer(page).getByTestId('suggest-skill').click()
   const dialog = page.getByTestId('suggest-dialog')
-  await expect(dialog).toContainText('skills/에 바로 들어가지 않아요')
+  await expect(dialog).toContainText('제안은 바로 팀 스킬이 되지 않아요')
   await expect(dialog.getByTestId('suggest-content')).toHaveValue(/the answer/)
   await dialog.getByTestId('suggest-name').fill('주간/보고')
   await expect(dialog).toContainText('슬래시(/)는 쓸 수 없어요')

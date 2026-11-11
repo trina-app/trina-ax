@@ -37,7 +37,7 @@ Assign folders to groups and check access with two test accounts. [Read about pe
 In **Providers**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
 Claude or OpenAI account. Each row shows whether that engine is ready.
 
-![Admin › Providers: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "Providers")
+![Admin › AI accounts: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "Providers")
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access.
@@ -61,7 +61,7 @@ People who operate the server, its OS or its storage can read stored files and c
 
 ## Providers
 
-**Admin › Providers**, first in the Connections group, has one row per engine (Claude Code, Codex, API): its state,
+**Admin › AI accounts**, first in the Connections group, has one row per engine (Claude Code, Codex, API): its state,
 sign-in mode, models and last check, with **↻** to check again and an on/off switch. Under Claude Code and Codex are
 the accounts the team answers with, in the order they are tried, with **Add account** for the owner.
 

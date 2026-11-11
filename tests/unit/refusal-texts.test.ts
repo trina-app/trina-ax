@@ -61,7 +61,8 @@ describe('refusal()', () => {
       for (const s of Object.values(SCREEN)) expect(s(L).length).toBeGreaterThan(5)
     }
     expect(SCREEN.adminFolders('ko')).toBe('Admin › Folder permissions ("관리자 › 폴더 권한")')
-    expect(SCREEN.settingsMcp('ja')).toBe('Settings › MCP ("設定 › MCP")')
+    expect(SCREEN.settingsMcp('ja')).toBe('Settings › Connected apps ("設定 › 連携サービス")')
+    expect(SCREEN.adminMcp('ko')).toBe('Admin › Connected apps ("관리자 › 연결한 서비스")')
     expect(SCREEN.sideChat('ko')).toMatch(/^the room's side panel \("✦ .+에게 따로 묻기"\)$/)
   })
 

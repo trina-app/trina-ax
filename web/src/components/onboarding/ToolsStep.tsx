@@ -5,10 +5,10 @@
 //    Google sign-in and, while members may not connect theirs, the team's switch too: both named in the row's line, and
 //    the switch turns on only at the confirmed account ("맞아요"), never at the press; a cancel changes nothing. A flow
 //    under way comes back after a reload (this tab's session storage keeps its id).
-//  - one quiet "다른 도구 연결하기 (MCP)" line: today's add-a-connection dialog for a team connection (kind, name,
+//  - one quiet "다른 도구 연결하기" line: today's add-a-connection dialog for a team connection (kind, name,
 //    address, sign-in, who may use it), with its own errors; a saved one is one line under it.
 // Once something is connected the primary is the next step; until then only "나중에 하기". After the setup the way back
-// is Settings › Connectors (the Drive card has the same two effects for an owner or admin).
+// is Settings › Connected apps (the Drive card has the same two effects for an owner or admin).
 import { Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { API, type DriveConnection, type Integration } from '@mycel/shared/api'
@@ -31,7 +31,7 @@ const keep = (id: string | null) => {
 }
 const kept = () => { try { return sessionStorage.getItem(FLOW_KEY) } catch { return null } }
 
-/** Where the way back is after the setup, by the menus' own names ("설정 › 커넥터") */
+/** Where the way back is after the setup, by the menus' own names ("설정 › 연결한 서비스") */
 const connectorsPlace = (t: ReturnType<typeof useT>) => `${t('settings.title')} › ${t('integrations.title')}`
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'

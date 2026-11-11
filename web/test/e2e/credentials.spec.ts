@@ -19,7 +19,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   // the old address opens Providers, at Claude Code: each provider row lists its own accounts (none yet)
   await page.goto('/admin/credentials')
   await expect(page).toHaveURL(/\/admin\/providers\?engine=claude-code$/)
-  await expect(page.getByRole('heading', { level: 2, name: '제공자', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'AI 계정', exact: true })).toBeVisible()
   await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
   await expect(page.getByTestId('provider-none-claude')).toBeVisible()
   await expect(page.getByTestId('provider-none-codex')).toBeVisible()
@@ -191,8 +191,8 @@ test('personal connections are available by default, prefer subscriptions, and p
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).toBeChecked()
   await page.goto('/settings')
   // Settings › Connections: Providers (one's own accounts, by provider), first in the group
-  await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toHaveText('제공자')
-  await page.getByTestId('settings-group-connections').getByRole('link', { name: '제공자', exact: true }).click()
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toHaveText('AI 계정')
+  await page.getByTestId('settings-group-connections').getByRole('link', { name: 'AI 계정', exact: true }).click()
   await page.getByTestId('my-credential-add-codex').click()
   await expect(page.getByTestId('kind-chatgpt')).toBeEnabled()
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
@@ -246,7 +246,7 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.reload()
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).not.toBeChecked()
   await page.goto('/settings')
-  await expect(page.getByTestId('settings-menu').getByRole('link', { name: '제공자', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('settings-menu').getByRole('link', { name: 'AI 계정', exact: true })).toHaveCount(0)
   // the old address goes to the profile, like any section not shown
   await page.goto('/settings/credentials')
   await expect(page).toHaveURL(/\/settings$/)
