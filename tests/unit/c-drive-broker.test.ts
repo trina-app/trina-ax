@@ -1,15 +1,20 @@
-// Google Drive on a hosted server through the hosting service's sign-in broker (integrations/google-drive/broker.ts,
-// shared/src/cloud-protocol/drive-broker.ts). Covers: when broker mode is chosen (hosted, no client of its own, not
-// turned off) and when the direct flow stays; Drive stays off until the broker answers; a member's own Drive and a team
-// share connect through it; every call is signed with the team key; the browser's handoff needs the same signed-in
-// person; refresh and revoke go to the broker, never to Google's token endpoint; a refused sealed token asks for a new
-// sign-in; the stored secret holds no token in plain text; a start answer that is not Google's sign-in page is refused;
-// the hosting service's own start page (connectUrl) is passed on only in its exact shape on the configured origin.
+// Google Drive through the hosting service's sign-in broker (integrations/google-drive/broker.ts,
+// shared/src/cloud-protocol/drive-broker.ts), on a hosted server or a self-installed one the hosting service registered.
+// Covers: when broker mode is chosen (the broker URL set, no client of its own; hosted or self-installed) and when the
+// direct flow stays; Drive stays off until the broker answers; a member's own Drive and a team share connect through it;
+// every call is signed with the team key; the browser's handoff needs the same signed-in person; refresh and revoke go
+// to the broker, never to Google's token endpoint; a refused sealed token asks for a new sign-in; the stored secret holds
+// no token in plain text; a start answer that is not Google's sign-in page is refused; the hosting service's own start
+// page (connectUrl) is passed on only in its exact shape on the configured origin; a self-installed server signs in
+// with its relay key, shows what a hosted team shows, never calls the broker with a client of its own; and
+// `admin.js google-broker-key` prints that key's public part and the address, never the private key.
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
-import { brokerOrigin, driveBrokerFor } from '../../server/src/integrations/google-drive/broker'
-import { driveAdminStatus } from '../../server/src/integrations/google-drive/admin-setup'
+import { brokerOrigin, driveBrokerFor, googleBrokerKey } from '../../server/src/integrations/google-drive/broker'
+import { driveAdminStatus, setDriveClient } from '../../server/src/integrations/google-drive/admin-setup'
 import { stopShare, updateShare } from '../../server/src/integrations/google-drive/share-admin'
 import { registerDriveTools } from '../../server/src/tools/drive'
 import { toolRegistry } from '../../server/src/tools/registry'
@@ -40,7 +45,7 @@ beforeEach(async () => {
 })
 afterEach(async () => { await a?.close() })
 
-test('broker mode only on a hosted server without a Google client of its own; the direct flow stays otherwise', async () => {
+test('broker mode only with the broker URL and without a Google client of its own; the direct flow stays otherwise', async () => {
   const env = { MYCEL_GOOGLE_DRIVE_BROKER_URL: 'https://account.trina.app' }
   // nothing changes without the operator's broker URL, even on a hosted server
   expect(driveBrokerFor(a.ctx, false, false, {})).toBeNull()
@@ -49,8 +54,12 @@ test('broker mode only on a hosted server without a Google client of its own; th
   expect(driveBrokerFor(a.ctx, true, false, env)).toBeNull() // client.json of its own: direct, unchanged
   expect(driveBrokerFor(a.ctx, false, true, env)).toBeNull() // MYCEL_GOOGLE_DRIVE_CLIENT_FILE: direct
   expect(driveBrokerFor(a.ctx, false, false, { MYCEL_GOOGLE_DRIVE_BROKER_URL: 'http://127.0.0.1:47900' })?.origin).toBe('http://127.0.0.1:47900')
+  // self-installed: the same rule (the hosting service decides whether it serves this server)
   ;(a.ctx.config as any).deployment = 'self'
-  expect(driveBrokerFor(a.ctx, false, false, env)).toBeNull() // self-installed: its own client as today
+  expect(driveBrokerFor(a.ctx, false, false, env)?.origin).toBe('https://account.trina.app')
+  expect(driveBrokerFor(a.ctx, true, false, env)).toBeNull()
+  expect(driveBrokerFor(a.ctx, false, true, env)).toBeNull()
+  expect(driveBrokerFor(a.ctx, false, false, {})).toBeNull()
   // only https, or http to this machine; never a path, query or credentials
   for (const bad of ['http://evil.test', 'https://u:p@cp.test', 'https://cp.test/x', 'https://cp.test/?a=1', 'ftp://cp.test', 'not a url'])
     expect(brokerOrigin({ MYCEL_GOOGLE_DRIVE_BROKER_URL: bad })).toBeNull()
@@ -179,3 +188,94 @@ test('a start page that is not exactly the hosting service\'s is dropped; Google
   broker.connect = 'none'
   expect((await svc.begin('alice', 'alice-session')).connectUrl).toBeUndefined()
 })
+
+// ---------------- a self-installed server the hosting service registered ----------------
+
+/** a Drive service built the way the server builds it: the broker decided from the environment, the relay key on disk */
+function withEnv<T>(vars: Record<string, string | undefined>, f: () => T): T {
+  const before = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]))
+  for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+  try { return f() } finally { for (const [k, v] of Object.entries(before)) { if (v === undefined) delete process.env[k]; else process.env[k] = v } }
+}
+const selfInstalled = () => {
+  ;(a.ctx.config as any).deployment = 'self'
+  ;(a.ctx.config as any).tunnel = { host: 'office.example.test', allowFrom: [], countries: [] }
+}
+
+test('a registered self-installed server signs in through the broker with its relay key and looks like a hosted team', async () => {
+  selfInstalled()
+  const relay = googleBrokerKey(a.ctx.config.dataDir, a.ctx.config.tunnel?.host)
+  expect(relay.address).toBe('https://office.example.test')
+  broker.trusted = 'not-registered-yet'
+  svc = withEnv({ MYCEL_GOOGLE_DRIVE_BROKER_URL: BROKER_ORIGIN, MYCEL_GOOGLE_DRIVE_CLIENT_FILE: undefined }, () => googleDriveOf(a.ctx, { config: null, fetch: broker.fetch }))
+  expect(svc.broker?.o.origin).toBe(BROKER_ORIGIN)
+  // not registered (or removed) at the hosting service: "Not available yet", and the Set up dialog is the hosting
+  // service's, as on a hosted team, though this server has a public address
+  expect(await svc.checkBroker()).toBe(false)
+  expect(svc.enabled).toBe(false)
+  expect(driveAdminStatus(a.ctx)).toMatchObject({ configured: false, source: 'none', canSetUp: false, blocked: 'hosted', redirectUri: null })
+  expect(() => setDriveClient(a.ctx, 'carol', { clientId: 'x.apps.googleusercontent.com', clientSecret: 'y' })).toThrow('setup_hosted')
+  // the operator registered the key admin.js google-broker-key prints: Drive works as on a hosted team
+  broker.trusted = relay.publicKey
+  expect(await svc.checkBroker()).toBe(true)
+  expect(driveAdminStatus(a.ctx)).toMatchObject({ configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null })
+  membersMayConnect(a.ctx.db)
+  expect(await connect('alice')).toMatchObject({ status: 'connected', account: { email: 'alice@example.test' } })
+  expect((await svc.api('alice', 'about', {}, 4096)).bytes.byteLength).toBeGreaterThan(0)
+  expect(google.calls.some((c) => c.url === GOOGLE_TOKEN)).toBe(false)
+})
+
+test('a self-installed server with a Google client of its own never calls the broker; without the variable nothing changes', async () => {
+  selfInstalled()
+  const env = { MYCEL_GOOGLE_DRIVE_BROKER_URL: BROKER_ORIGIN }
+  await Bun.sleep(0); broker.requests = [] // the hosted service built in beforeEach asked once
+  // its own client.json (here: the config read from it)
+  svc = withEnv({ ...env, MYCEL_GOOGLE_DRIVE_CLIENT_FILE: undefined }, () => googleDriveOf(a.ctx, { config: DRIVE_CONFIG, fetch: broker.fetch }))
+  expect(svc.broker).toBeNull(); expect(svc.mode).toBe('direct')
+  expect(await svc.checkBroker()).toBe(false)
+  expect(driveAdminStatus(a.ctx).blocked).not.toBe('hosted')
+  // the operator's client file (MYCEL_GOOGLE_DRIVE_CLIENT_FILE)
+  const file = path.join(a.ctx.config.dataDir, 'operator-client.json')
+  fs.writeFileSync(file, JSON.stringify(DRIVE_CONFIG), { mode: 0o600 })
+  svc = withEnv({ ...env, MYCEL_GOOGLE_DRIVE_CLIENT_FILE: file }, () => googleDriveOf(a.ctx, { fetch: broker.fetch }))
+  expect(svc.broker).toBeNull()
+  expect(await svc.checkBroker()).toBe(false)
+  expect(driveAdminStatus(a.ctx)).toMatchObject({ blocked: 'server' })
+  // no broker URL: no broker, and the page sets up a client as before
+  svc = withEnv({ MYCEL_GOOGLE_DRIVE_BROKER_URL: undefined, MYCEL_GOOGLE_DRIVE_CLIENT_FILE: undefined }, () => googleDriveOf(a.ctx, { config: null, fetch: broker.fetch }))
+  expect(svc.broker).toBeNull(); expect(svc.mode).toBe('off')
+  expect(driveAdminStatus(a.ctx)).toMatchObject({ configured: false, canSetUp: true, blocked: null, redirectUri: 'https://office.example.test/api/integrations/google-drive/callback' })
+  expect(broker.requests).toHaveLength(0)
+})
+
+test('admin.js google-broker-key prints the relay public key and the address, plain or JSON, never the private key', () => {
+  const base = path.join(a.ctx.config.dataDir, 'cli')
+  const dataDir = path.join(base, 'data'), teamRoot = path.join(base, 'team')
+  fs.mkdirSync(teamRoot, { recursive: true }); fs.mkdirSync(dataDir, { recursive: true })
+  const run = (cfg: Record<string, unknown>, ...args: string[]) => {
+    const cfgFile = path.join(base, 'server.json')
+    fs.writeFileSync(cfgFile, JSON.stringify({ mode: 'dev', dataDir, teamRoot, ...cfg }))
+    const p = Bun.spawnSync([process.execPath, path.resolve(import.meta.dir, '../../server/src/system/cli.ts'), 'google-broker-key', ...args], { env: { ...process.env, MYCEL_CONFIG: cfgFile, MYCEL_MODE: 'dev' } })
+    return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() }
+  }
+  const j = run({ tunnel: { host: 'office.example.test' } }, '--json')
+  expect(j.code).toBe(0)
+  const answer = JSON.parse(j.out)
+  expect(Object.keys(answer).sort()).toEqual(['address', 'publicKey'])
+  // the key every broker call is signed with (made on first use, the same afterwards)
+  expect(answer).toEqual({ publicKey: googleBrokerKey(dataDir, null).publicKey, address: 'https://office.example.test' })
+  const plain = run({ tunnel: { host: 'office.example.test' } })
+  expect(plain.code).toBe(0)
+  expect(plain.out).toContain(`public key: ${answer.publicKey}`)
+  expect(plain.out).toContain('address:    https://office.example.test')
+  const none = run({})
+  expect(none.out).toContain('not set')
+  expect(JSON.parse(run({}, '--json').out)).toEqual({ publicKey: answer.publicKey, address: null })
+  // never the private key, in any form
+  const pem = fs.readFileSync(path.join(dataDir, 'relay', 'team-key.pem'), 'utf8')
+  const body = pem.split('\n').filter((l) => l && !l.startsWith('-----')).join('')
+  for (const r of [j, plain, none]) {
+    expect(r.out + r.err).not.toContain('PRIVATE')
+    expect(r.out + r.err).not.toContain(body)
+  }
+}, 60_000)

@@ -3,7 +3,8 @@
 // never shown) and "the same Google app as Drive", the sign-in (PKCE, the app's fixed scopes, the same person in the
 // browser, the account confirmed), the connection hidden from the generic list with only its own app's tools, the team
 // switch (on by default), Always allow from the page, disconnect and when Google is asked to revoke, the hosting
-// service's sign-in with the `app` field (and an older one that refuses it), Google Drive's members switch on for new
+// service's sign-in with the `app` field (and an older one that refuses it), on a hosted server and on a self-installed
+// one the hosting service registered (a card's own client still wins there), Google Drive's members switch on for new
 // teams only (migration 341), and canaries: no token or client secret in an answer, the database outside sealed
 // columns, the audit log or the server's log. Fake Google and a fake library on 127.0.0.1 only.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
@@ -13,7 +14,8 @@ import { makeCApp, PEOPLE, type CApp, type Person } from '../lib/c-app'
 import { WORK } from '../lib/env'
 import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow, ALL_SCOPES } from '../lib/fake-google-apps'
 import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
-import { FakeDriveBroker } from '../lib/fake-drive-broker'
+import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
+import { googleBrokerKey } from '../../server/src/integrations/google-drive/broker'
 import { googleAppsOf, scopesCover, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { appsSecretsDir } from '../../server/src/integrations/google-apps/config'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
@@ -273,6 +275,44 @@ test('hosted: signs in through the hosting service with the app; an older one th
   await expect(apps.authorize('bob', 'bob-session', 'calendar')).rejects.toMatchObject({ reason: 'service_limited' })
   expect(apps.view('bob', 'calendar')).toMatchObject({ available: false, reason: 'service_limited' })
   expect(apps.view('bob', 'gmail')).toMatchObject({ available: true })
+})
+
+test('self-installed with the broker URL and no client of its own: the hosting service\'s sign-in, shown as on a hosted team', async () => {
+  ;(A.ctx.config as any).deployment = 'self'
+  const gd = new FakeGoogleDrive(), broker = new FakeDriveBroker(gd)
+  broker.onAccess = (token, who) => lib.tokens.set(token, who)
+  broker.trusted = googleBrokerKey(A.ctx.config.dataDir, null).publicKey // the hosting service registered this server
+  const fetcher = async (raw: string, init: RequestInit = {}) => {
+    if (raw === GOOGLE_USERINFO) {
+      const who = lib.tokens.get(new Headers(init.headers).get('authorization')?.replace('Bearer ', '') ?? '')
+      return who ? Response.json({ sub: `sub-${who}`, name: who, email: `${who}@acme.example` }) : Response.json({}, { status: 401 })
+    }
+    return broker.fetch(raw, init)
+  }
+  const saved = process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL
+  process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL = BROKER_ORIGIN
+  let drive: ReturnType<typeof googleDriveOf>
+  try { drive = googleDriveOf(A.ctx, { config: null, fetch: fetcher }) } finally { if (saved === undefined) delete process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL; else process.env.MYCEL_GOOGLE_DRIVE_BROKER_URL = saved }
+  apps = googleAppsOf(A.ctx, { fetch: fetcher })
+  // before the hosting service answers: the same as a hosted team ("set up by the hosting service", no address shown)
+  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: false, source: 'none', canSetUp: false, blocked: 'hosted', redirectUri: null })
+  expect(await drive.checkBroker()).toBe(true)
+  expect((await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps[0]).toMatchObject({ configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null })
+  expect((await put('carol', '/api/admin/google-apps/gmail/client', { clientId: 'x', clientSecret: 'y' })).body.error.params.reason).toBe('setup_hosted')
+  const f = await apps.authorize('alice', 'alice-session', 'gmail')
+  expect(JSON.parse(broker.requests.find((r) => r.path === DRIVE_BROKER_PATHS.start)!.body)).toMatchObject({ purpose: 'personal', app: 'gmail' })
+  expect(await apps.callback(broker.browserReturn(f.authorizationUrl, 'alice'), browser('alice'))).toBe(true)
+  expect(await apps.complete('alice', 'alice-session', 'gmail', f.flowId)).toMatchObject({ status: 'connected' })
+  // a card with a client of its own (written before the broker URL was set) signs in directly; its page stays open
+  const dir = appsSecretsDir(A.ctx)
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(dir), 0o700); fs.chmodSync(path.dirname(path.dirname(dir)), 0o700)
+  fs.writeFileSync(path.join(dir, 'calendar.json'), JSON.stringify({ ...APP_CLIENT, redirectUri: REDIRECT }), { mode: 0o600 })
+  const cal = (await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps.find((x: { id: string }) => x.id === 'calendar')
+  expect(cal).toMatchObject({ configured: true, source: 'server', blocked: 'server' })
+  const before = broker.requests.length
+  const fc = await apps.authorize('bob', 'bob-session', 'calendar')
+  expect(new URL(fc.authorizationUrl).searchParams.get('client_id')).toBe(APP_CLIENT.clientId)
+  expect(broker.requests.length).toBe(before)
 })
 
 test('Google Drive\'s members switch: on for a new team; a team that existed keeps what it had (migration 341)', () => {
