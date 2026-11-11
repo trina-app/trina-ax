@@ -86,10 +86,8 @@ export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', href: strin
  * - iPhone: the App Store listing.
  * - Android: the Google Play listing once there is one, else the download page (the APK on the update feed, linked
  *   from that page; never the .apk itself).
- *   TODO(play): when the app is live on Google Play, set "android" in editions/trina/branding/apps.json to
- *   https://play.google.com/store/apps/details?id=app.trina.ax and run
- *   `bun scripts/edition-apps.ts editions/trina/branding/apps.json --apply`; this button and the intent's fallback
- *   follow.
+ *   TODO(play): the Play listing is one value, APP_DOWNLOADS.android (see its TODO in shared/src/app-downloads.ts);
+ *   this button and the intent's fallback follow it.
  */
 export function getAppHref(platform: 'ios' | 'android' | 'mac' | 'windows' | 'other', client: 'web' | 'desktop' | 'mobile', links: { page: string; iphone: string; android: string }): string | null {
   if (client !== 'web') return null
