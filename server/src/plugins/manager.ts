@@ -13,6 +13,8 @@
 //             SHA-256 the list names), then goes through the same inspect -> permission prompt -> install
 //   revoked   a build the official list of this release withdrew is turned off at start (audit plugin.revoke) and is
 //             never usable, installable, enabled or rolled back to
+//   untrusted a package the trust settings in effect no longer vouch for (a test setting removed, a key dropped from the
+//             trust list) is turned off at start (audit plugin.untrust) and is never usable, enabled or rolled back to
 //   HWP       the plugin's renderer drives previews and hwp_render while usable(); writing and filling Hangul documents
 //             (core code) follow only "installed and on" (hwpWriting)
 //
@@ -204,25 +206,29 @@ export class PluginManager {
    * its skills taken out of the team folder, one audit line each. It also stays unusable without this (unsupported). */
   private turnOffUnusable() {
     for (const x of this.allInstalled()) {
-      const id = x.pkg.plugin_id
-      const revoked = this.isRevoked(id, x.pkg.manifest_sha256)
-      if (!revoked && this.trusted(x.pkg, x.manifest)) continue
-      const on = !!this.ctx.db.query('SELECT 1 FROM plugin_access WHERE plugin_id = ?').get(id)
-      const placed = !!this.ctx.db.query('SELECT 1 FROM plugin_managed_files WHERE plugin_id = ?').get(id)
-      if (!on && !placed) continue
-      this.ctx.db.transaction(() => {
-        this.ctx.db.query('DELETE FROM plugin_access WHERE plugin_id = ?').run(id)
-        this.ctx.db.query('UPDATE plugin_installs SET updated_at = ? WHERE plugin_id = ?').run(now(), id)
-      })()
-      this.changed()
-      this.removeSkills(id, null)
-      if (revoked) {
-        audit(this.ctx.db, { actor: null, action: 'plugin.revoke', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, reason: 'withdrawn in the official list of this release' } })
-        this.ctx.log.warn('a withdrawn plugin build was turned off', { plugin: id, version: x.manifest.version })
-      } else {
-        audit(this.ctx.db, { actor: null, action: 'plugin.untrust', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, trust: x.pkg.trust, keyId: x.pkg.key_id, reason: 'not trusted by the trust settings of this server' } })
-        this.ctx.log.warn('a plugin this server no longer trusts was turned off', { plugin: id, version: x.manifest.version, trust: x.pkg.trust })
-      }
+      // one plugin that cannot be cleaned up never keeps the others' skills in place
+      try { this.turnOffOne(x) } catch (e) { this.ctx.log.error('could not turn off a revoked or untrusted plugin build', { plugin: x.pkg.plugin_id, err: e }) }
+    }
+  }
+  private turnOffOne(x: Installed) {
+    const id = x.pkg.plugin_id
+    const revoked = this.isRevoked(id, x.pkg.manifest_sha256)
+    if (!revoked && this.trusted(x.pkg, x.manifest)) return
+    const on = !!this.ctx.db.query('SELECT 1 FROM plugin_access WHERE plugin_id = ?').get(id)
+    const placed = !!this.ctx.db.query('SELECT 1 FROM plugin_managed_files WHERE plugin_id = ?').get(id)
+    if (!on && !placed) return
+    this.ctx.db.transaction(() => {
+      this.ctx.db.query('DELETE FROM plugin_access WHERE plugin_id = ?').run(id)
+      this.ctx.db.query('UPDATE plugin_installs SET updated_at = ? WHERE plugin_id = ?').run(now(), id)
+    })()
+    this.changed()
+    this.removeSkills(id, null)
+    if (revoked) {
+      audit(this.ctx.db, { actor: null, action: 'plugin.revoke', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, reason: 'withdrawn in the official list of this release' } })
+      this.ctx.log.warn('a withdrawn plugin build was turned off', { plugin: id, version: x.manifest.version })
+    } else {
+      audit(this.ctx.db, { actor: null, action: 'plugin.untrust', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, trust: x.pkg.trust, keyId: x.pkg.key_id, reason: 'not trusted by the trust settings of this server' } })
+      this.ctx.log.warn('a plugin this server no longer trusts was turned off', { plugin: id, version: x.manifest.version, trust: x.pkg.trust })
     }
   }
 
@@ -344,12 +350,12 @@ export class PluginManager {
     try { return fs.lstatSync(path.join(this.ctx.files.fx.root, ...rel.split('/'))) } catch { return null }
   }
   /** Each existing part of a file path below the team folder is a real folder, and the file (if there) a regular one. */
-  private linkFree(rel: string): boolean {
+  private linkFree(rel: string, singleLink = true): boolean {
     const segs = rel.split('/')
     for (let i = 1; i <= segs.length; i++) {
       const st = this.lstatIn(segs.slice(0, i).join('/'))
       if (!st) return true
-      if (st.isSymbolicLink() || (i < segs.length ? !st.isDirectory() : !st.isFile() || st.nlink > 1)) return false
+      if (st.isSymbolicLink() || (i < segs.length ? !st.isDirectory() : !st.isFile() || (singleLink && st.nlink > 1))) return false
     }
     return true
   }
@@ -369,7 +375,7 @@ export class PluginManager {
       if (!st || st.isSymbolicLink() || !st.isDirectory()) conflict()
     }
     let fd: number
-    try { fd = fs.openSync(path.join(root, ...segs), fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0), 0o600) } catch (e) {
+    try { fd = fs.openSync(path.join(root, ...segs), fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0), 0o600) } catch (e) {
       if (['ELOOP', 'EISDIR', 'EMLINK', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) conflict()
       throw e
     }
@@ -394,7 +400,7 @@ export class PluginManager {
       const abs = path.join(root, ...r.rel.split('/'))
       try {
         // never through a link planted above the file (it could point outside the team folder)
-        if (!this.linkFree(r.rel)) continue
+        if (!this.linkFree(r.rel, false)) continue
         const st = fs.lstatSync(abs)
         if (!st.isFile() || st.isSymbolicLink()) continue
         if (sha256(fs.readFileSync(abs)) !== r.sha256) { this.ctx.log.warn('a plugin skill file was changed outside the app; it stays in place', { plugin: id, path: r.rel }); continue }

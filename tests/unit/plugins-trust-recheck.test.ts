@@ -175,6 +175,18 @@ describe('placing skills never follows a link', () => {
     }
   })
 
+  test('turning it off still removes a placed file someone hard-linked elsewhere (only that name goes)', async () => {
+    await reset()
+    pluginsOf(app.ctx).reconfigure({ trust: prodTrust(key.pub) })
+    await installOn(skillPack({ keyPem: key.pem }).bytes)
+    const copy = path.join(outside, 'copy.md')
+    fs.linkSync(managed(skillFile), copy)
+    await post(`/api/admin/plugins/${ID}/disable`)
+    expect(fs.existsSync(managed(skillFile))).toBe(false)
+    expect(fs.readFileSync(copy, 'utf8')).toContain('meeting-minutes')
+    fs.rmSync(copy)
+  })
+
   test('a link planted at skills/ itself is refused', async () => {
     await reset()
     pluginsOf(app.ctx).reconfigure({ trust: prodTrust(key.pub) })

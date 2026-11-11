@@ -36,7 +36,7 @@ export function updatedAcross(history: AfterUpdateFacts['history'], since: strin
 }
 
 /** why an installed plugin can never run on this server (turning it on would not help) */
-const CANNOT_HERE = ['os', 'arch', 'libc', 'product', 'api', 'revoked']
+const CANNOT_HERE = ['os', 'arch', 'libc', 'product', 'api', 'revoked', 'untrusted']
 
 /** HWP plugin gate (0.4.0-beta.2): the AI makes .hwpx and fills .hwp/.hwpx forms only while "HWP Preview" is installed
  * and on. Applies while it is not, and only where the plugin can be had here (installed and not unsupported for good, or
