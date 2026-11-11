@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:56
 - Branch: `fix/theme-save-error`
-- Status: in progress
+- Status: done
 - Where: `web/src/store/session.ts`, `web/src/pages/Settings.tsx`. Why: settings are core (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: a failed save says so instead of failing silently
@@ -43,4 +43,6 @@ server check offline (Playwright `setOffline`).
 
 ## Result
 
-(filled in at the end)
+Built as planned. `setTheme` keeps `themePick` (the latest pick still saving, and the theme in use before the picks not
+saved yet); a failed save of the latest pick puts back the account's theme, else that one, and rethrows. Settings shows
+the error with the network text, as the language buttons beside it do. No new strings.

@@ -65,6 +65,8 @@ let pendingPick: Locale | null = null
 let pickedBeforeSignIn = false
 /** team default as last seen, for the sign-in screen after a sign-out */
 let lastTeamDefault: Locale | null = null
+/** the latest theme pick still being saved (setTheme), and the theme in use before the picks not saved yet */
+let themePick: { back: Theme } | null = null
 
 /** The next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads: on sign-out
  * and when another person signs in over this one (App.tsx useSessionLifecycle). */
@@ -201,9 +203,27 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async setTheme(theme) {
+    // shown at once. A save that fails (offline) puts back the theme in use before, else the screen would stay in a
+    // theme the account does not have and go back to the old one at the next reload or in another tab, with no word;
+    // the caller says why (QA TC-239). Only the latest pick decides: an earlier pick's answer never undoes a later one
+    const pick = { back: themePick?.back ?? storedTheme() }
+    themePick = pick
     storeTheme(theme)
     applyTheme(theme)
-    await get().updatePrefs({ theme })
+    try {
+      await get().updatePrefs({ theme })
+      if (themePick === pick) themePick = null
+    } catch (e) {
+      if (themePick === pick) {
+        themePick = null
+        // what the account has (an earlier pick may have been saved meanwhile), else what this device used
+        const st = get().status
+        const back = (st.kind === 'signed-in' ? st.me.user.prefs.theme : undefined) ?? pick.back
+        storeTheme(back)
+        applyTheme(back)
+      }
+      throw e
+    }
   },
 
   async setAway(away) {
