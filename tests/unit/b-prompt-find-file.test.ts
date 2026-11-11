@@ -24,7 +24,7 @@ describe('asked for an existing file', () => {
     expect(r).toContain('Asked for a file, even by name only, find the existing one first:')
     // names and contents in other words, both languages and the usual version words, folders too (cr06's file has an
     // English name and text in a folder named 외주); then open what looks right
-    expect(r).toContain('glob file and folder names, grep contents, with other words, both languages and variants (최종, v2, old, copy)')
+    expect(r).toContain('glob file and folder names, grep contents, with other words, both languages and variants (final, v2, old, copy)')
     expect(r).toContain('open likely ones, images and PDFs too')
     // never a new file instead of the one asked for, found or not (ms04 made a Japanese deck because there was none);
     // scoped to that ("instead"): the rule is in every turn, and a request whose result is a new file ("회의록 정리해줘",
