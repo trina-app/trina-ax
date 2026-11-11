@@ -237,6 +237,20 @@ export class TeamFiles {
     return { abs: r.abs, name: r.segs[r.segs.length - 1]! }
   }
 
+  /** The sha256 of the file at `abs` as it is now: hashed again when it was replaced or written while it was read.
+   * A caller snapshots it right after, with no await between, so a version's bytes are the ones its hash names (11-11
+   * code audit, row 33: two replace uploads at once kept the first one's bytes under the hash of the file before it,
+   * and restoring that version did nothing). A file that never holds still (someone outside keeps writing): conflict. */
+  private async shaNow(abs: string): Promise<string> {
+    for (let i = 0; i < 5; i++) {
+      const st = checkRegular(abs)
+      const h = await this.sha(abs, st)
+      const now = checkRegular(abs)
+      if (now.ino === st.ino && now.dev === st.dev && now.size === st.size && now.mtimeMs === st.mtimeMs) return h
+    }
+    throw new HttpError('conflict')
+  }
+
   private async sha(abs: string, st: fs.Stats): Promise<string> {
     const k = `${abs}\0${st.ino}\0${st.size}\0${st.mtimeMs}`
     const hit = this.shaCache.get(k)
@@ -894,7 +908,7 @@ export class TeamFiles {
       if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
       if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name, false, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))].join('/'), 'write', { mustExist: false })
       else {
-        const cur = await this.sha(r.abs, checkRegular(r.abs))
+        const cur = await this.shaNow(r.abs)
         if (o.baseSha256 && o.baseSha256 !== cur) {
           // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
           let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
@@ -1693,8 +1707,7 @@ export class TeamFiles {
     let cur: string | null = null
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-      const st = checkRegular(r.abs)
-      cur = await this.sha(r.abs, st)
+      cur = await this.shaNow(r.abs)
       if (cur === v.sha256) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
     }
     if (currentPlan()) assertStorageRoom(size)
@@ -1978,8 +1991,7 @@ export class TeamFiles {
     let action: FileChange['action'] = 'create'
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
-      const st = checkRegular(r.abs)
-      snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', await this.sha(r.abs, st))
+      snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', await this.shaNow(r.abs))
       action = 'update'
     }
     const size = fs.statSync(src).size

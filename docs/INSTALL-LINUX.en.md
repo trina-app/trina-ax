@@ -109,7 +109,7 @@ The installer takes its system packages from one list in the kit (`app/<version>
 
 ## First run
 
-On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <server>`. Read the setup code locally on the server from `/var/lib/mycel/setup/code` with administrative access; keep it private. Open the loopback setup page and enter the code. Create the owner, team name and language; verify the team timezone.
+On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <server>`. Read the setup code locally on the server from `/var/lib/mycel/setup/code` with administrative access; keep it private. Open the loopback setup page and enter the code. Create the owner, team name and language; verify the team timezone. Once the owner exists the code is spent: the server deletes `data/setup-token`, and the next repair or update (or an uninstall that keeps the data) deletes `setup/code`.
 
 Then follow **permissions → AI connection → invite the team → first skill → first backup**:
 
