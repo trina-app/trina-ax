@@ -68,7 +68,13 @@ func newTestBase(t *testing.T, from string) *testBase {
 	tb.port = ln.Addr().(*net.TCPAddr).Port
 	tb.health.Store(from)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"ok":true,"version":%q}`, tb.health.Load().(string))
+		v := tb.health.Load().(string)
+		if m, ok := strings.CutPrefix(v, "migrating:"); ok {
+			w.WriteHeader(503)
+			fmt.Fprintf(w, `{"ok":false,"status":"migrating","version":%q}`, m)
+			return
+		}
+		fmt.Fprintf(w, `{"ok":true,"version":%q}`, v)
 	})}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
@@ -414,6 +420,43 @@ func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
 	json.Unmarshal([]byte(out), &r)
 	if code != 0 || r.Result != "ok" {
 		t.Fatalf("%d %+v", code, r)
+	}
+}
+
+// QA TC-278: the new version updates a large database for longer than the health wait and says so on /api/health:
+// `update` keeps waiting (up to migrateWait) and reports ok; "migrating" past migrateWait is still an error.
+func TestUpdateWaitsWhileMigrating(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	systemdRunDir = filepath.Join(t.TempDir(), "none")
+	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
+	oldWait := migrateWait
+	t.Cleanup(func() { migrateWait = oldWait })
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	k := base64.StdEncoding.EncodeToString(pub)
+	healAfter := 5 * time.Second // longer than the 3 s health wait updateHooks sets
+	updateHooks(t, tb, func(v string) {
+		tb.health.Store("migrating:" + v)
+		go func() { time.Sleep(healAfter); tb.health.Store(v) }()
+	})
+	arch := filepath.Join(t.TempDir(), "g.tar.zst")
+	mkArchive(t, signedBundle(t, "0.2.0", priv, "old launcher"), arch, nil)
+	code, out, errs := tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
+	var r UpdateResult
+	json.Unmarshal([]byte(out), &r)
+	if code != 0 || r.Result != "ok" {
+		t.Fatalf("%d %+v %s", code, r, errs)
+	}
+	// bounded: migrating forever gives up at migrateWait
+	tb.health.Store("0.1.0")
+	migrateWait, healAfter = 4*time.Second, time.Hour
+	os.Remove(filepath.Join(tb.base, "app/current"))
+	os.Symlink("versions/0.1.0", filepath.Join(tb.base, "app/current"))
+	arch2 := filepath.Join(t.TempDir(), "h.tar.zst")
+	mkArchive(t, signedBundle(t, "0.3.0", priv, "old launcher"), arch2, nil)
+	began := time.Now()
+	code, out, _ = tb.ctl("", "update", "--bundle", arch2, "--pubkey", k, "--json")
+	if took := time.Since(began); code == 0 || took < 4*time.Second || took > 30*time.Second {
+		t.Fatalf("migrating forever: %d after %v %s", code, took, out)
 	}
 }
 

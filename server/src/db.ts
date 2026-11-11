@@ -13,7 +13,10 @@
 // - A migration that an older build cannot live with declares `-- min_compatible_reader: N` in its first lines.
 //   Every build knows its SCHEMA_READER_LEVEL; at start it refuses a DB whose applied migrations need a newer
 //   reader (the owner must restore the pre-update backup instead). Default for a migration: 1.
-// - Before applying migrations to a DB that already has data, a copy is made with VACUUM INTO.
+// - Before applying migrations to a DB that already has data, a copy is made with VACUUM INTO. A new copy replaces
+//   older ones of the same schema (a failed try of the same update left them; the new one has the newer data), and
+//   half-written copies of processes that are gone (.pending-migration-<pid>-*) are removed. On a large DB the copy and
+//   the migrations take minutes: the server answers /api/health "migrating" meanwhile (system/migrate-start.ts).
 // - Pending migrations are applied together in one transaction that holds the write lock (BEGIN IMMEDIATE): a
 //   process that opens the file at the same moment waits and then finds nothing left to do; a failing migration
 //   leaves the DB exactly as it was.
@@ -112,6 +115,23 @@ export function migrate(db: Database, o: OpenDbOptions = {}) {
   })
 }
 
+/** How many migrations a start would apply to a database that already has data (the slow case: the copy first), else
+ * 0. A read-only look without the lock; any problem (no file, unreadable) is 0 and left to openDb. */
+export function pendingMigrationCount(file: string, migrationsDir?: string): number {
+  if (file === ':memory:' || !fs.existsSync(file)) return 0
+  let db: Database | null = null
+  try {
+    db = new Database(file, { readonly: true })
+    const before = appliedVersions(db)
+    if (!before?.size) return 0
+    return readMigrations(migrationsDir).filter((m) => !before.has(m.version)).length
+  } catch {
+    return 0
+  } finally {
+    db?.close()
+  }
+}
+
 /** Versions recorded in schema_migrations, or null when the table does not exist yet. */
 function appliedVersions(db: Database): Set<number> | null {
   if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").get()) return null
@@ -191,7 +211,9 @@ function backupBeforeMigrate(db: Database, dir: string, expectedVersions: Set<nu
   const out = path.join(dir, `pre-migrate-${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}-${suffix}.db`)
   // SQLite requires a nonexistent VACUUM target. A private staging directory protects the
   // copy until its permissions and schema have been checked, without precreating that file.
-  const staging = fs.mkdtempSync(path.join(dir, '.pending-migration-'))
+  removeStaleStaging(dir)
+  // the pid in the name: a later start removes it when this process was killed during the copy (removeStaleStaging)
+  const staging = fs.mkdtempSync(path.join(dir, `${STAGING_PREFIX}${process.pid}-`))
   const partial = path.join(staging, 'snapshot.db')
   try {
     db.query('VACUUM INTO ?').run(partial)
@@ -208,8 +230,57 @@ function backupBeforeMigrate(db: Database, dir: string, expectedVersions: Set<nu
     if (!matches) return
     fs.chmodSync(partial, 0o600)
     fs.renameSync(partial, out)
+    removeSameSchemaCopies(dir, out, expectedVersions)
   } finally {
     fs.rmSync(staging, { recursive: true, force: true })
+  }
+}
+
+const STAGING_PREFIX = '.pending-migration-'
+const PRE_MIGRATE_FILE = /^pre-migrate-[A-Za-z0-9._-]+\.db$/
+/** a staging folder without a pid in its name (older builds) is left this long: its process may still be copying */
+const STAGING_UNNAMED_GRACE_MS = 6 * 3600_000
+
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' }
+}
+
+/** Staging folders of copies whose process is gone (killed during the copy: a roll-back after a health timeout). Each
+ * holds a partial copy as large as the database. */
+function removeStaleStaging(dir: string) {
+  let names: string[] = []
+  try { names = fs.readdirSync(dir) } catch { return }
+  for (const n of names) {
+    if (!n.startsWith(STAGING_PREFIX)) continue
+    const m = /^(\d+)-/.exec(n.slice(STAGING_PREFIX.length))
+    const f = path.join(dir, n)
+    try {
+      if (m ? processAlive(Number(m[1])) : Date.now() - fs.statSync(f).mtimeMs < STAGING_UNNAMED_GRACE_MS) continue
+      fs.rmSync(f, { recursive: true, force: true })
+    } catch { /* another process removed it first */ }
+  }
+}
+
+/** The copy just made replaces older copies of the same schema (the same applied migrations): earlier tries of this
+ * update that did not finish (the newest copy has the newer data). Only copies whose name sorts before this one's (the
+ * name starts with the time): processes copying at the same moment never remove each other's, the last one stays.
+ * Copies of other schemas go by the backup retention (system/backup.ts prune). */
+function removeSameSchemaCopies(dir: string, keep: string, versions: Set<number>) {
+  let names: string[] = []
+  try { names = fs.readdirSync(dir) } catch { return }
+  const mine = path.basename(keep)
+  for (const n of names) {
+    const f = path.join(dir, n)
+    if (!PRE_MIGRATE_FILE.test(n) || n >= mine) continue
+    let same = false
+    try {
+      const copy = new Database(f, { readonly: true })
+      try {
+        const v = appliedVersions(copy)
+        same = !!v && v.size === versions.size && [...versions].every((x) => v.has(x))
+      } finally { copy.close() }
+    } catch { continue } // unreadable: not ours to judge
+    if (same) for (const x of [f, `${f}-wal`, `${f}-shm`]) fs.rmSync(x, { force: true })
   }
 }
 
