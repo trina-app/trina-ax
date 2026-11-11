@@ -280,7 +280,7 @@ describe('one yes per team folder in my own chat', () => {
     expect(values(r.cards[0]!)).toEqual(['allow', 'skip'])
     expect(r.cards[0]!.question).toStartWith(WHY)
     expect(r.cards[0]!.question).toMatch(new RegExp(`(Trina|The AI) wants to save a new file in ${W(one)}: quote-1\\.md\\.`))
-    expect(r.cards[1]!.question).toContain(`${two}: a.md`)
+    expect(r.cards[1]!.question).toContain(`${W(two)}: a.md`)
     expect(r.cards[2]!.question).toContain(`${one}/old.md`)
     for (const f of files) expect(read(f)).toBe('made by the AI\n')
     expect(read(`${one}/old.md`)).toBe('changed\n')

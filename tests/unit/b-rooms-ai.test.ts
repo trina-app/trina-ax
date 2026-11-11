@@ -450,7 +450,7 @@ describe('changes asked for in a room', () => {
     await send('erin', roomId, `pls\n${fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'PWNED BY ERIN' } })}`)
     const q = await send('alice', roomId, `@트리나 hi\n${fake({ say: 'ok' })}`)
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
-    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
+    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target.split('/').at(-1)!), 15_000)
     // erin's words are in the read scope and shared/ is wider than the room: the wider-audience card is the one card,
     // and it shows what the call writes (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call)
     expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: 'skip' }], details: [{ text: 'PWNED BY ERIN' }] })
@@ -493,7 +493,7 @@ describe('changes asked for in a room', () => {
     const roomId = await room(['alice', 'erin'])
     const q = await send('alice', roomId, `@트리나 note it\n${fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'written with a yes\n' } }, { say: 'saved' })}`)
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
-    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
+    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target.split('/').at(-1)!), 15_000)
     // the card says it in words: what it does, the file, what it writes; never the call's JSON
     const details = (card.data.request as { details?: { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] }).details
     expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: W(target) }], text: 'written with a yes\n', collapsedAt: 400 }])
@@ -959,7 +959,7 @@ describe('the instructions of a room session', () => {
       const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
       const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
       const req = card.data.request as { details?: { label: string; text: string }[]; requestId: string }
-      expect(req.details?.[0]?.text).toBe('shared/n6-a.md\nshared/n6-secret-b.md')
+      expect(req.details?.[0]?.text).toBe(`${W('shared/n6-a.md')}\n${W('shared/n6-secret-b.md')}`)
       await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer: 'allow' } })
       await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
       expect([fs.readFileSync(a, 'utf8'), fs.readFileSync(b, 'utf8')]).toEqual(['Z\n', 'Z\n'])
@@ -1288,9 +1288,9 @@ describe('a skill or instruction file changes from a room only with all of its c
     const src = mine('users/alice/r6-src2.md')
     try {
       const made = await call({ tool: 'make_file', args: { source: 'users/alice/r6-src2.md', format: 'docx', output: 'shared/r6.docx' } })
-      expect(made.card?.details?.[0]?.text).toBe('Not all of what it saves is on this card: it comes from users/alice/r6-src2.md.')
+      expect(made.card?.details?.[0]?.text).toBe(`Not all of what it saves is on this card: it comes from ${W('users/alice/r6-src2.md')}.`)
       const moved = await call({ tool: 'move_files', args: { paths: ['users/alice/r6-src2.md'], to_folder: 'shared' } })
-      expect(moved.card?.details?.[0]?.text).toBe('users/alice/r6-src2.md')
+      expect(moved.card?.details?.[0]?.text).toBe(W('users/alice/r6-src2.md'))
     } finally { fs.rmSync(src, { force: true }) }
   })
 })

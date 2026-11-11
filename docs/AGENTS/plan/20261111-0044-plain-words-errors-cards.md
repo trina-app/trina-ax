@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 00:44
 - Branch: `fix/plain-words-errors-cards`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`shared/src/api/errors.ts`, `shared/src/step-labels.ts`, `server/src/chat/i18n.ts`,
   `server/src/integrations/connections/`, `server/src/tools/url-gate.ts`, the cards that name team paths, the chat's
   error box and card details in `web/`). Why: chat, cards and steps are core (see docs/REPOSITORY-RULES.md).
@@ -60,4 +60,10 @@ the chat error box, a connection card and the steps list.
 
 ## Result
 
-Filled in at the end.
+PR #348. Built as planned, plus what the independent review asked for: the card's lines show each text exactly as
+sent and are made only when nothing would be lost (no collapsed spacing, no invisible characters, names at most 40
+characters); same-named people and top folders named like a place are told apart; the id-to-words helper is linear.
+Also in: save_url's redirect card and the no-exit-address card in plain words (no "office"), the web's safe-operations
+texts matching the server's, and room_read's "The the team's room for everyone". Left for later: the Google Drive
+routes' error codes, background job exception text, the English-only dev-environment card, the in-app browser's
+office-address card, the skill-move card's path box (docs/DECISIONS.md "Plain words in errors, cards and steps").

@@ -103,7 +103,7 @@ describe('move_files', () => {
     put('users/alice/one-es.md', 'x')
     const es = ask(false)
     await call('alice', 'copy_files', { paths: ['users/alice/one-es.md'], to_folder: 'shared' }, { person: es, locale: 'es' })
-    expect(es.questions[0]).toContain('La IA quiere copiar 1 archivo a shared.')
+    expect(es.questions[0]).toContain('La IA quiere copiar 1 archivo a Toda la empresa.')
     const added = /(\d+) (persona más podrá|personas más podrán) verlo\. ¿Copiarlo\?/.exec(es.questions[0]!)
     expect(added).not.toBeNull()
     expect(added![2]).toBe(added![1] === '1' ? 'persona más podrá' : 'personas más podrán')
@@ -164,7 +164,7 @@ describe('move_files', () => {
 
     const en = ask(false)
     await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf'], to_folder: 'shared/계약서/2026' }, { person: en, locale: 'en' })
-    expect(en.questions[0]).toContain('The AI wants to move 1 item to shared/계약서/2026, a new folder it will make.')
+    expect(en.questions[0]).toContain('The AI wants to move 1 item to Company-wide › 계약서 › 2026, a new folder it will make.')
 
     const yes = ask(true)
     const r = await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf', 'users/alice/contracts/b.pdf'], to_folder: 'shared/계약서/2026' }, { person: yes, turn: true })

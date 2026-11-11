@@ -65,7 +65,8 @@ describe('tools made per person', () => {
     // the step: the connection and the tool's title, never the arguments (docs/DECISIONS.md "Plain words in errors, cards and steps")
     expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko')).toBe('Tasks · Create a task')
     expect(a.tools.get('my_tasks__create_task')!.label!({}, 'ko')).toBe('Tasks · Create a task')
-    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en')).toBe('AI PM · POST /tasks')
+    // what the method does, never the AI's path or query
+    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en')).toBe('AI PM · Send')
     const api = a.tools.get('api_request')!
     expect(api.description).toContain('"my_aipm": AI PM (personal connection)')
     expect(api.description).toContain('POST /tasks makes one.')
@@ -295,7 +296,7 @@ describe('calls', () => {
     expect(r.summary).toBe('my_tasks__create_task -> not allowed by the user')
     expect(no.questions).toHaveLength(1)
     expect(no.questions[0]).toStartWith('The AI wants to send this to Tasks: Create a task')
-    expect(no.details[0]![0]!.fields).toEqual([{ name: 'to', value: 'outside@evil.example' }])
+    expect(no.details[0]![0]!.fields).toEqual([{ name: 'Recipient', value: 'outside@evil.example' }, { name: 'Title', value: 'From the room' }])
     expect(sent()).toBe(n0)
     // a read asks nothing
     const read = ask(false)
@@ -493,7 +494,8 @@ describe('api_request', () => {
     expect(r.text).toContain('"type":"application/json"')
     expect(yes.questions[0]).toContain('The AI wants to send this request to AI PM: Send')
     expect(yes.details[0]![0]!.text).toBe('{"title":"New"}')
-    expect(yes.details[0]![0]!.fields![0]).toEqual({ name: 'URL', value: `${fake.base}/api/v1/tasks` })
+    // where it goes first, by a word no argument gets
+    expect(yes.details[0]![0]!.fields![0]).toEqual({ name: 'Sends to', value: `${fake.base}/api/v1/tasks` })
     expect(r.summary).toContain('(confirmed by the user)')
     const del = await a.call('api_request', { connection: 'my_aipm', method: 'DELETE', path: '/tasks/7' })
     expect(del.text).toContain('HTTP 204')

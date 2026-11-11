@@ -177,7 +177,7 @@ describe('saving a copy', () => {
     expect(fields[0]!.value).toBe('Save conversation file')
     // the file by its name, who sent it, when and how big (two files may share a name)
     expect(fields[1]!.value).toMatch(new RegExp(`^${png.name.replace('.', '\\.')} \\(Alice Kim, \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}, \\d+ KB\\)$`))
-    expect(fields[2]!.value).toBe('shared/')
+    expect(fields[2]!.value).toBe(W('shared/'))
     expect(JSON.stringify(details)).not.toContain(png.id)
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'save' } })
     expect((await done('alice', q)).state).toBe('done')

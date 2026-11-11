@@ -269,7 +269,8 @@ describe('external-service connections in a turn', () => {
       expect(result).toContain('created task "Quarterly plan"')
       expect(result).toContain('<external_data source="Tasks">')
       expect(services.calls.at(-1)).toMatchObject({ name: 'create_task', args: { title: 'Quarterly plan' } })
-      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · create_task (title: "Quarterly plan")')
+      // the step names the service and the tool's title, never the arguments
+      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · Create a task')
       const audit = h.ctx.db.query('SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = ?').get(sent.turnId, 'my_tasks__create_task') as { summary: string; ok: number }
       expect(audit).toEqual({ summary: 'my_tasks__create_task -> ok (29 chars) (confirmed by the user)', ok: 1 })
       expect(JSON.stringify(done.data.message)).not.toContain(MCP_KEY)
