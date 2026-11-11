@@ -150,6 +150,11 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
 
   // ---- what is in view: the pages drawn and the current one (lib/pdfPages.ts) ----
   const holder = useRef<HTMLDivElement>(null)
+  /** a pinch's live transform gone */
+  const clearLive = () => {
+    const h = holder.current
+    if (h) h.style.transform = h.style.transformOrigin = ''
+  }
   const bar = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState<HTMLElement | null>(null)
   useLayoutEffect(() => setBox(pages ? scrollBox(holder.current) : null), [pages])
@@ -205,6 +210,8 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     // a pinch's point: from the box's top and left; otherwise the top and the middle
     const at = focus.current
     focus.current = null
+    // a pinch's live transform goes now that the pages are drawn at its width (not before: a frame at the old size)
+    clearLive()
     const r = box.getBoundingClientRect()
     const dy = at ? at.y - (r.top + box.clientTop + (bar.current?.offsetHeight ?? 0)) : 0
     const dx = at ? at.x - (r.left + box.clientLeft) : box.clientWidth / 2
@@ -241,32 +248,41 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     }
   }, [box, update])
 
-  /** zooms to `to` (within the steps' ends), keeping `at` (client coordinates) where it is */
+  /** zooms to `to` (within the steps' ends), keeping `at` (client coordinates) where it is; false: no change */
   const zoomTo = (to: number, at: Pt) => {
     const next = clamp(to, ZOOMS[0]!, ZOOMS.at(-1)!)
     const v = viewOf()
-    if (Math.abs(next - scale) < 0.01 || !v || !box) return
+    if (Math.abs(next - scale) < 0.01 || !v || !box) return false
     const r = box.getBoundingClientRect()
     // the place under the fingers, kept by the layout effect above
     pinned.current = null
     anchor.current = anchorAt(laidOut.current.layout, v.top + at.y - (r.top + box.clientTop + (bar.current?.offsetHeight ?? 0)))
     focus.current = at
     setScale(next)
+    return true
   }
-  // the pinch: the pages follow the fingers as a transform (cheap), and are drawn at the new width when they lift
+  // the pinch: the pages follow the fingers as a transform (cheap) around the point where they came down, and are
+  // drawn at the new width when they lift
+  const pinchAt = useRef<Pt | null>(null)
   usePinch(pages ? box : null, {
     onPinch: ({ scale: k, center, phase }) => {
       const h = holder.current
       if (!h) return
-      const live = clamp(scale * k, ZOOMS[0]!, ZOOMS.at(-1)!) / scale
-      if (phase === 'end') {
-        h.style.transform = ''
-        h.style.transformOrigin = ''
-        zoomTo(scale * live, center)
+      if (phase === 'start') {
+        // measured before any transform: the holder's own box (a transform does not move it in the layout)
+        const r = h.getBoundingClientRect()
+        pinchAt.current = center
+        h.style.transformOrigin = `${center.x - r.left}px ${center.y - r.top}px`
         return
       }
-      const r = h.getBoundingClientRect()
-      h.style.transformOrigin = `${center.x - r.left}px ${center.y - r.top}px`
+      const at = pinchAt.current ?? center
+      const live = clamp(scale * k, ZOOMS[0]!, ZOOMS.at(-1)!) / scale
+      if (phase === 'end') {
+        pinchAt.current = null
+        // no change (at an end of the steps): nothing is drawn again, so the transform goes now
+        if (!zoomTo(scale * live, at)) clearLive()
+        return
+      }
       h.style.transform = `scale(${live})`
     },
     onDoubleTap: (at) => zoomTo(scale < (1 + TAP_ZOOM) / 2 ? TAP_ZOOM : 1, at),
@@ -306,8 +322,9 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
       >
         {pages > 0 && (
           // sticky in the panel's scroll box and as wide as the panel: it stays in view when the pages scroll down or
-          // (zoomed in) to the side. Phones (no thumbnails there) pinch instead: no toolbar
-          <div ref={bar} role="toolbar" aria-label={t('pdfView.toolbar')} style={{ width }} className="sticky top-0 left-0 z-10 flex max-md:hidden items-center justify-center gap-1 border-b border-line bg-surface px-2 py-1" data-testid="pdf-toolbar">
+          // (zoomed in) to the side. Phones (narrow and touch; no thumbnails there) pinch instead: no toolbar. A narrow
+          // window with a mouse keeps it
+          <div ref={bar} role="toolbar" aria-label={t('pdfView.toolbar')} style={{ width }} className="sticky top-0 left-0 z-10 flex max-md:pointer-coarse:hidden items-center justify-center gap-1 border-b border-line bg-surface px-2 py-1" data-testid="pdf-toolbar">
             {rail && (
               <span className="mr-2 min-w-14 shrink-0 border-r border-line pr-3 text-center text-xs whitespace-nowrap text-muted tabular-nums" data-testid="pdf-page-info">
                 {t('pdfView.pageOf', { n: shown.current + 1, total: pages })}

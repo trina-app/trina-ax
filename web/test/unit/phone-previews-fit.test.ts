@@ -89,6 +89,15 @@ describe('an HTML page fitted to its frame', () => {
     expect(f.fire('gesturestart', {}).defaultPrevented).toBe(true)
   })
 
+  test("a page's own gesture (it cancelled the touches already) is left to the page", () => {
+    const f = fakeWindow(794, 390)
+    installPageFit(f.win, () => {})
+    const zoom = f.root.style.zoom
+    f.fire('touchstart', { touches: [touch(100, 300), touch(200, 300)], defaultPrevented: true })
+    f.fire('touchmove', { touches: [touch(50, 300), touch(250, 300)], defaultPrevented: true })
+    expect(f.root.style.zoom).toBe(zoom)
+  })
+
   test('a double tap goes from the fitted page to its own size and back', () => {
     const f = fakeWindow(794, 390)
     const states: PageFitState[] = []

@@ -20,6 +20,8 @@ export interface PageFitControl {
   refit: () => void
 }
 
+/** Its source text is the frame's script (PAGE_FIT_SCRIPT): it may use nothing from outside itself (no import, no
+ * module-level value: the bundler would rename or move it out of the function), plain JavaScript only. */
 export function installPageFit(win: Window, report: (state: PageFitState) => void): PageFitControl {
   var doc = win.document
   var root = doc.documentElement
@@ -79,7 +81,9 @@ export function installPageFit(win: Window, report: (state: PageFitState) => voi
   var pinch: { from: number; zoom: number } | null = null
   var tap: (P & { t: number }) | null = null
   var lastTap: (P & { t: number }) | null = null
+  // a page that handles its own gesture (a zoomable chart) cancelled it already: left to the page
   doc.addEventListener('touchstart', function (e: TouchEvent) {
+    if (e.defaultPrevented) { pinch = tap = null; return }
     if (e.touches.length >= 2) {
       e.preventDefault()
       tap = lastTap = null
@@ -90,6 +94,7 @@ export function installPageFit(win: Window, report: (state: PageFitState) => voi
     }
   }, { passive: false })
   doc.addEventListener('touchmove', function (e: TouchEvent) {
+    if (e.defaultPrevented) return
     if (pinch && e.touches.length >= 2) {
       e.preventDefault()
       var a = pt(e.touches[0]!)
