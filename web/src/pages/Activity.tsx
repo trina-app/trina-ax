@@ -21,6 +21,7 @@ import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '.
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
+import { Tooltip } from '../components/Tooltip'
 
 type T = ReturnType<typeof useT>
 type Filter = 'all' | 'dms' | 'mentions' | 'threads'
@@ -155,9 +156,11 @@ export default function Activity() {
           <div className="flex items-center justify-between gap-3 max-md:block">
             {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
             <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{t('inbox.title')}</h1>
-            <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink max-md:hidden" aria-label={t('feed.settings')} title={t('feed.settings')} data-testid="activity-settings">
-              <Settings size={18} aria-hidden />
-            </Link>
+            <Tooltip label={t('feed.settings')}>
+              <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink max-md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings">
+                <Settings size={18} aria-hidden />
+              </Link>
+            </Tooltip>
           </div>
           <div role="tablist" aria-label={t('inbox.title')} className="scroll-thin -mb-px mt-2 flex max-md:mt-0 gap-1 overflow-x-auto" data-testid="activity-tabs">
             {FILTERS.map(({ id, label, icon: Icon }) => {
@@ -193,9 +196,11 @@ export default function Activity() {
               </div>
             : <IconButton label={t('feed.search')} className="size-9 border border-field-border" onClick={() => setSearching(true)} data-testid="activity-search-open"><Search size={16} aria-hidden /></IconButton>}
           {/* phones: the gear sits here (the title row is the top bar there) */}
-          <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings-phone">
-            <Settings size={18} aria-hidden />
-          </Link>
+          <Tooltip label={t('feed.settings')}>
+            <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings-phone">
+              <Settings size={18} aria-hidden />
+            </Link>
+          </Tooltip>
         </div>
 
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
