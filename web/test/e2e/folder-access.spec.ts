@@ -262,6 +262,45 @@ test('the confirm says who gains later by what they get: "open" for a group adde
   await expect(page.getByTestId('sharing-done')).toBeVisible()
 })
 
+test('two groups added later, one "Can edit" and one "Can view": the confirm says each as it is (QA TC-284)', async ({ page }) => {
+  await signIn(page)
+  // groups nobody is in yet: only whoever joins them later gains
+  for (const name of ['Design', 'Ops']) expect((await page.request.post('/api/admin/groups', { headers: { [CSRF_HEADER]: '1' }, data: { name, memberIds: [] } })).ok()).toBe(true)
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  await page.goto('/files?path=marketing')
+  await chip(page).click()
+  for (const name of ['Des', 'Ops']) {
+    await page.getByTestId('edit-add').fill(name)
+    await page.getByTestId('edit-add-option').filter({ hasText: name }).click()
+  }
+  await page.getByTestId('sharing-row').filter({ hasText: 'Design' }).getByTestId('sharing-level').selectOption('write')
+  await page.getByTestId('sharing-save').click()
+  const latent = page.getByTestId('sharing-confirm-body').getByTestId('sharing-confirm-latent')
+  await expect(latent).toHaveText([en('folderAccess.latentGroups', { groups: 'Design' }), en('folderAccess.latentGroupsView', { groups: 'Ops' })])
+  await confirm(page).click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+})
+
+test('Cancel › Discard keeps the panel, and the next change saves (QA TC-287)', async ({ page }) => {
+  await signIn(page)
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await page.goto('/files?path=marketing')
+  await chip(page).click()
+  await sharingRow(page, 'user:bob').getByTestId('sharing-level').selectOption('read')
+  await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
+  await page.getByTestId('sharing-cancel').click()
+  await expect(page.getByRole('dialog', { name: t['folderAccess.discardTitle'] })).toBeVisible()
+  await confirm(page).click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level')).toHaveValue('write')
+  // the same change again: Save saves it, without closing the panel first
+  await sharingRow(page, 'user:bob').getByTestId('sharing-level').selectOption('read')
+  await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  expect(await rules(page, 'marketing')).toEqual(['user:bob:read'])
+})
+
 test('rows from a folder above: greyed, read only, "Change there" opens that folder and comes back; the names who lose access', async ({ page, playwright }) => {
   await signIn(page)
   await addCarol(page, playwright)
