@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Locale, Me } from '@mycel/shared/api'
 import { currentLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
+import { forgetSetupToken } from '../../src/lib/setupLink'
 
 const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
 const originalFetch = globalThis.fetch
@@ -173,6 +174,31 @@ describe('setup status asks with the setup link token', () => {
       expect(seen.find((s) => s.url.endsWith('/api/setup'))?.token).toBe('setup-token-0123')
       expect(session().status.kind).toBe('setup')
     })
+  test('a reload of /setup (the token already out of the address) sends the token this tab kept', async () => {
+    const kept = new Map<string, string>()
+    const desc = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
+      getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => { kept.set(k, v) }, removeItem: (k: string) => { kept.delete(k) },
+    } })
+    try {
+      Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/setup', search: '', hash: '#token=setup-token-0123' } })
+      answer(true)
+      await session().load()
+      g.location = { pathname: '/setup', search: '', hash: '' }
+      useSession.setState({ status: { kind: 'loading' } })
+      seen = []
+      await session().load()
+      expect(seen.find((s) => s.url.endsWith('/api/setup'))?.token).toBe('setup-token-0123')
+      expect(session().status.kind).toBe('setup')
+      forgetSetupToken()
+      seen = []
+      await session().load()
+      expect(seen.find((s) => s.url.endsWith('/api/setup'))?.token).toBeNull()
+    } finally {
+      if (desc) Object.defineProperty(globalThis, 'sessionStorage', desc)
+      else Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  })
   test('no link: no token header, and needed: false is the sign-in page', async () => {
     Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/', search: '', hash: '' } })
     answer(false)

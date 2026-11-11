@@ -13,7 +13,7 @@ import { useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
-import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
 import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
@@ -251,7 +251,9 @@ export function Setup() {
   const navigate = useNavigate()
   // the link from the account console (#token=…&team=…&lang=…&site=…) or the installer (?token=…), read once
   const [link] = useState(() => readSetupLink(window.location))
-  const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
+  // after a reload the token is no longer in the address: the one this tab's link carried (lib/setupLink.ts)
+  const [linkToken] = useState(() => link.token ?? keptSetupToken())
+  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const passwordHintId = useId()
   const { busy, error, run, setError } = useSubmit()
@@ -266,7 +268,7 @@ export function Setup() {
   }, []) // once, on arrival
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
-    setupToken: link.token ? null : requiredCheck(form.setupToken),
+    setupToken: linkToken ? null : requiredCheck(form.setupToken),
     teamName: requiredCheck(form.teamName),
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
@@ -282,6 +284,7 @@ export function Setup() {
       const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       // the company website from the link: the company profile step starts from it (components/onboarding)
       rememberSetupSite(link.site)
+      forgetSetupToken()
       // then the welcome steps (pages/Welcome.tsx): set before the session switch re-renders /setup (App.tsx AfterSetup)
       setAfterSetup('/welcome')
       signedIn(r.me)
@@ -294,7 +297,7 @@ export function Setup() {
     <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
       <form onSubmit={submit} noValidate className="space-y-6">
         <FormSection title={t('setup.section.team')} testId="setup-section-team">
-          {!link.token && (
+          {!linkToken && (
             <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
               <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
             </Field>

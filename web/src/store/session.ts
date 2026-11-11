@@ -6,7 +6,7 @@ import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
-import { readSetupLink } from '../lib/setupLink'
+import { keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
 import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
@@ -97,9 +97,12 @@ export const useSession = create<SessionState>((set, get) => ({
         // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
         useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
         try {
-          // the setup link's token, if this page was opened with one: through the relay the server says setup is
-          // still needed only to a visitor who has it (server/src/auth/accounts.ts setupStatusFor)
-          const token = typeof location === 'undefined' ? null : readSetupLink(location).token
+          // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
+          // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
+          // setupStatusFor)
+          const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
+          rememberSetupToken(linked)
+          const token = linked ?? keptSetupToken()
           const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
           lastTeamDefault = s.defaultLocale ?? null
           // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
