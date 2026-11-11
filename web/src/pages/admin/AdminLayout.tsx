@@ -102,6 +102,9 @@ function pageName(path: string, t: (key: MessageKey) => string, devEnv: boolean 
   return settingsPageName(path, t)
 }
 
+/** where Folder permissions is opened as a detour from (lib/backStack.ts useListUnderPage `inside`) */
+const DETOURS = ['/files', '/projects']
+
 /** The old addresses that open another page (see the top of this file), else null. */
 function redirectOf(section: string, search: string): string | null {
   const q = new URLSearchParams(search)
@@ -143,8 +146,9 @@ export default function AdminLayout() {
   const known = menu.some((g) => g.items.some((s) => s.id === section))
   // the page that stays (no redirect, allowed): only then may the list be put under it
   const final = admin && !redirect && known && section !== ''
-  // a group of Team settings has both lists under it: Back goes group → Team settings → Admin
-  useListUnderPage(group ? ['/admin', '/admin/settings'] : '/admin', phone, final)
+  // a group of Team settings has both lists under it: Back goes group → Team settings → Admin. Folder permissions
+  // opened from a folder (Files' "who can see it", a project's members) is a detour: Back goes straight back there
+  useListUnderPage(group ? ['/admin', '/admin/settings'] : '/admin', phone, final, section === 'folders' ? DETOURS : undefined)
   useKeptScroll(content, 'admin', phone && admin && !redirect && known)
   const up = group ? '/admin/settings' : section ? '/admin' : '/settings'
   const label = useBackLabel(up, (p) => pageName(p, t, devEnv))

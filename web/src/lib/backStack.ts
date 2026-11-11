@@ -11,12 +11,17 @@
 //   App.tsx while it renders, before any page does): a push came from the entry shown before it, a replace from what
 //   was under the entry it replaced. It is used only at that moment (the insertion) and for the ‹ button's label; Back
 //   itself always walks the router's real history (lib/back.ts), as DECISIONS "Phone navigation: four tabs" decided.
-// - ‹'s label names where Back goes ("‹ Admin", "‹ Settings", "‹ Members & invites"); ‹ shows alone when Back goes
-//   somewhere else or to the same page (a page that adds history inside itself).
+//   On a phone the history's own stack says it instead (lib/screenHistory.ts: each entry keeps the trail of its tab's
+//   stack), and the document's first entry gets all its parents from there (lib/screens.ts), not only its list.
+// - ‹'s label names where Back goes ("‹ Admin", "‹ Settings", "‹ Members & invites", a folder, a chat): the page's own
+//   names first, then any screen's (lib/screens.ts useScreenName); ‹ shows alone when that has no name or is the same
+//   page (a page that adds history inside itself).
 // - A pushed page starts at the top; Back to a list or a page puts its scroll back (useKeptScroll).
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
-import { useLocation, useNavigate, type Location, type NavigationType as Action } from 'react-router-dom'
+import { parsePath, useLocation, useNavigate, type Location, type NavigationType as Action } from 'react-router-dom'
 import { useRealNavigationType, useRealPath } from './realPath'
+import { stackNow } from './screenHistory'
+import { useScreenName } from './screens'
 
 /** How an entry was reached: 'PUSH', 'REPLACE' or 'POP' (Back, Forward, a reload, the first entry). */
 export type NavigationType = `${Action}`
@@ -165,9 +170,12 @@ export function useListUnderPage(listPath: string | readonly string[], phone: bo
   useEffect(() => {
     if (done.current === location.key || !final) return
     done.current = location.key
-    // under the Settings dialog this is the page behind it, not the address in the bar
-    if (!firstPhone.current?.phone || realPath !== location.pathname) return
-    const below = entryBelow(location.key)
+    // under the Settings dialog this is the page behind it, not the address in the bar; a first entry opened from
+    // outside gets its parents put under it by the phone's history once the app shows it (lib/screenHistory.ts)
+    if (!firstPhone.current?.phone || realPath !== location.pathname || stackNow()?.open) return
+    // what is under the entry: the phone's stack says it (lib/screenHistory.ts), also for an entry it made itself
+    const stack = stackNow()
+    const below = stack ? (stack.below ? parsePath(stack.below.p).pathname || null : null) : entryBelow(location.key)
     const lists = typeof listPath === 'string' ? [listPath] : listPath
     if (!lists.length || !needsList({ nav, idx: historyIdx(), below, listPath: lists[0]!, own: belowInState(location.state) !== undefined, fresh: entryFresh(location.key), inside })) return
     // the address as it was opened, ?query and #hash included, even when the page has used its query up meanwhile
@@ -181,10 +189,20 @@ export function useListUnderPage(listPath: string | readonly string[], phone: bo
   }, [location.key, final])
 }
 
-/** The ‹ label of this entry (see backLabel). */
+/** The ‹ label of this entry (see backLabel). On a phone the stack says what is under the entry (lib/screenHistory.ts),
+ * also below a list put under a page; `name` names it, else the screen's own name (lib/screens.ts: a folder, a chat, a
+ * tab's list), so ‹ names where it goes wherever that has a name. */
 export function useBackLabel(fallback: string, name: (path: string) => string | null): string | null {
   const location = useLocation()
-  return backLabel({ below: entryBelow(location.key) ?? belowInState(location.state), path: location.pathname, idx: historyIdx(), fallback, name })
+  const generic = useScreenName()
+  const named = (p: string) => name(parsePath(p).pathname || p) ?? generic(p)
+  const stack = stackNow()
+  if (stack) {
+    const to = stack.below?.p ?? fallback
+    // the same page (one that adds history inside itself): ‹ alone
+    return (parsePath(to).pathname || to) === location.pathname ? null : named(to)
+  }
+  return backLabel({ below: entryBelow(location.key) ?? belowInState(location.state), path: location.pathname, idx: historyIdx(), fallback, name: named })
 }
 
 const scrollKey = (id: string, key: string) => `mycel.scroll.${id}.${key}`
