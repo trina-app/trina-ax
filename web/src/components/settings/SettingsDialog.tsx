@@ -5,8 +5,8 @@
 // `onClose` goes back to that page. On a computer /settings opens on the profile, with the list beside it. On a phone it
 // is the 나 tab (BottomTabs.tsx opens /settings): it fills the screen above the tab bar (the bar is the way out, no ✕)
 // and opens on its list (no search box): the person's photo, name and title on top, which open the profile (the list's
-// own "프로필" row is left out there), then what needs me: 알림함 with its unread count (the 알림 section, whose own row
-// is left out there) and, for admins, 관리자; then the sections in their groups and 로그아웃, in the phone list every
+// own "프로필" row is left out there), then what needs me: 활동 (the Activity page, /activity) with its unread count and,
+// for admins, 관리자; then the sections in their groups (알림 in its own) and 로그아웃, in the phone list every
 // settings list uses (phone/PhoneList.tsx: chevrons, the count as the row's value). A row pushes its section, so the
 // phone's own Back returns to the list (it replaced the list before, and Back left Settings); a section opened from a
 // link gets the list put under it (lib/backStack.ts). A section on a phone has the phone bar: ‹ (named after where it
@@ -91,7 +91,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // open section each keep their place for Back (lib/backStack.ts)
   const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'credentials'
   const valid = !!tab && !waiting && !redirecting && tabs.some((x) => x.id === tab)
-  useListUnderPage('/settings', phone, valid && !page)
+  // the Activity page (#364) is the 나 tab's too: 알림 opened from its gear goes back to it, with no list put between
+  useListUnderPage('/settings', phone, valid && !page, ['/activity'])
   const listRef = useRef<HTMLElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   useKeptScroll(listRef, 'settings-list', phone && !tab)

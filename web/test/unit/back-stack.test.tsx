@@ -79,6 +79,14 @@ describe('when the list goes under a page', () => {
     expect(at('PUSH', '/settings/notifications', { list: '/settings' })).toBe(false)
   })
 
+  test('a page that counts as the area: never (Settings › 알림 opened from the Activity page\'s gear)', () => {
+    const fromActivity = (below: string) => needsList({ nav: 'PUSH', below, idx: 3, listPath: '/settings', own: false, inside: ['/activity'] })
+    expect(fromActivity('/activity')).toBe(false)
+    // anything else outside still gets the list; "/activityx" is not under "/activity"
+    expect(fromActivity('/c/abc')).toBe(true)
+    expect(fromActivity('/activityx')).toBe(true)
+  })
+
   test('opened from outside its area: yes', () => {
     // an Inbox notice, a chat, Home, a project, Settings for an Admin page, Admin for a Settings section
     for (const from of ['/settings/notifications', '/c/abc', '/', '/projects/p1', '/settings', '/rooms/r1']) expect(at('PUSH', from)).toBe(true)
@@ -114,14 +122,14 @@ describe('when the list goes under a page', () => {
 })
 
 describe('the ‹ label', () => {
-  const names: Record<string, string> = { '/admin': 'Admin', '/admin/members': 'Members & invites', '/settings': 'Settings', '/settings/notifications': 'Inbox' }
+  const names: Record<string, string> = { '/admin': 'Admin', '/admin/members': 'Members & invites', '/settings': 'Settings', '/settings/notifications': 'Notifications' }
   const label = (below: string | null | undefined, path: string, idx: number | null = 3, fallback = '/admin') => backLabel({ below, path, idx, fallback, name: (p) => names[p] ?? null })
 
   test('names where Back goes', () => {
     expect(label('/admin', '/admin/members')).toBe('Admin')
     expect(label('/admin/members', '/admin/settings')).toBe('Members & invites')
     expect(label('/settings', '/admin', 3, '/settings')).toBe('Settings')
-    expect(label('/settings/notifications', '/admin', 3, '/settings')).toBe('Inbox')
+    expect(label('/settings/notifications', '/admin', 3, '/settings')).toBe('Notifications')
   })
 
   test('‹ alone: somewhere without a name here (Admin opened from ☰ › Search on Home), or the same page', () => {
@@ -193,7 +201,7 @@ describe('the hook in the app', () => {
     const l = useLocation()
     seen.push({ path: l.pathname + l.search + l.hash, type: useNavigationType(), state: l.state, key: l.key })
     useListUnderPage('/admin', phone, final)
-    const label = useBackLabel('/admin', (p) => (p === '/admin' ? 'Admin' : p === '/settings/notifications' ? 'Inbox' : null))
+    const label = useBackLabel('/admin', (p) => (p === '/admin' ? 'Admin' : p === '/settings/notifications' ? 'Notifications' : null))
     return <span data-testid="label">{label ?? '‹'}</span>
   }
   const app = (entries: InitialEntry[], o: { phone?: boolean; final?: boolean } = {}) => (
@@ -237,8 +245,8 @@ describe('the hook in the app', () => {
         await press(m.get('go'))
         await m.settle(30)
         expect(seen.filter((s) => s.path.startsWith('/admin')).every((s) => s.type === 'PUSH' && !s.state)).toBe(true)
-        // nothing put under it: ‹ names where Back really goes, the Inbox
-        expect(m.get('label').textContent).toBe('Inbox')
+        // nothing put under it: ‹ names where Back really goes, Settings › Notifications
+        expect(m.get('label').textContent).toBe('Notifications')
       } finally {
         await m.unmount()
       }

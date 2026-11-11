@@ -65,14 +65,15 @@ export function noteEntry(trail: Trail, key: string, path: string, nav: Navigati
 }
 
 /** Should this page get its list put under it? `below`: the noted entry under it; `idx`: its place in the document's
- * history (React Router's history.state.idx; 0 is the first entry). */
-export function needsList(o: { nav: NavigationType; idx: number | null; below: string | null | undefined; listPath: string; own: boolean; fresh?: boolean }): boolean {
+ * history (React Router's history.state.idx; 0 is the first entry); `inside`: other pages that count as the list's
+ * area (Back from the page goes to them, as from the list's own pages). */
+export function needsList(o: { nav: NavigationType; idx: number | null; below: string | null | undefined; listPath: string; own: boolean; fresh?: boolean; inside?: readonly string[] }): boolean {
   if (o.own) return false
   // Back or Forward never rebuilds; the first entry of the document (a pasted address, the phone app opened on a
   // push) is reported as a POP too, and is the one case that does, when it shows for the first time (`fresh`: Back to
   // a first entry that was seen without its list, on a computer, would drop the entries after it)
   if (o.nav === 'POP') return o.idx === 0 && o.fresh !== false
-  return !(o.below != null && under(o.below, o.listPath))
+  return !(o.below != null && [o.listPath, ...(o.inside ?? [])].some((p) => under(o.below!, p)))
 }
 
 /** The ‹ button's label: the name of where Back goes, or null for ‹ alone (somewhere without a name here, or the same
@@ -148,8 +149,9 @@ const historyIdx = (): number | null => {
  * stays (not a redirect, not refused, not still loading what decides it). Returns nothing; the page stays on screen.
  * Several lists, outermost first (Admin's list, then Team settings' under a group of it): the area is the first one's,
  * and all of them go under the page in that order, so Back walks page → Team settings → Admin → where you were.
+ * `inside`: other pages that count as the area (Settings: the Activity page, whose gear opens 알림).
  */
-export function useListUnderPage(listPath: string | readonly string[], phone: boolean, final: boolean) {
+export function useListUnderPage(listPath: string | readonly string[], phone: boolean, final: boolean, inside: readonly string[] = []) {
   const navigate = useNavigate()
   const location = useLocation()
   const nav = useRealNavigationType()
@@ -167,7 +169,7 @@ export function useListUnderPage(listPath: string | readonly string[], phone: bo
     if (!firstPhone.current?.phone || realPath !== location.pathname) return
     const below = entryBelow(location.key)
     const lists = typeof listPath === 'string' ? [listPath] : listPath
-    if (!lists.length || !needsList({ nav, idx: historyIdx(), below, listPath: lists[0]!, own: belowInState(location.state) !== undefined, fresh: entryFresh(location.key) })) return
+    if (!lists.length || !needsList({ nav, idx: historyIdx(), below, listPath: lists[0]!, own: belowInState(location.state) !== undefined, fresh: entryFresh(location.key), inside })) return
     // the address as it was opened, ?query and #hash included, even when the page has used its query up meanwhile
     // (Connectors' ?drive=1 opens Google Drive and leaves the address): the page is drawn again over the list and
     // reads it again (its queries open or point at something; reading one twice does the same thing)

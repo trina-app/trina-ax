@@ -168,6 +168,20 @@ test('Settings: a section pushes, so Back returns to the list (it left Settings 
   await expect(page).toHaveURL(/\/settings$/)
 })
 
+test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, and Back returns there (no list put between)', async ({ page }) => {
+  await page.getByTestId('tab-me').click()
+  await page.getByTestId('settings-inbox').click()
+  await expect(page).toHaveURL(/\/activity$/)
+  await page.getByTestId('activity-settings-phone').click()
+  await expect(page).toHaveURL(/\/settings\/notifications$/)
+  await expect(page.getByTestId('settings-section-title')).toHaveText(t['notifications.title'])
+  await expect(page.getByTestId('settings-back-label')).toHaveText(t['inbox.title'])
+  const length = await historyLength(page)
+  await page.getByTestId('settings-back').click()
+  await expect(page).toHaveURL(/\/activity$/)
+  expect(await historyLength(page)).toBe(length)
+})
+
 test('a member: /admin goes home and leaves no list behind', async ({ page }) => {
   await page.getByTestId('tab-me').click()
   await page.getByTestId('settings-logout').click()

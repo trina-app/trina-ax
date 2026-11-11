@@ -3,7 +3,7 @@
 // their answers per engine and model in the chosen period, then the totals. Only their own: everyone's usage is
 // Admin > Usage (pages/admin/Usage.tsx). A phone (below 768 px; docs/DECISIONS.md "Admin and Settings on phones"): the
 // bar says "Usage", so the title is for screen readers; the period and Refresh go under the line instead of squeezing it
-// to four lines; the three numbers share one row; nothing is framed.
+// to four lines; the numbers (answers and the estimate) share one row; nothing is framed.
 import { RefreshCw } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
