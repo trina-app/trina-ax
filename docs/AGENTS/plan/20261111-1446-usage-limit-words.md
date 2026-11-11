@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:46
 - Branch: `fix/usage-limit-words`
-- Status: in progress
+- Status: done
 - Where: `web/src/i18n/*`, `server/src/routes/chats.ts`, `server/src/admin/budgets.ts`, `shared/src`,
   `web/src/components/settings/MyUsage.tsx`. Why: usage limits are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, three bug fixes with no new setting
@@ -55,3 +55,9 @@ tests, `bun run test:web`.
 
 ## Result
 
+Built as planned. The hint is fixed in five languages. `createChat` calls `checkBudget` first, and Home's composer
+keeps the text and shows the server's words through `errorText`. `limitResetText` (`shared/src/limit-reset.ts`) gives
+"11월 12일 0시" and "Nov 12 at 00:00" for `budgetBlock` and Settings › 사용량. Tests: `b-api` (no new chat, nothing
+made, the same words; the time "…0시부터", never "오전"; this failed before the fix) and `limit-reset.test.ts`.
+`bun run test:web`: 2364 pass. `g-subscription`'s managed-mode tests fail on this machine with or without the change
+(environment). They do not touch this code.

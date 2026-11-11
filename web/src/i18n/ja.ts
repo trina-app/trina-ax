@@ -2062,7 +2062,7 @@ export const ja: Record<MessageKey, string> = {
   'budgets.perMonth': "1か月ごと",
   'budgets.tokens': "トークン数の上限",
   'budgets.usd': "支出上限（USD）",
-  'budgets.usdHint': "金額はAPIキー接続でのみ加算されます。0は金額の上限なしを意味します。",
+  'budgets.usdHint': "同じ使用量をAPIで使った場合の推定金額です。ログインでの回答も加算されることがあります。0は金額の上限なしを意味します。",
   'budgets.action': "超過時の動作",
   'budgets.warn': "警告のみ",
   'budgets.block': "ブロック",

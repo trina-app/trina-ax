@@ -20877,3 +20877,17 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   tool calls each, found by a team-wide grep that hit the list lines.
 - Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
   to its own AI provider from the first night after the update (`changes/file-list.md` says so).
+
+## Usage limits: a true USD hint, no empty chat after a refused send, midnight in 24-hour time (fix/usage-limit-words, 2026-11-11, QA TC-215)
+
+- **The USD hint says what really adds up.** Admin › 팀 설정 › 사용 한도's hint under 금액 한도 (USD) said amounts
+  build up only with API key connections. Answers through a login count too: the engine reports an estimated amount,
+  which the turn keeps (`usage.costNote` says so already), and a USD block limit refuses on it. The hint now says the
+  amount is an estimate of the same use through the API and that answers through a login can add up too.
+- **No new chat while a block limit is used up.** `POST /api/chats` answers the same `budget_exceeded` (429, the
+  person's words) as sending, editing and regenerating. A first question from Home made the chat before the send was
+  refused, and the empty chat stayed in the list. Now Home's composer keeps the text and shows the refusal, and no
+  chat is made. Attaching a file on Home (which makes the chat first) is refused the same way.
+- **When a limit is free again, in 24-hour time.** A day's or a month's limit ends at the team's midnight, and
+  "오전 12:00" / "12:00 AM" can read as noon. `limitResetText` (shared) says "11월 12일 0시", "Nov 12 at 00:00",
+  "11月12日 00:00", in the team's time zone, for the refusal (`budgetBlock`) and for Settings › 사용량.

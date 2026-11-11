@@ -2097,7 +2097,7 @@ export const id: Record<MessageKey, string> = {
   'budgets.perMonth': 'Per bulan',
   'budgets.tokens': 'Batas token',
   'budgets.usd': 'Batas biaya (USD)',
-  'budgets.usdHint': 'Jumlah hanya bertambah dengan koneksi kunci API. 0 berarti tanpa batas jumlah.',
+  'budgets.usdHint': 'Perkiraan biaya pemakaian yang sama lewat API. Jawaban lewat login juga bisa ikut terhitung. 0 berarti tanpa batas jumlah.',
   'budgets.action': 'Kalau terlampaui',
   'budgets.warn': 'Peringatan saja',
   'budgets.block': 'Blokir',

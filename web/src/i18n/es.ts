@@ -2062,7 +2062,7 @@ export const es: Record<MessageKey, string> = {
   'budgets.perMonth': "Por mes",
   'budgets.tokens': "Límite de tokens",
   'budgets.usd': "Límite de gasto (USD)",
-  'budgets.usdHint': "Los importes solo se acumulan con conexiones de clave de API. 0 significa sin límite de importe.",
+  'budgets.usdHint': "Una estimación de lo que costaría el mismo uso a través de la API. Las respuestas con un inicio de sesión también pueden sumar. 0 significa sin límite de importe.",
   'budgets.action': "Al superar el límite",
   'budgets.warn': "Solo advertir",
   'budgets.block': "Bloquear",
