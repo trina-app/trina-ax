@@ -20,6 +20,7 @@ import {
 } from '@mycel/shared/cloud-protocol/relay-ops'
 import { teamAddress } from './config.ts'
 import { RegistryError, type TeamRow } from './registry.ts'
+import { ReplayCache } from './replay.ts'
 import type { RelayServer } from './relay.ts'
 
 export class OpsKeysError extends Error { name = 'OpsKeysError' }
@@ -55,8 +56,8 @@ export class OpsApi {
   private keys: OperatorKey[] = []
   private keysMtime = -1
   private keysError: string | null = null
-  /** signature -> time it may be used again (replay cache, memory only) */
-  private seen = new Map<string, number>()
+  /** signed requests seen in the last OPS_REPLAY_WINDOW_MS (memory only) */
+  private seen = new ReplayCache(OPS_REPLAY_WINDOW_MS, OPS_REPLAY_MAX)
   readonly counters = { requests: 0, authFailures: 0, replays: 0, forbidden: 0 }
 
   private relay: RelayServer
@@ -124,12 +125,11 @@ export class OpsApi {
     if (!key) throw fail('unknown operator key')
     const now = this.now()
     if (Math.abs(now - auth.ts) > OPS_SIG_MAX_SKEW_MS) throw fail('request timestamp out of range (check the clock)')
-    if (!verifyB64(key.publicKey, opsSigningString(method, target, auth.ts, body), auth.sig)) throw fail('bad signature')
-    // replay: the same signed request again within the window (after the signature check: only real signatures are kept)
-    for (const [s, until] of this.seen) { if (until > now) break; this.seen.delete(s) }
-    if (this.seen.has(auth.sig)) { this.counters.replays++; throw new OpsFail(409, 'replayed', 'this signed request was already used; sign it again') }
-    if (this.seen.size >= OPS_REPLAY_MAX) { const first = this.seen.keys().next().value; if (first !== undefined) this.seen.delete(first) }
-    this.seen.set(auth.sig, now + OPS_REPLAY_WINDOW_MS)
+    const signed = opsSigningString(method, target, auth.ts, body)
+    if (!verifyB64(key.publicKey, signed, auth.sig)) throw fail('bad signature')
+    // replay: the same signed request again within the window, keyed on the signed message, not the base64 text (after
+    // the signature check: only real signatures are kept)
+    if (!this.seen.firstUse(key.keyId, signed, now)) { this.counters.replays++; throw new OpsFail(409, 'replayed', 'this signed request was already used; sign it again') }
     return key
   }
 

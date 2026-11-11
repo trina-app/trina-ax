@@ -14,6 +14,10 @@ import {
 } from '@mycel/shared/relay-protocol'
 import { RENAME_REDIRECT_MS, normalizeClaimCode, type SuspendReason, type TeamOrigin } from '@mycel/shared/cloud-protocol/relay-ops'
 import { tx, type SqlDb } from './db.ts'
+import { ReplayCache } from './replay.ts'
+
+/** at most this many team-signed calls are remembered for the replay check (oldest dropped first) */
+const API_REPLAY_MAX = 10_000
 
 export interface TeamRow {
   id: string
@@ -138,6 +142,8 @@ export class Registry {
   private extraReserved: string[]
   private devNames: Set<string>
   private now: () => number
+  /** team-signed registry calls seen within the clock window either side (memory only) */
+  private apiSeen = new ReplayCache(2 * API_SIG_MAX_SKEW_MS, API_REPLAY_MAX)
 
   constructor(db: SqlDb, o: RegistryOptions = {}) {
     this.db = db
@@ -345,7 +351,10 @@ export class Registry {
     if (!t || t.status === 'released') throw new RegistryError('not_found', 'no such team', 404)
     if (Math.abs(this.now() - ts) > API_SIG_MAX_SKEW_MS) throw new RegistryError('unauthorized', 'request timestamp out of range (check the clock)', 401)
     const k = this.currentKey(teamId)
-    if (!k || !verifyB64(k.public_key, apiSigningString(method, path, ts, body), sig)) throw new RegistryError('unauthorized', 'bad signature', 401)
+    const signed = apiSigningString(method, path, ts, body)
+    if (!k || !verifyB64(k.public_key, signed, sig)) throw new RegistryError('unauthorized', 'bad signature', 401)
+    // the same signed call again within the window (replay; keyed on the signed message, not the base64 text)
+    if (!this.apiSeen.firstUse(teamId, signed, this.now())) throw new RegistryError('replayed', 'this signed request was already used; sign it again', 409)
     return t
   }
 

@@ -8,6 +8,7 @@ import {
 } from '@mycel/shared/relay-protocol'
 import { openSqlite } from '../../relay/src/db.ts'
 import { Registry, RegistryError } from '../../relay/src/registry.ts'
+import { base64Respellings } from '../lib/f-relay'
 
 const BITS = 6
 function regReq(name: string, kp = generateTeamKey(), ts = Date.now()): { req: RegisterRequest; kp: ReturnType<typeof generateTeamKey> } {
@@ -105,6 +106,35 @@ describe('registry', () => {
     // signatures are bound to method, path, time and body
     expect(code(() => r.verifyApi(a.teamId, 'DELETE', `/teams/${a.teamId}`, ts, '', sigNew))).toBe('unauthorized')
     expect(code(() => r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, ts - 120_000, '', sigNew))).toBe('unauthorized')
+  })
+
+  test('a team-signed call is accepted once: the same call again, however its base64 is spelled, is a replay', async () => {
+    let now = Date.now()
+    const r = await registry(() => now)
+    const { req, kp } = regReq('acme-co')
+    const a = r.register(req, BITS)
+    const key = loadPrivateKey(kp.privatePem)
+    const p = `/teams/${a.teamId}/heartbeat`
+    const body = '{"version":"0.1.0","members":3}'
+    const ts = now
+    const sig = signB64(key, apiSigningString('POST', p, ts, body))
+    expect(r.verifyApi(a.teamId, 'POST', p, ts, body, sig).id).toBe(a.teamId)
+    expect(code(() => r.verifyApi(a.teamId, 'POST', p, ts, body, sig))).toBe('replayed')
+    for (const respelled of base64Respellings(sig)) {
+      expect(Buffer.from(respelled, 'base64').equals(Buffer.from(sig, 'base64'))).toBe(true)
+      expect(code(() => r.verifyApi(a.teamId, 'POST', p, ts, body, respelled))).toBe('replayed')
+    }
+    // a fresh signature of the same call (a later ts) is a new call
+    now += 1
+    expect(r.verifyApi(a.teamId, 'POST', p, ts + 1, body, signB64(key, apiSigningString('POST', p, ts + 1, body))).id).toBe(a.teamId)
+    // still refused at the far edge of the clock window (signed 60 s ahead, replayed 119 s later)
+    const ahead = now + 60_000
+    const sigAhead = signB64(key, apiSigningString('GET', `/teams/${a.teamId}`, ahead, ''))
+    expect(r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, ahead, '', sigAhead).id).toBe(a.teamId)
+    now += 119_000
+    expect(code(() => r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, ahead, '', sigAhead))).toBe('replayed')
+    // a bad signature never takes room in the cache nor counts as a use
+    expect(code(() => r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, now, '', sigAhead))).toBe('unauthorized')
   })
 
   test('operator suspension and heartbeat', async () => {
