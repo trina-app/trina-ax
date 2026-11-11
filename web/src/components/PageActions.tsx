@@ -44,16 +44,19 @@ export function SplitAction({ label, icon, onPrimary, items, testId, menuLabel, 
  * (rooms/MenuButton.tsx), 48 px rows; a way that is not possible yet is left out there. */
 export function ActionMenu({ items, label, testId }: { items: AddMenuItem[]; label: string; testId: string }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
+  const sheetButton = useRef<HTMLButtonElement>(null)
   const half = 'h-11 rounded-l-none rounded-r-lg border-l border-accent-ink/20 bg-accent px-2.5 text-accent-ink'
   const ready = items.filter((it) => !it.disabled)
   // nothing possible yet (Usage's CSV before the report is in): the ⌄ waits, as its one item would
   if (phone && !ready.length)
+    // no-tooltip: a phone (no hover), and the button is off until its item is possible
     return <button type="button" disabled aria-label={label} className={`flex items-center opacity-50 ${half}`} data-testid={testId}><ChevronDown size={15} aria-hidden /></button>
   if (phone)
     return (
-      <MenuButton label={label} heading={label} icon={<ChevronDown size={15} aria-hidden />} className="flex" testId={testId}
+      <MenuButton label={label} heading={label} icon={<ChevronDown size={15} aria-hidden />} className="flex" testId={testId} buttonRef={sheetButton}
         buttonClassName="!h-11 !rounded-l-none !rounded-r-lg border-l border-accent-ink/20 !bg-accent !px-2.5 !text-accent-ink hover:!bg-accent-hover"
-        items={ready.map((it) => ({ label: it.label, icon: it.icon, onSelect: it.onSelect, testId: it.testId }))} />
+        // the keyboard on the ⌄ first: the item goes with the sheet, and a dialog it opens gives the focus back there
+        items={ready.map((it) => ({ label: it.label, icon: it.icon, onSelect: () => { sheetButton.current?.focus(); it.onSelect() }, testId: it.testId }))} />
     )
   return <ActionDropdown items={items} label={label} testId={testId} />
 }

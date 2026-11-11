@@ -26,7 +26,8 @@ function SheetMenu({ name, items, rowFocus }: { name: string; items: MemberMenuI
   useLayoutEffect(() => { button.current?.toggleAttribute('data-row-focus', !!rowFocus) }, [rowFocus])
   return (
     <MenuButton label={t('members.actionsFor', { name })} tip={t('members.actionsFor', { name })} sheetTitle={name} buttonRef={button} className="shrink-0" buttonClassName="size-11 !text-muted" testId="member-more"
-      items={[...items.filter((it) => !it.danger), ...items.filter((it) => it.danger)]} />
+      // the keyboard on "…" first (as the computer's menu): a dialog an item opens gives the focus back there
+      items={[...items.filter((it) => !it.danger), ...items.filter((it) => it.danger)].map((it) => ({ ...it, onSelect: () => { button.current?.focus(); it.onSelect() } }))} />
   )
 }
 

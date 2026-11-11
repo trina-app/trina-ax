@@ -32,7 +32,8 @@ const PAGES: { path: string; ready: string; primary?: string; filters?: string }
   { path: '/admin/groups', ready: 'group-list', primary: 'group-new' },
   { path: '/admin/folders', ready: 'access-tree', primary: 'folder-rule-new', filters: 'tree-filters' },
   { path: '/admin/providers', ready: 'engine-list' },
-  { path: '/admin/connectors', ready: 'connector-list', primary: 'integration-add' },
+  // no Add on a phone: adding a service by its address is a computer's job (TC-270, phone-admin-pages.spec.ts)
+  { path: '/admin/connectors', ready: 'connector-list' },
   { path: '/admin/ai-apps', ready: 'admin-ai-app-list' },
   { path: '/admin/plugins', ready: 'plugins-catalog' },
   { path: '/admin/slack', ready: 'slack-status', primary: 'slack-toggle' },
@@ -60,8 +61,10 @@ for (const locale of ['en', 'es'] as const) {
         await expect(page.getByTestId(p.filters)).toBeHidden()
         await toggle.click()
         await expect(page.getByTestId(p.filters)).toBeVisible()
-        // open, the filters still fit (Activity log's kinds took about 550 px in Spanish)
+        // open (in a bottom sheet since TC-269), the filters still fit (Activity log's kinds took about 550 px in Spanish)
         await fits(page)
+        const sheet = await page.getByTestId(p.filters).boundingBox()
+        expect(sheet!.x + sheet!.width).toBeLessThanOrEqual(390)
       }
     }
   })
@@ -97,21 +100,23 @@ test.describe('each page', () => {
     await page.getByTestId('tree-filters-toggle').click()
     await page.getByTestId('tree-filters').getByText(t['accessTree.ruledOnly']).click()
     await expect(page.getByTestId('tree-ruled-only')).toBeChecked()
+    // the filters are a bottom sheet (TC-269): Done closes it
+    await page.getByTestId('tree-filters-done').click()
     await expect(page.getByTestId('tree-filters-count')).toContainText('1')
     // the views still switch, with no history added (PR 1a)
     await views.getByRole('tab', { name: t['accessView.byPerson'] }).click()
     await expect(page.getByTestId('access-person-search')).toBeVisible()
   })
 
-  test('Providers: one row per engine; its accounts and Add account open when its name is tapped', async ({ page }) => {
+  test('Providers: one row per engine; its accounts and Add account are on its own page', async ({ page }) => {
     await page.goto('/admin/providers')
-    const claude = page.locator('[data-testid="engine-card"][data-engine="claude-code"]')
+    // a row that opens the engine's page (TC-267: no accordion on a phone)
+    const claude = page.locator('[data-testid="engine-row"][data-engine="claude-code"]')
     await expect(claude).toBeVisible()
     await expect(page.getByTestId('provider-accounts-claude')).toHaveCount(0)
-    // the dim line (how it signs in, models, when checked) is in the opened part; the name is a 44 px target
-    await expect(claude.getByText(t['engines.mode.local-login'].replace('{provider}', ''), { exact: false })).toHaveCount(0)
-    await tall(claude.getByTestId('engine-open'))
-    await claude.getByTestId('engine-open').click()
+    await tall(claude)
+    await claude.click()
+    await expect(page).toHaveURL(/\/admin\/providers\/claude-code$/)
     await expect(page.getByTestId('provider-accounts-claude')).toBeVisible()
     await expect(page.getByTestId('provider-add-claude')).toBeVisible()
   })
@@ -130,6 +135,9 @@ test.describe('each page', () => {
       await route.fulfill({ response: res, json: body })
     })
     await page.goto('/admin/providers')
+    // the row says something needs a look; the engine's page shows which account
+    await expect(page.locator('[data-testid="engine-row"][data-engine="claude-code"]')).toHaveAttribute('data-look', 'true')
+    await page.locator('[data-testid="engine-row"][data-engine="claude-code"]').click()
     await expect(page.getByTestId('provider-accounts-claude').getByTestId('credential-row')).toBeVisible()
     await expect(page.getByTestId('provider-accounts-codex')).toHaveCount(0)
   })
@@ -174,6 +182,8 @@ test.describe('each page', () => {
     await page.getByTestId('usage-filter-user').selectOption({ label: 'Bob' })
     await expect(page.getByTestId('usage-filters-count')).toContainText('1')
     await expect(page.getByTestId('usage-filters-clear')).toBeVisible()
+    // the filters are a bottom sheet (TC-269): Done closes it
+    await page.getByTestId('usage-filters-done').click()
     // Group by is a view choice: beside the breakdown's heading, not among the filters
     const breakdown = page.getByRole('region', { name: t['usage.breakdownTitle'] })
     await expect(breakdown.getByTestId('usage-groupby')).toBeVisible()
