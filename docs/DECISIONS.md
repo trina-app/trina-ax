@@ -22175,6 +22175,8 @@ at least 16 px text, because iOS Safari zooms in on a smaller one.
 - Computers and tablets (768 px and wider) keep their sizes.
 - `web/test/e2e/phone-targets.spec.ts` measures the main phone screens.
 
+Version impact: patch (phone sizes only; no API, data or migration change).
+
 ## A PDF pinch keeps the place under the fingers (fix/pdf-pinch-anchor, 2026-11-11, QA TC-259)
 
 No new design: this is a fix inside the existing pinch (a live transform, then drawing again at the new width). While
