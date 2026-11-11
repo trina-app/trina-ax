@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { OAUTH_LIMITS, RemoteOAuth, connectorOrigin, ipKey, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
+import { OAUTH_LIMITS, RemoteOAuth, connectorOrigin, ipKey, networkKey, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
 import { challenge, hash } from '../../server/src/connectors/remote-mcp/policy'
 import { harness, withOwner, type Harness } from './a-lib'
 
@@ -231,4 +231,15 @@ test('rate keys: IPv4 as is, IPv4-mapped as IPv4, IPv6 by its /64', () => {
   expect(ipKey('2001:db8::1')).toBe('2001:db8:0:0::/64')
   expect(ipKey('fe80::1%en0')).toBe('fe80:0:0:0::/64')
   expect(ipKey('::1')).toBe('0:0:0:0::/64')
+})
+
+test('network keys of the busy-minute share: IPv4 by its /24, IPv6 by its /48', () => {
+  expect(networkKey(null)).toBe('unknown')
+  expect(networkKey('203.0.113.9')).toBe('203.0.113.0/24')
+  expect(networkKey('::ffff:203.0.113.200')).toBe('203.0.113.0/24')
+  expect(networkKey('2001:db8:1:2::1')).toBe('2001:db8:1::/48')
+  expect(networkKey('2001:db8:1:ffff:1::9')).toBe('2001:db8:1::/48')
+  expect(networkKey('2001:db8::1')).toBe('2001:db8:0::/48')
+  expect(networkKey('::1')).toBe('0:0:0::/48')
+  expect(networkKey('not an address')).toBe('not an address')
 })
