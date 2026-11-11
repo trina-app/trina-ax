@@ -20722,6 +20722,41 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   change (times out). On the overloaded Mac, where `person.spec.ts` failed on dev, it passed with this change.
 - Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
 
+## QA follow-ups: no admin named to members, a schedule card's rooms are read only, no stale template row (fix/qa-final-followups, 2026-11-11, QA on dev 1565b39f1)
+
+- **Templates and requests never name the admin to a member.** "Admins are never named" (above, review of #273) now
+  covers connections an admin sets up for members too. A template's connect dialog read "최관리님이 팀을 위해 준비한
+  서비스예요"; it reads "A service your team set up for you" / "팀에서 준비한 서비스예요". A request to a member reads
+  "An admin asked you to connect …" in the live banner (`requestNotice`, server text), "Asked by an admin · until …" in
+  its line and "An admin asked you to connect this service with your own account." in its dialog (the inbox already said
+  "An admin"). The server does not send the name either: `MyIntegrationTemplate.createdBy` is always null
+  (`templates.ts listMine`), and a member's own request (`requests.ts view(…, forMember)`: list, one, decline) has
+  `requestedBy` null. Both fields stay in the contract so older clients still read the lists. Admin views keep the
+  name (Admin › Connectors' templates, "Requests to members", the activity log), and a project's creator stays named
+  where the projects decisions allow it. Key `integrations.template.yourTeam` is gone.
+- **A schedule card's rooms are what a run may read, not where it may send.** With no save folder the card listed rooms
+  as "읽고 보내도 되는 대화" (may read and send). A run never posts to a room (`post_to_room` refuses in a scheduled run,
+  "Scheduled tasks: saving and sending allowed on the card"), and no other tool posts there; a room on the card lets a
+  run read it, and after reading it send only to the person's own connections the card pinned, which the "Where it may
+  send" line already says. The line is now "읽을 수 있는 대화: …" / "Conversations it may read: …" in all five
+  languages. Words only: what a run may do is unchanged.
+- **A dropped template connection leaves no stale row.** When an admin changes a template's address, sign-in method,
+  header or app, deletes it, or its rule leaves a member out, the members' connections made from it are dropped
+  (`service.ts dropFromTemplate`). A member whose Connectors page was open still saw the old row, and its "다시 시도"
+  said "찾을 수 없거나 접근 권한이 없어요" until a reload. Now (1) `dropFromTemplate` sends each member whose connection
+  went one quiet notice, `integrations_changed` (no text, like `profile_changed`; the inbox notice says what to do), and
+  the Connectors page reads its lists again (`store/live.ts integrationsChanged`, as `reloadAsked`); (2) an action on a
+  row that comes back 404 (check again, sign in, a tool switch, delete; `IntegrationRow.tsx useIntegrationActions`,
+  `useSignIn(…, onGone)`) reads the lists again with "This connection is no longer here, so the list was updated."
+  instead of keeping a failed state on a row that is gone, as FromTeam's connect already reloads on 409.
+- Tests: `tests/unit/c-integration-templates.test.ts` ("QA follow-ups": no maker's name in a member's list; the notice
+  to the member whose connection went, once, nobody else), `tests/unit/c-integration-requests.test.ts` (banner and the
+  member's views without the admin's name; the admin's list keeps it), `tests/unit/schedule-card-rooms-line.test.ts`
+  (the rooms line in five languages, no word of sending), web unit `integration-gone` (404 on check again, sign in, a
+  tool switch: lists again, no failed state; the notice reaches the page without a toast).
+- Version impact: **patch** (words; two fields always null for members; one new notice code an older web shows as an
+  empty toast at most). Needed in the core too (potenlab/team-ax): everything here.
+
 ## File list — 파일 목록; the AI greps a `_FILES.md` that says what each file is (feat/file-list, 2026-11-11, product owner)
 
 넣을 곳: Team AX core (`server/src/file-list/`, the AI's file tools in `files/service.ts` and `files/search.ts`,
