@@ -2508,7 +2508,7 @@ export const es: Record<MessageKey, string> = {
   'system.backupScope.incremental': "Incremental",
   'system.restore': "Restaurar",
   'system.restoreTitle': "¿Restaurar esta copia de seguridad?",
-  'system.restoreBody': "Se perderán todos los cambios posteriores al {date} en chats, memorias, configuración, reglas de carpetas y cuentas; volverán los chats eliminados desde entonces. El servidor se reiniciará y todos deberán iniciar sesión de nuevo. Los enlaces de invitación y restablecimiento sin usar dejarán de funcionar. Los archivos de la carpeta del equipo se mantienen como están (restáurelos desde su historial o la papelera). Esta acción no se puede deshacer.",
+  'system.restoreBody': "Se perderán todos los cambios posteriores al {date} en chats, memorias, configuración y cuentas; volverán los chats eliminados desde entonces. El servidor se reiniciará y todos deberán iniciar sesión de nuevo. Los enlaces de invitación y restablecimiento sin usar dejarán de funcionar. Los archivos de la carpeta del equipo y los permisos de carpetas se mantienen como están (restáurelos desde su historial o la papelera). Esta acción no se puede deshacer.",
   'system.restoreDone': "Restaurado. Recargue la página.",
   'system.lastRestore': "El {at}, {name} restauró la copia de seguridad del {backup}.",
   'system.lastRestoreNoName': "El {at} se restauró la copia de seguridad del {backup}.",

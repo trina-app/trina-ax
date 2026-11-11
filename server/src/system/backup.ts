@@ -11,13 +11,15 @@
 //              on is kept, and so is the newest one. The DB a restore replaced (before-restore-<time>/) and the migration
 //              runner's copies go by the same retention, the newest of each kept.
 // Restore:     POST /api/admin/restore only puts an older DB back (same Mac; tab 6). The copy is integrity-checked and
-//              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore). Team-folder
+//              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore), with the
+//              folder permissions of the current DB (keepFolderAccess: the team folder stays as it is now). Team-folder
 //              restores and moving to another Mac go through scripts/ (admin password) using restoreTeamTo().
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
+import { PRODUCT } from '@mycel/shared'
 import { z } from 'zod'
 import type { BackupInfo, LastRestore } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -542,6 +544,67 @@ export function keepServerSettings(live: string, staged: string): void {
   } finally { d.close() }
 }
 
+interface FolderRowCopy { id: string; path: string; created_at: string }
+interface FolderRuleCopy { id: string; folder_id: string; subject_type: string; subject_id: string | null; access: string; updated_by: string | null; updated_at: string }
+
+/**
+ * A database-only restore leaves the team folder as it is now, so the folder permissions stay as they are now too
+ * (docs/DECISIONS.md "A database-only restore keeps the folder permissions"): the staged copy gets the current
+ * `folders` rows and every rule of the current database, and so the same rules at every path as just before the
+ * restore. With the backup's rules a folder made and closed after the backup had no rules and inherited the folder
+ * above it (shared/: everyone), and a folder closed after the backup opened again: every member read files that were
+ * never theirs (QA TC-195).
+ * The backup's folders rows that today's database does not have (by id or by path) stay, without rules, so trash items,
+ * versions and groups that point at them keep pointing at something; a row parked with a trashed folder
+ * (.system/trash/…) keeps its backup rules, which only decide who sees that trash item and its versions, as at the
+ * backup. A group whose folder row goes gets no folder. Call before the swap; throws on any failure (the restore stops).
+ * Returns false, changing nothing, when the current database is missing or cannot be read (the restore is the way back
+ * from a broken database): then the backup's rules apply and the restore result says so.
+ */
+export function keepFolderAccess(live: string, staged: string, log?: Pick<Logger, 'error'>): boolean {
+  let rows: FolderRowCopy[]
+  let rules: FolderRuleCopy[]
+  if (!fs.existsSync(live)) return false
+  try {
+    const d = new Database(live, { readonly: true })
+    try {
+      rows = d.query('SELECT id, path, created_at FROM folders').all() as FolderRowCopy[]
+      rules = d.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at FROM folder_rules').all() as FolderRuleCopy[]
+    } finally { d.close() }
+  } catch (e) {
+    log?.error('could not read the folder permissions of the current database; the restored database keeps the backup\'s', { err: e })
+    return false
+  }
+  const d = new Database(staged)
+  try {
+    d.transaction(() => {
+      const ids = new Set(rows.map((r) => r.id))
+      const paths = new Set(rows.map((r) => r.path))
+      const isParked = (p: string) => p === PRODUCT.systemDir || p.startsWith(`${PRODUCT.systemDir}/`)
+      const old = d.query('SELECT id, path FROM folders').all() as { id: string; path: string }[]
+      // the backup's rows today's database has no row for (by id or by path) stay; of their rules only a parked row's
+      const stays = old.filter((r) => !ids.has(r.id) && !paths.has(r.path))
+      const keepRules = new Set(stays.filter((r) => isParked(r.path)).map((r) => r.id))
+      for (const r of d.query('SELECT id, folder_id FROM folder_rules').all() as { id: string; folder_id: string }[]) {
+        if (!keepRules.has(r.folder_id)) d.query('DELETE FROM folder_rules WHERE id = ?').run(r.id)
+      }
+      for (const r of old) {
+        if (!ids.has(r.id) && !paths.has(r.path)) continue
+        // today's row of this id comes back below; a row of another id at one of today's paths goes, and a group that
+        // had it as its folder has none (another folder took the path since)
+        if (!ids.has(r.id)) d.query('UPDATE groups SET folder_id = NULL WHERE folder_id = ?').run(r.id)
+        d.query('DELETE FROM folders WHERE id = ?').run(r.id)
+      }
+      const insRow = d.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)')
+      for (const r of rows) insRow.run(r.id, r.path, r.created_at)
+      const insRule = d.query('INSERT OR REPLACE INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      for (const r of rules) insRule.run(r.id, r.folder_id, r.subject_type, r.subject_id, r.access, r.updated_by, r.updated_at)
+    })()
+    d.run('PRAGMA wal_checkpoint(TRUNCATE)') // the copy is moved without side files
+  } finally { d.close() }
+  return true
+}
+
 /** A copy of the database that leaves the server for the team (archive, archiveUpload: the export) holds no key of the
  * hosting service's: its row goes and its bytes are overwritten (secure_delete). The team's own keys stay (encrypted). */
 export function withoutHostingKey(file: string): void {
@@ -567,6 +630,9 @@ export interface RestoreOutcome {
   requestedBy?: string | null
   requestedAt?: string
   backupCreatedAt?: string | null
+  /** an applied restore: the folder permissions kept as they were ('kept', keepFolderAccess) or the backup's ('backup':
+   * the current database could not be read) */
+  folderRules?: 'kept' | 'backup'
 }
 
 export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>, o: { rename?: (a: string, b: string) => void } = {}): RestoreOutcome {
@@ -589,6 +655,9 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
     const live = path.join(dataDir, 'app.db')
     // the hosting service's key and this month's free hours stay as they are now (SERVER_OWN_SETTINGS)
     try { keepServerSettings(live, p.file) } catch (e) { log.error('could not keep this server\'s own settings in the restored database', { err: e }) }
+    // the team folder stays as it is now, so who may open its folders does too (QA TC-195). A failure here stops the
+    // restore; only a current database that is missing or cannot be read leaves the backup's rules (said in the result)
+    const folderRules: 'kept' | 'backup' = keepFolderAccess(live, p.file, log) ? 'kept' : 'backup'
     const keep = path.join(dataDir, 'backups', `before-restore-${stamp(new Date())}`)
     fs.mkdirSync(keep, { recursive: true, mode: 0o700 })
     const moved: string[] = []
@@ -614,9 +683,9 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
         fs.rmSync(sessions, { recursive: true, force: true })
       }
     }
-    fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep }), { mode: 0o600 })
-    log.info('database restored from backup', { backupId: p.backupId, previousDb: keep })
-    return { applied: true, backupId: p.backupId, requestedBy: p.requestedBy, requestedAt: p.requestedAt, backupCreatedAt: p.backupCreatedAt ?? null }
+    fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep, folderRules }), { mode: 0o600 })
+    log.info('database restored from backup', { backupId: p.backupId, previousDb: keep, folderRules })
+    return { applied: true, backupId: p.backupId, requestedBy: p.requestedBy, requestedAt: p.requestedAt, backupCreatedAt: p.backupCreatedAt ?? null, folderRules }
   } catch (e) {
     fs.writeFileSync(result, JSON.stringify({ ok: false, backupId: p.backupId, at: new Date().toISOString(), error: (e as Error).message }), { mode: 0o600 })
     log.error('restore failed; the current database was kept', { backupId: p.backupId, err: e })
