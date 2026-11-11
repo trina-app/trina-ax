@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 03:29
 - Branch: `fix/calm-error-states`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`web/src`). Why: the screens, their shared blocks and the app frame are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: how existing load and connection errors look and behave, a few words; no API or data change
 
@@ -67,4 +67,9 @@ of the touched screens and a new `calm-errors.spec.ts`.
 
 ## Result
 
-(filled in at the end)
+Built as planned, PR https://github.com/trina-app/trina-ax/pull/357. Changed after the review: the side chat keeps a
+chat the person opens while its notice shows (the read that comes back only fills in "no chat yet" or a chat found
+gone); of several places on screen that could not be read, one says it (the page's before the sidebar's); while the
+connection banner shows, a place still reads every 30 s; [다시 시도] shows its spinner while its read runs; the backoff
+memory per place was dropped (every changed place keeps its error until a read works). The message box's calm line is
+Home's first message only (the side chat's box keeps its toast).
