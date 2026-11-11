@@ -218,6 +218,9 @@ export const MISC_SPECS: Record<string, Spec> = {
   // canary check catches it for everyone else)
   searchRoomMessages: { build: (c) => c.get(`/api/room-messages?q=${encodeURIComponent(C.dmMsg)}`), scope: 'self',
     check: (r, _w, who) => { if ((who === 'memberIn' || who === 'other') && !r.text.includes(C.dmMsg)) throw new Error(`${who} does not find the DM's message`) } },
+  // the files sent there, by name: the DM's file is found by its two people and by nobody else (the canary check)
+  searchRoomFiles: { build: (c) => c.get(`/api/room-files?q=${encodeURIComponent(C.dmFileName)}`), scope: 'self',
+    check: (r, _w, who) => { if ((who === 'memberIn' || who === 'other') && !r.text.includes(C.dmFileName)) throw new Error(`${who} does not find the DM's file`) } },
   // away: only my own (a body naming someone else is refused)
   setMyAway: { build: (c) => c.put('/api/me/away', { away: false }), scope: 'self',
     check: async (r, w, who) => {

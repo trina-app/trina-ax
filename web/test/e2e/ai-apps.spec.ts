@@ -1,6 +1,6 @@
 // AI apps in Settings › AI apps (pages/AiApps.tsx) and Admin › AI apps (pages/admin/AiApps.tsx), a section of their own
 // since App connectors became the apps the AI here connects to (components/integrations/AiAppConnect.tsx): one row per
-// app (Claude, Claude Code, other MCP apps), Connect opens numbered steps with the real connector address and Copy, the
+// app (Claude, Claude Code, Codex, other MCP apps), Connect opens numbered steps with the real connector address and Copy, the
 // dialog notices when the app has connected, and a server with the connector off tells members one line and gives owners
 // and admins the setup. Drive: drive.spec.ts; Admin › App connectors: admin-app-connectors.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
@@ -20,16 +20,17 @@ async function connector(page: Page, on = true) {
 
 const apps = (page: Page) => page.getByTestId('ai-app-list')
 
-test('three AI apps, each with a logo and Connect; Claude opens three steps with the real address and Copy', async ({ page }) => {
+test('four AI apps, each with a logo and Connect; Claude opens three steps with the real address and Copy', async ({ page }) => {
   await reset(page)
   await connector(page)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/ai-apps')
-  await expect(apps(page).locator(':scope > li')).toHaveCount(3)
+  await expect(apps(page).locator(':scope > li')).toHaveCount(4)
   await expect(page.getByTestId('ai-app-claude').getByTestId('connector-logo')).toHaveAttribute('src', '/icons/connectors/claude.svg')
   await expect(page.getByTestId('ai-app-claude-code').getByTestId('connector-logo')).toHaveAttribute('src', '/icons/connectors/claude.svg')
+  await expect(page.getByTestId('ai-app-codex').getByTestId('connector-logo')).toHaveAttribute('src', '/icons/connectors/codex.svg')
   await expect(page.getByTestId('ai-app-other').getByTestId('connector-logo')).toHaveCount(0)
   await page.getByTestId('ai-app-connect-claude').click()
   const dialog = page.getByRole('dialog', { name: 'Claude 연결' })
@@ -44,7 +45,7 @@ test('three AI apps, each with a logo and Connect; Claude opens three steps with
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Claude Code: the exact command to copy, then /mcp; other apps: the address and what is not confirmed yet', async ({ page }) => {
+test('Claude Code: the exact command to copy, then /mcp; Codex: add, then login; other apps: the address and what is not confirmed yet', async ({ page }) => {
   await reset(page)
   await connector(page)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -58,6 +59,11 @@ test('Claude Code: the exact command to copy, then /mcp; other apps: the address
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command)
   await expect(code.getByTestId('ai-app-mcp')).toContainText('/mcp')
   await code.getByTestId('ai-app-done').click()
+  await page.getByTestId('ai-app-connect-codex').click()
+  const codex = page.getByRole('dialog', { name: 'Codex 연결' })
+  await expect(codex.getByTestId('ai-app-command')).toHaveText(`codex mcp add trina-ax --url ${RESOURCE}`)
+  await expect(codex.getByTestId('ai-app-login')).toHaveText('codex mcp login trina-ax')
+  await codex.getByTestId('ai-app-done').click()
   await page.getByTestId('ai-app-connect-other').click()
   const other = page.getByRole('dialog', { name: '다른 MCP 앱 연결' })
   await expect(other.getByTestId('ai-app-address')).toContainText(RESOURCE)
@@ -143,7 +149,7 @@ test('connector off: a member sees one line and no Connect; an owner gets the se
   await expect(page.getByTestId('ai-app-connect-claude')).toHaveCount(0)
 })
 
-test('Admin › AI apps: in the Admin menu, the same three apps with Connect when on, the setup when off', async ({ page }) => {
+test('Admin › AI apps: in the Admin menu, the same four apps with Connect when on, the setup when off', async ({ page }) => {
   await reset(page)
   await page.route('**/api/integrations/google-drive', (r) => r.fulfill({ json: { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null } }))
   let on = true
@@ -154,7 +160,7 @@ test('Admin › AI apps: in the Admin menu, the same three apps with Connect whe
   await expect(page).toHaveURL(/\/admin\/ai-apps$/)
   await expect(page.getByTestId('admin-ai-apps-header')).toContainText('AI 앱')
   const list = page.getByTestId('admin-ai-app-list')
-  await expect(list.locator(':scope > li')).toHaveCount(3)
+  await expect(list.locator(':scope > li')).toHaveCount(4)
   await list.getByTestId('ai-app-connect-claude-code').click()
   await expect(page.getByRole('dialog', { name: 'Claude Code 연결' }).getByTestId('ai-app-command')).toContainText(RESOURCE)
   await page.keyboard.press('Escape')
@@ -196,3 +202,16 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await audit()).toEqual([])
   })
 }
+
+test('each connection marks its own row: "Claude Code (<server>)" is Claude Code, Codex is Codex, the rest is other', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page)
+  state.items = [{ ...app, clientName: 'Claude Code (trina-ax)' }, { ...app, id: 'synthetic-grant-2', clientName: 'Codex' }, { ...app, id: 'synthetic-grant-3', clientName: 'Cursor' }]
+  await signIn(page)
+  await page.goto('/settings/ai-apps')
+  await expect(page.getByTestId('ai-app-connected-claude-code')).toBeVisible()
+  await expect(page.getByTestId('ai-app-connected-codex')).toBeVisible()
+  await expect(page.getByTestId('ai-app-connected-claude')).toHaveCount(0)
+  await expect(page.getByTestId('ai-app-connected-other')).toContainText('Cursor')
+  await expect(page.getByTestId('ai-app-connected-other')).not.toContainText('Codex')
+})

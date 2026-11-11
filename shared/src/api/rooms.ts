@@ -593,8 +593,8 @@ export const ListRoomMessagesQuery = PageQuery.extend({ around: Uuid7.optional()
 export const RoomMessagesPage = page(RoomMessage).extend({ newerCursor: z.string().nullable().optional() })
 export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
 
-/** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): the text as one part, in
- * any case, newest first. */
+/** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): every word of the text, in
+ * any order and any case, newest first. */
 export const ROOM_SEARCH_PAGE_MAX = 30
 export const ROOM_SEARCH_SNIPPET_MAX = 200
 export const RoomSearchQuery = z.object({
@@ -626,6 +626,21 @@ export const RoomSearchRoom = z.object({ id: Uuid7, kind: RoomKind, name: z.stri
 export type RoomSearchRoom = z.infer<typeof RoomSearchRoom>
 export const RoomSearchPage = z.object({ items: z.array(RoomSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
 export type RoomSearchPage = z.infer<typeof RoomSearchPage>
+/** A file sent in a room, found by its name (same query as RoomSearchQuery: every word in the name, any case): the file
+ * as the room shows it, and the message it was sent with, which opening it opens (a thread reply: in its thread). Only
+ * files of messages I would see by opening the room now. */
+export const RoomFileSearchHit = z.object({
+  file: RoomFile,
+  messageId: Uuid7,
+  roomId: Uuid7,
+  threadRootId: Uuid7.nullable(),
+  /** who sent it (null: someone no longer here) */
+  author: UserRef.nullable(),
+  createdAt: IsoTime,
+})
+export type RoomFileSearchHit = z.infer<typeof RoomFileSearchHit>
+export const RoomFileSearchPage = z.object({ items: z.array(RoomFileSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
+export type RoomFileSearchPage = z.infer<typeof RoomFileSearchPage>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
@@ -674,7 +689,8 @@ export const ROOMS = {
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
-  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: the text as one part, any case; Korean by part of a word), newest first, with the text around the match and the rooms of the hits.' }),
+  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case; Korean by part of a word), newest first, with the text around the first word found and the rooms of the hits.' }),
+  searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),

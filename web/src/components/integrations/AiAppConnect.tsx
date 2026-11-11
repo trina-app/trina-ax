@@ -31,12 +31,18 @@ export function AiAppLogo({ app, className }: { app: AiApp; className?: string }
   return <span className={`flex shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted ${className ?? ''}`}><Plug size={16} aria-hidden /></span>
 }
 
-/** The names of my connected apps that belong to one row: a named app by its client name (any case), the generic row
- * every other one (Codex, Cursor, ...). Several connections of one app count once. */
+/** The app row that a client name belongs to: the app name, or the app name and " (…)" (Claude Code registers as
+ * "Claude Code (<server name>)"), in any case. Undefined: the generic row. */
+export function appIdFor(clientName: string): AiApp['id'] | undefined {
+  const n = clientName.trim().toLowerCase()
+  return AI_APPS.find((a) => a.name && (n === a.name.toLowerCase() || n.startsWith(`${a.name.toLowerCase()} (`)))?.id
+}
+
+/** The names of my connected apps that belong to one row (appIdFor); the generic row takes every other one (Cursor, ...).
+ * Several connections of one app count once. */
 export function connectedTo(app: AiApp, items: readonly Pick<RemoteConnectionInfo, 'clientName'>[]): string[] {
-  const named = new Set(AI_APPS.flatMap((a) => (a.name ? [a.name.toLowerCase()] : [])))
   const names = items.map((i) => i.clientName.trim()).filter(Boolean)
-  const mine = app.name ? names.filter((n) => n.toLowerCase() === app.name!.toLowerCase()) : names.filter((n) => !named.has(n.toLowerCase()))
+  const mine = names.filter((n) => (appIdFor(n) ?? 'other') === app.id)
   const seen = new Set<string>()
   return mine.filter((n) => (seen.has(n.toLowerCase()) ? false : (seen.add(n.toLowerCase()), true)))
 }
@@ -134,6 +140,8 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected])
   const command = `claude mcp add --transport http ${CONNECTOR_NAME} ${resource}`
+  const codexCommand = `codex mcp add ${CONNECTOR_NAME} --url ${resource}`
+  const codexLogin = `codex mcp login ${CONNECTOR_NAME}`
   return (
     <Modal open title={t('aiApps.connectTitle', { name })} onClose={onClose} width={520}
       footer={<div className="flex justify-end"><Button variant={connected ? 'primary' : 'secondary'} onClick={onClose} data-testid="ai-app-done">{t('common.done')}</Button></div>}>
@@ -155,6 +163,13 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
               <Step n={1}><p>{t('aiApps.claude-code.step1')}</p><CopyLine text={command} testId="ai-app-command" /></Step>
               <Step n={2}><p>{t('aiApps.claude-code.step2', { server: CONNECTOR_NAME })}</p><CopyLine text="/mcp" testId="ai-app-mcp" /></Step>
               <Step n={3}><p>{t('aiApps.claude-code.step3')}</p></Step>
+            </>
+          )}
+          {app.id === 'codex' && (
+            <>
+              <Step n={1}><p>{t('aiApps.codex.step1')}</p><CopyLine text={codexCommand} testId="ai-app-command" /></Step>
+              <Step n={2}><p>{t('aiApps.codex.step2')}</p><CopyLine text={codexLogin} testId="ai-app-login" /></Step>
+              <Step n={3}><p>{t('aiApps.codex.step3')}</p><p className="text-xs text-muted">{t('aiApps.codex.step3Hint')}</p></Step>
             </>
           )}
           {app.id === 'other' && (
