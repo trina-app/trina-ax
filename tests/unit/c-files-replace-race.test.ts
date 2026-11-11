@@ -16,16 +16,18 @@ afterAll(async () => { await A.close() })
 
 const bytes = (s: string) => new TextEncoder().encode(s.repeat(50_000))
 
-test('concurrent replaces: every version is stored under the sha256 of its own bytes, and each one restores', async () => {
+for (const warm of [false, true]) test(`concurrent replaces: every version is stored under the sha256 of its own bytes, and each one restores${warm ? ' (its hash in the cache: someone opened it)' : ''}`, async () => {
   const files = componentC(A.ctx).files
-  const rel = 'shared/budget.xlsx', abs = path.join(A.team, rel)
+  const rel = `shared/budget-${warm}.xlsx`, abs = path.join(A.team, rel)
   const orig = bytes('original '), a = bytes('from alice '), b = bytes('from bob ')
   fs.writeFileSync(abs, orig)
+  // opening the file keeps its hash in the cache: no disk read lets the other upload in between any more
+  if (warm) await files.content('alice', rel)
   const tmp = path.join(A.data, 'up')
   const [ta, tb] = [await writeTemp(tmp, a), await writeTemp(tmp, b)]
   await Promise.all([
-    files.placeUpload('alice', 'shared', 'budget.xlsx', ta, 'replace', sha256hex(a)),
-    files.placeUpload('alice', 'shared', 'budget.xlsx', tb, 'replace', sha256hex(b)),
+    files.placeUpload('alice', 'shared', path.basename(rel), ta, 'replace', sha256hex(a)),
+    files.placeUpload('alice', 'shared', path.basename(rel), tb, 'replace', sha256hex(b)),
   ])
   const versions = A.ctx.db.query('SELECT id, version, sha256, storage_path FROM file_versions WHERE path = ? ORDER BY version').all(rel) as { id: string; version: number; sha256: string; storage_path: string }[]
   expect(versions).toHaveLength(2)

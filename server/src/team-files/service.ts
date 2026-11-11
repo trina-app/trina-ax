@@ -237,16 +237,18 @@ export class TeamFiles {
     return { abs: r.abs, name: r.segs[r.segs.length - 1]! }
   }
 
-  /** The sha256 of the file at `abs` as it is now: hashed again when it was replaced or written while it was read.
-   * A caller snapshots it right after, with no await between, so a version's bytes are the ones its hash names (11-11
-   * code audit, row 33: two replace uploads at once kept the first one's bytes under the hash of the file before it,
-   * and restoring that version did nothing). A file that never holds still (someone outside keeps writing): conflict. */
-  private async shaNow(abs: string): Promise<string> {
+  /** Replace the file at `abs`: `then` gets the sha256 of the file as it is now, and runs in the same synchronous step
+   * as the check that the file did not change (inode, size, mtime) while it was hashed, so it keeps the current file as
+   * a version and puts the new one in place with nothing in between. Hashed again when it changed (11-11 code audit,
+   * row 33: two replace uploads at once kept the first one's bytes under the hash of the file before it, and restoring
+   * that version did nothing; a hash from the cache let the other one in between too). A file that never holds still
+   * (someone outside keeps writing): conflict. */
+  private async replacing<T>(abs: string, then: (sha: string) => T): Promise<T> {
     for (let i = 0; i < 5; i++) {
       const st = checkRegular(abs)
       const h = await this.sha(abs, st)
       const now = checkRegular(abs)
-      if (now.ino === st.ino && now.dev === st.dev && now.size === st.size && now.mtimeMs === st.mtimeMs) return h
+      if (now.ino === st.ino && now.dev === st.dev && now.size === st.size && now.mtimeMs === st.mtimeMs) return then(h)
     }
     throw new HttpError('conflict')
   }
@@ -903,27 +905,35 @@ export class TeamFiles {
     const onExists = o.onExists ?? 'rename'
     let replaced = false
     let conflictOf: string | null = null
+    let out: ReturnType<typeof copyTeamFile> | null = null
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
       if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
       if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name, false, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))].join('/'), 'write', { mustExist: false })
       else {
-        const cur = await this.shaNow(r.abs)
-        if (o.baseSha256 && o.baseSha256 !== cur) {
+        const target = r
+        out = await this.replacing(target.abs, (cur) => {
+          if (o.baseSha256 && o.baseSha256 !== cur) return null
+          // the copy follows the snapshot in the same step (replacing)
+          grant?.recheck()
+          snapshotVersion(this.ctx.db, this.root, target.rel, { userId, turnId: null }, 'edit', cur)
+          replaced = true
+          return copyTeamFile(this.root, fr.abs, target.segs)
+        })
+        if (!out) {
           // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
           let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
           if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
           conflictOf = r.rel
           r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
-        } else {
-          snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
-          replaced = true
         }
       }
     }
-    // the card's plan again, right before the copy
-    grant?.recheck()
-    const out = copyTeamFile(this.root, fr.abs, r.segs)
+    if (!out) {
+      // the card's plan again, right before the copy
+      grant?.recheck()
+      out = copyTeamFile(this.root, fr.abs, r.segs)
+    }
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
     // a conflict copy is told to both people and listed in the original's history, like a conflicting save
     const turnId = o.turnId ?? null, tool = o.tool ?? 'file-screen'
@@ -1704,15 +1714,20 @@ export class TeamFiles {
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const blob = path.join(this.root, ...v.storage_path.split('/'))
     const size = checkRegular(blob).size
-    let cur: string | null = null
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
-      cur = await this.shaNow(r.abs)
-      if (cur === v.sha256) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+      const same = await this.replacing(r.abs, (cur) => {
+        if (cur === v.sha256) return true
+        if (currentPlan()) assertStorageRoom(size)
+        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
+        installFile(this.root, r.segs, blob, { keepSource: true })
+        return false
+      })
+      if (same) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
+    } else {
+      if (currentPlan()) assertStorageRoom(size)
+      installFile(this.root, r.segs, blob, { keepSource: true })
     }
-    if (currentPlan()) assertStorageRoom(size)
-    if (cur) snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
-    installFile(this.root, r.segs, blob, { keepSource: true })
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: v.size, sha256: v.sha256, detail: { versionId, version: v.version } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
@@ -1989,13 +2004,15 @@ export class TeamFiles {
     if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n), o.taken)
     const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
     let action: FileChange['action'] = 'create'
+    const size = fs.statSync(src).size
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { name: r.rel })
-      snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', await this.shaNow(r.abs))
+      await this.replacing(r.abs, (cur) => {
+        snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
+        installFile(this.root, r.segs, src)
+      })
       action = 'update'
-    }
-    const size = fs.statSync(src).size
-    installFile(this.root, r.segs, src)
+    } else installFile(this.root, r.segs, src)
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: event?.action ?? 'upload', size, sha256: sha, detail: { replaced: action === 'update', ...event?.detail } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])
