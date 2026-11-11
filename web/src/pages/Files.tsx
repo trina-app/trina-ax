@@ -745,10 +745,10 @@ export default function Files() {
   const crumbDrop = (p: string) => (over?.path === p && over.kind === 'move' ? (over.refusal ? 'no' : 'ok') : undefined)
   const selectionMovable = movable.length > 0
 
-  /** file content search: in the toolbar on a computer; on a phone the top of the list, so it scrolls away (16 px
-   * text there: iOS zooms into a smaller field) */
+  /** file content search: in the toolbar on a computer; on a phone the top of the list, so it scrolls away (44 px tall,
+   * 16 px text: iOS zooms into a smaller field) */
   const searchField = (
-    <label className={clsx('flex min-w-0 items-center gap-1.5 rounded-lg border border-field-border bg-surface focus-within:border-accent focus-within:ring-1 focus-within:ring-accent', phone ? 'mx-1 mt-2 mb-1 h-10 px-3' : 'h-8 @max-2xl:flex-1 px-2')}>
+    <label className={clsx('flex min-w-0 items-center gap-1.5 rounded-lg border border-field-border bg-surface focus-within:border-accent focus-within:ring-1 focus-within:ring-accent', phone ? 'mx-1 mt-2 mb-1 h-11 px-3' : 'h-8 @max-2xl:flex-1 px-2')}>
       <Search size={phone ? 16 : 14} className="shrink-0 text-faint" aria-hidden />
       <span className="sr-only">{t('files.search.label')}</span>
       <input

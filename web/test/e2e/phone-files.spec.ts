@@ -74,6 +74,7 @@ test('step 1: Team folder › Groups › leads: one bar with ‹ and the folder 
   // the search box scrolls away with the list; the bar stays
   const search = page.getByTestId('content-search-input')
   await expect(search).toBeInViewport()
+  expect((await page.locator('label').filter({ has: search }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
   await row(page, '견적서-20.html').scrollIntoViewIfNeeded()
   await expect(search).not.toBeInViewport()
   await expect(bar).toBeInViewport()
