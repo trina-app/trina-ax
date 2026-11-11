@@ -93,6 +93,8 @@ test('Admin › Plugins: a long licence list is "Licenses", the list in its tool
   await reset(page)
   await signIn(page)
   await page.goto('/admin/plugins')
+  // the licences are on the plugin's page
+  await page.locator('[data-testid="plugin-catalog"][data-plugin="app.trina.hwp-preview"]').getByTestId('plugin-open').click()
   const button = page.getByTestId('plugin-licenses').first()
   await expect(button).toHaveText(t['plugins.licenses'])
   await expect(button).toHaveAttribute('title', /^MIT AND Apache-2\.0 AND /)

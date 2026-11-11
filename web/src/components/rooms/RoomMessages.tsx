@@ -72,6 +72,10 @@ export const messageDomId = (id: string) => `room-msg-${id}`
 /** A message's words: the one part of its row that can be selected (not on touch screens, where a long press opens its
  * menu), and what a copy of several messages takes from it (lib/messageCopy.ts) */
 const WORDS = 'select-text pointer-coarse:select-none'
+/** An answer's `>` quotes, as the AI chat shows them (Markdown.tsx CopyableQuote): without the quote marks the typography
+ * adds to a quote's first and last paragraph. An answer that quotes a message puts its own marks around it, so a shared
+ * answer in a thread read “"…"” (QA 2026-11-11). */
+export const ANSWER_QUOTES = '[&_blockquote_p:first-of-type]:before:content-none [&_blockquote_p:last-of-type]:after:content-none'
 
 /** ⌘C over several messages (or a run's name and a message): their words as plain text, one message per block
  * (lib/messageCopy.ts); inside one message, the browser's own copy */
@@ -399,7 +403,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
         <>
-          <Markdown text={m.body} className={clsx('min-w-0', WORDS)} openable={openable} />
+          <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
           {!!m.sourceCount && (
             <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
           )}
@@ -506,8 +510,9 @@ function SharedAnswer({ text, openable, attached }: { text: string; openable?: R
         <AiFaceInline />
         {t('shareRoom.quoteHead', { ai: aiName(t) })}
       </figcaption>
-      {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get */}
-      <Markdown text={text} className={clsx('min-w-0', WORDS)} openable={openable} attached={attached} />
+      {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get; its own quotes
+          go without them too (ANSWER_QUOTES) */}
+      <Markdown text={text} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} attached={attached} />
     </figure>
   )
 }

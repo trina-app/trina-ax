@@ -2,8 +2,8 @@
 // docs/AGENTS/plan/20261110-1336-phone-admin-list.md), at 390×844 in a real browser: no page is wider than the screen
 // (also in Spanish), each page's main button is on the first screen, and its filters open from one Filters button.
 // Then each page's own fix: Groups' compact rows, Folder permissions' switch under Filters beside By folder / By
-// person, Providers' accounts on tap, Connectors' rows with a 44 px +, AI apps' 44 px targets, Plugins' one line per
-// plugin, Slack's 44 px targets, Usage's range with Filters and Group by in the breakdown, Activity log's kinds under
+// person, Providers' accounts on tap, Connectors' rows with a 44 px +, AI apps' 44 px targets (Plugins' page is #388's
+// cards now), Slack's 44 px targets, Usage's range with Filters and Group by in the breakdown, Activity log's kinds under
 // Filters, Settings › Providers named in the bar, Settings › Usage's period under its line. A computer keeps every page
 // as it was.
 import { expect, test, type Locator, type Page } from '@playwright/test'
@@ -155,37 +155,7 @@ test.describe('each page', () => {
     }
   })
 
-  test('Plugins: no frames, one line per plugin with Install; what it does opens on its name', async ({ page }) => {
-    await page.goto('/admin/plugins')
-    const row = page.getByTestId('plugin-catalog').first()
-    await expect(row.getByTestId('plugin-catalog-install')).toBeVisible()
-    await sameRow(row.getByTestId('plugin-open'), row.getByTestId('plugin-catalog-install'))
-    expect((await box(row)).height).toBeLessThanOrEqual(64)
-    await expect(row.getByTestId('plugin-permissions')).toHaveCount(0)
-    await row.getByTestId('plugin-open').click()
-    await expect(row.getByTestId('plugin-open')).toHaveAttribute('aria-expanded', 'true')
-    await expect(row.getByTestId('plugin-permissions')).toBeVisible()
-    // the sections are not framed
-    const section = page.getByTestId('plugins-catalog').locator('xpath=ancestor::section[1]')
-    expect(await section.evaluate((el) => getComputedStyle(el).borderLeftWidth)).toBe('0px')
-    await expect(page.getByTestId('plugins-installed-empty')).toHaveText(t['plugins.installedEmpty'])
-  })
-
-  test('Plugins: an installed plugin is one line with its state and Turn off; Remove opens with the rest', async ({ page }) => {
-    await page.goto('/admin/plugins')
-    const starter = page.locator('[data-testid="plugin-catalog"][data-plugin="app.trina.office-starter"]')
-    await starter.getByTestId('plugin-catalog-install').click()
-    await page.getByRole('dialog').getByTestId('plugin-install-enable').click()
-    const row = page.locator('[data-testid="plugin-installed"][data-plugin="app.trina.office-starter"]')
-    await expect(row.getByTestId('plugin-disable')).toBeVisible()
-    await sameRow(row.getByTestId('plugin-open'), row.getByTestId('plugin-disable'))
-    await tall(row.getByTestId('plugin-disable'))
-    await expect(row).toContainText(t['plugins.status.enabled'])
-    await expect(row.getByTestId('plugin-remove')).toHaveCount(0)
-    await row.getByTestId('plugin-open').click()
-    await expect(row.getByTestId('plugin-permissions')).toBeVisible()
-    await expect(row.getByTestId('plugin-remove')).toBeVisible()
-  })
+  // Plugins: #388 made Admin › Plugins cards and a page per plugin, like Connectors; its own tests are plugins.spec.ts
 
   test('Slack: Turn off and Replace tokens are 44 px tall, without a frame', async ({ page }) => {
     await page.goto('/admin/slack')
@@ -275,9 +245,6 @@ test.describe('a computer', () => {
     await expect(page.getByTestId('tree-ruled-only')).toBeVisible()
     await page.goto('/admin/providers')
     await expect(page.getByTestId('provider-accounts-claude')).toBeVisible()
-    await page.goto('/admin/plugins')
-    await expect(page.getByTestId('plugin-permissions').first()).toBeVisible()
-    await expect(page.getByTestId('plugin-open')).toHaveCount(0)
     await page.goto('/admin/groups')
     await expect(page.getByTestId('group-row')).toHaveCount(0)
     await expect(page.getByTestId('group-list')).toContainText('Olga')

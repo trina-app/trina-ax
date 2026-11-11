@@ -20,7 +20,7 @@ import Layout from './components/Layout'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
-import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
+import { AcceptInvite, ForcedPassword, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
@@ -240,7 +240,8 @@ function Gate() {
         <Route path="/setup" element={<AfterSetup />} />
         {/* right after the forced password change: where a sign-in lands (a phone: the 대화 list) */}
         <Route path="/password" element={<AfterSignIn />} />
-        <Route path="/invite/:token" element={<Navigate to="/" replace />} />
+        {/* an invite opened while someone is signed in: say who, offer to sign out and accept it (QA TC-134, TC-174) */}
+        <Route path="/invite/:token" element={<InviteWhileSignedIn />} />
         {/* right after joining with the team link: the skill it names, else Home */}
         <Route path="/join" element={<AfterJoin />} />
         {/* a reset link opened while someone is signed in (a shared computer): using it signs that person in instead */}

@@ -239,7 +239,7 @@ const useInBar = (title: ReactNode) => {
 /** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove.
  * No title, no line and no buttons: the card has no header row (the page header above names it).
  * flat: below the md width no frame, a section that ends with a hairline (none after the page's last), for a page whose
- * cards would stack frame on frame on a phone (Plugins, Slack, Settings › Providers). Its content must not reach into
+ * cards would stack frame on frame on a phone (Slack, Settings › Providers). Its content must not reach into
  * the card's padding. */
 export function Card({ title, actions, children, desc, headingRef, testId, flat, id }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string; flat?: boolean; id?: string }) {
   const head = title || desc || actions
