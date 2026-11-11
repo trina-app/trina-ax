@@ -30,8 +30,7 @@ In:
   browser" on these phones; "Already joined? Sign in" stays.
 - Five languages, English first.
 
-Out: silent deferred deep links (no clipboard read by the app, no fingerprinting), Google Play (when it is live: set `android` in
-`editions/trina/branding/apps.json` and run `bun scripts/edition-apps.ts … --apply`; a TODO names it), iPad layout
+Out: silent deferred deep links (no clipboard read by the app, no fingerprinting), iPad layout
 beyond what iOS detection already gives, desktop browsers (unchanged), our own apps' web views (never shown).
 
 ## Steps
@@ -61,7 +60,8 @@ beyond what iOS detection already gives, desktop browsers (unchanged), our own a
   the copy fails the page stays with the link to copy by hand and a separate store link; the banner page is cached.
 
 - iPhone browser: Smart App Banner (`app-id=6829192435`, no `app-argument`) on `/invite/*` and `/join`; the button copies
-  the link and opens the App Store listing. Android browser: the button copies and opens ax.trina.app/download; "Open in
-  the app" keeps the intent with `S.browser_fallback_url` = that page. Computers and our apps: unchanged.
+  the link and opens the App Store listing. Android browser: the button copies and opens Google Play
+  (live 2026-11-11, `APP_DOWNLOADS.android`), else the download page; "Open in the app" keeps the intent with
+  `S.browser_fallback_url` = that address. Computers and our apps: unchanged.
 - Tests: `web/test/unit/get-the-app.test.ts`, `tests/unit/app-links.test.ts` (banner), `web/test/e2e/get-the-app.spec.ts`
   (390, iPhone and Android user agents, clipboard, Referer), `first-run.spec.ts` updated.

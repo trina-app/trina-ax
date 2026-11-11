@@ -8,23 +8,22 @@ import { DICTS, LOCALES, translate } from '../../src/i18n'
 import { getAppHref, openInAppHref } from '../../src/lib/team-link'
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
-const TRINA = { page: 'https://ax.trina.app/download', iphone: 'https://apps.apple.com/app/trina-ax/id6829192435?platform=iphone', android: '' }
 const PLAY = 'https://play.google.com/store/apps/details?id=app.trina.ax'
+const TRINA = { page: 'https://ax.trina.app/download', iphone: 'https://apps.apple.com/app/trina-ax/id6829192435?platform=iphone', android: PLAY }
 const NONE = { page: '', iphone: '', android: '' }
 
 describe('who sees "Get the app"', () => {
-  test('the edition links are the Trina ones (App Store id 6829192435, Android through the download page)', () => {
+  test('the edition links are the Trina ones (App Store id 6829192435, Google Play app.trina.ax)', () => {
     expect(APP_DOWNLOADS.iphone).toBe(TRINA.iphone)
     expect(APP_DOWNLOADS.page).toBe(TRINA.page)
-    // TODO(play): becomes PLAY once the app is live on Google Play (editions/trina/branding/apps.json)
-    expect(APP_DOWNLOADS.android).toBe('')
+    expect(APP_DOWNLOADS.android).toBe(PLAY)
   })
   test('an iPhone browser: the App Store listing', () => {
     expect(getAppHref('ios', 'web', TRINA)).toBe(TRINA.iphone)
   })
-  test('an Android browser: the download page now, Google Play once it is set (one constant)', () => {
-    expect(getAppHref('android', 'web', TRINA)).toBe('https://ax.trina.app/download')
-    expect(getAppHref('android', 'web', { ...TRINA, android: PLAY })).toBe(PLAY)
+  test('an Android browser: Google Play; a build without a Play listing: its download page', () => {
+    expect(getAppHref('android', 'web', TRINA)).toBe(PLAY)
+    expect(getAppHref('android', 'web', { ...TRINA, android: '' })).toBe('https://ax.trina.app/download')
   })
   test('computers: nothing (the page stays as it was)', () => {
     for (const p of ['mac', 'windows', 'other'] as const) expect(getAppHref(p, 'web', TRINA)).toBeNull()
@@ -47,10 +46,10 @@ describe('the token stays out of the store addresses', () => {
       expect(href).not.toContain('join')
     }
   })
-  test("Android's intent: the token only in the app's own url, the fallback is the download page", () => {
+  test("Android's intent: the token only in the app's own url, the fallback is the Play listing", () => {
     for (const path of [`/invite/${TOKEN}`, `/join#t=${TOKEN}`]) {
       const href = openInAppHref({ scheme: 'trina-ax', origin: 'https://acme.trina.app', path, platform: 'android', androidPackage: 'app.trina.ax', androidFallback: getAppHref('android', 'web', TRINA) })!
-      expect(href).toBe(`intent://open?url=${encodeURIComponent(`https://acme.trina.app${path}`)}#Intent;scheme=trina-ax;package=app.trina.ax;S.browser_fallback_url=${encodeURIComponent('https://ax.trina.app/download')};end`)
+      expect(href).toBe(`intent://open?url=${encodeURIComponent(`https://acme.trina.app${path}`)}#Intent;scheme=trina-ax;package=app.trina.ax;S.browser_fallback_url=${encodeURIComponent(PLAY)};end`)
       const extras = href.slice(href.indexOf('#Intent'))
       expect(extras).not.toContain(TOKEN)
       expect(decodeURIComponent(extras)).not.toContain(TOKEN)

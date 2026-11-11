@@ -138,6 +138,7 @@ export const ko = {
   'auth.linkNotCopied': "링크를 복사하지 못했어요. 아래에서 복사한 다음 앱을 받으세요.",
   'auth.inviteLinkLabel': "초대 링크",
   'auth.goAppStore': "App Store로 가기",
+  'auth.goGooglePlay': "Google Play로 가기",
   'auth.goDownloadPage': "다운로드 페이지로 가기",
   'auth.sessionEnded': '다른 곳에서 로그아웃했거나 비밀번호가 바뀌어 로그인이 끝났어요.',
   'auth.sessionExpired': '로그인이 만료됐어요. 다시 로그인해 주세요.',

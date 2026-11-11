@@ -473,7 +473,8 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
     if (r.now) return copied()
     void r.later?.then((ok) => ok && copied())
   }
-  const goLabel = t(onAndroid ? 'auth.goDownloadPage' : 'auth.goAppStore')
+  // the store this button opens: the App Store, Google Play, or (a build without a Play listing) the download page
+  const goLabel = t(!onAndroid ? 'auth.goAppStore' : APP_DOWNLOADS.android && store === APP_DOWNLOADS.android ? 'auth.goGooglePlay' : 'auth.goDownloadPage')
   return (
     <div data-testid="get-app">
       <a

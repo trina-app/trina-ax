@@ -84,10 +84,8 @@ export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', href: strin
  * phone, else its download page (APP_DOWNLOADS, shared/src/app-downloads.ts); nothing on a computer, inside our own
  * apps, or in a build that names neither. A fixed address: nothing of this page (no token) is ever added to it.
  * - iPhone: the App Store listing.
- * - Android: the Google Play listing once there is one, else the download page (the APK on the update feed, linked
- *   from that page; never the .apk itself).
- *   TODO(play): the Play listing is one value, APP_DOWNLOADS.android (see its TODO in shared/src/app-downloads.ts);
- *   this button and the intent's fallback follow it.
+ * - Android: the Google Play listing (APP_DOWNLOADS.android), else the download page (never an .apk itself); the
+ *   intent's fallback follows it.
  */
 export function getAppHref(platform: 'ios' | 'android' | 'mac' | 'windows' | 'other', client: 'web' | 'desktop' | 'mobile', links: { page: string; iphone: string; android: string }): string | null {
   if (client !== 'web') return null

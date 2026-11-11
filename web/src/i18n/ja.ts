@@ -135,6 +135,7 @@ export const ja: Record<MessageKey, string> = {
   'auth.linkNotCopied': "リンクをコピーできませんでした。下でコピーしてから、アプリを入手してください。",
   'auth.inviteLinkLabel': "招待リンク",
   'auth.goAppStore': "App Store へ",
+  'auth.goGooglePlay': "Google Play へ",
   'auth.goDownloadPage': "ダウンロードページへ",
   'auth.sessionEnded': "別の場所でログアウトしたか、パスワードが変更されたため、ログアウトしました。",
   'auth.sessionExpired': "ログインの有効期限が切れました。再度ログインしてください。",

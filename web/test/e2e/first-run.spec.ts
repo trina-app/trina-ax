@@ -124,8 +124,8 @@ const UA = {
   iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
   linux: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
 }
-// without the app, Android's Chrome opens the download page (APP_DOWNLOADS; no token in it)
-const FALLBACK = `S.browser_fallback_url=${encodeURIComponent('https://ax.trina.app/download')};`
+// without the app, Android's Chrome opens the Google Play listing (APP_DOWNLOADS; no token in it)
+const FALLBACK = `S.browser_fallback_url=${encodeURIComponent('https://play.google.com/store/apps/details?id=app.trina.ax')};`
 test('"앱에서 열기": the desktop scheme on computers, an intent with our package on Android, none on iPhone or Linux', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)

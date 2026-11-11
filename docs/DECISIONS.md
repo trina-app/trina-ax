@@ -20890,10 +20890,9 @@ universal links / app links); without it, the phone's browser lands on the join 
 - **One button, then the form behind a link**: "Copy invite & get the app" / "초대 링크 복사하고 앱 받기", one line
   "After installing, paste the link in the app's first screen.", and "Continue in the browser" shows the join form;
   "Already joined? Sign in" stays. iPhone: the App Store listing (`APP_DOWNLOADS.iphone`, id 6829192435). Android: the
-  Google Play listing once `APP_DOWNLOADS.android` is set, until then the download page (`APP_DOWNLOADS.page`,
-  ax.trina.app/download, which links the APK on the update feed; never the .apk itself). Switching to Play is one
-  value: `android` in `editions/trina/branding/apps.json` + `bun scripts/edition-apps.ts … --apply` (a `TODO(play)`
-  in `getAppHref`). Android's "앱에서 열기" intent gains `S.browser_fallback_url=<that address>`.
+  Google Play listing (`APP_DOWNLOADS.android`, live 2026-11-11, set in `editions/trina/branding/apps.json` with
+  `bun scripts/edition-apps.ts … --apply`); a build without one falls back to its download page (`APP_DOWNLOADS.page`;
+  never an .apk itself). Android's "앱에서 열기" intent gains `S.browser_fallback_url=<that address>`.
 - **The token crosses the install only by the person's own copy** (owner's call, 2026-11-11): the button copies this
   page's link (the team link's token from memory) on the tap, never on load, shows "Link copied", then opens the store.
   The app's first-run box already takes a pasted invite or team link as it is (`parseTeamInput`, both copies; tested).
@@ -20907,7 +20906,7 @@ universal links / app links); without it, the phone's browser lands on the join 
   link goes ahead. Not known to be copied (in-app browsers such as KakaoTalk, Instagram or Line often have no
   `navigator.clipboard` or refuse it): the page stays; when the Clipboard API then says yes, "Link copied" and a plain
   "Go to the App Store" link; otherwise the warning, the link in a read-only field with a "Copy" button, and the same
-  separate store link (Android: "Go to the download page"). The banner page is kept in memory until index.html
+  separate store link (Android: "Go to Google Play", or "Go to the download page" in a build without a Play listing). The banner page is kept in memory until index.html
   changes.
 - **Apple's Smart App Banner** (`<meta name="apple-itunes-app" content="app-id=…">`) is added by the server
   (`serveWeb`, `server/src/routes/web-static.ts`; `smartAppBanner`, `shared/src/app-links.ts`) to the HTML of

@@ -139,6 +139,7 @@ export const en: Record<MessageKey, string> = {
   'auth.linkNotCopied': "Couldn't copy the link here. Copy it below, then get the app.",
   'auth.inviteLinkLabel': "Invite link",
   'auth.goAppStore': "Go to the App Store",
+  'auth.goGooglePlay': "Go to Google Play",
   'auth.goDownloadPage': "Go to the download page",
   'auth.sessionEnded': 'You were signed out because you signed out elsewhere or your password changed.',
   'auth.sessionExpired': 'Your sign-in expired. Please sign in again.',

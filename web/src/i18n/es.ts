@@ -135,6 +135,7 @@ export const es: Record<MessageKey, string> = {
   'auth.linkNotCopied': "No se pudo copiar el enlace. Cópielo abajo y luego descargue la app.",
   'auth.inviteLinkLabel': "Enlace de invitación",
   'auth.goAppStore': "Ir al App Store",
+  'auth.goGooglePlay': "Ir a Google Play",
   'auth.goDownloadPage': "Ir a la página de descarga",
   'auth.sessionEnded': "Se cerró la sesión porque la cerró en otro lugar o cambió su contraseña.",
   'auth.sessionExpired': "Su sesión venció. Vuelva a iniciar sesión.",

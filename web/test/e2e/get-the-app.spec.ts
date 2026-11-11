@@ -15,7 +15,7 @@ const UA = {
   android: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
 }
 const APP_STORE = 'https://apps.apple.com/app/trina-ax/id6829192435?platform=iphone'
-const DOWNLOAD = 'https://ax.trina.app/download'
+const PLAY = 'https://play.google.com/store/apps/details?id=app.trina.ax'
 
 const post = async (page: Page, url: string, data: unknown) => {
   const r = await page.request.post(url, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -28,7 +28,7 @@ const post = async (page: Page, url: string, data: unknown) => {
 async function phone(browser: Browser, ua: string, colorScheme: 'light' | 'dark' = 'light') {
   const ctx = await browser.newContext({ locale: 'ko-KR', userAgent: ua, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme, permissions: ['clipboard-read', 'clipboard-write'] })
   const outside: { url: string; referer: string | null }[] = []
-  await ctx.route(/^https:\/\/(apps\.apple\.com|ax\.trina\.app)\//, async (route) => {
+  await ctx.route(/^https:\/\/(apps\.apple\.com|play\.google\.com|ax\.trina\.app)\//, async (route) => {
     outside.push({ url: route.request().url(), referer: (await route.request().allHeaders())['referer'] ?? null })
     await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>store</title><p>store</p>' })
   })
@@ -116,7 +116,7 @@ test('an iPhone on the team link: the copied link is the team link, with its tok
   await ctx.close()
 })
 
-test('Android: the download page, "앱에서 열기" with the same page as its fallback, no banner', async ({ page, browser }) => {
+test('Android: Google Play, "앱에서 열기" with the same listing as its fallback, no banner', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
   const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
@@ -127,17 +127,17 @@ test('Android: the download page, "앱에서 열기" with the same page as its f
     await expect(p.getByTestId('get-app')).toBeVisible()
     const origin = new URL(p.url()).origin
     await expect(p.locator('meta[name="apple-itunes-app"]')).toHaveCount(0)
-    expect(await p.getByTestId('get-app-store').getAttribute('href')).toBe(DOWNLOAD)
+    expect(await p.getByTestId('get-app-store').getAttribute('href')).toBe(PLAY)
     expect(await p.getByTestId('open-in-app').getAttribute('href')).toBe(
-      `intent://open?url=${encodeURIComponent(`${origin}/invite/${token}`)}#Intent;scheme=trina-ax;package=app.trina.ax;S.browser_fallback_url=${encodeURIComponent(DOWNLOAD)};end`,
+      `intent://open?url=${encodeURIComponent(`${origin}/invite/${token}`)}#Intent;scheme=trina-ax;package=app.trina.ax;S.browser_fallback_url=${encodeURIComponent(PLAY)};end`,
     )
     await expect(p.getByTestId('join-form')).toHaveCount(0)
     await shot(p, `android-invite-${scheme}`)
     if (scheme === 'light') {
       await p.getByTestId('get-app-store').click()
-      await p.waitForURL(DOWNLOAD)
+      await p.waitForURL(PLAY)
       expect(await p.evaluate(() => navigator.clipboard.readText())).toBe(`${origin}/invite/${token}`)
-      expect(outside).toEqual([{ url: DOWNLOAD, referer: null }])
+      expect(outside).toEqual([{ url: PLAY, referer: null }])
     }
     await ctx.close()
   }
