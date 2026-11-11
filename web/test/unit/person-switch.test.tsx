@@ -111,7 +111,7 @@ describe('another person signs in over a signed-in one', () => {
     }
     // as in Gate: the hook in the parent, so the new person's screens run their effects before it does
     function Session({ children }: { children: React.ReactNode }) { useSessionLifecycle(); return <>{children}</> }
-    let seenOnMount: string[] | null = null
+    let seenOnMount = null as string[] | null
     function Home() {
       useEffect(() => { seenOnMount = useChats.getState().chats.map((c) => c.title) }, [])
       return <p data-testid="home">home</p>
