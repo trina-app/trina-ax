@@ -19,6 +19,7 @@ import { INTEGRATION_TOOLS_OLD_MAX, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
 import { addSources } from '../../chat/read-scope'
+import { tr } from '../../chat/i18n'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
 import { askConfirm, carriesAddress, opaqueParts } from '../../tools/url-gate'
 import { parse as parseHost } from 'tldts'
@@ -683,6 +684,29 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const r = typeof a.connection === 'string' ? resolve(a.connection) : undefined
       return `${r?.name ?? STEP_WORDS_OTHER[locale]} · ${methodWord(String(a.method ?? ''), locale)}`
+    },
+    // the room card after a room read (chat/turn.ts confirmRoomChange): what it does at which service in words ("Read from
+    // Tasks"), the address it calls and the body's values, the exact request one click away (QA TC-233); never the
+    // connection's key name or the AI's arguments as they are. null (the shared words): a call call() would refuse
+    card(args, L) {
+      const raw = args && typeof args === 'object' && typeof (args as { method?: unknown }).method === 'string' ? { ...(args as object), method: (args as { method: string }).method.toUpperCase() } : args
+      const parsed = ApiRequestInput.safeParse(raw ?? {})
+      if (!parsed.success) return null
+      const a = parsed.data
+      const row = resolve(a.connection)
+      if (!row) return null
+      const read = a.method === 'GET' || a.method === 'HEAD'
+      // the address as this person may see it: a team's or a template's without a query of its admin (store.ts view)
+      const base = row.scope === 'personal' && !row.template_id ? row.url : bareUrl(row.url)
+      let url: string
+      try { url = buildUrl(base, a.path, a.query) } catch { url = a.path }
+      const body = read || a.body === undefined || a.body === null ? null : a.body
+      const lines = body !== null && typeof body === 'object' ? argLines(body, L) : { fields: [], exact: body === null }
+      const text = [`${a.method} ${url}`, body === null ? '' : typeof body === 'string' ? body : JSON.stringify(body)].filter(Boolean).join('\n\n')
+      const what = say(read ? 'cardRead' : 'cardChange', L, { name: row.name })
+      const fields = [{ name: tr('roomAiChangeAction', L), value: what }, { name: say('fieldAddress', L), value: url }, ...lines.fields]
+      const marks = opaqueParts([text, ...fields.map((f) => f.value)].join('\n'))
+      return { what, details: [{ label: say('sendsLabel', L), text, fields, ...(marks.length ? { marks } : {}), ...(lines.exact ? { exact: true as const } : {}) }] }
     },
     // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate). The method is
     // the AI's choice and some APIs act on a GET, so after a room read a GET still raises the room card. A scheduled

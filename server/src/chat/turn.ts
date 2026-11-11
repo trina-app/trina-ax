@@ -55,6 +55,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
+import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, devEnvRunner, mayUseBox, mayUseDevEnv } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
@@ -1784,8 +1785,19 @@ export class TurnExec {
   /** A team path as this person's cards say it ("전사 공유 › 영업 › 보고서.pptx", place-words.ts). */
   place(path: string): string { return placeWords(this.rt.db, path, this.spec.locale, this.spec.userId) }
 
-  roomCardDetails(tool: string, input: unknown): ConfirmDetailT[] {
-    return roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
+  roomCardDetails(tool: string, input: unknown, own: ToolCard | null = this.toolCard(tool, input)): ConfirmDetailT[] {
+    // a tool's own words (a connection's HTTP API call: "Read from Tasks", its address, the exact request one click away)
+    // in place of its raw arguments one per line (QA TC-233)
+    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId)
+    return raw.map((d) => ({
+      ...d, text: this.redact(d.text),
+      ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}),
+      ...(d.marks ? { marks: d.marks.map((m) => this.redact(m)) } : {}),
+    }))
+  }
+  /** a tool's own words for the room card (TurnTool.card), or null for the shared ones */
+  toolCard(tool: string, input: unknown): ToolCard | null {
+    return this.toolSet?.card?.(tool, input, this.spec.locale) ?? null
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
@@ -2003,10 +2015,12 @@ export class TurnExec {
       }
     }
     const L = this.spec.locale
-    const what = this.redact(this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, this.cardInput(tool, input), L, BROWSER_TOOL_NAMES))
+    // a tool's own words (TurnTool.card: a connection's HTTP API call), else the shared ones
+    const words = this.toolCard(tool, input)
+    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, this.cardInput(tool, input), L, BROWSER_TOOL_NAMES))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
-    const details = this.roomCardDetails(tool, input)
+    const details = this.roomCardDetails(tool, input, words)
     // why every change here waits for a card, and what the AI does instead (docs/DECISIONS.md "Refusals say why, who and
     // what next": a scheduled run that read a room was told "the user did not allow this" for a card nobody saw)
     const roomWhy = own

@@ -26,6 +26,9 @@ export const TEXT = {
   methodPUT: t('바꾸기', 'Replace', 'Ganti', "置き換え", "Reemplazar"),
   methodPATCH: t('고치기', 'Update', 'Perbarui', "更新", "Actualizar"),
   methodDELETE: t('지우기', 'Delete', 'Hapus', "削除", "Eliminar"),
+  // the room card after a room read (TurnTool.card): what an HTTP API call does at the service, by its name (QA TC-233)
+  cardRead: t('{name}에서 읽어 오기', 'Read from {name}', 'Membaca dari {name}', "{name}から読み取る", "Leer de {name}"),
+  cardChange: t('{name}에서 무언가 바꾸기', 'Change something in {name}', 'Mengubah sesuatu di {name}', "{name}で何かを変更する", "Cambiar algo en {name}"),
   ask: t('보낼까요?', 'Send it?', 'Kirim?', "送信しますか？", "¿Enviarlo?"),
   checkBelow: t('보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.', 'Check everything it sends, and where it goes, below.', 'Periksa semua yang dikirim, dan tujuannya, di bawah.', "送信内容全体と送信先を下で確認してください。", "Revise abajo todo lo que envía y a dónde va."),
   sendsLabel: t('보낼 내용', 'What it sends', 'Yang dikirim', "送信内容", "Lo que envía"),
