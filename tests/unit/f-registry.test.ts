@@ -8,6 +8,7 @@ import {
 } from '@mycel/shared/relay-protocol'
 import { openSqlite } from '../../relay/src/db.ts'
 import { Registry, RegistryError } from '../../relay/src/registry.ts'
+import { ReplayCache } from '../../relay/src/replay.ts'
 import { base64Respellings } from '../lib/f-relay'
 
 const BITS = 6
@@ -133,6 +134,8 @@ describe('registry', () => {
     expect(r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, ahead, '', sigAhead).id).toBe(a.teamId)
     now += 119_000
     expect(code(() => r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, ahead, '', sigAhead))).toBe('replayed')
+    now += 1_000 // exactly 120 s after the first use: the last ms the clock check still accepts it
+    expect(code(() => r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, ahead, '', sigAhead))).toBe('replayed')
     // a bad signature never takes room in the cache nor counts as a use
     expect(code(() => r.verifyApi(a.teamId, 'GET', `/teams/${a.teamId}`, now, '', sigAhead))).toBe('unauthorized')
   })
@@ -154,5 +157,28 @@ describe('registry', () => {
     const r = await registry()
     const cols = (t: string) => (r.db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
     for (const t of ['teams', 'team_keys', 'reservations']) for (const c of cols(t)) expect(c).not.toMatch(/ip|email|mail|phone|user/i)
+  })
+})
+
+describe('replay cache', () => {
+  test('a signer that floods pushes out only its own entries; a full cache refuses instead of forgetting anyone', () => {
+    const c = new ReplayCache(1000, 3, 5)
+    expect(c.check('victim', 'call-1', 0)).toBe('ok')
+    expect(c.check('victim', 'call-2', 0)).toBe('ok')
+    for (let i = 0; i < 3; i++) expect(c.check('flooder', `f${i}`, 1)).toBe('ok')
+    // the cache is full (5): a new call is refused, the victim's calls are still remembered
+    expect(c.check('flooder', 'f-more', 2)).toBe('full')
+    expect(c.check('victim', 'call-1', 2)).toBe('replayed')
+    expect(c.check('third', 'x', 2)).toBe('full')
+    // the window ends: room again
+    expect(c.check('third', 'x', 1001)).toBe('ok')
+  })
+  test('past its own room a signer drops its own oldest entry, never another signer\'s', () => {
+    const c = new ReplayCache(1000, 2, 100)
+    expect(c.check('victim', 'v', 0)).toBe('ok')
+    for (let i = 0; i < 10; i++) expect(c.check('flooder', `f${i}`, 0)).toBe('ok')
+    expect(c.check('victim', 'v', 0)).toBe('replayed')
+    expect(c.check('flooder', 'f9', 0)).toBe('replayed')
+    expect(c.check('flooder', 'f0', 0)).toBe('ok') // its own, pushed out by itself
   })
 })

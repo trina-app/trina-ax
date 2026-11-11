@@ -56,8 +56,8 @@ export class OpsApi {
   private keys: OperatorKey[] = []
   private keysMtime = -1
   private keysError: string | null = null
-  /** signed requests seen in the last OPS_REPLAY_WINDOW_MS (memory only) */
-  private seen = new ReplayCache(OPS_REPLAY_WINDOW_MS, OPS_REPLAY_MAX)
+  /** signed requests seen within the whole clock window (memory only); OPS_REPLAY_MAX per operator key */
+  private seen = new ReplayCache(Math.max(OPS_REPLAY_WINDOW_MS, 2 * OPS_SIG_MAX_SKEW_MS) + 1, OPS_REPLAY_MAX, 10 * OPS_REPLAY_MAX)
   readonly counters = { requests: 0, authFailures: 0, replays: 0, forbidden: 0 }
 
   private relay: RelayServer
@@ -129,7 +129,9 @@ export class OpsApi {
     if (!verifyB64(key.publicKey, signed, auth.sig)) throw fail('bad signature')
     // replay: the same signed request again within the window, keyed on the signed message, not the base64 text (after
     // the signature check: only real signatures are kept)
-    if (!this.seen.firstUse(key.keyId, signed, now)) { this.counters.replays++; throw new OpsFail(409, 'replayed', 'this signed request was already used; sign it again') }
+    const verdict = this.seen.check(key.keyId, signed, now)
+    if (verdict === 'replayed') { this.counters.replays++; throw new OpsFail(409, 'replayed', 'this signed request was already used; sign it again') }
+    if (verdict === 'full') throw new OpsFail(503, 'internal', 'too many signed requests just now, try again shortly')
     return key
   }
 
