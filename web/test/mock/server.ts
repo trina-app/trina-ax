@@ -2588,7 +2588,9 @@ export class MockServer {
       const base = String(c.query.path ?? '')
       const items = [...this.files.entries()]
         // like the server (policy/authorize.ts visiblePath): download-only files are not search hits
-        .filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        // folders too when asked (⌘K: folders=1), first, like the server
+        .filter(([p, n]) => (n.type === 'file' || (c.query.folders === '1' && n.type === 'folder')) && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        .sort(([, a], [, b]) => (a.type === b.type ? 0 : a.type === 'folder' ? -1 : 1))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
     },

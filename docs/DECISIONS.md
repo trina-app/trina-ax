@@ -33,6 +33,7 @@
 - **기존 파일을 `write`로 덮어쓸 때도 그 턴에 먼저 `read`해야 한다**(Claude Code와 같음). 새 파일은 바로 만들 수 있고, 없는 상위 폴더도 이름 규칙·충돌 검사를 거쳐 만든다.
 - **`edit` 충돌 사본**: 읽은 뒤 누가 바꿨으면, `old_string`이 지금 파일에 그대로 적용될 때만 "지금 파일 + 이 수정"을 충돌 사본으로 저장한다. 적용이 안 되면 사본 없이 "다시 읽어라" 오류를 주고 `file_events`에 `conflict`를 남긴다(읽을 때의 내용 전체를 턴마다 들고 있지 않으려고).
 - **충돌 사본 이름은 설계서의 한국어 형식 그대로**: `이름 (충돌 사본 - 사람 날짜 HH.mm).확장자`. 이름 규칙상 `:`를 쓸 수 없어 시각은 `HH.mm`.
+- **충돌 사본 알림은 한 사람에게 한 번**(QA TC-230, 2026-11-11): 저장한 사람은 1인칭("내 내용은 사본으로 따로 저장했어요"), 다른 사람은 저장한 사람 이름으로, 자리는 파일 화면의 말(전사 공유 › Notes)로 알린다. 디스크 경로는 쓰지 않는다. 파일 패널에서 저장한 창은 자기 알림을 보이고 같은 저장의 실시간 `files.conflict`는 그 창에서 다시 보이지 않는다(`web/src/lib/conflictNotice.ts`). 전에는 저장한 사람에게 경로가 든 알림 두 개가 갔고 하나는 자기를 3인칭으로 불렀다.
 - **충돌 알림**: 서버 안 이벤트(`FileService.events`의 `'conflict'`)와 `file_events`에 더해, 실시간 `files.conflict {path, copyPath, by}`를 저장한 사람과 먼저 바꾼 사람 두 명에게 보낸다(4번 탭 PUT content "두 사람에게 알린다"). 보내기 직전에 그 사람이 원본과 사본을 둘 다 읽을 수 있는지 다시 확인하고(사본 이름에 저장한 사람 이름이 들어 있다), 내용은 싣지 않는다. 웹은 '사본 열기'가 달린 알림을 띄운다. PUT /api/files/content는 설계의 409 + conflictCopyPath 대신 지금처럼 200 `{conflict:true, path:<사본>}`을 돌려준다(편집기가 저장 결과로 다루기 쉬워서, 보안 검토 r1에서 기록).
 - **턴당 쓰기 한도 50MB·200파일**(디스크 채우기 방지, 7번 탭).
 - **오피스 파일은 `write`로 쓸 수 없다**(`make_file`은 나중). 사람의 파일 화면 저장(`humanSave`)은 같은 규칙(해시 기준 충돌)을 쓴다.
@@ -158,6 +159,7 @@
 - **그 자리나 아래에 관리되는 폴더(규칙 폴더, 그룹 폴더, shared/, skills/, 프로젝트가 쓰는 폴더; 보안 r2부터 프로젝트가 더 쓰지 않는 규칙 없는 행은 빠짐)가 있는 폴더는 admin·owner만 옮기고 이름을 바꾸고 휴지통에 넣는다(아니면 403 forbidden). 그런 폴더를 users/ 아래로 옮기는 것은 owner도 못 한다(400 validation, `fields.to`에 `invalid_path`).** 4번 탭 move 그대로. (보안 검토 r1: 전에는 그 폴더에 쓰기 권한만 있으면 팀원이 그룹·프로젝트 폴더를 users/<나>/로 옮겨 자기만 보는 폴더로 만들 수 있었고, owner·admin은 남의 users/를 볼 수 없어 되돌리지도 못했다. 팀원이 그룹 폴더나 shared/를 통째로 휴지통에 넣을 수도 있었다.) ErrorCode에 `invalid_path`가 없어 다른 API(관리자 폴더 규칙의 users/ 거부)처럼 validation + fields로 표시한다.
 - **일반 항목을 users/<나>/로 옮길 때 지금 읽을 수 있는 다른 사람이 있으면 confirm:true 없이 409 conflict, `error.params = {reason:'audience_narrowed', lostViewers}`.** lostViewers는 사람 수만(이름은 주지 않음). 오류 본문에 기계가 읽는 `params`를 더했다(`ApiErrorBody.params`). 확인 뒤 옮기면 file_events create의 detail에 `audienceNarrowed`를 남긴다. 파일 화면은 '개인 폴더로 옮기면 n명이 더 이상 볼 수 없어요' 확인 뒤 다시 보낸다.
 - **조각 업로드**: 조각은 희소 파일 `<data>/uploads/<id>.part`의 제자리(offset)에 바로 쓴다(조립 단계 없음). 조각이 순서대로 오면 sha256을 오는 길에 계산(Hash.copy로 실패한 조각은 버림)해 complete가 즉시 끝난다. complete 재시도는 같은 답(`upload_sessions.result`). sha 불일치면 받은 조각 목록을 비운다. 열린 세션은 사람당 10개, 디스크 여유(크기+1GB) 확인. 대상 폴더는 미리 있어야 한다.
+- **끝난 업로드는 끝낸 한도를 말한다**(QA TC-230): 24시간 동안 조각이 안 오면 `expired`, 시작하고 7일이 지나면 `expiredMax`, 조각 파일이 없어졌으면(복원한 DB가 세션을 되살림 등) `uploadLost`. 전에는 모두 "만료됐어요(24시간)"라서 7일 한도에 걸린 업로드가 방금 조각을 보냈는데도 24시간이라고 들었다.
 - **첨부**: `attachments` 테이블(id로 찾음, B는 `componentC(ctx).attachments.byIds()`), 썸네일은 격리된 ffmpeg(sips는 사용자 임시 폴더에 써야 해서 샌드박스 안에서 실패), ffmpeg가 없으면 2MB 이하 png/jpg/gif/webp 원본.
 - **작업은 본인 것만 본다**(4번 탭 "본인 작업만"): 받아쓰기 결과는 그 사람의 말이라 owner도 남의 작업은 404. 사람이 없는 작업(user_id NULL: 시스템 백업·업데이트)만 owner가 본다. 영구 삭제도 휴지통 열람과 같은 조건(원래 경로 쓰기 권한)을 더 요구한다: admin이라도 남의 users/<id>/ 휴지통 항목은 못 지운다.
 - **조각 업로드 complete가 겹치면**(큰 파일 해시 중 클라이언트가 시간 초과로 다시 부름) 두 번째는 첫 번째 결과를 기다려 같은 답을 받는다. 그동안 조각·취소는 409. 디스크 여유 확인은 끝나지 않은 세션들이 앞으로 쓸 크기까지 더한다(희소 파일).
@@ -14817,7 +14819,9 @@ new button or card.
   (a shared chat, or mine with several authors), from that chat's messages read once with each word's `LIKE` once a
   message: a word counts through the title, a person's message, or an answer not hidden from me, never through a hidden
   one. Team file names (`team-files/find.ts`, also the chat's team-file picker): every word in the name, any case (the
-  follow-up). The palette marks the first match of every word, and puts first the chats whose title has every word.
+  follow-up). The palette also asks for folders (`folders=1`, QA TC-230): the folders the file screen shows the person
+  (`siblingVisible`), found by a walk of folders only (at most 20,000), listed before the files; the picker attaches
+  files only and does not ask. The palette marks the first match of every word, and puts first the chats whose title has every word.
 - **Chat search with a common word (the follow-up, fix/search-followups).** #349 read the messages holding any word in
   one pass over `messages_fts` (each word's `LIKE` twice a row, a join of `messages` and an object per row): on a word in
   most messages (one letter: ⌘K asks from the first) it was slower than before, and bun:sqlite holds the server for

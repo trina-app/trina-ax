@@ -5,6 +5,7 @@ import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
+import { conflictText, toldHere } from '../lib/conflictNotice'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
@@ -113,9 +114,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       useRooms.getState().handleEvent(ev)
       return
     case 'files.conflict': {
-      // a save met a newer version (mine or someone else's): both people hear about the conflict copy
+      // a save met a newer version (mine or someone else's): both people hear about the conflict copy, once each
+      // (lib/conflictNotice.ts: a save from this window already said it)
       const copy = ev.data.copyPath
-      toast({ level: 'warn', text: t('files.conflictNotice', { path: ev.data.path, copy, by: ev.data.by?.name ?? '' }), sticky: true, action: { label: t('files.openCopy'), run: () => openTeamFile(copy) } })
+      if (toldHere(ev.data.path)) return
+      toast({ level: 'warn', text: conflictText(ev.data.path, ev.data.by), sticky: true, action: { label: t('files.openCopy'), run: () => openTeamFile(copy) } })
       return
     }
     case 'job.progress':
