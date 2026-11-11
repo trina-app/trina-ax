@@ -12,7 +12,7 @@ import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, S
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, API, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
-import { parentPath } from '../lib/paths'
+import { extOf, parentPath } from '../lib/paths'
 import { PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
 import { openTeamFile, setPanelExpanded, type PreviewFile } from '../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
@@ -32,10 +32,11 @@ import FileBody, { useFileBlob } from './FileBody'
 const MAX_TEXT = PREVIEW_TEXT_MAX
 /** kinds the panel can edit as plain text */
 const EDITABLE: PreviewKind[] = ['markdown', 'text', 'csv', 'html', 'svg', 'xml']
-/** kinds a phone offers to edit (from the header's ⋯ sheet): prose only. A page's or a table's raw source is no use to
- * edit on a phone keyboard (QA TC-259; computers keep the pencil for every EDITABLE kind). */
-const PHONE_EDITABLE: PreviewKind[] = ['markdown', 'text']
-export const phoneCanEdit = (kind: PreviewKind | null | undefined) => !!kind && PHONE_EDITABLE.includes(kind)
+/** files a phone offers to edit (from the header's ⋯ sheet), by extension: prose only, Markdown and .txt. A page's, a
+ * table's or a code file's raw source (.json, .yml, .ts…: the 'text' kind too) is no use to edit on a phone keyboard
+ * (QA TC-259; computers keep the pencil for every EDITABLE kind). */
+const PHONE_EDITABLE = ['md', 'markdown', 'txt']
+export const phoneCanEdit = (name: string | null | undefined) => !!name && PHONE_EDITABLE.includes(extOf(name))
 
 /** "Ask AI" and "add to chat" for the open file: team files only, not a missing one, and not a download-only file (the AI
  * is refused that file's bytes, so the action could only fail). */
@@ -193,7 +194,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
   // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
   const more: MenuItem[] = [
-    ...(canEdit && phone && phoneCanEdit(kind) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
+    ...(canEdit && phone && phoneCanEdit(file.name) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
     ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),

@@ -39,6 +39,7 @@ async function putFiles(page: Page) {
     { path: 'sales/memo.md', text: '# 메모\n\n견적서 보냈어요.' },
     { path: 'sales/notes.txt', text: '전화 메모' },
     { path: 'sales/price.csv', text: '품목,금액\n개발,12000000' },
+    { path: 'sales/conf.json', text: '{ "rate": 12000000 }' },
   ]) expect((await page.request.post('/__test/file', { data })).ok()).toBeTruthy()
 }
 const openInFiles = async (page: Page, folder: string, name: string) => {
@@ -123,7 +124,7 @@ test('on a phone only .md and .txt offer 고치기, from the ⋯ sheet', async (
   await reset(page)
   await signIn(page)
   await putFiles(page)
-  for (const [name, editable] of [['memo.md', true], ['notes.txt', true], ['price.csv', false]] as const) {
+  for (const [name, editable] of [['memo.md', true], ['notes.txt', true], ['price.csv', false], ['conf.json', false]] as const) {
     await openInFiles(page, 'sales', name)
     const panel = page.getByTestId('file-panel')
     await expect(panel.getByTestId('file-edit')).toBeHidden()

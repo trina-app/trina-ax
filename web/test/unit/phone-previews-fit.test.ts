@@ -156,10 +156,11 @@ describe('pinch and double tap math (lib/usePinch.ts)', () => {
 })
 
 describe('edit on a phone', () => {
-  test('only Markdown and .txt: no raw source of a page, a table or a picture', () => {
-    expect(phoneCanEdit('markdown')).toBe(true)
-    expect(phoneCanEdit('text')).toBe(true)
-    for (const k of ['html', 'csv', 'svg', 'xml'] as const) expect(phoneCanEdit(k)).toBe(false)
+  test('only Markdown and .txt: no raw source of a page, a table, a picture or code', () => {
+    for (const n of ['readme.md', 'Notes.MD', 'guide.markdown', 'note.txt']) expect(phoneCanEdit(n)).toBe(true)
+    for (const n of ['quote.html', 'data.csv', 'logo.svg', 'feed.xml']) expect(phoneCanEdit(n)).toBe(false)
+    // the 'text' preview kind is more than .txt: code and config files are not edited on a phone (QA TC-259)
+    for (const n of ['conf.json', 'ci.yml', 'app.ts', 'run.py', 'q.sql', 'go.sh', '.env', 'server.log', 'txt', 'md']) expect(phoneCanEdit(n)).toBe(false)
     expect(phoneCanEdit(null)).toBe(false)
   })
 })
