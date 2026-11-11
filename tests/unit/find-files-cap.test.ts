@@ -1,0 +1,64 @@
+// File-name find on a big folder (team-files/find.ts findFiles): the permission check of every name that matches
+// (visiblePath) runs in chunks with the event loop free in between, at most HIT_CAP files are kept, and every path it
+// lists still passed visiblePath (QA TC-277: 5,000 checks in one go stalled every request for 60-400 ms).
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { startHarness, type Harness } from '../lib/b-harness'
+import { componentC } from '../../server/src/team-files/component'
+import { CHECK_CHUNK, HIT_CAP, findFiles } from '../../server/src/team-files/find'
+import { visiblePath } from '../../server/src/policy/authorize'
+
+setDefaultTimeout(60_000)
+let h: Harness
+const BULK = 2600
+const write = (rel: string, s = 'x\n') => { const p = path.join(h.team, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s) }
+const userId = (name: string) => (h.ctx.db.query('SELECT id FROM users WHERE username = ?').get(name) as { id: string }).id
+const future = new Date(Date.now() + 86_400_000)
+
+beforeAll(async () => {
+  h = await startHarness({ name: 'find-files-cap' })
+  for (let i = 0; i < BULK; i++) write(`shared/bulk/d${i % 26}/bulkname-${i}.md`)
+  // newest of all, so the sort would put them first: none may ever be listed for alice
+  write('groups/finance/bulkname-secret.md'); write('groups/marketing/salaries/bulkname-pay.md'); write('users/bob/bulkname-bob.md')
+  fs.linkSync(path.join(h.team, 'groups/finance/bulkname-secret.md'), path.join(h.team, 'users/alice/bulkname-link.md'))
+  for (const r of ['groups/finance/bulkname-secret.md', 'groups/marketing/salaries/bulkname-pay.md', 'users/bob/bulkname-bob.md', 'users/alice/bulkname-link.md'])
+    fs.utimesSync(path.join(h.team, r), future, future)
+  write('users/alice/bulkname-mine.md'); fs.utimesSync(path.join(h.team, 'users/alice/bulkname-mine.md'), future, future)
+})
+afterAll(async () => { await h.close() })
+
+test('a broad name search on a big folder: newest readable first, truncated, nothing the caller cannot read', async () => {
+  const files = componentC(h.ctx).files
+  const alice = userId('alice')
+  const r = await findFiles(files, alice, 'bulkname', '', 100)
+  expect(r.items).toHaveLength(100)
+  expect(r.truncated).toBe(true)
+  const paths = r.items.map((i) => i.path)
+  expect(paths[0]).toBe('users/alice/bulkname-mine.md')
+  for (const p of ['groups/finance/bulkname-secret.md', 'groups/marketing/salaries/bulkname-pay.md', 'users/bob/bulkname-bob.md', 'users/alice/bulkname-link.md'])
+    expect(paths).not.toContain(p)
+  // every listed path passes the same check as the file screen
+  const user = files.principal(alice), rules = files.rules()
+  for (const p of paths) expect(visiblePath(files.fx, rules, user, p), p).toBeTruthy()
+  // bob sees his own file, the same search
+  expect((await findFiles(files, userId('bob'), 'bulkname-bob', '', 10)).items.map((i) => i.path)).toEqual(['users/bob/bulkname-bob.md'])
+})
+
+test('the checks run in chunks: other work runs while one search goes through thousands of names', async () => {
+  expect(HIT_CAP).toBeLessThanOrEqual(1000)
+  const files = componentC(h.ctx).files
+  let ticks = 0, done = false
+  const spin = () => { ticks++; if (!done) setImmediate(spin) }
+  setImmediate(spin)
+  const p = findFiles(files, userId('alice'), 'bulkname', '', 50).finally(() => { done = true })
+  await p
+  // HIT_CAP checks at most CHECK_CHUNK at a time: at least HIT_CAP / CHECK_CHUNK - 1 turns of the event loop
+  expect(ticks).toBeGreaterThanOrEqual(HIT_CAP / CHECK_CHUNK - 1)
+})
+
+test('a narrow search is unchanged: exact matches, not truncated', async () => {
+  const r = await findFiles(componentC(h.ctx).files, userId('alice'), 'bulkname-2599', '', 50)
+  expect(r).toMatchObject({ truncated: false })
+  expect(r.items.map((i) => i.path)).toEqual(['shared/bulk/d25/bulkname-2599.md'])
+})

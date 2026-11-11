@@ -45,6 +45,10 @@ export const QUEUE_PER_USER = 3
 export const QUEUE_RETRY_AFTER_S = 30
 /** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
 export const MEMORY_RECHECK_MS = 2000
+/** at most this many answers start within START_SPREAD_MS; the rest of a burst start that much later, in queue order
+ * (many engines starting in the same instant froze a 2-core server for 0.5-1.3 s; QA TC-277) */
+export const START_BURST = 3
+export const START_SPREAD_MS = 200
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
@@ -195,6 +199,9 @@ export class ChatRuntime {
   private probedAt = 0
   /** a quarantined slot whose engine was never confirmed gone waits this long past the turn's wall deadline (tests) */
   quarantineReleaseGraceMs = QUARANTINE_RELEASE_GRACE_MS
+  /** at most startBurst answers start within startSpreadMs (0: no spreading; tests) */
+  startBurst = START_BURST
+  startSpreadMs = START_SPREAD_MS
   /** how often the capacity watcher probes quarantined slots (tests) */
   quarantineProbeMs = QUARANTINE_PROBE_MS
   private dispatching = false
@@ -212,6 +219,9 @@ export class ChatRuntime {
   /** queued answers are waiting for memory (schedule() below); the watcher re-checks every MEMORY_RECHECK_MS */
   private memoryHeld = false
   private memoryCheckedAt = 0
+  /** when the last answers started (at most startBurst, oldest first): a burst past that waits for spreadTimer */
+  private recentStarts: number[] = []
+  private spreadTimer: ReturnType<typeof setTimeout> | null = null
   private capacityWatcher: ReturnType<typeof setInterval>
   /** a fixed --max-turns (tests); null: the team setting, read when each answer starts */
   private engineTurnsOverride: number | null
@@ -417,6 +427,8 @@ export class ChatRuntime {
     this.memoryCheckedAt = Date.now()
     this.dispatchRetry = false
     while (this.running.size < room && this.queued.length) {
+      // many answers at once start a few at a time (START_BURST per START_SPREAD_MS), the rest a moment later in order
+      if (this.startSpread()) break
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
       const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
       if (!head) break
@@ -453,6 +465,7 @@ export class ChatRuntime {
         continue
       }
       this.running.set(spec.turnId, exec)
+      this.recentStarts.push(Date.now())
       try { this.publishChat(spec.userId, spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after dispatch failed', { err, turn: spec.turnId }) }
       exec.run().catch((err) => this.log.error('turn run failed', { err, turn: spec.turnId }))
     }
@@ -469,6 +482,20 @@ export class ChatRuntime {
       this.dispatchRetry = true
       this.log.error('queue dispatch failed; trying again', { err })
     } finally { this.dispatching = false }
+  }
+
+  /** True when startBurst answers started within the last startSpreadMs: the next one waits, and a timer runs
+   * schedule() again once the oldest of them is that old. */
+  private startSpread(): boolean {
+    const burst = this.startBurst, spread = this.startSpreadMs
+    const now = Date.now()
+    while (this.recentStarts.length && now - this.recentStarts[0]! >= spread) this.recentStarts.shift()
+    if (burst <= 0 || spread <= 0 || this.recentStarts.length < burst) return false
+    if (!this.spreadTimer) {
+      this.spreadTimer = setTimeout(() => { this.spreadTimer = null; this.schedule() }, spread - (now - this.recentStarts[0]!))
+      this.spreadTimer.unref?.()
+    }
+    return true
   }
 
   /** The dispatch of one queued turn threw (claim, the turn's start): that turn ends with an error, nothing else. */
@@ -1035,6 +1062,8 @@ export class ChatRuntime {
     clearInterval(this.capacityWatcher)
     if (this.recoveryRetry) clearTimeout(this.recoveryRetry)
     this.recoveryRetry = null
+    if (this.spreadTimer) clearTimeout(this.spreadTimer)
+    this.spreadTimer = null
     this.recoveryAbort.abort()
     this.shutdownP = (async () => {
       const execs = [...this.running.values()]
