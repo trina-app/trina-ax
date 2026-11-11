@@ -37,6 +37,7 @@ import { readSkill } from '../chat/skills'
 import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
 import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { roomsOf } from '../rooms/service'
 import { newMemberAi } from '../credentials/access'
 import { getChatRuntime } from '../chat/runtime'
 import type { Principal } from '../policy/access'
@@ -394,6 +395,8 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   // the owners hear about every join, and so does the admin who made the link
   const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
   notifyTeamJoined(ctx, r.created_by ? [...owners, r.created_by] : owners, id)
+  // and one line in the everyone room, so the rest of the team can say hello (rooms/service.ts memberJoined)
+  roomsOf(ctx).memberJoined(id)
   // the skill the link names, only when the new member can open it now (the folder rules decide, not the link)
   const me = viewerOf(ctx, id)
   const found = r.skill_path && me ? teamSkill(ctx, me, r.skill_path) : null

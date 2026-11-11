@@ -54,6 +54,7 @@ export type EventData =
   | { type: 'added'; userIds: string[] }
   | { type: 'left' }
   | { type: 'removed'; userId: string }
+  | { type: 'joined' }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string }
 
 export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut'
@@ -166,6 +167,7 @@ export function parseEvent(s: string | null): EventData | null {
       case 'created': case 'added': return { type: v.type, userIds: ids(v.userIds) }
       case 'renamed': return { type: 'renamed', name: typeof v.name === 'string' ? v.name : null }
       case 'left': return { type: 'left' }
+      case 'joined': return { type: 'joined' }
       case 'removed': return typeof v.userId === 'string' ? { type: 'removed', userId: v.userId } : null
     }
   } catch { /* not an event this build reads */ }
@@ -180,6 +182,7 @@ function eventOut(e: EventData, people: Map<string, UserRef>): RoomEventLine {
     case 'added': return { type: 'added', users: refs(e.userIds) }
     case 'renamed': return { type: 'renamed', name: e.name }
     case 'left': return { type: 'left' }
+    case 'joined': return { type: 'joined' }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
   }
 }

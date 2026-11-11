@@ -35,6 +35,25 @@ describe('invites', () => {
     const viaOrigin = await admin.call('POST', '/api/admin/invites', {}, { origin: 'http://team.localhost' })
     expect(viaOrigin.url.startsWith('http://team.localhost/invite/')).toBe(true)
   })
+  test('a join with an invite is told: the owners and the invite\'s maker in Activity, and one line in the everyone room (no unread)', async () => {
+    const everyone = async (c: Client) => ((await c.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'all')
+    const before = await everyone(owner)
+    const { token } = await admin.call('POST', '/api/admin/invites', {})
+    const r = await h.client().call('POST', `/api/invites/${token}/accept`, { username: 'nora', name: 'Nora New', password: 'tulip meadow 2026' })
+    const joinedId = r.me.user.id
+    for (const c of [owner, admin]) {
+      const item = (await c.call('GET', '/api/notifications')).items.find((x: any) => x.code === 'team.joined' && x.sourceId === joinedId)
+      expect(item).toMatchObject({ eventType: 'team.joined', joined: { name: 'Nora New' } })
+    }
+    const room = await everyone(owner)
+    const page = await owner.call('GET', `/api/rooms/${room.id}/messages`)
+    const line = (page.items as any[]).at(-1)
+    expect(line).toMatchObject({ event: { type: 'joined' }, author: { id: joinedId } })
+    // an event line is never unread, and the room keeps its place
+    expect(room.unreadCount).toBe(before?.unreadCount ?? 0)
+    expect(room.activityAt ?? null).toBe(before?.activityAt ?? null)
+  })
+
   test('info -> accept: account with the invite\'s role and groups, personal folder, signed in; one use only', async () => {
     const { token } = await admin.call('POST', '/api/admin/invites', { groupIds: [groupId] })
     const guest = h.client()

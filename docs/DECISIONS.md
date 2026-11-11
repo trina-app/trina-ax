@@ -20231,3 +20231,22 @@ overruled the review's MUST 1 and three of its SHOULDs:
 - **Tests.** `tests/security/r1-managed-folder-move.test.ts` (409 with the count, nothing moved; same-folder rename
   without a question; confirm moves and records it; no askWiden moves as before) and `web/test/unit/bulk-files.test.ts`
   (askWiden sent, one question for the batch, "no" leaves them, no askWiden without confirmWiden).
+
+## A new member is told to the team (feat/member-joined-notice, 2026-11-11, QA)
+
+- **Problem.** On potenlab, a member who joined with a single-use invite (qa-d) was told to nobody: no line in the
+  everyone room, nothing in Activity. A join with the team link already told the owners and the link's maker
+  (`team.joined`), but not the rest of the team.
+- **Rule.**
+  - Both kinds of join (an invite: `auth/accounts.ts acceptInvite`; the team link: `auth/team-links.ts`) put one event
+    line in the everyone room, written as the new member: `{type: 'joined'}`, shown as "{name} joined the team". An
+    event line is never unread and does not move the room in the lists, so nobody gets a badge, a notice or a push;
+    the team sees it when they open the room and can say hello. The new member is put in the room first and sees it
+    too.
+  - An invite join now also sends `team.joined` to the owners and the invite's maker (Activity, no push), as the team
+    link does. Its text no longer names the team link ("{name} joined the team").
+  - Names only: no email, no role, no inviter in the room line.
+- **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
+  and the person may not have signed in yet. No push for joins.
+- **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
+  `tests/unit/a-team-links.test.ts` (team link join: the line).

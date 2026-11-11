@@ -362,6 +362,22 @@ export class Rooms {
     this.messageEvent('room.message', messageRow(this.db, room.id, line)!)
   }
 
+  /**
+   * Someone new joined the team (an invite: auth/accounts.ts acceptInvite; the team link: auth/team-links.ts). One line
+   * in the everyone room, written as them: "QA D joined the team", so the others can say hello. No notice and no push
+   * (an event line is never unread: rooms/inbox.ts), and the room keeps its place in the lists. They are put in the
+   * room first, so they see their own line. Never throws: the join itself has worked.
+   */
+  memberJoined(userId: string): void {
+    try {
+      this.syncFor(userId)
+      const room = this.db.query("SELECT id FROM rooms WHERE kind = 'all' AND archived_at IS NULL").get() as { id: string } | null
+      if (!room) return
+      const line = this.db.transaction(() => this.eventLine(room.id, userId, { type: 'joined' }, nowIso()))()
+      this.messageEvent('room.message', messageRow(this.db, room.id, line)!)
+    } catch (e) { this.ctx.log.warn('the join line was not written', { err: e }) }
+  }
+
   // ---------------- group chats: who is in one ----------------
   /** Add people to a group chat I am in (any member). Those already in it are skipped; the others see the room from
    * now on (visible_from_seq = the room's last seq, as in a team room) and the line that says they were invited. */

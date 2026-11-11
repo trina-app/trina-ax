@@ -3360,8 +3360,8 @@ export const ko = {
   "teamLink.problem.revoked": "더 이상 쓰지 않는 초대 링크예요. 링크를 보낸 분께 새 링크를 부탁해 주세요.",
   "teamLink.problem.full": "지금은 팀 인원이 다 찼어요. 링크를 보낸 분께 알려 주세요.",
   "teamLink.problem.missing": "열 수 없는 초대 링크예요. 링크를 끝까지 복사했는지 확인하거나, 보낸 분께 새 링크를 부탁해 주세요.",
-  "teamLink.joinedNotice": "{name}님이 팀 초대 링크로 들어왔어요.",
-  "teamLink.joinedNoticeGone": "누군가 팀 초대 링크로 들어왔어요.",
+  "teamLink.joinedNotice": "{name}님이 팀에 들어왔어요.",
+  "teamLink.joinedNoticeGone": "누군가 팀에 들어왔어요.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "계정 삭제",
   "accountDeletion.rowHint": "계정은 팀장이나 관리자가 삭제해요.",
@@ -3780,6 +3780,7 @@ export const ko = {
   "rooms.event.renamed": "{actor}님이 방 이름을 {name}(으)로 바꿨어요",
   "rooms.event.renamedBack": "{actor}님이 방 이름을 원래대로 바꿨어요",
   "rooms.event.left": "{actor}님이 나갔어요",
+  "rooms.event.joined": "{actor}님이 팀에 들어왔어요",
   "rooms.event.removed": "{actor}님이 {name}님을 내보냈어요",
   "rooms.event.unknown": "대화방 정보가 바뀌었어요",
   "tabs.label": "주요 메뉴",
