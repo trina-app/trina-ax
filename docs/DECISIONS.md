@@ -738,6 +738,13 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `--port`를 안 준 경우)와 530(연결 없음)을 나눠 고칠 명령을 보여 주고, `set`은 답이 없으면 1로 끝난다. `off`는 지울 이름을
   넣어 `remove` 명령을 보여 준다. 가이드: 2-0(주인 맥 준비·cert.pem·API 토큰), 주소를 바꾼 뒤 데스크 할 일(옛 앱 제거·새
   앱·다시 로그인, 카드 재인쇄, 안 쓴 초대 링크), 502와 530/1033 구분, zip 크기 170 MB.
+- **The relay is the internet too (2026-11-11, audit).** Signed out, `/api/health` through the relay
+  (`<team>.<team domain>`, `via: 'relay'`) answers only `ok` and `time`, like the office internet address: before, anyone
+  could read the version, schema and uptime of a relayed team and pick a known-vulnerable release. This server itself,
+  the office LAN (direct and TLS port) and signed-in people keep the full answer. Nothing signed out reads the version
+  through the relay: the desktop and phone apps' address check only parse the shape, the bootstrap, installers,
+  `mycel-ctl` and the Docker health check ask `127.0.0.1`, and the sign-in page's source-code link then names no version
+  (as on the office internet address).
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 
