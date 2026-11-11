@@ -3,7 +3,7 @@
 // instead of a second copy of it.
 import { describe, expect, test } from 'bun:test'
 import { chainOf, parentOf, rootTab, sameScreen, screenOf } from '../../src/lib/screens'
-import { isOverlay, planFor, type Item } from '../../src/lib/screenHistory'
+import { isOverlay, planFor, stackToSave, type Item } from '../../src/lib/screenHistory'
 
 const items = (...ps: string[]): Item[] => ps.map((p, i) => ({ k: `k${i}`, p }))
 const f = (p: string) => `/files?path=${encodeURIComponent(p)}`
@@ -52,6 +52,10 @@ describe('the table', () => {
     expect(sameScreen('/admin/folders', '/admin/folders?view=people')).toBe(false)
     expect(sameScreen('/skills', '/skills?catalog=open')).toBe(true)
     expect(sameScreen('/settings/memory', '/settings/memory#x')).toBe(true)
+    // a room or a thread with a message picked out is the room or the thread
+    expect(sameScreen('/rooms/r1', '/rooms/r1?m=5')).toBe(true)
+    expect(sameScreen('/rooms/r1/t/m1', '/rooms/r1/t/m1?m=6')).toBe(true)
+    expect(sameScreen('/rooms', '/rooms?new=1')).toBe(false)
   })
 
   test('tabs: the stack an address starts, and the roots', () => {
@@ -97,6 +101,17 @@ describe('a navigation on a phone', () => {
     expect(plan(items('/', '/c/x', f('a/b')), f('a/b/c'))).toEqual({ back: 0, replace: undefined, push: [f('a/b/c')] })
     // a file from a chat is pushed on the chat's stack: Back goes to the chat
     expect(plan(items('/', '/c/x'), `/files/view?path=${encodeURIComponent('a/b.txt')}`).push).toHaveLength(1)
+  })
+
+  test('a tab tap saves the stack with its first entry, also when the stack is deeper than an entry keeps', () => {
+    const deep = Array.from({ length: 30 }, (_, i) => ({ k: `k${i + 5}`, p: f(`d/${i + 5}`) }))
+    // 35 deep, the trail keeps the last 30: the first entry comes back first, then the last 11
+    const saved = stackToSave({ base: 0, root: { k: 'root', p: '/files' }, trail: deep }, 34)
+    expect(saved).toHaveLength(12)
+    expect(saved[0]!.p).toBe('/files')
+    expect(saved.at(-1)!.p).toBe(f('d/34'))
+    // a short stack is kept whole
+    expect(stackToSave({ base: 0, root: { k: 'a', p: '/files' }, trail: items('/files', f('a')) }, 1).map((x) => x.p)).toEqual(['/files', f('a')])
   })
 
   test('overlay entries: backCloses\' mark, or the older ones with a "__" field', () => {

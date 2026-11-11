@@ -244,8 +244,20 @@ describe('local data per person', () => {
     expect(readDraft('budi', 'new', s)).toBe('')
     s.setItem(UPLOADS_KEY, '{}')
     s.setItem('mycel.theme', 'dark')
-    clearLocalData(s)
-    expect([...s.m.keys()]).toEqual(['mycel.theme'])
+    // the phone's saved tab stacks (sessionStorage) go too
+    const { TAB_STACKS_KEY } = await import('../../src/lib/localData')
+    const session = new Mem()
+    const before = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, writable: true, value: session })
+    try {
+      session.setItem(TAB_STACKS_KEY, '{}')
+      clearLocalData(s)
+      expect([...s.m.keys()]).toEqual(['mycel.theme'])
+      expect(session.getItem(TAB_STACKS_KEY)).toBeNull()
+    } finally {
+      if (before) Object.defineProperty(globalThis, 'sessionStorage', before)
+      else delete (globalThis as { sessionStorage?: unknown }).sessionStorage
+    }
   })
 })
 

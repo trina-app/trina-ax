@@ -1,11 +1,13 @@
 // What this browser keeps for the signed-in person: unsent drafts (per person, so a shared computer never shows one
 // person's draft to the next), messages waiting for an answer to end (lib/sendQueue.ts) and remembered unfinished
-// uploads. Signing out clears them all.
+// uploads; on a phone, the other tabs' stacks (sessionStorage). Signing out clears them all.
 
 const DRAFT_PREFIX = 'mycel.draft:'
 /** lib/sendQueue.ts QUEUE_KEY_PREFIX (not imported: this file stays free of the API schemas) */
 const QUEUE_PREFIX = 'mycel.queue:'
 export const UPLOADS_KEY = 'mycel.uploads'
+/** the phone's other tabs' stacks (lib/screenHistory.ts), in sessionStorage: the addresses that person opened */
+export const TAB_STACKS_KEY = 'mycel.tabStacks'
 
 /** Why an upload stops when the person signs out or the session ends, as opposed to a cancel: nothing is dropped on the
  * server (a request would be refused), and the same person can go on from the chunks that are there. */
@@ -33,7 +35,8 @@ export function writeDraft(userId: string, id: string, text: string, s: Store | 
   } catch { /* storage full or blocked */ }
 }
 
-/** Forget drafts, waiting messages and remembered uploads of everyone on this browser (sign-out). */
+/** Forget drafts, waiting messages and remembered uploads of everyone on this browser, and this tab's saved phone
+ * stacks (sign-out). */
 export function clearLocalData(s: Store | null = local()) {
   if (!s) return
   try {
@@ -43,5 +46,8 @@ export function clearLocalData(s: Store | null = local()) {
       if (k && (k.startsWith(DRAFT_PREFIX) || k.startsWith(QUEUE_PREFIX) || k === UPLOADS_KEY)) keys.push(k)
     }
     for (const k of keys) s.removeItem(k)
+  } catch { /* storage blocked */ }
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(TAB_STACKS_KEY)
   } catch { /* storage blocked */ }
 }

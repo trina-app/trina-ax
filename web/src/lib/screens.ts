@@ -82,8 +82,9 @@ export function screenOf(to: string): Screen {
       if (b === 'mcp' && c) return s('ai', '/connectors')
       return b ? s('ai', '/connectors') : s('ai', '/')
     case 'rooms':
-      if (b && c === 't' && d) return s('chats', `/rooms/${b}`)
-      return b ? s('chats', '/rooms') : s('chats', null)
+      // a room or a thread with a message picked out (?m=) is the same screen
+      if (b && c === 't' && d) return s('chats', `/rooms/${b}`, pathname)
+      return b ? s('chats', '/rooms', pathname) : s('chats', null)
     case 'files': {
       const path = q(search).get('path') ?? ''
       if (b === 'view') return { tab: 'files', parent: folder(dirOf(path)), id: `file:${path}`, tree: true }
@@ -110,7 +111,7 @@ export const parentOf = (to: string) => screenOf(to).parent
 /** The addresses from the top of its tree down to `to`, `to` last ("/files?path=a/b" → /files, /files?path=a, itself). */
 export function chainOf(to: string): string[] {
   const out = [to]
-  for (let p = parentOf(to); p && out.length < 12; p = parentOf(p)) out.unshift(p)
+  for (let p = parentOf(to); p && out.length < 64; p = parentOf(p)) out.unshift(p)
   return out
 }
 
