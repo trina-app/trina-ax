@@ -2,7 +2,7 @@
 // hwp_render and schedule_create showed as "hwp_render" / "schedule_create"). The web app redraws a stored label in the
 // language on screen (localizeStep), so an answer run in Korean reads in English after a switch.
 import { describe, expect, test } from 'bun:test'
-import { FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, stepLabel, stepPlace } from '@mycel/shared'
+import { COVER_STEP_KEYS, FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, STEP_TEXT, stepLabel, stepPlace } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { C_TOOL_NAMES } from '../../server/src/tools/index'
 import { FILE_MOVE_TOOL_NAMES } from '../../server/src/tools/file-moves'
@@ -122,6 +122,25 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     expect(shown('edit_files', 'Edit files · shared/a.md +29', 'en')).toEqual({ label: 'Edit files · Company-wide › a.md +29', path: 'shared/a.md' })
     expect(shown('hwp_render', 'View HWP page · groups/Acme/brief.hwpx #2', 'en').label).toBe('View HWP page · Acme folder › brief.hwpx #2')
     expect(shown('grep', 'Search "fee · 2%" · shared/', 'en').label).toBe('Search "fee · 2%" · Company-wide')
+  })
+
+  test('a save a card let through ("이번만 허용", a room grant, a schedule\'s card, the own folder): its why after the path in words (QA 2026-11-11)', () => {
+    // three new files in shared/양식 after one card: the first asked, the 2nd and 3rd say why they did not
+    const ko = (n: string, why = '') => `파일 저장 · shared/양식/${n}${why && ` · ${why}`}`
+    expect(shown('write', ko('memo-a.md'), 'ko')).toEqual({ label: '파일 저장 · 전사 공유 › 양식 › memo-a.md', path: 'shared/양식/memo-a.md' })
+    for (const n of ['memo-b.md', 'memo-c.md'])
+      expect(shown('write', ko(n, STEP_TEXT.roomOnceStep.ko), 'ko')).toEqual({ label: `파일 저장 · 전사 공유 › 양식 › ${n} · 이번만 허용으로 진행`, path: `shared/양식/${n}` })
+    // every why, written in any language, in the screen's language after the path in words
+    for (const key of COVER_STEP_KEYS) for (const from of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      const label = `${FILE_STEP_VERB.write![from]} · shared/양식/memo-b.md · ${STEP_TEXT[key][from]}`
+      expect(shown('write', label, 'en')).toEqual({ label: `Save · Company-wide › 양식 › memo-b.md · ${STEP_TEXT[key].en}`, path: 'shared/양식/memo-b.md' })
+    }
+    // with edit_files' "+N", in the person's own folder; a path not in words keeps its line (the why in the screen's language)
+    expect(shown('edit_files', `Edit files · users/0192f/a.md +2 · ${STEP_TEXT.ownFolderStep.en}`, 'ko').label).toBe(`여러 파일 수정 · 내 폴더 › a.md +2 · ${STEP_TEXT.ownFolderStep.ko}`)
+    expect(shown('write', `Save · projects/acme/a.md · ${STEP_TEXT.roomGrantStep.en}`, 'ko')).toEqual({ label: `파일 저장 · projects/acme/a.md · ${STEP_TEXT.roomGrantStep.ko}` })
+    // a file whose own name looks like the why is still a path; a memory's own words are not the why
+    expect(shown('write', 'Save · shared/allowed once in this answer', 'en').label).toBe('Save · Company-wide › allowed once in this answer')
+    expect(localizeStep({ kind: 'tool', tool: 'remember', label: `Remembered: lunch · ${STEP_TEXT.roomOnceStep.en}` }, 'ko').label).toBe(`기억함: lunch · ${STEP_TEXT.roomOnceStep.en}`)
   })
 
   test('anything else stays as it is, without a path', () => {

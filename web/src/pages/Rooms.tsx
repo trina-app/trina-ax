@@ -27,7 +27,8 @@ import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
 import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/rooms/SidebarRooms'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
-import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
+import { Button, PageHeader, Skeleton } from '../components/ui'
+import { LoadError } from '../components/LoadError'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
 import { PresenceText } from '../components/Presence'
@@ -38,7 +39,6 @@ export default function Rooms() {
   // a phone's sign-in lands here when the app opens on 대화 (lib/tabs.ts START_TAB): the owner who left the welcome
   // steps unfinished goes to them instead
   const resuming = useResumeOnLanding((useLocation().state as { landing?: unknown } | null)?.landing === true)
-  const locale = useLocale()
   const everyRoom = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
   const failed = useRooms((s) => s.failed)
@@ -82,7 +82,7 @@ export default function Rooms() {
         {!loaded && <Skeleton lines={4} className="px-4 py-4 sm:px-6" />}
         {loaded && !!failed && (
           <div className="px-4 py-4 sm:px-6">
-            <ErrorNote onRetry={() => void useRooms.getState().loadRooms()}>{errorText(failed, locale, t('error.network'))}</ErrorNote>
+            <LoadError error={failed} onRetry={() => useRooms.getState().loadRooms()} what="rooms" />
           </div>
         )}
         {loaded && !failed && !everyRoom.length && <p className="px-4 py-4 text-sm text-muted sm:px-6">{t('rooms.listEmpty')}</p>}

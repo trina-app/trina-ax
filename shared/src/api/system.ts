@@ -7,11 +7,11 @@ import { SourceCodeOffer } from '../source'
 
 export const Health = z.object({
   ok: z.boolean(),
-  /** version, schema and uptime are left out for a signed-out caller on the office internet address (docs/OFFICE.md
-   * "인터넷 주소"): the internet does not learn which build runs. Everyone else (this Mac, the office LAN, the relay,
-   * a signed-in person) gets them. */
+  /** version, schema and uptime are left out for a signed-out caller from the internet: the office internet address
+   * (docs/OFFICE.md "인터넷 주소") or the relay (<team>.<team domain>). The internet does not learn which build runs.
+   * Everyone else (this server itself, the office LAN, a signed-in person) gets them. */
   version: z.string().optional(),
-  /** Operator metadata for this version; absent with anonymous office tunnel redaction or on older servers. */
+  /** Operator metadata for this version; absent for a signed-out caller from the internet (see version) or on older servers. */
   sourceCode: SourceCodeOffer.optional(),
   /** schema version range this build reads */
   schema: z.object({ applied: z.number().int(), readerLevel: z.number().int() }).optional(),

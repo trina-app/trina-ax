@@ -1,7 +1,7 @@
 // App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
-import { ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
+import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -212,15 +212,18 @@ function DevModeBanner() {
   )
 }
 
-/** "다시 연결 중" while the socket is down; after 30 s "팀 서버에 연결할 수 없음" (answers on screen stay). */
+/** "다시 연결하는 중…" while the socket is down; after 30 s "지금 연결이 안 돼요. 계속 다시 연결하고 있어요…" (answers on
+ * screen stay). The one place that says it: a list that could not be read meanwhile waits quietly under it
+ * (components/LoadError.tsx). The neutral surface, not amber or red: a dropped connection usually passes by itself, and
+ * there is nothing to fix on this screen (docs/DECISIONS.md "How we show errors"). */
 function ConnectionBanner() {
   const t = useT()
   const conn = useUi((s) => s.conn)
   if (conn !== 'reconnecting' && conn !== 'offline') return null
   const offline = conn === 'offline'
   return (
-    <div role="status" className={clsx('flex items-center justify-center gap-2 px-3 py-1.5 text-center text-xs font-medium', offline ? 'bg-danger-soft text-danger' : 'bg-warn-soft text-warn')} data-testid="conn-banner">
-      {offline ? <WifiOff size={14} aria-hidden /> : <RefreshCw size={14} className="animate-spin" aria-hidden />}
+    <div role="status" className="flex items-center justify-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-center text-xs font-medium text-muted" data-testid="conn-banner" data-state={conn}>
+      {offline ? <WifiOff size={14} className="shrink-0" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden />}
       {offline ? t('conn.offline') : t('conn.reconnecting')}
     </div>
   )
