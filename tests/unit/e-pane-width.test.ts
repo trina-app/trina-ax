@@ -135,7 +135,7 @@ describe('wiring', () => {
   test('the toolbar view reaches over the team page\'s edge, transparent there, and stays above it', () => {
     expect(win).toContain("this.chrome.setBackgroundColor('#00000000')")
     expect(pane).toContain('chrome.setBounds({ x: b.x - grab, y: b.y, width: b.width + grab, height: b.height })')
-    expect(pane).toContain('if (at < 0 || views.children.slice(at + 1).some((v) => !tabViews.has(v))) views.addChildView(chrome)')
+    expect(pane).toMatch(/if \(at < 0 \|\| views\.children\.slice\(at \+ 1\)\.some\(\(v\) => !tabViews\.has\(v\)\)\) \{[^}]*views\.addChildView\(chrome\)/)
     expect(css).toMatch(/html\.pane,\s*body\.pane \{\s*background: transparent;/)
     // the handle and the pane's box are made once: a re-render does not end a drag
     expect(ui).toContain('root.replaceChildren(edge, main)')

@@ -261,14 +261,20 @@ export class BrowserPane {
     if (b) {
       const at = views.children.indexOf(chrome)
       // added, or raised over a view put above it meanwhile (the team page after the team list, the host strip)
-      if (at < 0 || views.children.slice(at + 1).some((v) => !tabViews.has(v))) views.addChildView(chrome)
+      if (at < 0 || views.children.slice(at + 1).some((v) => !tabViews.has(v))) {
+        if (at >= 0) debug('browser toolbar raised')
+        views.addChildView(chrome)
+      }
       const grab = paneGrab(b.x)
       chrome.setBounds({ x: b.x - grab, y: b.y, width: b.width + grab, height: b.height })
     } else if (views.children.includes(chrome)) views.removeChildView(chrome)
     for (const t of this.tabs.values()) {
       if (t.popup) continue
       if (b && t.id === this.activeId) {
-        if (views.children.at(-1) !== t.view) views.addChildView(t.view)
+        if (views.children.at(-1) !== t.view) {
+          if (views.children.includes(t.view)) debug('browser tab raised')
+          views.addChildView(t.view)
+        }
         t.view.setBounds({ x: b.x, y: b.y + this.toolbarHeight, width: b.width, height: Math.max(0, b.height - this.toolbarHeight) })
         const drawn = t.drawn === true
         if (t.view.getVisible() !== drawn) t.view.setVisible(drawn)
