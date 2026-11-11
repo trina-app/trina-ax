@@ -2,9 +2,9 @@
 
 - Date (UTC): 2026-11-11 00:46
 - Branch: `feat/search-rooms-people-files`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/components/SearchDialog.tsx`, `shared/src/search-text.ts`, `shared/src/api/rooms.ts`,
-  `server/src/rooms/search.ts`, a new `server/src/rooms/file-search.ts`, `server/src/rooms/service.ts`,
+  `server/src/rooms/search.ts`, `server/src/rooms/service.ts`,
   `server/src/routes/rooms.ts`, `server/src/routes/chats.ts`). Why: the search palette, rooms and their visibility rule
   are core chat (see docs/REPOSITORY-RULES.md).
 - Version impact: minor. One new endpoint and result type (room files), a new group in the palette, a looser match
@@ -29,27 +29,29 @@ An audit of the ⌘K palette on dev (2274559af) found five gaps the owner approv
 - One group on the **All** tab, only while something is typed: "Rooms & people" (en.ts first; ko "대화방·사람"; ja, es,
   id filled). No new tab, no new button or card.
 - **Sources (no new server data).** The rooms list the person already has (`store/rooms.ts`, `GET /api/rooms` =
-  `reader.ts myRooms`: rooms they are in now, not archived; hidden rooms included, as message search does) and the team's
-  people (`store/people.ts usePeopleList`, `GET /api/people`: the list the new-DM picker uses; never me). Both are read
-  when the palette opens if no screen has read them yet.
+  `Rooms.list`: rooms they are in now, not archived; hidden rooms included, as message search does) and the team's
+  people (`store/people.ts usePeopleList`, `GET /api/people`: the list the new-DM picker uses; never me). Both load in
+  the background when the palette opens if no screen has read them yet.
 - **One row per room or person.** A DM in the rooms list stands for its person (their face and name); a person with no
   DM in the list is a person row. A team room, the everyone room and a group chat are matched by the title the app
   shows (`useRoomTitle`), people by name.
-- **Matching** (`shared/src/search-text.ts`, new, with unit tests; no helper existed): NFKC and lower case on both
-  sides; every whitespace-separated word must be in the name; a Korean initial consonant in the query (ㄱ…ㅎ, ㄲ…ㅉ)
-  matches a syllable that starts with it, so "ㄱㅈ" finds "견적", "ㅁㅎ" finds "민희", "김ㅁ" finds "김민희". Order: the
-  whole query at the start of the name, then inside it, then by words or initials; rooms by latest activity, people
-  by name. At most 5 rows. The match is marked when it is a plain substring.
-- **Enter / click.** A room opens `/rooms/:id`. A person opens their DM: the DM in the rooms list when there is one,
-  else `useRooms.openDm` (`POST /api/rooms {kind:'dm'}`, which returns the existing DM when there is one) then
-  `/rooms/:id`: the same path the new-DM picker (`PeoplePicker.tsx`) uses. A failure shows the picker's toast.
-- **Place.** First on the All tab: it is a name jump, local, so it never arrives late and never moves rows below it.
+- **Matching** (`shared/src/search-text.ts`, new, with unit tests; no helper existed): NFC, then NFKC one character
+  at a time (review: so "ㄱㅏ" is not joined into "가"), lower case on both sides; every whitespace-separated word must be in the name; a Korean initial consonant in the query (ㄱ…ㅎ, ㄲ…ㅉ)
+  matches a syllable that starts with it, so "ㄱㅈ" finds "견적", "ㅁㅎ" finds "민희", "김ㅁ" finds "김민희". Order: rooms
+  and DMs first, then people with no DM (review); in each, the whole query at the start of the name, then inside it,
+  then by words or initials; rooms by latest activity, people by name. At most 3 rows on 전체 (review). The match is
+  marked when it is a plain substring whose positions map back.
+- **Enter / click.** A room or a DM opens `/rooms/:id` (a hidden room opened so is shown again, as from "숨긴 대화").
+  A person with no DM opens the new-DM list with them ticked (`PeoplePicker` `{kind:'new', preselect:[id]}`), which
+  makes the DM only when they press its button (the lead's decision after the review: `openDm` would make the room at
+  once and put it at the top of the other person's sidebar).
+- **Place.** First on the All tab. A fast Enter opens the top row shown at that moment.
 
 ### 2. Files sent in rooms (server + web)
 
 - `GET /api/room-files?q=&cursor=&limit=` (`API.searchRoomFiles`, query `RoomSearchQuery`, response
   `RoomFileSearchPage`: `items` (file id, name, kind, message id, roomId, threadRootId, author, createdAt), `rooms` (as
-  `RoomSearchPage.rooms`), `nextCursor`). `server/src/rooms/file-search.ts`, called through `Rooms.searchFiles`, which
+  `RoomSearchPage.rooms`), `nextCursor`). `server/src/rooms/search.ts searchRoomFiles`, called through `Rooms.searchFiles`, which
   runs `syncFor` first like `Rooms.search`.
 - **Access rule: exactly message search's.** Candidates only in `reader.ts myRooms` (rooms they are in now, not
   archived). Only files sent with a message (`message_id` set; an unsent upload never), of a message in the same room,
@@ -61,17 +63,19 @@ An audit of the ⌘K palette on dev (2274559af) found five gaps the owner approv
   `messagesOut`: the message must come out not withheld and the file must be among its `files`. Leaving or being taken
   out ends it at once (no member row).
 - **Matching:** every word of the query in the file name, `LIKE … ESCAPE` (A–Z in any case, `%` and `_` as themselves),
-  NFC (names are stored NFC). Newest message first; cursor = (message rowid, file rowid) of the page's last hit.
-- **Index: none.** `room_files` holds one row per file sent (far fewer than messages); the query reads the names once
-  and joins messages by primary key. The suite measures it on 20,000 files; a migration is added only if that is slow.
-- **Palette.** On the All and Files tabs (where file rows show), after the team files' names: the file name (match
-  marked) and "in #room" (team room, everyone room), "with Ben" (a DM), "in <group chat name>". 4 rows on All, 20 on
-  Files, no "more" row. Opening one opens that message in its room (`hitHref`: `/rooms/:id?m=`, a thread reply
+  NFC (names are stored NFC). Newest first by the file's rowid; cursor = the file rowid of the page's last query row.
+- **Index: none.** `room_files` holds one row per file sent (far fewer than messages); `CROSS JOIN` keeps SQLite on
+  `room_files` newest first (no sort; the review measured a plain JOIN at seconds on a million messages) and joins the
+  message by primary key and the same room. The suite measures 20,000 files among 100,000 messages and reads the plan.
+- **Palette.** On the All and Files tabs (where file rows show), after the team files' names, one line like a message
+  hit (review): the file name (match marked), then dim "who · where · when" ("#room", "1:1 대화 · Ben", a group chat's
+  name). 4 file rows in all on All (the team's first), all of them on Files, no "more" row. Opening one opens that message in its room (`hitHref`: `/rooms/:id?m=`, a thread reply
   `/rooms/:id/t/:root?m=`), the way message hits do.
 
 ### 3. Word-by-word matching (server + web)
 
-- `shared/src/search-text.ts searchWords(q)`: NFC, split on whitespace, no empty or repeated words, at most 8 (as
+- `shared/src/search-text.ts searchWords(q)`: NFC, split on whitespace, no empty word, none repeated in another case,
+  at most 8 (as
   `reader.ts searchRooms`).
 - `rooms/search.ts`: words of 3+ characters: one FTS5 `MATCH` of quoted phrases joined by `AND` (the index); none: the
   trigram `LIKE` with the longest word (the existing fallback). Every word is matched again on the message's own body
@@ -79,14 +83,15 @@ An audit of the ⌘K palette on dev (2274559af) found five gaps the owner approv
   the page's last hit). The snippet starts around the first word found.
 - `routes/chats.ts listChats`: every word must be in the chat's title or in one of its messages (per chat, as
   `chat/room-project-chats.ts` does for the AI's project_chats tool). A shared chat: each word through its title, a
-  person's message, or an answer not hidden from the person (`sharedHits` per word, `AnswerSight`).
+  person's message, or an answer not hidden from the person (`AnswerSight`). The messages holding any word are read in
+  one pass over `messages_fts` per request, for the chats the list may hold (review), and only narrow the query.
 - Web: the palette marks the first match of every word.
 
 ### 4. Stale results (web)
 
-Each async source stores the query it answered with its result: chats (`/api/chats?q=`), file names
+Each async source stores the words (lower case) it answered with its result: chats (`/api/chats?q=`), file names
 (`/api/files/find`), room messages (`/api/room-messages`, also its "More messages" pages) and room files
-(`/api/room-files`). Rows, the loading state and Enter use a result only when its query is the one in the box now, so
+(`/api/room-files`). Rows, the loading state and Enter use a result only when its words are the ones in the box now, so
 nothing from an older query is shown or opened.
 
 ### 5. Selection by row key (web)
@@ -103,7 +108,7 @@ local lists (projects, skills, scheduled tasks, MCP).
 
 1. This plan (first commit).
 2. `shared/src/search-text.ts` (`searchWords`, `nameMatch`) + tests.
-3. Server: word-by-word in `rooms/search.ts` and `routes/chats.ts`; `rooms/file-search.ts`, the contract, the route,
+3. Server: word-by-word in `rooms/search.ts` and `routes/chats.ts`; `searchRoomFiles`, the contract, the route,
    `bun run docs:api`, the security matrix case.
 4. Web: SearchDialog (rooms & people, room files, words, stale results, selection by key), i18n in five languages.
 5. Tests (below), then docs: DECISIONS.md (the ⌘K section), user docs about search if any, `changes/search-rooms-people-files.md`.
@@ -144,4 +149,24 @@ local lists (projects, skills, scheduled tasks, MCP).
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the independent plan review's changes (all applied):
+
+- **Room files query order (must-fix).** `room_files` first with `CROSS JOIN` (its message by key and the same room,
+  then the member row), `ORDER BY f.rowid DESC`: no sort, a page stops when full; the cursor is the file rowid of the
+  page's last query row. The file search lives in `server/src/rooms/search.ts` (`searchRoomFiles`, `roomFilesSql`), not a
+  new file. A plain JOIN took seconds on a million messages (the review's measure); the suite times 20,000 files among
+  100,000 messages and reads the plan (`SCAN f`, no `TEMP B-TREE`).
+- **A person with no DM (lead's decision).** Enter opens the new-DM list with them ticked (`PeoplePicker`
+  `{kind:'new', preselect}`) instead of `openDm`, which would make the room and show it in the other person's sidebar.
+  Rooms and DMs come before people in the group.
+- **Initials and NFKC.** NFKC one character at a time after NFC, so "ㄱㅏ" is not joined into "가"; marks only where the
+  match is a plain part of the name.
+- **Chat records.** One pass over `messages_fts` per request (each row with the words it holds), not a scan per word in
+  each of up to 50 rounds; `found()` still decides per chat, so a word only in a hidden answer never counts.
+- **Rows.** A room file is one line like a message hit (name, then who · where · when). On 전체: 4 file rows in all (the
+  team's first), 대화방·사람 at most 3.
+- **Also:** results kept by their words (case-insensitive) rather than the raw text; `titleFirst` and the marks by words;
+  operator texts and a thread reply to a message from before a later member joined are tested; known limits for two
+  short Korean words in DECISIONS.
+
+Not done: nothing from the scope. The PR link is in the pull request.
