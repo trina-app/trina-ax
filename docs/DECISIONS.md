@@ -21901,7 +21901,7 @@ is connected", a service to sign in again, storage, backups, a failed update, an
 whose AI has the browser.
 - On the web and phones it shows only while the person's own "Allow all websites" for web reads is on, so it can be
   turned off where it was turned on.
-- This narrows "Settings › Browser on every client" from "Allow all websites covers the AI's web reads".
+- This narrows the Settings › Browser part of "Allow all websites covers the AI's web reads" (it was on every client).
 
 ## Mac users get the App Store only; the relay does not say whether setup is done (fix/mac-store-setup-hidden, 2026-11-11, product owner, QA TC-193, TC-194)
 
