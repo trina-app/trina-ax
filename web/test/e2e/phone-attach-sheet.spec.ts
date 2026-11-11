@@ -16,7 +16,6 @@ const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleW
 const ANDROID_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
 const BEN = { id: 'ben', name: '벤' }
 const ROOT = '019a5f00-0000-7000-8000-000000000301'
-const ROWS = ['attach-photos', 'attach-camera', 'attach-files', 'attach-team']
 
 test.use({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
