@@ -12,20 +12,18 @@ import clsx from 'clsx'
 import { ArrowLeft, ArrowRight, Check, Info, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import type { Access, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
-import { api, API, errorText, isApiError } from '../../lib/api'
-import { addNamed, basicChoices, draftKey, draftOf, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, saveImpact, setNamed, type Basic, type Draft, type RuleLike } from '../../lib/access-edit'
+import { addNamed, outcomesOf, outcomeWords, removeNamed, setNamed, type Basic, type Draft } from '../../lib/access-edit'
 import { folderName, isSkillsPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
-import { useLocale, useT, type MessageKey } from '../../i18n'
+import { useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap, useMediaQuery } from '../../components/ui'
 import { Avatar } from '../../components/Avatar'
 import { GroupTile } from '../../components/GroupTile'
 import { useFaceOf } from '../../store/people'
-import { toast } from '../../store/ui'
 import { useFolderPeople } from './SkillManagers'
+import { useRulesDraft, type useEditPreview } from './useRulesDraft'
 import { AddNamed, type ListControl } from './AddNamed'
 
-/** How long the panel waits after a change before it asks the server (a choice clicked quickly asks once). */
-export const PREVIEW_DEBOUNCE_MS = 250
+export { PREVIEW_DEBOUNCE_MS } from './useRulesDraft'
 /** At most this many names of a change are said in a row; the rest are counted (the server sends up to 50). */
 const NAMES_SHOWN = 6
 const ACCESSES: readonly Access[] = ['read', 'write', 'none']
@@ -34,42 +32,6 @@ const TAB_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
 
 /** Below 640px the panel is the whole screen (a dialog with its own way back). */
 const useNarrow = (query = '(max-width: 639.98px)') => useMediaQuery(query)
-
-/** The server's answer for the draft on the screen: asked after PREVIEW_DEBOUNCE_MS (at once the first time), the
- * request before aborted, so an older answer never replaces a newer one. `attempt` asks again (a retry, a 409): until
- * that answer comes, the one before does not count as ready. */
-function useEditPreview(path: string, rules: unknown, key: string, attempt: number) {
-  const t = useT()
-  const locale = useLocale()
-  const [answer, setAnswer] = useState<{ key: string; attempt: number; data: FolderEditPreview } | null>(null)
-  const [error, setError] = useState<{ key: string; attempt: number; text: string } | null>(null)
-  const first = useRef(true)
-  useEffect(() => {
-    const ctl = new AbortController()
-    const delay = first.current ? 0 : PREVIEW_DEBOUNCE_MS
-    first.current = false
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const data = await api.call(API.previewFolderEdit, { body: { path, rules: rules as never }, signal: ctl.signal })
-          if (ctl.signal.aborted) return
-          setAnswer({ key, attempt, data })
-          setError(null)
-        } catch (e) {
-          if (ctl.signal.aborted) return
-          setError({ key, attempt, text: errorText(e, locale, t('error.network')) })
-        }
-      })()
-    }, delay)
-    return () => {
-      clearTimeout(timer)
-      ctl.abort()
-    }
-    // the key stands for the rules
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, key, attempt])
-  return { answer, error: error?.key === key && error.attempt === attempt ? error.text : null, ready: answer?.key === key && answer.attempt === attempt }
-}
 
 export interface AccessEditProps {
   path: string
@@ -91,7 +53,6 @@ export interface AccessEditProps {
 
 export default function AccessEdit({ path, folder, users, groups, onClose, onSaved, onStale, guard, returnLabel }: AccessEditProps) {
   const t = useT()
-  const locale = useLocale()
   const narrow = useNarrow()
   const root = path === ''
   const headingId = useId()
@@ -102,58 +63,8 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
     const label = (n: Draft['named'][number]) => (n.subjectType === 'group' ? groups.find((g) => g.id === n.subjectId)?.name : users.find((u) => u.id === n.subjectId)?.name) ?? n.subjectId
     return { ...d, named: [...d.named].sort((a, b) => (a.subjectType === b.subjectType ? label(a).localeCompare(label(b)) : a.subjectType === 'group' ? -1 : 1)) }
   }
-  /** the rules the draft started from and their hash (null: not known yet, a folder without a row) */
-  const [base, setBase] = useState<{ rules: RuleLike[]; hash: string | null }>(() => ({ rules: folder?.rules ?? [], hash: folder?.rulesHash ?? null }))
-  const [initial, setInitial] = useState(() => sorted(draftOf(base.rules, root).draft))
-  /** a folder without rules gets them "set", one with rules "changed" (the words of the button that opened it) */
-  const [hadRules] = useState(() => (folder?.rules.length ?? 0) > 0)
-  const [draft, setDraft] = useState<Draft>(initial)
-  /** another admin changed the rules while this panel was open: 'kept' the draft, or 'loaded' theirs (nothing was changed here) */
-  const [stale, setStale] = useState<'kept' | 'loaded' | null>(null)
-  const [attempt, setAttempt] = useState(0)
-  const [saving, setSaving] = useState(false)
-  const [refused, setRefused] = useState<string | null>(null)
-
-  const converted = draftOf(base.rules, root).converted
-  const rules = useMemo(() => rulesOf(draft, { root, rootNoneRow: rootNoneRow(base.rules) }), [draft, root, base.rules])
-  // the answer is kept by the rules it was asked for
-  const key = rulesKey(rules)
-  const preview = useEditPreview(path, rules, key, attempt)
-  const data = preview.answer?.data ?? null
-  const edited = draftKey(draft) !== draftKey(initial)
-  const saveable = !sameRules(rules, base.rules)
-  // shared/ and skills/ keep at least one rule (stage 1): said here, before the server refuses it
-  const keepsOne = folder?.keep === 'team' && rules.length === 0
-  const connected = !!data?.connected
-  const choices = basicChoices({ root, connected, current: initial.basic })
-  // a connected folder is known from the first answer: "everyone reads and writes" picked before it came goes back to
-  // what was saved (its choice is not offered there), unless it was saved that way
-  useEffect(() => {
-    if (connected && initial.basic !== 'write') setDraft((d) => (d.basic === 'write' ? { ...d, basic: initial.basic } : d))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected])
-
-  // the answer brings the rules as they are now: another admin's change shows here before Save does
-  useEffect(() => {
-    const p = preview.answer?.data
-    if (!p) return
-    if (base.hash === null && sameRules(p.current, base.rules)) {
-      setBase({ rules: base.rules, hash: p.hash })
-      return
-    }
-    if (p.hash === base.hash) return
-    setBase({ rules: p.current, hash: p.hash })
-    if (edited) setStale('kept')
-    else {
-      // nothing changed here: their rules are the draft now
-      const next = sorted(draftOf(p.current, root).draft)
-      setInitial(next)
-      setDraft(next)
-      setStale('loaded')
-    }
-    onStale()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preview.answer])
+  const d = useRulesDraft({ path, folder, sort: sorted, onStale })
+  const { base, hadRules, draft, setDraft, stale, saving, refused, converted, preview, data, edited, keepsOne, connected, choices, ready, why } = d
 
   // while a save is on its way the panel goes without asking: the save lands and the tree follows it
   const askToLeave = async () => !edited || saving || (await confirmDialog({ title: t('accessEdit.discardTitle'), body: t('accessEdit.discardBody'), confirm: t('accessEdit.discard'), danger: true }))
@@ -229,40 +140,17 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const ready = preview.ready && !!data
-  const impact = ready ? saveImpact(data) : null
-  // nothing edited: plain "Save" (disabled); the impact is said once there is something to save
-  const saveLabel = !impact || !saveable ? t('common.save')
-    : impact.kind === 'less' ? t('accessEdit.saveLess', { n: impact.n })
-      : impact.kind === 'more' ? t('accessEdit.saveMore', { n: impact.n })
-        : impact.kind === 'both' ? t('accessEdit.saveBoth', { less: impact.less, more: impact.more })
-          : t('accessEdit.saveNone')
-  const why = keepsOne ? 'keep' : !saveable ? 'same' : !ready ? (preview.error ? 'failed' : 'waits') : null
+  // nothing edited: plain "Save" (disabled); once there is something to save, what it does, the outcomes kept apart
+  // ("2 can no longer open it · 1 can no longer edit"), or that only folders inside change, or nothing
+  const impact = ready ? outcomeWords(t, outcomesOf(data!.changes)) : null
+  const saveLabel = !impact || !d.saveable ? t('common.save')
+    : impact.length ? t('accessEdit.saveParts', { parts: impact.join(' · ') })
+      : data!.below.length ? t('accessEdit.saveBelow')
+        : t('accessEdit.saveNone')
   const whyId = useId()
   const save = async () => {
-    if (why || saving) return
-    setSaving(true)
-    setRefused(null)
-    let saved: Folder
-    try {
-      const expectedHash = base.hash ?? data?.hash
-      saved = folder
-        ? await api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules, ...(expectedHash ? { expectedHash } : {}) } })
-        : await api.call(API.createFolder, { body: { path, create: false, rules, ...(expectedHash ? { expectedHash } : {}) } })
-    } catch (e) {
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') {
-        // asked again: the answer brings their rules, and the effect above says so and keeps this draft
-        setAttempt((n) => n + 1)
-        onStale()
-        return
-      }
-      setRefused(errorText(e, locale, t('error.network')))
-      return
-    } finally {
-      setSaving(false)
-    }
-    toast({ level: 'success', text: t('common.saved') })
-    await onSaved(saved)
+    const saved = await d.save()
+    if (saved) await onSaved(saved)
   }
 
   const name = root ? t('accessView.rootFolder') : folderName(t, path)
@@ -325,12 +213,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
               <button
                 type="button"
                 className="mt-1 ml-[1.15rem] font-medium underline underline-offset-2"
-                onClick={() => {
-                  const next = sorted(draftOf(base.rules, root).draft)
-                  setInitial(next)
-                  setDraft(next)
-                  setStale('loaded')
-                }}
+                onClick={d.loadTheirs}
                 data-testid="edit-stale-load"
               >
                 {t('accessEdit.staleLoad')}
@@ -366,7 +249,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
           onChange={setDraft}
         />
 
-        <Result path={path} preview={preview} data={data} ready={ready} rulesHash={base.hash} onRetry={() => setAttempt((n) => n + 1)} />
+        <Result path={path} preview={preview} data={data} ready={ready} rulesHash={base.hash} onRetry={d.retry} />
 
         {refused && (
           <div data-testid="edit-refused">
@@ -658,8 +541,9 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
         ) : (
           <>
             <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-testid="edit-summary">
-              {less.length > 0 && <span className="font-medium text-warn">{t('accessEdit.lessTitle', { n: data.less })}</span>}
-              {more.length > 0 && <span className="font-medium text-ink">{t('accessEdit.moreTitle', { n: data.more })}</span>}
+              {/* the outcomes kept apart: losing edit is not losing access */}
+              {outcomeWords(t, outcomesOf(less)).map((w) => <span key={w} className="font-medium text-warn">{w}</span>)}
+              {outcomeWords(t, outcomesOf(more)).map((w) => <span key={w} className="font-medium text-ink">{w}</span>)}
               {data.below.length > 0 && <span className="text-muted">{t('accessEdit.below')}</span>}
               <button
                 type="button"
@@ -673,8 +557,8 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
               </button>
             </p>
             <div id={peopleId} hidden={!showPeople} data-testid="edit-people-detail">
-              {less.length > 0 && <Changes title={t('accessEdit.lessTitle', { n: data.less })} changes={less} testId="edit-less" />}
-              {more.length > 0 && <Changes title={t('accessEdit.moreTitle', { n: data.more })} changes={more} testId="edit-more" />}
+              {less.length > 0 && <Changes title={t('accessEdit.lessTitle', { n: less.reduce((n, c) => n + c.count, 0) })} changes={less} testId="edit-less" />}
+              {more.length > 0 && <Changes title={t('accessEdit.moreTitle', { n: more.reduce((n, c) => n + c.count, 0) })} changes={more} testId="edit-more" />}
               {data.below.length > 0 && <Below data={data} path={path} />}
             </div>
           </>

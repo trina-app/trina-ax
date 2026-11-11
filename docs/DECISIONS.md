@@ -20136,3 +20136,95 @@ engine names, model ids and an English " (job)". The owner approved the audit's 
   `ask-card-exact`; e2e `chat.spec.ts` (the error box as a member and as the owner), `safety-cards.spec.ts` (the lines,
   the exact JSON, the fallback), `plain-steps.spec.ts`, `exfil-followups.spec.ts`.
 - Version impact: **patch** (new wording, one optional card field, no data change).
+
+## 열 수 있는 사람, 드라이브 공유 창처럼 — Who can open it, like Drive's Share (feat/drive-like-access, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`web/src/components/FolderAccess.tsx`, `web/src/pages/admin/FolderSharing.tsx`,
+`web/src/pages/admin/useRulesDraft.ts`, `web/src/lib/folder-sharing.ts`, `server/src/admin/access-edit.ts`), 이유:
+files and permissions are core. Plan: `docs/AGENTS/plan/20261110-1715-drive-like-access.md` (Google Drive's and
+Notion's help pages, two reviews of two rounds). Amends "폴더를 볼 수 있는 사람, 그 자리에서" (#306/#307): its admin part
+and "not a second editor in Files".
+
+The owner, after #306/#307: "It still looks much harder than Google Drive. Is there no way around that?" and then: our
+users are office workers, not developers; the panel must make sense in a few seconds, like Drive's.
+
+- **The admin's panel is Drive's Share dialog in our words.** Title "Who can open it" (열 수 있는 사람; the ⋯ entry too),
+  the folder's own name under it, never a path. One add field ("Add people or groups"), then one row per person or
+  group set here (a group stays one row, "Group · 5 people") with a select **Can view / Can edit** and ✕; a person in a
+  group set here with another setting says "In Sales, but can only view here" (the person's own setting wins here).
+  People and groups that a folder above lets in come after them, greyed, "From the Sales folder · Change there ›": the
+  whole row opens that folder's panel in place, with "Back to Quotes". **General access** is one select with Admin's
+  four basic choices in plain words: "Same as the {folder} folder", "Only people added here", "Everyone at {team} · Can
+  view / Can edit", and one line under it that is true for what is on screen. Then one quiet line, "Owner and admins
+  can always open team folders.", and "2 folders inside are shared differently · Open in Folder permissions".
+- **Removed from the panel:** the rows of people who cannot open it ("Name only", "on the way to"), the reason under
+  each person, a row per admin, the counts line, the headline, the red "folders inside have their own rules" line,
+  [Set rules] and the trip to Admin's editor for everyday changes. Admin › Folder permissions stays the full view
+  (setting someone to "No access", why one person can open something, every folder at once).
+- **Deepest wins, said before Save** (the owner chose to keep it): a setting here can give less than a folder above, and
+  adding a group can lower someone who could edit through a folder above (Drive and Notion only add up). While
+  something is changed, "What will happen" names the people from the server's answer for exactly the draft on screen:
+  "Erin will be able to open it", "Bob will only be able to view it", "Carol will no longer be able to open it" (three
+  names, then "and N others"; in `skills/` losing edit is "…no longer be able to change the team's skills").
+- **One save path.** The draft, the server's preview, the rules hash it started from, the save (PUT
+  `/api/admin/folders/:id/rules`, or POST `/api/admin/folders` with `create: false`), 409 handling and "load theirs"
+  moved out of Admin's editor into one hook (`useRulesDraft`) both use; Admin's editor did not change. The panel always
+  sends the hash; the server's checks are the same as for Admin's editor (admin only, not in `users/`, `shared/` and
+  `skills/` keep a rule, subjects that exist once, the hash, the audit row, the after-change effects).
+- **Keyed per folder.** The panel's body is mounted per folder (`key`), and an answer is kept by its folder and its
+  rules, so a draft or an answer of one folder never counts for another ("Change there" asks first when something
+  changed).
+- **Save asks the server again, and asks before more access.** Save asks the preview again at once for the draft; if the
+  answer differs from what was shown (someone changed a folder above, a group, a role), the new one shows and Save needs
+  another click ("This changed just now. Check the list and save again."). Whether to ask comes only from that answer:
+  someone in the team gains access here or in a folder inside (`changes`, exact for everyone counted), or the rules give
+  more to someone the head count cannot see (`latentMore`: a person switched off, whoever joins the team or a group the
+  rules name, an "everyone" that names nobody today). A guess in the web from the settings themselves was tried and
+  dropped in review: it asked "Give more access?" for a change that only lowered someone. The title says it ("Let 1
+  more person open it?", "Let 2 people edit it?", "Give more access?"), the body names the folder and who (losses in
+  the warning colour; who gains that no head count sees, by name: "Gina (switched off) will be able to open or edit it
+  when switched back on.", "People added to Design later will …", "People who join Acme later will …"; the preview's
+  `latent` says who), and its button asks the server once more before the write. Taking the team's own files or
+  skills from members asks in its own words ("Take access away?", "Their AI won't be able to open Company-wide
+  either.", "Save anyway"). Anything else that only narrows saves straight, "What will happen" having named who.
+  Leaving the panel (close, another folder, a link) while Save is on its way stops that Save at its next step; two
+  clicks are one Save.
+- **A team project's folder and everything inside it** are shown, not changed, and no admin endpoint is asked there
+  (the chip's tree ask too): the count (#341's split for the owner and admins, without its role line: the footer says
+  the owner and admins can always open it), the project's lines and [Members], or inside it "Open in Folder
+  permissions". The owner chose project contents members-only (`feat/project-members-only`,
+  which refuses admin rule writes and answers there); until it lands Admin › Folder permissions still edits inside a
+  project. A project made before outside `projects/` keeps the panel's editing, with its lines on top.
+- **Members learn nothing new.** Their panel says what #306 said, with the panel's one verb: "6 people can open it
+  (owner and admins included)", "Everyone at Acme can open it", "An admin changes who can open it.", their own folder,
+  a project's lines. No list, no Can view / Can edit (whether everyone can edit was never told), no "same as". The
+  admin part is a chunk loaded only for admins, and every admin read and write is refused to members by the server.
+- **The chip stays the count** (#341's rule: "3명" for the owner and admins, the total for members).
+- **Outcomes kept apart, in the panel and in Admin's editor** (hands-on QA): read & write → read is "can no longer
+  edit", not losing access. The panel's line says "Erin will no longer be able to edit it"; Admin's Save button and the
+  summary of a change say "Save (2 can no longer open it · 1 can no longer edit · 3 can now open it · 2 can now edit)"
+  (`outcomesOf`, `outcomeWords` in `web/src/lib/access-edit.ts`, from the server's `changes`); their lists' headings
+  say "can do less / can do more", and the folders below "{n} can do less / more" (the server counts those without the
+  kind). "Save (folders inside change)" when only folders below change.
+- **Server:** the edit preview says what the folder above gives everyone in one field, `everyoneAbove: { access, folder
+  }` (the permission function for a member nobody names, the folder's own rules left out; null at the team root): the
+  grouped `above` shows nobody when every member is named by a group rule. And `latentMore`: the permission function,
+  before and after, at the folder and its rule folders below, for every switched-off person, a member nobody names, one
+  made-up member per group the rules name, one per pair of the groups named on the way to the folder and below it
+  (group rules take the widest, so two groups together can differ from either alone) and one in all of them. A Save
+  whose fresh answer comes while the "Discard your changes?" question is open does not write. `POST /api/admin/folders` takes at most 200
+  rules (as PUT), and a rule row made meanwhile is a 409 with `params.reason: 'folder_exists'`.
+- **Phones:** the same panel in the app's bottom sheet, 44 px selects and ✕, a row's second line wrapping (never cut),
+  Save and "What will happen" in the sheet's own footer (the Modal's footer slot, on computers too), the confirm over
+  the sheet, "Change there" swapping the sheet's content. #339's shared phone rows were not on
+  dev yet; the rows use the same sizes and move to `CompactRow` when it lands.
+- Words: English first, then ko, id, ja, es; no "rule", "inherited", "grant" or path on screen.
+- Tests: `tests/security/folder-sharing.test.ts` (a member is refused every admin read and write of the panel and gets
+  the same audience answer; the save's server checks; the confirm decision on the real server's answers, including
+  people switched off on the server, empty groups and the count-0 "everyone"); `tests/unit/access-edit-everyone-above.test.ts` (against the permission function on
+  random worlds); web unit `folder-sharing.test.ts` (rows from above, names, when Save asks, the answer asked again),
+  `folder-sharing-panel.test.tsx` (per-folder drafts, the fresh ask, the confirm, 409), `folder-access.test.ts`; e2e
+  `folder-access.spec.ts` (add, change, remove, general access, rows from above read only, the names who lose access, a
+  project folder read only, members, phones), `access-edit.spec.ts`.
+- Version impact: **minor** (admins change who can open a folder in the Files page; one optional field on an admin
+  answer; no migration).

@@ -813,7 +813,7 @@ export class MockServer {
     const active = this.users.filter((u) => u.status === 'active')
     const segs = segsOf(p)
     const out = editPreview(
-      { rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)), groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null, personName: (id) => this.users.find((u) => u.id === id)?.name ?? null },
+      { rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)), uncounted: this.users.filter((u) => u.status !== 'active').map((u) => this.explainPrincipal(u)), groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null, personName: (id) => this.users.find((u) => u.id === id)?.name ?? null },
       p, body.rules, { team: isTeamDefaultFolder(p, false) ? (p === 'shared' ? 'shared' : 'skills') : null },
     )
     return { path: p, exists: p === '' || this.files.get(p)?.type === 'folder', connected: segs.length >= 2 && segs[0] === 'connected' && this.files.get(`connected/${segs[1]}`)?.type === 'folder', ...out }
@@ -3206,6 +3206,10 @@ export class MockServer {
       if (isTeamDefaultFolder(c.body.path, false) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
       // like the server: rules made there meanwhile (the hash the editor started from is not the rules' now)
       if (c.body.expectedHash !== undefined && c.body.expectedHash !== rulesHash(this.folders.find((f) => f.path === c.body.path)?.rules ?? [])) throw new Fail('conflict', 409, serverMsg('rulesChanged', c.user.locale), undefined, { reason: 'rules_changed' })
+      // like the server: a row with rules made meanwhile is said as such (a screen that read the folder list before it)
+      const had = this.folders.find((x) => x.path === c.body.path && !isParkedRow(x.path))
+      if (had?.rules.length) throw new Fail('conflict', 409, serverMsg('folderExists', c.user.locale), undefined, { reason: 'folder_exists' })
+      if (had) this.folders = this.folders.filter((x) => x !== had)
       // like the server (create defaults to true): the folder and those above it are made
       if (c.body.create !== false) for (let i = 1, parts = String(c.body.path).split('/'); c.body.path && i <= parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
       const f: Folder = { id: uuidv7(), path: c.body.path, exists: c.body.path === '' || this.files.get(c.body.path)?.type === 'folder', createdAt: now(), rules: [] }
