@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import type { Locale, Me, TextSize, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
-import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeSettled, unsavedTextSize } from '../lib/textSize'
+import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -228,8 +228,12 @@ export const useSession = create<SessionState>((set, get) => ({
     pickTextSize(textSize)
     try {
       await get().updatePrefs({ textSize })
-    } finally {
       textSizeSettled(textSize)
+    } catch (e) {
+      // back to the account's size (the caller says why); a later pick still being saved is left alone
+      const st = get().status
+      textSizeFailed(textSize, st.kind === 'signed-in' ? st.me.user.prefs.textSize : undefined)
+      throw e
     }
   },
 }))

@@ -80,6 +80,9 @@ let prefs: NotificationPreferences
 let roomsList: Room[] = []
 /** while set, reading the preferences waits for it (a slow server) */
 let holdPrefs: Promise<void> | null = null
+/** while set, a save waits for it; a save whose body it picks is refused (the server is unreachable) */
+let holdPatch: Promise<void> | null = null
+let failPatch: ((body: Partial<NotificationPreferences>) => boolean) | null = null
 const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
 const defaults = (): NotificationPreferences => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } })
 beforeAll(() => {
@@ -91,7 +94,11 @@ beforeAll(() => {
     sent.push({ key, body })
     if (key === 'GET /api/notifications') return json({ items: [], nextCursor: null, unreadCount: 0 })
     if (key === 'GET /api/notification-preferences') { if (holdPrefs) await holdPrefs; return json(prefs) }
-    if (key === 'PATCH /api/notification-preferences') { prefs = { ...prefs, ...body }; return json(prefs) }
+    if (key === 'PATCH /api/notification-preferences') {
+      if (holdPatch) await holdPatch
+      if (failPatch?.(body)) return json({ error: { code: 'internal', message: 'down' } }, 500)
+      prefs = { ...prefs, ...body }; return json(prefs)
+    }
     if (key === 'GET /api/push') return json({ configured: false, enabled: false, publicKey: null, subscriptionId: null })
     if (key === 'GET /api/rooms') return json({ items: roomsList, alerts: ALERTS })
     const patch = /^PATCH \/api\/rooms\/(.+)$/.exec(key)
@@ -229,6 +236,39 @@ test('changes made while one saves or while the page reads the settings again ar
     expect((m.get('notification-room-level-all') as unknown as { checked: boolean }).checked).toBe(true)
     expect((m.get('notification-thread-replies') as unknown as { checked: boolean }).checked).toBe(false)
   } finally { holdPrefs = null; await m.unmount() }
+})
+
+test('a save that fails puts back what the server has: a change saved just before it stays', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  prefs = defaults()
+  roomsList = []
+  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('notification-thread-replies'), 'the rows')
+    const patches = () => sent.filter((s) => s.key === 'PATCH /api/notification-preferences').map((s) => s.body)
+    const checked = (id: string) => (m.get(id) as unknown as { checked: boolean }).checked
+    // the first change is on its way (held); the second comes meanwhile and goes right after it, and is refused
+    let release!: () => void
+    holdPatch = new Promise<void>((r) => { release = r })
+    failPatch = (body) => 'roomLevel' in body
+    await press(m, 'notification-thread-replies')
+    await m.until(() => patches().length === 1, 'the first PATCH')
+    await press(m, 'notification-room-level-all')
+    expect(checked('notification-room-level-all')).toBe(true)
+    holdPatch = null
+    release()
+    await m.until(() => patches().length === 2, 'the second PATCH')
+    await m.until(() => m.html().includes('role="alert"'), 'the error')
+    // the read after it (the server's settings) leaves the message up
+    await m.until(() => sent.findLastIndex((s) => s.key === 'GET /api/notification-preferences') > sent.findLastIndex((s) => s.key === 'PATCH /api/notification-preferences'), 'the read after the failed save')
+    await m.settle(50)
+    expect(m.html()).toContain('role="alert"')
+    expect(prefs).toMatchObject({ roomThreadReplies: false, roomLevel: 'direct' })
+    // the first change was saved: it stays; the refused one goes back
+    expect(checked('notification-thread-replies')).toBe(false)
+    expect(checked('notification-room-level-direct')).toBe(true)
+    expect(checked('notification-room-level-all')).toBe(false)
+  } finally { holdPatch = null; failPatch = null; await m.unmount() }
 })
 
 test('an older server (one switch for rooms): one row, the old switch', async () => {
