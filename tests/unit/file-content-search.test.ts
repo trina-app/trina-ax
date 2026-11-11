@@ -6,10 +6,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FileContentHits } from '@mycel/shared/api'
+import type { FileContentHits, FileList } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { OFFICE_QUEUE_PER_OWNER } from '../../server/src/files/search'
-import { admitContentSearch, CONTENT_SEARCH_PARALLEL_MAX, CONTENT_SEARCH_PER_FILE, CONTENT_SEARCH_RATE_MAX, resetContentSearchLimits, SNIPPET_CHARS, snippetOf } from '../../server/src/team-files/content-search'
+import { admitContentSearch, CONTENT_SEARCH_PARALLEL_MAX, CONTENT_SEARCH_PER_FILE, CONTENT_SEARCH_RATE_MAX, htmlLineText, resetContentSearchLimits, SNIPPET_CHARS, snippetOf } from '../../server/src/team-files/content-search'
 
 setDefaultTimeout(60_000)
 
@@ -314,6 +314,117 @@ describe('office extraction capacity', () => {
       o.extract = real
     }
   })
+})
+
+// QA TC-260: the file screen finds files by name first (GET /api/files/find, the ⌘K name search), then lines
+describe('names first (TC-260)', () => {
+  const find = async (user: string, q: string, extra = '') => {
+    const r = await h.req(user, `/api/files/find?q=${encodeURIComponent(q)}&folders=1${extra}`)
+    expect(r.status, `find ${q} as ${user}`).toBe(200)
+    return ((await r.json()) as FileList).items.map((i) => i.path).sort()
+  }
+
+  test('"로고" finds 로고.png, a quotation PDF is found by its name, in NFC or NFD, only where the person may read', async () => {
+    write('shared/tc260/로고.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
+    write('shared/tc260/견적서_2026.pdf', '%PDF-1.4\n')
+    // a name written by macOS (NFD) on disk
+    write('shared/tc260/' + '회사 로고 흑백.png'.normalize('NFD'), new Uint8Array([1]))
+    write('groups/finance/tc260-로고-비공개.png', new Uint8Array([1]))
+    write('users/bob/로고 초안.png', new Uint8Array([1]))
+    fs.mkdirSync(path.join(h.team, 'shared/tc260/로고 모음'), { recursive: true })
+    for (const q of ['로고', '로고'.normalize('NFD')]) {
+      const got = await find('alice', q, '&path=shared%2Ftc260')
+      expect(got.map((p) => p.normalize('NFC')).sort()).toEqual(['shared/tc260/로고 모음', 'shared/tc260/로고.png', 'shared/tc260/회사 로고 흑백.png'])
+    }
+    // the NFD name is sent as it is on disk, so opening it reads that file
+    expect((await find('alice', '흑백', '&path=shared%2Ftc260'))[0]).toBe('shared/tc260/' + '회사 로고 흑백.png'.normalize('NFD'))
+    expect(await find('alice', '견적서', '&path=shared%2Ftc260')).toEqual(['shared/tc260/견적서_2026.pdf'])
+    expect(await find('alice', '견적서_2026.pdf')).toEqual(['shared/tc260/견적서_2026.pdf'])
+    // the whole team folder: another group's file and another person's folder stay hidden
+    const all = await find('alice', '로고')
+    expect(all.some((p) => p.startsWith('groups/finance/') || p.startsWith('users/bob/'))).toBe(false)
+    expect(await find('bob', '로고', '&path=users%2Fbob')).toEqual(['users/bob/로고 초안.png'])
+    expect((await h.req('alice', `/api/files/find?q=${encodeURIComponent('로고')}&path=groups%2Ffinance`)).status).toBe(404)
+  })
+
+  test('a line of an HTML file shows its text, not its markup; a match only in the markup is not a line', async () => {
+    write('shared/tc260-html/견적 안내.html', [
+      '<!doctype html><html><head><title>견적</title><style>.QAHTML-7731 { color: red }</style></head>',
+      '<body><div class="QAHTML-7731"><h1>견적 &amp; 일정 QAHTML-7731</h1><p>납품은 <b>3주</b> 뒤 <a href="https://example.com/x">자세히</a></p></div>',
+      '<script>var QAHTML_7731 = "x"</script><p>&lt;b&gt; 태그가 아닌 글 qahtml-7731</p>',
+      '</body></html>',
+    ].join('\n'))
+    write('shared/tc260-html/raw.md', '<b>QAHTML-7731</b> in markdown stays as written\n')
+    const r = await search('alice', 'QAHTML-7731', '&path=shared%2Ftc260-html')
+    expect(r.items).toEqual([
+      { path: 'shared/tc260-html/raw.md', name: 'raw.md', line: 1, snippet: '<b>QAHTML-7731</b> in markdown stays as written' },
+      { path: 'shared/tc260-html/견적 안내.html', name: '견적 안내.html', line: 2, snippet: '견적 & 일정 QAHTML-7731 납품은 3주 뒤 자세히' },
+      { path: 'shared/tc260-html/견적 안내.html', name: '견적 안내.html', line: 3, snippet: '<b> 태그가 아닌 글 qahtml-7731' },
+    ])
+    expect(JSON.stringify(r)).not.toContain('doctype')
+    // the <title> line is found by its text (rev12)
+    const t = await search('alice', '견적', '&path=shared%2Ftc260-html')
+    expect(t.items.map((i) => [i.line, i.snippet])).toEqual([[1, '견적'], [2, '견적 & 일정 QAHTML-7731 납품은 3주 뒤 자세히']])
+  })
+})
+
+describe('htmlLineText', () => {
+  test('tags out, entities decoded, a match only in a tag or attribute is null', () => {
+    expect(htmlLineText('<td>견적</td><td>&#47196;&#xACE0;</td>', '로고')).toBe('견적 로고')
+    expect(htmlLineText('<h2>회사 로고</h2><ul><li>흑백</li></ul>', '로고')).toBe('회사 로고 흑백')
+    // a link is its label, whatever its address or label holds
+    expect(htmlLineText('<a href="https://e.com/a)b">로고</a> 끝', '로고')).toBe('로고 끝')
+    expect(htmlLineText('<a href="https://e.com/">[[로고]]</a>', '로고')).toBe('[[로고]]')
+    expect(htmlLineText('<img alt="로고" src="logo.png">', '로고')).toBeNull()
+    expect(htmlLineText('<!doctype html><html lang="ko">', 'html')).toBeNull()
+    expect(htmlLineText('<p>LOGO</p>', 'logo')).toBe('LOGO')
+    // an unfinished tag (the line goes on below): the text before it is the line
+    expect(htmlLineText('회사 로고 <img src="a.png"', '로고')).toBe('회사 로고')
+  })
+
+  test('text a page hides or keeps out of its body is still a line; only markup, comments, scripts and styles are not (rev12)', () => {
+    expect(htmlLineText('<title>견적 안내 로고</title>', '로고')).toBe('견적 안내 로고')
+    expect(htmlLineText('<span aria-hidden="true">로고</span>', '로고')).toBe('로고')
+    expect(htmlLineText('<p class="note hidden">로고</p>', '로고')).toBe('로고')
+    expect(htmlLineText('<div hidden>로고</div>', '로고')).toBe('로고')
+    expect(htmlLineText('<p style="display:none">로고</p>', '로고')).toBe('로고')
+    expect(htmlLineText('<textarea>로고</textarea>', '로고')).toBe('로고')
+    expect(htmlLineText('<noscript>로고</noscript>', '로고')).toBe('로고')
+    expect(htmlLineText('<svg><text>로고</text></svg>', '로고')).toBe('로고')
+    expect(htmlLineText('<select><option>로고</option></select>', '로고')).toBe('로고')
+    // an unquoted value with a quote in it does not start a quoted value
+    expect(htmlLineText("<img alt=it's>로고", '로고')).toBe('로고')
+    expect(htmlLineText('<!doctype html><html><head><title>견적</title><style>.a { color: red }</style></head>', '견적')).toBe('견적')
+    // still only markup: an attribute, a tag name, a comment, a script, a style, an unfinished tag
+    expect(htmlLineText('<img alt=\'로고\' src=x>', '로고')).toBeNull()
+    expect(htmlLineText('<div class="logo">회사</div>', 'logo')).toBeNull()
+    expect(htmlLineText('<p>회사</p><!-- 로고 -->', '로고')).toBeNull()
+    expect(htmlLineText('<p>회사</p><script>var 로고 = 1</script>', '로고')).toBeNull()
+    expect(htmlLineText('<style>.로고 { color: red }</style><p>회사</p>', '로고')).toBeNull()
+    expect(htmlLineText('<script>var a = "</scripts>"; var 로고 = 1</script><title>회사</title>', '로고')).toBeNull()
+    expect(htmlLineText('<span hidden data-x="로고">회사</span>', '로고')).toBeNull()
+    expect(htmlLineText('<p>회사</p><img alt="로고', '로고')).toBeNull()
+  })
+
+  test('a query with runs of white space matches the line as its text (one space)', () => {
+    expect(htmlLineText('<p>a  b</p>', 'a  b')).toBe('a b')
+    expect(htmlLineText('<title>a \t b</title>', 'a  b')).toBe('a b')
+  })
+})
+
+test('a 64K line of brackets or tags is turned into text in linear time', () => {
+  // [line, its text holds the query]: an unfinished tag or script ends the line's text
+  const lines: [string, boolean][] = [['['.repeat(64 * 1024) + '로고', true], ['<b>['.repeat(16 * 1024) + '로고', true],
+    ['<a href="https://e.com/">'.repeat(2600) + '로고', true], ['<a x=1 '.repeat(9000) + '>로고', true], ['<p hidden>'.repeat(6000) + '로고', true],
+    ['<title>'.repeat(9000) + '로고', true], ['<a "'.repeat(16 * 1024) + '로고', false], ['<script>'.repeat(8 * 1024) + '로고', false],
+    ['<a b=\''.repeat(9000) + '로고', false], ['</script   '.repeat(5000) + '로고', false]]
+  for (const [line, found] of lines) {
+    const t0 = performance.now()
+    const got = htmlLineText(line, '로고')
+    expect(performance.now() - t0, line.slice(0, 12)).toBeLessThan(200)
+    if (found) expect(got).toContain('로고')
+    else expect(got).toBeNull()
+  }
 })
 
 describe('snippetOf', () => {

@@ -38,7 +38,7 @@ import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
-import { contentQueryReady, FileContentResults } from '../components/FileContentSearch'
+import { contentQueryReady, FileContentResults, FileNameResults } from '../components/FileContentSearch'
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
@@ -910,7 +910,11 @@ export default function Files() {
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {searching ? (
-              <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
+              // files by name first (QA TC-260), then the lines that contain the text
+              <>
+                <FileNameResults q={q} path={path} onFolder={(p) => go(p)} />
+                <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
+              </>
             ) : (
               <>
                 {!!error && (

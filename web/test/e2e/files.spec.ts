@@ -942,6 +942,51 @@ test('content search on a phone: line matches fit the width, no sideways scroll'
   }
 })
 
+// QA TC-260: the Files search finds a file by its name first, then lines; an HTML file's line is its text
+for (const [w, h] of [[1440, 900], [390, 844]] as const) {
+  test(`Files search finds files by name first, HTML lines as text (QA TC-260, ${w}px)`, async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    const put = async (data: Record<string, string>) => expect((await page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data })).ok()).toBe(true)
+    await put({ path: 'tc260/로고.png', base64: 'iVBORw0KGgo=' })
+    // a name saved by a Mac (NFD)
+    await put({ path: 'tc260/' + '회사 로고 흑백.png'.normalize('NFD'), base64: 'iVBORw0KGgo=' })
+    await put({ path: 'tc260/견적서_2026_가나상사.pdf', base64: 'JVBERi0xLjQK' })
+    await put({ path: 'tc260/견적 안내.html', text: '<!doctype html><html><head><title>견적</title></head>\n<body><h1>납품 일정</h1><p>납품은 <b>3주</b> 뒤입니다</p></body></html>\n' })
+    await page.setViewportSize({ width: w, height: h })
+    await page.goto('/files')
+    const box = page.getByTestId('content-search-input')
+    const names = page.getByTestId('name-search')
+
+    await box.fill('로고')
+    await expect(names.getByTestId('name-hit')).toHaveCount(2)
+    await expect(names.getByTestId('name-hit').filter({ hasText: '로고.png' }).first()).toBeVisible()
+    await page.screenshot({ path: `test-results/tc260-names-${w}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(w)
+    await names.getByTestId('name-hit').filter({ hasText: /^로고\.png/ }).click()
+    await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('로고.png')
+    await page.goto('/files')
+
+    await box.fill('견적서_2026')
+    await expect(names.getByTestId('name-hit')).toHaveCount(1)
+    await expect(names.getByTestId('name-hit')).toContainText('견적서_2026_가나상사.pdf')
+
+    await box.fill('납품')
+    const content = page.getByTestId('content-search')
+    await expect(content.getByTestId('content-hit')).toHaveCount(1)
+    await expect(content.getByTestId('content-hit')).toContainText('납품 일정 납품은 3주 뒤입니다')
+    await expect(content.getByTestId('content-hit')).not.toContainText('<')
+    await page.screenshot({ path: `test-results/tc260-html-${w}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(w)
+
+    // a folder found by name opens in the list
+    await box.fill('tc260')
+    await names.getByTestId('name-hit').filter({ hasText: 'tc260' }).click()
+    await expect(page).toHaveURL(/\/files\?path=tc260$/)
+    await expect(box).toHaveValue('')
+  })
+}
+
 test('⌘K finds a folder by its name and opens it (QA TC-230)', async ({ page }) => {
   await reset(page)
   await signIn(page)
