@@ -6,7 +6,7 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { app as electronApp, BaseWindow, dialog, net, Notification, session, WebContentsView, type Session } from 'electron'
+import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, session, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
@@ -27,6 +27,7 @@ import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
 import { attachContextMenu, contextMenuOpen } from './context-menu'
 import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
+import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
@@ -80,12 +81,10 @@ export interface AppWindowOptions {
   onTeamsChanged(): void
 }
 
-const MIN_PANE = 360
 /** the host strip above the team's sign-in pages (hostbar.html) */
 const HOSTBAR_HEIGHT = 36
 /** how long the strip waits for /api/me after a team page loaded before it takes space anyway */
 const HOSTBAR_WAIT_MS = 300
-const MIN_APP = 420
 const RECHECK_MS = 60_000
 /** a settings read from the team page re-reads the team's policy at most this often */
 const POLICY_READ_MS = 5_000
@@ -103,7 +102,18 @@ export class AppWindow {
   team?: TeamEntry
   mode: Mode = 'welcome'
   private teams: TeamsFile
-  private paneFraction: number
+  /** the in-app browser's share of the window's width (common/pane-width.ts); null: the default */
+  private paneFraction: number | null
+  /** what the browser toolbar's edge was last told (its aria values and grab strip) */
+  private paneWidthTold = ''
+  /** a drag of the browser's edge: where the keyboard was before the press that started it (keysAfterDrag) */
+  private drag?: { press?: ToolbarPress }
+  /** the keyboard before the browser toolbar's view took it, and when (a press there takes it first: watchKeys) */
+  private beforeToolbarFocus?: { keys?: { view: WebContentsView; inPane: boolean }; at: number }
+  /** the keyboard and personInPane just before the latest mouse press in the browser toolbar's view */
+  private toolbarPress?: ToolbarPress
+  /** window.json is written a moment after the edge's keys stop */
+  private saveTimer?: NodeJS.Timeout
   /** origin the app view shows: the team address or its direct LAN address */
   private currentOrigin = ''
   private directOrigin: string | null = null
@@ -177,14 +187,14 @@ export class AppWindow {
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
     const saved = o.store.loadWindow()
-    this.paneFraction = typeof saved.paneFraction === 'number' && saved.paneFraction > 0.15 && saved.paneFraction < 0.85 ? saved.paneFraction : 0.45
+    this.paneFraction = readPaneFraction(saved.paneFraction)
     this.win = new BaseWindow({
       width: clamp(saved.width ?? 1440, 900, 4000),
       height: clamp(saved.height ?? 900, 600, 3000),
       minWidth: 900,
       minHeight: 600,
       title: PRODUCT.displayName,
-      backgroundColor: '#F7F6F3',
+      backgroundColor: windowBackground(),
       show: false,
     })
     const uiPrefs = { preload: join(o.distDir, 'preload-ui.cjs'), ...APP_WEB_PREFERENCES, partition: 'mycel-ui' }
@@ -197,7 +207,15 @@ export class AppWindow {
       attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
       this.watchKeys(v, v === this.chrome)
     }
-    this.chrome.setBackgroundColor('#ECEAE4')
+    // the browser toolbar's view: transparent where it reaches over the team page's edge (the edge's grab strip,
+    // common/pane-width.ts); its page paints the toolbar and the area under it in the theme's own colours
+    this.chrome.setBackgroundColor('#00000000')
+    // the window's own colour (behind the views before they draw) follows the system's light or dark look
+    const themed = () => {
+      if (!this.win.isDestroyed()) this.win.setBackgroundColor(windowBackground())
+    }
+    nativeTheme.on('updated', themed)
+    this.win.on('closed', () => nativeTheme.off('updated', themed))
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
     void this.hostbar.webContents.loadURL(`${UI_ORIGIN}/hostbar.html`)
@@ -212,8 +230,7 @@ export class AppWindow {
     })
     this.win.on('blur', () => this.sendFocus(false))
     this.win.on('close', () => {
-      const [width, height] = this.win.getSize()
-      o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
+      this.saveWindow()
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
       for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
@@ -941,13 +958,98 @@ export class AppWindow {
 
   // ----------------------------------------------------------------- layout
 
-  setPaneFromScreenX(screenX: number) {
-    const b = this.win.getContentBounds()
-    const w = b.width
-    const pw = clamp(b.x + w - screenX, MIN_PANE, Math.max(MIN_PANE, w - MIN_APP))
-    this.paneFraction = clamp(pw / w, 0.15, 0.85)
+  // ------------------------------------------------- the in-app browser's width
+
+  /** The browser's width now (0: closed) and its limits, in this window. */
+  paneWidth(): { now: number; min: number; max: number; grab: number } {
+    const [w] = this.win.isDestroyed() ? [0] : this.win.getContentSize()
+    const now = this.mode === 'team' && this.app && this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
+    return { now, ...paneLimits(w), grab: now ? paneGrab(w - now) : 0 }
+  }
+
+  /**
+   * The browser toolbar's edge handle (ui/pane.ts, docs/DECISIONS.md "브라우저 너비는 끌어서"). start: a drag begins (the
+   * press that started it is the latest in the toolbar view); move: the edge is at `edgeX` (screen coordinates: the
+   * views move under the pointer while it drags); end: the width is remembered and the keyboard goes back where it was
+   * before the press (keysAfterDrag); reset (double-click): the default width again.
+   */
+  paneDrag(phase: 'start' | 'move' | 'end' | 'reset', edgeX?: number) {
+    if (this.win.isDestroyed() || !this.pane?.open || this.mode !== 'team') return
+    if (phase === 'start') {
+      const press = this.toolbarPress && Date.now() - this.toolbarPress.at < 2000 ? this.toolbarPress : undefined
+      this.drag = { press }
+      // a press on the edge is not the person acting in the in-app browser: a page load there during the drag (the AI
+      // at work) must not keep the keyboard (common/keyboard-focus.ts keyboardTaken)
+      if (press) this.personInPane = press.personInPane
+      return
+    }
+    if (phase === 'move') {
+      if (typeof edgeX !== 'number' || !Number.isFinite(edgeX)) return
+      const b = this.win.getContentBounds()
+      this.setPaneFraction(settlePane(paneFromEdge(edgeX, b.x, b.width), b.width, this.paneFraction))
+      return
+    }
+    if (phase === 'reset') this.setPaneFraction(null)
+    this.saveWindow()
+    const press = this.drag?.press ?? (this.toolbarPress && Date.now() - this.toolbarPress.at < 2000 ? this.toolbarPress : undefined)
+    this.drag = undefined
+    this.keysAfterDrag(press)
+  }
+
+  /** An arrow key, Home or End on the focused edge handle: Left widens the browser, Right narrows it (Shift: a bigger
+   * step). The keyboard stays on the handle. */
+  paneKey(key: string, shift: boolean) {
+    const { now, min, max } = this.paneWidth()
+    if (!now) return
+    const next = paneKeyWidth(key, shift, now, { min, max })
+    if (next === null) return
+    const [w] = this.win.getContentSize()
+    this.setPaneFraction(settlePane(next, w, this.paneFraction))
+    // a held arrow key repeats: written once it stops
+    clearTimeout(this.saveTimer)
+    this.saveTimer = setTimeout(() => this.saveWindow(), 400)
+  }
+
+  private setPaneFraction(f: number | null) {
+    if (f === this.paneFraction) return
+    this.paneFraction = f
     this.layout()
   }
+
+  /** window.json: the window's size and the browser's width, kept across restarts (also written when the window closes) */
+  private saveWindow() {
+    clearTimeout(this.saveTimer)
+    if (this.win.isDestroyed()) return
+    const [width, height] = this.win.getSize()
+    this.o.store.saveWindow({ width, height, ...(this.paneFraction === null ? {} : { paneFraction: this.paneFraction }) })
+  }
+
+  /**
+   * A press on the edge handle gave the keyboard to the browser toolbar's view (the system focuses the view a press
+   * lands in). When the drag ends it goes back to the view that had it before the press, if the toolbar still has it
+   * and that view is still on screen, and the press does not count as the person acting in the in-app browser (a page
+   * load there would otherwise keep the keyboard: common/keyboard-focus.ts keyboardTaken). Focusing the view keeps
+   * the page's own element (the team page's message box and its draft).
+   */
+  private keysAfterDrag(press?: ToolbarPress) {
+    if (!press) return
+    this.personInPane = press.personInPane
+    const back = press.keys?.view
+    if (!back || back === this.chrome || back.webContents.isDestroyed()) return
+    if (!this.chrome.webContents.isFocused() || !this.keysReady() || !this.shownViews().includes(back)) return
+    this.keysTo(back, 'after resizing the browser')
+  }
+
+  /** Tell the toolbar's edge handle its width and limits (aria values) and its grab strip, when they change. */
+  private sendPaneWidth() {
+    const s = this.paneWidth()
+    const told = JSON.stringify(s)
+    if (told === this.paneWidthTold) return
+    this.paneWidthTold = told
+    this.send(this.chrome, 'ui:pane-width', s)
+  }
+
+  // ----------------------------------------------------------------- layout
 
   layout() {
     if (this.win.isDestroyed()) return
@@ -967,20 +1069,21 @@ export class AppWindow {
       hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
+      this.sendPaneWidth()
       this.sendFocus()
       return
     }
     hide(this.shell)
-    const paneOpen = Boolean(this.pane?.open)
-    let pw = 0
-    if (paneOpen) pw = w < MIN_PANE + MIN_APP ? w : clamp(Math.round(w * this.paneFraction), MIN_PANE, w - MIN_APP)
+    // the browser's remembered share of the window, within its limits (common/pane-width.ts)
+    const pw = this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
     // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
     // who is signed in
     const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
     if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
-    this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.pane?.setBounds(pw ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.sendPaneWidth()
     this.sendFocus()
   }
 
@@ -1009,13 +1112,26 @@ export class AppWindow {
 
   private watchKeys(view: WebContentsView, inPane: boolean) {
     const wc = view.webContents
-    wc.on('focus', () => this.keysAt(view, inPane))
+    wc.on('focus', () => {
+      // a press in the browser toolbar (its edge handle) takes the keyboard first: remember where it was (keysAfterDrag)
+      if (view === this.chrome) this.beforeToolbarFocus = { keys: this.keys, at: Date.now() }
+      this.keysAt(view, inPane)
+    })
     // where the person acts: a key or a mouse press in this view
     wc.on('before-input-event', (_e, i) => {
       if (i.type !== 'keyUp') this.personActed(inPane)
     })
     wc.on('before-mouse-event', (_e, m) => {
-      if (m.type === 'mouseDown') this.personActed(inPane)
+      if (m.type !== 'mouseDown') return
+      if (view === this.chrome) {
+        // the view took the keyboard for this very press (its focus event came just before, and no other press in it
+        // since), or had it already
+        const f = this.beforeToolbarFocus
+        const keys = f && this.keys?.view === this.chrome && Date.now() - f.at < 500 ? f.keys : this.keys
+        this.beforeToolbarFocus = undefined
+        this.toolbarPress = { keys, personInPane: this.personInPane, at: Date.now() }
+      }
+      this.personActed(inPane)
     })
   }
 
@@ -1241,6 +1357,19 @@ function fetchHealth(origin: string): Promise<HealthAnswer> {
     })
     req.end()
   })
+}
+
+/** where the keyboard was, and whether the person's last action was in the in-app browser, before a press in the
+ * browser toolbar's view (AppWindow.keysAfterDrag) */
+interface ToolbarPress {
+  keys?: { view: WebContentsView; inPane: boolean }
+  personInPane: boolean
+  at: number
+}
+
+/** The window's own colour behind its views: the app's canvas in the system's light or dark look (ui.css --bg). */
+function windowBackground(): string {
+  return nativeTheme.shouldUseDarkColors ? '#0E0C0B' : '#FCFBF8'
 }
 
 function clamp(v: number, lo: number, hi: number) {

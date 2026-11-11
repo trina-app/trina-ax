@@ -78,7 +78,8 @@ test('basic access first: "follow the folder above" says what it gives now, the 
   await panel(page).getByTestId('edit-basic-read').click()
   await settled(page)
   // the counts show; who exactly opens with "Show people"
-  await expect(panel(page).getByTestId('edit-summary')).toContainText(translate('ko', 'accessEdit.lessTitle', { n: 3 }))
+  // write → read is "can no longer edit", not losing access
+  await expect(panel(page).getByTestId('edit-summary')).toContainText(translate('ko', 'accessEdit.outLoseEdit', { n: 3 }))
   await panel(page).getByTestId('edit-show-people').click()
   const less = panel(page).getByTestId('edit-less')
   await expect(less.getByRole('heading')).toHaveText(translate('ko', 'accessEdit.lessTitle', { n: 3 }))
@@ -87,7 +88,7 @@ test('basic access first: "follow the folder above" says what it gives now, the 
   await expect(less.getByTestId('edit-change')).toContainText('Bob, Carol, Dan')
   await expect(panel(page).getByTestId('edit-more')).toHaveCount(0)
   await expect(panel(page).getByTestId('edit-next')).toHaveText(translate('ko', 'accessEdit.next', { who: `${t['rules.everyone']} · ${t['access.read']}` }))
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: translate('ko', 'accessEdit.outLoseEdit', { n: 3 }) }))
   await expect(save(page)).toBeEnabled()
 
   const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/rules'))
@@ -155,7 +156,7 @@ test('people and groups: one search adds either, each with read, write or no acc
   await expect(more.getByTestId('edit-change').filter({ hasText: 'Carol' })).toContainText(t['access.write'])
   await expect(more.getByTestId('edit-change').filter({ hasText: 'Dan' })).toContainText(t['access.read'])
   await expect(more).not.toContainText('Bob')
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveMore', { n: 2 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: translate('ko', 'accessEdit.outGainOpen', { n: 2 }) }))
   await save(page).click()
   await expect(panel(page)).toHaveCount(0)
   expect(await rulesOf(page, 'marketing')).toEqual(['everyone::read', `group:${sales.id}:write`, 'user:bob:none'].sort())
@@ -215,7 +216,7 @@ test('another admin changes the rules: the save is refused, the panel says so, k
   await openPanel(page, 'shared')
   await panel(page).getByTestId('edit-basic-named').click()
   await settled(page)
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: translate('ko', 'accessEdit.outLoseOpen', { n: 3 }) }))
   // meanwhile another admin keeps Dan out of shared
   await call(page, 'put', `/api/admin/folders/${await rowId(page, 'shared')}/rules`, { rules: [everyone('write'), { subjectType: 'user', subjectId: 'dan', access: 'none' }] })
   const refused = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().includes('/rules'))
@@ -225,7 +226,7 @@ test('another admin changes the rules: the save is refused, the panel says so, k
   // the draft stays; the result is against their rules now: Dan had none already
   await expect(panel(page).getByTestId('edit-basic-named').getByRole('radio')).toBeChecked()
   await settled(page)
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 2 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: [translate('ko', 'accessEdit.outLoseOpen', { n: 2 })].join(' · ') }))
   await expect(panel(page).getByTestId('edit-less')).not.toContainText('Dan')
   expect(await rulesOf(page, 'shared')).toEqual(['everyone::write', 'user:dan:none'])
   // their rules can be taken instead
@@ -384,7 +385,7 @@ test('the result waits for the choices to settle, and an older answer never repl
   await expect(panel(page).getByTestId('edit-less').getByTestId('edit-change')).toContainText(t['access.none'])
   await page.waitForTimeout(1800)
   await expect(panel(page).getByTestId('edit-less').getByTestId('edit-change')).toContainText(t['access.none'])
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: [translate('ko', 'accessEdit.outLoseOpen', { n: 3 })].join(' · ') }))
   await expect(panel(page).getByTestId('edit-basic-named').getByRole('radio')).toBeChecked()
 })
 
@@ -481,7 +482,7 @@ test('the keyboard: the basic access, the search, a person\'s access and Save by
   await expect(page.getByTestId('edit-cancel')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(save(page)).toBeFocused()
-  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveLess', { n: 3 }))
+  await expect(save(page)).toHaveText(translate('ko', 'accessEdit.saveParts', { parts: [translate('ko', 'accessEdit.outLoseOpen', { n: 1 }), translate('ko', 'accessEdit.outLoseEdit', { n: 2 })].join(' · ') }))
   await page.keyboard.press('Enter')
   await expect(panel(page)).toHaveCount(0)
   await expect(page.getByTestId('folder-detail-edit')).toBeFocused()

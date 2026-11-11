@@ -80,7 +80,7 @@ describe('a service that repeats what the AI sent', () => {
     )].join('\n'), 'deny')
     // exactly one card: the echo
     expect(t.cards).toHaveLength(1)
-    expect(t.cards[0]).toContain('matches what the AI had sent to a tool earlier')
+    expect(t.cards[0]).toContain('contains something the AI sent earlier in this chat')
     expect(t.cards[0]).toContain(EXFIL)
     expect(t.answerText).toContain('did not allow opening this address')
     // the CDN address passed the gate without a card: it failed only at the name lookup (a test name), after it
@@ -100,7 +100,7 @@ describe('a service that repeats what the AI sent', () => {
       { tool: 'save_url', args: { url: EXFIL, save_as: 'users/alice/x.png' }, sayResult: true },
     )].join('\n'), 'deny')
     expect(t.cards).toHaveLength(1)
-    expect(t.cards[0]).toContain('matches what the AI had sent to a tool earlier')
+    expect(t.cards[0]).toContain('contains something the AI sent earlier in this chat')
     expect(t.answerText).toContain('did not allow opening this address')
     const row = h.ctx.db.query('SELECT echo FROM chat_connection_urls WHERE chat_id = ? AND url = ?').get(t.chatId, EXFIL) as { echo: number } | null
     expect(row?.echo).toBe(1)
@@ -111,7 +111,7 @@ describe('a service that repeats what the AI sent', () => {
       { tool: 'web_fetch', args: { url: HERO }, sayResult: true },
     )].join('\n'), 'deny')
     expect(t.cards).toHaveLength(1)
-    expect(t.cards[0]).toContain('did not appear in this conversation')
+    expect(t.cards[0]).toContain("wasn't in this chat")
   })
   test.skipIf(!native)('an mcp-file handle from another chat is not found', async () => {
     svc.results.jobs_wait = FIXTURE.jobs_wait

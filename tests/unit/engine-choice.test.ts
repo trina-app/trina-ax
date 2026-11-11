@@ -123,7 +123,8 @@ describe('enforcement', () => {
       const { done } = await ask(h, alice, 'alice', chat.id, fake({ say: 'now claude' }))
       expect(done).toMatchObject({ status: 'done', engine: 'claude-code', content: 'now claude' })
       const note = done.steps.find((s) => s.tool === 'engine')
-      expect(note?.label).toBe('Codex is switched off; answering with the team default (Claude Code)')
+      // no engine names (docs/DECISIONS.md "Plain words in errors, cards and steps")
+      expect(note?.label).toBe("The chosen AI is off; answering with the team's default AI")
       expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })
@@ -196,7 +197,7 @@ describe('Claude limit -> Codex fallback', () => {
       const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ claudeFail: 'rate limit exceeded' }, { say: 'from codex' }))
       expect(done).toMatchObject({ status: 'done', engine: 'codex', content: 'from codex' })
       expect(done.error).toBeNull()
-      expect(done.steps.find((s) => s.tool === 'engine')?.label).toBe('Claude Code usage limit reached; continuing with Codex')
+      expect(done.steps.find((s) => s.tool === 'engine')?.label).toBe('Usage limit reached; continuing with another AI')
       expect(h.ctx.db.query('SELECT engine FROM turns WHERE id = ?').get(started.turnId)).toEqual({ engine: 'codex' })
       const a = h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'engine.limit_fallback' AND target = ?").get(started.turnId) as { actor_id: string; detail: string }
       expect(a.actor_id).toBe('alice')

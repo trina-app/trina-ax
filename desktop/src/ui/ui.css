@@ -81,10 +81,6 @@ button:disabled {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-/* on the accent frame while the AI drives, the accent ring would not show */
-body.pane.driving :focus-visible {
-  outline-color: var(--accent-ink);
-}
 .sr-only {
   position: absolute;
   width: 1px;
@@ -293,34 +289,78 @@ body.hostbar {
 }
 
 /* ---------------- browser pane toolbar ---------------- */
+/* The view reaches var(--grab) px over the team page's right edge: transparent there (the team page shows through), the
+   edge handle's strip. #main is the pane itself: the toolbar, and under it the theme's own surface where the page goes
+   (seen until the tab's first page is drawn; never a solid accent colour). */
+html.pane,
 body.pane {
-  background: var(--chrome);
+  background: transparent;
   overflow: hidden;
 }
-body.pane.driving {
-  background: var(--accent);
+#main {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--grab, 6px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
 }
-.splitter {
+/* the edge between the team page and the browser (like the web app's PanelDivider): a 1px line, a 2px accent line on
+   hover, focus and while dragging */
+.edge {
   position: fixed;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 6px;
+  width: var(--grab, 6px);
   cursor: col-resize;
+  touch-action: none;
+  user-select: none;
   z-index: 3;
-  border: none;
-  border-radius: 0;
-  padding: 0;
-  background: transparent;
 }
-.splitter:hover,
-.splitter:focus-visible {
+.edge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
   background: var(--line);
+  transition: background-color 0.12s, width 0.12s;
+}
+.edge:hover::after,
+.edge:focus-visible::after,
+.edge[data-dragging]::after {
+  width: 2px;
+  background: var(--accent);
+}
+.edge:focus-visible {
+  outline: none;
 }
 #toolbar {
+  position: relative;
+  flex: none;
   background: var(--chrome);
-  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   padding: 6px 8px 6px 10px;
+}
+/* the AI is in control: a 2px accent line along the top of the page (in the toolbar's bottom edge, over its border,
+   so the page keeps its size) */
+body.driving #toolbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+.stage {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .tabs {
   display: flex;
@@ -389,35 +429,66 @@ body.pane.driving {
   padding: 4px 8px;
   background: var(--panel);
 }
+/* "Trina is using the browser": on the toolbar's own surface, a small pulsing accent dot, plain text, and Stop as a
+   solid ink button (its shape carries it, not a colour wash) */
 .driving-bar {
   display: none;
   align-items: center;
   gap: 8px;
   margin-top: 6px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 600;
+  min-height: 30px;
+  padding: 0 0 0 4px;
+  font-size: 13px;
 }
 body.driving .driving-bar {
   display: flex;
 }
 .driving-bar .dot {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: currentColor;
-  animation: pulse 1.2s ease-in-out infinite;
+  background: var(--accent);
+  animation: ai-pulse 1.6s ease-out infinite;
 }
-.driving-bar button {
+.driving-bar .label {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.driving-bar .stop {
+  flex: none;
   margin-left: auto;
-  padding: 2px 10px;
-  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--text);
+  background: var(--text);
+  color: var(--panel);
+  font-weight: 600;
+  line-height: 1.2;
 }
-@keyframes pulse {
-  50% {
-    opacity: 0.3;
+.driving-bar .stop:hover {
+  opacity: 0.86;
+}
+.driving-bar .stop-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+}
+@keyframes ai-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
   }
 }
 .prompt {
@@ -451,8 +522,7 @@ body.driving .driving-bar {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 400;
-  opacity: 0.85;
+  color: var(--muted);
   font-size: 12px;
 }
 .prompt .more {
@@ -631,12 +701,32 @@ body.driving .driving-bar {
   word-break: break-all;
 }
 .empty {
+  margin: 0;
   padding: 24px 16px;
   color: var(--muted);
   text-align: center;
 }
-/* the accent frame fills the empty pane while the AI drives: keep the text readable on it */
-body.pane.driving .empty {
-  color: var(--accent-ink);
-  font-weight: 600;
+/* a page on its way, before it has drawn: one quiet line, not a colour */
+.loading {
+  margin: 0;
+  padding: 28px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--muted);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

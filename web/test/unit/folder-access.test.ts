@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, Project } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText } from '../../src/lib/folder-access'
-import { changeHere } from '../../src/components/FolderAccess'
+import { editableHere } from '../../src/components/FolderAccess'
 import { byRoleLine, PROJECTS_BY_ROLE } from '../../src/lib/whoByRole'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
@@ -121,15 +121,17 @@ describe('the owner and admins\' chip says the count apart (docs/DECISIONS.md "W
   })
 })
 
-describe('where an admin changes the rules from the panel', () => {
-  test('a team folder and a legacy project\'s folder: yes; a project\'s own folder in projects/ and one\'s own folder: no', () => {
-    expect(changeHere('shared', 'ask')).toBe(true)
-    expect(changeHere('projects/falcon/docs', 'ask')).toBe(true)
-    expect(changeHere('shared/clients/acme', 'project')).toBe(true)
-    expect(changeHere('projects/falcon', 'project')).toBe(false)
+describe('where an admin changes who can open it in the panel', () => {
+  test('a team folder and a legacy project\'s folder: yes; a team project\'s folder and anything inside it, one\'s own folder and the containers: no', () => {
+    expect(editableHere('shared', 'ask')).toBe(true)
+    expect(editableHere('shared/clients/acme', 'project')).toBe(true)
+    // the owner chose members-only projects: the panel changes nothing in projects/ (their members do)
+    expect(editableHere('projects/falcon/docs', 'ask')).toBe(false)
+    expect(editableHere('projects/falcon', 'project')).toBe(false)
     // the project list did not load: still none on a folder of projects/ itself
-    expect(changeHere('projects/falcon', 'ask')).toBe(false)
-    expect(changeHere('users/olga', 'own')).toBe(false)
-    expect(changeHere('', null)).toBe(false)
+    expect(editableHere('projects/falcon', 'ask')).toBe(false)
+    expect(editableHere('users/olga', 'own')).toBe(false)
+    expect(editableHere('', null)).toBe(false)
+    expect(editableHere('groups', 'ask')).toBe(false)
   })
 })

@@ -42,7 +42,8 @@ import { TYPE_LABEL } from '../artifactLabels'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../Markdown'
 import AiAccessButton from './AiAccessButton'
-import { isNoAiReason, noAiErrorKey } from '../../lib/aiAccess'
+import { isNoAiReason } from '../../lib/aiAccess'
+import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
@@ -593,12 +594,14 @@ export function AssistantMessage({
   const thinking = streaming && !m.content && !waitingForYou && !deck
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
-  // "no AI": the owner hears what they can do, next to the button (lib/aiAccess.ts noAiErrorKey), only while no AI
-  // answers them (another engine's connection, or one added since, keeps the server's per-engine words)
+  // by who reads it (lib/chatErrors.ts): "no AI" with its button for the owner and admins while no AI answers them
+  // (another engine's connection, or one added since, keeps the per-engine words); where to fix it for the owner and
+  // admins; what happened and who to tell for everyone else. Never the provider's HTTP status (params.status)
   const role = useMe()?.user.role
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
+  const said = reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
-    ? reason ? t(noAiErrorKey(reason, role, noAi) ?? `chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
+    ? said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)

@@ -331,7 +331,7 @@ describe('after sharing', () => {
       // the read card for a place bob cannot read, to the person asking
       const started = await send('alice', id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
       const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === started.turnId, 15_000)
-      expect((card.data.request as { question: string }).question).toContain('groups/marketing/')
+      expect((card.data.request as { question: string }).question).toContain('Groups › marketing')
       await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
       const done = await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)
       expect(done.data.message.content).not.toContain(CANARY)

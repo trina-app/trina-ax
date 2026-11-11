@@ -1,24 +1,25 @@
-// "Who can see it" on the Files page (docs/DECISIONS.md "Who can see a folder, in place"): a chip at the end of the
-// breadcrumbs for the folder on screen, and a panel (the chip, or a folder row's ⋯ menu). What a member learns is the
-// server's answer (GET /api/files/audience: a count only where they can write) or a team project's own count
-// (Project.audience); their own folder says "only you" by its path. The owner and admins' chip says the people by its
-// rules ("3명"; its accessible name adds "팀장·관리자 2명도 볼 수 있어요"; the server's split, never sent to members); the
-// panel's headline keeps the total (the panel is redesigned in its own branch). An admin's panel adds the people by name and where
-// their access comes from, from the admin endpoints (FolderAccessAdmin.tsx, loaded only for admins). Nothing here
-// decides access.
-import { UserRound, Users } from 'lucide-react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+// "Who can open it" on the Files page (docs/DECISIONS.md "Who can see a folder, in place" and "Who can open it, like
+// Drive's Share"): a chip at the end of the breadcrumbs for the folder on screen, and a panel (the chip, or a folder
+// row's ⋯ menu). What a member learns is the server's answer (GET /api/files/audience: a count only where they can
+// write) or a team project's own count (Project.audience); their own folder says "only you" by its path. The owner and
+// admins' chip says the people by its rules ("3명"; the server's split, never sent to members). An admin's panel is
+// Drive's Share dialog in our words (pages/admin/FolderSharing.tsx, loaded only for admins): the people and groups who
+// can open it, one general access setting, changed in place. A team project's folder and everything inside it are shown,
+// not changed, and asked of no admin endpoint (their people follow the project's members). Nothing here decides access.
+import { ChevronLeft, UserRound, Users } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Access, AccessTreeNode, FolderAudience, Project } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, headlineText, type ChipPlace } from '../lib/folder-access'
-import { useFolderWords } from '../lib/folderLabels'
+import { adminsOnly, chipLabel, chipOf, chipPlace, chipText, panelHeadline, type ChipPlace } from '../lib/folder-access'
+import { hasPanel, inProjects } from '../lib/folder-sharing'
+import { useFolderName, useFolderWords } from '../lib/folderLabels'
 import { useLocale, useT } from '../i18n'
 import { accessChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Button, ErrorNote, Modal, Skeleton } from './ui'
 
-const FolderAccessAdmin = lazy(() => import('../pages/admin/FolderAccessAdmin'))
+const FolderSharing = lazy(() => import('../pages/admin/FolderSharing'))
 
 /** An admin's tree row of the folder (who sees it, grouped) and how many people rules decide for. */
 export interface AdminSelf { self: AccessTreeNode; members: number }
@@ -39,7 +40,8 @@ export function useFolderAccess(path: string | null, place: ChipPlace | null, ad
   const [tick, setTick] = useState(0)
   useEffect(() => accessChanged.on(() => setTick((n) => n + 1)), [])
   const askAudience = place === 'ask'
-  const askSelf = admin && place !== null && place !== 'own'
+  // never inside a team project's folder: its people follow the project's members, and no admin endpoint is asked there
+  const askSelf = admin && place !== null && place !== 'own' && path !== null && !inProjects(path)
   useEffect(() => {
     setAudience(null)
     setSelf(null)
@@ -90,92 +92,165 @@ export function FolderAccessChip({ path, access, project, onOpen }: { path: stri
   )
 }
 
-/** An admin changes the rules here from the panel, in Admin's edit panel: not on a folder of projects/ itself (a team
- * project's own folder: its members are changed on its page, #298; by its path, so a project list that failed to load
- * does not offer it) and not on a personal folder (rules never apply there). A project made before outside projects/
- * keeps it (its page sends admins to Admin too). */
-export const changeHere = (path: string, place: ChipPlace | null) => place !== null && place !== 'own' && !/^projects\/[^/]+$/.test(path)
+/** An admin changes who can open it in the panel: any team folder with a panel, but not a team project's folder in
+ * projects/ or anything inside it (by its path, so a project list that failed to load does not offer it), and not a
+ * personal folder. A project made before outside projects/ keeps it (its page sends admins to Admin too). */
+export const editableHere = (path: string, place: ChipPlace | null) => place !== null && place !== 'own' && hasPanel(path) && !inProjects(path)
 
-/** Whether a folder row's ⋯ menu offers "Who can see it" (where the chip would show for that folder). */
+/** Whether a folder row's ⋯ menu offers "Who can open it" (where the chip would show for that folder). */
 export function offersFolderAccess(path: string, access: Access, me: string, project: Project | null): boolean {
   return chipPlace(path, { me, access, project }) !== null
 }
 
 /**
- * The panel: who can see the folder, as far as the caller may know. Asked again each time it opens. Members: the
- * count and who changes it; their own folder: only them; a team project's folder: its count and that its members
- * decide. Admins also get the people by name (FolderAccessAdmin), asked when the panel opens.
+ * The panel: who can open the folder, as far as the caller may know. Asked again each time it opens. Members: the count
+ * and who changes it; their own folder: only them; a team project's folder: its count and that its members decide.
+ * Admins: FolderSharing (the people and groups, general access, changed in place), or on a team project's folder and
+ * inside it the count apart and the way to its members. "Change there" on a row from a folder above shows that folder
+ * here, with the way back; leaving with changes asks first (`guard`).
  */
-export function FolderAccessPanel({ target, project, onClose }: { target: { path: string; access: Access } | null; project: Project | null; onClose: () => void }) {
+export function FolderAccessPanel({ target, project, projectOf, onClose }: {
+  target: { path: string; access: Access } | null
+  project: Project | null
+  /** a team project by its folder (the folders shown after "Change there") */
+  projectOf?: (path: string) => Project | null
+  onClose: () => void
+}) {
   const t = useT()
   const me = useMeStrict()
   const admin = isAdmin(me)
-  const words = useFolderWords()
+  const nameOf = useFolderName()
   const navigate = useNavigate()
-  // closed, the path is null: each opening asks again
-  const path = target?.path ?? null
-  const place = target ? chipPlace(target.path, { me: me.user.id, access: target.access, project }) : null
-  const a = useFolderAccess(place ? path : null, place, admin)
-  const chip = a.ready ? chipOf(place, { audience: a.audience, project, adminsOnly: a.adminsOnly }) : null
+  /** the folders shown after "Change there", the last on screen (admins only; they write everywhere outside users/) */
+  const [trail, setTrail] = useState<string[]>([])
+  useEffect(() => setTrail([]), [target?.path])
+  const path = target ? (trail[trail.length - 1] ?? target.path) : null
+  const access: Access = !target ? 'none' : trail.length ? 'write' : target.access
+  const proj = !target ? null : trail.length ? (projectOf?.(path!) ?? null) : project
+  const place = path !== null ? chipPlace(path, { me: me.user.id, access, project: proj }) : null
+  const sharing = admin && path !== null && editableHere(path, place)
+  // the count (members, one's own folder, a team project's folder and inside it): never an admin endpoint
+  const a = useFolderAccess(!sharing && place ? path : null, place, false)
+  const chip = a.ready ? chipOf(place, { audience: a.audience, project: proj, apart: admin }) : null
+  /** set by FolderSharing: true when the panel may go (nothing changed, or the admin dropped it) */
+  const guard = useRef<() => Promise<boolean>>(async () => true)
+  /** the add field's list: Esc closes it before the panel */
+  const list = useRef({ open: false, close: () => {} })
+  const close = async () => {
+    if (list.current.open) {
+      list.current.close()
+      return
+    }
+    if (await guard.current()) onClose()
+  }
+  /** leave for another page ('' = just close), the leave question already asked */
+  const leave = (to: string) => {
+    onClose()
+    if (to) navigate(to)
+  }
+  const go = async (to: string) => {
+    if (await guard.current()) leave(to)
+  }
+  const back = async () => {
+    if (await guard.current()) setTrail((tr) => tr.slice(0, -1))
+  }
+  const previous = trail.length > 1 ? trail[trail.length - 2]! : target?.path ?? ''
+  const projectFolder = place === 'project' && proj
+  /** the sheet's footer, where FolderSharing puts what will happen and its buttons (always in sight, on phones too) */
+  const [footerEl, setFooterEl] = useState<HTMLDivElement | null>(null)
   return (
-    <Modal open={!!target && !!place} onClose={onClose} title={t('folderAccess.menu')} width={520}>
-      {target && place && (
-        <div className="space-y-3" data-testid="folder-access-panel" data-path={target.path}>
-          <p className="-mt-2 text-xs [overflow-wrap:anywhere] text-muted">{words.path(target.path) || t('files.root')}</p>
-          {/* no headline once the answers are in without a count (a plugin's managed folder: no write passes there) */}
-          {a.error && !chip ? (
-            <ErrorNote>{a.error}</ErrorNote>
-          ) : !chip ? (
-            !a.ready && <Skeleton lines={2} />
+    <Modal open={!!target && !!place} onClose={() => void close()} title={t('folderAccess.menu')} width={520} footer={sharing ? <div ref={setFooterEl} className="w-full" data-testid="sharing-footer-slot" /> : undefined}>
+      {target && place && path !== null && (
+        <div className="space-y-3" data-testid="folder-access-panel" data-path={path}>
+          {trail.length > 0 && (
+            <button type="button" onClick={() => void back()} className="-mt-1 -ml-1 inline-flex min-h-11 items-center gap-1 rounded-md px-1 text-sm font-medium text-muted hover:text-ink sm:min-h-0" data-testid="folder-access-back">
+              <ChevronLeft size={16} aria-hidden /> {t('folderAccess.backTo', { folder: nameOf(previous) })}
+            </button>
+          )}
+          <p className="-mt-2 text-xs [overflow-wrap:anywhere] text-muted" data-testid="folder-access-name">{nameOf(path)}</p>
+          {sharing ? (
+            <>
+              {projectFolder && <ProjectLines project={proj} admin go={go} />}
+              <Suspense fallback={<Skeleton lines={4} />}>
+                <FolderSharing key={path} path={path} project={proj} projectOf={projectOf ?? (() => null)} onSwap={(to) => setTrail((tr) => [...tr, to])} onLeave={leave} guard={guard} list={list} footer={footerEl} />
+              </Suspense>
+            </>
           ) : (
-            <p className="text-base font-semibold text-ink" data-testid="folder-access-headline">
-              {headlineText(t, chip)}
-            </p>
-          )}
-          {place === 'own' && <p className="text-sm text-muted">{t('folderAccess.ownFolder')}</p>}
-          {place === 'project' && project && (
-            <div className="space-y-1.5 text-sm" data-testid="folder-access-project">
-              <p className="text-muted break-keep">{t('folderAccess.project', { name: project.name })}</p>
-              {/* #298's own pieces: whoever may change the members gets its dialog (?members=1 opens it only for them);
-                  anyone else reads who does, as on the project page (the creator by name only while they can) */}
-              {!project.membersEditable && (
-                <p className="text-muted break-keep" data-testid="folder-access-members-hint">
-                  {admin
-                    ? /^projects\/[^/]+$/.test(project.folderPath)
-                      ? t('projects.membersFolderMissing')
-                      : t('projects.legacyNote', { folder: words.path(project.folderPath) || t('files.root') })
-                    : project.creatorChangesMembers && project.createdBy
-                      ? t('projects.membersByCreator', { name: project.createdBy.name })
-                      : t('projects.membersByAdmins')}
-                </p>
+            <>
+              {/* no headline once the answers are in without a count (a plugin's managed folder: no write passes there) */}
+              {a.error && !chip ? (
+                <ErrorNote>{a.error}</ErrorNote>
+              ) : !chip ? (
+                !a.ready && <Skeleton lines={2} />
+              ) : (
+                <div>
+                  <p className="text-base font-semibold text-ink" data-testid="folder-access-headline">
+                    {panelHeadline(t, chip, me.team.name)}
+                  </p>
+                </div>
               )}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-0.5">
-                {project.membersEditable && (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      onClose()
-                      navigate(`/projects/${project.id}?members=1`)
-                    }}
-                    data-testid="folder-access-members"
-                  >
-                    <Users size={14} aria-hidden /> {t('projects.participants')}
-                  </Button>
-                )}
-                <Link to={`/projects/${project.id}`} onClick={onClose} className="text-accent-text underline-offset-2 hover:underline" data-testid="folder-access-open-project">
-                  {t('files.openProject')}
-                </Link>
-              </div>
-            </div>
-          )}
-          {place === 'ask' && !admin && <p className="text-sm text-muted">{t('folderAccess.adminsChange')}</p>}
-          {admin && place !== 'own' && (
-            <Suspense fallback={<Skeleton lines={4} />}>
-              <FolderAccessAdmin path={target.path} self={a.self} ready={a.ready} change={changeHere(target.path, place)} onLeave={onClose} />
-            </Suspense>
+              {place === 'own' && <p className="text-sm text-muted">{t('folderAccess.ownFolder')}</p>}
+              {projectFolder && <ProjectLines project={proj} admin={admin} go={go} />}
+              {place === 'ask' && !admin && <p className="text-sm text-muted">{t('folderAccess.adminsChange')}</p>}
+              {admin && inProjects(path) && (
+                <div className="space-y-1 border-t border-line pt-3 text-xs text-muted">
+                  <p data-testid="folder-access-footer">{t('folderAccess.adminsAlways')}</p>
+                  {!projectFolder && (
+                    <p>
+                      <Link to={`/admin/folders?folder=${encodeURIComponent(path)}`} onClick={onClose} className="text-accent-text underline-offset-2 hover:underline" data-testid="folder-access-open-admin">
+                        {t('folderAccess.openInAdmin')}
+                      </Link>
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
     </Modal>
+  )
+}
+
+/** A team project's folder: whose members decide, #298's own pieces ([Members] for whoever may change them, else who
+ * does), and the way to the project. */
+function ProjectLines({ project, admin, go }: { project: Project; admin: boolean; go: (to: string) => Promise<void> }) {
+  const t = useT()
+  const words = useFolderWords()
+  return (
+    <div className="space-y-1.5 text-sm" data-testid="folder-access-project">
+      <p className="text-muted break-keep">{t('folderAccess.project', { name: project.name })}</p>
+      {/* #298's own pieces: whoever may change the members gets its dialog (?members=1 opens it only for them); anyone
+          else reads who does, as on the project page (the creator by name only while they can) */}
+      {!project.membersEditable && (
+        <p className="text-muted break-keep" data-testid="folder-access-members-hint">
+          {admin
+            ? /^projects\/[^/]+$/.test(project.folderPath)
+              ? t('projects.membersFolderMissing')
+              : t('projects.legacyNote', { folder: words.path(project.folderPath) || t('files.root') })
+            : project.creatorChangesMembers && project.createdBy
+              ? t('projects.membersByCreator', { name: project.createdBy.name })
+              : t('projects.membersByAdmins')}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-0.5">
+        {project.membersEditable && (
+          <Button size="sm" onClick={() => void go(`/projects/${project.id}?members=1`)} data-testid="folder-access-members">
+            <Users size={14} aria-hidden /> {t('projects.participants')}
+          </Button>
+        )}
+        <Link
+          to={`/projects/${project.id}`}
+          onClick={(e) => {
+            e.preventDefault()
+            void go(`/projects/${project.id}`)
+          }}
+          className="text-accent-text underline-offset-2 hover:underline"
+          data-testid="folder-access-open-project"
+        >
+          {t('files.openProject')}
+        </Link>
+      </div>
+    </div>
   )
 }
