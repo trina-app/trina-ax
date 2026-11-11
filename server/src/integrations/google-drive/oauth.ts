@@ -439,8 +439,11 @@ export class GoogleDrive {
     })()
     for (const c of this.operations.get(user) ?? []) c.abort()
     audit(this.ctx.db, { actor: user, action: 'drive.disconnected', target: row?.id })
+    // Google revokes a whole grant: while the person keeps a Gmail, Calendar, Docs or Sheets sign-in here (often the
+    // same Google app), Google is not asked (docs/GOOGLE-APPS.md "Disconnecting", owner decision 9)
+    const others = !!this.ctx.db.query('SELECT 1 FROM integrations WHERE owner_user_id=? AND google_app IS NOT NULL AND secret_enc IS NOT NULL LIMIT 1').get(user)
     let revocation: 'revoked' | 'unavailable' | 'not_needed'
-    try { revocation = await this.revoke(token) } finally { this.revoking.delete(user) }
+    try { revocation = others ? 'not_needed' : await this.revoke(token) } finally { this.revoking.delete(user) }
     return { disconnected: true as const, revocation }
   }
 }

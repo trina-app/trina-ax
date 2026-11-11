@@ -5,12 +5,13 @@
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Integration, IntegrationAccess, Locale, OAuthClientView, Role } from '@mycel/shared/api'
+import type { GoogleAppId, Integration, IntegrationAccess, Locale, OAuthClientView, Role } from '@mycel/shared/api'
 import { Vault, detectVersion } from '../../credentials/vault'
 import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
 import type { RemoteTool } from './mcp'
 import { reasonText } from './text'
+import { membersOn } from '../google-apps/catalog'
 
 export interface Row {
   id: string; scope: 'personal' | 'team'; owner_user_id: string | null; created_by: string | null
@@ -34,6 +35,9 @@ export interface Row {
   oauth_client?: string | null
   oauth_client_enc?: string | null
   oauth_client_key_version?: number
+  /** a person's own Gmail, Calendar, Docs or Sheets (migration 339, google-apps/): its calls go only to the library on
+   * this machine, it is hidden from the generic list, and the app's team switch decides whether it may be used */
+  google_app?: GoogleAppId | null
 }
 
 /** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client). foundTokenUrl:
@@ -172,6 +176,8 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
  * allows personal connections. Team: an access rule must match; being an admin is not one. */
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
+  // a Google app: its own team switch (Admin › Connectors), not the switch for members' own MCP connections
+  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId && membersOn(db, row.google_app)
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
@@ -201,7 +207,7 @@ export function usable(db: Database, userId: string): Row[] {
   // a member's own connections while the team allows them; the ones made from an admin's template while it covers them
   const on = personalOn(db)
   const personal = (db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[])
-    .filter((r) => (r.template_id ? templateCovers(db, r.template_id, userId) : on))
+    .filter((r) => (r.google_app ? membersOn(db, r.google_app) : r.template_id ? templateCovers(db, r.template_id, userId) : on))
   const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(db, r, userId))
   return [...personal, ...team]
 }

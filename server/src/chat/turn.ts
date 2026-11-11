@@ -1729,8 +1729,13 @@ export class TurnExec {
    * run or a draft): no room card (confirmRoomChange); the tool's card asks every time and leads with the room line
    * (TurnPerson.roomsSeen, chat/tools.ts). */
   ownCard(tool: string): boolean {
+    // a room session's own Google app tool (chat/tools.ts roomConnection): its own card asks every change, with the
+    // room line, and its reads need no room card (their answers stay private to the asker: rooms/ai.ts decide)
+    if (this.roomConnection(tool)) return !this.restricted && this.spec.clientKind !== 'schedule'
     return (ROOMS_SEEN_OWN_CARD_TOOLS.has(tool) || !!this.toolSet?.connection(tool)) && !this.room && !this.shared && !this.restricted && this.spec.clientKind !== 'schedule' && readRooms(this)
   }
+  /** one of the asker's own Google apps' tools in a team chat room's session */
+  roomConnection(tool: string): boolean { return !!this.room && !this.shared && !!this.toolSet?.roomConnection?.(tool) }
   /** a connection tool's call that only reads (chat/tools.ts ChatToolSet.readsOnly); false for anything else */
   readsOnly(name: string, args: unknown): boolean { return this.toolSet?.readsOnly(name, args) ?? false }
   /** ...that may go without the room card: a read by the service's own mark, not api_request's GET (ChatToolSet.readsFree) */
@@ -1898,7 +1903,8 @@ export class TurnExec {
     // unless its arguments carry an address or a random-looking part (tools/url-gate.ts carriesAddress: then this card);
     // its arguments go to the service the person or the team connected. api_request's GET or HEAD asks here (the method
     // is the AI's choice; some APIs act on a GET)
-    if (own && this.ownCard(tool) && this.readsFree(tool, input) && !carriesAddress(input)) return null
+    const mine = own || this.roomConnection(tool)
+    if (mine && this.ownCard(tool) && this.readsFree(tool, input) && !carriesAddress(input)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
     const w = roomChangeWrites(tool, this.cardInput(tool, input), (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
@@ -1908,7 +1914,7 @@ export class TurnExec {
     }
     // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
     // move or copy of a skill or instruction file is still refused
-    if (own && this.ownCard(tool) && !this.readsOnly(tool, input)) return null
+    if (mine && this.ownCard(tool) && !this.readsOnly(tool, input)) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`

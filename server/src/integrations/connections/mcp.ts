@@ -5,7 +5,7 @@
 import crypto from 'node:crypto'
 import { INTEGRATION_TOOLS_MAX } from '@mycel/shared/api'
 import { hideDeep } from './hide'
-import { NetError, serviceRequest, type NetOptions, type NetRequest } from './net'
+import { NetError, serviceRequest, type NetOptions, type NetRequest, type NetResponse } from './net'
 
 export const MCP_PROTOCOL = '2025-06-18'
 /** the most a tools/call answer may be: an image or audio block comes inline as base64 (a generated image of a few MB
@@ -82,7 +82,10 @@ export class McpClient {
 
   /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated
    * them); `auth` is told when a check's request must end (a token still valid is then not refreshed ahead of time) */
-  constructor(readonly url: string, private auth: (deadline?: number) => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
+  /** `send`: another way to the server than net.ts (a Google app connection's calls go only to the library on this
+   * machine, google-apps/transport.ts); left out, serviceRequest with its address rules */
+  constructor(readonly url: string, private auth: (deadline?: number) => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep,
+    private send?: (url: string, r: NetRequest) => Promise<NetResponse>) {}
 
   /** `read`: the answer's bytes are added to it (also when it is cut); `long`: net.ts NetRequest.long */
   private async post(message: Record<string, unknown>, o: Req = {}): Promise<Record<string, any> | null> {
@@ -93,11 +96,12 @@ export class McpClient {
     const headers: [string, string][] = [['Content-Type', 'application/json'], ['Accept', 'application/json, text/event-stream'], ...(await this.auth(long?.deadline))]
     if (this.version) headers.push(['MCP-Protocol-Version', this.version])
     if (this.sessionId) headers.push(['Mcp-Session-Id', this.sessionId])
-    const res = await serviceRequest(this.url, {
+    const req: NetRequest = {
       method: 'POST', headers, body: Buffer.from(JSON.stringify(message)), signal, ...(maxBytes ? { maxBytes } : {}), ...(long ? { long } : {}),
       // an event stream may stay open after our reply: stop reading once it is in
       until: id ? (body, head) => /text\/event-stream/i.test(head.headers['content-type'] ?? '') && !!findReply(sseEvents(body.toString('utf8')).map(parse), id) : undefined,
-    }, this.net)
+    }
+    const res = this.send ? await this.send(this.url, req) : await serviceRequest(this.url, req, this.net)
     this.usedAt = Date.now()
     if (read) read.bytes += res.body.length
     if (res.status === 401) throw new McpError('unauthorized', 401, res.headers['www-authenticate'] ?? '')
