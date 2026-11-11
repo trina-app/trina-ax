@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:23
 - Branch: `fix/join-link-signed-in`
-- Status: in progress
+- Status: done
 - Where: `web/src/App.tsx`, `web/src/pages/Auth.tsx`, the five locales. Why: sign-in and invites are core (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: the link no longer gets lost without a word; same page and words as a personal
@@ -52,4 +52,13 @@ server check with a real team link while signed in.
 
 ## Result
 
-(filled in at the end)
+Built as planned. One thing the plan did not foresee: the window can be signed out before the logout request answers
+(the live connection hears the session end, store/live.ts), and the signed-out join page reads the token from the
+address as it opens. So "로그아웃하고 참여하기" puts the address (with the token) back first and then signs out. The
+personal invite keeps its token in the path, so it did not need this; it goes the same way now.
+
+Checked on a local dev server (Chromium and WebKit): signed in as a member, the team link shows "이미 로그인되어 있어요 ·
+지금 에이로 로그인되어 있어요…" with the two buttons, and the token is gone from the address; 로그아웃하고 참여하기 ends
+the session and shows the join form ("QA-Acme 팀에 참여하기"); joining there signs the new person in and lands Home;
+이 계정으로 계속 쓰기 goes Home still signed in. (Headless Chromium needs the Badging API stubbed: chrome-headless-shell
+kills the page when the app clears its badge on sign-out, any sign-out; not an app problem.)

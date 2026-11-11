@@ -456,11 +456,13 @@ export function InviteWhileSignedIn() {
   }, [join])
   const leave = async () => {
     setBusy(true)
+    // the address first: the signed-out page reads it as it opens, and it can open before the logout answers (the live
+    // connection hears the session end: store/live.ts). The team link's token goes back in it; a damaged team link
+    // opens the join page without one, which says the link does not work
+    navigate(join ? `/join${join.token ? `#t=${join.token}` : ''}` : `/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
     await api.call(API.logout).catch(() => {})
     clearLocalData()
     signedOut()
-    // a damaged team link opens the join page without a token: it says the link does not work
-    navigate(join ? `/join${join.token ? `#t=${join.token}` : ''}` : `/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
   }
   return (
     <AuthFrame title={t('invite.signedInTitle')} sub={t(join ? 'teamLink.signedInBody' : 'invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
