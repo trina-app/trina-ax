@@ -108,7 +108,7 @@ describe('the order', () => {
     expect([...top, ...sections.flatMap((s) => s.rooms)].map((r) => r.id).sort()).toEqual(list.map((r) => r.id).sort())
   })
 
-  test('opened: the team rooms by the title their rows show, compared in the app\'s language; 전체 first even renamed', () => {
+  test('opened: the team rooms by the title their rows show, compared in the app\'s language with numbers by value; 전체 first even renamed', () => {
     const ALL = room({ kind: 'all', name: null, groupId: null })
     const rs = [room({ name: 'cherry' }), room({ name: 'Banana' }), ALL, room({ name: 'apple' }), room({ name: 'Ápple' })]
     const titleOf = (r: Room) => r.name ?? 'Everyone'
@@ -116,6 +116,9 @@ describe('the order', () => {
     expect(roomSections(rs, titleOf, 'en')[0]!.rooms.map(titleOf)).toEqual(['Everyone', 'apple', 'Ápple', 'Banana', 'cherry'])
     expect(roomSections([room({ name: 'Zeta' }), { ...ALL, name: 'Zzz announcements' }], titleOf, 'en')[0]!.rooms.map(titleOf)).toEqual(['Zzz announcements', 'Zeta'])
     expect(roomSections([], titleOf, 'en')).toEqual([])
+    // numbers by their value, not digit by digit: "팀 2" before "팀 10" (and in Korean, Hangul before Latin letters)
+    const numbered = ['팀 10', '팀 2', '팀 1', 'Q12 계획', 'Q3 계획'].map((name) => room({ name }))
+    expect(roomSections(numbered, titleOf, 'ko')[0]!.rooms.map(titleOf)).toEqual(['팀 1', '팀 2', '팀 10', 'Q3 계획', 'Q12 계획'])
   })
 
   test('hiding a room takes its pin off at once (withHidden)', () => {

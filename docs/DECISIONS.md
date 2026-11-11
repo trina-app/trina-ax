@@ -19594,20 +19594,26 @@ between them. Decided after two product reviews.
 
 - **Closed (the default): unchanged.** At most ten pins, the five latest of the others, the room on screen if it is not
   one of them; "더 보기 (N)" with its pill ("?", "안 읽음 M", "@") as before.
-- **Opened: the top rows stay where they were.** The same pins (at most ten) and five latest, computed without the room
-  on screen, in the same place, so nothing moves when the list opens. Below them every other room (hidden rooms stay
-  out, a hidden room on screen shows) in three sections, in this order: **팀 대화방** (Team rooms: 전체 and the groups'
-  rooms), **그룹 대화** (Group chats), **1:1 대화** (Direct messages). A room on top is never repeated below; a section
-  with no room has no heading.
+- **Opened: the pins and the five latest stay where they were.** The same pins (at most ten) and five latest, computed
+  without the room on screen, in the same place. The room on screen, when it was the extra sixth row, moves into its
+  section. Two rare cases move the top rows: with a pin past ten on screen (among the pins while closed, as before) the
+  five latest move up one row when the list opens; and a room I hid that is on screen and among the latest takes a top
+  place while opened, so clicking another row gives that place back and shifts the rows under it. Left as is: opening
+  a hidden room is rare, and keeping it out of the top would move rows on opening instead. Below them every other room
+  (hidden rooms stay out, a hidden room on screen shows) in three sections, in this order: **팀 대화방** (Team rooms:
+  전체 and the groups' rooms), **그룹 대화** (Group chats), **1:1 대화** (Direct messages). A room on top is never
+  repeated below; a section with no room has no heading.
 - **Team rooms by name, the others by latest activity.** 전체 first, then the team rooms by the title their rows show
   (`useRoomTitle`, so a renamed room and 전체's word in each language sort right), compared in the app's language
-  (`Intl.Collator`, the order of `localeCompare`). Team rooms are a stable set people look for by name, as Slack's
-  channels; group chats and DMs keep latest activity, the order people know from the closed list and /rooms.
+  (`Intl.Collator` with `numeric`: the order of `localeCompare`, numbers by their value, so "팀 2" comes before
+  "팀 10"). Team rooms are a stable set people look for by name, as Slack's channels; group chats and DMs keep latest
+  activity, the order people know from the closed list and /rooms.
 - **The room on screen is not added on top while opened.** It is in its own section, the active row as usual, so a row
   clicked below never moves. "접기" stays while anything is below the top rows, also when that is only the room on
   screen (counting the closed list's rows, opening the only room behind "더 보기" turned the row into "모든 대화" with
   the sections still on screen). "모든 대화" shows as before: when nothing is behind "더 보기", and below an opened one
-  while some rooms are hidden.
+  while some rooms are hidden. When "접기" closes onto "모든 대화" (only the room on screen was below), the button goes
+  and the keyboard moves to "모든 대화" instead of falling to the page.
 - **Pins past ten** (rare) no longer lead "더 보기" as one block: each goes first in its own kind's section, the most
   recently pinned first, with its pin.
 - **The headings: quiet labels, a third level.** `text-micro` (11 px), 500, `text-faint`, the in-list date headings' look

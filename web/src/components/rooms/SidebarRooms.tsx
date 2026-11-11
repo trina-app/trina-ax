@@ -7,10 +7,14 @@
 // nothing behind it the same row is "모든 대화", to the whole conversations page (/rooms, with its search): the entry is
 // always there (the owner, 2026-11-07).
 // "더 보기" opens the rest in place ("접기" closes it), remembered in this browser like the fold (docs/DECISIONS.md
-// "Conversations by kind under Show more"): the top rows stay where they were (the pins and the five latest, without
-// the room on screen, which is in its section below, so a clicked row never moves), and every other room follows by
-// kind under a quiet heading each: 팀 대화방 (전체 first, then by the name the row shows), 그룹 대화 and 1:1 대화 (latest
-// activity). A kind with nothing has no heading.
+// "Conversations by kind under Show more"): the pins and the five latest stay where they were, computed without the
+// room on screen, which is in its section below (so a clicked row never moves; when it was the extra sixth row it moves
+// into its section on opening), and every other room follows by kind under a quiet heading each: 팀 대화방 (전체 first,
+// then by the name the row shows), 그룹 대화 and 1:1 대화 (latest activity). A kind with nothing has no heading. Two
+// rare cases move the top rows: with a pin past ten on screen (among the pins while closed) the five latest move up one
+// row on opening; a room I hid that is on screen and among the latest takes a top place while opened, so clicking
+// another row gives that place back (left so: the other choice moves rows on opening instead). When "접기" closes onto
+// "모든 대화" (only the room on screen was below), the keyboard goes to "모든 대화".
 // Rooms I hid (docs/DECISIONS.md "대화 숨기기") are in none of this: not in the five, not in "더 보기" or its pill (the
 // room on screen still shows); they are under "숨긴 대화" on the conversations page, which "모든 대화" leads to (also
 // below an opened "더 보기" while there are hidden ones). Each row has the room's "⋯" (RoomMenu.tsx) on hover or keyboard
@@ -21,7 +25,7 @@
 // Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
 import { BellOff, Pin, Plus } from 'lucide-react'
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
@@ -81,15 +85,17 @@ const sectionOf = (kind: Room['kind']): RoomSection => (kind === 'all' ? 'team' 
 /** The rooms under the top rows of an opened "더 보기" (`rest`, by latest activity, as the store has them), by kind
  * (docs/DECISIONS.md "Conversations by kind under Show more"): in each section my pins past the top ones first (the
  * most recently pinned first), then team rooms with 전체 first and the others by the name their row shows (`titleOf`,
- * compared in the app's language), group chats and DMs by latest activity. A section with no room is left out. */
+ * compared in the app's language, numbers by their value), group chats and DMs by latest activity. A section with no
+ * room is left out. */
 export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<Room, 'pinnedAt'>>>(rest: R[], titleOf: (room: R) => string, locale: string): { section: RoomSection; rooms: R[] }[] {
   return ROOM_SECTIONS.map((section) => {
     const of = rest.filter((r) => sectionOf(r.kind) === section)
     const others = of.filter((r) => !r.pinnedAt)
     if (section === 'team') {
-      // each name worked out once, and one collator for the sort (the order of String.localeCompare in this language)
+      // each name worked out once, and one collator for the sort (the order of String.localeCompare in this language,
+      // numbers by their value: "팀 2" before "팀 10")
       const titles = new Map(others.map((r) => [r.id, titleOf(r)]))
-      const collator = new Intl.Collator(locale)
+      const collator = new Intl.Collator(locale, { numeric: true })
       others.sort((a, b) => Number(b.kind === 'all') - Number(a.kind === 'all') || collator.compare(titles.get(a.id)!, titles.get(b.id)!))
     }
     return { section, rooms: [...pinnedRooms(of), ...others] }
@@ -119,6 +125,15 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   const [all, setAll] = useState(() => remembered(ALL_KEY, 'no') === 'yes')
   const [picking, setPicking] = useState(false)
   const listId = useId()
+  // "접기" pressed while only the room on screen was below the top rows: the button goes ("모든 대화" takes its place),
+  // so the keyboard goes there instead of falling to the page
+  const allRooms = useRef<HTMLAnchorElement>(null)
+  const focusAll = useRef(false)
+  useEffect(() => {
+    if (!focusAll.current) return
+    focusAll.current = false
+    allRooms.current?.focus()
+  })
   // the room on screen stays in the list (/rooms/:id, and its threads)
   const openId = /^\/rooms\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
   if (failed && !everyRoom.length) return null
@@ -171,7 +186,7 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
         {rows}
         {entry && (
           <li>
-            <button type="button" aria-expanded={all} onClick={() => showAll(!all)} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-more">
+            <button type="button" aria-expanded={all} onClick={() => ((focusAll.current = all && more === 0), showAll(!all))} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-more">
               <span className="truncate">{all ? t('common.less') : t('sidebar.showMore', { n: more })}</span>
               {(hidden || hiddenAsk) && (
                 <span className={clsx('ml-auto shrink-0 rounded-full px-1.5 text-micro font-medium', hiddenAsk ? 'bg-warn font-bold text-canvas' : hidden!.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink')} data-testid="rooms-more-unread" data-muted={!hiddenAsk && hidden?.muted ? '' : undefined} data-ai-waits={hiddenAsk ? '' : undefined}>
@@ -192,7 +207,7 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
             the ones I hid); with the rest opened in place, it is there too while some are hidden (only that page has them) */}
         {(!entry ? everyRoom.length > 0 : all && someHidden) && (
           <li>
-            <Link to="/rooms" onClick={onNavigate} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-all">
+            <Link ref={allRooms} to="/rooms" onClick={onNavigate} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-all">
               <span className="truncate">{t('sidebar.allRooms')}</span>
             </Link>
           </li>

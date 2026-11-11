@@ -360,10 +360,12 @@ describe('a computer', () => {
         expect(rows.map((r) => r.getAttribute('data-section'))).toEqual([null, null, null, null, null, 'team', 'team', 'team', 'group', 'group', 'dm', 'dm'])
         // the fold's aria-controls covers the headings too
         expect(m.get('rooms-toggle').getAttribute('aria-controls')).toBe(m.get('sidebar-rooms-list').getAttribute('id'))
-        // "접기": as before
+        // "접기": as before; the button stays (rooms are behind it), and so does the keyboard
+        m.get('rooms-more').focus()
         await m.click('rooms-more')
         expect(hrefs(m)).toEqual(before)
         expect(m.find('sidebar-rooms-section')).toBeNull()
+        expect(m.get('rooms-more').ownerDocument!.activeElement).toBe(m.get('rooms-more'))
       } finally {
         await m.unmount()
       }
@@ -423,11 +425,14 @@ describe('a computer', () => {
         expect(m.get('rooms-more').textContent).toBe(ko('common.less'))
         expect(m.get('rooms-more').getAttribute('aria-expanded')).toBe('true')
         expect(m.find('rooms-all')).toBeNull()
-        // closed: it is the sixth, nothing else is behind "더 보기", so the row is "모든 대화" again
+        // closed: it is the sixth, nothing else is behind "더 보기", so the row is "모든 대화" again, and the keyboard that
+        // pressed "접기" is on it (not dropped to the page with the button)
+        m.get('rooms-more').focus()
         await m.click('rooms-more')
         expect(hrefs(m)).toEqual(list.map((r) => `/rooms/${r.id}`))
         expect(m.find('rooms-more')).toBeNull()
         expect(m.get('rooms-all').textContent).toBe(ko('sidebar.allRooms'))
+        expect(m.get('rooms-all').ownerDocument!.activeElement).toBe(m.get('rooms-all'))
       } finally {
         await m.unmount()
       }

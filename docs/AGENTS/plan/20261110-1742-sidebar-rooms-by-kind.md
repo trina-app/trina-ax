@@ -60,5 +60,7 @@ notes in "Desktop sidebar: rooms first" and "Pinned conversations"), a paragraph
 `changes/sidebar-rooms-by-kind.md`. The headings use the 트리나 기록 date headings' look and spacing (`text-micro`, 500,
 `text-faint`, 16 px above, 4 px below) on the left edge of the title and "더 보기", after the first screenshots showed
 `pt-3` binding them too loosely to their rows; AA in both looks. The names are compared with `Intl.Collator` in the
-app's language (the order of `localeCompare`, one collator per sort). Not changed: an open pin past ten still sits among
-the pins while the list is closed (as before), so in that rare case the five latest move up one row when it opens.
+app's language (the order of `localeCompare`, one collator per sort), numbers by their value ("팀 2" before "팀 10").
+After the independent review: "접기" closing onto "모든 대화" hands the keyboard to "모든 대화". Not changed (DECISIONS
+says why): an open pin past ten still sits among the pins while the list is closed, so in that rare case the five
+latest move up one row when it opens; an open hidden room among the latest takes a top place while opened.
