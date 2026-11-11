@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:20
 - Branch: `fix/push-token-takeover`
-- Status: in progress
+- Status: done
 - Where: `server/src/notifications/push-service.ts`. Why: phone push registration lives there (core, see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch. Registration refuses a case it wrongly allowed; nothing new to set up
@@ -60,3 +60,10 @@ other push tests.
 
 ## Result
 
+Built as planned. `registerDevice` refuses with 409 and `PHONE_TAKEN` (the caller's language, never whose phone) when
+the token's row is another person's and that session is live (`live`: not expired, account active and not deleted).
+Tests: `push-native` (the takeover refused; the owner keeps their push and none of the member's reach that phone; an
+expired session or a switched-off account is replaced; the same person's second session replaces it; after a sign-out
+the next person registers), and `push-label` now signs the first person out before the phone changes hands. Both new
+`push-native` tests failed before the fix. The permission matrix (`tests/security`) needs no change: an allowed write
+answering 409 is not a matrix problem, and its world has no gateway (503).
