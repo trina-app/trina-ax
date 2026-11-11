@@ -30,8 +30,8 @@ In:
     destructive confirmations.
 - The retry logic in `web/src/lib/autoRetry.ts` (a small scheduler, unit-tested with fake timers).
 - `isConnectionError` in `web/src/lib/api.ts`.
-- Applied to: Home's 「팀에 준비된 것」 (the "Load again" link), the message box's send on Home and in a side chat's first
-  message (a calm "not sent, your message is still here" with Try again; never sent by itself), the sidebar's 트리나 기록
+- Applied to: Home's 「팀에 준비된 것」 (the "Load again" link), the message box's first send on Home (a calm "not sent,
+  your message is still here" with Try again; never sent by itself), the sidebar's 트리나 기록
   (spun forever on a failed read), the rooms list, a room's messages, the file list, a chat's messages, the side chat,
   the admin screens' shared loader (`Loadable`), Settings › Devices and Settings › Memory.
 - The connection banner: the neutral surface instead of amber and red, and plain words for "offline".
@@ -56,7 +56,7 @@ Out:
 ## Risks
 
 - A place that clears its error while it reads again would remount the notice and restart the backoff at 2 s: the
-  places changed here keep the error until the answer, and the scheduler remembers the level per place for a minute.
+  places changed here keep the error until the answer.
 - Tests that look for `role="alert"` on a network failure of the changed places.
 - Five languages; phone and computer widths; light and dark.
 

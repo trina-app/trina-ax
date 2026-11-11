@@ -225,10 +225,15 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const stored = useSideChats((s) => sideChatOf(s, roomId))
   const { chatId, draft, quoted } = opening.current ? { ...stored, ...opening.current } : stored
   const patch = useCallback((p: Partial<SideChatState>) => useSideChats.getState().patch(roomId, p), [roomId])
-  const setChatId = (id: string | null) => patch({ chatId: id })
+  /** the read of the room's side chat failed (the calm notice reads again by itself until it works) */
+  const [loadError, setLoadError] = useState<unknown>(null)
+  // the person opened or started a chat: theirs, and the read that looked for one is no longer needed
+  const setChatId = (id: string | null) => {
+    setLoadError(null)
+    patch({ chatId: id })
+  }
   const setDraft = (f: string | ((d: string) => string)) => patch({ draft: typeof f === 'function' ? f(sideChatOf(useSideChats.getState(), roomId).draft) : f })
   const setQuoted = (f: SideSeed | null | ((q: SideSeed | null) => SideSeed | null)) => patch({ quoted: typeof f === 'function' ? f(sideChatOf(useSideChats.getState(), roomId).quoted) : f })
-  const [loadError, setLoadError] = useState<unknown>(null)
   /** 🕘: the room's side chats, newest first (null: the list is not open) */
   const [history, setHistory] = useState<Chat[] | null>(null)
   const [historyBusy, setHistoryBusy] = useState(false)
@@ -292,9 +297,15 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   }, [roomId, chatId])
 
   // a failed read's error stays until a read works: the notice stays while it reads again (components/LoadError.tsx)
+  /** the chat this page showed for the room, found gone (deleted in the full chat): what `load` may replace */
+  const gone = useRef<string | null>(null)
   const load = useCallback(async () => {
     try {
-      patch({ chatId: await findSideChat(roomId) })
+      const found = await findSideChat(roomId)
+      // only in place of no chat yet or the one found gone: a chat the person opened or started meanwhile (here or in
+      // another panel of the room) stays on screen
+      const now = sideChatOf(useSideChats.getState(), roomId).chatId
+      if (now === undefined || now === gone.current) patch({ chatId: found })
       setLoadError(null)
     } catch (e) {
       setLoadError(e ?? new Error('failed'))
@@ -305,7 +316,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   useEffect(() => {
     const known = sideChatOf(useSideChats.getState(), roomId).chatId
     if (known === undefined) return void load()
-    if (known) void useChats.getState().loadThread(known).catch(() => { if (sideChatOf(useSideChats.getState(), roomId).chatId === known) void load() })
+    if (known) void useChats.getState().loadThread(known).catch(() => {
+      if (sideChatOf(useSideChats.getState(), roomId).chatId !== known) return
+      gone.current = known
+      void load()
+    })
   }, [roomId, load])
   useEffect(() => { if (autoFocus) box.current?.focus() }, [])
   // a message asked about: quoted in front of the next question, until it is sent or taken off (once per ask: a panel

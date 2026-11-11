@@ -2,12 +2,11 @@
 // fake clock:
 // - the backoff: 2, 4, 8, 15 s, then every 30 s; a read that works (the notice goes: stop) ends it;
 // - nothing while the page is hidden, at once when it shows again;
-// - while the app's connection banner shows: no timer; read again when it goes (the place's own "now");
-// - "Try again" reads at once and starts the backoff over; never two reads at the same time;
-// - a notice drawn again (its place cleared the error while it read) goes on with the backoff for a minute, then starts
-//   over; without a key it starts over at once.
-import { afterEach, describe, expect, test } from 'bun:test'
-import { AutoRetry, forgetRetryLevels, RETRY_DELAYS_MS, RETRY_MEMORY_MS, type RetryClock } from '../../src/lib/autoRetry'
+// - while the app's connection banner shows: only every 30 s; read again at once when it goes (the place's own "now");
+// - "Try again" reads at once and starts the backoff over; never two reads at the same time; nothing after stop, also
+//   when a read was in flight.
+import { describe, expect, test } from 'bun:test'
+import { AutoRetry, RETRY_DELAYS_MS, RETRY_PAUSED_MS, type RetryClock } from '../../src/lib/autoRetry'
 import { isConnectionError } from '../../src/lib/api'
 import { ApiError } from '@mycel/shared/api'
 
@@ -20,7 +19,6 @@ function fakeClock() {
   const clock: RetryClock = {
     setTimeout: (fn, ms) => { const id = next++; timers.set(id, { at: now + ms, fn }); return id },
     clearTimeout: (id) => { timers.delete(id as number) },
-    now: () => now,
     hidden: () => hidden,
   }
   return {
@@ -42,18 +40,17 @@ function fakeClock() {
       await flush()
     },
     hide(v: boolean) { hidden = v },
+    now: () => now,
   }
 }
 const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
-
-afterEach(() => forgetRetryLevels())
 
 describe('the backoff', () => {
   test('2, 4, 8, 15 s, then every 30 s while it keeps failing; a read that works stops it', async () => {
     const c = fakeClock()
     const at: number[] = []
-    const start = c.clock.now()
-    const r = new AutoRetry(async () => { at.push(c.clock.now() - start); throw new TypeError('Failed to fetch') }, null, c.clock)
+    const start = c.now()
+    const r = new AutoRetry(async () => { at.push(c.now() - start); throw new TypeError('Failed to fetch') }, c.clock)
     r.start()
     expect(c.pending()).toEqual([2_000])
     await c.advance(2_000 + 4_000 + 8_000 + 15_000 + 30_000 + 30_000)
@@ -69,7 +66,7 @@ describe('the backoff', () => {
   test('a read that settles without throwing (the place keeps its error) still counts: the next wait is longer', async () => {
     const c = fakeClock()
     let reads = 0
-    const r = new AutoRetry(() => { reads++ }, null, c.clock)
+    const r = new AutoRetry(() => { reads++ }, c.clock)
     r.start()
     await c.advance(2_000)
     expect(reads).toBe(1)
@@ -80,7 +77,7 @@ describe('the backoff', () => {
     const c = fakeClock()
     let open = 0, most = 0
     let release: () => void = () => {}
-    const r = new AutoRetry(() => new Promise<void>((resolve) => { open++; most = Math.max(most, open); release = () => { open--; resolve() } }), null, c.clock)
+    const r = new AutoRetry(() => new Promise<void>((resolve) => { open++; most = Math.max(most, open); release = () => { open--; resolve() } }), c.clock)
     r.start()
     await c.advance(2_000)
     expect(open).toBe(1)
@@ -99,7 +96,7 @@ describe('a hidden page', () => {
   test('no read while hidden; at once when it shows again', async () => {
     const c = fakeClock()
     let reads = 0
-    const r = new AutoRetry(() => { reads++ }, null, c.clock)
+    const r = new AutoRetry(() => { reads++ }, c.clock)
     r.start()
     c.hide(true)
     r.seen()
@@ -116,7 +113,7 @@ describe('a hidden page', () => {
   test('a timer that comes due while the page is hidden does not read', async () => {
     const c = fakeClock()
     let reads = 0
-    const r = new AutoRetry(() => { reads++ }, null, c.clock)
+    const r = new AutoRetry(() => { reads++ }, c.clock)
     r.start()
     // hidden without the event (a browser that throttles the tab): the timer finds it hidden
     c.hide(true)
@@ -131,22 +128,27 @@ describe('a hidden page', () => {
 })
 
 describe('the app\'s connection banner', () => {
-  test('while it shows: no timer, and showing the page again waits for it; when it goes, the place reads at once', async () => {
+  test('while it shows: only every 30 s, and showing the page again waits for it; when it goes, the place reads at once', async () => {
     const c = fakeClock()
     let reads = 0
-    const r = new AutoRetry(() => { reads++ }, null, c.clock)
+    const r = new AutoRetry(() => { reads++ }, c.clock)
     r.pause(true)
     r.start()
-    expect(c.pending()).toEqual([])
-    await c.advance(5 * 60_000)
+    expect(c.pending()).toEqual([RETRY_PAUSED_MS])
+    expect(RETRY_PAUSED_MS).toBe(30_000)
+    // (a proxy that lets reads through but not the live connection: the place still comes back)
+    await c.advance(29_000)
     r.seen()
     await flush()
     expect(reads).toBe(0)
+    await c.advance(1_000)
+    expect(reads).toBe(1)
+    expect(c.pending()).toEqual([30_000])
     // the live connection is back (useAutoRetry: pause(false), then now(true))
     r.pause(false)
     r.now(true)
     await flush()
-    expect(reads).toBe(1)
+    expect(reads).toBe(2)
     expect(c.pending()).toEqual([4_000])
   })
 })
@@ -155,7 +157,7 @@ describe('Try again', () => {
   test('reads at once and the backoff starts over', async () => {
     const c = fakeClock()
     let reads = 0
-    const r = new AutoRetry(() => { reads++ }, null, c.clock)
+    const r = new AutoRetry(() => { reads++ }, c.clock)
     r.start()
     await c.advance(2_000 + 4_000 + 8_000 + 15_000)
     expect(reads).toBe(4)
@@ -166,53 +168,48 @@ describe('Try again', () => {
     expect(c.pending()).toEqual([4_000])
   })
 
+  test('nothing after stop, also when a read was in flight', async () => {
+    const c = fakeClock()
+    let reads = 0
+    let release: () => void = () => {}
+    const r = new AutoRetry(() => new Promise<void>((resolve) => { reads++; release = resolve }), c.clock)
+    r.start()
+    await c.advance(2_000)
+    expect(reads).toBe(1)
+    // the read worked: the notice goes (stop) before the read's promise settles
+    r.stop()
+    release()
+    await flush()
+    expect(c.pending()).toEqual([])
+    await c.advance(120_000)
+    expect(reads).toBe(1)
+  })
+
+  test('"Try again" while a read is in flight gives that read (one read, the same promise)', async () => {
+    const c = fakeClock()
+    let reads = 0
+    let release: () => void = () => {}
+    const r = new AutoRetry(() => new Promise<void>((resolve) => { reads++; release = resolve }), c.clock)
+    r.start()
+    const first = r.now(true)
+    const second = r.now(true)
+    expect(reads).toBe(1)
+    expect(second).toBe(first)
+    release()
+    await first
+    expect(c.pending()).toEqual([4_000])
+  })
+
   test('nothing once stopped', async () => {
     const c = fakeClock()
     let reads = 0
-    const r = new AutoRetry(() => { reads++ }, null, c.clock)
+    const r = new AutoRetry(() => { reads++ }, c.clock)
     r.start()
     r.stop()
     r.now(true)
     r.seen()
     await c.advance(60_000)
     expect(reads).toBe(0)
-  })
-})
-
-describe('a notice drawn again', () => {
-  test('with a key it goes on from its level for a minute after its last read, then starts over', async () => {
-    const c = fakeClock()
-    const first = new AutoRetry(() => {}, 'rooms', c.clock)
-    first.start()
-    await c.advance(2_000 + 4_000 + 8_000)
-    first.stop()
-    // drawn again right after a failed read: 15 s, not 2 s
-    const again = new AutoRetry(() => {}, 'rooms', c.clock)
-    again.start()
-    expect(c.pending()).toEqual([15_000])
-    again.stop()
-    // another place has its own level
-    const other = new AutoRetry(() => {}, 'files', c.clock)
-    other.start()
-    expect(c.pending()).toEqual([2_000])
-    other.stop()
-    // a minute after its last read: from the start
-    await c.advance(RETRY_MEMORY_MS)
-    const later = new AutoRetry(() => {}, 'rooms', c.clock)
-    later.start()
-    expect(c.pending()).toEqual([2_000])
-    later.stop()
-  })
-
-  test('without a key it starts over', async () => {
-    const c = fakeClock()
-    const first = new AutoRetry(() => {}, null, c.clock)
-    first.start()
-    await c.advance(2_000 + 4_000)
-    first.stop()
-    const again = new AutoRetry(() => {}, null, c.clock)
-    again.start()
-    expect(c.pending()).toEqual([2_000])
   })
 })
 

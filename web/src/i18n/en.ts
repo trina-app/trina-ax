@@ -90,7 +90,7 @@ export const en: Record<MessageKey, string> = {
 
   'error.network': "Couldn't reach the team server. Check your connection and try again.",
   'conn.reconnecting': 'Reconnecting… the answers on screen stay as they are.',
-  'conn.offline': "Can't connect right now. We keep trying; if it goes on, check your internet connection.",
+  'conn.offline': "Can't connect right now. Reconnecting… If it lasts, check your internet connection or tell the team owner.",
   'conn.cantReach': "Can't reach the team server",
   'conn.cantReachHint': 'Check your internet connection and try again in a moment.',
   'conn.now': "Can't connect right now.",

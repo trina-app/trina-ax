@@ -26,7 +26,6 @@ import { filesQuestion, folderLabel, preparedView, TeamPrepared } from '../../sr
 import { EmptyTeamLine, InviteStep } from '../../src/components/onboarding/InviteStep'
 import { useHandover } from '../../src/store/handover'
 import { skillsChanged } from '../../src/store/live'
-import { forgetRetryLevels } from '../../src/lib/autoRetry'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
@@ -357,7 +356,6 @@ test('no answer at all: "지금 연결이 안 돼요 · 다시 연결하는 중�
     expect(m.find('load-error')).toBeNull()
   } finally {
     failWith = 'server'
-    forgetRetryLevels()
     await m.unmount()
   }
 }, 10_000)

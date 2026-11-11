@@ -285,7 +285,7 @@ export default function Sidebar() {
         </div>
         <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
           {!loaded && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
-          {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" className="mx-1 mt-2" />}
+          {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" minor className="mx-1 mt-2" />}
           {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
           {loaded && chats.some((c) => !isUnused(c)) && !groups.length && !pinnedRows.length && (
             <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">

@@ -516,11 +516,14 @@ function Memories() {
   const locale = useLocale()
   const [items, setItems] = useState<Memory[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
-  // what the read threw, kept until a read works (components/LoadError.tsx)
+  // what the read threw, kept until a read works (components/LoadError.tsx); `failedMore`: it was "더 보기", which is
+  // what reads again (not the first page, which would shorten the list)
   const [error, setError] = useState<unknown>(null)
+  const failedMore = useRef(false)
   // the one form open: 'new', or the id of the memory being corrected
   const [editing, setEditing] = useState<string | null>(null)
   const load = async (more = false) => {
+    failedMore.current = more
     try {
       const r = await api.call(API.listMemories, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
       setItems((cur) => (more && cur ? [...cur, ...r.items] : r.items))
@@ -574,7 +577,7 @@ function Memories() {
   )
   return (
     <Section title={t('settings.memory')} desc={t('memory.desc')} page>
-      {!!error && <LoadError error={error} onRetry={() => load()} what="settings-memory" />}
+      {!!error && <LoadError error={error} onRetry={() => load(failedMore.current)} what="settings-memory" />}
       {!items && !error && <Skeleton lines={3} />}
       {items && (items.length > 0 || editing === 'new') && <div className="mb-3 flex justify-end">{addButton}</div>}
       {items && !items.length && editing !== 'new' && (

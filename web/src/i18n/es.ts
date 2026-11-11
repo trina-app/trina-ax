@@ -88,7 +88,7 @@ export const es: Record<MessageKey, string> = {
   'common.undo': "Deshacer",
   'error.network': "No se pudo conectar con el servidor del equipo. Revise su conexión y vuelva a intentarlo.",
   'conn.reconnecting': "Reconectando… las respuestas en pantalla se conservan.",
-  'conn.offline': "No hay conexión en este momento. Seguimos intentándolo; si continúa, revise su conexión a internet.",
+  'conn.offline': "No hay conexión en este momento. Reconectando… Si dura, revise su conexión a internet o avise al propietario del equipo.",
   'conn.cantReach': "No se puede conectar con el servidor del equipo",
   'conn.cantReachHint': "Revise su conexión a internet y vuelva a intentarlo en un momento.",
   'conn.now': "No hay conexión en este momento.",

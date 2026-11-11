@@ -90,7 +90,7 @@ export const id: Record<MessageKey, string> = {
 
   'error.network': 'Tidak bisa terhubung ke server tim. Cek koneksi kamu lalu coba lagi.',
   'conn.reconnecting': 'Menyambung ulang… jawaban di layar tetap ada.',
-  'conn.offline': "Belum bisa terhubung sekarang. Kami terus mencoba; kalau berlanjut, cek koneksi internet kamu.",
+  'conn.offline': "Belum bisa terhubung sekarang. Sedang menyambung ulang… Kalau lama, cek koneksi internet kamu atau beri tahu owner tim.",
   'conn.cantReach': 'Server tim tidak bisa dihubungi',
   'conn.cantReachHint': 'Cek koneksi internet kamu lalu coba lagi sebentar lagi.',
   'conn.now': "Belum bisa terhubung sekarang.",

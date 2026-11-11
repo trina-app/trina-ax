@@ -88,7 +88,7 @@ export const ja: Record<MessageKey, string> = {
   'common.undo': "元に戻す",
   'error.network': "チームサーバーに接続できませんでした。接続を確認して再試行してください。",
   'conn.reconnecting': "再接続中…画面の回答はそのまま残ります。",
-  'conn.offline': "いま接続できません。再接続を続けています。続く場合は、インターネット接続を確認してください。",
+  'conn.offline': "いま接続できません。再接続しています…長く続く場合は、インターネット接続を確認するか、チームオーナーに知らせてください。",
   'conn.cantReach': "チームサーバーに接続できません",
   'conn.cantReachHint': "インターネット接続を確認し、しばらくしてから再試行してください。",
   'conn.now': "いま接続できません。",

@@ -2,57 +2,45 @@
 // errors"):
 // - Backoff: 2, 4, 8 and 15 s, then every 30 s, while the page is visible. Nothing while it is hidden; at once when it
 //   shows again or the browser is back online.
-// - While the app's connection banner shows (the live connection 'reconnecting' or 'offline', lib/realtime.ts): no
-//   timer, the banner's own reconnecting is the one that runs; the live connection back is the moment to read again.
-// - "Try again" reads at once and starts the backoff over.
-// - A place that clears its error while it reads again draws its notice again after each failed attempt: with a `key`
-//   its level is kept for a minute after its last attempt, so the backoff goes on instead of starting at 2 s again.
-import { useEffect, useRef } from 'react'
+// - While the app's connection banner shows (the live connection 'reconnecting' or 'offline', lib/realtime.ts): only
+//   every 30 s (the banner's own reconnecting runs meanwhile; a place whose reads would work while the live connection
+//   cannot, behind a proxy that blocks it, still comes back); the live connection back is the moment to read again.
+// - "Try again" reads at once and starts the backoff over; never two reads at a time.
+// - The place keeps its error until a read works, so the notice (and this) stays while it reads: a place that cleared
+//   its error at the start of a read would draw the notice again and start the backoff over each time.
+import { useEffect, useRef, useState } from 'react'
 import { useUi } from '../store/ui'
 
 export const RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 15_000, 30_000] as const
-/** how long a key's level is kept after its last attempt */
-export const RETRY_MEMORY_MS = 60_000
+/** the wait while the connection banner shows */
+export const RETRY_PAUSED_MS = RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]
 
 export interface RetryClock {
   setTimeout(fn: () => void, ms: number): unknown
   clearTimeout(id: unknown): void
-  now(): number
   hidden(): boolean
 }
 
 const browserClock: RetryClock = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
-  now: () => Date.now(),
   hidden: () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
 }
 
-const levels = new Map<string, { level: number; at: number }>()
-/** Tests: every key starts at the first delay again. */
-export const forgetRetryLevels = () => levels.clear()
-
 export class AutoRetry {
   private timer: unknown = null
-  /** attempts made so far (with a key: also those of the notice drawn before this one) */
+  /** attempts made so far */
   private level = 0
-  private inFlight = false
+  /** the read in flight */
+  private current: Promise<void> | null = null
   private paused = false
   private stopped = true
 
-  constructor(private readonly retry: () => unknown, private readonly key: string | null = null, private readonly clock: RetryClock = browserClock) {
-    const kept = key ? levels.get(key) : undefined
-    if (kept && clock.now() - kept.at < RETRY_MEMORY_MS) this.level = kept.level
-  }
+  constructor(private readonly retry: () => unknown, private readonly clock: RetryClock = browserClock) {}
 
   /** the wait before the next attempt */
   get delay(): number {
-    return RETRY_DELAYS_MS[Math.min(this.level, RETRY_DELAYS_MS.length - 1)]!
-  }
-
-  /** whether an attempt is waiting for its time */
-  get waiting(): boolean {
-    return this.timer !== null
+    return this.paused ? RETRY_PAUSED_MS : RETRY_DELAYS_MS[Math.min(this.level, RETRY_DELAYS_MS.length - 1)]!
   }
 
   start() {
@@ -66,26 +54,29 @@ export class AutoRetry {
     this.clear()
   }
 
-  /** the app's connection banner shows: no timer until it goes */
+  /** the app's connection banner shows: the slow wait until it goes */
   pause(paused: boolean) {
+    if (this.paused === paused) return
     this.paused = paused
-    if (paused) this.clear()
-    else this.schedule()
+    this.clear()
+    this.schedule()
   }
 
-  /** Read again now. `fresh` ("Try again"): the backoff starts over after it. */
-  now(fresh = false) {
-    if (this.stopped) return
+  /** Read again now; the read in flight when there is one. `fresh` ("Try again"): the backoff starts over after it. */
+  now(fresh = false): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    if (this.current) return this.current
     if (fresh) this.level = 0
     this.clear()
-    void this.attempt()
+    return this.attempt()
   }
 
   /** The page was hidden or shows again (visibilitychange), or the browser is back online: hidden, the timer waits;
    * shown, at once (unless the banner shows: its connection coming back comes first). */
   seen() {
     if (this.clock.hidden()) return this.clear()
-    if (!this.paused) this.now()
+    if (!this.paused) void this.now()
+    else this.schedule()
   }
 
   private clear() {
@@ -95,7 +86,7 @@ export class AutoRetry {
   }
 
   private schedule() {
-    if (this.stopped || this.paused || this.inFlight || this.timer !== null || this.clock.hidden()) return
+    if (this.stopped || this.current || this.timer !== null || this.clock.hidden()) return
     this.timer = this.clock.setTimeout(() => {
       this.timer = null
       // hidden meanwhile: it waits for the page to show again
@@ -103,32 +94,37 @@ export class AutoRetry {
     }, this.delay)
   }
 
-  private async attempt() {
-    if (this.stopped || this.inFlight) return
-    this.inFlight = true
+  private attempt(): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    if (this.current) return this.current
     this.level++
-    if (this.key) levels.set(this.key, { level: this.level, at: this.clock.now() })
-    try {
-      await this.retry()
-    } catch {
-      /* the place shows what came of it */
-    }
-    this.inFlight = false
-    // still running: it failed again (a read that worked takes the notice away, which stops this)
-    this.schedule()
+    const run = (async () => {
+      try {
+        await this.retry()
+      } catch {
+        /* the place shows what came of it */
+      }
+      this.current = null
+      // still running: it failed again (a read that worked takes the notice away, which stops this)
+      this.schedule()
+    })()
+    this.current = run
+    return run
   }
 }
 
-/** While `active` (a connection failure on screen), reads again by itself as above. `tryNow`: "Try again". */
-export function useAutoRetry(active: boolean, retry: () => unknown, key?: string) {
+/** While `active` (a connection failure on screen), reads again by itself as above. `tryNow`: "Try again"; `busy`: a
+ * read it started is in flight. */
+export function useAutoRetry(active: boolean, retry: () => unknown) {
   const banner = useUi((s) => s.conn === 'reconnecting' || s.conn === 'offline')
   const retryRef = useRef(retry)
   retryRef.current = retry
   const bannerRef = useRef(banner)
   const runner = useRef<AutoRetry | null>(null)
+  const [busy, setBusy] = useState(false)
   useEffect(() => {
     if (!active) return
-    const r = new AutoRetry(() => retryRef.current(), key ?? null)
+    const r = new AutoRetry(() => retryRef.current())
     runner.current = r
     r.pause(bannerRef.current)
     r.start()
@@ -141,7 +137,7 @@ export function useAutoRetry(active: boolean, retry: () => unknown, key?: string
       document.removeEventListener('visibilitychange', seen)
       window.removeEventListener('online', seen)
     }
-  }, [active, key])
+  }, [active])
   useEffect(() => {
     const was = bannerRef.current
     bannerRef.current = banner
@@ -149,7 +145,13 @@ export function useAutoRetry(active: boolean, retry: () => unknown, key?: string
     if (!r || was === banner) return
     r.pause(banner)
     // the live connection is back: read now, the backoff from the start
-    if (!banner) r.now(true)
+    if (!banner) void r.now(true)
   }, [banner])
-  return { tryNow: () => runner.current?.now(true) }
+  const tryNow = () => {
+    const r = runner.current
+    if (!r) return
+    setBusy(true)
+    void r.now(true).finally(() => { if (runner.current === r) setBusy(false) })
+  }
+  return { tryNow, busy }
 }

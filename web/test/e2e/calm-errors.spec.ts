@@ -68,12 +68,16 @@ test('the message box: a send that cannot reach the server keeps the text, says 
 test('the rooms list: [다시 시도] reads at once; the file list comes back by itself', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await down(page, /\/api\/rooms$/)
+  let aborted = 0
+  await page.route(/\/api\/rooms$/, (r) => (r.request().method() === 'GET' ? (aborted++, r.abort('internetdisconnected')) : r.continue()))
   await page.goto('/rooms')
   await calm(page, 'rooms')
+  // the first read and the one 2 s later both failed: the next by itself is 4 s away, so a read within 2 s is the click's
+  const before = aborted
+  await expect.poll(() => aborted, { timeout: 8_000 }).toBeGreaterThan(before)
   await page.unroute(/\/api\/rooms$/)
   await page.getByTestId('load-error-retry').click()
-  await expect(page.locator('[data-testid="load-error"][data-what="rooms"]')).toHaveCount(0)
+  await expect(page.locator('[data-testid="load-error"][data-what="rooms"]')).toHaveCount(0, { timeout: 2_000 })
   await expect(page.getByTestId('rooms-page').getByText(ko['rooms.listEmpty'])).toBeVisible()
 
   await down(page, /\/api\/files\/tree(\?.*)?$/)

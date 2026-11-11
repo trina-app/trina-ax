@@ -20262,22 +20262,29 @@ that it is trying again, and the content back by itself.
 - **It comes back by itself.** It reads again after 2, 4, 8 and 15 s, then every 30 s, while the page is visible;
   nothing while it is hidden; at once when the page shows again, when the browser says it is online again, or when the
   live connection is back. When a read works the notice goes and the data shows, without a click. [다시 시도] reads at
-  once and starts the backoff over; never two reads at a time. A place keeps its error until a read works, so the notice
-  stays while it reads (no flicker to a skeleton and back); the places changed here were made to (Files, a chat, the side
-  chat, a room's messages, 「팀에 준비된 것」), and the backoff is remembered per place for a minute in case one draws the
-  notice again.
+  once (its own small spinner while it does, the focus kept on it) and starts the backoff over; never two reads at a
+  time. A place keeps its error until a read works, so the notice stays while it reads (no flicker to a skeleton and
+  back, no backoff starting over): the places changed here were made to (Files, a chat, the side chat, a room's
+  messages, 「팀에 준비된 것」; Settings › Memory reads again the page that failed, so a failed "더 보기" does not shorten
+  the list).
 - **One place says it.** While the app's connection banner shows (the live connection reconnecting, or offline after
-  30 s), a place that could not be read shows only a quiet spinner and waits for the connection, with no timer of its
-  own. The same while the message box says its message was not sent: on Home, the box's line says it and 「팀에 준비된
-  것」 waits under it.
-- **The message box: never lost, never sent by itself.** A send that cannot reach the server (Home's first message, a side
-  chat's) keeps the text in the box and says so on the same calm notice: "지금 연결이 안 돼서 보내지 못했어요. 메시지는
-  그대로 있어요." with [다시 시도], which sends it. It is not sent again by itself: the request may have arrived, and the
-  person may want to change it. Emptying the box takes the line away. Another failure keeps its red line.
+  30 s), a place that could not be read shows only a quiet spinner (named "다시 연결하는 중…" for screen readers) and reads
+  again every 30 s (a proxy that lets reads through but not the live connection) and at once when the connection is
+  back. The same while the message box says its message was not sent: on Home, the box's line says it and 「팀에 준비된
+  것」 waits under it. And of the places on screen that could not be read, one says it, the others wait with the quiet
+  spinner: the page's before the sidebar's 트리나 기록, then the first; when it comes back, the next one says it.
+- **The message box: never lost, never sent by itself.** A first message on Home that cannot reach the server keeps the
+  text in the box and says so on the same calm notice: "지금 연결이 안 돼서 보내지 못했어요. 메시지는 그대로 있어요." with
+  [다시 시도], which sends it. It is not sent again by itself: the person may want to change it. Emptying the box takes the
+  line away. Another failure keeps its red line. (In a chat a message already waits as "보내지 못했어요. · 다시 보내기" in the
+  list; the side chat's box keeps its toast: not changed here.)
+- **The side chat** found no chat for the room because its read failed: the calm notice reads again by itself, but a
+  chat the person opens or starts meanwhile (🕘, a new chat, here or in another panel of the room) stays; the read
+  that comes back only fills in "no chat yet" or a chat found deleted.
 - **The connection banner** is neutral too (`bg-subtle text-muted`, a hairline under it; it was amber, then red after
-  30 s), and offline says what is going on in plain words: "지금 연결이 안 돼요. 계속 다시 연결하고 있어요. 계속 안 되면
-  인터넷 연결을 확인해 주세요." The old line sent members to the team owner to check "서버 맥과 관리자 화면의 진단": jargon,
-  wrong for a hosted team, and the admin screen does not open while offline.
+  30 s), and offline says what is going on in plain words: "지금 연결이 안 돼요. 다시 연결하는 중이에요. 오래가면 인터넷
+  연결을 확인하거나 팀장에게 알려 주세요." The old line sent members to the team owner to check "서버 맥과 관리자 화면의
+  진단": jargon, wrong for a hosted team, and the admin screen does not open while offline.
 - **`soft`**: a part that is extra on its page (「팀에 준비된 것」) gets the calm notice for any failure, the server's
   answer included ("불러오지 못했어요." with [다시 시도], no reading by itself), never red under the box.
 - **Where.** Home's 「팀에 준비된 것」 and message box, the sidebar's 트리나 기록 (a failed first read spun forever), the rooms
@@ -20292,11 +20299,13 @@ that it is trying again, and the content back by itself.
 - **Left out.** Action failures (saving, deleting) and their toasts; the sign-in gate's full-page "연결할 수 없어요"; the
   desktop and mobile shells' own texts; answer error cards.
 - Tests: `web/test/unit/auto-retry.test.ts` (the backoff on a fake clock, a read that works stops it, never two reads,
-  hidden page, the banner, Try again, the level kept per place for a minute; `isConnectionError`),
-  `load-error.test.tsx` (the calm notice, recovery without a click with a typed draft kept, Try again, the relay's 502,
-  the server's error red and not read by itself, `soft`, the banner's quiet spinner and the read when it goes, a hidden
-  page, the message box's calm line with the text kept and sent on Try again, the cause said once),
-  `team-prepared.test.tsx` (the calm notice for a failed read; the connection: back by itself); e2e `calm-errors.spec.ts`
+  nothing after stop also with a read in flight, hidden page, the banner's 30 s, Try again; `isConnectionError`),
+  `load-error.test.tsx` (the calm notice, recovery without a click with a typed draft kept, Try again and its spinner,
+  the relay's 502, the server's error red and not read by itself, `soft`, the banner's quiet spinner and the read when
+  it goes, a hidden page, back online, one place says it and the sidebar's last, the message box's calm line with the
+  text kept and sent on Try again, the cause said once), `team-prepared.test.tsx` (the calm notice for a failed read;
+  the connection: back by itself), `side-chat.test.tsx` (a chat opened while the notice shows stays); e2e
+  `calm-errors.spec.ts`
   (route-aborted reads: Home's block back without a click with the draft kept, the message box, the rooms list's Try
   again, the file list back by itself, the banner's look; with `SHOTS_DIR`, Home and the rooms list at 1440 and 390,
   light and dark).
