@@ -706,6 +706,7 @@ export const es: Record<MessageKey, string> = {
   'files.uploads': "Cargas",
   'files.preparing': "Preparando",
   'files.finishing': "Finalizando",
+  'files.waitingConnection': "Esperando la conexión",
   'files.uploadingName': "Subiendo {name}",
   'files.uploadedName': "{name} subido",
   'files.incompleteUpload': "El archivo no llegó completo. Vuelva a subirlo.",

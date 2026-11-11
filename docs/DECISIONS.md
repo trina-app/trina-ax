@@ -21557,3 +21557,22 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   owner sets it up from the notice, member hears it is ready; phone width), `google-apps.spec.ts` and `drive.spec.ts`
   (the button in place of the disabled Connect).
 - Version impact: **minor** (a new API, two inbox events, one migration). Needed in the core too (potenlab/team-ax).
+
+## Uploads wait for the connection; one's own upload sent again is kept once (fix/uploads-wait-for-connection, 2026-11-12, QA TC-223)
+
+- **Waiting, not failing.** An upload whose request gets no answer at all (the browsers' own network-failure words:
+  "Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource.", lib/xhr.ts's "Network request
+  failed"; any TypeError while the browser says it is offline) or the relay's 502 / 504 waits for the connection: a
+  pause of up to 10 s that the browser's `online` event ends at once, no request while offline, for up to 10 minutes,
+  then it fails with 다시 시도. Another TypeError is a fault in the page and is not retried. A server error keeps its
+  tries (5 for a chunk, 1 for a small file). A small file for a team folder is sent again too; attachments and voice are
+  sent once (a second one would be a second attachment or transcription).
+- **No "(2)" of one's own upload sent again.** `POST /api/files/upload` and an upload session to a path, with
+  `onExists: 'rename'`, keep a file already at the name or at one of its renamed forms ("name (2)" … "(20)", up to the
+  first free one) and answer with it, only when it is **this person's own upload of this very content in the last 24
+  hours**: a file_events `upload` row of theirs for that path with that sha256, and the file is still that content. That
+  is what a resumed upload and photos picked again after a dropped connection are. The same content uploaded by someone
+  else, made another way (the AI, a copy), or longer ago gets "(2)" as before: someone uploading a team template again to
+  get their own copy gets the copy, never the shared original back (which they would then edit). Hidden or unreadable
+  names are never looked at.
+- Tests: `tests/unit/c-uploads-same.test.ts`, `web/test/unit/upload-wait.test.ts`, `web/test/unit/file-upload-retry.test.tsx`.

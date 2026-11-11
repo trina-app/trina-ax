@@ -730,6 +730,7 @@ export const id: Record<MessageKey, string> = {
   'files.uploads': 'Unggahan',
   'files.preparing': 'Menyiapkan',
   'files.finishing': 'Menyelesaikan',
+  'files.waitingConnection': 'Menunggu koneksi',
   'files.uploadingName': 'Mengunggah {name}',
   'files.uploadedName': '{name} terunggah',
   'files.incompleteUpload': 'Berkas tidak diterima utuh. Unggah ulang.',

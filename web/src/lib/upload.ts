@@ -19,9 +19,16 @@ const COPIES_AT_ONCE = 3
  * request, so a stopped one would otherwise hold its place until the person removes it. */
 const PLACE_IDLE_MS = 20_000
 
-/** `loaded` and `total` count the file's own bytes, in every phase. */
+/** No byte can go out, so the upload waits for the connection before it tries again: at most this long, then it fails
+ * (the row offers 다시 시도). QA TC-223: it gave up after about 15 s and stayed failed when the network came back. */
+export const CONNECTION_WAIT_MS = 10 * 60_000
+/** the longest pause between two tries while the connection is gone (the browser's `online` event ends it sooner) */
+const CONNECTION_PAUSE_MAX_MS = 10_000
+
+/** `loaded` and `total` count the file's own bytes, in every phase. `waiting`: the connection is gone and the upload
+ * goes on by itself when it is back (`loaded` stays what had gone out). */
 export interface UploadProgress {
-  phase: 'hashing' | 'uploading' | 'finishing'
+  phase: 'hashing' | 'uploading' | 'finishing' | 'waiting'
   loaded: number
   total: number
 }
@@ -37,9 +44,17 @@ export function uploadPercent(p: Running): number | null {
   return pct > 0 ? Math.min(pct, 99) : null
 }
 
+/** The share of the bar: full while the server finishes, what had gone out while it waits for the connection. */
+export function uploadBar(p: Running): number {
+  if (p?.phase === 'finishing') return 100
+  if (p?.phase === 'waiting') return p.total ? Math.min(99, Math.floor((p.loaded / p.total) * 100)) : 0
+  return uploadPercent(p) ?? 0
+}
+
 /** What a running upload says beside its spinner. */
-export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing') => string): string {
+export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing' | 'files.waitingConnection') => string): string {
   if (p?.phase === 'finishing') return t('files.finishing')
+  if (p?.phase === 'waiting') return t('files.waitingConnection')
   const pct = uploadPercent(p)
   return pct === null ? t('files.preparing') : `${pct}%`
 }
@@ -56,6 +71,8 @@ export interface UploadOptions {
   reportEveryMs?: number
   /** how long an upload with no byte out keeps its place (tests pass less) */
   placeIdleMs?: number
+  /** how long it waits for a lost connection before it fails (CONNECTION_WAIT_MS; tests pass less) */
+  connectionWaitMs?: number
   singleRequestMax?: number
 }
 
@@ -90,20 +107,72 @@ export async function sha256Hex(blob: Blob, onProgress?: (done: number) => void,
 }
 
 // 507 storage_full is an answer, not a server fault: a person must free space first, so it ends the file at once
-const retryable = (e: unknown) => !(e instanceof ApiError) || (e.status >= 500 && e.code !== 'storage_full') || e.code === 'rate_limited' || e.code === 'unavailable'
+const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false
+/** What fetch and lib/xhr.ts throw for a request that got no answer at all, in the browsers' own words: Chromium
+ * "Failed to fetch", WebKit "Load failed" (and its "network connection was lost" / "appears to be offline"), Firefox
+ * "NetworkError when attempting to fetch resource.", lib/xhr.ts "Network request failed". */
+const NO_ANSWER = /^(failed to fetch|load failed|networkerror when attempting to fetch resource\.?|network request failed|the network connection was lost\.?|the internet connection appears to be offline\.?)$/i
+/** No answer at all: one of those TypeErrors, or any TypeError while the browser says it is offline. Another TypeError
+ * is a fault in the page ("x is not a function") and is not sent again, nor waited on for 10 minutes. */
+export const noAnswer = (e: unknown) => e instanceof TypeError && (NO_ANSWER.test(e.message.trim()) || offline())
+// a file that cannot be read (a DOMException), an answer that is not what was asked for or a fault in the page is not made
+// better by sending again
+const retryable = (e: unknown) => noAnswer(e) || (e instanceof ApiError && ((e.status >= 500 && e.code !== 'storage_full') || e.code === 'rate_limited' || e.code === 'unavailable'))
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms)
     signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('aborted', 'AbortError')) }, { once: true })
   })
 
-async function withRetry<T>(fn: () => Promise<T>, o: UploadOptions, tries = 5): Promise<T> {
-  for (let i = 0; ; i++) {
+/** The connection is gone, not refused: no answer at all (noAnswer), or the relay could not reach the team server (502,
+ * 504). */
+const connectionLost = (e: unknown) => noAnswer(e) || (e instanceof ApiError && (e.status === 502 || e.status === 504))
+
+/** A pause of up to `ms` that the browser's `online` event ends at once. */
+const untilOnline = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const win = typeof window === 'undefined' ? null : window
+    const done = () => {
+      clearTimeout(timer)
+      win?.removeEventListener('online', done)
+      signal?.removeEventListener('abort', stop)
+      resolve()
+    }
+    const stop = () => {
+      clearTimeout(timer)
+      win?.removeEventListener('online', done)
+      reject(signal?.reason ?? new DOMException('aborted', 'AbortError'))
+    }
+    const timer = setTimeout(done, ms)
+    win?.addEventListener('online', done)
+    signal?.addEventListener('abort', stop, { once: true })
+  })
+
+/**
+ * `fn` again after a failure that may pass. A server error: 5 tries in all (1, 2, 4, 8 s between). A lost connection
+ * (QA TC-223): the upload waits for it, a growing pause up to 10 s or until the browser is online again, and asks
+ * nothing while the browser says it is offline, for up to `connectionWaitMs`; `waiting` is called while it waits.
+ */
+async function withRetry<T>(fn: () => Promise<T>, o: UploadOptions, waiting?: () => void, tries = 5): Promise<T> {
+  let lostSince: number | null = null
+  let pauses = 0
+  for (let i = 0; ; ) {
     try {
       return await fn()
     } catch (e) {
-      if (o.signal?.aborted || i >= tries - 1 || !retryable(e)) throw e
-      await sleep((o.retryDelayMs ?? 1000) * 2 ** i, o.signal)
+      if (o.signal?.aborted || !retryable(e)) throw e
+      if (connectionLost(e)) {
+        lostSince ??= Date.now()
+        const left = () => (o.connectionWaitMs ?? CONNECTION_WAIT_MS) - (Date.now() - lostSince!)
+        if (left() <= 0) throw e
+        waiting?.()
+        const pause = Math.min(CONNECTION_PAUSE_MAX_MS, (o.retryDelayMs ?? 1000) * 2 ** pauses++)
+        await untilOnline(Math.min(pause, left()), o.signal)
+        while (offline() && left() > 0) await untilOnline(Math.min(CONNECTION_PAUSE_MAX_MS, left()), o.signal)
+        continue
+      }
+      if (++i >= tries) throw e
+      await sleep((o.retryDelayMs ?? 1000) * 2 ** (i - 1), o.signal)
     }
   }
 }
@@ -201,6 +270,22 @@ async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): 
   const total = file.size
   const finishing = () => o.onProgress?.({ phase: 'finishing', loaded: total, total })
   o.onProgress?.({ phase: 'uploading', loaded: 0, total })
+  // a file for a team folder is sent again after a lost connection: if the first one did arrive (its answer was lost),
+  // the server keeps that one at its name and answers with it, no "(2)" (TeamFiles.placeUpload keepSame). An
+  // attachment or a recording is sent once, as before: a second one would be a second attachment or transcription.
+  if (target.kind !== 'path') return smallOnce(file, target, o, finishing, { now: false })
+  const waiting = { now: false }
+  // only a lost connection is waited for: a server error ends a small file at once, as before (one try)
+  return withRetry(() => smallOnce(file, target, o, finishing, waiting), o, () => {
+    waiting.now = true
+    o.onProgress?.({ phase: 'waiting', loaded: 0, total })
+  }, 1)
+}
+
+/** One try of a small upload, in a place of the line. `waiting.now`: the try after a wait for the connection, whose first
+ * bytes out say so at once (not after a new whole percent). */
+async function smallOnce(file: File, target: UploadTarget, o: UploadOptions, finishing: () => void, waiting: { now: boolean }): Promise<UploadComplete> {
+  const total = file.size
   const place = await takePlace(target, o)
   try {
     // WebKit bug 319985: Safari and iOS from 26.5 can send a File with no bytes (Content-Length: 0), and a page under a
@@ -214,8 +299,11 @@ async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): 
     // the last byte out is not the end: the server still stores the file and answers
     const onUploadProgress = o.onProgress && ((sent: number) => {
       place.moved()
-      if (sent < 1) report({ phase: 'uploading', loaded: Math.round(sent * total), total })
-      else finishing()
+      const back = waiting.now
+      waiting.now = false
+      if (sent >= 1) finishing()
+      else if (back) o.onProgress?.({ phase: 'uploading', loaded: Math.round(sent * total), total })
+      else report({ phase: 'uploading', loaded: Math.round(sent * total), total })
     })
     const request = { signal: o.signal, onUploadProgress }
     // the server refuses a part of another size before it stores it; this is for one that has no such check
@@ -249,18 +337,27 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
   const total = file.size
   o.onProgress?.({ phase: 'hashing', loaded: 0, total })
   const sha256 = await sha256Hex(file, (done) => o.onProgress?.({ phase: 'hashing', loaded: done, total }), o.signal)
+  // the most bytes reported so far: a chunk sent again does not take the number back (or a folder's sum, which adds these)
+  let shown = 0
+  /** waiting for the connection (QA TC-223): the row says so, with the bytes that went out; the next bytes say so at once */
+  let waitingNow = false
+  const waiting = () => {
+    waitingNow = true
+    o.onProgress?.({ phase: 'waiting', loaded: shown, total })
+  }
 
   // resume a session for the same file if the server still has it
   let session: UploadSession | null = null
   const known = readStore(storage)[fp]
   if (known) {
     try {
-      const s = await o.client.call(API.getUploadSession, { params: { id: known }, signal: o.signal })
+      // picked again while the connection is still gone: wait for it, or the chunks the server has would be lost
+      const s = await withRetry(() => o.client.call(API.getUploadSession, { params: { id: known }, signal: o.signal }), o, waiting)
       if (s.sha256 === sha256 && s.size === total) session = s
     } catch { /* expired or gone: start over */ }
   }
   if (!session) {
-    session = await withRetry(() => o.client.call(API.createUploadSession, { body: { target, size: total, sha256 }, signal: o.signal }), o)
+    session = await withRetry(() => o.client.call(API.createUploadSession, { body: { target, size: total, sha256 }, signal: o.signal }), o, waiting)
     const store = { ...readStore(storage), [fp]: session.id }
     // sessions of uploads that were never finished pile up otherwise; the server drops them after a while anyway
     const keys = Object.keys(store)
@@ -271,8 +368,6 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
   const id = session.id
   const size = session.chunkSize
   let received = new Set(session.received)
-  // the most bytes reported so far: a chunk sent again does not take the number back (or a folder's sum, which adds these)
-  let shown = 0
   const sentSoFar = (onItsWay = 0): UploadProgress => {
     shown = Math.max(shown, Math.min(total, received.size * size + onItsWay))
     return { phase: 'uploading', loaded: shown, total }
@@ -291,7 +386,10 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
         o.signal?.throwIfAborted()
         const onUploadProgress = o.onProgress && ((sent: number) => {
           place.moved()
-          report(sentSoFar(Math.round(sent * chunk.size)))
+          const p = sentSoFar(Math.round(sent * chunk.size))
+          if (waitingNow) o.onProgress?.(p)
+          else report(p)
+          waitingNow = false
         })
         return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body, signal: o.signal, onUploadProgress })
       } catch (e) {
@@ -304,12 +402,13 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
       } finally {
         place.end()
       }
-    }, o)
+    }, o, waiting)
+    waitingNow = false
     received = new Set(r.received)
     o.onProgress?.(sentSoFar())
   }
   o.onProgress?.({ phase: 'finishing', loaded: total, total })
-  const done = await withRetry(() => o.client.call(API.completeUploadSession, { params: { id }, signal: o.signal }), o)
+  const done = await withRetry(() => o.client.call(API.completeUploadSession, { params: { id }, signal: o.signal }), o, () => o.onProgress?.({ phase: 'waiting', loaded: total, total }))
   const store = readStore(storage)
   delete store[fp]
   writeStore(storage, store)

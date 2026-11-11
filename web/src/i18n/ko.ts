@@ -729,6 +729,7 @@ export const ko = {
   'files.uploads': '올리는 파일',
   'files.preparing': '준비 중',
   'files.finishing': '마무리 중',
+  'files.waitingConnection': '연결을 기다리는 중',
   'files.uploadingName': '{name} 올리는 중',
   'files.uploadedName': '{name} 올렸어요',
   'files.incompleteUpload': '파일이 다 도착하지 않았어요. 다시 올려 주세요.',
