@@ -11278,7 +11278,8 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   하기 · n/4" or "AI 연결하기" for the owner, W5). Each section folds, and each one's whole list stays open or closed,
   remembered in this browser (`mycel.sidebar.rooms`, `mycel.sidebar.roomsAll`, `mycel.sidebar.recents`,
   `mycel.sidebar.recentsAll`). The order is latest activity; a row moves only when the list changes after a message is
-  sent or received.
+  sent or received. (Since 2026-11-11 an opened "더 보기" lists the rest by kind, team rooms by name: "Conversations by
+  kind under Show more".)
 - **Many rooms: strictly capped sections in one scroll** (the owner, 2026-11-06, decided). The AI history must not sink
   as people chats grow, and the owner chose caps over panes: first the sidebar scrolled as one with a sticky AI heading,
   then two stacked panes (대화 scrolling on its own, 트리나 기록 pinned at the bottom), then caps that always let unread
@@ -16964,7 +16965,8 @@ pins wherever a room allows it.
   need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
   pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
   대화 (lean, as the chat pins): at most ten pins, then the five latest of the others, and the room on screen wherever it
-  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before. /rooms (모든 대화) and the
+  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before (since 2026-11-11, opened,
+  the pins past ten lead their own kind's section: "Conversations by kind under Show more"). /rooms (모든 대화) and the
   phone's 대화 tab (the same page): the 트리나 row stays the very first row (computers), then every pin, then the
   others. Hidden rooms stay under "숨긴 대화" (never pinned). Other room lists (⌘K, the room picker, the AI's room
   list) keep their order.
@@ -19604,6 +19606,60 @@ folder, in place" (the chip).
   `folder-audience.test.ts`; web unit `project-members`, `project-form`, `who-sees`, `folder-access`; e2e
   `project-participants.spec.ts`, `folder-access.spec.ts`.
 - Version impact: **patch** (new count words; three optional response fields; no data change).
+
+## Conversations by kind under Show more (feat/sidebar-rooms-by-kind, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`web/src/components/rooms/SidebarRooms.tsx`, the five `web/src/i18n/*.ts`), 이유: the rooms and
+their lists are core. Plan: `docs/AGENTS/plan/20261110-1742-sidebar-rooms-by-kind.md`. Amends "Desktop sidebar: rooms
+first" (the order of an opened "더 보기") and "Pinned conversations" (where the pins past ten go).
+
+The owner, on the computer sidebar's 대화 with many rooms: "너무 많아서 정리가 안되는데". "더 보기 (N)" opened every other
+room in place as one long list by latest activity, team rooms, group chats and DMs mixed, hard to scan. Slack's sidebar
+is the reference: its sections (channels, direct messages) sort the many, and a recent conversation does not jump
+between them. Decided after two product reviews.
+
+- **Closed (the default): unchanged.** At most ten pins, the five latest of the others, the room on screen if it is not
+  one of them; "더 보기 (N)" with its pill ("?", "안 읽음 M", "@") as before.
+- **Opened: the pins and the five latest stay where they were.** The same pins (at most ten) and five latest, computed
+  without the room on screen, in the same place. The room on screen, when it was the extra sixth row, moves into its
+  section. Two rare cases move the top rows: with a pin past ten on screen (among the pins while closed, as before) the
+  five latest move up one row when the list opens; and a room I hid that is on screen and among the latest takes a top
+  place while opened, so clicking another row gives that place back and shifts the rows under it. Left as is: opening
+  a hidden room is rare, and keeping it out of the top would move rows on opening instead. Below them every other room
+  (hidden rooms stay out, a hidden room on screen shows) in three sections, in this order: **팀 대화방** (Team rooms:
+  전체 and the groups' rooms), **그룹 대화** (Group chats), **1:1 대화** (Direct messages). A room on top is never
+  repeated below; a section with no room has no heading.
+- **Team rooms by name, the others by latest activity.** 전체 first, then the team rooms by the title their rows show
+  (`useRoomTitle`, so a renamed room and 전체's word in each language sort right), compared in the app's language
+  (`Intl.Collator` with `numeric`: the order of `localeCompare`, numbers by their value, so "팀 2" comes before
+  "팀 10"). Team rooms are a stable set people look for by name, as Slack's channels; group chats and DMs keep latest
+  activity, the order people know from the closed list and /rooms.
+- **The room on screen is not added on top while opened.** It is in its own section, the active row as usual, so a row
+  clicked below never moves. "접기" stays while anything is below the top rows, also when that is only the room on
+  screen (counting the closed list's rows, opening the only room behind "더 보기" turned the row into "모든 대화" with
+  the sections still on screen). "모든 대화" shows as before: when nothing is behind "더 보기", and below an opened one
+  while some rooms are hidden. When "접기" closes onto "모든 대화" (only the room on screen was below), the button goes
+  and the keyboard moves to "모든 대화" instead of falling to the page.
+- **Pins past ten** (rare) no longer lead "더 보기" as one block: each goes first in its own kind's section, the most
+  recently pinned first, with its pin.
+- **The headings: quiet labels, a third level.** `text-micro` (11 px), 500, `text-faint`, the in-list date headings' look
+  and spacing in 트리나 기록 (16 px above, 4 px below), on the left edge of the title, the icons and "더 보기"; no
+  chevron, hover, count or box, so they read under 대화 (12 px, 600, ink) and not as a row like "더 보기" (12 px, muted,
+  a button). An `<h3>` in a list item of its own that is not counted as an item (`role="presentation"`), so the fold's
+  `aria-controls` and `hidden` cover them. English first: "Team rooms", "Group chats", "Direct messages"; ko "팀 대화방",
+  "그룹 대화", "1:1 대화"; es, id, ja in the words those files already use for group chats and DMs.
+- **Rejected.** Sorting the top rows into the sections when the list opens: the rows people just saw would jump.
+  Grouping /rooms too: it is the phone's main 대화 tab, ordered by time on purpose, with its search. A "Recent" label above
+  the top rows: it would push every row down on opening. Folding or counting the headings: "더 보기" is already the fold,
+  and a second level of folds is more to manage than to scan.
+- Unchanged: /rooms and the phone's 대화 tab, the closed list, the pill, hidden rooms, the API.
+- Tests: `web/test/unit/sidebar.test.tsx` (the top rows in place, the sections' order and members, 전체 first, every room
+  once, an empty kind without a heading, the room on screen in its section and not on top, "접기" with only the room on
+  screen below, hidden rooms), `room-pins.test.tsx` (`roomSections`: pins past ten first in their section, the order by
+  name in the app's language; the rows with their pin), e2e `sidebar.spec.ts` ("대화 opened by kind": the top rows and a
+  clicked DM row do not move, the headings in order and their look in both themes, "접기" stays; with `SHOTS_DIR`, the
+  screenshots at 1440×900 and 1280×800, light and dark).
+- Version impact: **patch** (the order of an opened list and three words; no API or data change).
 
 ## Admin and Settings on phones: a list you tap into (feat/phone-admin-list, 2026-11-10, product owner)
 
