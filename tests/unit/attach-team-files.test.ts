@@ -167,7 +167,7 @@ describe('the turn path', () => {
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'write', args: { file_path: 'shared/naver-copy.md', content: 'copied' } }, { say: 'ok' }), clientMessageId: cm(), attachmentIds: [a.id] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId, 20_000)
     expect(card.data.request.kind).toBe('ask_user')
-    expect(JSON.stringify(card.data.request)).toContain('shared/naver-copy.md')
+    expect(JSON.stringify(card.data.request)).toContain('Company-wide › naver-copy.md')
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     expect(fs.existsSync(path.join(h.team, 'shared/naver-copy.md'))).toBe(false)

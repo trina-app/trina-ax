@@ -3,7 +3,7 @@
 // changes nobody's access, checked here against the server's own permission function (RuleSet) on random worlds.
 import { describe, expect, test } from 'bun:test'
 import { RuleSet, type Access, type Principal } from '../../../server/src/policy/access'
-import { addNamed, basicChoices, draftKey, draftOf, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, saveImpact, setNamed, type RuleLike } from '../../src/lib/access-edit'
+import { addNamed, basicChoices, draftKey, draftOf, outcomesOf, outcomeWords, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, setNamed, type RuleLike } from '../../src/lib/access-edit'
 import { translate } from '../../src/i18n'
 
 const every = (access: Access) => ({ subjectType: 'everyone' as const, subjectId: null, access })
@@ -97,17 +97,23 @@ describe('changing a draft', () => {
     expect(basicChoices({ root: false, connected: true, current: 'write' })).toEqual(['follow', 'named', 'read', 'write'])
   })
 
-  test('the Save button says the impact in words', () => {
-    const say = (less: number, more: number) => {
-      const i = saveImpact({ less, more })
-      return i.kind === 'none' ? translate('ko', 'accessEdit.saveNone') : i.kind === 'less' ? translate('ko', 'accessEdit.saveLess', { n: i.n }) : i.kind === 'more' ? translate('ko', 'accessEdit.saveMore', { n: i.n }) : translate('ko', 'accessEdit.saveBoth', { less: i.less, more: i.more })
-    }
-    expect(say(0, 0)).toBe('저장 (권한 변화 없음)')
-    expect(say(2, 0)).toBe('저장 (2명 권한 줄어듦)')
-    expect(say(0, 1)).toBe('저장 (1명 권한 늘어남)')
-    expect(say(2, 3)).toBe('저장 (2명 줄어듦 · 3명 늘어남)')
-    expect(translate('en', 'accessEdit.saveLess', { n: 1 })).toBe('Save (1 person loses access)')
-    expect(translate('en', 'accessEdit.saveLess', { n: 2 })).toBe('Save (2 people lose access)')
+  test('the Save button and the summary keep the outcomes apart: an edit that becomes view only is not losing access', () => {
+    const c = (before: 'none' | 'read' | 'write', after: 'none' | 'read' | 'write', count: number) => ({ before, after, count })
+    const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
+    const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
+    // write → read only: "can no longer edit", never "loses access"
+    const writeToRead = outcomesOf([c('write', 'read', 1)])
+    expect(writeToRead).toEqual({ loseOpen: 0, loseEdit: 1, gainOpen: 0, gainEdit: 0 })
+    expect(outcomeWords(en, writeToRead)).toEqual(['1 can no longer edit'])
+    expect(en('accessEdit.saveParts', { parts: outcomeWords(en, writeToRead).join(' · ') })).toBe('Save (1 can no longer edit)')
+    expect(ko('accessEdit.saveParts', { parts: outcomeWords(ko, writeToRead).join(' · ') })).toBe('저장 (1명 못 고치게 됨)')
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) expect(outcomeWords((k, p) => translate(l, k, p), writeToRead).join(' ')).not.toMatch(/lose|loses|kehilangan|pierde|잃|못 열/)
+    // the four outcomes, losses first
+    const all = outcomesOf([c('write', 'none', 2), c('read', 'none', 1), c('write', 'read', 1), c('none', 'read', 3), c('none', 'write', 1), c('read', 'write', 2)])
+    expect(all).toEqual({ loseOpen: 3, loseEdit: 1, gainOpen: 4, gainEdit: 2 })
+    expect(outcomeWords(en, all)).toEqual(['3 can no longer open it', '1 can no longer edit', '4 can now open it', '2 can now edit'])
+    expect(outcomeWords(en, outcomesOf([]))).toEqual([])
+    expect(ko('accessEdit.saveNone')).toBe('저장 (권한 변화 없음)')
   })
 })
 

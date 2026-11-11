@@ -17,6 +17,8 @@ interface JobsState {
   jobs: Record<string, JobView>
   progress: (jobId: string, kind: JobKind, progress: number | null, message: string | null) => void
   done: (job: Job) => void
+  /** signed out, or another person signed in in this window: the last person's job cards go */
+  reset: () => void
 }
 
 const waiters = new Map<string, Set<(j: Job) => void>>()
@@ -36,6 +38,7 @@ export const useJobs = create<JobsState>((set) => ({
     waiters.delete(job.id)
     ws?.forEach((fn) => fn(job))
   },
+  reset: () => set({ jobs: {} }),
 }))
 
 const FINISHED = new Set<Job['status']>(['done', 'failed', 'canceled'])

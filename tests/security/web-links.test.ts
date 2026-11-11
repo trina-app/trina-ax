@@ -144,7 +144,7 @@ describe('deep research: cards before and after', () => {
         // the person opens what the cards ask about (the most a card can cost them: one click each)
         const t = await turn(chat, ['research the market for me', research(hostSet * 10 + n)].join('\n'), () => 'allow')
         chat = t.chatId
-        perAnswer.push({ cards: t.cards.length, opened: t.events.filter((e) => e.ok).length, fetches: t.events.length, echo: t.cards.filter((c) => c.question.includes('matches what the AI had sent')).length })
+        perAnswer.push({ cards: t.cards.length, opened: t.events.filter((e) => e.ok).length, fetches: t.events.length, echo: t.cards.filter((c) => c.question.includes('contains something the AI sent earlier')).length })
       }
       return perAnswer
     } finally { Object.assign(LINK_BUDGET, saved) }
@@ -179,7 +179,7 @@ describe('a prompt-injected page', () => {
     const opened = hits('evil-research.test/b/') - before
     expect(opened).toBe(T - 1)
     expect(t.cards).toHaveLength(picks.length - (T - 1))
-    for (const c of t.cards) expect(c.question).toContain(`${T} per answer, ${LINK_BUDGET.chat} per conversation`)
+    for (const c of t.cards) expect(c.question).toContain(`${T} per answer, ${LINK_BUDGET.chat} per chat`)
     // which links were opened (and in what order) is all that left: about log2(499) ≈ 9 bits a pick, T an answer
     const bits = opened * Math.log2(LINKS)
     console.log(`injected page, one answer: ${opened} of its ${LINKS} links opened without a card (≤ ${bits.toFixed(0)} bits ≈ ${(bits / 8).toFixed(0)} bytes in the choice), ${t.cards.length} asked`)
@@ -214,12 +214,12 @@ describe('a prompt-injected page', () => {
       { say: 'done' },
     )].join('\n'), (c) => {
       asked.push(c)
-      return c.question.includes('did not appear in this conversation') ? 'allow' : 'deny'
+      return c.question.includes("wasn't in this chat") ? 'allow' : 'deny'
     })
-    const kinds = asked.map((c) => c.question.includes('redirects to another one') ? 'redirect' : c.question.includes('matches what the AI had sent') ? 'echo' : c.question.includes('did not appear') ? 'unseen' : 'other')
+    const kinds = asked.map((c) => c.question.includes('sends it on to another one') ? 'redirect' : c.question.includes('contains something the AI sent earlier') ? 'echo' : c.question.includes("wasn't in this chat") ? 'unseen' : 'other')
     expect(kinds).toEqual(['echo', 'redirect', 'unseen', 'echo', 'redirect'])
     // the echo cards offer no "allow this site"
-    for (const c of asked.filter((x) => x.question.includes('matches what the AI had sent'))) expect(c.options).not.toContain('site')
+    for (const c of asked.filter((x) => x.question.includes('contains something the AI sent earlier'))) expect(c.options).not.toContain('site')
     // the collector never got a request; the plain result opened without a card, short.test only answered its redirect
     expect(collector()).toBe(before)
     expect(hits('plain.research.test/')).toBe(1)

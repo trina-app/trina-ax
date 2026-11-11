@@ -57,8 +57,8 @@ describe('the AI saves what it read', () => {
       { tool: 'read', args: { file_path: 'groups/finance/budget.md' } },
       { tool: 'write', args: { file_path: 'shared/leak.md', content: 'CANARY-FIN-7731' }, sayResult: true },
     ), 'skip')
-    expect(r.card!.question).toContain('groups/finance/')
-    expect(r.card!.question).toContain('shared/leak.md')
+    expect(r.card!.question).toContain('부서 › finance')
+    expect(r.card!.question).toContain('전사 공유 › leak.md')
     expect(r.card!.origin).toBe('server') // shown as the server's safety check, not as a question from the AI
     expect(r.content).toContain('did not allow saving')
     expect(fs.existsSync(path.join(h.team, 'shared/leak.md'))).toBe(false)
@@ -107,7 +107,7 @@ describe('the AI saves what it read', () => {
     const r = await turn(bob, 'bob', fake(
       { tool: 'make_file', args: { format: 'docx', source: 'groups/finance/budget.md', output: 'shared/budget.docx' }, sayResult: true },
     ), 'skip')
-    expect(r.card!.question).toContain('groups/finance/')
+    expect(r.card!.question).toContain('부서 › finance')
     expect(fs.existsSync(path.join(h.team, 'shared/budget.docx'))).toBe(false)
   })
 
@@ -116,7 +116,7 @@ describe('the AI saves what it read', () => {
     const chat = await h.api('bob').call(API.createChat, { body: { projectId: proj.id } })
     const r = await h.api('bob').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'write', args: { file_path: 'shared/from-project.md', content: 'x' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await bob.next('turn.request', (f) => f.data.turnId === r.turnId)
-    expect((c.data.request as { question: string }).question).toContain('groups/finance/')
+    expect((c.data.request as { question: string }).question).toContain('부서 › finance')
     await h.api('bob').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'skip' } })
     await bob.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
     expect(fs.existsSync(path.join(h.team, 'shared/from-project.md'))).toBe(false)

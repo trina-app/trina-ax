@@ -11,6 +11,7 @@
 // target folder"); the card says it is new.
 // Skill folders (skills/, a group's, a project's: what people's AI follows) are out of reach here: a skill changes only
 // through write / edit with the person's approval on the card, and moves to another level with move_skill.
+import { placeWords } from '../chat/place-words'
 import { CopyFilesInput, MoveFilesInput, RenameFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { fillPlurals } from '@mycel/shared/plural'
@@ -111,7 +112,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       // n: people, count: the items ("1 more person will be able to see it")
       const count = ok.length
       const lead = TEXT[isNew ? (mode === 'move' ? 'moveNew' : 'copyNew') : mode][L]
-      const question = [fill(lead, { n: count, to: folder || '/' }, L), added ? fill(TEXT.added[L], { n: added, count }, L) : '', lost ? fill(TEXT.lost[L], { n: lost, count }, L) : '',
+      // the folder in words (전사 공유 › 영업, 팀 폴더 맨 위), not its path (chat/place-words.ts)
+      const question = [fill(lead, { n: count, to: placeWords(ctx.db, folder, L, tc.user.id) }, L), added ? fill(TEXT.added[L], { n: added, count }, L) : '', lost ? fill(TEXT.lost[L], { n: lost, count }, L) : '',
         fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
       const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L])
       if (end !== 'yes') {
