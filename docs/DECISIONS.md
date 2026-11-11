@@ -20734,8 +20734,9 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
 - **The lists are virtual** (independent review of the plan). Nothing is written into the team folder. The server keeps
   one line per file in its sidecar (`<data>/file-list/state.db`); the AI's `list`, `glob`, `grep` and `read` (chat
   engines through MCP and the remote connector, all `FileService.call`) show a `_FILES.md` per access folder rendered
-  for the person asking: a line only for a file that passes `visiblePath` for them now and still has the size and mtime
-  that were read. Access is checked at the question, as for search; stale, moved, deleted and hidden files simply do not
+  for the person asking: a line only for a file that passes `visiblePath` for them now and still has the size, mtime and
+  inode that were read, under the rule chain it was read with, and only when every file of the model call that wrote it
+  passes too (a line may hold a call-mate's text). A rule change or a move that splits a call re-reads all its files. Access is checked at the question, as for search; stale, moved, deleted and hidden files simply do not
   show. Rejected: real files on disk (they needed a reserved name in `authorize()`, hiding in Files, rewrites on every
   access change, and could be forged, mirrored or left behind by connected folders and dev environments).
 - **Where.** One list per access unit: `shared`, every other top folder, `projects|groups|connected/<name>`, and every
