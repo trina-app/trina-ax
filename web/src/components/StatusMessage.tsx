@@ -261,7 +261,7 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
               placeholder={t('status.placeholder')}
               aria-label={t('status.placeholder')}
               aria-invalid={!textOk || undefined}
-              className={clsx(inputCls, !empty && 'pr-9')}
+              className={clsx(inputCls, !empty && 'pr-9 max-md:pr-12')}
               data-testid="status-text"
             />
             {!empty && (

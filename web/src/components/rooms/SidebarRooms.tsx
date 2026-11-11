@@ -301,6 +301,8 @@ function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => 
         label={t('rooms.menu.rowLabel', { name: title })}
         title={title}
         className="absolute inset-y-0 right-1 flex items-center"
+        // its size in the row (a narrow window with a mouse; touch screens use the row's long press)
+        compact
         buttonClassName={clsx('hover:bg-surface', ROW_MENU_BUTTON)}
         openSignal={menu.openSignal}
         openRequest={menu.openRequest}

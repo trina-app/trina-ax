@@ -381,7 +381,8 @@ export default function Composer({
               openMenu(true)
             }
           }}
-          className="touch-hit"
+          // its size in the box, taps from a 44 px box (as the room's)
+          compact
           data-testid="attach-button"
         >
           <Plus size={19} />
@@ -496,7 +497,7 @@ export default function Composer({
 
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
-          <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2', phone ? 'pl-1.5' : 'pl-3')} />
+          <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2 max-md:pr-1', phone ? 'pl-1.5' : 'pl-3')} />
         ) : (
           <>
             {skillMenu.menu}
@@ -528,8 +529,9 @@ export default function Composer({
             <VoiceProgress voice={voice} text={text} className={clsx('pt-3', phone ? 'px-3' : 'px-5')} />
             {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
                 --spacing-composer-line: the text box's 8px bottom padding, its line and 8px above): one line, one
-                centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. */}
-            <div className={clsx('flex items-end gap-1 pr-2 pb-1', phone && 'pl-1.5')}>
+                centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. A
+                phone: 4 px on the right, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
+            <div className={clsx('flex items-end gap-1 pr-2 pb-1 max-md:pr-1', phone && 'pl-1.5')}>
               {phone && <div className="flex h-composer-line shrink-0 items-center">{attachControls}</div>}
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
