@@ -1786,6 +1786,7 @@ export const es: Record<MessageKey, string> = {
   'members.inviteReady': "Enlace de invitación creado",
   'members.inviteLink': "Enlace de invitación",
   'members.inviteLinkNote': "No volverá a ver este enlace al cerrar la ventana. Cópielo ahora.",
+  'links.thisComputerOnly': "Este enlace usa la dirección de este mismo equipo, así que otros equipos no pueden abrirlo. Para enviarlo, configure la dirección del equipo en {path}, abra la aplicación en esa dirección y vuelva a crear el enlace.",
   'members.copyLink': "Copiar enlace",
   'members.qr': "Código QR",
   'groups.desc': "Asigne permisos de carpetas a grupos completos.",

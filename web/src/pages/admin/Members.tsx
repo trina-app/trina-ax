@@ -42,6 +42,7 @@ import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
 import { TeamLinkDialog } from '../../components/onboarding/TeamLinkPanel'
+import { LocalLinkNote } from '../../components/LocalLinkNote'
 import { HandoverDialog } from '../../components/handover/HandoverDialog'
 import { absoluteUrl, LEAD_DAYS, LeadFlag, LeadMessage, useLeadOffered } from '../../components/handover/LeadInvite'
 import { useHandover } from '../../store/handover'
@@ -421,6 +422,7 @@ export default function Members() {
       {resetLink && (
         <Modal open onClose={() => setResetLink(null)} title={t('members.resetLinkFor', { name: resetLink.name })} footer={<Button variant="primary" onClick={() => setResetLink(null)}>{t('common.done')}</Button>}>
           <SecretBox label={t('members.resetLink')} value={resetLink.url} note={t('members.resetLinkNote', { date: formatDateTime(resetLink.expiresAt, locale) })} />
+          <LocalLinkNote url={resetLink.url} className="mt-2" />
           <div className="mt-3">
             <CopyButton text={resetLink.url} label={t('members.copyLink')} showLabel className="border border-line" />
           </div>
@@ -632,11 +634,13 @@ function InviteCreated({ invite, onClose }: { invite: CreatedInvite; onClose: ()
     return (
       <Modal open onClose={onClose} title={t('handover.linkTitle')} footer={<Button onClick={onClose}>{t('common.done')}</Button>}>
         <LeadMessage url={url} leadFor={invite.invite.leadFor} expiresAt={invite.invite.expiresAt} replaced={!!invite.replacedLead} />
+        <LocalLinkNote url={url} className="mt-3" />
       </Modal>
     )
   return (
     <Modal open onClose={onClose} title={t('members.inviteReady')} footer={<Button variant="primary" onClick={onClose}>{t('common.done')}</Button>}>
       <SecretBox label={t('members.inviteLink')} value={url} note={t('members.inviteLinkNote')} />
+      <LocalLinkNote url={url} className="mt-2" />
       <div className="mt-3 flex gap-2">
         <CopyButton text={url} label={t('members.copyLink')} showLabel className="border border-line" />
         <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)}>

@@ -1817,6 +1817,7 @@ export const id: Record<MessageKey, string> = {
   'members.inviteReady': 'Link undangan dibuat',
   'members.inviteLink': 'Link undangan',
   'members.inviteLinkNote': 'Setelah jendela ini ditutup, link tidak bisa dilihat lagi. Salin sekarang.',
+  'links.thisComputerOnly': "Tautan ini memakai alamat komputer ini sendiri, jadi komputer lain tidak bisa membukanya. Untuk mengirimkannya, atur alamat tim di {path}, buka aplikasi lewat alamat itu, lalu buat tautannya lagi.",
   'members.copyLink': 'Salin link',
   'members.qr': 'Kode QR',
 

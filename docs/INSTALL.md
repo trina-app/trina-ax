@@ -83,7 +83,7 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 Check: `bun --version` prints `1.3.12`, `node --version` prints v24 or later, `claude --version` prints
 `2.1.305 (Claude Code)`.
 
-Claude Code updates itself. Once it has moved past the pin, Admin → Connections → Providers shows "Unsupported version"
+Claude Code updates itself. Once it has moved past the pin, Admin → AI accounts shows "Unsupported version"
 (`version_unsupported`); dev chats still work. Reinstall the pin with `curl -fsSL https://claude.ai/install.sh | bash -s 2.1.305`
 before a production install, because the installer copies whatever version it is given and does not warn.
 
@@ -208,7 +208,7 @@ The owner's steps, in order:
 | 2.2 Bundle | `bun run build:bundle` | `dist/release/root/` has `set-claude-token` and `mycel-account` |
 | 2.3 Check, then install | `scripts/install-macos.sh --check …`, then the same with `sudo` and without `--check` | `install: installed mycel 0.1.0 …`; `curl -s http://127.0.0.1:47820/api/health` |
 | 2.6 First owner | `open "http://127.0.0.1:47820/setup?token=$(sudo cat …/setup/code)"` or `root/mycel-account create-owner` | sign in at `http://127.0.0.1:47820` |
-| 2.3a AI connections | Admin → Connections → Providers (`/admin/providers`) in the browser, Add account in the engine's row | the connection shows "OK" |
+| 2.3a AI connections | Admin → AI accounts (`/admin/providers`) in the browser, Add account in the engine's row | the connection shows "OK" |
 | 2.4 Claude token (optional; 2.3a is the usual way) | `claude setup-token`, then `pbpaste \| tr -d '[:space:]' \| sudo …/root/set-claude-token`, `pbcopy < /dev/null` | `set-claude-token: stored for _axserver …`; `sudo ls -l …/secrets/claude-oauth-token` |
 | 2.5 Codex login (older setup; 2.3a is the usual way) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
 | 2.7 Verify | Admin → System → Diagnostics, then a chat | Claude Code "Signed in (setup-token)", model proxy "Listening on 127.0.0.1:47821", Claude answers |
@@ -375,7 +375,7 @@ settings, so a `bunfig.toml` or `.env` in the folder it was started from is neve
 
 ### 2.3a AI connections (owner, from the web)
 
-The engines answer with the team's **AI connections**: Admin > Connections > Providers (`/admin/providers`). The owner adds
+The engines answer with the team's **AI connections**: Admin > AI accounts (`/admin/providers`). The owner adds
 them in the browser; nothing on the server's command line is needed.
 
 - **Claude API key** / **OpenAI API key** (pay as you go, made for team use): paste a key made for this team in the
@@ -427,7 +427,7 @@ otherwise be stored half, reported as stored for a year, and refused on the firs
 - No restart: legacy connection import checks the file periodically (up to five minutes); it does not reread it for every model request.
 - Diagnostics then show Claude Code as "Signed in (setup-token)". They also say when the token is older than a year
   (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
-- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → Connections → Providers.
+- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → AI accounts.
 
 ### 2.5 Codex login for the engine account (older setup)
 
@@ -503,8 +503,8 @@ owner's other sessions are signed out. The tool runs the bundled account CLI as 
 
 | Where | What it shows |
 |---|---|
-| Admin → Connections → Providers | Claude Code and Codex: "AI connections" with how many can be used now; "No AI connection. Add one in Admin > Connections > Providers." until one is added (2.3a) or imported (2.4, 2.5). |
-| Admin → Connections → Providers, under each engine | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
+| Admin → AI accounts | Claude Code and Codex: "AI connections" with how many can be used now; "No AI connection. Add one in Admin > AI accounts." until one is added (2.3a) or imported (2.4, 2.5). |
+| Admin → AI accounts, under each engine | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
 | Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821. Codex: a warning until 2.5 (the launcher reports the engine account's login), then "Signed in". pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
 | A chat | Without an AI connection for that engine: "There is no AI connection for this engine. Let your admin know." With one: the engine answers. |
 
@@ -777,9 +777,9 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | `cannot start: socket path too long` (dev) or Diagnostics "AI engine socket paths" fails | The data folder path is too long; use the default `~/.team-ax-dev` |
 | "The AI engine is not available right now…" | Dev: no `native/bin/<platform>`; install Go and run `bun run build:native` (Intel: `ARCHS=amd64`). Production: Diagnostics shows why (launcher, engine file); an engine "Not installed" needs the installer again with `--engine claude=…` |
 | "The AI connection (model proxy) is not ready" | Production: see "Model proxy" in Diagnostics; the server retries binding every 10 s |
-| Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → Connections → Providers |
+| Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → AI accounts |
 | "relay skipped: it needs Node 24+" | Install Node 24+ (26 recommended); the direct address still works |
-| Admin → Connections → Providers: "Unsupported version" | Claude Code is not 2.1.305 (it updated itself). Dev chats still work; for production reinstall the pin (1.1) and run the installer again with `--engine claude=…` |
+| Admin → AI accounts: "Unsupported version" | Claude Code is not 2.1.305 (it updated itself). Dev chats still work; for production reinstall the pin (1.1) and run the installer again with `--engine claude=…` |
 | An `admin.js` command ends with `error: An unknown error occurred (Unexpected)` | It was started from a folder `_axserver` cannot enter; start it with `cd / &&` (2.5) |
 | Diagnostics say to run "Repair firewall" / "Reinstall" in the menubar app | Those menubar actions do not exist yet; run the installer again (2.7) |
 | Port in use | `lsof -nP -iTCP:<port> -sTCP:LISTEN`. Dev: 19100, 19161, 19140 (with `--vite`). Production: 47820, 8443, 47821 |
