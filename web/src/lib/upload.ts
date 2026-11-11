@@ -268,10 +268,11 @@ async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): 
   // attachment or a recording is sent once, as before: a second one would be a second attachment or transcription.
   if (target.kind !== 'path') return smallOnce(file, target, o, finishing, { now: false })
   const waiting = { now: false }
+  // only a lost connection is waited for: a server error ends a small file at once, as before (one try)
   return withRetry(() => smallOnce(file, target, o, finishing, waiting), o, () => {
     waiting.now = true
     o.onProgress?.({ phase: 'waiting', loaded: 0, total })
-  })
+  }, 1)
 }
 
 /** One try of a small upload, in a place of the line. `waiting.now`: the try after a wait for the connection, whose first

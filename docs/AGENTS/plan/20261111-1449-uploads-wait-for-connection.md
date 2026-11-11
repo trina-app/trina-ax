@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:49
 - Branch: `fix/uploads-wait-for-connection`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/lib/upload.ts`, `web/src/components/FileUploads.tsx`,
   `web/src/components/FolderUploads.tsx`, `web/src/pages/Files.tsx`, `server/src/team-files/service.ts`,
   `server/src/routes/files.ts`, `server/src/uploads/sessions.ts`, five locales, tests). Why: uploads and the file
@@ -30,8 +30,8 @@ In:
 - `lib/upload.ts`: a request that fails because the connection is gone (a network error, or 502 / 504 from the
   relay) waits for the browser's `online` event or a growing pause (up to 10 s) and tries again, for up to
   10 minutes, then fails as before. While it waits the upload reports the phase `waiting`. Other server errors keep
-  their 5 tries. A small file to a team folder is now retried the same way (attachments and voice stay one try: a
-  second try of those could make a second attachment).
+  their 5 tries. A small file to a team folder is now sent again after a lost connection (a server error still ends it at
+  once, as before; attachments and voice stay one try: a second try of those could make a second attachment).
 - Server: an upload from the file screen (`POST /api/files/upload`, an upload session to a path) with
   `onExists: 'rename'` whose file is already at that name with the same content (same size and sha256, a regular file
   the person can see and read) keeps that file and answers with it: no "(2)" copy, no new version, no event.
@@ -65,4 +65,30 @@ test, `bun run test:web` (upload, file rows, folder upload).
 
 ## Result
 
-(filled in at the end)
+Built as planned, with two changes found on the way.
+
+- `withRetry` waits only for a lost connection: a `TypeError` (no answer; lib/xhr.ts gives the same) or the relay's
+  502 / 504. Other non-API errors are not retried any more: a file that cannot be read (a `DOMException`) or an
+  answer that is not what was asked for (a parse error) is not made better by sending again (the existing tests
+  "a file that cannot be read fails at once" and "a watched upload keeps the client's contract" caught this). A small
+  file's server error stays one try (the onboarding page's "a failed upload is retried" test expects the row to fail
+  and offer its own retry).
+- The identical-file check looks at the name and at its renamed forms up to the first free one ("IMG_0001 (2).jpg"):
+  on the local server, a folder that already had another file named IMG_0001.jpg got "(2)" on the first try and
+  "(3)" when the same photo was sent again.
+
+Tests: `web/test/unit/upload-wait.test.ts` (a small file waits and is sent again; a large file waits on its chunk,
+with the relay's 502 counted as lost; offline: no request until the `online` event; the time limit; a refusal and a
+small file's 500 are one try; an attachment is one try; the waiting words and bar), `web/test/unit/
+file-upload-retry.test.tsx` (다시 시도 on a failed row only; a waiting row's words and bar),
+`tests/unit/c-uploads-same.test.ts` (small and session uploads kept once, no version or event; another file gets
+"(2)"; a retry after "(2)" is kept there; a folder of the name; fail and replace unchanged). The session test in
+`c-uploads.test.ts` now sends another file for its "(2)" case.
+
+Local server (Chromium, CDP network emulation): a 200 MB file throttled to 6 MB/s, offline for 2 minutes at 40%:
+"연결을 기다리는 중" with the bar kept, done 1 s after the network came back, one file, same bytes. 30 photos of
+300 KB at 390 px, throttled, offline for 30 s after 12 had arrived: no row failed, all 30 arrived once (the 3 that
+were in flight when the network went had arrived; their retries were kept, no "(2)"); the 30 picked again: still 30
+files, no copy. A folder upload with two files refused at 390 px: 다시 시도 and ✕ on the row inside the screen, the
+counts on a line below; 다시 시도 finished 6 of 6. A single file refused once at 390 px: 다시 시도 on the row, then
+done, one file.

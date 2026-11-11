@@ -46,6 +46,15 @@ describe('the same file again', () => {
     expect((A.ctx.db.query("SELECT COUNT(*) AS n FROM file_versions WHERE path = 'shared/photos/IMG_0001.jpg'").get() as { n: number }).n).toBe(1)
   })
 
+  test('another file had the name: the first try went to (2); sent again, it is kept there, no (3)', async () => {
+    expect((await up('report.pdf', 'theirs')).body.path).toBe('shared/photos/report.pdf')
+    expect((await up('report.pdf', 'mine')).body.path).toBe('shared/photos/report (2).pdf')
+    expect((await up('report.pdf', 'mine')).body.path).toBe('shared/photos/report (2).pdf')
+    expect(names().filter((n) => n.startsWith('report'))).toEqual(['report (2).pdf', 'report.pdf'])
+    // a third file of the name still gets a name of its own
+    expect((await up('report.pdf', 'another')).body.path).toBe('shared/photos/report (3).pdf')
+  })
+
   test('a folder of that name: the file gets (2), as before', async () => {
     fs.mkdirSync(path.join(A.team, 'shared/photos/scan.pdf'))
     expect((await up('scan.pdf', 'x')).body.path).toBe('shared/photos/scan (2).pdf')

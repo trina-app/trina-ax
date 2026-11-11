@@ -47,6 +47,8 @@ export const mimeOf = (name: string): string | null => {
   return t && t !== 'application/octet-stream' ? t : (ext(name) ? 'application/octet-stream' : null)
 }
 const segsOf = (rel: string) => (rel === '' ? [] : rel.split('/'))
+/** names sameFileAt() looks at: the name and its first renamed forms (a lost answer is retried within minutes) */
+const SAME_FILE_NAMES = 20
 const isUnder = (anc: string, p: string) => anc === '' ? p !== '' : p.startsWith(anc + '/')
 const iso = (ms: number) => new Date(ms).toISOString()
 /** A path a person typed, for a name the server makes from it (a new folder or file, a rename, a move): composed (NFC),
@@ -2076,18 +2078,23 @@ export class TeamFiles {
     return this.entry(user, rules, r.segs)
   }
 
-  /** The entry of `folder/name` when it is this very file (a regular file of `size` bytes with this sha256) and the
-   * person can see and read it; null otherwise (missing, another file, a folder, a link, or hidden: then it is treated
-   * as before, and nothing about it shows). */
+  /** The entry of this very file (a regular file of `size` bytes with this sha256) at `name` or at one of the names a
+   * rename would have given it before ("name (2).ext", "name (3).ext"…, up to the first free one: a retry whose
+   * first answer was lost, where another file already had the name), when the person can see and read it; null
+   * otherwise (another file, a folder, a link, or hidden: then it is treated as before, and nothing about it shows). */
   private async sameFileAt(user: Principal, rules: RuleSet, folder: string[], name: string, size: number, sha: string): Promise<FileEntry | null> {
-    const segs = [...folder, name]
-    if (!siblingVisible(this.fx, rules, user, folder, name) || !atLeast(rules.access(user, segs), 'read')) return null
-    const abs = path.join(this.root, ...segs)
-    let st: fs.Stats
-    try { st = fs.lstatSync(abs) } catch { return null }
-    if (!st.isFile() || st.nlink !== 1 || st.size !== size) return null
-    if ((await this.sha(abs, st)) !== sha) return null
-    return this.entry(user, rules, segs, st)
+    const [base, ext] = splitExt(name, false)
+    for (let i = 1; i <= SAME_FILE_NAMES; i++) {
+      const cand = i === 1 ? name : `${base} (${i})${ext}`
+      const segs = [...folder, cand]
+      const abs = path.join(this.root, ...segs)
+      let st: fs.Stats
+      try { st = fs.lstatSync(abs) } catch { return null } // the first free name: nothing after it is this upload's
+      if (!st.isFile() || st.nlink !== 1 || st.size !== size) continue
+      if (!siblingVisible(this.fx, rules, user, folder, cand) || !atLeast(rules.access(user, segs), 'read')) continue
+      if ((await this.sha(abs, st)) === sha) return this.entry(user, rules, segs, st)
+    }
+    return null
   }
 
   // ---------------- retention ----------------

@@ -142,6 +142,11 @@ describe('a lost connection', () => {
     const counting = new ApiClient({ baseUrl: '', fetch: (async () => { tries++; return json({ error: { code: 'forbidden', message: 'no' } }, 403) }) as unknown as typeof fetch })
     expect(await uploadFile(small(), { kind: 'path', path: 'shared/a.jpg', onExists: 'rename' }, { client: counting, storage: null, retryDelayMs: 1 }).catch((x: unknown) => x)).toBeInstanceOf(ApiError)
     expect(tries).toBe(1)
+    // a server error on a small file: one try, as before (only a lost connection is waited for)
+    let fives = 0
+    const failing = new ApiClient({ baseUrl: '', fetch: (async () => { fives++; return json({ error: { code: 'internal', message: 'no' } }, 500) }) as unknown as typeof fetch })
+    expect(await uploadFile(small(), { kind: 'path', path: 'shared/a.jpg', onExists: 'rename' }, { client: failing, storage: null, retryDelayMs: 1 }).catch((x: unknown) => x)).toBeInstanceOf(ApiError)
+    expect(fives).toBe(1)
   })
 
   test('a chat attachment is sent once, as before (a second one would be a second attachment)', async () => {
