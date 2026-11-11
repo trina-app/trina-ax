@@ -292,6 +292,62 @@ describe('a page part that failed while the connection was down (QA TC-231)', ()
     } finally { c.restore() }
   })
 
+  test('held back when the connection is back (an answer that was streaming ends a moment later): asked again until nothing would be lost', async () => {
+    const was = ChunkErrorBoundary.retryMs
+    ChunkErrorBoundary.retryMs = 5
+    useUi.setState({ conn: 'reconnecting' })
+    const c = caught()
+    try {
+      expect(c.b.state).toMatchObject({ offline: true })
+      useChats.setState({ threads: { [chat]: { messages: [{ id: 'a1', chatId: chat, role: 'assistant', content: 'Here are', status: 'streaming' }], nextCursor: null, stale: false } } } as never)
+      useUi.setState({ conn: 'open' })
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(0)
+      // the answer ends: the next ask reloads, once
+      useChats.setState({ threads: { [chat]: { messages: [{ id: 'a1', chatId: chat, role: 'assistant', content: 'Here are the numbers', status: 'done' }], nextCursor: null, stale: false } } } as never)
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(1)
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(1)
+    } finally { c.restore(); ChunkErrorBoundary.retryMs = was }
+  })
+
+  test('a draft typed (here or in a room\'s box): it says it loads by itself, and does once the draft is gone', async () => {
+    const was = ChunkErrorBoundary.retryMs
+    ChunkErrorBoundary.retryMs = 5
+    useUi.setState({ conn: 'reconnecting' })
+    const release = markBusy('draft')
+    const c = caught()
+    try {
+      expect(c.b.state).toMatchObject({ offline: true, unsent: false })
+      useUi.setState({ conn: 'open' })
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(0)
+      release()
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(1)
+    } finally { release(); c.restore(); ChunkErrorBoundary.retryMs = was }
+  })
+
+  test('a reload a moment ago (the guard): the button stays and nothing is asked again', async () => {
+    const was = ChunkErrorBoundary.retryMs
+    ChunkErrorBoundary.retryMs = 5
+    useUi.setState({ conn: 'reconnecting' })
+    const store = memory()
+    store.setItem(CHUNK_RELOAD_KEY, String(Date.now() - 1_000))
+    const c = caught(store)
+    try {
+      // no promise it cannot keep: the usual line, not "loads by itself"
+      expect(c.b.state).toMatchObject({ offline: false })
+      expect(renderToStaticMarkup(c.b.render() as never)).toContain(translate(currentLocale(), 'update.chunkFailed'))
+      useUi.setState({ conn: 'open' })
+      await Bun.sleep(25)
+      expect(c.reloads.n).toBe(0)
+      expect(c.b.state).toMatchObject({ reloading: false, offline: false })
+      expect(renderToStaticMarkup(c.b.render() as never)).toContain(`>${translate(currentLocale(), 'update.reload')}</button>`)
+    } finally { c.restore(); ChunkErrorBoundary.retryMs = was }
+  })
+
   test('another page meanwhile, or the boundary gone: nothing reloads when the connection is back', () => {
     useUi.setState({ conn: 'reconnecting' })
     const c = caught()
