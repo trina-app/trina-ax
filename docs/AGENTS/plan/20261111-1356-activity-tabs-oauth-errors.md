@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 06:56
 - Branch: `fix/activity-tabs-oauth-errors`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`web/src/pages/Activity.tsx`; `server/src/integrations/connections/service.ts`, `text.ts`,
   `server/src/routes/integrations.ts`; `web/src/components/integrations/IntegrationRow.tsx`; i18n; tests)
 - Version impact: patch; no API shape change (a flow's `reason` gains the code `client`), no data change
