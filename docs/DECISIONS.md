@@ -758,6 +758,18 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `params.reason: server_disk_full`) instead of 500, and a chat turn that failed on one (the error, the engine's or the
   launcher's "no space left on device", or under 64 MiB left on the data or team disk when it stopped) ends with the
   chat reason `storage_full`; the owner and admins read where to look (Admin › System).
+- **One visitor can't fill a team's relay streams (2026-11-11, QA TC-199, audit #3).** 1,100 connections from one machine
+  that asked for a big file and never read the answer took all 1,024 streams of a team in 12 s, the answers of everyone
+  else waited behind theirs, and the relay never closed them. Now one visitor (IPv4 address; IPv6 by /64, one line gets
+  a whole /64) has at most `RELAY_MAX_STREAMS_PER_IP` HTTP streams open to a team (default half of one control
+  connection, 256): over it the relay answers 503 `team_busy` at once and closes that connection, before waiting for a
+  stream and again after. WebSockets are not counted (the team server must accept them; realtime of an office behind
+  one address stays open). An answer with bytes waiting for a visitor whose socket took no chunk for
+  `RELAY_CLIENT_STALL_MS` (30 s) is cut: RST CANCEL to the team server, socket closed. Progress is per written chunk
+  (at most 64 KB), so a slow line that keeps reading is never cut. Counters only (`/metrics`
+  `relay_http_requests_total{outcome="capped"}`, `relay_client_stalls_total`); no address is logged. The cap counts the
+  address the relay already believes (`--trusted-proxies`), so a relay behind a local tunnel without that setting would
+  cap everyone together.
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 

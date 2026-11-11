@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:18
 - Branch: `fix/relay-slow-streams`
-- Status: in progress
+- Status: done
 - Where: `relay/` (the relay server). Why: the relay forwards every visitor to the team server and is where streams are
   held open (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — a fix inside the relay; two new optional settings, no protocol or API change
@@ -29,7 +29,7 @@ In:
 - Write stall: an HTTP answer with bytes waiting for the visitor, where the visitor's socket took nothing for
   `RELAY_CLIENT_STALL_MS` (default 30 s), is cut: the stream is reset (CANCEL, so the team server stops), the socket is
   closed. Progress is counted per written chunk (≤ 64 KB), so a slow but working connection is never cut.
-- Counters for both (`/_stats`, `/metrics`: `relay_http_requests_total{outcome="ip_limit"}`,
+- Counters for both (`/_stats`, `/metrics`: `relay_http_requests_total{outcome="capped"}`,
   `relay_client_stalls_total`). The relay log keeps only team ids, counts and times (no IPs).
 - README settings table; DECISIONS note; regression tests against the Node relay.
 
@@ -63,4 +63,11 @@ Out:
 
 ## Result
 
-(filled in at the end)
+Built as planned. The metric label is `outcome="capped"` (label values are letters only). The cap is checked before the
+wait for a free stream and again after it. Tests: `tests/relay/f-slow-visitors.test.ts` (Node relay: an address over its
+share gets 503 at once while another address is served, IPv6 counted by /64, a never-reading answer is cut and its
+team stream and socket freed, a slow reader that keeps reading finishes) and `tests/unit/f-relay-visitor-cap.test.ts`
+(visitor key, defaults, metrics). Local relay check: before, 1,100 non-reading connections from one address took all
+1,024 streams and a browser from another address could not load `/login` in 60 s; after, that address got 256 streams
+(844 refused at once), they were cut after about 30-40 s, and the browser signed in in under 3 s at 30 s and 90 s into
+the flood. A smaller run (64 streams per connection, 150 connections) showed the same.

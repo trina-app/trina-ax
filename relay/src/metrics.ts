@@ -59,7 +59,9 @@ export function renderMetrics(s: MetricsSource): string {
     ['relay_http_requests_total', { outcome: 'unknown' }, c('httpUnknown')],
     ['relay_http_requests_total', { outcome: 'maintenance' }, c('httpMaintenance')],
     ['relay_http_requests_total', { outcome: 'redirect' }, c('httpRedirect')],
+    ['relay_http_requests_total', { outcome: 'capped' }, c('httpVisitorLimit')],
   ])
+  metric('relay_client_stalls_total', 'counter', 'HTTP answers cut because the visitor stopped reading them.', [['relay_client_stalls_total', null, c('clientStalls')]])
   metric('relay_ws_total', 'counter', 'Visitor WebSocket upgrades by outcome.', [
     ['relay_ws_total', { outcome: 'proxied' }, c('ws')],
     ['relay_ws_total', { outcome: 'offline' }, c('wsOffline')],
