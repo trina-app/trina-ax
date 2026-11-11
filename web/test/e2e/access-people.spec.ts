@@ -76,10 +76,10 @@ test('by person: every team folder with its access and why, folded hidden folder
   const reason = (p: string) => row(page, p).getByTestId('access-reason')
   const lines = (p: string) => row(page, p).getByTestId('access-reason-line')
   await expect(row(page, 'shared')).toHaveAttribute('data-level', 'write')
-  await expect(reason('shared')).toHaveText('이 폴더의 규칙 · 모두: 읽기·쓰기')
-  await expect(reason('groups/영업팀')).toHaveText('이 폴더의 규칙 · 영업팀 부서: 읽기·쓰기')
-  await expect(reason('marketing')).toHaveText('이 폴더의 규칙 · 팀원 전체: 읽기')
-  await expect(reason('projects/apollo')).toHaveText('이 폴더의 규칙 · Bob 님: 읽기·쓰기')
+  await expect(reason('shared')).toHaveText('이 폴더의 규칙 · 모두: 고칠 수 있음')
+  await expect(reason('groups/영업팀')).toHaveText('이 폴더의 규칙 · 영업팀 부서: 고칠 수 있음')
+  await expect(reason('marketing')).toHaveText('이 폴더의 규칙 · 팀원 전체: 볼 수 있음')
+  await expect(reason('projects/apollo')).toHaveText('이 폴더의 규칙 · Bob 님: 고칠 수 있음')
   await expect(row(page, 'projects/apollo')).toContainText(translate('ko', 'accessView.projectOf', { name: 'Apollo' }))
   // shown only on the way to a folder below, and then what decided (no rule anywhere above: only the owner and admins)
   await expect(row(page, 'projects')).toHaveAttribute('data-level', 'listed')
@@ -103,7 +103,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   // finance has a rule (재무팀: read) that is not for Bob; docs has none on the way up
   await expect(reason('finance')).toHaveText('이 폴더부터 위쪽 규칙은 이 사람에게 해당하지 않아요')
   await expect(reason('docs')).toHaveText('규칙이 없어 팀장과 관리자만 열 수 있어요')
-  await expect(reason('secret')).toHaveText('이 폴더의 규칙 · 모두: 권한 없음')
+  await expect(reason('secret')).toHaveText('이 폴더의 규칙 · 모두: 열 수 없음')
   await expect(row(page, 'docs')).toHaveAttribute('data-level', 'none')
 
   // no edit for a personal folder (rules there never apply)
