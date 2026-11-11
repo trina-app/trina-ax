@@ -8,9 +8,10 @@
 // without its "ready" reaching us, a "ping" asks for it again: a missed "ready" left the panel empty for good.
 //
 // Messages are only taken from this frame's own window (event.source). Expected loads: the receiver, then the
-// document it wrote (document.close). A further load — or the "leaving" signal of the written document — means it
-// tried to navigate away: the frame is reset to about:blank and a notice is shown (a signal only; the app's frame-src
-// CSP is what blocks the navigation).
+// document it wrote (document.close; the receiver writes only after its own load, so the two never merge into one,
+// QA TC-218). A further load — or the "leaving" signal of the written document — means it tried to navigate away: the
+// frame is reset to about:blank and a notice is shown (a signal only; the app's frame-src CSP is what blocks the
+// navigation, and Chromium puts its error page where the artifact was, so the artifact cannot stay there).
 import { AlertTriangle, ShieldCheck } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { cleanStatic, SANDBOX, SANDBOX_FRAME_URL, staticShell } from '../lib/artifacts'

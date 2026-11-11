@@ -241,6 +241,31 @@ describe("each turn is its sender's", () => {
     await ws.alice!.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 15_000)
   })
 
+  test("another version is not picked while someone's answer runs: 409 branch_while_answering, the branch stays (audit row 7)", async () => {
+    const chat = await newShared()
+    const one = await ask('alice', chat.id, 'q1\n' + fake({ say: 'a1' }))
+    const r = await h.api('alice').call(API.regenerate, { params: { id: chat.id, messageId: one.started.assistantMessage.id }, body: {} })
+    await ws.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    const slow = await send('bob', chat.id, 'slow\n' + fake({ sleep: 2500 }, { say: 'b1' }))
+    await waitFor(() => (h.rt().activeTurnUser(chat.id) === 'bob'), { timeoutMs: 5000 })
+    const leaf = () => (db().query('SELECT active_leaf_id FROM chats WHERE id = ?').get(chat.id) as { active_leaf_id: string }).active_leaf_id
+    expect(leaf()).toBe(slow.assistantMessage.id)
+    // alice (a viewer of bob's turn) and bob himself: the plain line in each one's language, nothing moves
+    const forAlice = await errOf(h.api('alice').call(API.selectBranch, { params: { id: chat.id }, body: { messageId: one.started.assistantMessage.id } }))
+    expect([forAlice.status, forAlice.body.params?.reason]).toEqual([409, 'branch_while_answering'])
+    expect(forAlice.body.message).toBe('An answer is still being written. You can switch versions when it is done.')
+    const forBob = await errOf(h.api('bob').call(API.selectBranch, { params: { id: chat.id }, body: { messageId: one.started.assistantMessage.id } }))
+    expect([forBob.status, forBob.body.params?.reason]).toEqual([409, 'branch_while_answering'])
+    expect(forBob.body.message).toBe('답변을 쓰는 중이에요. 끝나면 다른 버전으로 바꿀 수 있어요.')
+    expect(leaf()).toBe(slow.assistantMessage.id)
+    await ws.bob!.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 15_000)
+    await waitFor(() => h.rt().activeTurn(chat.id) === null, { timeoutMs: 5000 })
+    // once the answer is done the other version opens
+    const back = await h.api('alice').call(API.selectBranch, { params: { id: chat.id }, body: { messageId: one.started.assistantMessage.id } })
+    expect(back.items.map((m) => m.id)).toEqual([one.started.userMessage!.id, one.started.assistantMessage.id])
+    expect(leaf()).toBe(one.started.assistantMessage.id)
+  })
+
   test('own messages only, the creator renames, a shared chat never moves, delete by the creator or an editor (audited), restore while visible', async () => {
     const chat = await newShared()
     const a = await ask('alice', chat.id, 'q\n' + fake({ say: 'a' }))

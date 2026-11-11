@@ -17,7 +17,7 @@ import { startPresence, type Presence } from '../realtime/presence'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
-import { engineError } from './i18n'
+import { engineError, tr } from './i18n'
 import { forgetPurgedChats, retryPendingForgets } from './forget'
 import { effectiveConcurrency, memoryAdmission } from '../system/limits'
 import { teamTimeZone } from '../admin/settings'
@@ -26,6 +26,7 @@ import { HttpError } from '../http/errors'
 import { fairOrder, selectFairHead, type QueueTiming } from './fair-queue'
 import { QueueStore } from './queue-store'
 import { launcherStatus } from '../native'
+import { MCP_TOOL_TIMEOUT_MS } from '../engine/claude'
 import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import type { RoomPrompt } from './prompt'
@@ -52,6 +53,12 @@ export const CLAIM_TRIES = 3
 /** a quarantined slot whose engine was never confirmed gone is released this long after the turn's own wall deadline:
  * the launcher was told to end the engine by then (LaunchRequest.timeoutMs), so it is a bounded wait, never forever */
 export const QUARANTINE_RELEASE_GRACE_MS = 5 * 60_000
+/** Engines that may be up at once, per slot: answers waiting for a person hold no slot but keep their (idle) engine,
+ * so without this cap every queued answer could start beside them where memory is not checked (a Mac, office mode) */
+export const LIVE_ENGINES_PER_SLOT = 2
+/** An answered turn waits for a slot at most until this long after its card opened, then goes on over the limit: the
+ * engines end a tool call after MCP_TOOL_TIMEOUT_MS (engine/claude.ts), and the answer must reach it before that */
+export const SLOT_WAIT_MAX_MS = MCP_TOOL_TIMEOUT_MS - 5 * 60_000
 
 /** Is the engine's process group gone? Only "no such process" counts; EPERM (another account's engine, the normal
  * case) and any other answer mean it may still run. The launcher reports the group in the same pid namespace (the
@@ -191,12 +198,19 @@ export class ChatRuntime {
   readonly queueEpoch = newId()
   private queueRevision = 0
   private quarantined = new Set<string>()
+  /** running turns that gave their slot back while they wait for a person (an open card): they stay the chat's running
+   * turn, their engine stays up and idle, but the slot goes to the next answer (slotsInUse) */
+  private parked = new Set<string>()
+  /** parked turns a person answered, oldest first: each takes the next free slot, before any queued answer */
+  private resuming: string[] = []
   private probing = false
   private probedAt = 0
   /** a quarantined slot whose engine was never confirmed gone waits this long past the turn's wall deadline (tests) */
   quarantineReleaseGraceMs = QUARANTINE_RELEASE_GRACE_MS
   /** how often the capacity watcher probes quarantined slots (tests) */
   quarantineProbeMs = QUARANTINE_PROBE_MS
+  /** how long an answered turn waits for a slot after its card opened before it goes on anyway (tests) */
+  slotWaitMaxMs = SLOT_WAIT_MAX_MS
   private dispatching = false
   /** the last dispatch failed outside one turn: the capacity watcher runs schedule() again */
   private dispatchRetry = false
@@ -211,6 +225,10 @@ export class ChatRuntime {
   private lastConcurrency = 0
   /** queued answers are waiting for memory (schedule() below); the watcher re-checks every MEMORY_RECHECK_MS */
   private memoryHeld = false
+  /** queued answers wait because LIVE_ENGINES_PER_SLOT × the limit engines are up (logged once per change) */
+  private capHeld = false
+  /** turns whose chat was told they wait for a free place (Chat.waitingForPlace): told again when they go on */
+  private placeTold = new Set<string>()
   private memoryCheckedAt = 0
   private capacityWatcher: ReturnType<typeof setInterval>
   /** a fixed --max-turns (tests); null: the team setting, read when each answer starts */
@@ -254,6 +272,8 @@ export class ChatRuntime {
         if (this.concurrency() !== this.lastConcurrency) this.schedule()
         else if ((this.memoryHeld || this.dispatchRetry) && Date.now() - this.memoryCheckedAt >= MEMORY_RECHECK_MS) this.schedule()
         if (this.quarantined.size && Date.now() - this.probedAt >= this.quarantineProbeMs) void this.probeQuarantined()
+        // an answered turn whose tool call would time out waiting for a slot goes on (grantResumes)
+        if (this.parked.size) this.grantResumes()
       }
       catch (err) { this.log.error('queue capacity refresh failed', { err }) }
     }, 250)
@@ -331,6 +351,12 @@ export class ChatRuntime {
     return this.queued.find((s) => s.chatId === chatId)?.userId ?? null
   }
   execFor(turnId: string): TurnExec | undefined { return this.running.get(turnId) }
+  /** The chat's earlier answer ended but its engine's end is not confirmed yet (a quarantined slot, at most until its
+   * wall deadline plus QUARANTINE_RELEASE_GRACE_MS): the chat takes no new message meanwhile and says why (Chat.ending). */
+  endingUnconfirmed(chatId: string): boolean {
+    for (const e of this.running.values()) if (e.spec.chatId === chatId && e.quarantineState()) return true
+    return false
+  }
   /** The AI of this chat waits for the person: an open card every window shows (a card for one desktop window only
    * is that window's, not the chat list's). */
   waitsForPerson(chatId: string): boolean {
@@ -378,6 +404,91 @@ export class ChatRuntime {
       rejected: { ...this.queueRejections } }
   }
   runningCount() { return this.running.size }
+  /** Slots in use: running turns minus the ones waiting for a person (parked). At most the concurrency limit, except
+   * that a lowered limit never stops answers already going. */
+  slotsInUse() {
+    let n = 0
+    for (const id of this.running.keys()) if (!this.parked.has(id)) n++
+    return n
+  }
+
+  /** A turn opened its first card (it waits for a person): its slot goes to the next answer. Its engine stays up, idle
+   * on the tool call: the card's own time limit and the wall limit still end it. A turn that was waiting for a slot
+   * after an answer and opened another card (a tool running beside it) waits for the person again: it keeps its place
+   * in line (grantResumes passes it by while a card is open), and what it was given stays held until it has a slot. */
+  turnWaiting(exec: TurnExec) {
+    if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id) || exec.stopReason) return
+    if (this.parked.has(exec.id)) return
+    this.parked.add(exec.id)
+    // after the card is shown (never inside the tool call that opens it)
+    queueMicrotask(() => this.schedule())
+  }
+  /** The turn holds no slot now (it waits for a person, or for a slot after an answer). */
+  isParked(exec: TurnExec): boolean { return this.running.get(exec.id) === exec && this.parked.has(exec.id) }
+  /** The last open card of a parked turn closed (its answer already held, TurnExec.heldAnswers): it needs a slot to go
+   * on. True when it has one now (the answers went on); false: it waits first in line and grantResumes calls
+   * exec.resumeAnswers() when one is free. */
+  turnResuming(exec: TurnExec): boolean {
+    if (this.running.get(exec.id) !== exec || !this.parked.has(exec.id)) return true
+    if (!this.resuming.includes(exec.id)) this.resuming.push(exec.id)
+    this.grantResumes()
+    const now = !this.parked.has(exec.id)
+    // the chat says it waits for a free place (Chat.waitingForPlace)
+    if (!now && !this.placeTold.has(exec.id)) { this.placeTold.add(exec.id); this.publishPlace(exec) }
+    return now
+  }
+  /** The chat of a turn waiting for a slot after an answer, or no longer: its chat.updated (a room's AI has none). */
+  private publishPlace(exec: TurnExec) {
+    if (this.running.get(exec.id) !== exec) return
+    try { this.publishChat(exec.spec.userId, exec.spec.chatId, 'updated') } catch (err) { this.log.warn('chat update for a slot wait failed', { err, turn: exec.id }) }
+  }
+  /** A person answered the AI here, and the answer waits for a free place to go on (its line in the chat). */
+  waitsForPlace(chatId: string): boolean {
+    for (const e of this.running.values()) if (e.spec.chatId === chatId && this.resuming.includes(e.id) && e.waitingForSlot && !e.waitingForPerson) return true
+    return false
+  }
+  /** A turn waiting for a slot ended its wait without going on (stopped, ended): it leaves the line. */
+  turnStopsWaiting(exec: TurnExec) {
+    const r = this.resuming.indexOf(exec.id)
+    if (r >= 0) this.resuming.splice(r, 1)
+  }
+  /** A turn is being stopped (Stop, the wall limit, shutdown) or its engine's end is unconfirmed: whether it waited for
+   * a person or not, its engine may now be working (ending, or still running), so it holds a slot again until its end
+   * is confirmed. That may go over the limit for a moment; nothing new starts until it is back under. */
+  turnEngineEnding(exec: TurnExec) {
+    if (this.running.get(exec.id) !== exec) return
+    this.turnStopsWaiting(exec)
+    this.parked.delete(exec.id)
+  }
+  /** Answered turns take free slots first, oldest answer first (no memory check: their engine is already up). One
+   * whose tool call would end before a slot is free (slotWaitMaxMs after its card opened) goes on over the limit. */
+  private grantResumes() {
+    const limit = this.concurrency()
+    // an answer held while another card of its turn is still open: it reaches its tool before the tool call would end
+    // (the turn stays parked: it still waits for a person)
+    for (const id of this.parked) {
+      const exec = this.running.get(id)
+      if (exec?.waitingForPerson && exec.waitingForSlot && exec.heldSinceMs() >= this.slotWaitMaxMs) {
+        this.log.warn('an answer held behind an open card goes on: its tool call would end first', { turn: id })
+        try { exec.resumeAnswers() } catch (err) { this.log.error('resuming an answered turn failed', { err, turn: id }) }
+      }
+    }
+    for (let i = 0; i < this.resuming.length;) {
+      const id = this.resuming[i]!
+      const exec = this.running.get(id)
+      if (!exec || !this.parked.has(id)) { this.resuming.splice(i, 1); continue }
+      // a card of it is open again: it waits for the person, in its place
+      if (exec.waitingForPerson) { i++; continue }
+      const overdue = exec.heldSinceMs() >= this.slotWaitMaxMs
+      if (this.slotsInUse() >= limit && !overdue) { i++; continue }
+      if (this.slotsInUse() >= limit) this.log.warn('an answered turn goes on over the limit: its tool call would end first', { turn: id })
+      this.resuming.splice(i, 1)
+      this.parked.delete(id)
+      try { exec.resumeAnswers() } catch (err) { this.log.error('resuming an answered turn failed', { err, turn: id }) }
+      // its chat said it waits for a place: the chat hears that it goes on
+      if (this.placeTold.delete(id)) this.publishPlace(exec)
+    }
+  }
   /** The person's engine sessions were reset (access shrank) while these turns ran: they end without stashing. */
   revokeRunningSessions(userId: string): number {
     let n = 0
@@ -400,6 +511,7 @@ export class ChatRuntime {
   }
 
   schedule() {
+    try { this.grantResumes() } catch (err) { this.log.error('resuming answered turns failed', { err }) }
     if (!this.acceptingTurns || this.dispatching) return
     this.dispatching = true
     try {
@@ -412,11 +524,21 @@ export class ChatRuntime {
         WHERE t.id=? AND t.status='queued' AND u.status='active' AND u.deleted_at IS NULL AND c.deleted_at IS NULL`).get(s.turnId)
       if (!valid) this.stopChat(s.chatId)
     }
-    // short of memory: the rest wait in the queue and the capacity watcher looks again (system/limits.ts)
-    const room = this.queued.length && this.running.size < limit ? memoryAdmission(this.running.size, limit) : limit
+    // short of memory: the rest wait in the queue and the capacity watcher looks again (system/limits.ts). Turns that
+    // wait for a person hold no slot, but their idle engines are in the memory the check reads.
+    const slots = this.slotsInUse()
+    const room = this.queued.length && slots < limit ? memoryAdmission(slots, limit, this.running.size) : limit
     this.memoryCheckedAt = Date.now()
     this.dispatchRetry = false
-    while (this.running.size < room && this.queued.length) {
+    // answered turns waiting for a slot (grantResumes above) go before every queued answer
+    // and the engines up (waiting ones too) stay under LIVE_ENGINES_PER_SLOT × the limit: past it, answers stay queued
+    const liveCap = LIVE_ENGINES_PER_SLOT * limit
+    const capHeld = this.queued.length > 0 && this.running.size >= liveCap && this.slotsInUse() < limit
+    if (capHeld !== this.capHeld) {
+      if (capHeld) this.log.warn('queued answers wait: too many engines up (answers waiting for a person)', { live: this.running.size, cap: liveCap, queued: this.queued.length })
+      this.capHeld = capHeld
+    }
+    while (!this.resuming.some((id) => !this.running.get(id)?.waitingForPerson) && this.slotsInUse() < room && this.running.size < liveCap && this.queued.length) {
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
       const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
       if (!head) break
@@ -456,9 +578,9 @@ export class ChatRuntime {
       try { this.publishChat(spec.userId, spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after dispatch failed', { err, turn: spec.turnId }) }
       exec.run().catch((err) => this.log.error('turn run failed', { err, turn: spec.turnId }))
     }
-    const held = this.queued.length > 0 && this.running.size < limit && this.running.size >= room
+    const held = this.queued.length > 0 && this.slotsInUse() < limit && this.slotsInUse() >= room
     if (held !== this.memoryHeld) {
-      if (held) this.log.warn('queued answers wait for memory', { running: this.running.size, concurrency: limit, queued: this.queued.length })
+      if (held) this.log.warn('queued answers wait for memory', { running: this.slotsInUse(), live: this.running.size, concurrency: limit, queued: this.queued.length })
       else this.log.info('memory is back; queued answers run again')
       this.memoryHeld = held
     }
@@ -518,6 +640,9 @@ export class ChatRuntime {
     if (this.running.get(exec.id) !== exec) return
     this.running.delete(exec.id)
     this.quarantined.delete(exec.id)
+    this.parked.delete(exec.id)
+    this.placeTold.delete(exec.id)
+    this.turnStopsWaiting(exec)
     this.queueRevision++
     this.positions.delete(exec.id)
     this.schedule()
@@ -527,6 +652,7 @@ export class ChatRuntime {
   turnQuarantined(exec: TurnExec) {
     if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id)) return
     this.quarantined.add(exec.id)
+    this.turnEngineEnding(exec)
     this.log.error('turn slot quarantined: termination unconfirmed', { turn: exec.id })
   }
 
@@ -652,6 +778,7 @@ export class ChatRuntime {
     this.db.transaction(() => {
       this.checkQueueRoom(o.userId, o.locale)
       chat = typeof o.chat === 'function' ? o.chat() : o.chat
+      if (this.endingUnconfirmed(chat.id)) throw new HttpError('conflict', tr('earlierAnswerEnding', o.locale), { params: { reason: 'earlier_answer_ending' } })
       if (this.activeTurn(chat.id) || this.db.query("SELECT 1 FROM turns WHERE chat_id=? AND status IN ('queued','running')").get(chat.id))
         throw new HttpError('conflict')
       queueSeq = this.queueStore.admit(o.userId)
@@ -866,7 +993,7 @@ export class ChatRuntime {
       o = {}
     }
     // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
-    const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId), { ...(severalAuthors(this.db, chatId) ? { answersOf: r.user_id } : {}), viewer: r.user_id }) : null
+    const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId), { ...(severalAuthors(this.db, chatId) ? { answersOf: r.user_id } : {}), viewer: r.user_id, ending: this.endingUnconfirmed(chatId), waitingForPlace: this.waitsForPlace(chatId) }) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)
     if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)
     const ev = { type: 'chat.updated' as const, data: { chatId, change, chat, ...(o.notify ? { notify: o.notify } : {}) } }

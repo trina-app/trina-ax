@@ -492,6 +492,9 @@ if [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/app.db" ] || [ -e "$BASE/
   rm -f "$ITMP/code"
   unset CODE
 fi
+# a code left on disk by an older server, which deleted only its own copy after setup: the team is set up
+# (data/app.db, no data/setup-token), so the code is spent (QA TC-211)
+if [ -f "$BASE/setup/code" ] && [ -f "$BASE/data/app.db" ] && [ ! -e "$BASE/data/setup-token" ]; then rm -f "$BASE/setup/code"; fi
 
 # ---- LaunchDaemons ----
 xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }

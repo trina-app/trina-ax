@@ -2,7 +2,7 @@
 // decides which rows and which action). The edition's store listings and download page are APP_DOWNLOADS
 // (shared/src/app-downloads.ts); the team server's installers come from /downloads/index.json. A build with neither shows
 // only what the team server has (and its empty state).
-import { ChevronDown, Download, ExternalLink, Laptop, Monitor, Smartphone } from 'lucide-react'
+import { Download, ExternalLink, Laptop, Monitor, Smartphone } from 'lucide-react'
 import { RELEASE_CHANNEL, type AppDownloads } from '@mycel/shared'
 import type { Me } from '@mycel/shared/api'
 import { computerApps, noComputerApps, phoneApps, type AppClient, type AppOs, type AppRow } from '../../lib/apps'
@@ -97,21 +97,22 @@ const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.n
 const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
 
 /**
- * Desktop app: the Mac and Windows rows (lib/apps.ts computerApps). The Mac row offers the App Store first; the team
- * server's installer, when it has one, is folded under the row ("Download the installer" ⌄, with its install steps).
- * Inside a store build its own row is "This app" with the store's line (App Store on a Mac, Microsoft Store on Windows)
- * and no installer is offered anywhere; the desktop app's own row otherwise says how it updates. A browser on a Mac or
- * a Windows PC marks this computer's row, with the install steps under its installer, or says the server has no such
- * app (and, in a browser that can install the page, points at "Install as an app" below). With nothing to offer at all:
- * the server's empty state, with the owner's hint; with store links but no installer on the server, the owner still
- * gets the hint under the rows.
+ * Desktop app: the Mac and Windows rows (lib/apps.ts computerApps). With the edition's App Store listing the Mac row
+ * offers only the App Store, never the team server's installer file. Inside a store build its own row is "This app"
+ * with the store's line (App Store on a Mac, Microsoft Store on Windows) and no installer is offered anywhere; the
+ * desktop app's own row otherwise says how it updates. A browser on a Mac or a Windows PC marks this computer's row,
+ * with the install steps under its installer, or says the server has no such app (and, in a browser that can install
+ * the page, points at "Install as an app" below). With nothing to offer at all: the server's empty state, with the
+ * owner's hint; with store links but no installer on the server, the owner still gets the hint under the rows.
  */
 export function ComputerApps({ links, client, downloads, owner, server = 'office', installHere = false }: { links: AppDownloads; client: AppClient; downloads: DownloadItem[] | null | 'none'; owner: boolean; server?: DownloadsSource; /** a browser tab that can install the page as an app (the guide below is shown) */ installHere?: boolean }) {
   const t = useT()
   const locale = useLocale()
   if (downloads === null && !client.store) return <Skeleton lines={2} />
   const rows = computerApps(links, client, Array.isArray(downloads) ? downloads : [])
-  const ownerHint = owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted" data-testid="apps-owner-hint">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>
+  // an office Mac server with a Mac App Store listing: only the Windows installer is the owner's to add
+  const hintKey = server === 'office' && links.mac ? 'apps.noDownloadsOwnerWindows' : OWNER_HINT[server]
+  const ownerHint = owner && hintKey && <p className="mt-2 text-xs text-muted" data-testid="apps-owner-hint">{t(hintKey, { feed: FEED_HOST })}</p>
   if (noComputerApps(rows, client))
     return (
       <>
@@ -159,18 +160,7 @@ export function ComputerApps({ links, client, downloads, owner, server = 'office
             <AppRowView key={row.os} row={row} note={note(row)}
               badge={row.thisApp ? t('apps.thisApp') : row.thisDevice ? t('apps.thisComputer') : undefined}
               action={a && (a.kind === 'files' ? a.items.map((d) => file(d, row.os)) : <LinkOut os={row.os} href={a.href} store={a.kind === 'store'} />)}
-              after={a?.kind === 'files' ? steps(row, a.items, 'pl-[50px] max-sm:pl-[46px]') : row.more && (
-                // the server's installer, a second way: one small line under the name, its file and steps folded
-                <details className="group mt-1 pl-[30px]" data-testid={`app-more-${row.os}`}>
-                  <summary className="inline-flex min-h-8 cursor-pointer list-none items-center gap-1 rounded text-xs text-muted hover:text-ink [&::-webkit-details-marker]:hidden">
-                    <span className="sr-only">{NAME[row.os]} </span>
-                    {t('apps.installerFile')}
-                    <ChevronDown size={14} className="shrink-0 transition group-open:rotate-180" aria-hidden />
-                  </summary>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">{row.more.map((d) => file(d, row.os))}</div>
-                  {steps(row, row.more, 'pl-5 max-sm:pl-4')}
-                </details>
-              )} />
+              after={a?.kind === 'files' && steps(row, a.items, 'pl-[50px] max-sm:pl-[46px]')} />
           )
         })}
       </ul>

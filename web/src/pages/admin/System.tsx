@@ -7,13 +7,13 @@ import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, R
 import clsx from 'clsx'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { ConnectionMode } from '@mycel/shared/api'
+import type { ConnectionMode, LastRestore } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, ErrorNote, Field, Modal, PhoneTargets, confirmDialog, inputCls } from '../../components/ui'
-import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
+import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
 import { forgetKeptChecks } from './overview'
 import OfficeUpdate from './OfficeUpdate'
 import { engineVersionChecks } from './plain'
@@ -667,11 +667,27 @@ function Update() {
   )
 }
 
+/** The last restore in one line: which backup (by when it was made), when it was put back and by whom, or that it failed
+ * and the data was kept. */
+function LastRestoreLine({ last }: { last: LastRestore }) {
+  const t = useT()
+  const locale = useLocale()
+  const vars = { at: formatDateTime(last.at, locale), backup: last.backupCreatedAt ? formatDateTime(last.backupCreatedAt, locale) : last.backupId, name: last.by?.name ?? '' }
+  const text = !last.ok ? t('system.lastRestoreFailed', vars) : last.by ? t('system.lastRestore', vars) : t('system.lastRestoreNoName', vars)
+  return (
+    <p className={`mb-2 flex items-start gap-1.5 text-sm ${last.ok ? 'text-muted' : 'text-warn'}`} data-testid="last-restore">
+      <RotateCcw size={14} className="mt-0.5 shrink-0" aria-hidden /> {text}
+    </p>
+  )
+}
+
 function Backups({ onChanged }: { onChanged: () => void }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
-  const state = useLoad(async () => (await api.call(API.listBackups)).items)
+  const reauth = useReauthCall()
+  // the backups, and the last restore said once the server is back (which backup, when, by whom; QA TC-208)
+  const state = useLoad(() => api.call(API.listBackups))
   const runner = useJobRunner()
   const [restore, setRestore] = useState<{ id: string; createdAt: string } | null>(null)
   return (
@@ -699,8 +715,9 @@ function Backups({ onChanged }: { onChanged: () => void }) {
       }
     >
       {runner.jobId && <JobLine jobId={runner.jobId} />}
+      {state.data?.lastRestore && <LastRestoreLine last={state.data.lastRestore} />}
       <Loadable state={state}>
-        {(list) =>
+        {({ items: list }) =>
           !list.length ? (
             <p className="text-sm text-faint">{t('system.noBackups')}</p>
           ) : (
@@ -729,10 +746,13 @@ function Backups({ onChanged }: { onChanged: () => void }) {
           confirm={t('system.restore')}
           onClose={() => setRestore(null)}
           onConfirm={async (password) => {
-            const id = restore.id
+            // a wrong password stays in the dialog, under the field (QA TC-221); it closes once the restore started
+            const r = await reauth(() => api.call(API.startRestore, { body: { password, backupId: restore.id } }))
+            if (r && 'refused' in r) return r.refused
             setRestore(null)
+            if (!r) return
             await runner.run(
-              () => act(() => api.call(API.startRestore, { body: { password, backupId: id } })),
+              async () => r.value,
               () => toast({ level: 'success', text: t('system.restoreDone'), sticky: true, action: { label: t('update.reload'), run: () => location.reload() } }),
             )
           }}

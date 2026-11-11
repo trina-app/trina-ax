@@ -228,9 +228,12 @@ describe('web app serving', () => {
       at('lock(Document, "parseHTMLUnsafe"'),
       at('lock(W, "open"'), // no window.open (WebKit: a javascript: URL into this frame is a fresh window)
       at('watch(D)'),
-      at('call(write, D, d.html.replace(/shadowrootmode/gi'), // the one write: declarative shadow roots off
+      at('call(write, D, html.replace(/shadowrootmode/gi'), // the one write: declarative shadow roots off
     ]
     expect([...order].sort((a, b) => a - b)).toEqual(order)
+    // the document is written only after the receiver's own load (two loads for SandboxFrame to count, QA TC-218)
+    expect(script).toContain('W.addEventListener("load", function () { loaded = true; if (html !== N) W.setTimeout(render, 0); });')
+    expect(script).toContain('if (loaded) render();')
     // the watcher keeps its own copies of the built-ins (a page that changes prototypes cannot blind it)
     for (const s of ['Element.prototype.querySelectorAll', 'Node.prototype.removeChild', 'MutationObserver.prototype.observe', 'getter(MutationRecord.prototype, "addedNodes")']) expect(at(s)).toBeLessThan(order[8]!)
     expect(script).toContain('FRAMES.iframe = FRAMES.frame = FRAMES.object = FRAMES.embed = FRAMES.fencedframe = FRAMES.portal = 1')

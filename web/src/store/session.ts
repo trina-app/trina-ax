@@ -1,11 +1,12 @@
 // Who is signed in (GET /api/me), first-run setup state, and the person's language / theme / text size.
 import { create } from 'zustand'
-import type { Locale, Me, TextSize, Theme, UserPrefs } from '@mycel/shared/api'
+import { SETUP_TOKEN_HEADER, type Locale, type Me, type TextSize, type Theme, type UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
 import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
@@ -65,6 +66,8 @@ let pendingPick: Locale | null = null
 let pickedBeforeSignIn = false
 /** team default as last seen, for the sign-in screen after a sign-out */
 let lastTeamDefault: Locale | null = null
+/** the latest theme pick still being saved (setTheme), and the theme in use before the picks not saved yet */
+let themePick: { back: Theme } | null = null
 
 /** The next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads: on sign-out
  * and when another person signs in over this one (App.tsx useSessionLifecycle). */
@@ -96,7 +99,16 @@ export const useSession = create<SessionState>((set, get) => ({
         // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
         useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
         try {
-          const s = await api.call(API.setupStatus)
+          // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
+          // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
+          // setupStatusFor)
+          const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
+          rememberSetupToken(linked)
+          const token = linked ?? keptSetupToken()
+          const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
+          // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
+          // per-address token limit that everyone behind this address shares
+          if (!s.needed) forgetSetupToken()
           lastTeamDefault = s.defaultLocale ?? null
           // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
           useLocaleStore.getState().setLocale(pickLocale(storedLocale(), s.defaultLocale))
@@ -201,9 +213,27 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async setTheme(theme) {
+    // shown at once. A save that fails (offline) puts back the theme in use before, else the screen would stay in a
+    // theme the account does not have and go back to the old one at the next reload or in another tab, with no word;
+    // the caller says why (QA TC-239). Only the latest pick decides: an earlier pick's answer never undoes a later one
+    const pick = { back: themePick?.back ?? storedTheme() }
+    themePick = pick
     storeTheme(theme)
     applyTheme(theme)
-    await get().updatePrefs({ theme })
+    try {
+      await get().updatePrefs({ theme })
+      if (themePick === pick) themePick = null
+    } catch (e) {
+      if (themePick === pick) {
+        themePick = null
+        // what the account has (an earlier pick may have been saved meanwhile), else what this device used
+        const st = get().status
+        const back = (st.kind === 'signed-in' ? st.me.user.prefs.theme : undefined) ?? pick.back
+        storeTheme(back)
+        applyTheme(back)
+      }
+      throw e
+    }
   },
 
   async setAway(away) {

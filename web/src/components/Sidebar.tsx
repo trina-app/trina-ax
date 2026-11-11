@@ -22,7 +22,7 @@
 // come first, the most recently pinned first, with a pin before the title and no header of their own; on a computer at
 // most ten of them above the five latest, all of them in "모두 보기" and in the phone's drawer.
 import clsx from 'clsx'
-import { Cable, Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, Pencil, Pin, PinOff, Search, Settings, Smile, Trash2, X } from 'lucide-react'
+import { Cable, Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, Pin, Search, Settings, Smile, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -37,19 +37,18 @@ import { markerOf, needsMe, waitingOrRunning, type MarkerView } from '../lib/ses
 import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
 import { sharedRights } from '../lib/sharedChat'
-import { useChatLinkItem } from './chat/copyChatLink'
+import { useChatMenuItems } from './chat/chatMenuItems'
 import { SharedIcon } from './chat/SharedChat'
 import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
 import { useMeStrict, useSession } from '../store/session'
 import { toast, useUi } from '../store/ui'
 import { PresenceDot, PresenceFace, PresenceText } from './Presence'
 import { MyStatusRow, openStatusDialog, StatusEmoji, useMyStatusWords } from './StatusMessage'
-import { useChatActions } from './chat/chatActions'
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
 import { AiMark } from './rooms/AiFace'
-import { MenuButton, type MenuItem } from './rooms/MenuButton'
+import { MenuButton } from './rooms/MenuButton'
 import { useRowMenu } from './rooms/RoomMenu'
 import { useRoomTitle } from './rooms/RoomIcon'
 import { useRooms } from '../store/rooms'
@@ -424,8 +423,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
 function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
-  const actions = useChatActions()
-  // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; a pin for anyone
+  // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx)
   const rights = sharedRights(chat, useMeStrict().user.id)
   // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
   // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
@@ -436,17 +434,7 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
   // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
   const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
   const roomTitle = useRoomTitle()
-  const linkItem = useChatLinkItem(chat, 'chat-row-copy-link')
-  const items: MenuItem[] = [
-    chat.pinnedAt
-      ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-unpin' }
-      : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => void actions.togglePin(chat), testId: 'chat-row-pin' },
-    linkItem,
-    ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat), testId: 'chat-row-rename' }] : []),
-    // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
-    ...(rights.canMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: 'chat-row-move' }] : []),
-    ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void actions.remove(chat), testId: 'chat-row-delete' }] : []),
-  ]
+  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove })
 
   return (
     <li

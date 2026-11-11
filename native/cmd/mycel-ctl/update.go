@@ -1223,15 +1223,29 @@ func (u *updater) updateApp(dir, v string) error {
 			return err
 		}
 	}
-	deadline := time.Now().Add(u.healthTimeout)
+	switched := time.Now()
+	deadline := switched.Add(u.healthTimeout)
 	// a roll-back is reported once it has lasted rollbackGrace: when the old version cannot read the database the new
 	// one migrated, the bootstrap goes forward to v again (state.json forward), which then gets its own health wait
 	var rbAt time.Time
-	forwardSeen := false
+	forwardSeen, sawMigrating := false, false
 	for time.Now().Before(deadline) {
-		if h := health(u.in.Port, 3*time.Second); h["ok"] == true && h["version"] == v {
+		h := health(u.in.Port, 3*time.Second)
+		if h["ok"] == true && h["version"] == v {
 			u.res.Result = "ok"
 			return nil
+		}
+		if h["status"] == "migrating" && h["version"] == v {
+			// v is updating a large database before it listens: wait while it says so, then the usual health wait; no
+			// more time once it has said so for migrateWait after the switch (the bootstrap's --migrate-timeout; QA TC-278)
+			sawMigrating = true
+			if now := time.Now(); now.Before(switched.Add(migrateWait)) {
+				if d := now.Add(u.healthTimeout); d.After(deadline) {
+					deadline = d
+				}
+			} else if deadline.After(now) {
+				deadline = now
+			}
 		}
 		if u.forwardTo(v) {
 			rbAt = time.Time{}
@@ -1259,8 +1273,15 @@ func (u *updater) updateApp(dir, v string) error {
 		u.res.Result, u.res.Detail = "rolled_back", rb
 		return nil
 	}
+	if sawMigrating {
+		return fmt.Errorf("version %s did not finish updating its database and answer /api/health within %v of the switch", v, time.Since(switched).Round(time.Second))
+	}
 	return fmt.Errorf("version %s did not answer /api/health within %v", v, u.healthTimeout)
 }
+
+// migrateWait: how long after the switch `update` waits for a version that reports it is updating its database (the
+// bootstrap's --migrate-timeout default)
+var migrateWait = 60 * time.Minute
 
 // rollbackGrace: how long a roll-back must last before `update` reports it (the old version's start and exit 75, then
 // the bootstrap's step forward to v again; native/cmd/mycel-bootstrap)

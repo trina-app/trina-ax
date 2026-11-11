@@ -97,6 +97,8 @@ describe('desktop downloads', () => {
       expect(DICTS[l]['apps.noDownloadsOwner']).toContain('office-install.sh')
       // no office path with the core product's name in it (QA TC-262: "~/TeamAX/teamax desktop add")
       expect(DICTS[l]['apps.noDownloadsOwner']).not.toMatch(/TeamAX|teamax/)
+      expect(DICTS[l]['apps.noDownloadsOwnerWindows']).toContain('office-install.sh')
+      expect(DICTS[l]['apps.noDownloadsOwnerWindows']).not.toMatch(/TeamAX|teamax/)
     }
   })
 

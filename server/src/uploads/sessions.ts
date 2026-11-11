@@ -52,7 +52,12 @@ export class UploadSessions {
   private row(userId: string, id: string): Row {
     const r = this.ctx.db.query('SELECT id, user_id, target, size, sha256, chunk_size, received, expires_at, created_at, result FROM upload_sessions WHERE id = ?').get(id) as Row | null
     if (!r || r.user_id !== userId) throw new HttpError('not_found')
-    if (Date.parse(r.expires_at) < Date.now() && !r.result) { this.drop(id); fileError('gone', 'expired') }
+    if (Date.parse(r.expires_at) < Date.now() && !r.result) {
+      this.drop(id)
+      // the words name the limit that ended it (QA TC-230: a 7-day upload was told "24 h" seconds after a chunk)
+      const started = r.created_at ? Date.parse(r.created_at) : NaN
+      fileError('gone', Number.isFinite(started) && Date.now() >= started + SESSION_MAX_MS ? 'expiredMax' : 'expired')
+    }
     return r
   }
   private toApi(r: Row): UploadSession {
@@ -120,7 +125,7 @@ export class UploadSessions {
       // the part file is gone (a restored DB brought the session back, the folder was cleaned): this session can
       // never finish; end it so the client starts a new one instead of retrying
       this.drop(id)
-      fileError('gone', 'expired')
+      fileError('gone', 'uploadLost')
     }
     let got = 0
     try {
@@ -177,7 +182,8 @@ export class UploadSessions {
     let result: UploadComplete
     if (target.kind === 'path') {
       const slash = target.path.lastIndexOf('/')
-      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha)
+      // the same file at that name already (picked again after its first upload ended): kept, no "(2)"
+      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha, undefined, { keepSame: true })
       result = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }

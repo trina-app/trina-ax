@@ -63,7 +63,11 @@ export function createBroker(cc: CredCtx): CredentialBroker {
     cc.log.warn('a model has no price: its cost is counted at the most expensive price of its family', { model: model.slice(0, 100), ...(gateway ? { hint: 'engine.anthropicGateway.prices' } : {}) })
   })
   const limitAudited = new Map<string, number>()
-  const add = cc.db.query("UPDATE turns SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_usd = COALESCE(cost_usd, 0) + ?, usage_source = 'proxy' WHERE id = ?")
+  // the proxy's count is authoritative: what the engine reported for the turn so far (chat/turn.ts recordUsage, written
+  // while the answer runs) is replaced by the first request the proxy counts, never added to it
+  const add = cc.db.query(`UPDATE turns SET input_tokens = (CASE WHEN usage_source = 'proxy' THEN input_tokens ELSE 0 END) + ?,
+    output_tokens = (CASE WHEN usage_source = 'proxy' THEN output_tokens ELSE 0 END) + ?,
+    cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(cost_usd, 0) ELSE 0 END) + ?, usage_source = 'proxy' WHERE id = ?`)
   const day = cc.db.query(`INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, ?, ?, ?)
     ON CONFLICT(credential_id, day) DO UPDATE SET requests = requests + 1, input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, cost_usd = cost_usd + excluded.cost_usd`)
   const used = cc.db.query('UPDATE engine_credentials SET last_used_at = ?, checked_at = COALESCE(checked_at, ?) WHERE id = ?')

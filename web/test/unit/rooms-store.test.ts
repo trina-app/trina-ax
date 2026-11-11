@@ -4,9 +4,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
-import { mergeMessages, placeKey, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
+import { mergeMessages, placeKey, settledPending, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
+import { readUpTo, roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadViews: {}, ...o })
@@ -410,6 +410,87 @@ describe('handleEvent', () => {
     expect(useRooms.getState().returned[placeKey(r.id, root)]).toMatchObject({ body: 'in the thread', threadRootId: root, alsoInRoom: true })
   })
 
+  describe('a send the server got while its answer was lost shows once (QA TC-236)', () => {
+    /** the sends' POSTs held until the test lets them fail (the connection dropped after the server got them) */
+    const holdSend = () => {
+      const held: (() => void)[] = []
+      const fetchBefore = globalThis.fetch
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'POST' && String(input).endsWith('/messages')) return new Promise<Response>((_, reject) => { held.push(() => reject(new TypeError('Failed to fetch'))) })
+        return fetchBefore(input, init)
+      }) as typeof fetch
+      return { fail: () => { for (const f of held.splice(0)) f() } }
+    }
+    const lastSend = (roomId: string) => useRooms.getState().pending[roomId]!.at(-1)!
+    const mine = (roomId: string, seq: number, clientMessageId: string, o: Partial<ReturnType<typeof message>> = {}) => message({ roomId, seq, author: ME, body: 'on the train', clientMessageId, ...o })
+
+    test('its message from the live event settles it; the lost answer then changes nothing', async () => {
+      const r = room()
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      const p = lastSend(r.id)
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: mine(r.id, 1, p.clientMessageId) } })
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+      post.fail()
+      await tick()
+      // no failed bubble beside the delivered message, nothing back in the box
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+      expect(useRooms.getState().returned[r.id]).toBeUndefined()
+      expect(useRooms.getState().timeline!.messages.map((m) => m.body)).toEqual(['on the train'])
+    })
+
+    test('failed first, then the replay after the reconnect brings it: the failed bubble goes', async () => {
+      const r = room()
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      const p = lastSend(r.id)
+      post.fail()
+      await tick()
+      expect(useRooms.getState().pending[r.id]).toMatchObject([{ state: 'failed' }])
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: mine(r.id, 1, p.clientMessageId) } })
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+      expect(useRooms.getState().timeline!.messages).toHaveLength(1)
+    })
+
+    test('a page read again after a reconnect settles it too; a thread reply settles when its thread shows it', async () => {
+      const r = room()
+      const root = message({ roomId: r.id, seq: 1 })
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [root]), threadViews: views({ roomId: r.id, rootId: root.id, root, replies: [] }) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      useRooms.getState().send(r.id, { body: 'in the thread', mentions: [], files: [], threadRootId: root.id })
+      const [inRoom, inThread] = useRooms.getState().pending[r.id]!
+      post.fail()
+      await tick()
+      expect(useRooms.getState().pending[r.id]!.map((x) => x.state)).toEqual(['failed', 'failed'])
+      // the reconnect could not resume: the room and the thread are read again (resync)
+      routes['/api/rooms'] = { items: [r] }
+      routes[`/api/rooms/${r.id}/messages`] = { items: [root, mine(r.id, 2, inRoom!.clientMessageId)], nextCursor: null }
+      routes[`/api/rooms/${r.id}/messages/${root.id}/thread`] = { root, items: [], nextCursor: null }
+      await useRooms.getState().resync()
+      expect(useRooms.getState().pending[r.id]!.map((x) => x.body)).toEqual(['in the thread'])
+      routes[`/api/rooms/${r.id}/messages/${root.id}/thread`] = { root, items: [mine(r.id, 3, inThread!.clientMessageId, { body: 'in the thread', threadRootId: root.id })], nextCursor: null }
+      await useRooms.getState().loadThread(r.id, root.id)
+      expect(useRooms.getState().pending[r.id]).toBeUndefined()
+    })
+
+    test("only its own message settles it: someone else's, or mine with another id, leaves the failed bubble", async () => {
+      const r = room()
+      useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+      const post = holdSend()
+      useRooms.getState().send(r.id, { body: 'on the train', mentions: [], files: [] })
+      post.fail()
+      await tick()
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: message({ roomId: r.id, seq: 1, body: 'on the train' }) } })
+      useRooms.getState().handleEvent({ type: 'room.message', seq: 2, at: Date.now(), data: { roomId: r.id, message: mine(r.id, 2, uuidv7()) } })
+      expect(useRooms.getState().pending[r.id]).toMatchObject([{ body: 'on the train', state: 'failed' }])
+      const s = useRooms.getState()
+      expect(settledPending(s)).toBe(s.pending)
+    })
+  })
+
   test('a message for a room this window does not know yet reads that room', async () => {
     useRooms.setState({ rooms: [], loaded: true })
     const r = room({ unreadCount: 1, lastSeq: 1 })
@@ -582,6 +663,42 @@ describe('a page read while messages come in', () => {
     const t = useRooms.getState().timeline!
     expect(t.messages.map((m) => m.id)).toEqual([newest.id, mine.id])
     expect(t.newerCursor ?? null).toBeNull()
+  })
+
+  // how far the page would read it with every message in sight (pages/Room.tsx tryRead)
+  const readNow = (roomId: string) => readUpTo(useRooms.getState().timeline!, useRooms.getState().rooms.find((x) => x.id === roomId)!.lastReadSeq, () => true)
+
+  test('opened from a notification with the first page slow: a live message alone on screen reads nothing (QA TC-155)', async () => {
+    const r = room({ lastSeq: 30, lastReadSeq: 0, unreadCount: 30 })
+    const backlog = Array.from({ length: 30 }, (_, i) => message({ roomId: r.id, seq: i + 1 }))
+    useRooms.setState({ rooms: [r], loaded: true })
+    useRooms.getState().open(r.id)
+    await tick()
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: message({ roomId: r.id, seq: 31, body: 'live-001' }) } })
+    expect(seqs()).toEqual([31])
+    expect(readNow(r.id)).toBe(0)
+    held.find((h) => h.path.endsWith('/messages'))!.release({ items: backlog, nextCursor: null })
+    await tick()
+    await tick()
+    expect(readNow(r.id)).toBe(31)
+  })
+
+  test('more unread than one page: the newest page reads nothing until the older one is loaded (QA TC-155)', async () => {
+    const r = room({ lastSeq: 62, lastReadSeq: 0, unreadCount: 62 })
+    const all = Array.from({ length: 62 }, (_, i) => message({ roomId: r.id, seq: i + 1 }))
+    useRooms.setState({ rooms: [r], loaded: true })
+    useRooms.getState().open(r.id)
+    await tick()
+    held.find((h) => h.path.endsWith('/messages'))!.release({ items: all.slice(12), nextCursor: 'older' })
+    await tick()
+    await tick()
+    expect(seqs()).toHaveLength(50)
+    expect(readNow(r.id)).toBe(0)
+    const older = useRooms.getState().loadOlder(r.id)
+    await tick()
+    held.find((h) => h.path.endsWith('/messages') && h !== held[0])!.release({ items: all.slice(0, 12), nextCursor: null })
+    await older
+    expect(readNow(r.id)).toBe(62)
   })
 
   test('an edit made while a page loads shows on that page', async () => {

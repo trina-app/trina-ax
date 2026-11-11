@@ -5,7 +5,7 @@
 // a chat), and where it may be dropped.
 import { describe, expect, test } from 'bun:test'
 import { ApiError, type FileEntry } from '@mycel/shared/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, narrowedBy, projectSkillsOn, widenedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, narrowedBy, projectSkillsOn, widenedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
 import { TEAM_FILE_DRAG_TYPE } from '../../src/lib/teamAttach'
 
 const entry = (path: string, o: Partial<FileEntry> = {}): FileEntry => ({ name: path.slice(path.lastIndexOf('/') + 1), path, type: 'file', size: 1, mtime: '2026-10-28T00:00:00.000Z', mime: null, access: 'write', ...o })
@@ -45,6 +45,22 @@ describe('selection', () => {
     expect(canChange(entry('x', { access: 'read' }))).toBe(false)
     expect(canShare(entry('x', { access: 'read' }))).toBe(true)
     expect(canShare(entry('x', { type: 'folder' }))).toBe(false)
+  })
+
+  test("a folder the server marks fixed (a member's group folder, a personal folder) is not moved, trashed or dragged to move (QA TC-224)", () => {
+    const group = entry('groups/sales', { type: 'folder', fixed: 'admin' })
+    const own = entry('users/mina', { type: 'folder', fixed: 'always' })
+    const plain = entry('groups/sales/plain', { type: 'folder' })
+    expect(canChange(group)).toBe(false)
+    expect(canChange(own)).toBe(false)
+    expect(canChange(plain)).toBe(true)
+    expect(isFixed(group)).toBe(true)
+    expect(isFixed(plain)).toBe(false)
+    // read-only stays read-only, not fixed
+    expect(isFixed(entry('x', { type: 'folder', access: 'read', fixed: 'admin' }))).toBe(false)
+    expect(dragPayload([group], group)).toBeNull()
+    expect(dropRefusal([group], { path: 'shared', access: 'write' })).toBe('nothing')
+    expect(dropRefusal([group, plain], { path: 'shared', access: 'write' })).toBeNull()
   })
 })
 

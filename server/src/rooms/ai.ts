@@ -132,6 +132,7 @@ export class RoomAi implements RoomTurns {
     if (safeOpsEnabled()) fail('forbidden', tr('roomAiSafeOps', locale), { params: { reason: 'room_ai_safe_ops' } })
     const chat = this.session(roomId, userId)
     if (chat && confidentialChat(this.db, chat.id)) fail('forbidden', tr('roomAiSafeOps', locale), { params: { reason: 'room_ai_safe_ops' } })
+    if (chat && rt.endingUnconfirmed(chat.id)) fail('conflict', tr('earlierAnswerEnding', locale), { params: { reason: 'earlier_answer_ending' } })
     if (chat && rt.activeTurn(chat.id)) fail('conflict', tr('roomAiBusy', locale), { params: { reason: 'room_ai_busy' } })
     const b = budgetBlock(this.db, userId, locale)
     if (b) fail('budget_exceeded', b.message)

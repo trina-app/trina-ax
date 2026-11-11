@@ -13,6 +13,8 @@ export interface FileUpload {
   status: 'uploading' | 'done' | 'failed'
   error?: string
   abort: AbortController
+  /** a failed upload: the same file again (a large one goes on from the chunks the server has; QA TC-223) */
+  retry?: () => void
 }
 
 export const useFileUploads = create<{ items: FileUpload[] }>(() => ({ items: [] }))

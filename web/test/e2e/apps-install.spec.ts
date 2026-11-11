@@ -79,23 +79,16 @@ test.describe('a Mac in Chrome', () => {
     expect(await y(page, 'apps-computer')).toBeLessThan(await y(page, 'install-guide-desktop'))
     expect(await noOverflow(page)).toBe(true)
   })
-  test("the server's Mac installer too: the App Store first, the installer and its warning folded under it", async ({ page }) => {
+  test("the server's Mac installer too: the Mac row is still only the App Store, no installer file (owner, 2026-11-11)", async ({ page }) => {
     test.skip(!APP_DOWNLOADS.mac, 'an edition without a Mac App Store listing')
     const dialog = await open(page, { downloads: MAC_AND_WINDOWS })
     const mac = dialog.getByTestId('app-row-mac')
     await expect(mac.getByTestId('app-link-mac')).toHaveAttribute('href', APP_DOWNLOADS.mac)
     await expect(mac.getByTestId('app-link-mac')).toContainText('App Store')
-    const fold = mac.getByTestId('app-more-mac')
-    await expect(fold.locator('summary')).toHaveText('Mac 설치 파일 내려받기')
-    expect(await y(page, 'app-link-mac')).toBeLessThan(await y(page, 'app-more-mac'))
-    const gatekeeper = mac.getByText('"열 수 없습니다" 경고가 나오면', { exact: false })
-    await expect(mac.getByTestId('app-file-mac')).toBeHidden()
-    await expect(gatekeeper).toBeHidden()
-    await fold.locator('summary').click()
-    await expect(mac.getByTestId('app-file-mac')).toBeVisible()
-    await expect(mac.getByTestId('app-file-mac')).toHaveAttribute('href', '/downloads/Trina-AX-0.3.0-mac-universal.dmg')
-    await expect(mac.getByTestId('app-file-mac')).toContainText('내려받기 · v0.3.0')
-    await expect(gatekeeper).toBeVisible()
+    await expect(mac.getByRole('link')).toHaveCount(1)
+    await expect(dialog.getByTestId('app-file-mac')).toHaveCount(0)
+    await expect(dialog.locator('a[href$=".dmg"]')).toHaveCount(0)
+    await expect(dialog).not.toContainText('"열 수 없습니다" 경고가 나오면')
     // the Windows row is as it was: its installer, no steps on a Mac
     await expect(windowsLink(page)).toBeVisible()
     await expect(dialog).not.toContainText('Windows의 PC 보호')
@@ -127,10 +120,6 @@ test.describe('a Mac in Chrome', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     const dialog = await open(page, { downloads: MAC_AND_WINDOWS })
     await expect(dialog.getByTestId('install-steps-chromium').getByRole('listitem')).toHaveCount(3)
-    if (APP_DOWNLOADS.mac) {
-      await dialog.getByTestId('app-more-mac').locator('summary').click()
-      await expect(dialog.getByTestId('app-file-mac')).toBeVisible()
-    }
     for (const id of ['app-row-iphone', 'app-row-mac', 'app-row-windows']) {
       const box = (await dialog.getByTestId(id).boundingBox())!
       expect(box.x + box.width, id).toBeLessThanOrEqual(390)
@@ -207,7 +196,6 @@ test.describe('the Mac App Store build', () => {
     await expect(mac).toContainText('이 앱은 Mac App Store에서 설치했어요. 업데이트도 App Store에서 받아요.')
     await expect(mac.getByRole('link')).toHaveCount(0)
     await expect(dialog.locator('a[href^="/downloads/"]')).toHaveCount(0)
-    await expect(dialog.getByTestId('app-more-mac')).toHaveCount(0)
     if (APP_DOWNLOADS.page) await expect(dialog.getByTestId('app-link-windows')).toHaveAttribute('href', APP_DOWNLOADS.page)
     // App Review 2.3.10: an Apple app names no other mobile platform; the QR code leads to the page that has it
     await expect(dialog).not.toContainText(/Android|Google Play|Microsoft Store/)

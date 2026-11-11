@@ -22,6 +22,7 @@ import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
 import { AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
+import { serviceRequestOut } from '../integrations/service-request-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
 const OFFER_BATCH = 500
@@ -52,7 +53,9 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : 'notification_inbox'
+export type ServiceRequestEvent = Extract<NotificationEventType, 'service.request' | 'service.ready'>
+const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -60,8 +63,10 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
- * a transfer, a locked password check: migration 270) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices'] as const
+ * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
+ * a member's ask to add an app with its answer (migration 343) and a password reset link made for the person (migration 119)
+ * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -175,6 +180,45 @@ export class Notifications {
    * project.member_gained audit row's id only. Shown always and never pushed: it is rare and quiet. */
   projectJoined(userId: string, auditId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'project.joined', auditId, createdAt, true)
+  }
+  /** A member asked to add an app the team has not set up (integrations/service-requests.ts): one notice per owner or
+   * admin and app (the source is the app's id). A new ask arms it again (unread, its time now: it moves up and names
+   * the newest asker) instead of adding a second row, so many asks are one notice. Shown always: there is no setting
+   * for it, and someone waits. */
+  serviceRequested(userId: string, service: string, at = new Date().toISOString()) {
+    if (!this.active(userId)) return
+    const again = this.ctx.db.query("UPDATE service_request_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='service.request' AND source_id=?").run(at, userId, service)
+    if (again.changes) { this.signal(userId); return }
+    this.record(userId, 'service.request', service, at, true)
+  }
+  /** The app a member asked for can be connected now: one quiet notice for them (the source is the request's id).
+   * Inbox only, never an OS push. */
+  serviceReady(userId: string, requestId: string, at = new Date().toISOString()) {
+    this.record(userId, 'service.ready', requestId, at, true)
+  }
+  /** Who handles the asks changed (the 30-second check): someone no longer an active owner or admin loses the notices
+   * (nothing there is theirs to do), and an owner or admin made since gets the notice of each app asked for now. */
+  syncServiceRequests() {
+    const db = this.ctx.db
+    const gone = db.query(`DELETE FROM service_request_notices WHERE event_type='service.request'
+      AND user_id NOT IN (SELECT id FROM users WHERE role IN ('owner','admin') AND status='active' AND deleted_at IS NULL) RETURNING user_id`).all() as { user_id: string }[]
+    for (const u of new Set(gone.map((r) => r.user_id))) if (this.active(u)) this.signal(u)
+    const open = (db.query('SELECT DISTINCT service FROM service_requests WHERE closed_at IS NULL').all() as { service: string }[]).map((r) => r.service)
+    if (!open.length) return
+    const has = db.query("SELECT 1 FROM service_request_notices WHERE user_id=? AND event_type='service.request' AND source_id=?")
+    const at = new Date().toISOString()
+    for (const id of admins(db)) for (const s of open) if (!has.get(id, s)) this.record(id, 'service.request', s, at, true)
+  }
+  /** No request for the app waits any more: the owners' and admins' notice for it counts as read. */
+  settleServiceRequests(service: string) {
+    const rows = this.ctx.db.query("UPDATE service_request_notices SET read_at=? WHERE event_type='service.request' AND source_id=? AND read_at IS NULL RETURNING user_id").all(new Date().toISOString(), service) as { user_id: string }[]
+    for (const u of new Set(rows.map((r) => r.user_id))) if (this.active(u)) this.signal(u)
+  }
+  /** A password reset link was made for this person (auth/accounts.ts createResetLink): on the server (mycel-account /
+   * mycel-ctl reset-link) or by an owner or admin. The source is the link's row id, never the token. Shown always: the
+   * link signs its holder in as them, and only they know whether they asked for it (QA TC-202). */
+  resetLinkMade(userId: string, resetId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'account.reset_link', resetId, createdAt, true)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
@@ -464,6 +508,10 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: null,
         ...(q && host ? { request: { name: q.name, host } } : {}) }
     }
+    // a member's ask to add an app: for an owner or admin, who asks (the newest asker by name, and how many others)
+    // while any request waits, else who asked in the round that ended; the app only for someone who is neither now.
+    // The asker's answer: the app, to connect (never who set it up)
+    if (isServiceRequestEvent(row.event_type)) return serviceRequestOut(this.ctx.db, row)
     // the owner sees who asks (a name, nothing else) and goes to Admin › AI connections
     if (row.event_type === 'onboarding.ai_request') {
       const notReady = row.source_id.startsWith(NOT_READY_SOURCE)
@@ -511,6 +559,14 @@ export class Notifications {
       const own = !!n && n.action.startsWith('personal_')
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: n && !own ? 'admin_credentials' : null, outcome: null,
         ...(n ? { credentialChange: { who: n.actor_name, action: n.action, subject: n.subject } } : {}) }
+    }
+    // a reset link made for me: by the server or by whom (a name while the account is there), and whether it still works
+    // (unused, not replaced, not expired: read now, so the advice to change the password goes once it no longer helps)
+    if (row.event_type === 'account.reset_link') {
+      const r = this.ctx.db.query('SELECT created_by, expires_at, used_at FROM password_resets WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { created_by: string | null; expires_at: string; used_at: string | null } | null
+      const by = r?.created_by ? getUser(this.ctx.db, r.created_by) : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
+        ...(r ? { resetLink: { server: r.created_by === null, by: by ? plainLabel(by.name, 80) : null, open: !r.used_at && Date.parse(r.expires_at) > Date.now() } } : {}) }
     }
     // the skills to merge after the welcome steps: how many, and the merge chat while it is the owner's and not deleted
     if (row.event_type === 'skills.merge_waiting') {
@@ -664,6 +720,10 @@ export function notifyIntegrationRequest(ctx: AppContext, userId: string, reques
   try { notificationsOf(ctx).integrationRequest(userId, requestId) }
   catch { ctx.log.warn('connection request notification recording failed') }
 }
+export function notifyResetLink(ctx: AppContext, userId: string, resetId: string) {
+  try { notificationsOf(ctx).resetLinkMade(userId, resetId) }
+  catch { ctx.log.warn('reset link notification recording failed') }
+}
 export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joinedUserId: string) {
   for (const userId of new Set(userIds)) {
     try { notificationsOf(ctx).teamJoined(userId, joinedUserId) }
@@ -708,4 +768,23 @@ export function notifyDriveShareReconnect(ctx: AppContext, _shareId: string, sou
 export function notifyTemplateReconnect(ctx: AppContext, userId: string, templateId: string, version: number) {
   try { notificationsOf(ctx).templateReconnect(userId, templateId, version) }
   catch { ctx.log.warn('template reconnect notice deferred') }
+}
+/** A member asked to add an app: told to each owner and admin (one notice per person and app). */
+export function notifyServiceRequested(ctx: AppContext, userIds: Iterable<string>, service: string) {
+  for (const userId of new Set(userIds)) {
+    try { notificationsOf(ctx).serviceRequested(userId, service) }
+    catch { ctx.log.warn('app request notice deferred') }
+  }
+}
+export function notifyServiceReady(ctx: AppContext, userId: string, requestId: string) {
+  try { notificationsOf(ctx).serviceReady(userId, requestId) }
+  catch { ctx.log.warn('app ready notice deferred') }
+}
+export function syncServiceRequestNotices(ctx: AppContext) {
+  try { notificationsOf(ctx).syncServiceRequests() }
+  catch { ctx.log.warn('app request notices deferred') }
+}
+export function settleServiceRequestNotices(ctx: AppContext, service: string) {
+  try { notificationsOf(ctx).settleServiceRequests(service) }
+  catch { ctx.log.warn('app request notice not marked read') }
 }

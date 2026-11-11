@@ -14,6 +14,11 @@
 // the database) and watches it like an update, without a roll-back; when it keeps dying too, or there is nothing to go
 // forward to, the bootstrap stops starting the server and records why (state.json blocked + history) instead of
 // restarting a build that can never read the database (decision: fix/update-rollback-schema-too-new, 2026-11-11).
+// A new version that has to update a large database first (a copy, then the migrations: minutes on several GB) answers
+// /api/health 503 {status: "migrating", version} meanwhile (server/src/system/migrate-start.ts). While it says so with
+// the version the bootstrap started, the deadline moves to now + --health-timeout; still migrating after start +
+// --migrate-timeout, it is rolled back;
+// progress goes to the log every minute. Dying still counts towards --max-attempts (QA TC-278, 2026-11-12).
 // Normal crashes restart after 1 s; more than 5 crashes in 5 minutes back off 1, 2, 4 ... 60 s. launchd's KeepAlive
 // only restarts the bootstrap itself.
 package main
@@ -42,13 +47,14 @@ func (m *multi) String() string     { return strings.Join(*m, ",") }
 func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
 var (
-	appDir        = flag.String("app", "", "<base>/app (versions/, current, state.json)")
-	configFile    = flag.String("config", "", "server.json (passed to the server as MYCEL_CONFIG; listen address for the health check)")
-	healthTimeout = flag.Duration("health-timeout", 120*time.Second, "a pending update must answer /api/health within this time")
-	maxAttempts   = flag.Int("max-attempts", 3, "a pending update that dies this many times before it is healthy is rolled back")
-	allowUnsigned = flag.Bool("allow-unsigned", false, "accept versions without manifest.sig (development and test installs; no release key exists yet)")
-	updateLog     = flag.String("update-log", "", "append update / roll-back events here (JSON lines)")
-	pubkeys       multi
+	appDir         = flag.String("app", "", "<base>/app (versions/, current, state.json)")
+	configFile     = flag.String("config", "", "server.json (passed to the server as MYCEL_CONFIG; listen address for the health check)")
+	healthTimeout  = flag.Duration("health-timeout", 120*time.Second, "a pending update must answer /api/health within this time")
+	migrateTimeout = flag.Duration("migrate-timeout", 60*time.Minute, "a pending update that reports it is updating its database (/api/health status migrating) may take this long from its start")
+	maxAttempts    = flag.Int("max-attempts", 3, "a pending update that dies this many times before it is healthy is rolled back")
+	allowUnsigned  = flag.Bool("allow-unsigned", false, "accept versions without manifest.sig (development and test installs; no release key exists yet)")
+	updateLog      = flag.String("update-log", "", "append update / roll-back events here (JSON lines)")
+	pubkeys        multi
 )
 
 // ---------- state.json (shared/src/install.ts AppState) ----------
@@ -185,7 +191,8 @@ func verifyVersion(v string) error {
 // ---------- health ----------
 
 type serverConfig struct {
-	Listen struct {
+	DataDir string `json:"dataDir"`
+	Listen  struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"listen"`
@@ -207,20 +214,73 @@ func healthURL() string {
 	return fmt.Sprintf("http://%s:%d/api/health", host, port)
 }
 
-func healthy(url, version string) bool {
+type healthState int
+
+const (
+	notHealthy healthState = iota
+	isHealthy
+	// migrating: the version is updating its database before it starts (503 status "migrating" with its version)
+	migrating
+)
+
+// checkHealth asks /api/health; progress is the migrating server's own report, for the log
+func checkHealth(url, version string) (healthState, string) {
 	cl := http.Client{Timeout: 3 * time.Second}
 	r, err := cl.Get(url)
 	if err != nil {
-		return false
+		return notHealthy, ""
 	}
 	defer r.Body.Close()
 	var h struct {
-		Ok      bool   `json:"ok"`
-		Version string `json:"version"`
+		Ok        bool   `json:"ok"`
+		Version   string `json:"version"`
+		Status    string `json:"status"`
+		Migrating *struct {
+			Pending     int   `json:"pending"`
+			CopiedBytes int64 `json:"copiedBytes"`
+			DbBytes     int64 `json:"dbBytes"`
+		} `json:"migrating"`
 	}
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-	return r.StatusCode == 200 && json.Unmarshal(b, &h) == nil && h.Ok && h.Version == version
+	if json.Unmarshal(b, &h) != nil || h.Version != version {
+		return notHealthy, ""
+	}
+	if r.StatusCode == 200 && h.Ok {
+		return isHealthy, ""
+	}
+	if r.StatusCode == 503 && h.Status == "migrating" {
+		p := ""
+		if m := h.Migrating; m != nil {
+			p = fmt.Sprintf("%d migrations pending, copy before migrating %d of %d MB", m.Pending, m.CopiedBytes>>20, m.DbBytes>>20)
+		}
+		return migrating, p
+	}
+	return notHealthy, ""
 }
+
+func healthy(url, version string) bool {
+	s, _ := checkHealth(url, version)
+	return s == isHealthy
+}
+
+// extendDeadline: a version that reports migrating gets --health-timeout from now (never less than it had), so the
+// start after a long migration has the usual time; still migrating past start + --migrate-timeout: no more time (the
+// wait is bounded by --migrate-timeout + --health-timeout)
+func extendDeadline(deadline, started, now time.Time) time.Time {
+	if now.After(started.Add(*migrateTimeout)) {
+		if deadline.After(now) {
+			return now
+		}
+		return deadline
+	}
+	if d := now.Add(*healthTimeout); d.After(deadline) {
+		return d
+	}
+	return deadline
+}
+
+// migrateLogEvery: how often the log says a version is still updating its database (tests make it short)
+var migrateLogEvery = time.Minute
 
 // ---------- supervision ----------
 
@@ -326,8 +386,15 @@ func forwardTarget(st appState, v string) string {
 // nowhere (the result the server, mycel-ctl update and the update hold already know). Then it waits (stopAndWait).
 func block(st *appState, v, why string) bool {
 	st.Pending, st.PendingSince, st.Forward, st.Attempts = nil, nil, nil, 0
-	detail := "stopped: " + why + ". Restore the database backup made before the update (data/backups/pre-migrate-*.db) " +
-		"or install a version that starts. The server starts again when app/current changes, or on SIGHUP to the bootstrap " +
+	// st.Current stays the version before this update although app/current points at v: until v is healthy, current
+	// means "the last version that ran" (the update protocol; the stop reason, the history's `from` once v starts after
+	// a SIGHUP, and the version clean-up keeping that build all read it); st.Blocked.Version names v
+	restore := "Restore the database backup made before the update (data/backups/pre-migrate-*.db)"
+	if f := newestPreMigrate(); f != "" {
+		restore = "Restore the database backup made before the update: " + f + " (the newest data/backups/pre-migrate-*.db)"
+	}
+	detail := "stopped: " + why + ". " + restore + "; everything recorded in the app since the update (messages, settings, " +
+		"the history of file changes) will be lost; the files in the team folder stay as they are. Or install a version that starts. The server starts again when app/current changes, or on SIGHUP to the bootstrap " +
 		"(Linux: systemctl kill -s HUP <id>-server.service; macOS: launchctl kill HUP system/<label>.server)"
 	st.Blocked = &blockedState{Version: v, Since: time.Now().UTC().Format(time.RFC3339Nano), Detail: detail}
 	record(st, sp(v), v, "rolled_back", detail)
@@ -336,6 +403,42 @@ func block(st *appState, v, why string) bool {
 		return stopAndWait(v, detail, false)
 	}
 	return stopAndWait(v, detail, true)
+}
+
+// backupsDir: where the server copies the database before migrations (server/src/db.ts: <dataDir>/backups)
+func backupsDir() string {
+	dataDir := filepath.Join(filepath.Dir(*appDir), "data")
+	if b, err := os.ReadFile(*configFile); err == nil {
+		var c serverConfig
+		if json.Unmarshal(b, &c) == nil && c.DataDir != "" {
+			dataDir = c.DataDir
+			if !filepath.IsAbs(dataDir) {
+				dataDir = filepath.Join(filepath.Dir(*configFile), dataDir) // as server/src/app-config.ts resolves it
+			}
+		}
+	}
+	return filepath.Join(dataDir, "backups")
+}
+
+// newestPreMigrate: the newest pre-migrate-*.db (names start with an ISO time, so the largest name is the newest);
+// "" when there is none or the folder cannot be read
+func newestPreMigrate() string {
+	dir := backupsDir()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, e := range ents {
+		n := e.Name()
+		if e.Type().IsRegular() && strings.HasPrefix(n, "pre-migrate-") && strings.HasSuffix(n, ".db") && n > best {
+			best = n
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return filepath.Join(dir, best)
 }
 
 // stopAndWait waits while the server is stopped at v, then sets up one more watched try when app/current still points
@@ -348,6 +451,8 @@ func stopAndWait(v, detail string, persisted bool) bool {
 	if cur, err := currentVersion(); err == nil && cur == v {
 		// one more try of the same version, watched like a forwarded one: no roll-back, stops again after --max-attempts
 		st.Forward, st.Attempts = sp(v), 0
+	} else if err == nil && str(st.Pending) != cur {
+		st.Current = sp(cur) // an administrator pointed app/current elsewhere: that is what runs now
 	}
 	st.Blocked = nil
 	_ = writeState(st)
@@ -415,6 +520,9 @@ func run() int {
 		}
 		if st.Blocked != nil {
 			st.Blocked = nil // app/current changed (an update, an administrator)
+			if str(st.Pending) != v {
+				st.Current = sp(v) // an administrator pointed it elsewhere: that is what runs now
+			}
 			_ = writeState(st)
 		}
 		pending := str(st.Pending) == v
@@ -458,6 +566,7 @@ func run() int {
 			healthyCh = time.After(0)
 		}
 		deadline := started.Add(*healthTimeout)
+		sawMigrating, migrateLogged := false, time.Time{}
 		exited := false
 		var werr error
 	watch:
@@ -473,7 +582,17 @@ func run() int {
 			case <-hup:
 				_ = cmd.Process.Signal(syscall.SIGHUP)
 			case <-healthyCh:
-				if healthy(url, v) {
+				hs, progress := checkHealth(url, v)
+				if hs == migrating {
+					deadline = extendDeadline(deadline, started, time.Now())
+					if !sawMigrating || time.Since(migrateLogged) >= migrateLogEvery {
+						logf("version %s is updating its database (%s), %v so far; waiting while it does, at most %v after its start",
+							v, orDash(progress), time.Since(started).Round(time.Second), *migrateTimeout)
+						migrateLogged = time.Now()
+					}
+					sawMigrating = true
+				}
+				if hs == isHealthy {
 					st = readState()
 					from := st.Current // the version before this update (the server left current alone when it switched)
 					if from != nil && *from == v {
@@ -497,10 +616,16 @@ func run() int {
 					continue
 				}
 				if pending && time.Now().After(deadline) {
-					logf("version %s not healthy after %v", v, *healthTimeout)
+					why := fmt.Sprintf("not healthy within %v", *healthTimeout)
+					if hs == migrating {
+						why = fmt.Sprintf("still updating its database after %v (--migrate-timeout)", time.Since(started).Round(time.Second))
+					} else if sawMigrating {
+						why = fmt.Sprintf("not healthy within %v after it updated its database", *healthTimeout)
+					}
+					logf("version %s: %s", v, why)
 					stopChild(cmd, done)
 					st = readState()
-					rollBack(&st, v, fmt.Sprintf("not healthy within %v", *healthTimeout))
+					rollBack(&st, v, why)
 					break watch
 				}
 				// a forwarded version is left running: the older one cannot read the database
@@ -580,6 +705,13 @@ func run() int {
 			return 0
 		}
 	}
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 func orUnknown(p *string) string {
