@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, PersonFolderAccess } from '@mycel/shared/api'
 import { DICTS, translate, type MessageKey, type Params } from '../../src/i18n'
-import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, skillEditorsElsewhere, skillEditorsText, skillFoldersWithEditors, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
+import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, manageMembersLink, membersOnlyFolder, membersOnlyText, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, skillEditorsElsewhere, skillEditorsText, skillFoldersWithEditors, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
 import { personViewLink } from '../../src/pages/admin/AccessResults'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
@@ -58,10 +58,18 @@ describe('reasons, in words', () => {
     expect(why(ko, f)).toBe('이 폴더의 규칙 · 모두: 열 수 없음')
   })
 
-  test('owner and admins: everything but other people\'s personal folders; rules are not offered there', () => {
+  test('owner and admins: everything but other people\'s personal folders and projects they are not in; rules are not offered there', () => {
     const f = row('docs', { access: 'write', reason: { kind: 'owner-admin' } })
-    expect(why(ko, f, 'admin')).toBe('관리자라서 다른 사람의 개인 폴더 말고는 모두 볼 수 있어요')
-    expect(why(ko, f, 'owner')).toBe('팀장이라서 다른 사람의 개인 폴더 말고는 모두 볼 수 있어요')
+    expect(why(ko, f, 'admin')).toBe('관리자라서 다른 사람의 개인 폴더와 멤버가 아닌 프로젝트 말고는 모두 볼 수 있어요')
+    expect(why(ko, f, 'owner')).toBe('팀장이라서 다른 사람의 개인 폴더와 멤버가 아닌 프로젝트 말고는 모두 볼 수 있어요')
+    expect(why(en, f, 'owner')).toBe("The owner sees everything except other people's personal folders and projects they're not in")
+    // the note above the rows says the same (docs/DECISIONS.md "Project contents only for members")
+    expect(ko('accessView.ownerNote')).toBe('팀장은 다른 사람의 개인 폴더와 멤버가 아닌 프로젝트 말고는 모든 팀 폴더를 보고 고칠 수 있어요.')
+    expect(en('accessView.ownerNote')).toBe("The owner can view and edit every team folder except other people's personal folders and projects they're not a member of.")
+    expect(en('accessView.adminNote')).toBe("Admins can view and edit every team folder except other people's personal folders and projects they're not a member of.")
+    for (const l of ['en', 'ko', 'es', 'id', 'ja'] as const) for (const k of ['accessView.ownerNote', 'accessView.adminNote', 'accessEdit.basicHint'] as const) {
+      expect({ l, k, rules: /rule|규칙|regla|aturan|ルール/i.test(translate(l, k)) }).toEqual({ l, k, rules: false })
+    }
     expect(rulesApply(f)).toBe(false)
     expect(rulesApply(row('docs', { reason: rule('docs', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'read' }]) }))).toBe(true)
     expect(rulesApply(row('users/bob', { kinds: ['personal'], reason: { kind: 'own-personal' } }))).toBe(false)
@@ -414,5 +422,50 @@ describe('stage 6–7: who can edit team skills, in words', () => {
     expect(skillEditorsElsewhere(en, [staff, root({ subject: all, access: 'write', count: 9 })], 12)).toEqual(['9 others'])
     // a name with its own honorific keeps one
     expect(skillEditorsElsewhere(ko, [root({ subject: { type: 'user', id: 'k', name: '김대표님' }, access: 'write', count: 1 })], 12)).toEqual(['김대표님'])
+  })
+})
+
+describe('a team project\'s folder (docs/DECISIONS.md "Project contents only for members")', () => {
+  const who = (w: Partial<AccessTreeNode['who'][number]>[]): Pick<AccessTreeNode, 'who'> => ({
+    who: w.map((x) => ({ reason: 'rule', folder: 'projects/acme', subject: null, access: 'write', count: 1, ...x }) as AccessTreeNode['who'][number]),
+  })
+  test('"멤버만" and its members\' count, never "팀장과 관리자만"; nobody active: said so', () => {
+    expect(membersOnlyText(ko, who([{ subject: { type: 'group', id: 'g1', name: 'Leads' }, count: 3 }, { reason: 'no-rule', access: 'none', count: 4 }]))).toBe('멤버만 · 3명이 봐요')
+    expect(membersOnlyText(en, who([{ subject: { type: 'user', id: 'bob', name: 'Bob' }, count: 1 }]))).toBe('Members only · 1 person sees it')
+    // the owner and admins outside it are no members: nobody by a rule is "no active members", not "owner and admins only"
+    const none = membersOnlyText(ko, who([{ reason: 'no-rule', access: 'none', count: 5 }]))
+    expect(none).toBe('멤버만 · 남은 멤버 없음')
+    expect(none).not.toContain(ko('accessTree.who.adminsOnly'))
+    expect(en('accessTree.membersOnly')).toBe('Members only')
+    expect(ko('accessTree.membersOnly')).toBe('멤버만')
+  })
+  test('which folders: a project\'s own folder in projects/ (any letter case); not a folder inside, nor one made before elsewhere', () => {
+    expect(membersOnlyFolder({ path: 'projects/acme', kinds: ['project'] })).toBe(true)
+    expect(membersOnlyFolder({ path: 'Projects/acme', kinds: ['project', 'rules'] })).toBe(true)
+    expect(membersOnlyFolder({ path: 'projects/acme', kinds: ['rules'] })).toBe(false)
+    expect(membersOnlyFolder({ path: 'shared/acme', kinds: ['project'] })).toBe(false)
+    expect(membersOnlyFolder({ path: 'projects', kinds: ['top'] })).toBe(false)
+  })
+  test('a person at a project\'s folder (or inside it): "Member" or "Not a member", never the setting that decided nor "only the owner and admins"', () => {
+    const at = (path: string, o: Partial<PersonFolderAccess>) => row(path, { kinds: ['project', 'rules'], listable: false, ...o })
+    const floor = rule('projects/acme', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
+    expect(why(ko, at('projects/acme', { access: 'none', reason: floor }), 'owner', known('projects/acme'))).toBe('멤버가 아니에요')
+    expect(why(en, at('projects/acme', { access: 'none', reason: floor }), 'admin', known('projects/acme'))).toBe('Not a member')
+    expect(why(ko, at('projects/acme', { access: 'write', reason: rule('projects/acme', 'group', [{ subjectType: 'group', subjectId: 'g1', access: 'write' }]) }), 'member', known('projects/acme'))).toBe('멤버')
+    expect(why(en, at('Projects/acme/drafts', { access: 'read', reason: rule('', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'read' }]) }), 'member', known(''))).toBe('Member')
+    // an older project folder with no setting of its own: not "only the owner and admins can open it"
+    const older = at('projects/old', { access: 'none', reason: { kind: 'no-rule' } })
+    expect(why(ko, older, 'member', known('finance'))).toBe('멤버가 아니에요')
+    expect(why(ko, older, 'member', known('finance'))).not.toBe(ko('accessView.why.noRuleAtAll'))
+    // the people of the folder's list (FolderPeople: kinds unknown) say the same by its path
+    expect(why(ko, row('projects/acme', { kinds: [], access: 'none', listable: false, reason: floor }), 'admin', names)).toBe('멤버가 아니에요')
+    // projects/ itself and a project made before elsewhere: as any folder
+    expect(why(ko, row('projects', { access: 'none', listable: false, reason: rule('projects', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'none' }]) }), 'member', names)).toBe('이 폴더의 규칙 · 모두: 열 수 없음')
+    expect(why(ko, row('partners/apollo', { kinds: ['project'], access: 'none', listable: false, reason: rule('partners/apollo', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'none' }]) }), 'member', names)).toBe('이 폴더의 규칙 · 모두: 열 수 없음')
+  })
+  test('"멤버 관리" opens the project\'s members dialog on its page', () => {
+    expect(manageMembersLink({ projects: [{ id: 'p 1', name: 'Acme' }] })).toBe('/projects/p%201?members=1')
+    expect(manageMembersLink({})).toBeNull()
+    expect(ko('accessTree.manageMembers')).toBe('멤버 관리')
   })
 })

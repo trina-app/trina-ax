@@ -140,7 +140,8 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
   const [busy, setBusy] = useState(false)
   // you first, so adding yourself is the first tick; the rest keep the team's order (by when they joined)
   const meId = useMeStrict().user.id
-  const people = [...users].sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
+  // a disabled account is offered only while it is already in the group (to take it out): the server never adds one
+  const people = [...users].filter((u) => u.status === 'active' || group?.memberIds.includes(u.id)).sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
   const save = async () => {
     setBusy(true)
     const body = { name: name.trim(), description: description.trim() || null, memberIds }

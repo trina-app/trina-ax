@@ -10,7 +10,7 @@ import { MAX_DEPTH } from '../../server/src/policy/names'
 import { OPEN_LEVELS, OPEN_ROWS } from '../../server/src/admin/access-tree'
 import { newId } from '../../server/src/db'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
-import { legacyProject } from '../lib/legacy-project'
+import { legacyProject, legacyProjectFolder } from '../lib/legacy-project'
 
 let h: Harness
 let owner: Client
@@ -45,8 +45,10 @@ beforeAll(async () => {
   await addMember(h, owner, { username: 'carl', groupIds: [sales] })
   await addMember(h, owner, { username: 'dora', groupIds: [sales] })
   await addMember(h, owner, { username: 'erik' })
-  await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo', rules: [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('everyone', null, 'none')] })
-  await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo/drafts', rules: [rule('user', 'bob', 'write')] })
+  // the project's rules as builds before "Project contents only for members" let an admin set them (Admin › Folder
+  // permissions refuses every path at or under projects/<name> now: tests/lib/legacy-project.ts)
+  legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo', [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('everyone', null, 'none')], 'adam')
+  legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo/drafts', [rule('user', 'bob', 'write')], 'adam')
   await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [rule('everyone', null, 'none'), rule('group', ops, 'read')] })
   // made as builds before "Projects live only in projects/" made them on existing folders (tests/lib/legacy-project.ts)
   legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Apollo', folderPath: 'projects/apollo' })
@@ -88,14 +90,17 @@ describe('one level', () => {
 
   test('kinds, own rules and what is below: group, project and connected folders; inherited folders', async () => {
     const top = await tree('')
-    expect(child(top, 'projects')).toMatchObject({ rules: 0, folders: true, marked: 2, kinds: [] })
+    // apollo is marked; its drafts (a rule folder inside the project) is not counted: nothing inside a team project is a
+    // row (docs/DECISIONS.md "Project contents only for members")
+    expect(child(top, 'projects')).toMatchObject({ rules: 0, folders: true, marked: 1, kinds: [] })
     expect(child(top, 'skills')).toMatchObject({ rules: 2, marked: 1, kinds: ['rules'] })
     expect(child(top, 'groups')!.marked).toBe(2)
     const projects = await tree('projects')
     const apollo = child(projects, 'apollo')!
     expect(apollo.kinds).toEqual(['rules', 'project'])
     expect(apollo.projects).toEqual([expect.objectContaining({ name: 'Apollo' })])
-    expect(apollo).toMatchObject({ rules: 3, folders: true, marked: 1, restricted: true })
+    // a team project is one row: its folders inside (drafts) are neither said nor counted
+    expect(apollo).toMatchObject({ rules: 3, folders: false, marked: 0, restricted: true })
     // alice's personal project is not a team folder: never named
     expect(JSON.stringify(projects)).not.toContain('Alice-private-plan')
     const groups = await tree('groups')
@@ -113,15 +118,17 @@ describe('one level', () => {
     const by = (type: string, id: string | null) => apollo.who.find((w) => w.subject?.type === type && w.subject.id === id)
     expect(by('user', 'alice')).toMatchObject({ reason: 'rule', folder: 'projects/apollo', access: 'write', count: 1, subject: { name: 'ALICE' } })
     expect(by('group', sales)).toMatchObject({ access: 'read', count: 1, subject: { name: 'Sales' } }) // dora (carl is switched off)
-    expect(by('everyone', null)).toMatchObject({ access: 'none', count: 2 }) // bob, erik
-    expect(apollo.who.find((w) => w.reason === 'owner-admin')).toMatchObject({ access: 'write', count: 2 })
+    // bob, erik, and the owner and the admin: inside a team project they are members with their groups, and no rule
+    // names them (docs/DECISIONS.md "Project contents only for members")
+    expect(by('everyone', null)).toMatchObject({ access: 'none', count: 4 })
+    expect(apollo.who.find((w) => w.reason === 'owner-admin')).toBeUndefined()
     // most access first
-    expect(apollo.who.map((w) => w.access)).toEqual(['write', 'write', 'read', 'none'])
-    // drafts: bob by his own rule; the others from apollo
-    const drafts = child(await tree('projects/apollo'), 'drafts')!
-    addsUp(drafts)
-    expect(drafts.who.find((w) => w.subject?.id === 'bob')).toMatchObject({ folder: 'projects/apollo/drafts', access: 'write' })
-    expect(drafts.who.find((w) => w.subject?.id === 'alice')).toMatchObject({ folder: 'projects/apollo', access: 'write' })
+    expect(apollo.who.map((w) => w.access)).toEqual(['write', 'read', 'none'])
+    // the project folder is one row: nothing below it is listed or answered (drafts has bob's rule, a missing name too)
+    const inside = await tree('projects/apollo')
+    expect(inside.levels[0]!.children).toEqual([])
+    expect(JSON.stringify(inside)).not.toContain('drafts')
+    for (const p of ['projects/apollo/drafts', 'projects/apollo/not-there-2e8']) expect((await admin.try('GET', `/api/admin/access/tree?path=${encodeURIComponent(p)}`)).status, p).toBe(400)
   })
 
   test('folders on disk only: no file, no link, nothing under a temp name; a folder not there', async () => {
@@ -136,7 +143,8 @@ describe('one level', () => {
   })
 
   test('refused: personal folders, .system/, temp names and paths outside the team folder, before anything is read', async () => {
-    for (const p of ['users', 'users/alice', 'Users/alice', '.system', '.system/trash', 'shared/.MYCEL-TMP-r', '../etc']) {
+    // and nothing inside a team project, any letter case, there or not (docs/DECISIONS.md "Project contents only for members")
+    for (const p of ['users', 'users/alice', 'Users/alice', '.system', '.system/trash', 'shared/.MYCEL-TMP-r', '../etc', 'projects/apollo/drafts', 'PROJECTS/Apollo/drafts', 'projects/apollo/nope-3a9']) {
       const r = await admin.try('GET', `/api/admin/access/tree?path=${encodeURIComponent(p)}`)
       expect(r.status, p).toBe(400)
       expect(JSON.stringify(r.body), p).not.toContain('Alice-private')
@@ -169,11 +177,11 @@ describe('pages and opening the way down', () => {
     const r = await tree('', '&open=1')
     const opened = r.levels.map((l) => l.path)
     expect(opened[0]).toBe('')
-    expect(opened).toEqual(expect.arrayContaining(['connected', 'groups', 'projects', 'skills', 'projects/apollo']))
-    // nothing marked below shared/ or docs/: they stay closed
+    expect(opened).toEqual(expect.arrayContaining(['connected', 'groups', 'projects', 'skills']))
+    // nothing marked below shared/ or docs/: they stay closed; a team project is never opened (drafts inside it is no row)
     expect(opened).not.toContain('shared')
     expect(opened).not.toContain('docs')
-    expect(opened.indexOf('projects')).toBeLessThan(opened.indexOf('projects/apollo'))
+    expect(opened).not.toContain('projects/apollo')
     // a page further down does not open anything
     expect((await tree('', '&open=1&limit=1&cursor=a')).levels).toHaveLength(1)
   })
@@ -282,16 +290,25 @@ describe('stage 4 review', () => {
     const root = h.ctx.files.fx.root
     const gone = await admin.call('POST', '/api/admin/folders', { path: 'docs/gone-4c1', rules: [rule('everyone', null, 'read')] })
     fs.rmSync(path.join(root, 'docs', 'gone-4c1'), { recursive: true, force: true })
-    const sib = await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo-b', rules: [rule('everyone', null, 'read')] })
+    // a project folder's rules as an older build let an admin set them (Admin › Folder permissions refuses them now)
+    const sib = legacyProjectFolder(h.ctx.db, root, 'projects/apollo-b', [rule('everyone', null, 'read')], 'adam')
+    expect((await admin.try('DELETE', `/api/admin/folders/${sib}`)).status).toBe(409)
+    expect((await admin.try('PUT', `/api/admin/folders/${sib}/rules`, { rules: [rule('user', 'adam', 'write')] })).status).toBe(409)
+    // a folder, a folder inside it and its next sibling ('-' sorts before '/'), outside projects/
+    const nest = [] as string[]
+    for (const p of ['docs/alpha', 'docs/alpha/inner', 'docs/alpha-b']) nest.push((await admin.call('POST', '/api/admin/folders', { path: p, rules: [rule('everyone', null, 'read')] })).id)
     try {
       const r = await tree('', '&rules=1&limit=500')
       const paths = r.levels[0]!.children.map((c) => c.path)
-      expect(paths).toContain('projects/apollo/drafts')
+      // nothing inside a team project (docs/DECISIONS.md "Project contents only for members"): drafts is not a row
+      expect(paths).toEqual(expect.arrayContaining(['projects/apollo', 'projects/apollo-b']))
+      expect(paths).not.toContain('projects/apollo/drafts')
       expect(paths).not.toContain('docs/gone-4c1')
       expect(paths.some((p) => p.startsWith('users/') || p.startsWith('.system'))).toBe(false)
       // a folder, what is inside it, then its next sibling
-      expect(paths.indexOf('projects/apollo')).toBeLessThan(paths.indexOf('projects/apollo/drafts'))
-      expect(paths.indexOf('projects/apollo/drafts')).toBeLessThan(paths.indexOf('projects/apollo-b'))
+      expect(paths.indexOf('docs/alpha')).toBeLessThan(paths.indexOf('docs/alpha/inner'))
+      expect(paths.indexOf('docs/alpha/inner')).toBeLessThan(paths.indexOf('docs/alpha-b'))
+      expect(paths.indexOf('projects/apollo')).toBeLessThan(paths.indexOf('projects/apollo-b'))
       expect((r.above ?? []).map((n) => n.path)).toEqual(expect.arrayContaining(['groups', 'projects']))
       for (const n of [...r.levels[0]!.children, ...(r.above ?? [])]) addsUp(n)
       expect(r.levels[0]!.total).toBe(paths.length)
@@ -305,11 +322,15 @@ describe('stage 4 review', () => {
       } while (cursor)
       expect(seen).toEqual(paths)
       // narrowed to a folder
-      expect((await tree('projects', '&rules=1')).levels[0]!.children.map((c) => c.path)).toEqual(['projects/apollo', 'projects/apollo/drafts', 'projects/apollo-b'])
+      expect((await tree('projects', '&rules=1')).levels[0]!.children.map((c) => c.path)).toEqual(['projects/apollo', 'projects/apollo-b'])
+      expect((await tree('docs', '&rules=1')).levels[0]!.children.map((c) => c.path)).toEqual(['docs/alpha', 'docs/alpha/inner', 'docs/alpha-b'])
     } finally {
       await admin.call('DELETE', `/api/admin/folders/${gone.id}`)
-      await admin.call('DELETE', `/api/admin/folders/${sib.id}`)
+      for (const id of nest.reverse()) await admin.call('DELETE', `/api/admin/folders/${id}`)
+      h.ctx.db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(sib)
+      h.ctx.db.query('DELETE FROM folders WHERE id = ?').run(sib)
       fs.rmSync(path.join(root, 'projects', 'apollo-b'), { recursive: true, force: true })
+      for (const d of ['alpha', 'alpha-b']) fs.rmSync(path.join(root, 'docs', d), { recursive: true, force: true })
     }
   })
 

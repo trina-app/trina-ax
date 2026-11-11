@@ -286,7 +286,7 @@ export const SKILL_SHARES = {
   applySkillShare: endpoint({ method: 'POST', path: '/api/skill-shares/:id/apply', auth: 'user', owner: 'B', body: ApplySkillShare, response: SkillShare,
     summary: 'Share the ticked skills with the team or the target group as the caller (their own save: folder rules, versions, the skill change log); a skill of the same name is merged through a chat with the confirmation card, the CLAUDE.md lines become a team rule and the tools connection templates (no key; the team only). Idempotent per skill.' }),
   stopSkillShareCheck: endpoint({ method: 'POST', path: '/api/skill-shares/:id/stop-check', auth: 'user', owner: 'B', response: SkillShare,
-    summary: 'End the AI check of the caller\'s own share proposal now (the setup step stops waiting after 30 seconds): its turn is stopped and the share is ready with nothing recommended (ai failed), so it can be applied and no late answer ticks rows. A share no longer checking is returned as it is.' }),
+    summary: 'End the AI check of the caller\'s own share proposal now (Bring my skills stops waiting after 30 seconds): its turn is stopped and the share is ready with nothing recommended (ai failed), so it can be applied and no late answer ticks rows. A share no longer checking is returned as it is.' }),
   dismissSkillShare: endpoint({ method: 'POST', path: '/api/skill-shares/:id/dismiss', auth: 'user', owner: 'B', response: empty, status: 204,
     summary: 'Drop a share proposal of the caller\'s own, or one to a group whose skills folder the caller may write (나중에 하기): its staged files are deleted.' }),
   startSkillMerge: endpoint({ method: 'POST', path: '/api/skill-shares/merge-chats/:id/start', auth: 'admin', owner: 'B', response: StartedSkillMerge,

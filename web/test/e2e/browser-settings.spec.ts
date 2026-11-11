@@ -4,6 +4,8 @@
 // "all" changes only when the stand-in's confirmation dialog is confirmed, and a team policy that is off (read from
 // GET /api/me, as the app does) turns "all" back to "ask". The real app is covered by desktop/e2e/settings.spec.ts.
 import { expect, test, type Page } from '@playwright/test'
+import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 /** Installed before the app's scripts: a desktop bridge with browserSettings and nothing else of interest. */
@@ -94,6 +96,24 @@ test('in a normal browser there is no Browser section (the value lives in the de
   await page.goto('/settings/browser')
   await expect(page).toHaveURL(/\/settings$/)
   await expect(page.getByTestId('browser-settings')).toHaveCount(0)
+})
+
+test('on the web the Browser section is there only while the person\'s own "Allow all websites" is on, and stays after turning it off', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // turned on elsewhere (an address card in a chat): the section is where it is turned off again
+  expect((await page.request.put('/api/me/web-access', { headers: { [CSRF_HEADER]: '1' }, data: { on: true, acceptWarning: WEB_ALLOW_ALL_WARNING_VERSION } })).status()).toBe(200)
+  await page.goto('/settings')
+  await page.getByRole('link', { name: '브라우저', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\/browser$/)
+  await page.getByTestId('browser-access-ask').click()
+  await expect(page.getByTestId('browser-access-ask')).toBeChecked()
+  await expect(page.getByTestId('browser-all-on')).toHaveCount(0)
+  // it does not vanish under the person's hand; the next time Settings opens it is gone
+  await expect(page.getByTestId('browser-settings')).toBeVisible()
+  await page.goto('/settings')
+  await expect(page.getByRole('link', { name: '보안·기기' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '브라우저', exact: true })).toHaveCount(0)
 })
 
 test('desktop app: Settings > Browser shows the same setting; "all" only after the app\'s confirmation; the admin can turn the choice off', async ({ page }) => {

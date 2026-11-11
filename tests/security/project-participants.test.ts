@@ -1,6 +1,8 @@
 // Who sees a team project (docs/DECISIONS.md "Projects live only in projects/"): its creator and admins see and change
 // its participants from the project's edit screen, which writes the folder rules the same way Admin › Folder permissions
-// does (the rules hash, afterAccessChange, the audit). A dry run says what the people who gain it would see.
+// does (the rules hash, afterAccessChange, the audit). A dry run says what the people who gain it would see. The owner
+// and admins manage every team project's members without reading it (docs/DECISIONS.md "Project contents only for
+// members"): they are counted, told and shown its contents only as members.
 // Fixture: alice, erin = marketing (group id 'marketing'); bob = finance ('finance'); carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
@@ -22,6 +24,8 @@ const access = (who: Who, id: string) => A.json(`/api/projects/${id}/access`, { 
 const put = (who: Who, id: string, participants: unknown[], expectedHash: string) => A.json(`/api/projects/${id}/participants`, { as: who, ...jsonBody({ participants, expectedHash }, 'PUT') })
 const preview = (who: Who, body: Record<string, unknown>) => A.json('/api/projects/access-preview', { as: who, ...jsonBody(body) })
 const listed = async (who: Who, id: string) => ((await A.json('/api/projects', { as: who })).body.items as { id: string }[]).some((p) => p.id === id)
+/** the list with `manage=1` (the owner and admins: also the projects they manage without being a member) */
+const managed = async (who: Who, id: string) => ((await A.json('/api/projects?manage=1', { as: who })).body.items as { id: string; member?: false; instructions: string }[]).find((p) => p.id === id)
 const rulesAt = (p: string) => (A.ctx.db.query('SELECT r.subject_type AS t, r.subject_id AS s, r.access AS a FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = ? ORDER BY t, s').all(p) as { t: string; s: string | null; a: string }[])
 const user = (id: string) => ({ subjectType: 'user', subjectId: id })
 const group = (id: string) => ({ subjectType: 'group', subjectId: id })
@@ -34,12 +38,21 @@ const sharedChat = (projectId: string, by: string) => {
 
 describe('who may see and change participants', () => {
   test('the creator and admins; a participant or anyone else may not', async () => {
-    const p = await create('alice', { name: 'Who', participants: [user('erin')] })
+    const p = await create('alice', { name: 'Who', participants: [user('erin')], instructions: 'SEC-WHO-INSTR' })
     for (const who of ['alice', 'carol', 'dana'] as const) {
       const r = await access(who, p.id)
       expect(r.status).toBe(200)
-      expect(r.body).toMatchObject({ editable: true, people: 4, otherRules: [] })
+      // its members only: alice and erin (the owner and admins are not counted by their role)
+      expect(r.body).toMatchObject({ editable: true, people: 2, otherRules: [] })
       expect(r.body.participants).toEqual([{ subjectType: 'user', subjectId: 'alice', name: 'Alice Kim', creator: true }, { subjectType: 'user', subjectId: 'erin', name: 'Erin Yoo' }])
+    }
+    // the owner and an admin manage its members without reading it: not in their plain list, in the manage list
+    // without its instructions
+    for (const who of ['carol', 'dana'] as const) {
+      expect((await A.json(`/api/projects/${p.id}`, { as: who })).status).toBe(404)
+      expect(await listed(who, p.id)).toBe(false)
+      expect(await managed(who, p.id)).toMatchObject({ member: false, instructions: '' })
+      expect(JSON.stringify((await A.json('/api/projects?manage=1', { as: who })).body)).not.toContain('SEC-WHO-INSTR')
     }
     // erin sees the project but did not make it; bob does not see it at all
     expect((await access('erin', p.id)).status).toBe(403)
@@ -153,10 +166,16 @@ describe('what a member may not reach through a project (review)', () => {
     const listed2 = (await access('alice', p.id)).body.otherRules.map((r: { path: string }) => r.path)
     expect(listed2).toContain(`${p.folderPath}/vault/open`)
     expect(listed2).not.toContain(`${p.folderPath}/vault`)
-    expect((await access('carol', p.id)).body.otherRules.map((r: { path: string }) => r.path)).toContain(`${p.folderPath}/payroll-2027`)
-    // bob (finance) would read the payroll files once added: alice is told of the brief only
+    // an admin who is not a member: no folder inside is named to her either, only counted
+    const theirs = (await access('carol', p.id)).body
+    expect(theirs.otherRules.map((r: { path: string }) => r.path)).not.toContain(`${p.folderPath}/payroll-2027`)
+    expect(JSON.stringify(theirs)).not.toContain('payroll-2027')
+    expect(JSON.stringify(theirs)).not.toContain('vault')
+    expect(theirs.otherRulesHidden).toBeGreaterThan(0)
+    // bob (finance) would read the payroll files once added: alice is told of the brief only; the admin, no member,
+    // of nothing inside it
     expect((await preview('alice', { projectId: p.id, participants: [user('erin'), user('bob')] })).body).toMatchObject({ added: 1, files: 1 })
-    expect((await preview('carol', { projectId: p.id, participants: [user('erin'), user('bob')] })).body).toMatchObject({ added: 1, files: 3 })
+    expect((await preview('carol', { projectId: p.id, participants: [user('erin'), user('bob')] })).body).toMatchObject({ added: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, contentsHidden: true })
   })
 
   test('trashing her project\'s folder never takes what is managed inside it: another project, a rule folder', async () => {
@@ -194,13 +213,13 @@ describe('what a member may not reach through a project (review)', () => {
 
 describe('the dry run', () => {
   test('a new project: who would see it', async () => {
-    // a member: herself and the people and groups chosen; the owner and admins see it too but are not counted, so the
-    // count never says who is an admin (tests/unit/project-preview-roles.test.ts)
-    expect((await preview('alice', { participants: [] })).body).toEqual({ people: 1, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], adminsApart: true })
+    // a member: herself and the people and groups chosen; the owner and admins do not see it unless chosen (members only:
+    // no adminsApart), so the count never says who is an admin (tests/unit/project-preview-roles.test.ts)
+    expect((await preview('alice', { participants: [] })).body).toEqual({ people: 1, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
     expect((await preview('alice', { participants: [group('marketing'), user('bob')] })).body.people).toBe(3)
     expect((await preview('alice', { participants: [user('carol')] })).body.people).toBe((await preview('alice', { participants: [user('bob')] })).body.people)
-    // an admin: everyone who would see it, and apart: carol and the people chosen, then dana (the owner) by role
-    expect((await preview('carol', { participants: [group('marketing'), user('bob')] })).body).toEqual({ people: 5, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], split: { direct: 4, byRole: 1 } })
+    // an admin: carol and the people chosen; dana (the owner) is not counted by her role (byRole 0)
+    expect((await preview('carol', { participants: [group('marketing'), user('bob')] })).body).toEqual({ people: 4, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], split: { direct: 4, byRole: 0 } })
     expect((await preview('alice', { participants: [group('finance')] })).status).toBe(400)
   })
 
@@ -221,11 +240,14 @@ describe('the dry run', () => {
     sharedChat(p.id, 'alice')
     const r = await preview('alice', { projectId: p.id, participants: [user('erin'), user('bob')] })
     // the project skills are counted and named: the people who gain the project use them in its chats
-    expect(r.body).toEqual({ people: 5, added: 1, removed: 0, files: 3, othersFiles: 2, sharedChats: 2, skills: 3, skillNames: ['견적-현장', '견적서', '점검'].sort((a, b) => a.localeCompare(b)) })
-    // the admin asking: alice's file is someone else's too
-    expect((await preview('carol', { projectId: p.id, participants: [user('erin'), group('finance')] })).body).toMatchObject({ added: 1, files: 3, othersFiles: 3 })
+    // (its members after: alice, erin, bob; the owner and admins are not counted by their role)
+    expect(r.body).toEqual({ people: 3, added: 1, removed: 0, files: 3, othersFiles: 2, sharedChats: 2, skills: 3, skillNames: ['견적-현장', '견적서', '점검'].sort((a, b) => a.localeCompare(b)) })
+    // the admin asking, not a member: nothing in it is counted or named for her
+    const theirs = (await preview('carol', { projectId: p.id, participants: [user('erin'), group('finance')] })).body
+    expect(theirs).toMatchObject({ added: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], contentsHidden: true })
+    expect(JSON.stringify(theirs)).not.toContain('견적')
     // narrowing: nothing to confirm
-    expect((await preview('alice', { projectId: p.id, participants: [] })).body).toEqual({ people: 3, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
+    expect((await preview('alice', { projectId: p.id, participants: [] })).body).toEqual({ people: 1, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
     // a sub-folder nobody added may read is not counted
     const sub = ensureFolderRow(A.ctx.db, `${p.folderPath}/private`)
     A.ctx.db.transaction(() => replaceRules(A.ctx.db, sub.id, [{ subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
@@ -238,7 +260,8 @@ describe('the dry run', () => {
     A.hub.clear()
     expect((await put('alice', p.id, [user('erin'), user('bob')], (await access('alice', p.id)).body.rulesHash)).status).toBe(200)
     const told = A.hub.events.filter((e) => e.ev.type === 'notice' && (e.ev.data as any).code === 'project_access_widened')
-    expect(told.map((e) => e.userId).sort()).toEqual(['carol', 'dana', 'erin'])
+    // its members who saw it before; the owner and admins are not members, so not told
+    expect(told.map((e) => e.userId).sort()).toEqual(['erin'])
     expect((told[0]!.ev.data as any).message).toContain('Heard')
   })
 })
@@ -256,28 +279,37 @@ describe('narrowing, conflicts, the creator gone', () => {
     expect(A.hub.of('chat.updated', 'erin')).toEqual([])
   })
 
-  test('an admin\'s change in between: the project screen gets 409 rules_changed, and so does the admin screen after it', async () => {
+  test('an admin\'s change in between: the project screen gets 409 rules_changed, and so does the admin\'s after it', async () => {
     const p = await create('alice', { name: 'Raced', participants: [user('erin')] })
     const hash = (await access('alice', p.id)).body.rulesHash
     const row = A.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p.folderPath) as { id: string }
     // the hash Admin › Folder permissions shows for the folder (Folder.rulesHash) is the project screen's
     const adminHash = rulesHashAt(A.ctx.db, p.folderPath)
     expect(adminHash).toBe(hash)
-    // carol adds bob in Admin › Folder permissions
+    // Admin › Folder permissions no longer writes a project's folder (docs/DECISIONS.md "Project contents only for
+    // members"): refused, nothing changed
     const next = [...rulesAt(p.folderPath).map((r) => ({ subjectType: r.t, subjectId: r.s, access: r.a })), { subjectType: 'user', subjectId: 'bob', access: 'read' }]
-    expect((await A.json(`/api/admin/folders/${row.id}/rules`, { as: 'carol', ...jsonBody({ rules: next, expectedHash: adminHash }, 'PUT') })).status).toBe(200)
+    const viaAdmin = await A.json(`/api/admin/folders/${row.id}/rules`, { as: 'carol', ...jsonBody({ rules: next, expectedHash: adminHash }, 'PUT') })
+    expect([viaAdmin.status, viaAdmin.body.error.params.reason]).toEqual([409, 'project_members_only'])
+    expect(rulesAt(p.folderPath).some((x) => x.s === 'bob')).toBe(false)
+    // carol adds bob from the project's members screen (she manages it without being a member)
+    expect((await put('carol', p.id, [user('erin'), user('bob')], hash)).status).toBe(200)
     // alice's screen started before it: refused, nothing undone
     const r = await put('alice', p.id, [], hash)
     expect([r.status, r.body.error.params.reason]).toEqual([409, 'rules_changed'])
     expect(rulesAt(p.folderPath).some((x) => x.s === 'bob')).toBe(true)
-    // the other way round: alice saves, then the admin's stale save is refused
-    const fresh = (await access('alice', p.id)).body.rulesHash
+    // the other way round: alice saves, then the admin's stale save is refused (her project screen: rules_changed; the
+    // admin screen: still members only)
+    const fresh = (await access('carol', p.id)).body.rulesHash
     expect((await put('alice', p.id, [], fresh)).status).toBe(200)
-    const stale = await A.json(`/api/admin/folders/${row.id}/rules`, { as: 'carol', ...jsonBody({ rules: [], expectedHash: fresh }, 'PUT') })
+    const stale = await put('carol', p.id, [user('bob')], fresh)
     expect([stale.status, stale.body.error.params.reason]).toEqual([409, 'rules_changed'])
+    const staleAdmin = await A.json(`/api/admin/folders/${row.id}/rules`, { as: 'carol', ...jsonBody({ rules: [], expectedHash: fresh }, 'PUT') })
+    expect([staleAdmin.status, staleAdmin.body.error.params.reason]).toEqual([409, 'project_members_only'])
+    expect(rulesAt(p.folderPath).some((x) => x.s === 'bob')).toBe(false)
   })
 
-  test('a deleted creator: their rule goes, the project fails closed to the owner and admins', async () => {
+  test('a deleted creator: their rule goes, the project fails closed to nobody; the owner and admins manage it', async () => {
     // a member of its own: deleting alice would disturb the other tests
     A.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('fay', 'fay', 'Fay Han', 'member')").run()
     A.ctx.db.query("INSERT INTO group_members VALUES ('marketing', 'fay')").run()
@@ -301,11 +333,16 @@ describe('narrowing, conflicts, the creator gone', () => {
       expect(rulesAt('projects/fays-old')).toEqual([{ t: 'everyone', s: null, a: 'none' }])
       for (const pid of [id, oldId]) {
         for (const who of ['alice', 'bob', 'erin'] as const) expect(await listed(who, pid)).toBe(false)
-        expect(await listed('carol', pid)).toBe(true)
+        // the owner and admins do not read it either (the root's everyone rule never reaches into a project for them):
+        // only in the manage list
+        for (const who of ['carol', 'dana'] as const) {
+          expect(await listed(who, pid)).toBe(false)
+          expect(await managed(who, pid)).toMatchObject({ member: false, instructions: '' })
+        }
       }
-      // admins manage it now: participants empty, the creator no longer listed
+      // admins manage it now: participants empty, the creator no longer listed, nobody reads it
       const a = (await access('carol', id)).body
-      expect([a.participants, a.people]).toEqual([[], 2])
+      expect([a.participants, a.people]).toEqual([[], 0])
       expect((await put('carol', id, [user('erin')], a.rulesHash)).status).toBe(200)
       expect(await listed('erin', id)).toBe(true)
     } finally { A.ctx.db.transaction(() => replaceRules(A.ctx.db, root.id, [], 'carol'))() }
@@ -313,9 +350,11 @@ describe('narrowing, conflicts, the creator gone', () => {
 })
 
 describe('the members panel (docs/DECISIONS.md "Project members in one panel")', () => {
-  const view = async (who: Who, id: string) => {
-    const one = (await A.json(`/api/projects/${id}`, { as: who })).body as Record<string, unknown>
-    const inList = ((await A.json('/api/projects', { as: who })).body.items as Record<string, unknown>[]).find((x) => x.id === id)
+  // (`manage`: the owner and admins asking for a project they manage without being a member)
+  const view = async (who: Who, id: string, manage = false) => {
+    const q = manage ? '?manage=1' : ''
+    const one = (await A.json(`/api/projects/${id}${q}`, { as: who })).body as Record<string, unknown>
+    const inList = ((await A.json(`/api/projects${q}`, { as: who })).body.items as Record<string, unknown>[]).find((x) => x.id === id)
     expect(inList?.membersEditable).toBe(one.membersEditable)
     expect(inList?.creatorChangesMembers).toBe(one.creatorChangesMembers)
     return { membersEditable: one.membersEditable, creatorChangesMembers: one.creatorChangesMembers }
@@ -324,7 +363,9 @@ describe('the members panel (docs/DECISIONS.md "Project members in one panel")',
   test('membersEditable: the creator and admins of a project the server made; a participant reads the creator changes them', async () => {
     const p = await create('alice', { name: 'Panel', participants: [user('erin')] })
     expect(await view('alice', p.id)).toEqual({ membersEditable: true, creatorChangesMembers: true })
-    expect(await view('carol', p.id)).toEqual({ membersEditable: true, creatorChangesMembers: true })
+    // an admin, no member: not in her plain list, members editable in the manage one
+    expect((await A.json(`/api/projects/${p.id}`, { as: 'carol' })).status).toBe(404)
+    expect(await view('carol', p.id, true)).toEqual({ membersEditable: true, creatorChangesMembers: true })
     expect(await view('erin', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: true })
     // a personal project has no members: neither field
     const own = await create('alice', { name: 'Panel mine', scope: 'personal' })
@@ -340,7 +381,7 @@ describe('the members panel (docs/DECISIONS.md "Project members in one panel")',
     // alice may edit its name (she writes the folder) but not its members: those are the admins'
     expect((await A.json(`/api/projects/${old}`, { as: 'alice' })).body.canEdit).toBe(true)
     expect(await view('alice', old)).toEqual({ membersEditable: false, creatorChangesMembers: false })
-    expect(await view('carol', old)).toEqual({ membersEditable: true, creatorChangesMembers: false })
+    expect(await view('carol', old, true)).toEqual({ membersEditable: true, creatorChangesMembers: false })
     expect(await view('erin', old)).toEqual({ membersEditable: false, creatorChangesMembers: false })
     // and what the dialog would have answered: not editable for her, so the page offers nothing that ends there
     expect((await access('alice', old)).body.editable).toBe(false)
@@ -363,9 +404,11 @@ describe('the members panel (docs/DECISIONS.md "Project members in one panel")',
     expect(await view('erin', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: true })
     A.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'gus'").run()
     expect(await view('erin', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: false })
-    expect(await view('carol', p.id)).toEqual({ membersEditable: true, creatorChangesMembers: false })
+    expect(await view('carol', p.id, true)).toEqual({ membersEditable: true, creatorChangesMembers: false })
     A.ctx.db.query('UPDATE projects SET trashed_with = ? WHERE id = ?').run(uuidv7(), p.id)
-    expect(await view('carol', p.id)).toEqual({ membersEditable: false, creatorChangesMembers: false })
+    // in the trash: nobody reads it, erin neither; carol still manages it, with no 관리
+    expect((await A.json(`/api/projects/${p.id}`, { as: 'erin' })).status).toBe(404)
+    expect(await view('carol', p.id, true)).toEqual({ membersEditable: false, creatorChangesMembers: false })
   })
 
   test('the dry run says when the save also writes the floor rule or puts the creator\'s rule back (the screen asks then)', async () => {
@@ -394,7 +437,7 @@ describe('the members panel (docs/DECISIONS.md "Project members in one panel")',
     // an ordinary change: neither
     const q = await create('alice', { name: 'Panel plain', participants: [user('erin')] })
     const plain = await preview('alice', { projectId: q.id, participants: [] })
-    expect(plain.body).toEqual({ people: 3, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
+    expect(plain.body).toEqual({ people: 1, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
   })
 })
 
@@ -407,9 +450,9 @@ describe('share and delete', () => {
     expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ toParent: 'groups/marketing', participants: [] }) })).status).toBe(400)
     expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [group('finance')] }) })).status).toBe(400)
     const dry = await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [user('erin')], dryRun: true }) })
-    // erin only: the owner and admins are not counted for a member (never who the admins are); an admin's counts them
-    expect(dry.body).toEqual({ viewersAdded: 1, adminsApart: true })
-    expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [user('carol')], dryRun: true }) })).body).toEqual({ viewersAdded: 1, adminsApart: true })
+    // erin only: the owner and admins see a team project only as members, so nothing apart (never who the admins are)
+    expect(dry.body).toEqual({ viewersAdded: 1 })
+    expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [user('carol')], dryRun: true }) })).body).toEqual({ viewersAdded: 1 })
     expect(fs.existsSync(path.join(A.team, 'projects/보고서'))).toBe(false)
     const r = await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [user('erin')] }) })
     expect(r.status).toBe(200)
@@ -426,24 +469,35 @@ describe('share and delete', () => {
     expect((await A.json(`/api/projects/${own.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })).status).toBe(400)
   })
 
-  test('deleting a project may put its projects/<name> folder in the trash (a member creator too)', async () => {
+  test('deleting a project puts its projects/<name> folder in the trash with it (a member creator too); a second delete is for good', async () => {
     const p = await create('alice', { name: 'Gone', participants: [user('erin')] })
     write(`${p.folderPath}/x.md`, 'x')
-    // without it the folder stays, and stays admin-only to trash (it carries rules)
+    // always with its folder now (docs/DECISIONS.md "Project contents only for members"; `trashFolder` is not read):
+    // the project stays, in the trash, nobody reads it
     const kept = await create('alice', { name: 'Kept' })
     expect((await A.json(`/api/projects/${kept.id}`, { as: 'alice', method: 'DELETE' })).status).toBe(204)
-    expect(fs.existsSync(path.join(A.team, kept.folderPath))).toBe(true)
+    expect(fs.existsSync(path.join(A.team, kept.folderPath))).toBe(false)
+    expect(A.ctx.db.query('SELECT 1 AS x FROM trash_items WHERE original_path = ? AND restored_at IS NULL').get(kept.folderPath)).toEqual({ x: 1 })
+    expect(A.ctx.db.query('SELECT trashed_with IS NOT NULL AS t FROM projects WHERE id = ?').get(kept.id)).toEqual({ t: 1 })
+    expect((await A.json(`/api/projects/${kept.id}`, { as: 'alice' })).status).toBe(404)
     expect((await A.json(`/api/projects/${p.id}?trashFolder=1`, { as: 'erin', method: 'DELETE' })).status).toBe(403)
+    expect(fs.existsSync(path.join(A.team, p.folderPath))).toBe(true)
     expect((await A.json(`/api/projects/${p.id}?trashFolder=1`, { as: 'alice', method: 'DELETE' })).status).toBe(204)
     expect(fs.existsSync(path.join(A.team, p.folderPath))).toBe(false)
     expect(A.ctx.db.query('SELECT 1 AS x FROM trash_items WHERE original_path = ? AND restored_at IS NULL').get(p.folderPath)).toEqual({ x: 1 })
+    expect(A.ctx.db.query('SELECT trashed_with IS NOT NULL AS t FROM projects WHERE id = ?').get(p.id)).toEqual({ t: 1 })
+    // the second delete (an admin's: the creator no longer may edit it in the trash) is for good, its folder's trash
+    // item with it
+    expect((await A.json(`/api/projects/${p.id}`, { as: 'alice', method: 'DELETE' })).status).toBe(404)
+    expect((await A.json(`/api/projects/${p.id}`, { as: 'carol', method: 'DELETE' })).status).toBe(204)
     expect(A.ctx.db.query('SELECT 1 AS x FROM projects WHERE id = ?').get(p.id)).toBeNull()
-    // a project outside projects/ keeps its folder
+    expect(A.ctx.db.query('SELECT 1 AS x FROM trash_items WHERE original_path = ? AND restored_at IS NULL').get(p.folderPath)).toBeNull()
+    // a project outside projects/ keeps its folder: deleted at once, for good (`trashFolder` ignored)
     const legacy = uuidv7()
     A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'Old', 'groups/marketing/campaigns', '', 'alice', '2026-01-01T00:00:00Z')").run(legacy)
     const r = await A.json(`/api/projects/${legacy}?trashFolder=1`, { as: 'alice', method: 'DELETE' })
-    expect([r.status, r.body.error.params.reason]).toEqual([409, 'project_folder_stays'])
+    expect(r.status).toBe(204)
     expect(fs.existsSync(path.join(A.team, 'groups/marketing/campaigns'))).toBe(true)
-    expect(A.ctx.db.query('SELECT 1 AS x FROM projects WHERE id = ?').get(legacy)).toEqual({ x: 1 })
+    expect(A.ctx.db.query('SELECT 1 AS x FROM projects WHERE id = ?').get(legacy)).toBeNull()
   })
 })

@@ -16,13 +16,17 @@
 // is chosen and its panel opened, and closing or saving that panel goes back to the person. The Files page's "Who can
 // see it" panel opens it the same way (`?edit=<path>&from=files`, the fixed word only): closing or saving goes back to
 // that folder in Files with its panel open again (`/files?path=<path>&access=1`).
+// A team project's folder in projects/ is one row with no folders under it: "멤버만" and its count, never "팀장과
+// 관리자만", and no rules to change here: its panel links to the project's members ("멤버 관리", /projects/:id?members=1;
+// docs/DECISIONS.md "Project contents only for members"). The server refuses changes there (409 project_members_only),
+// which the edit panel shows in its words if one is opened by its address.
 import clsx from 'clsx'
 import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Info, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { AccessTreeNode, AccessTreeResponse, Folder, Group } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
-import { ancestorsOf, isPersonalPath, isRestricted, kindText, nodeName, parentOf, riskTexts, skillEditorsText, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, whoSeesText, type Names } from '../../lib/access-view'
+import { ancestorsOf, isPersonalPath, isRestricted, kindText, manageMembersLink, membersOnlyFolder, membersOnlyText, nodeName, parentOf, riskTexts, skillEditorsText, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, whoSeesText, type Names } from '../../lib/access-view'
 import { useLocale, useT } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, Switch } from '../../components/ui'
 import FolderPicker from '../../components/FolderPicker'
@@ -1201,11 +1205,11 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
         ) : (
           <p className="mt-0.5 text-label leading-5">
             <span className={own || n.path === '' ? 'text-ink' : 'text-muted'} data-testid="tree-who">
-              {whoSeesText(t, n, members)}
+              {membersOnlyFolder(n) ? membersOnlyText(t, n) : whoSeesText(t, n, members)}
             </span>
             {/* where it comes from only when a parent's rule decides (a folder's own rules need no "this folder's rules"
-                on every row; the lock says it has rules) */}
-            {inheritsRule(n) && (
+                on every row; the lock says it has rules); a project's folder: its members, said already */}
+            {inheritsRule(n) && !membersOnlyFolder(n) && (
               <>
                 {' '}
                 <span className="text-faint" data-testid="tree-source">
@@ -1260,6 +1264,8 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   // after its project went; a group's row after the group did). Rules are changed in the panel, and "follow the folder
   // above" is no rules saved there: removing a row would also cut a group's link or a project's mark.
   const emptyMarker = !!row && !keep && row.rules.length === 0 && !n.kinds.includes('project')
+  const membersOnly = membersOnlyFolder(n)
+  const manage = membersOnly ? manageMembersLink(n) : null
   // a folder inside skills/: who of skills/' managers cannot write here, person by person (both folders' answers)
   const inSkills = isSkillsFolder(n.path) && n.path.includes('/')
   const top = useFolderPeople(inSkills ? n.path.slice(0, n.path.indexOf('/')) : null, reloadKey)
@@ -1284,8 +1290,19 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
         </div>
       ) : (
         <>
+          {/* a team project's folder: members only, changed on the project's page (no edit panel here) */}
+          {membersOnly && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span data-testid="folder-detail-members-only"><Badge>{t('accessTree.membersOnly')}</Badge></span>
+              {manage && (
+                <Link to={manage} className="text-sm text-accent-text underline-offset-2 hover:underline" data-testid="folder-detail-manage-members" data-row-focus>
+                  {t('accessTree.manageMembers')}
+                </Link>
+              )}
+            </div>
+          )}
           {/* the rules: change them in the edit panel (rows the server keeps say why under the rules) */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          {!membersOnly && <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={onEdit} disabled={!rowsReady} data-testid="folder-detail-edit" data-row-focus>
               <SlidersHorizontal size={14} aria-hidden /> {rules.length ? t('accessTree.editRules') : t('accessTree.addRules')}
             </Button>
@@ -1303,13 +1320,15 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
                 </span>
               </Tooltip>
             )}
-          </div>
+          </div>}
           {emptyMarker && (
             <p id={`${id}-marker`} className="mt-1.5 text-xs text-muted" data-testid="folder-marker-hint">
               {t('accessTree.markerHint')}
             </p>
           )}
-          <div className="mt-4">
+          {/* a team project's folder: no settings of its own here (they cannot be changed on this screen; its members
+              are, on its page) */}
+          {!membersOnly && <div className="mt-4">
             <h4 className="text-xs font-semibold text-muted">{t('accessTree.ownRules')}</h4>
             {rules.length ? (
               <RuleBadges rules={rules} path={n.path} subject={subject} />
@@ -1334,7 +1353,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
                 {keep}
               </p>
             )}
-          </div>
+          </div>}
           {riskTexts(t, n, true).map((r) => (
             <p key={r} role="note" className="mt-3 flex items-start gap-1.5 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="folder-detail-risk">
               <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden />

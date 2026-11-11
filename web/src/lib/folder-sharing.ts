@@ -9,9 +9,9 @@ type T = (key: MessageKey, params?: Record<string, string | number>) => string
 const RANK: Record<Access, number> = { none: 0, read: 1, write: 2 }
 
 /** A team project's folder in `projects/`, or anything inside it: the panel shows it and changes nothing there (its
- * people follow the project's members), and asks no admin endpoint about it. By its path, so a project list that failed
- * to load changes nothing. */
-export const inProjects = (path: string) => /^projects\/[^/]+(\/|$)/.test(path)
+ * people follow the project's members), and asks no admin endpoint about it. By its path (`projects` in any letter case,
+ * as the server folds it), so a project list that failed to load changes nothing. */
+export const inProjects = (path: string) => /^projects\/[^/]+(\/|$)/i.test(path)
 
 /** The top folders that only hold folders with their own settings, and the team root: they have no panel. */
 const NO_PANEL = new Set(['', 'users', 'groups', 'projects', 'connected'])

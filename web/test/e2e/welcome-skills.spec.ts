@@ -1,13 +1,12 @@
-// 내 스킬 가져오기 in a real browser against the mock (docs/DECISIONS.md "SK", "W5", "W6"): 회사 소개 put off (no deck, no
-// profile: no kept skill comes checked), then [내 스킬 찾기] opens the folder window (Chrome's showDirectoryPicker, stubbed
-// here with an in-memory .claude folder that logs every name opened: Playwright cannot drive the OS folder window), the
-// list comes back checked and judged; 팀 스킬 and back through the setup row finds the same list (nothing picked again);
-// the step's one primary [팀에 넣기 · N개] puts the ticked ones in (the server marks 내 스킬 done; a merge waits for the end
-// of the setup) and goes on to 팀 파일 with a toast; 이전 from 팀 파일 shows what went in, 다른 폴더도 가져오기 and 다음; 팀 파일
-// and 도구 연결 are put off; the invite names ONE skill, the first shared, and its link opens it; then 준비 끝났어요 with the owner's own
-// run of that skill. The kept skills' rows and the example viewer: onb6-skills.spec.ts.
+// The skills step and own skills in a real browser against the mock (docs/DECISIONS.md "SK", "W5", "W6", "W7"):
+// - the setup walk: 회사 소개 put off (no profile: no kept skill comes checked), the skills step shows only the skills
+//   Trina prepared (no folder button, no hidden-folder hint, no Claude Code or Codex line); one checked → the primary
+//   names it → a toast and 팀 파일; 이전 shows 다음; 팀 파일 and 도구 연결 put off; the invite; 준비 끝났어요 → a skill's form;
+// - Team skills › 내 스킬 가져오기, the one way in for own skills: [내 스킬 찾기] opens the folder window (Chrome's
+//   showDirectoryPicker, stubbed here with an in-memory .claude folder that logs every name opened: Playwright cannot
+//   drive the OS folder window); only known places are read; the list comes back checked and judged; [팀에 넣기 · N개]
+//   puts the ticked ones in. The kept skills' rows and the example viewer: onb6-skills.spec.ts.
 import { expect, test } from '@playwright/test'
-import { PRODUCT } from '@mycel/shared'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 /** A .claude folder: skills, a plugin, a command, CLAUDE.md, and what must never be opened. */
@@ -23,7 +22,62 @@ const TREE = {
   commands: { 'standup.md': '어제, 오늘, 막힌 일을 한 줄씩.\n' },
 }
 
-test('[내 스킬 찾기] → the list (kept across a trip away) → [the primary naming them] → 팀 파일; 이전 shows what went in; 팀 파일 put off; the invite names one shared skill and opens it; 준비 끝났어요 → its form', async ({ page }) => {
+test('the setup walk: the skills step offers only the skills Trina prepared; one goes in → 팀 파일; 이전 shows 다음; the invite; 준비 끝났어요 → its form', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await page.goto('/welcome')
+  await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
+  // 2/5 스킬
+  const step = page.getByTestId('skills-step')
+  await expect(step).toBeVisible()
+  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 스킬')
+  await expect(page.getByRole('heading', { name: '팀이 쓸 스킬을 골라 주세요' })).toBeVisible()
+  // nothing about own skills: no folder to pick, no hidden-folder hint, no Claude Code or Codex line
+  for (const id of ['skills-own', 'skills-find', 'skills-hint', 'skills-promise', 'skills-cc', 'skills-cc-toggle']) await expect(page.getByTestId(id)).toHaveCount(0)
+  await expect(step).not.toContainText('.claude')
+  await expect(step).not.toContainText('내 스킬 가져오기')
+  // no company profile: nothing checked, so no primary yet (나중에 하기 stands in)
+  const packs = page.getByTestId('skill-packs')
+  await expect(packs.getByRole('checkbox', { checked: true })).toHaveCount(0)
+  const primary = page.getByTestId('skills-primary')
+  await expect(primary).toHaveCount(0)
+  await expect(page.getByTestId('skills-later')).toBeVisible()
+  await packs.locator('[data-testid="skill-pack-row"][data-name="humanizer"]').getByTestId('skill-pack-check').check()
+  await expect(primary).toHaveText('자연스러운 글 넣기')
+  await primary.click()
+  // all in: a toast and on to 3/5 팀 파일; the server recorded the step done
+  await expect(page.getByTestId('toast').filter({ hasText: '스킬 1개를 팀에 넣었어요' })).toBeVisible()
+  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.skills).toBe('done')
+  // 이전: a revisit checks nothing; 다음 goes on again
+  await page.getByTestId('welcome-back').click()
+  await expect(step).toBeVisible()
+  await expect(primary).toHaveAttribute('data-state', 'next')
+  await expect(primary).toHaveText('다음: 팀 파일 가져오기')
+  await expect(page.getByTestId('skills-later')).toHaveCount(0)
+  await primary.click()
+  // 팀 파일, put off; 도구 연결 put off; then the invite
+  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  await page.getByTestId('welcome-later').click()
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  await page.getByTestId('welcome-later').click()
+  await expect(page.getByTestId('invite-step')).toBeVisible()
+  await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
+  await page.getByTestId('invite-step-done').click()
+  // 준비 끝났어요, once: a first result with the kept skill that went in (자연스러운 글: "써 보기")
+  await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
+  const make = page.getByTestId('welcome-done-make')
+  await expect(make).toHaveAttribute('data-skill', 'skills/work/humanizer/SKILL.md')
+  await make.click()
+  await expect.poll(() => { const u = new URL(page.url()); return `${u.pathname} ${u.searchParams.get('run')}` }).toBe('/skills skills/work/humanizer/SKILL.md')
+  await expect(page.getByTestId('skill-form')).toBeVisible()
+  // finished: no setup row any more
+  await expect(page.getByTestId('setup-row')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Team skills › 내 스킬 가져오기: [내 스킬 찾기] reads only known places; the list comes back judged; [팀에 넣기 · N개] puts the ticked ones in', async ({ page }) => {
   const errors = watchConsole(page)
   await page.addInitScript((tree) => {
     const opened: string[] = []
@@ -39,80 +93,25 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [the primar
   }, TREE)
   await reset(page)
   await signIn(page)
-  await page.goto('/welcome')
-  await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
-  // 2/5 내 스킬; nothing about a deck (회사 소개 was put off)
-  await expect(page.getByTestId('skills-step')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 내 스킬')
-  await expect(page.getByRole('heading', { name: '팀이 쓸 스킬을 골라 주세요' })).toBeVisible()
-  // no company profile: no kept skill comes checked, so there is no primary yet (나중에 하기 stands in)
-  await expect(page.getByTestId('skill-packs').getByRole('checkbox', { checked: true })).toHaveCount(0)
-  const primary = page.getByTestId('skills-primary')
-  await expect(primary).toHaveCount(0)
-  await expect(page.getByTestId('skills-promise')).toBeVisible()
-  // the Claude Code / Codex line sits behind one disclosure
-  await expect(page.getByTestId('skills-cc-prompt')).toHaveCount(0)
-  await page.getByTestId('skills-cc-toggle').click()
-  await expect(page.getByTestId('skills-cc-prompt')).toContainText(`내 스킬 중 팀에 공유할 만한 걸 ${PRODUCT.displayName}에 올려 줘`)
-  await expect(page.getByTestId('setup-row')).toHaveCount(0)
-  await page.getByTestId('skills-find').click()
-  // the list: recommended ones ticked with a reason each, the folded rows, CLAUDE.md as a rule; the step's one primary
-  // names what is ticked, up to three (the list has no button of its own here)
+  await page.goto('/skills')
+  await page.getByTestId('skill-bring').click()
+  await expect(page.getByTestId('bring-sheet')).toBeVisible()
+  await expect(page.getByTestId('bring-hint')).toContainText('.claude')
+  await page.getByTestId('bring-find').click()
+  // the list: recommended ones ticked with a reason each, CLAUDE.md as a rule; its own primary counts them
   await expect(page.getByTestId('skills-recommended')).toBeVisible()
-  await expect(primary).toHaveAttribute('data-state', 'put')
-  await expect(primary).toHaveText('주간 업무 보고·견적서 초안·회의록 정리 넣기')
-  await expect(primary).toBeEnabled()
-  await expect(page.getByTestId('skills-share')).toHaveCount(0)
+  const share = page.getByTestId('skills-share')
+  await expect(share).toBeEnabled()
+  await expect(share).toHaveText(/팀에 넣기 · \d+개/)
   const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)
   // only known places: never transcripts, history or the sign-in file
+  expect(opened.length).toBeGreaterThan(0)
   expect(opened.filter((x) => /credentials|history|projects/.test(x))).toEqual([])
-  // leaving the step (팀 스킬) and coming back through the setup row finds the same list: nothing picked or read again
-  await page.getByTestId('nav-skills').click()
-  await expect(page).toHaveURL(/\/skills$/)
-  await page.getByTestId('setup-row-link').click()
-  await expect(primary).toHaveAttribute('data-state', 'put')
-  await expect(primary).toBeEnabled()
-  await expect(page.getByTestId('skills-find')).toHaveCount(0)
-  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened.length)).toBe(opened.length)
-  // the three named skills
-  const n = 3
-  await primary.click()
-  // all in: a toast with the count and on to 3/5 팀 파일; the server recorded 내 스킬 done itself
-  await expect(page.getByTestId('toast').filter({ hasText: `스킬 ${n}개를 팀에 넣었어요` })).toBeVisible()
-  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
-  expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.skills).toBe('done')
-  // 이전 shows what went in (not the empty picker), one quiet way to a second folder, and 다음 goes on again
-  await page.getByTestId('welcome-back').click()
+  await share.click()
   await expect(page.getByTestId('skills-done')).toBeVisible()
-  await expect(page.getByTestId('skills-find')).toHaveCount(0)
-  await expect(page.getByTestId('skills-more')).toHaveText('다른 폴더도 가져오기')
-  await expect(primary).toHaveAttribute('data-state', 'next')
-  await expect(primary).toHaveText('다음: 팀 파일 가져오기')
-  await primary.click()
-  // 팀 파일, put off; 도구 연결 put off; then the invite
-  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
-  await page.getByTestId('welcome-later').click()
-  await expect(page.getByTestId('welcome-tools')).toBeVisible()
-  await page.getByTestId('welcome-later').click()
-  await expect(page.getByTestId('invite-step')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
-  // the message names one skill, the landing one; the link opens it
-  await expect(page.getByTestId('team-link-message')).toContainText('같이 써 보자고 해요')
-  await expect(page.getByTestId('team-link-landing')).toContainText('부터 열려요')
-  const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress
-  const link = (await (await page.request.get('/api/admin/team-link')).json()).link
-  expect(link.skill.path).toBe(progress.shared.landing)
-  const others = progress.shared.skills.filter((x: { path: string }) => x.path !== progress.shared.landing).map((x: { title: string }) => x.title)
-  for (const title of others) await expect(page.getByTestId('team-link-message')).not.toContainText(`'${title}'`)
-  await page.getByTestId('invite-step-done').click()
-  // 준비 끝났어요, once: no deck line (no deck), the owner's own run of the landing skill first, 홈으로 quiet
-  await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
-  await expect(page.getByTestId('welcome-done')).not.toContainText('회사 소개서')
-  await expect(page.getByTestId('welcome-done-try')).toContainText('먼저 써 보기')
-  await page.getByTestId('welcome-done-try').click()
-  await expect.poll(() => { const u = new URL(page.url()); return `${u.pathname} ${u.searchParams.get('run')}` }).toBe(`/skills ${progress.shared.landing}`)
-  await expect(page.getByTestId('skill-form')).toBeVisible()
-  // finished: no setup row any more
-  await expect(page.getByTestId('setup-row')).toHaveCount(0)
+  const names = ((await (await page.request.get('/api/skills')).json()).items as { name: string }[]).map((x) => x.name)
+  expect(names).toContain('weekly-report')
+  await page.getByTestId('skills-done-next').click()
+  await expect(page.getByTestId('bring-sheet')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })

@@ -9,6 +9,10 @@
 //   and the card goes; the history forgets the
 //   project on its private chats; a project that is not found any more (deleted by someone else, or no longer mine to
 //   see) just leaves the list, and my chats keep it, as the server does.
+// - members only (docs/DECISIONS.md "Project contents only for members"): the list asks with manage=1; the owner's or
+//   an admin's card of a project they are not in has 이름 바꾸기, 멤버 and 삭제 (Project.canManage), no "not a member" tag;
+//   a team project nobody active is in says "남은 멤버 없음"; deleting a team project in projects/ moves it to the
+//   trash (its own confirm, the card stays and says so), and deleting one in the trash is for good.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
@@ -30,7 +34,7 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 let list: Project[] = []
 /** the server's own view of a project now, where it differs from the list (null: gone) */
 let now: Record<string, Project | null> = {}
-const calls: { key: string; body: unknown }[] = []
+const calls: { key: string; url: string; body: unknown }[] = []
 const copied: string[] = []
 const realFetch = globalThis.fetch
 const realNavigator = globalThis.navigator
@@ -43,7 +47,7 @@ beforeAll(() => {
   Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: { ...realNavigator, clipboard: { writeText: async (s: string) => void copied.push(s) } } })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
-    calls.push({ key, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+    calls.push({ key, url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined })
     if (key === 'GET /api/projects') return json(200, { items: list })
     // the members dialog (project-members.test.tsx has the rest)
     if (key === 'GET /api/people') return json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }] })
@@ -60,7 +64,11 @@ beforeAll(() => {
     if (!p && key.startsWith('GET /api/projects/')) return json(404, { error: { code: 'not_found', message: 'not found' } })
     if (key.startsWith('GET /api/projects/')) return json(200, p)
     if (key.startsWith('PATCH /api/projects/') && p) return json(200, { ...p, ...(JSON.parse(String(init!.body)) as object) })
-    if (key.startsWith('DELETE /api/projects/') && p) return new Response(null, { status: 204 })
+    // a team project in projects/ goes to the trash first (it stays, inTrash); a second DELETE (or any other): for good
+    if (key.startsWith('DELETE /api/projects/') && p) {
+      now[id] = /^projects\/[^/]+$/.test(p.folderPath) && !p.inTrash ? { ...p, inTrash: true, audience: 0, membersEditable: false } : null
+      return new Response(null, { status: 204 })
+    }
     return json(500, { error: { code: 'internal', message: `no route ${key}` } })
   }) as unknown as typeof fetch
 })
@@ -175,7 +183,7 @@ describe('the Projects list', () => {
       await m.type(field, '  Acme launch 2027 ')
       await m.click('dialog-confirm')
       await m.until(() => cards(m).some((c) => c.textContent?.includes('Acme launch 2027')), 'the new name on the card')
-      expect(calls.filter((c) => c.key.startsWith('PATCH'))).toEqual([{ key: `PATCH /api/projects/${MINE}`, body: { name: 'Acme launch 2027' } }])
+      expect(calls.filter((c) => c.key.startsWith('PATCH')).map(({ key, body }) => ({ key, body }))).toEqual([{ key: `PATCH /api/projects/${MINE}`, body: { name: 'Acme launch 2027' } }])
       expect(useProjects.getState().byId[MINE]?.name).toBe('Acme launch 2027')
     } finally {
       await m.unmount()
@@ -266,6 +274,92 @@ describe('the Projects list', () => {
     } finally {
       await m.unmount()
       useChats.setState({ chats: chatsBefore })
+    }
+  })
+})
+
+describe('members only (docs/DECISIONS.md "Project contents only for members")', () => {
+  const OUTSIDE = '01900000-0000-7000-8000-000000000014', ORPHAN = '01900000-0000-7000-8000-000000000015', TRASHED = '01900000-0000-7000-8000-000000000016'
+  const outside = (o: Partial<Project> = {}) => project(OUTSIDE, 'Acme legal', { folderPath: 'projects/acme-legal', member: false, canEdit: false, canManage: true, membersEditable: true, audience: 2, ...o })
+  const loaded4 = (m: Mounted) => m.until(() => cards(m).length === 4, 'the cards')
+
+  test('the list asks with manage=1; a card of a project I am not in: rename, members, copy link, delete, and no tag', async () => {
+    list = [...list, outside()]
+    const m = await page()
+    try {
+      await loaded4(m)
+      expect(calls.find((c) => c.key === 'GET /api/projects')!.url).toContain('manage=1')
+      expect(await open(m, 'Acme legal')).toEqual([
+        ['project-card-rename', ko('chat.rename')],
+        ['project-card-members', ko('projects.participants')],
+        ['project-card-copy-link', ko('rooms.menu.copyLink')],
+        ['project-card-delete', ko('common.delete')],
+      ])
+      expect(within(card(m, 'Acme legal'), 'project-card-state')).toBeNull()
+      // the rename is the small prompt and sends the name only
+      await m.click(within(card(m, 'Acme legal'), 'project-card-rename')!)
+      const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the prompt')
+      await m.type(dialog.querySelector('input') as unknown as FakeElement, 'Acme legal 2027')
+      await m.click('dialog-confirm')
+      await m.until(() => cards(m).some((c) => c.textContent?.includes('Acme legal 2027')), 'the new name')
+      expect(calls.filter((c) => c.key.startsWith('PATCH'))).toEqual([{ key: `PATCH /api/projects/${OUTSIDE}`, url: `/api/projects/${OUTSIDE}`, body: { name: 'Acme legal 2027' } }])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a team project nobody active is in: "남은 멤버 없음" in place of a count; one in the trash says so', async () => {
+    list = [...list, outside({ id: ORPHAN, name: 'Acme old', folderPath: 'projects/acme-old', audience: 0 }), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: true, inTrash: true, audience: 0 })]
+    const m = await page()
+    try {
+      await m.until(() => cards(m).length === 5, 'the cards')
+      // the card's who-sees line says it (dev's cards say who sees it in place of the folder path)
+      expect(within(card(m, 'Acme old'), 'project-card-who')!.textContent).toBe(ko('projects.noMembers'))
+      expect(within(card(m, 'Acme old'), 'project-card-state')).toBeNull()
+      expect(ko('projects.noMembers')).toBe('남은 멤버 없음')
+      expect(within(card(m, 'Acme gone'), 'project-card-who')!.textContent).toBe(`${ko('projects.noMembers')} · ${ko('chat.project.inTrash')}`)
+      expect(within(card(m, 'Acme gone'), 'project-card-state')!.textContent).toBe(` · ${ko('chat.project.inTrash')}`)
+      // a personal project with nobody else: nothing said
+      expect(within(card(m, 'Acme launch'), 'project-card-state')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('delete a team project in projects/: "휴지통으로 옮길까요?", the card stays, in the trash; delete again: for good, the card goes', async () => {
+    list = [...list, outside()]
+    const m = await page()
+    try {
+      await loaded4(m)
+      await open(m, 'Acme legal')
+      await m.click(within(card(m, 'Acme legal'), 'project-card-delete')!)
+      const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
+      expect(dialog.textContent).toContain(ko('projects.trashTitle', { name: 'Acme legal' }))
+      expect(ko('projects.trashTitle', { name: 'Acme legal' })).toBe("'Acme legal'을(를) 휴지통으로 옮길까요?")
+      expect(dialog.textContent).toContain(ko('projects.trashBody'))
+      // what happens, not "its files and chats go with it" (an admin's own chats there stay where they are)
+      expect(ko('projects.trashBody')).toBe('팀장이나 관리자가 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
+      expect(translate('en', 'projects.trashBody')).toBe("Members can't open its files or shared chats until the owner or an admin restores it.")
+      expect(m.get('dialog-confirm').textContent).toBe(ko('files.moveToTrash'))
+      // no checkbox to choose the folder: it always goes with the project
+      expect(m.find('project-delete-trash-folder')).toBeNull()
+      await m.click('dialog-confirm')
+      await m.until(() => within(card(m, 'Acme legal'), 'project-card-state'), 'the card in the trash')
+      expect(within(card(m, 'Acme legal'), 'project-card-state')!.textContent).toBe(` · ${ko('chat.project.inTrash')}`)
+      expect(cards(m).length).toBe(4)
+      expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`).map((c) => c.url)).toEqual([`/api/projects/${OUTSIDE}`])
+      // again: for good
+      await open(m, 'Acme legal')
+      await m.click(within(card(m, 'Acme legal'), 'project-card-delete')!)
+      const again = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
+      expect(again.textContent).toContain(ko('projects.deleteForGoodTitle', { name: 'Acme legal' }))
+      expect(again.textContent).toContain(ko('projects.deleteForGoodBody'))
+      expect(m.get('dialog-confirm').textContent).toBe(ko('projects.deleteForGood'))
+      await m.click('dialog-confirm')
+      await m.until(() => cards(m).length === 3, 'the card to go')
+      expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`)).toHaveLength(2)
+    } finally {
+      await m.unmount()
     }
   })
 })

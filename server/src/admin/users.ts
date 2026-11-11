@@ -2,6 +2,7 @@
 // delete (tombstone + personal folder handling), password reset (temporary password or one-time link), owner
 // transfer. Admins never see other people's chats or memories, and there is no "sign in as" (tab 1, tab 7).
 import fs from 'node:fs'
+import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
@@ -111,6 +112,8 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     throw e
   }
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
+  if (groups.length) projectJoinsOfNewAccount(ctx, id, auth.user.id, captureState(ctx.db))
   // connection templates this new person is in (security review 2, #1: on the event, not only the 30-second pass)
   notifyTemplateOffers(ctx, { userId: id })
   const user = toUser(ctx.db, getUser(ctx.db, id)!)
@@ -124,6 +127,12 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   const changesAccount = b.role !== undefined || b.status !== undefined
   guard(c, target, { self: !changesAccount, newRole: b.role })
   const groups = b.groupIds ? checkGroups(ctx, b.groupIds, locale) : undefined
+  // a disabled account that stays off joins no new group (admin/groups.ts checkMembers: its access is not counted while
+  // it is off); one enabled in the same change may
+  if (groups && target.status !== 'active' && b.status !== 'active') {
+    const had = new Set((ctx.db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(id) as { group_id: string }[]).map((g) => g.group_id))
+    if (groups.some((g) => !had.has(g))) fail('validation', msg('switchedOffNoGroups', locale), { fields: { 'body.groupIds': 'disabled account' }, params: { reason: 'account_disabled' } })
+  }
   const before = captureState(ctx.db)
   const changed: Record<string, unknown> = {}
   ctx.db.transaction(() => {
@@ -176,7 +185,10 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
   // their AI apps' group management (connector scope mcp:admin) ends for good, like their invites
   if (changed.status === 'disabled' || changed.role === 'member') dropAdminScope(ctx.db, id, changed.role === 'member' ? 'role' : 'status', auth.user.id)
-  if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  // enabled again: whatever it reads now counts from here (captureState holds active accounts only), so the team projects
+  // it gets back are recorded and their members told like any other join (chat/project-joins.ts; docs/DECISIONS.md
+  // "Project contents only for members")
+  if (changed.role !== undefined || changed.groupIds !== undefined || changed.status === 'active') afterAccessChange(ctx, before, { actor: auth.user.id, target: id, ...(changed.status === 'active' ? { via: 'account' } : {}) })
   // disabled: out of the team rooms and the everyone room now; enabled again: back in, seeing messages from now on
   // (afterAccessChange syncs the rooms too, so only a status change on its own needs this)
   else if (changed.status !== undefined) syncRoomsNow(ctx)

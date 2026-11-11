@@ -9,7 +9,9 @@
 //   M9  the main AI of the person's own chat only, refused before any card;
 //   M10 the card is bound to what runs: a file added between the card and the yes refuses it.
 // Fixture (tests/lib/fixtures.ts): projects/falcon is alice's (write) and finance's (bob, read); alice + erin =
-// marketing; carol = admin, dana = owner. Everyone reads skills/, admins write it.
+// marketing; carol = admin, dana = owner. Everyone reads skills/, admins write it. The owner and admins read a team
+// project only as its members (docs/DECISIONS.md "Project contents only for members"): carol is a member of falcon here
+// who writes all of it (public/ included), dana is not one.
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -37,8 +39,13 @@ const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 
 /** The skill folders and files of these tests, on top of the fixture. */
 function setup(db: import('bun:sqlite').Database, team: string) {
   const put = (rel: string, data: string | Uint8Array) => { const p = path.join(team, ...rel.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, data) }
+  // on a case-sensitive disk (Linux) the fixture adds 'groups/Marketing' beside 'groups/marketing' for its case tests;
+  // here groups/marketing is renamed and named back, which that sibling refuses as almost the same name, so it goes
+  // (readdir names it only where it is a folder of its own, never on a disk that folds case)
+  if (fs.readdirSync(path.join(team, 'groups')).includes('Marketing')) fs.rmSync(path.join(team, 'groups', 'Marketing'), { recursive: true })
   for (const g of ['marketing', 'finance']) db.query('UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = ?) WHERE id = ?').run(`groups/${g}`, g)
   db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(FALCON, 'Falcon', 'projects/falcon', 'alice', new Date().toISOString())
+  for (const f of ['projects/falcon', 'projects/falcon/public']) db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, (SELECT id FROM folders WHERE path = ?), 'user', 'carol', 'write')").run(`r_carol_${f.replace(/\W/g, '_')}`, f)
   put('projects/falcon/skills/launch/SKILL.md', md('launch', 'falcon launch', 'LAUNCH-BODY'))
   put('skills/ops/SKILL.md', md('ops', 'team ops runbook', 'OPS-BODY'))
   put('skills/ops/references/checklist.md', '- check\n')
@@ -96,7 +103,13 @@ function setup(db: import('bun:sqlite').Database, team: string) {
 
 describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
   let A: CApp
-  beforeAll(async () => { A = await makeCApp('skill-files'); setup(A.ctx.db, A.team) })
+  beforeAll(async () => {
+    A = await makeCApp('skill-files')
+    // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
+    // project uses, when they run (after the start, in their own time): the fixture's falcon is this suite's own
+    // project (made below, as before that build), so the one the steps made for it goes, once the steps are done
+    setup(A.ctx.db, A.team)
+  })
   afterAll(async () => { await A.close() })
   const who = (u: string) => A.ctx.files.principal(u)
   const plan = (u: string, a: FolderActionInput) => planFolderAction(A.ctx, who(u), a)
@@ -105,28 +118,39 @@ describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
   const has = (rel: string) => fs.existsSync(path.join(A.team, ...rel.split('/')))
   const svc = async () => (await import('../../server/src/team-files/component')).componentC(A.ctx).files
 
-  test('N: an admin renames a project folder that holds skills; nothing changes for anyone, and the project follows', async () => {
-    const p = ok(plan('carol', { action: 'rename', path: 'projects/falcon', new_name: 'falcon 2026' }))
-    expect(p.kind).toBe('rename_folder')
-    expect(p).toMatchObject({ from: 'projects/falcon', to: 'projects/falcon 2026', lostIds: [], gainedIds: [], seeAdded: [], seeLost: [] })
-    expect(p.skills.map((s) => [s.name, s.effect])).toEqual([['launch', 'kept']])
-    expect(p.level).toMatchObject({ level: 'project', project: { id: FALCON } })
-    // a member may not: a project's folder is an admin's to move or rename (the rule stays)
-    expect(why(plan('alice', { action: 'rename', path: 'projects/falcon', new_name: 'falcon 2026' }))).toContain('only an admin or the owner')
-    const turnId = A.turn('carol', A.chat('carol'))
-    await runFolderAction(A.ctx, 'carol', { action: 'rename', path: 'projects/falcon', new_name: 'falcon 2026' }, p, { turnId, tool: 'skill_files' })
-    expect(has('projects/falcon 2026/skills/launch/SKILL.md')).toBe(true)
-    expect((A.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(FALCON) as { folder_path: string }).folder_path).toBe('projects/falcon 2026')
-    // the skill still runs in the project's chats, recorded as moved (not switched off)
-    expect(listSkills(A.ctx.files, who('alice'), { project: { id: FALCON, name: 'Falcon', folderPath: 'projects/falcon 2026' } }).some((s) => s.name === 'launch')).toBe(true)
-    const rec = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/falcon 2026/skills/launch/SKILL.md' ORDER BY id DESC LIMIT 1").get() as { detail: string }
-    expect(JSON.parse(rec.detail)).toMatchObject({ change: 'move', from: 'projects/falcon/skills/launch/SKILL.md', byAi: true, project: { id: FALCON } })
-    expect(JSON.parse(rec.detail).switchedOff).toBeUndefined()
-    const row = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.files' ORDER BY id DESC LIMIT 1").get() as { detail: string }
-    expect(JSON.parse(row.detail)).toMatchObject({ kind: 'rename_folder', from: 'projects/falcon', to: 'projects/falcon 2026', byAi: true })
-    // back, on the Files screen (no turn)
-    ;(await svc()).move('carol', 'projects/falcon 2026', 'projects/falcon', 'fail')
+  test('N: a project\'s folder is not renamed, by the AI or on the Files screen, also by an admin who is its member: nothing changes, the project stays', async () => {
+    // a project's own folder stays where it is in projects/ (docs/DECISIONS.md "Project contents only for members"): said
+    // before any card, to a member (alice), to the owner who is not one (dana), to an admin who is (carol, below)
+    expect(why(plan('alice', { action: 'rename', path: 'projects/falcon', new_name: 'falcon 2026' }))).toContain("a project's own folder stays where it is")
+    expect(why(plan('dana', { action: 'rename', path: 'projects/falcon', new_name: 'falcon 2026' }))).toContain("a project's own folder stays where it is")
+    // and a new name is a new entry right in projects/, which nobody but the server makes (docs/DECISIONS.md "Project
+    // contents only for members"): carol, a member who writes all of it, is refused too, before any card
+    expect('refused' in plan('carol', { action: 'rename', path: 'projects/falcon', new_name: 'falcon 2026' })).toBe(true)
+    let err: unknown = null
+    try { (await svc()).move('carol', 'projects/falcon', 'projects/falcon 2026', 'fail', { skillsOk: true }) } catch (x) { err = x }
+    expect(err).not.toBeNull()
     expect(has('projects/falcon/skills/launch/SKILL.md')).toBe(true)
+    expect(has('projects/falcon 2026')).toBe(false)
+    expect((A.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(FALCON) as { folder_path: string }).folder_path).toBe('projects/falcon')
+    // the skill still runs in the project's chats, nothing recorded as moved
+    expect(listSkills(A.ctx.files, who('alice'), { project: { id: FALCON, name: 'Falcon', folderPath: 'projects/falcon' } }).some((s) => s.name === 'launch')).toBe(true)
+    expect(A.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action IN ('skills.change', 'skills.files') AND target LIKE 'projects/falcon 2026%'").get()).toEqual({ n: 0 })
+    // a group's folder that holds skills is still an admin's to rename: nothing changes for anyone, and the group follows
+    const p = ok(plan('carol', { action: 'rename', path: 'groups/marketing', new_name: 'marketing 2026' }))
+    expect(p).toMatchObject({ kind: 'rename_folder', from: 'groups/marketing', to: 'groups/marketing 2026', lostIds: [], gainedIds: [], seeAdded: [], seeLost: [] })
+    expect(p.skills.map((s) => [s.name, s.effect])).toEqual([['brief', 'kept']])
+    expect(p.level).toMatchObject({ level: 'group', group: { id: 'marketing' } })
+    const turnId = A.turn('carol', A.chat('carol'))
+    await runFolderAction(A.ctx, 'carol', { action: 'rename', path: 'groups/marketing', new_name: 'marketing 2026' }, p, { turnId, tool: 'skill_files' })
+    expect(has('groups/marketing 2026/skills/brief/SKILL.md')).toBe(true)
+    expect((A.ctx.db.query("SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = 'marketing'").get() as { path: string }).path).toBe('groups/marketing 2026')
+    expect(listSkills(A.ctx.files, who('alice')).some((s) => s.name === 'brief')).toBe(true)
+    const rec = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'groups/marketing 2026/skills/brief/SKILL.md' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(rec.detail)).toMatchObject({ change: 'move', from: 'groups/marketing/skills/brief/SKILL.md', byAi: true, group: { id: 'marketing' } })
+    expect(JSON.parse(rec.detail).switchedOff).toBeUndefined()
+    // back, on the Files screen (no turn)
+    ;(await svc()).move('carol', 'groups/marketing 2026', 'groups/marketing', 'fail')
+    expect(has('groups/marketing/skills/brief/SKILL.md')).toBe(true)
   })
 
   test('M3: who gets a skill is judged by the folder rules: skills/hr/x to skills/ (team to team, wider) is refused', async () => {
@@ -172,8 +196,8 @@ describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
     expect(p.kind).toBe('in')
     expect(p.texts.map((t) => t.path)).toEqual(['projects/falcon/skills/brand-kit/SKILL.md', 'projects/falcon/skills/brand-kit/references/tone.md'])
     expect(p.texts.map((t) => t.text).join('\n')).toContain('TONE-CANARY')
-    // who gets it: who sees the project (alice writes it, finance reads it; the owner and admins see every project)
-    expect(p.gainedIds).toEqual(['alice', 'bob', 'carol', 'dana'])
+    // who gets it: who sees the project (alice writes it, finance reads it, carol is a member; dana, the owner, is not)
+    expect(p.gainedIds).toEqual(['alice', 'bob', 'carol'])
     expect(p.files.map((f) => f.path).sort()).toEqual(['users/alice/drafts/brand-kit/SKILL.md', 'users/alice/drafts/brand-kit/references/tone.md'])
     const turnId = A.turn('alice', A.chat('alice'))
     await runFolderAction(A.ctx, 'alice', { action: 'copy', path: 'users/alice/drafts/brand-kit', to_folder: 'projects/falcon/skills' }, p, { turnId, tool: 'skill_files' })
@@ -188,7 +212,8 @@ describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
   test('S2: the same name elsewhere is counted for each person who gets it; projects named only where the asker reads them', () => {
     // carol's "launch" into the team's skills: for who reads Falcon, Falcon's launch would be hidden
     const p = ok(plan('carol', { action: 'copy', path: 'users/carol/launch', to_folder: 'skills' }))
-    expect(p.shadow).toEqual({ people: 4, projects: ['Falcon'] })
+    // (alice, bob and carol read Falcon; dana, the owner, does not: she is not one of its members)
+    expect(p.shadow).toEqual({ people: 3, projects: ['Falcon'] })
     // erin reads skills/ but not Falcon: she gets it with nothing hidden; she is in the count of who gets it
     expect(p.gainedIds).toContain('erin')
   })
@@ -263,8 +288,8 @@ describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
     const p = ok(plan('alice', a))
     expect(p).toMatchObject({ kind: 'out', action: 'copy', lostIds: [] })
     expect(p.skills.map((s) => [s.name, s.effect])).toEqual([['launch', 'kept']])
-    // everyone reads shared/; erin does not see Falcon
-    expect(p.seeAdded).toEqual(['erin'])
+    // everyone reads shared/; erin and dana (the owner, not a member) do not see Falcon
+    expect(p.seeAdded).toEqual(['dana', 'erin'])
     const turnId = A.turn('alice', A.chat('alice'))
     await runFolderAction(A.ctx, 'alice', a, p, { turnId, tool: 'skill_files' })
     expect(fs.readFileSync(path.join(A.team, 'shared/archive/SKILL.md'), 'utf8')).toBe(md('launch', 'falcon launch', 'LAUNCH-BODY'))
@@ -274,24 +299,40 @@ describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
     expect(why(plan('alice', { action: 'copy', path: 'projects/falcon/skills/launch', to_folder: 'shared/archive' }))).toContain('only single files are copied out')
   })
 
-  test('O and M5: a project folder moved out with its skills: each skill recorded as switched off, with a notice; the Files screen too', async () => {
-    const p = ok(plan('carol', { action: 'move', path: 'projects/falcon', to_folder: 'shared/archive' }))
-    expect(p).toMatchObject({ kind: 'out', holder: true })
+  test('O and M5: a project\'s folder never leaves projects/; its skills folder moved out: each skill recorded as switched off, told to who reads the project; the Files screen too', async () => {
+    // a project's own folder stays in projects/ (docs/DECISIONS.md "Project contents only for members"): by the AI and on
+    // the Files screen, also for an admin who is a member and writes all of it; nothing moves, nothing is switched off
+    const out: FolderActionInput = { action: 'move', path: 'projects/falcon', to_folder: 'shared/archive' }
+    const planned = plan('carol', out)
+    if (!('refused' in planned)) await expect(runFolderAction(A.ctx, 'carol', out, planned, { turnId: A.turn('carol', A.chat('carol')), tool: 'skill_files' })).rejects.toMatchObject({ code: 'conflict', key: 'projectFolderStays', params: { reason: 'project_location' } })
+    let err: unknown = null
+    try { (await svc()).move('carol', 'projects/falcon', 'shared/archive/falcon', 'fail', { skillsOk: true }) } catch (x) { err = x }
+    expect(err).toMatchObject({ code: 'conflict', key: 'projectFolderStays' })
+    expect(has('projects/falcon/skills/launch/SKILL.md')).toBe(true)
+    expect(has('shared/archive/falcon')).toBe(false)
+    // its skills folder moved out of the project: its skills stop
+    const p = ok(plan('carol', { action: 'move', path: 'projects/falcon/skills', to_folder: 'shared/archive' }))
+    expect(p).toMatchObject({ kind: 'out' })
     expect(p.skills.filter((s) => s.effect === 'stops').map((s) => s.name).sort()).toEqual(['brand-kit', 'launch'])
-    expect(p.lostIds).toEqual(['alice', 'bob', 'carol', 'dana'])
+    expect(p.lostIds).toEqual(['alice', 'bob', 'carol'])
     A.hub.clear()
     const turnId = A.turn('carol', A.chat('carol'))
-    await runFolderAction(A.ctx, 'carol', { action: 'move', path: 'projects/falcon', to_folder: 'shared/archive' }, p, { turnId, tool: 'skill_files' })
-    expect(has('shared/archive/falcon/skills/launch/SKILL.md')).toBe(true)
+    await runFolderAction(A.ctx, 'carol', { action: 'move', path: 'projects/falcon/skills', to_folder: 'shared/archive' }, p, { turnId, tool: 'skill_files' })
+    expect(has('shared/archive/skills/launch/SKILL.md')).toBe(true)
     const off = A.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/falcon/skills/launch/SKILL.md' ORDER BY id DESC LIMIT 1").get() as { target: string; detail: string }
-    expect(JSON.parse(off.detail)).toMatchObject({ change: 'move', from: 'projects/falcon/skills/launch/SKILL.md', switchedOff: 'folder_move', to: 'shared/archive/falcon/skills/launch/SKILL.md', byAi: true, project: { id: FALCON } })
-    await waitFor(() => A.hub.of('notice', 'dana').some((n) => (n.data as { code: string }).code === 'skill_changed'))
-    // a person moving it back on the Files screen is recorded too (switched on again)
+    expect(JSON.parse(off.detail)).toMatchObject({ change: 'move', from: 'projects/falcon/skills/launch/SKILL.md', switchedOff: 'folder_move', to: 'shared/archive/skills/launch/SKILL.md', byAi: true, project: { id: FALCON } })
+    // told to alice (who made Falcon and reads it); not to dana, the owner, who is not one of its members
+    const told = (u: string) => A.hub.of('notice', u).some((n) => (n.data as { code: string }).code === 'skill_changed')
+    await waitFor(() => told('alice'))
+    expect(told('dana')).toBe(false)
+    // a person moving it back on the Files screen is recorded too (the skills folder moved into the project)
     A.hub.clear()
-    ;(await svc()).move('carol', 'shared/archive/falcon', 'projects/falcon', 'fail', { skillsOk: true })
-    const on = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/falcon/skills/launch/SKILL.md' ORDER BY id DESC LIMIT 1").get() as { detail: string }
-    expect(JSON.parse(on.detail)).toMatchObject({ change: 'move', from: 'shared/archive/falcon/skills/launch/SKILL.md', switchedOn: 'folder_move', byAi: false })
-    await waitFor(() => A.hub.of('notice', 'dana').some((n) => (n.data as { code: string }).code === 'skill_changed'))
+    ;(await svc()).move('carol', 'shared/archive/skills', 'projects/falcon/skills', 'fail', { skillsOk: true })
+    const on = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/falcon/skills' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(on.detail)).toMatchObject({ change: 'move', from: 'shared/archive/skills', kind: 'folder', byAi: false, project: { id: FALCON } })
+    expect(has('projects/falcon/skills/launch/SKILL.md')).toBe(true)
+    await waitFor(() => told('alice'))
+    expect(told('dana')).toBe(false)
   })
 
   test('R: a skill\'s own folder renamed with its name line on the same card; the old text is kept as a version', async () => {
@@ -502,6 +543,9 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
   const cm = () => 'cm-' + crypto.randomUUID()
   beforeAll(async () => {
     h = await startHarness({ name: 'skill-files-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    // this build's one-time start steps (chat/members-only-once.ts) make a project of every projects/<name> folder that no
+    // project uses, when they run (after the start, in their own time): the fixture's falcon is this suite's own
+    // project (made below, as before that build), so the one the steps made for it goes, once the steps are done
     setup(h.ctx.db, h.team)
     for (const u of ['alice', 'carol']) {
       socks[u] = await h.ws(u, { windowId: `win-sf-${u}` })
@@ -531,19 +575,27 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
   const sf = (args: Record<string, unknown>) => ({ tool: 'skill_files', args, sayResult: true })
   const has = (rel: string) => fs.existsSync(path.join(h.team, ...rel.split('/')))
 
-  test('the owner\'s case: an admin renames a project folder that holds skills; a plain card with the full paths, then done', async () => {
-    const r = await turn('carol', fake(sf({ action: 'rename', path: 'projects/falcon', new_name: '2026 falcon' })), ['yes'])
+  test('the owner\'s case: an admin renames a folder that holds skills; a plain card with the full paths, then done (a project\'s folder: refused before any card)', async () => {
+    // a project's folder is not renamed (a new name is a new entry right in projects/, which only the server makes;
+    // docs/DECISIONS.md "Project contents only for members"): carol is a member who writes all of falcon, still no card
+    const p = await turn('carol', fake(sf({ action: 'rename', path: 'projects/falcon', new_name: '2026 falcon' })))
+    expect(p.cards).toEqual([])
+    expect(p.content).toContain('Not renamed.')
+    expect(has('projects/falcon/skills/launch/SKILL.md')).toBe(true)
+    expect(has('projects/2026 falcon')).toBe(false)
+    // a group's folder: the card, then done
+    const r = await turn('carol', fake(sf({ action: 'rename', path: 'groups/marketing', new_name: '2026 marketing' })), ['yes'])
     const c = r.cards[0]!
     expect(c.origin).toBe('server')
-    expect(c.question).toContain('폴더 이름을 바꿀까요?\n\nprojects/falcon → projects/2026 falcon')
+    expect(c.question).toContain('폴더 이름을 바꿀까요?\n\ngroups/marketing → groups/2026 marketing')
     expect(c.question).toContain('안의 스킬 1개는 그대로 쓰여요')
-    expect(c.details!.find((d) => d.label === '경로')!.text).toBe('projects/falcon\n→ projects/2026 falcon')
-    expect(r.content).toContain('Renamed projects/falcon to projects/2026 falcon.')
-    expect(has('projects/2026 falcon/skills/launch/SKILL.md')).toBe(true)
+    expect(c.details!.find((d) => d.label === '경로')!.text).toBe('groups/marketing\n→ groups/2026 marketing')
+    expect(r.content).toContain('Renamed groups/marketing to groups/2026 marketing.')
+    expect(has('groups/2026 marketing/skills/brief/SKILL.md')).toBe(true)
     // back the same way
-    const b = await turn('carol', fake(sf({ action: 'rename', path: 'projects/2026 falcon', new_name: 'falcon' })), ['yes'])
+    const b = await turn('carol', fake(sf({ action: 'rename', path: 'groups/2026 marketing', new_name: 'marketing' })), ['yes'])
     expect(b.content).toContain('Renamed')
-    expect(has('projects/falcon/skills/launch/SKILL.md')).toBe(true)
+    expect(has('groups/marketing/skills/brief/SKILL.md')).toBe(true)
   })
 
   test('I: a skill folder into a project: the card shows every word the AI would follow and who gets it; declined, nothing changes', async () => {
@@ -551,8 +603,9 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
     const c = r.cards[0]!
     // alice reads English
     expect(c.question).toContain('Copy this into the skills folder of the project Falcon? The original stays.\n\nusers/alice/drafts/brand-kit → projects/falcon/skills/brand-kit')
-    expect(c.question).toContain('New skill "brand-kit": the AI of 4 people will follow it.')
-    expect(c.question).toContain('3 people can change it there; 2 of them are new.')
+    // its people: alice, bob, carol (a member); dana, the owner, is not one of them
+    expect(c.question).toContain('New skill "brand-kit": the AI of 3 people will follow it.')
+    expect(c.question).toContain('2 people can change it there; 1 of them is new.')
     const all = c.details!.find((d) => d.label === 'Everything the AI would follow')!.text
     expect(all).toContain('=== projects/falcon/skills/brand-kit/SKILL.md ===')
     expect(all).toContain('BRAND-BODY')
@@ -634,10 +687,15 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
   })
 
   test('the file tools point at skill_files, move_skill and the Files screen', async () => {
-    const r = await turn('carol', fake({ tool: 'rename_file', args: { path: 'projects/falcon', new_name: 'falcon-x' }, sayResult: true }))
+    const r = await turn('carol', fake({ tool: 'rename_file', args: { path: 'groups/marketing', new_name: 'marketing-x' }, sayResult: true }))
     expect(r.content).toContain('skill_files does three things behind one card')
     expect(r.content).toContain('use move_skill: to move it, or with keep: true')
+    expect(has('groups/marketing')).toBe(true)
+    // a project's folder: not renamed at all (a new entry right in projects/ is only the server's)
+    const p = await turn('carol', fake({ tool: 'rename_file', args: { path: 'projects/falcon', new_name: 'falcon-x' }, sayResult: true }))
+    expect(p.content).not.toContain('Renamed')
     expect(has('projects/falcon')).toBe(true)
+    expect(has('projects/falcon-x')).toBe(false)
   })
 
   test('M1: make_file\'s card is for the path it saves; after a failed call its approval is gone, so the next call asks again', async () => {

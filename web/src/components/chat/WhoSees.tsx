@@ -1,5 +1,7 @@
 // The line under a chat's box that says who sees the chat (docs/DECISIONS.md "Who sees it, always"): "나만 봐요", "나와
-// 관리자만 봐요" or "프로젝트 사람 N명이 볼 수 있어요" (lib/sharedChat.ts whoSees), on every project chat's box and every
+// 관리자만 봐요" (only a project made before outside projects/, which the owner and admins see by their role) or "멤버 N명이
+// 이 채팅을 볼 수 있어요" (lib/sharedChat.ts whoSees; a project in projects/ is its members', docs/DECISIONS.md "Project
+// contents only for members"), on every project chat's box and every
 // open chat's (components/chat/Composer.tsx `who`). Quiet text with a small icon: a lock while only I see it, people
 // otherwise. For a shared chat (or a box whose new chat will be shared) whose members the person may change
 // (Project.membersEditable) it is a button that opens the members dialog (components/ProjectMembersDialog.tsx); anything
@@ -10,7 +12,7 @@ import { useT } from '../../i18n'
 import { whoSees } from '../../lib/sharedChat'
 
 /** The words of whoSees: "나만 봐요", "나와 관리자만 봐요", or how many in the place's own words: a new chat's box ("새 채팅은
- * 프로젝트 사람 N명이 …"), an open chat ("프로젝트 사람 N명이 이 채팅을 …") or the project page's 멤버 line ("N명이 봐요"). */
+ * 멤버 N명이 …"), an open chat ("멤버 N명이 이 채팅을 …") or the project page's 멤버 line ("N명이 봐요"). */
 export function whoSeesText(t: ReturnType<typeof useT>, shared: { audience?: number; alone?: boolean } | null, place: 'new' | 'chat' | 'project'): string {
   const who = whoSees(shared)
   if (who.kind === 'me') return t('chat.whoMe')

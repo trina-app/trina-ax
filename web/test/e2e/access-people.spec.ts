@@ -21,21 +21,21 @@ const everyone = (access: 'none' | 'read' | 'write') => ({ subjectType: 'everyon
 
 /**
  * Bob (member, group 영업팀): shared (everyone writes), skills (everyone reads, Bob writes: a member who manages team
- * skills), projects/apollo (Bob writes; a team project), marketing (members read), secret (nobody), connected/nas
+ * skills), partners/apollo (Bob writes; a project made before outside projects/), marketing (members read), secret (nobody), connected/nas
  * (영업팀 reads), the group's folder; finance (재무팀 reads) and docs (no rule) he cannot see. Dan: disabled, 영업팀.
  */
 async function team(page: Page) {
   const g = await call(page, 'post', '/api/admin/groups', { name: '영업팀', memberIds: [] })
   await call(page, 'patch', '/api/admin/users/bob', { groupIds: [g.id] })
-  await call(page, 'post', '/__test/file', { path: 'projects/apollo/plan.md', text: 'plan' })
+  await call(page, 'post', '/__test/file', { path: 'partners/apollo/plan.md', text: 'plan' })
   await call(page, 'post', '/__test/file', { path: 'connected/nas/readme.md', text: 'nas' })
   await call(page, 'post', '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
   await call(page, 'post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
-  await call(page, 'post', '/api/admin/folders', { path: 'projects/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'marketing', create: true, rules: [{ subjectType: 'role', subjectId: 'member', access: 'read' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'secret', create: true, rules: [everyone('none')] })
   await call(page, 'post', '/api/admin/folders', { path: 'connected/nas', create: true, rules: [{ subjectType: 'group', subjectId: g.id, access: 'read' }] })
-  await call(page, 'post', '/api/projects', { name: 'Apollo', folderPath: 'projects/apollo' })
+  await call(page, 'post', '/api/projects', { name: 'Apollo', folderPath: 'partners/apollo' })
   await call(page, 'post', '/api/admin/users', { username: 'dan', name: 'Dan', role: 'member', groupIds: [g.id], temporaryPassword: 'tiger4271x' })
   await call(page, 'patch', '/api/admin/users/dan', { status: 'disabled' })
   return g as { id: string }
@@ -79,12 +79,12 @@ test('by person: every team folder with its access and why, folded hidden folder
   await expect(reason('shared')).toHaveText('이 폴더의 규칙 · 모두: 고칠 수 있음')
   await expect(reason('groups/영업팀')).toHaveText('이 폴더의 규칙 · 영업팀 부서: 고칠 수 있음')
   await expect(reason('marketing')).toHaveText('이 폴더의 규칙 · 팀원 전체: 볼 수 있음')
-  await expect(reason('projects/apollo')).toHaveText('이 폴더의 규칙 · Bob 님: 고칠 수 있음')
-  await expect(row(page, 'projects/apollo')).toContainText(translate('ko', 'accessView.projectOf', { name: 'Apollo' }))
+  await expect(reason('partners/apollo')).toHaveText('이 폴더의 규칙 · Bob 님: 고칠 수 있음')
+  await expect(row(page, 'partners/apollo')).toContainText(translate('ko', 'accessView.projectOf', { name: 'Apollo' }))
   // shown only on the way to a folder below, and then what decided (no rule anywhere above: only the owner and admins)
-  await expect(row(page, 'projects')).toHaveAttribute('data-level', 'listed')
-  await expect(lines('projects')).toHaveText(['아래 projects/apollo 때문에 폴더 이름만 보여요', '규칙이 없어 팀장과 관리자만 열 수 있어요'])
-  await expect(row(page, 'projects')).toContainText('이름만 보임')
+  await expect(row(page, 'partners')).toHaveAttribute('data-level', 'listed')
+  await expect(lines('partners')).toHaveText(['아래 partners/apollo 때문에 폴더 이름만 보여요', '규칙이 없어 팀장과 관리자만 열 수 있어요'])
+  await expect(row(page, 'partners')).toContainText('이름만 보임')
   await expect(lines('connected')).toHaveText(['아래 connected/nas 때문에 폴더 이름만 보여요', '규칙이 없어 팀장과 관리자만 열 수 있어요'])
   // a member who writes in skills/ manages team skills: the one warning
   await expect(row(page, 'skills').getByTestId('access-risk')).toContainText(t['accessView.risk.skills'])
@@ -197,7 +197,7 @@ test('someone new: the invite\'s choices, worked out by the server; an admin see
   await expect(summary).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 3개를 볼 수 있고, 그중 1개를 고칠 수 있어요.')
   // no personal folder yet, and no person rule can name them
   await expect(row(page, 'users/bob')).toHaveCount(0)
-  await expect(row(page, 'projects/apollo')).toBeHidden()
+  await expect(row(page, 'partners/apollo')).toBeHidden()
 
   const setup = page.getByTestId('access-new-setup')
   await setup.getByRole('checkbox', { name: '영업팀' }).check()
@@ -363,12 +363,12 @@ test('a folder that is not on disk: By folder says so and makes nothing', async 
   await signIn(page)
   await team(page)
   // a team project whose folder is gone (no rules, no row): nothing may be made from this screen
-  await call(page, 'post', '/api/projects', { name: 'Ghost', folderPath: 'projects/ghost' })
+  await call(page, 'post', '/api/projects', { name: 'Ghost', folderPath: 'partners/ghost' })
   await page.goto('/admin/folders?view=people&person=bob')
   await page.getByTestId('access-hidden-toggle').click()
-  const ghost = row(page, 'projects/ghost')
+  const ghost = row(page, 'partners/ghost')
   await expect(ghost).toContainText(t['rules.missingOnDisk'])
-  await ghost.getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'projects/ghost' }), exact: true }).click()
+  await ghost.getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'partners/ghost' }), exact: true }).click()
   await expect(page.getByTestId('folder-detail-missing')).toContainText(t['accessTree.notFound'])
   await expect(page.getByTestId('edit-panel')).toHaveCount(0)
   // Back returns to the person
@@ -377,7 +377,7 @@ test('a folder that is not on disk: By folder says so and makes nothing', async 
   // and so does the card's own way back, at any width (the focus on the folded folders' toggle, where the row is)
   await page.setViewportSize({ width: 375, height: 800 })
   await page.getByTestId('access-hidden-toggle').click()
-  await ghost.getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'projects/ghost' }), exact: true }).click()
+  await ghost.getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'partners/ghost' }), exact: true }).click()
   await page.getByTestId('folder-detail-missing').getByRole('button', { name: t['accessEdit.backToPeople'] }).click()
   await expect(page).toHaveURL(/view=people&person=bob$/)
   await expect(page.getByTestId('access-hidden-toggle')).toBeFocused()
@@ -410,11 +410,11 @@ test('pages of rows, narrowing to a folder, and a failed answer to try again', a
   await page.unroute('**/api/admin/access/people/**')
 
   // one part of the tree; the sentence says which
-  await page.getByTestId('access-prefix').fill('/projects/')
+  await page.getByTestId('access-prefix').fill('/partners/')
   await page.getByTestId('access-prefix-apply').click()
-  await expect(page).toHaveURL(/person=bob&prefix=projects$/)
+  await expect(page).toHaveURL(/person=bob&prefix=partners$/)
   await expect(page.getByTestId('access-row')).toHaveCount(2)
-  await expect(summary).toContainText('projects 안에서는 Bob 님과 그 AI는 팀 폴더 1개를 볼 수 있고, 그중 1개를 고칠 수 있어요.')
+  await expect(summary).toContainText('partners 안에서는 Bob 님과 그 AI는 팀 폴더 1개를 볼 수 있고, 그중 1개를 고칠 수 있어요.')
   await page.getByTestId('access-prefix').fill('nowhere')
   await page.getByTestId('access-prefix').press('Enter')
   await expect(page.getByTestId('access-answer')).toContainText(translate('ko', 'accessView.emptyPrefix', { path: 'nowhere' }))
@@ -425,7 +425,7 @@ test('pages of rows, narrowing to a folder, and a failed answer to try again', a
   await expect(page).toHaveURL(/person=bob$/)
 
   // a folder in the address: cleaned like a typed one; one that is no path, or too long, has a way out
-  await page.goto(`/admin/folders?view=people&person=bob&prefix=${encodeURIComponent('/projects/')}`)
+  await page.goto(`/admin/folders?view=people&person=bob&prefix=${encodeURIComponent('/partners/')}`)
   await expect(page.getByTestId('access-row')).toHaveCount(2)
   for (const bad of ['../etc', 'a'.repeat(1100)]) {
     await page.goto(`/admin/folders?view=people&person=bob&prefix=${encodeURIComponent(bad)}`)
@@ -436,7 +436,7 @@ test('pages of rows, narrowing to a folder, and a failed answer to try again', a
     await expect(summary).toContainText('Bob 님과 그 AI는')
   }
   // the folder view starts fresh, and so does the person view after it
-  await page.goto('/admin/folders?view=people&person=bob&prefix=projects')
+  await page.goto('/admin/folders?view=people&person=bob&prefix=partners')
   await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).click()
   await expect(page).toHaveURL(/\/admin\/folders$/)
   await page.getByRole('tab', { name: t['accessView.byPerson'], exact: true }).click()

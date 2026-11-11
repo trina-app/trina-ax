@@ -5,7 +5,7 @@
 // scheduled run. A rename by the person ends that for good. Where a title came from is chats.title_source:
 // 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' (made before the column existed; never renamed by the AI).
 import type { Database } from 'bun:sqlite'
-import { hideThreadRef, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, type Attachment } from '@mycel/shared/api'
+import { hideThreadRef, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, skillLabel, type Attachment } from '@mycel/shared/api'
 import { hasSecret, maskSecrets } from '@mycel/shared'
 import { HIDDEN } from '../integrations/connections/hide'
 
@@ -153,6 +153,22 @@ export function titleToolOffered(db: Database, chatId: string, clientKind: strin
 /** The AI's title, only while the title is still automatic (a rename by the person in the meantime wins). */
 export function setAiTitle(db: Database, chatId: string, title: string): boolean {
   return db.query("UPDATE chats SET title = ?, title_source = 'ai' WHERE id = ? AND title_source = 'auto' AND deleted_at IS NULL").run(title, chatId).changes > 0
+}
+
+/** A chat started from a skill ("/card-news …", a skill chip or a skill's form) whose title is still the placeholder of
+ * that message: the skill's name people read ("Promo cards", shared skillLabel), never "/card-news" (owner
+ * 2026-11-11). The title stays automatic, so the AI may still name the chat (set_title); a rename by the person wins. */
+export function skillPlaceholderTitle(db: Database, chatId: string, skill: { name: string; title?: string | null }, alias?: string): string | null {
+  const r = db.query("SELECT title FROM chats WHERE id = ? AND title_source = 'auto' AND deleted_at IS NULL").get(chatId) as { title: string | null } | null
+  const fold = (x: string) => x.normalize('NFC').toLowerCase()
+  const current = fold(r?.title ?? '')
+  // the placeholder of "/<name> …" (or the skill's folder name, which runs it too): the name alone, or the name and
+  // the first words after it (cut: "…")
+  const started = (key: string) => { const slash = fold(`/${key}`); return current === slash || current.startsWith(`${slash} `) || current.startsWith(`${slash}…`) }
+  if (!r || !(started(skill.name) || (!!alias && started(alias)))) return null
+  const title = cutTitle(skillLabel(skill).replace(INVISIBLE, ' ').replace(/\s+/g, ' ').trim(), AI_TITLE_MAX)
+  if (!MEANINGFUL.test(title)) return null
+  return db.query("UPDATE chats SET title = ? WHERE id = ? AND title_source = 'auto' AND title = ? AND deleted_at IS NULL").run(title, chatId, r.title).changes > 0 ? title : null
 }
 
 export const TITLE_SCAN_KEY = 'chat.titleSecretScan'

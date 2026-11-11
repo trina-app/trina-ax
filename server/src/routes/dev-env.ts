@@ -9,9 +9,10 @@ import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { ensureFolderRow } from '../admin/folders'
-import { assertFolderFree, canRead, canSeeProject, ensureProjectFolderEx, projectFolderName, projectPaths } from '../chat/projects'
-import type { Locale } from '@mycel/shared/api'
+import { afterAccessChange, captureState, ensureFolderRow, replaceRules, resolveFolderPath } from '../admin/folders'
+import { unmakeProjectFolder } from '../chat/project-access'
+import { assertFolderFree, canRead, canSeeProject, projectFolderName, takenProjectPaths } from '../chat/projects'
+import type { FolderRuleInput, Locale } from '@mycel/shared/api'
 import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
 import { boxd } from '../devenv/boxd'
@@ -62,22 +63,30 @@ async function boxState(projectId: string, withPs: boolean): Promise<DevEnvBox |
  */
 function giveProjectFolder(ctx: AppContext, p: Principal, project: { id: string; name: string }, locale: Locale): string {
   const root = ctx.files.fx.root
-  let top: string | null = null
+  let made: { path: string; abs: string } | null = null
   try {
     fs.mkdirSync(path.join(root, 'projects'), { recursive: true, mode: 0o700 })
-    // never a name kept in folders or still named by another project (one project per folder)
-    const taken = [...(ctx.db.query('SELECT path FROM folders').all() as { path: string }[]).map((f) => f.path), ...projectPaths(ctx.db)]
-    const f = ensureProjectFolderEx(ctx.files, p, `projects/${projectFolderName(path.join(root, 'projects'), 'projects', taken, project.name, project.id)}`, locale)
-    top = f.createdTop
+    // never a name kept in folders, still named by another project (one project per folder) or by old saved versions
+    const taken = takenProjectPaths(ctx.db)
+    const want = `projects/${projectFolderName(path.join(root, 'projects'), 'projects', taken, project.name, project.id)}`
+    // made as the system: nothing new goes directly into projects/ otherwise (docs/DECISIONS.md "Project contents only for
+    // members"). It keeps no floor, so the team's members see it as they saw the project on the team root; the admin who
+    // turns the box on is a member of it by name (a rule they see in its members, recorded like any other join)
+    const r = resolveFolderPath(ctx, want, { create: true, locale })
+    if (!r.created) throw new Error('taken')
+    made = { path: r.path, abs: path.join(root, ...r.path.split('/')) }
+    const before = captureState(ctx.db)
     ctx.db.transaction(() => {
-      assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, f.path, locale, { except: project.id, mayName: (x) => canRead(ctx.files, p, x) })
-      ensureFolderRow(ctx.db, f.path)
-      ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(f.path, project.id)
-      audit(ctx.db, { actor: p.id, action: 'dev_env.folder', target: project.id, detail: { before: '', after: f.path } })
+      assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, r.path, locale, { except: project.id, mayName: (x) => canRead(ctx.files, p, x) })
+      const row = ensureFolderRow(ctx.db, r.path)
+      replaceRules(ctx.db, row.id, [{ subjectType: 'user', subjectId: p.id, access: 'write' } as FolderRuleInput], p.id)
+      ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(r.path, project.id)
+      audit(ctx.db, { actor: p.id, action: 'dev_env.folder', target: project.id, detail: { before: '', after: r.path } })
     })()
-    return f.path
+    afterAccessChange(ctx, before, { actor: p.id, target: r.path, created: [r.path], via: 'dev_env' })
+    return r.path
   } catch (e) {
-    if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {}
+    if (made) unmakeProjectFolder(ctx, made)
     ctx.log.warn('dev env project folder failed', { err: e })
     return fail('conflict', 'This project has no folder of its own and the server could not create one under projects/. Choose a folder for the project, then try again.', { params: { reason: 'dev_env_folder' } })
   }

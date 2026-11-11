@@ -34,7 +34,6 @@ import { useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { toast } from '../store/ui'
-import { skillPrompt } from './PopularSkills'
 import { BringSkillsSheet } from './skills/BringSkillsSheet'
 import { ContributeSheet } from './skills/ContributeSheet'
 import { MoveSkillDialog } from './skills/MoveSkillDialog'
@@ -46,6 +45,8 @@ type Skill = SkillInfo & { uses?: number }
 
 /** The skill's file in Files (its folder, the file selected). */
 export const skillFileLink = (path: string) => `/files?path=${encodeURIComponent(parentPath(path))}&select=${encodeURIComponent(path)}`
+/** The text a skill row puts in the composer: the slash command and a space for the request. */
+export const skillPrompt = (name: string) => '/' + name + ' '
 /** A new chat with "/<name> " in the message box. */
 export const skillChatLink = (name: string) => `/?prompt=${encodeURIComponent(skillPrompt(name))}`
 
