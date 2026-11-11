@@ -1,0 +1,1 @@
+- Asked to delete a folder that holds a project, group or protected folder you cannot open, the AI no longer says which kind it is: it says it holds a group, project or rule folder, so it does not tell you what is in a place you cannot see.

@@ -249,6 +249,49 @@ describe('each folder that never goes says what it is (QA TC-016), and still nev
     expect(R.own).not.toMatch(/skill|admin/i)
   })
 
+  test('a folder holding a group, project or rule folder the asker cannot read: the generic words, never which kind', () => {
+    const hide = (id: string, folder: string) => {
+      h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(`f_${id}`, folder)
+      h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(`r_${id}`, `f_${id}`)
+    }
+    // a project's folder nobody but the owner and admins reads, inside a folder alice writes
+    put('shared/hold-secret/plan/a.md')
+    put('shared/hold-secret/mine.md')
+    project('Secret plan', 'shared/hold-secret/plan')
+    hide('hold_secret', 'shared/hold-secret/plan')
+    // a rule folder alice cannot read, inside another folder she writes
+    put('shared/hold-locked/vault/a.md')
+    hide('hold_locked', 'shared/hold-locked/vault')
+    for (const inner of ['shared/hold-secret/plan', 'shared/hold-locked/vault']) expect(refusedOf('alice', [inner])?.[0]?.error).toMatch(/not found or no access/)
+    for (const rel of ['shared/hold-secret', 'shared/hold-locked']) {
+      stays(rel, R.managed(false), { who: ['alice'] })
+      expect(R.managed(false)).toBe('a group, project or rule folder, or a folder that holds one: it does not go to the trash from a chat. An admin deletes it on the Files screen')
+    }
+    // the owner and an admin read them: what they are
+    stays('shared/hold-secret', R.project(true))
+    stays('shared/hold-locked', R.rule(true))
+  })
+
+  test('another letter case or Unicode form of a protected folder: the same reason, still never goes', () => {
+    const caseless = h.ctx.files.fx.caseInsensitive
+    const nfc = 'projects/견적 2026'.normalize('NFC')
+    put(`${nfc}/brief.md`)
+    // the project's row keeps the name decomposed (as macOS may hand it in): still the project's folder
+    project('견적 2026', nfc.normalize('NFD'))
+    stays(nfc, R.project(true), { guard: true })
+    for (const [asked, onDisk, why] of [['GROUPS/marketing', 'groups/marketing', R.group(true)], ['groups/MARKETING', 'groups/marketing', R.group(true)], [nfc.normalize('NFD'), nfc, R.project(true)], ['Projects/견적 2026'.normalize('NFD'), nfc, R.project(true)]] as const) {
+      for (const who of ['carol', 'dana']) {
+        const r = refusedOf(who, [asked])
+        expect({ asked, who, refused: !!r }).toEqual({ asked, who, refused: true })
+        // on a volume that finds the folder by another spelling, the folder's own reason; elsewhere it is not found
+        if (caseless) expect({ asked, who, error: r![0]!.error, path: r![0]!.path }).toEqual({ asked, who, error: why, path: onDisk })
+        if (caseless) expect(() => svc().remove(who, asked, TURN, { ai: fakeItem(onDisk) })).toThrow(why)
+      }
+      expect(has(onDisk)).toBe(true)
+      expect(trashRows('original_path = ?', onDisk)).toEqual([])
+    }
+  })
+
   test('a rule folder, and a folder right in projects/ or groups/ that is none of these; the skill reason only with a skills folder in it', () => {
     put('shared/locked-plan/a.md')
     h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_del_rule2', 'shared/locked-plan')").run()
