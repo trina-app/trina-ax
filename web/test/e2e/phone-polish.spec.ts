@@ -64,13 +64,16 @@ test('a file preview on a phone: the page behind is inert until it closes', asyn
   await reset(page)
   await signIn(page)
   await page.goto('/files?path=marketing')
-  await page.getByTestId('file-row').filter({ hasText: 'plan.md' }).getByRole('button').first().click()
+  const row = page.getByTestId('file-row').filter({ hasText: 'plan.md' }).getByRole('button').first()
+  await row.click()
   await expect(page.getByTestId('file-panel')).toBeVisible()
   await expect(page.locator('main#main')).toHaveAttribute('inert', '')
   await shot(page, 'after-3-file-preview.png')
   await page.getByTestId('file-panel').getByRole('button', { name: t['common.close'], exact: true }).first().click()
   await expect(page.getByTestId('side-panel')).toHaveCount(0)
   await expect(page.locator('main#main')).not.toHaveAttribute('inert')
+  // the focus is back on the row that opened it
+  await expect(row).toBeFocused()
 })
 
 test('the usage filters show one ⌄ each (the select\'s own)', async ({ page }) => {
