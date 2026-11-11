@@ -18,8 +18,17 @@
 //     chat, for this person, outside the link budget. Never for an address with a long random-looking part (opaqueParts:
 //     it can carry data, so the card shows it highlighted every time) or a long name before the site (longSubdomain:
 //     names have no case to tell random labels by, and they reach the name servers on the way in the clear), never for
-//     one with a user name or password, never in a confidential chat. Like Claude Code's "don't ask again for this
-//     domain", but for one conversation;
+//     one with a user name or password, never in a confidential chat, never for an echo (below). Like Claude Code's
+//     "don't ask again for this domain", but for one conversation;
+//   ①d "Allow all websites" for the AI's web reads (tools/web-allow-all.ts; docs/DECISIONS.md "Allow all websites covers
+//     the AI's web reads"): the person's own switch, while the team allows it, opens the same plain addresses as ①b on
+//     any site, with no budget (the owner's call, 2026-11-11: "always allow" means no more cards for plain addresses).
+//     Always the switch of the person whose turn it is, never another member's; also in a room's AI session, a shared
+//     chat and after a room read (the owner's call, 2026-11-11: "it's a team"), only in a turn the person asked from
+//     their app and sees as it runs (not a scheduled run, a Slack question or a draft), never in a confidential chat;
+//   the order: ① typed or allowed; a plain address (plainAddress: a site, no random-looking part, no long name before
+//     the site, no user name or password, not an echo) on a site allowed here (①b); a learned link within the link
+//     budget; an echo asks; ①d; else the card;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
 //   ①c save_url only (`connection`): addresses that came back in this chat from an external-service connection the
 //     person can use now (tools/connection-urls.ts), learned links within the same budget, unless the AI had sent the
@@ -35,12 +44,14 @@ import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
 import { getDomain, parse } from 'tldts'
 import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
+import { ALL_SITES_ANSWER, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
 import type { CardOutcome } from '../policy/refusal'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
 import type { EchoCheck } from './connection-urls'
 import type { ResolveOptions } from './web-fetch'
+import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from './web-allow-all'
 
 /** ③: a query string this long always needs a person, wherever the URL came from */
 export const MAX_UNCONFIRMED_QUERY = 200
@@ -132,6 +143,11 @@ export interface TurnPerson {
   /** a turn that shows the person each page it opens as it happens (a company profile draft: onboarding/draft.ts
    * DraftPages): web_fetch reports every call, where it ended up and how it went */
   pages?: WebPageLog
+  /** "Allow all websites" (rule ①d) may apply to this turn: asked from the person's app and shown as it runs (not a
+   * scheduled run, a Slack question, a draft or a turn the server started). Absent: never */
+  allSitesHere?(): boolean
+  /** the person's "Allow all websites" changed on this turn's card: tell their open windows */
+  webAccessChanged?(): void
 }
 
 /** How a yes / no card of `person` ended (policy/refusal.ts CardOutcome): an unattended run is not asked at all
@@ -341,6 +357,21 @@ function decodedUrl(url: string): string {
 /** A site allowance lives in one chat of its owner: never another chat, never another person. */
 function siteScope(db: Database, chatId: string | null, userId: string | null | undefined): chatId is string {
   return !!chatId && !!userId && !!db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ?').get(chatId, userId) && !isConfidentialChat(db, chatId)
+}
+
+/** An address a site allowance (①b) or "Allow all websites" (①d) may cover: it has a site, no long random-looking part
+ * and no long name before the site (`marks`), no user name or password, and it is not an echo of what the AI sent (an
+ * echo always asks). */
+function plainAddress(site: string | null, marks: readonly string[], userinfo: boolean, from: Origin | null): site is string {
+  return !!site && !marks.length && !userinfo && from?.origin !== 'echo'
+}
+
+/** Rule ①d may apply to this call: a chat, the turn's own person (whose switch it is, never another member's), a turn
+ * that says so (TurnPerson.allSitesHere: watched, from the person's app) and not a confidential chat. Rooms, shared
+ * chats and chats that read rooms are included (the owner's call, 2026-11-11). */
+function allSitesChat(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null): boolean {
+  if (!chatId || !userId || !person || person.unattended || !person.allSitesHere?.()) return false
+  return !!db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId) && !isConfidentialChat(db, chatId)
 }
 
 /** The sites the person allowed in this chat; none in a confidential chat, in another person's chat or without a person. */
@@ -555,6 +586,18 @@ export const TEXT = {
     ja: 'サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列や長いクエリを含むアドレスは引き続き確認します。',
     es: 'Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en esta conversación. Las direcciones con cadenas largas difíciles de leer o una consulta larga siguen preguntando.',
   },
+  /** the line of the fourth answer; the risk sentence (shared WEB_ALLOW_ALL_RISK) follows it */
+  all: {
+    en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and in rooms, until you turn it off in Settings › Browser. Long hard-to-read strings and long queries still ask, but that catches obvious tokens only.',
+    ko: '모든 사이트를 허용하면 설정 › 브라우저에서 끌 때까지, 내가 물을 때는 내 채팅과 대화방에서 AI가 공개 웹사이트를 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 묻지만, 눈에 띄는 토큰만 걸러요.',
+    id: 'Jika semua situs web diizinkan, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di ruang obrolan, sampai Anda mematikannya di Pengaturan › Browser. String panjang yang sulit dibaca dan kueri panjang tetap ditanyakan, tetapi itu hanya menangkap token yang jelas.',
+    ja: 'すべてのサイトを許可すると、設定 › ブラウザーでオフにするまで、あなたが頼んだときはチャットでもトークルームでもAIが公開Webサイトを確認なしで開きます。読み取りにくい長い文字列や長いクエリは引き続き確認しますが、検出できるのは明らかなトークンだけです。',
+    es: 'Si permite todos los sitios web, la IA abre sitios públicos sin preguntar cuando usted se lo pide, en sus chats y en las salas, hasta que lo desactive en Configuración › Navegador. Las cadenas largas difíciles de leer y las consultas largas siguen preguntando, pero eso solo detecta tokens evidentes.',
+  },
+  allowAll: {
+    en: 'Allow all websites (turn off in Settings)', ko: '모든 사이트 허용 (설정에서 끌 수 있어요)', id: 'Izinkan semua situs web (matikan di Pengaturan)',
+    ja: 'すべてのサイトを許可（設定でオフにできます）', es: 'Permitir todos los sitios web (desactívelo en Configuración)',
+  },
   labelUrl: { ko: '주소', en: 'Address', id: 'Alamat', ja: 'アドレス', es: 'Dirección' },
   allow: { ko: '열기', en: 'Open', id: 'Buka', ja: "開く", es: "Abrir" },
   allowSite: {
@@ -564,14 +607,14 @@ export const TEXT = {
   deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir" },
 } satisfies Record<string, Record<Locale, string>>
 
-/** 'seen' and 'site' opened without a card (① and ①b), 'confirmed' after one. */
-export type GateResult = 'seen' | 'site' | 'confirmed'
+/** 'seen', 'site' and 'all' opened without a card (①, ①b and ①d), 'confirmed' after one. */
+export type GateResult = 'seen' | 'site' | 'all' | 'confirmed'
 
 /**
  * Throws ToolError unless the URL may be fetched. `person` is null outside a chat turn (no one to ask): then only ①
  * URLs pass (learned ones within the link budget). `turnId`: the answer the link budget counts for. `userId`: the
- * person of the turn; the sites they allowed in this chat (①b) count only for them (none without it).
- * Decides from the address text and the database alone: the caller looks the name up only after a yes.
+ * person of the turn; the sites they allowed in this chat (①b) and their "Allow all websites" (①d) count only for them
+ * (none without it). Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
 export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
@@ -597,11 +640,16 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' | 'echo' | 'echoWeb' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
   // a scheduled run, or no turn: nobody can be asked, and nobody sees the steps as they happen (the smaller budget)
   const unattended = !person || !!person.unattended
+  // ①d may apply in this turn and chat (read once, only when needed)
+  let here: boolean | undefined
+  const allSitesTurn = () => (here ??= allSitesChat(db, chatId, o.userId, person))
+  let plain = false
   if (!long && !noEgress) {
     const from = originOf(db, chatId, url, person, o)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
-    // ①b: a site the person allowed in this conversation, outside the link budget
-    if (site && !marks.length && !userinfo && allowedSites(db, chatId, o.userId).has(site)) return 'site'
+    plain = plainAddress(site, marks, userinfo, from)
+    // ①b: a site the person allowed in this conversation, outside the link budget (never for an echo)
+    if (plain && allowedSites(db, chatId, o.userId).has(site!)) return 'site'
     if (from?.origin === 'learned') {
       if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from, unattended)) return 'seen'
       why = 'budget'
@@ -609,11 +657,13 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     // an echo of what the AI sent: always the person, whatever is left of the budget (a connection's answer, or a web
     // page / search result: their own wording)
     if (from?.origin === 'echo') why = from.conn ? 'echo' : 'echoWeb'
+    // ①d: the "Allow all websites" of the person whose turn it is (no budget: the owner's call, 2026-11-11)
+    else if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
   }
   // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened
   if (unattended) {
     const b = budgetFor(true)
-    throw new ToolError(why === 'budget'
+    throw new ToolError((why === 'budget'
       ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed where nobody can confirm them (${b.turn} per ${person ? person.unattendedLabel ?? 'scheduled run' : 'answer'}, ${b.chat} per chat), and nobody can confirm it here, so it was not opened`
       : why === 'noEgress'
         ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction' + (person?.unattendedLabel ? '' : ' (writing the address into a scheduled task does not change it)') + '; tell the user the server could not open web addresses this time'
@@ -624,6 +674,8 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
         : why === 'longQuery'
           ? `this address has a long query part (over ${MAX_UNCONFIRMED_QUERY} characters), which always needs a person to confirm it, even when it appeared in the conversation or the task, and nobody can confirm it here, so it was not opened`
           : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
+      // the person's "Allow all websites" does not reach a run nobody watches: say so, so nobody expects it to
+      + (person && webAllowAll(db, o.userId) ? ' (the user\'s "Allow all websites" setting does not apply in a run the user does not answer step by step, such as a scheduled task or a draft)' : ''))
   }
   const L = person.locale
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)
@@ -638,19 +690,27 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // chat. The next plain address of the site offers it.
   const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
   if (offerSite) lines.push(TEXT.site[L].replace('{site}', () => siteLabel(site!)))
+  // "Allow all websites (turn off in Settings)": on the first card already (the owner's call, 2026-11-11, as Claude's own
+  // apps offer "always allow" at once), only where ①d could open this very address next time (a plain address, not an
+  // echo, in a turn ①d applies to), while the team allows it and the person's switch is off. Picking it opens this
+  // address and turns the switch on (read with the team's policy in one transaction)
+  const offerAll = !!(person.choose && plain && why !== 'echo' && why !== 'echoWeb' && allSitesTurn() && teamAllowsWebAll(db) && !webAllowAll(db, o.userId))
+  if (offerAll) lines.push(`${TEXT.all[L]} ${WEB_ALLOW_ALL_RISK[L]}`)
   const extra: ConfirmExtra | undefined = marks.length ? { details: [{ label: TEXT.labelUrl[L], text: readable, marks }] } : undefined
   const question = lines.join('\n\n')
-  const answer = offerSite
+  const answer = offerSite || offerAll
     ? await person.choose!(question, [
       { label: TEXT.allow[L], value: 'allow' },
-      { label: TEXT.allowSite[L].replace('{site}', () => siteLabel(site!)), value: 'site' },
+      ...(offerSite ? [{ label: TEXT.allowSite[L].replace('{site}', () => siteLabel(site!)), value: 'site' }] : []),
+      ...(offerAll ? [{ label: TEXT.allowAll[L], value: ALL_SITES_ANSWER }] : []),
       { label: TEXT.deny[L], value: 'deny' },
     ], extra)
     : (await person.confirm(question, TEXT.allow[L], TEXT.deny[L], extra)) ? 'allow' : null
-  if (answer !== 'allow' && answer !== 'site') {
+  if (answer !== 'allow' && answer !== 'site' && answer !== ALL_SITES_ANSWER) {
     throw new ToolError('the user did not allow opening this address. Do not try other addresses to get around this; tell the user what you could not do')
   }
   if (chatId && !long && !noEgress) rememberUrls(db, chatId, [url], 'allowed')
   if (answer === 'site' && offerSite) allowSite(db, chatId!, o.userId!, site!, o.turnId ?? null)
+  if (answer === ALL_SITES_ANSWER && offerAll && setWebAllowAll(db, o.userId!, true, { via: 'card', turnId: o.turnId ?? null })) person.webAccessChanged?.()
   return 'confirmed'
 }

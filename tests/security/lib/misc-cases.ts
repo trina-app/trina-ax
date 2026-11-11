@@ -226,6 +226,14 @@ export const MISC_SPECS: Record<string, Spec> = {
       if (spoof.status !== 400) throw new Error(`${who}: a body naming a person was not refused: ${spoof.status}`)
     } },
 
+  // "Allow all websites" for the AI's web reads: only my own (a body naming someone else is refused); off always works
+  setMyWebAccess: { build: (c) => c.put('/api/me/web-access', { on: false }), scope: 'self',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      const spoof = await w.as[who].req('PUT', '/api/me/web-access', { on: false, userId: 'alice' })
+      if (spoof.status !== 400) throw new Error(`${who}: a body naming a person was not refused: ${spoof.status}`)
+    } },
+
   // ---- a share proposal's check: its proposer's only (the owner's ready proposal: 200 for her, 404 for anyone else)
   stopSkillShareCheck: { build: (c, w) => { danaShare(w); return c.post(`/api/skill-shares/${DANA_SHARE}/stop-check`) }, scope: 'own-owner',
     check: (r, _w, who) => {

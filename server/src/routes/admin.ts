@@ -20,7 +20,8 @@ import { rulesHash } from '../admin/access-edit'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
-import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
+import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
+import { teamPolicyOff } from '../tools/web-allow-all'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { credentialsOf, noticeOwners } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
@@ -376,6 +377,11 @@ export const adminRoutes: RouteModule = {
       const next = updateTeamSettings(ctx.db, body)
       const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))
       if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'settings.update', target: null, detail: changed })
+      // "Allow all websites" for the AI's web reads stopped being allowed (either switch off): everyone's switch goes off
+      // in one transaction with the policy epoch raised (tools/web-allow-all.ts), each person audited and told
+      if ((cur.browserAllowAll && cur.webAllowAll) && !(next.browserAllowAll && next.webAllowAll)) {
+        for (const id of teamPolicyOff(ctx.db, auth.user.id)) ctx.services.realtime.publish(id, WEB_ACCESS_CHANGED)
+      }
       // everyone's screen shows "Team default (…)", and people without their own language switch with it
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
@@ -384,7 +390,7 @@ export const adminRoutes: RouteModule = {
       if ('timeZone' in changed) ctx.services.realtime.publishEach(() => ROOM_ALERTS_CHANGED)
       if ('concurrency' in changed) getChatRuntime(ctx).schedule()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
-      if ('browserAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
+      if ('browserAllowAll' in changed || 'webAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
       // composers show or hide the mic (Me.team.voiceInput)
       if ('speechProvider' in changed) ctx.services.realtime.publishEach(() => SPEECH_CHANGED)
       return next
