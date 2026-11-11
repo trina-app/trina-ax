@@ -1,6 +1,7 @@
 // Phones: every control takes taps from at least 44 × 44 px (Apple's minimum; Material's is 48 dp), and text fields
 // show 16 px text, so iOS Safari does not zoom in when one gets the focus (docs/DECISIONS.md "Phones: 44 px targets
-// and 16 px fields"). Measured at 390×844 in a narrow window without touch, so it holds by width alone: what a tap
+// and 16 px fields"). Measured at 390×844 twice: as a touch phone, and as a narrow window with a mouse (so it holds by
+// width alone, and the controls a phone hides behind a long press are measured too): what a tap
 // really reaches, from the control's middle outwards (document.elementFromPoint), so a hit box drawn around a small
 // control (touch-hit) counts and a neighbour drawn over it does not. It measures a cross through the middle (across
 // and down), not every point of the box. A field counts with its <label> frame, a switch with its label, and a message
@@ -18,7 +19,9 @@ type Control = { what: string; w: number; h: number; font: number | null; covere
 
 /** The controls on screen (not under the phone's tab bar) whose tap area is under 44 px, and the fields under 16 px. */
 async function tooSmall(page: Page): Promise<{ small: Control[]; fields: Control[] }> {
-  // the page settles (fonts, a list that loads)
+  // the page settles (fonts, a list that loads, a late notice)
+  await page.waitForLoadState('networkidle')
+  await page.evaluate(() => document.fonts.ready)
   await page.waitForTimeout(300)
   return page.evaluate(() => {
     const bottom = document.querySelector('[data-testid="tab-ai"]')?.getBoundingClientRect().top ?? innerHeight
@@ -29,10 +32,11 @@ async function tooSmall(page: Page): Promise<{ small: Control[]; fields: Control
       const r = el.getBoundingClientRect()
       if (r.width < 1 || r.height < 1 || r.top < 0 || r.bottom > bottom || r.left < 0 || r.right > innerWidth) continue
       if (el.closest('[inert], [aria-hidden="true"], .sr-only-focusable')) continue
-      // drawn see-through (a row's ⋯ that shows on hover with a mouse)
+      // drawn see-through (a row's ⋯ that shows on hover with a mouse), or not taking taps at all
       let seen = true
-      for (let p: HTMLElement | null = el; p; p = p.parentElement) if (getComputedStyle(p).opacity === '0') seen = false
-      if (!seen) continue
+      for (let p: HTMLElement | null = el; p && seen; p = p.parentElement) if (getComputedStyle(p).opacity === '0') seen = false
+      const own = getComputedStyle(el)
+      if (!seen || own.pointerEvents === 'none' || own.visibility !== 'visible') continue
       const cx = r.left + r.width / 2
       const cy = r.top + r.height / 2
       const field = /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)
@@ -79,74 +83,79 @@ async function expectPhoneSized(page: Page) {
   expect(fields, 'fields with text under 16 px').toEqual([])
 }
 
-test.beforeEach(async ({ page }) => {
-  await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
-})
+for (const touch of [true, false])
+  test.describe(touch ? 'a touch phone' : 'a narrow window with a mouse', () => {
+    test.use({ hasTouch: touch, isMobile: touch })
 
-test('Home: the message box and its buttons', async ({ page }) => {
-  await signIn(page)
-  await page.goto('/')
-  await expect(page.getByTestId('composer-input')).toBeVisible()
-  await expectPhoneSized(page)
-})
+  test.beforeEach(async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  })
 
-test('Team skills: the tabs, the search, Change, and each skill\'s ⋯', async ({ page }) => {
-  await signIn(page)
-  for (const [p, text] of [
-    ['skills/weekly.md', '---\nname: weekly\ndescription: Weekly team report\n---\nSum up\n'],
-    ['skills/offer.md', '---\nname: offer\ndescription: Write a price offer\n---\nRead it\n'],
-  ]) expect((await page.request.post('/__test/file', { data: { path: p, text } })).ok()).toBeTruthy()
-  await page.goto('/skills')
-  await expect(page.getByTestId('skill-row').first()).toBeVisible()
-  await expect(page.getByTestId('skill-editors-change')).toBeVisible()
-  await expectPhoneSized(page)
-})
+  test('Home: the message box and its buttons', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/')
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await expectPhoneSized(page)
+  })
 
-test('a room: its header buttons and the message box', async ({ page }) => {
-  await routeRoom(page, { members: [{ id: 'bob', name: 'Bob' }], messages: [{ id: '019a5f00-0000-7000-8000-000000000101', author: { id: 'bob', name: 'Bob' }, body: 'Can you check the deck?' }] })
-  await signIn(page)
-  await page.goto(`/rooms/${ROOM_ID}`)
-  await expect(page.getByText('Can you check the deck?')).toBeVisible()
-  await expectPhoneSized(page)
-})
+  test('Team skills: the tabs, the search, Change, and each skill\'s ⋯', async ({ page }) => {
+    await signIn(page)
+    for (const [p, text] of [
+      ['skills/weekly.md', '---\nname: weekly\ndescription: Weekly team report\n---\nSum up\n'],
+      ['skills/offer.md', '---\nname: offer\ndescription: Write a price offer\n---\nRead it\n'],
+    ]) expect((await page.request.post('/__test/file', { data: { path: p, text } })).ok()).toBeTruthy()
+    await page.goto('/skills')
+    await expect(page.getByTestId('skill-row').first()).toBeVisible()
+    await expect(page.getByTestId('skill-editors-change')).toBeVisible()
+    await expectPhoneSized(page)
+  })
 
-test('Files: the tabs, New folder and Upload, the path, who sees the folder, each file\'s ⋯', async ({ page }) => {
-  await signIn(page)
-  await page.goto('/files?path=marketing')
-  await expect(page.getByTestId('file-menu').first()).toBeVisible()
-  await expect(page.getByTestId('folder-access-chip')).toBeVisible()
-  await expectPhoneSized(page)
-})
+  test('a room: its header buttons and the message box', async ({ page }) => {
+    await routeRoom(page, { members: [{ id: 'bob', name: 'Bob' }], messages: [{ id: '019a5f00-0000-7000-8000-000000000101', author: { id: 'bob', name: 'Bob' }, body: 'Can you check the deck?' }] })
+    await signIn(page)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    await expect(page.getByText('Can you check the deck?')).toBeVisible()
+    await expectPhoneSized(page)
+  })
 
-test('sign-in and join: the fields, the buttons and the links under them', async ({ page, browser }) => {
-  await page.goto('/login')
-  await expect(page.getByTestId('login-username')).toBeVisible()
-  await expectPhoneSized(page)
+  test('Files: the tabs, New folder and Upload, the path, who sees the folder, each file\'s ⋯', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await expect(page.getByTestId('file-menu').first()).toBeVisible()
+    await expect(page.getByTestId('folder-access-chip')).toBeVisible()
+    await expectPhoneSized(page)
+  })
 
-  await signIn(page)
-  const r = await page.request.post('/api/admin/team-link', { headers: { [CSRF_HEADER]: '1' }, data: {} })
-  expect(r.status()).toBe(201)
-  const link = new URL((await r.json()).link.url)
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'en-US' })
-  const p = await ctx.newPage()
-  await p.goto(link.pathname + link.hash)
-  await expect(p.getByTestId('join-signin')).toBeVisible()
-  await expectPhoneSized(p)
-  await ctx.close()
-})
+  test('sign-in and join: the fields, the buttons and the links under them', async ({ page, browser }) => {
+    await page.goto('/login')
+    await expect(page.getByTestId('login-username')).toBeVisible()
+    await expectPhoneSized(page)
 
-test('Settings: the list, Profile\'s form and Notifications\' switches', async ({ page }) => {
-  await signIn(page)
-  await page.goto('/settings')
-  await expect(page.getByTestId('settings-row-notifications')).toBeVisible()
-  await expectPhoneSized(page)
-  await page.goto('/settings/profile')
-  await expect(page.getByRole('textbox').first()).toBeVisible()
-  await expectPhoneSized(page)
-  await page.goto('/settings/notifications')
-  await expect(page.getByRole('checkbox').first()).toBeAttached()
-  await expectPhoneSized(page)
-})
+    await signIn(page)
+    const r = await page.request.post('/api/admin/team-link', { headers: { [CSRF_HEADER]: '1' }, data: {} })
+    expect(r.status()).toBe(201)
+    const link = new URL((await r.json()).link.url)
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'en-US', hasTouch: touch, isMobile: touch })
+    const p = await ctx.newPage()
+    await p.goto(link.pathname + link.hash)
+    await expect(p.getByTestId('join-signin')).toBeVisible()
+    await expectPhoneSized(p)
+    await ctx.close()
+  })
+
+  test('Settings: the list, Profile\'s form and Notifications\' switches', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/settings')
+    await expect(page.getByTestId('settings-row-notifications')).toBeVisible()
+    await expectPhoneSized(page)
+    await page.goto('/settings/profile')
+    await expect(page.getByRole('textbox').first()).toBeVisible()
+    await expectPhoneSized(page)
+    await page.goto('/settings/notifications')
+    await expect(page.getByRole('checkbox').first()).toBeAttached()
+    await expectPhoneSized(page)
+  })
+  })
 
 for (const width of [768, 1440])
   test(`a computer or tablet keeps its sizes at ${width} px: 36 px buttons and 14 px fields`, async ({ page }) => {
