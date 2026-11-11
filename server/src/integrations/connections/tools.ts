@@ -215,9 +215,20 @@ function pinsFor(ctx: AppContext, turnId: string, row: Row): { pins: string[]; u
   } catch { return null }
 }
 
+/** File extensions that are also domain suffixes (.md is Moldova's, .py Paraguay's, .zip a gTLD). */
+const FILE_SUFFIXES: ReadonlySet<string> = new Set(['md', 'py', 'sh', 'zip', 'mov', 'pl', 'rs', 'ps', 'ai', 'cc', 'so'])
+/** A name that reads as a file, not a host: one name and a file extension ("report.md", "run.sh"; no sub-domain, so
+ * nothing can ride in front of a registered name), or a name no registrar issues ("주간보고_2026-11-11_2.md": an
+ * underscore). "x.attacker.zip" stays a host. */
+function fileName(p: ReturnType<typeof parseHost>): boolean {
+  if (!p.domainWithoutSuffix) return false
+  if (p.domainWithoutSuffix.includes('_')) return true
+  return !p.subdomain && FILE_SUFFIXES.has((p.publicSuffix ?? '').toLowerCase())
+}
+
 /** Does any text of `v` name a host with a public suffix in the middle of other words ("mail data.attacker.example")? A
- * chat links such a name and fetches its preview. File names count too ("report.md": .md is a country's suffix): a
- * pinned send's text may not carry them (fails closed). */
+ * chat links such a name and fetches its preview. A file name is not one ("report.md", fileName): a scheduled run that
+ * saves a file and sends its summary names the file. */
 function hostNamesIn(v: unknown, depth = 0): boolean {
   if (depth > 32) return true
   if (typeof v === 'string') {
@@ -226,7 +237,7 @@ function hostNamesIn(v: unknown, depth = 0): boolean {
       // a dotted IPv4 address with nothing after it ("send to 203.0.113.9") is a host too
       if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return true
       const p = parseHost(host)
-      if (p.domain && p.isIcann) return true
+      if (p.domain && p.isIcann && !fileName(p)) return true
     }
     return false
   }
