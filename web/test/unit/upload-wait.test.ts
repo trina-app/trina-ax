@@ -5,7 +5,7 @@
 // again (the server keeps the same file once, no "(2)"); an attachment is sent once, as before.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { ApiClient, ApiError, UPLOAD_CHUNK_SIZE, uuidv7, type FileEntry, type UploadSession } from '@mycel/shared/api'
-import { uploadBar, uploadFile, uploadLabel, type UploadProgress } from '../../src/lib/upload'
+import { noAnswer, uploadBar, uploadFile, uploadLabel, type UploadProgress } from '../../src/lib/upload'
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
 const entry = (path: string, size: number): FileEntry => ({ name: path.split('/').pop()!, path, type: 'file', size, mtime: new Date().toISOString(), mime: null, access: 'write' })
@@ -147,6 +147,18 @@ describe('a lost connection', () => {
     const failing = new ApiClient({ baseUrl: '', fetch: (async () => { fives++; return json({ error: { code: 'internal', message: 'no' } }, 500) }) as unknown as typeof fetch })
     expect(await uploadFile(small(), { kind: 'path', path: 'shared/a.jpg', onExists: 'rename' }, { client: failing, storage: null, retryDelayMs: 1 }).catch((x: unknown) => x)).toBeInstanceOf(ApiError)
     expect(fives).toBe(1)
+  })
+
+  test('a fault in the page (a TypeError that is not a network failure) is not sent again nor waited on', async () => {
+    let tries = 0
+    const broken = new ApiClient({ baseUrl: '', fetch: (async () => { tries++; throw new TypeError("Cannot read properties of undefined (reading 'id')") }) as unknown as typeof fetch })
+    const e = await uploadFile(big(), { kind: 'path', path: 'shared/video.mp4', onExists: 'rename' }, { client: broken, storage: null, retryDelayMs: 1 }).catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(TypeError)
+    expect(tries).toBe(1)
+    // the browsers' own words for no answer are waited on
+    for (const m of ['Failed to fetch', 'Load failed', 'NetworkError when attempting to fetch resource.', 'Network request failed']) expect(noAnswer(new TypeError(m))).toBe(true)
+    expect(noAnswer(new TypeError('x is not a function'))).toBe(false)
+    expect(noAnswer(new Error('Failed to fetch'))).toBe(false)
   })
 
   test('a chat attachment is sent once, as before (a second one would be a second attachment)', async () => {

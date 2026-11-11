@@ -74,7 +74,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
         s.chunks.set(n, (init!.body as Blob).size)
         if (o.dropAfterStore?.has(n)) {
           o.dropAfterStore.delete(n)
-          throw new TypeError('network dropped')
+          throw new TypeError('Network request failed')
         }
         return json({ received: [...s.chunks.keys()].sort((a, b) => a - b) })
       }

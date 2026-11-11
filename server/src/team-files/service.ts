@@ -49,6 +49,9 @@ export const mimeOf = (name: string): string | null => {
 const segsOf = (rel: string) => (rel === '' ? [] : rel.split('/'))
 /** names sameFileAt() looks at: the name and its first renamed forms (a lost answer is retried within minutes) */
 const SAME_FILE_NAMES = 20
+/** how long a person's own upload counts as "this upload, sent again" (a resumed upload, photos picked again on a phone
+ * after the network dropped); after that the same file uploaded again is a new copy, as before */
+const SAME_UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000
 const isUnder = (anc: string, p: string) => anc === '' ? p !== '' : p.startsWith(anc + '/')
 const iso = (ms: number) => new Date(ms).toISOString()
 /** A path a person typed, for a name the server makes from it (a new folder or file, a rename, a move): composed (NFC),
@@ -2044,9 +2047,9 @@ export class TeamFiles {
    * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from), or what
    * an upload's event carries (a computer file attached in a shared chat: its attachment and chat, uploads/shared-chat.ts).
    * `taken` (with rename): names that count as taken though nothing has them (an instruction file's name), so the next
-   * free one is used. `keepSame` (with rename; the file screen's uploads): when the name holds this very file already
-   * (same size and sha256), that file is kept and answered, with no "(2)" copy: a retry whose first answer was lost on
-   * the way, or the same photos picked again after a dropped connection (QA TC-223).
+   * free one is used. `keepSame` (with rename; the file screen's uploads): when the name holds this person's own upload
+   * of this very file from the last 24 hours (sameFileAt), that file is kept and answered, with no "(2)" copy: a retry
+   * whose first answer was lost on the way, or the same photos picked again after a dropped connection (QA TC-223).
    */
   async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create' | 'upload'; detail: Record<string, unknown> }, o: { taken?: (name: string) => boolean; keepSame?: boolean } = {}): Promise<FileEntry> {
     const user = this.principal(userId)
@@ -2078,10 +2081,12 @@ export class TeamFiles {
     return this.entry(user, rules, r.segs)
   }
 
-  /** The entry of this very file (a regular file of `size` bytes with this sha256) at `name` or at one of the names a
-   * rename would have given it before ("name (2).ext", "name (3).ext"…, up to the first free one: a retry whose
-   * first answer was lost, where another file already had the name), when the person can see and read it; null
-   * otherwise (another file, a folder, a link, or hidden: then it is treated as before, and nothing about it shows). */
+  /** The entry of this person's own upload of this very file in the last 24 hours (SAME_UPLOAD_WINDOW_MS: the upload
+   * event names them, the path and this sha256, and the file is still that content, `size` bytes) at `name` or at one
+   * of the names a rename would have given it then ("name (2).ext", "name (3).ext"…, up to the first free one: a retry
+   * whose first answer was lost, where another file already had the name). Null otherwise: another file; the same
+   * content uploaded by someone else, made another way, or longer ago (a team template uploaded again to get one's own
+   * copy gets its copy, never the shared original); a folder, a link, or a name the person cannot see or read. */
   private async sameFileAt(user: Principal, rules: RuleSet, folder: string[], name: string, size: number, sha: string): Promise<FileEntry | null> {
     const [base, ext] = splitExt(name, false)
     for (let i = 1; i <= SAME_FILE_NAMES; i++) {
@@ -2092,7 +2097,10 @@ export class TeamFiles {
       try { st = fs.lstatSync(abs) } catch { return null } // the first free name: nothing after it is this upload's
       if (!st.isFile() || st.nlink !== 1 || st.size !== size) continue
       if (!siblingVisible(this.fx, rules, user, folder, cand) || !atLeast(rules.access(user, segs), 'read')) continue
-      if ((await this.sha(abs, st)) === sha) return this.entry(user, rules, segs, st)
+      if ((await this.sha(abs, st)) !== sha) continue
+      const since = new Date(Date.now() - SAME_UPLOAD_WINDOW_MS).toISOString()
+      const mine = this.ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND sha256 = ? AND at >= ? LIMIT 1").get(segs.join('/'), user.id, sha, since)
+      if (mine) return this.entry(user, rules, segs, st)
     }
     return null
   }

@@ -1,7 +1,9 @@
-// The same file uploaded again into the same place is kept, not stored as "name (2)" (QA TC-223): a retry whose first
-// answer was lost after a network drop, or photos picked again. Another file of that name still gets "(2)", and
-// onExists fail / replace are as before. Small uploads and upload sessions alike. Fixture (tests/lib/c-app.ts): alice =
-// member (marketing).
+// A person's own upload sent again into the same place within 24 hours is kept, not stored as "name (2)" (QA TC-223): a
+// retry whose first answer was lost after a network drop, or photos picked again. Only their own upload of that very
+// content, recently: the same content uploaded by someone else, written another way, or longer ago gets "(2)" as before
+// (someone uploading a team template again to get their own copy gets the copy, not the shared original). Another file
+// of that name gets "(2)", and onExists fail / replace are as before. Small uploads and upload sessions alike. Fixture
+// (tests/lib/c-app.ts): alice and bob = members.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -17,13 +19,13 @@ beforeAll(async () => {
 })
 afterAll(async () => { await A.close() })
 const names = () => fs.readdirSync(path.join(A.team, 'shared/photos')).sort()
-const up = (name: string, body: string, onExists = 'rename') => {
+const up = (name: string, body: string, onExists = 'rename', as: 'alice' | 'bob' = 'alice') => {
   const fd = new FormData()
   fd.set('folder', 'shared/photos')
   fd.set('name', name)
   fd.set('onExists', onExists)
   fd.set('file', new File([body], name))
-  return A.json('/api/files/upload', { method: 'POST', body: fd, as: 'alice' })
+  return A.json('/api/files/upload', { method: 'POST', body: fd, as })
 }
 const events = (p: string) => (A.ctx.db.query('SELECT COUNT(*) AS n FROM file_events WHERE path = ?').get(p) as { n: number }).n
 
@@ -53,6 +55,21 @@ describe('the same file again', () => {
     expect(names().filter((n) => n.startsWith('report'))).toEqual(['report (2).pdf', 'report.pdf'])
     // a third file of the name still gets a name of its own
     expect((await up('report.pdf', 'another')).body.path).toBe('shared/photos/report (3).pdf')
+  })
+
+  test('the same content uploaded by someone else, or written another way: a copy of one\'s own, as before', async () => {
+    expect((await up('template.docx', 'team template', 'rename', 'bob')).body.path).toBe('shared/photos/template.docx')
+    expect((await up('template.docx', 'team template')).body.path).toBe('shared/photos/template (2).docx')
+    // alice's own copy, sent again: kept
+    expect((await up('template.docx', 'team template')).body.path).toBe('shared/photos/template (2).docx')
+    fs.writeFileSync(path.join(A.team, 'shared/photos/made.txt'), 'made by the AI')
+    expect((await up('made.txt', 'made by the AI')).body.path).toBe('shared/photos/made (2).txt')
+  })
+
+  test('one\'s own upload from more than 24 hours ago: a new copy, as before', async () => {
+    expect((await up('old.pdf', 'last week')).body.path).toBe('shared/photos/old.pdf')
+    A.ctx.db.query("UPDATE file_events SET at = ? WHERE path = 'shared/photos/old.pdf'").run(new Date(Date.now() - 25 * 3600_000).toISOString())
+    expect((await up('old.pdf', 'last week')).body.path).toBe('shared/photos/old (2).pdf')
   })
 
   test('a folder of that name: the file gets (2), as before', async () => {

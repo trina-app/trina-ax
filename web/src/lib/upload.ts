@@ -107,19 +107,26 @@ export async function sha256Hex(blob: Blob, onProgress?: (done: number) => void,
 }
 
 // 507 storage_full is an answer, not a server fault: a person must free space first, so it ends the file at once
-// No answer at all is a TypeError (fetch, and lib/xhr.ts the same); a file that cannot be read (a DOMException) or an answer
-// that is not what was asked for is not made better by sending again
-const retryable = (e: unknown) => e instanceof TypeError || (e instanceof ApiError && ((e.status >= 500 && e.code !== 'storage_full') || e.code === 'rate_limited' || e.code === 'unavailable'))
+const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false
+/** What fetch and lib/xhr.ts throw for a request that got no answer at all, in the browsers' own words: Chromium
+ * "Failed to fetch", WebKit "Load failed" (and its "network connection was lost" / "appears to be offline"), Firefox
+ * "NetworkError when attempting to fetch resource.", lib/xhr.ts "Network request failed". */
+const NO_ANSWER = /^(failed to fetch|load failed|networkerror when attempting to fetch resource\.?|network request failed|the network connection was lost\.?|the internet connection appears to be offline\.?)$/i
+/** No answer at all: one of those TypeErrors, or any TypeError while the browser says it is offline. Another TypeError
+ * is a fault in the page ("x is not a function") and is not sent again, nor waited on for 10 minutes. */
+export const noAnswer = (e: unknown) => e instanceof TypeError && (NO_ANSWER.test(e.message.trim()) || offline())
+// a file that cannot be read (a DOMException), an answer that is not what was asked for or a fault in the page is not made
+// better by sending again
+const retryable = (e: unknown) => noAnswer(e) || (e instanceof ApiError && ((e.status >= 500 && e.code !== 'storage_full') || e.code === 'rate_limited' || e.code === 'unavailable'))
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms)
     signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('aborted', 'AbortError')) }, { once: true })
   })
 
-/** The connection is gone, not refused: no answer at all (lib/xhr.ts: a TypeError), or the relay could not reach the
- * team server (502, 504). */
-const connectionLost = (e: unknown) => e instanceof TypeError || (e instanceof ApiError && (e.status === 502 || e.status === 504))
-const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false
+/** The connection is gone, not refused: no answer at all (noAnswer), or the relay could not reach the team server (502,
+ * 504). */
+const connectionLost = (e: unknown) => noAnswer(e) || (e instanceof ApiError && (e.status === 502 || e.status === 504))
 
 /** A pause of up to `ms` that the browser's `online` event ends at once. */
 const untilOnline = (ms: number, signal?: AbortSignal) =>

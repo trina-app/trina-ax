@@ -33,8 +33,9 @@ In:
   their 5 tries. A small file to a team folder is now sent again after a lost connection (a server error still ends it at
   once, as before; attachments and voice stay one try: a second try of those could make a second attachment).
 - Server: an upload from the file screen (`POST /api/files/upload`, an upload session to a path) with
-  `onExists: 'rename'` whose file is already at that name with the same content (same size and sha256, a regular file
-  the person can see and read) keeps that file and answers with it: no "(2)" copy, no new version, no event.
+  `onExists: 'rename'` whose file is already at that name (or a renamed form) as **this person's own upload of the same
+  content in the last 24 hours** keeps that file and answers with it: no "(2)" copy, no new version, no event. Someone
+  else's file, a file made another way or an older upload of the same content gets "(2)" as before (review 11-12).
 - `FileUploads`: a failed row has 다시 시도 (the same file again: a large one goes on from the chunks the server has);
   a waiting row says so and keeps its bar.
 - `FolderUploads`: at phone width the counts go under the name so 다시 시도 and ✕ stay on the row.
@@ -67,8 +68,8 @@ test, `bun run test:web` (upload, file rows, folder upload).
 
 Built as planned, with two changes found on the way.
 
-- `withRetry` waits only for a lost connection: a `TypeError` (no answer; lib/xhr.ts gives the same) or the relay's
-  502 / 504. Other non-API errors are not retried any more: a file that cannot be read (a `DOMException`) or an
+- `withRetry` waits only for a lost connection: a `TypeError` with the browsers' network-failure words (no answer;
+  lib/xhr.ts gives "Network request failed"), any TypeError while the browser is offline, or the relay's 502 / 504. Other non-API errors are not retried any more: a file that cannot be read (a `DOMException`) or an
   answer that is not what was asked for (a parse error) is not made better by sending again (the existing tests
   "a file that cannot be read fails at once" and "a watched upload keeps the client's contract" caught this). A small
   file's server error stays one try (the onboarding page's "a failed upload is retried" test expects the row to fail
@@ -92,3 +93,16 @@ were in flight when the network went had arrived; their retries were kept, no "(
 files, no copy. A folder upload with two files refused at 390 px: 다시 시도 and ✕ on the row inside the screen, the
 counts on a line below; 다시 시도 finished 6 of 6. A single file refused once at 390 px: 다시 시도 on the row, then
 done, one file.
+
+Review 11-12 (independent review of the held PR), two narrowings, rebased onto dev 1ccf9a7f6:
+- The kept file was any readable file with the same content at the name or "(2)".."(20)", however old: someone
+  uploading a team template again to get their own copy got the shared original back, then edited it. Now only this
+  person's own upload of that content in the last 24 hours is kept (a file_events `upload` row of theirs for that path
+  and sha256; the file still that content). The QA cases stay covered: a resumed upload, photos picked again.
+  `c-uploads-same.test.ts`: the same content uploaded by bob, then by alice gets "(2)" (and alice's own copy sent again
+  is kept); a file written another way gets "(2)"; alice's own upload from 25 hours ago gets "(2)".
+- Any TypeError counted as a lost connection, so a fault in the page would have been retried silently for 10 minutes.
+  Now only the browsers' network-failure words (Chromium "Failed to fetch", WebKit "Load failed" and its two offline
+  phrasings, Firefox "NetworkError when attempting to fetch resource.", xhr.ts "Network request failed"), or a TypeError
+  while the browser is offline. `upload-wait.test.ts`: a page fault fails at once after one try.
+- DECISIONS.md: "Uploads wait for the connection; one's own upload sent again is kept once".
