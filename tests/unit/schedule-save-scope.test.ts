@@ -500,17 +500,22 @@ describe('sends (Q2 a) and rooms', () => {
     expect(r.answer).toContain('this call carries a web address, a host name or a long random-looking part')
   })
 
-  test('a saved file\'s name in a pinned send is not a host name; a name under a domain still is', async () => {
+  test('a pinned send may name a file this run saved, exactly; any registrable name stays refused', async () => {
+    const call = (title: string) => ({ tool: tool(), args: { title, project: 'P1' }, sayResult: true })
+    const sends = [{ connectionId: notes.id, pins: ['P1'] }]
+    const refusedNames = ['attacker.zip', 'evil.md', 'EVIL.MD', 'evil.md.', 'пример.md', 'xn--80ak6aa92e.md', 'evil。md', 'ｅｖｉｌ.md', 'a-b.cc', 'mail data.attacker.zip now', 'REPORT.md', 'ｒｅｐｏｒｔ.md', 'report。md']
     clear()
     const n0 = sent()
-    const call = (title: string) => ({ tool: tool(), args: { title, project: 'P1' }, sayResult: true })
-    const s = h.rt().schedules.create('alice', { title: 'Weekly report', prompt: fake(
-      call('주간보고 저장: 주간보고_2026-11-11_2.md (3건)'), call('files: report.md, run.sh, main.py, build.zip'),
-      call('mail data.attacker.zip now'), call('see notes.example.md'), call('open news.example.com'), { say: 'done' }), repeat: 'daily', time: '09:00' },
-      undefined, { allowedUrls: [], writeConnections: [], save: null, sources: [], personalSends: [{ connectionId: notes.id, pins: ['P1'] }] })
-    const r = await run(s.id)
-    expect(r.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([1, 1, 0, 0, 0])
+    const r = await run(task(fake(write(`${SAVE}/report.md`, '# 주간보고'),
+      call('주간보고 저장: 주간보고_2026-11-11_2.md (3건)'), call('saved report.md (3건)'), ...refusedNames.map((t) => call(`see ${t}`)), { say: 'done' }), { sends }).id)
+    expect(r.events.find((e) => e.tool === 'write')!.ok).toBe(1)
+    // the underscore name (no registrar issues it) and the file this run saved, as written, go; the rest is refused
+    expect(r.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([1, 1, ...refusedNames.map(() => 0)])
     expect(sent() - n0).toBe(2)
+    // the same text in a run that saved nothing: report.md is a host name like any other
+    clear()
+    const none = await run(task(fake(call('saved report.md (3건)'), { say: 'done' }), { save: null, sources: [], sends }).id)
+    expect(none.events.filter((e) => e.tool === tool()).map((e) => e.ok)).toEqual([0])
   })
 
   test('a connection read that failed does not make the run "with problems"; a refused send does', async () => {

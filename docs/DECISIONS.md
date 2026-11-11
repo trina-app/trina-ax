@@ -19957,11 +19957,17 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   approved folder) and an error look the same in the audit row, and the person must hear about a refusal.
 - Same day, QA: every run that saved a file and sent its summary to a pinned connection was `problems`, because the
   summary named the file (`주간보고_2026-11-11_2.md`) and `.md` is Moldova's suffix, so `hostNamesIn`
-  (`integrations/connections/tools.ts`) refused the send as carrying a host name. A name now reads as a file, not a host,
-  when it is one name and a file extension that is also a suffix (`md py sh zip mov pl rs ps ai cc so`: nothing can ride
-  in front of a registered name, and a pre-registered `report.md` learns only that a preview was fetched) or its
-  registrable label has a character no registrar issues (`_`). `x.attacker.zip`, `data.attacker.net` and any address
-  with a path, query or port stay refused.
+  (`integrations/connections/tools.ts`) refused the send as carrying a host name. A name is not a host when its
+  registrable label has a character no registrar issues (`_`), or when it is, exactly as written (NFC, same case, plain
+  dots), the name of a file this run created or changed (`file_events` of the turn, `savedNames`): never decided from
+  the text alone. Every other registrable name stays refused, also a one-label one with a file-type suffix
+  (`attacker.zip`, `evil.md`, `EVIL.MD`, `пример.md`, its punycode, full-width or ideographic-dot forms): chats and mail
+  link them and fetch a preview, a read beacon and a way to phish from the person's own account (security review of
+  #376; a first version that let any `name.md` through was withdrawn).
+- `api_request` calls a GET a look-up from the method the AI wrote (some APIs act on a GET), and a remote MCP tool's
+  look-up mark is its server's own `readOnlyHint`. Either can only hide a failed call to that service from the run's
+  result, never a refused change of the server's own tools. Counting URL-gate refusals as problems was proposed in
+  review and declined by the owner: refused reads do not mark a run.
 - Not changed here (`tools/url-gate.ts`, PR #351): `carriesAddress` still reads a value that is only a file name under
   an argument not named for a file (`{"body": "report.md"}`, `wholeHost`) and a file name followed by `:<digit>` or `/`
   (`bareAddress`, `AFTER_HOST`) as an address.

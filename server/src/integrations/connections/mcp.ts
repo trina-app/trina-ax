@@ -211,5 +211,8 @@ export function toolOf(t: unknown, hide: Hide = keep): RemoteTool | null {
   try { json = JSON.stringify(hideDeep(schema, hide)) } catch { return null }
   if (json.length > MAX_SCHEMA_CHARS) return null
   const title = clean(x.title ?? x.annotations?.title, 200, hide) || null
+  // readOnly is the remote server's own readOnlyHint (not checked here): it decides the room card and, for a scheduled
+  // run's result, whether a failed call is a look-up (chat/schedule-outcome.ts). It never hides a refused change of our
+  // own tools
   return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION, hide), readOnly: x.annotations?.readOnlyHint === true, inputSchema: JSON.parse(json) }
 }

@@ -30,9 +30,8 @@ the send is refused as carrying a host name (`integrations/connections/tools.ts`
 A refused or failed look-up (read, search, list, web search, web_fetch, drive/room reads, browser reads, a connection
 call that only reads) the AI worked past does not count. The server log keeps their number.
 
-In a pinned send, a file name (one name and a common file extension that is also a domain suffix: `.md`, `.py`,
-`.sh`, `.zip` …, or a name with characters no registrable domain can have, like `_`) is not a host name. A name with
-a sub-domain (`x.attacker.zip`) still is.
+In a pinned send, a name with an underscore (no registrar issues it) or exactly the name of a file this run saved is
+not a host name. Any other registrable name (`evil.md`, `attacker.zip`, `x.attacker.zip`) still is (security review).
 
 ## Steps
 

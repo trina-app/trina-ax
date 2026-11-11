@@ -215,35 +215,40 @@ function pinsFor(ctx: AppContext, turnId: string, row: Row): { pins: string[]; u
   } catch { return null }
 }
 
-/** File extensions that are also domain suffixes (.md is Moldova's, .py Paraguay's, .zip a gTLD). */
-const FILE_SUFFIXES: ReadonlySet<string> = new Set(['md', 'py', 'sh', 'zip', 'mov', 'pl', 'rs', 'ps', 'ai', 'cc', 'so'])
-/** A name that reads as a file, not a host: one name and a file extension ("report.md", "run.sh"; no sub-domain, so
- * nothing can ride in front of a registered name), or a name no registrar issues ("주간보고_2026-11-11_2.md": an
- * underscore). "x.attacker.zip" stays a host. */
-function fileName(p: ReturnType<typeof parseHost>): boolean {
-  if (!p.domainWithoutSuffix) return false
-  if (p.domainWithoutSuffix.includes('_')) return true
-  return !p.subdomain && FILE_SUFFIXES.has((p.publicSuffix ?? '').toLowerCase())
-}
+/** A name no registrar issues: its registrable label has an underscore ("주간보고_2026-11-11_2.md"), so it cannot be a
+ * public host. A one-label name with a file-type suffix ("report.md", "evil.md", "attacker.zip") can be registered and is
+ * auto-linked by chats and mail, so it stays a host unless this run saved a file of exactly that name (savedNames). */
+const unregistrable = (p: ReturnType<typeof parseHost>): boolean => !!p.domainWithoutSuffix?.includes('_')
 
 /** Does any text of `v` name a host with a public suffix in the middle of other words ("mail data.attacker.example")? A
- * chat links such a name and fetches its preview. A file name is not one ("report.md", fileName): a scheduled run that
- * saves a file and sends its summary names the file. */
-function hostNamesIn(v: unknown, depth = 0): boolean {
+ * chat links such a name and fetches its preview. Not one: a name with an underscore (unregistrable), or a word that is,
+ * exactly as written (NFC, same case, plain dots), the name of a file this run saved (`saved`, savedNames): a run that
+ * saves a report and sends its summary names the file. */
+function hostNamesIn(v: unknown, saved: ReadonlySet<string> = new Set(), depth = 0): boolean {
   if (depth > 32) return true
   if (typeof v === 'string') {
+    const asWritten = v.normalize('NFC')
     for (const m of v.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').matchAll(/[\p{L}\p{N}_-]+(?:[.\u3002\uFF0E\uFF61][\p{L}\p{N}_-]+)+/gu)) {
       const host = m[0].replace(/[\u3002\uFF0E\uFF61]/g, '.')
       // a dotted IPv4 address with nothing after it ("send to 203.0.113.9") is a host too
       if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return true
       const p = parseHost(host)
-      if (p.domain && p.isIcann && !fileName(p)) return true
+      if (!p.domain || !p.isIcann || unregistrable(p)) continue
+      if (m[0] === host && saved.has(host) && asWritten.includes(host)) continue
+      return true
     }
     return false
   }
-  if (Array.isArray(v)) return v.some((x) => hostNamesIn(x, depth + 1))
-  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).some((x) => hostNamesIn(x, depth + 1))
+  if (Array.isArray(v)) return v.some((x) => hostNamesIn(x, saved, depth + 1))
+  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).some((x) => hostNamesIn(x, saved, depth + 1))
   return false
+}
+
+/** The names (last path part, NFC) of the files this turn created or changed (file_events): never decided from the text. */
+function savedNames(ctx: AppContext, turnId: string | null | undefined): Set<string> {
+  if (!turnId) return new Set()
+  const rows = ctx.db.query("SELECT path FROM file_events WHERE turn_id = ? AND action IN ('create', 'update')").all(turnId) as { path: string }[]
+  return new Set(rows.map((r) => (r.path.split('/').at(-1) ?? '').normalize('NFC')).filter(Boolean))
 }
 
 /** A call's arguments without the pinned recipients and the task's own addresses (a value that is one of them is
@@ -264,7 +269,7 @@ function withoutPinned(v: unknown, pins: readonly string[], cut: readonly string
 /** A scheduled run's write to the person's own connection that its card listed: refused (the reason) unless every value
  * of the call that may say where it goes is one of the pinned recipients (pinTargets); a call whose recipients cannot be
  * told, or cannot be checked, is refused (fails closed). null: send. */
-function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, dest: readonly string[] | null | undefined, raw: unknown): string | null {
+function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, dest: readonly string[] | null | undefined, raw: unknown, saved: ReadonlySet<string> = new Set()): string | null {
   const { pins, urls } = pinned
   const why = (w: string, next: string) => refusal({ done: `Nothing was sent to ${row.name}.`, why: { kind: 'mode', mode: 'this scheduled run', why: w }, next, names: [row.name] })
   if (dest === null) return why(`this call has more arguments than the server can check against the recipients the card pinned (more than ${PIN_VALUES_MAX} values that may say where it goes, or nested more than ${PIN_DEPTH_MAX} levels deep)`, 'send less at once, with only the pinned recipients, and say in the summary what was not sent')
@@ -277,7 +282,7 @@ function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, des
   // web address, host name, address-like argument or long random-looking part (tools/url-gate.ts carriesAddress) that is
   // not a pinned recipient or one of the task's own addresses (the card showed them) is refused
   const rest = withoutPinned(raw ?? {}, pins, [...pins, ...urls])
-  if (carriesAddress(rest) || hostNamesIn(rest)) return why('this call carries a web address, a host name or a long random-looking part that is not one of the recipients the card pinned or the addresses the task may open (a link or a picture in what is sent can take data out when the service shows a preview or someone opens it)', 'send it without links, addresses or random-looking parts, and say in the summary what was left out; the user can send it in a chat')
+  if (carriesAddress(rest) || hostNamesIn(rest, saved)) return why('this call carries a web address, a host name or a long random-looking part that is not one of the recipients the card pinned or the addresses the task may open (a link or a picture in what is sent can take data out when the service shows a preview or someone opens it)', 'send it without links, addresses or random-looking parts, and say in the summary what was left out; the user can send it in a chat')
   return null
 }
 
@@ -317,7 +322,7 @@ async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: Buil
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
-    const no = pinnedRefusal(row, pins, sent.dest, sent.raw)
+    const no = pinnedRefusal(row, pins, sent.dest, sent.raw, savedNames(ctx, b.turnId))
     if (no) throw new CallError(no, 'refused (scheduled run: not a pinned recipient)')
     return false
   }
@@ -665,7 +670,9 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       return `${r?.name ?? 'API'} · ${String(a.method ?? '').toUpperCase()} ${clip(path, 80)}`.trim()
     },
     // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate). The method is
-    // the AI's choice and some APIs act on a GET, so after a room read a GET still raises the room card
+    // the AI's choice and some APIs act on a GET, so after a room read a GET still raises the room card. A scheduled
+    // run's result also counts a failed GET as a look-up (chat/schedule-outcome.ts); that never hides a refused change
+    // of our own tools, only a call to this API
     readOnly: (args) => { const m = (args as { method?: unknown } | null)?.method; return typeof m === 'string' && ['GET', 'HEAD'].includes(m.toUpperCase()) },
     readsNeedCard: true,
     call: hiding(ctx, [], async (raw, tc, h) => {
