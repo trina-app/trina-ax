@@ -1985,7 +1985,7 @@ export const ko = {
   'accessEdit.follow.now': "지금은 {who}",
   'accessEdit.follow.from': "지금은 {folder} 규칙: {who}",
   'accessEdit.follow.mixed': "지금은 {who} · {source}",
-  'accessEdit.connectedNoWrite': "연결 폴더는 한쪽으로만 복사돼서 \"모두 고칠 수 있음\"는 고를 수 없어요.",
+  'accessEdit.connectedNoWrite': "연결 폴더는 한쪽으로만 복사돼서 \"모두 고칠 수 있음\"은 고를 수 없어요.",
   'accessEdit.keepTeam': "shared와 skills에는 규칙이 하나는 있어야 해요. 사람이나 부서를 정하거나 \"아래 사람·부서만\"을 고르세요.",
   'accessEdit.convertedMember': "예전 \"팀원 전체\" 규칙은 \"모두\"로 저장돼요. 바뀌는 접근은 없어요.",
   'accessEdit.convertedAdmin': "예전 \"관리자 전체\" 규칙은 효과가 없어 저장할 때 빠져요. 바뀌는 접근은 없어요.",

@@ -20883,11 +20883,12 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
 - **Admin › Folder permissions speaks the panel's words** (TC-282). The access levels are "볼 수 있음 / 고칠 수 있음 /
   열 수 없음" ("Can view / Can edit / No access"), as in the Files page's "Who can open it" (#346), wherever Admin shows a
   level: the tree's "who sees it", the rules and the person-by-person reasons, the edit panel's choices and its before →
-  after lines, the remove preview, By person and the project members dialog (`access.*`, five languages). The basic
+  after lines, the remove preview, By person and the project members dialog (`access.*`, five languages); someone who
+  cannot open a folder reads "열 수 없음" ("Cannot open", as the counts line), not "못 봄". The basic
   access choices say "모두 볼 수 있음 / 모두 고칠 수 있음", the counts line "열 수 있음 · 고칠 수 있음 · 열 수 없음", the
   sentences that said "write" say "edit" ("그중 2개를 고칠 수 있어요"), and the server's "keep a rule" message quotes the
   new "모두: 열 수 없음". Only words change: the page, its sections and what each choice saves are the same. The user
-  guide and the docs site use the same words.
+  guide's folder permission and team skill parts and the docs site use the same words.
 - **The user guide's Mac install: the Mac App Store first** (TC-283, `docs/guide/guide.html`), as Settings › Apps does
   since #343: the store link (`editions/trina/branding/apps.json`), open the app, paste the invite link or team address,
   "들어가기"; it updates there and shows no warning. The operator's .dmg is the second way, with its Gatekeeper steps and
@@ -20907,14 +20908,17 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   card is asked and what yes allows are unchanged.
 - **Save after Cancel › Discard** (TC-287, `FolderSharing.tsx`). Discard marked the panel as left, which stops a Save on
   its way, so every later Save stopped too until the panel was opened again. Now a discard is counted (`dropped`): the
-  Save that began before it stops at its next step, a later one saves. Leaving the panel (close, another folder, a link)
-  still stops a Save for good.
+  Save that began before it stops at its next step, a later one saves, and the dropped Save's answer from the server is
+  not kept for the list on screen (it could leave the list greyed). Leaving the panel (close, another folder, a link)
+  still stops a Save for good. A Save whose answer comes while the leave question is open stops too: its "Give access?"
+  would have taken that question's place without answering it, which also left every later Save stopped (found in
+  review). Cancel is off while the save is being written; that save lands.
 - **The panel's list is busy until its first answer** (`aria-busy`), so the rows from the folders above, which come with
   the answer, are not missing from a "done loading" list. The `folder-sharing-panel` web unit test waited on that
   attribute and went on early under load (it failed in about 3 of 5 full runs); it also read the panel with `get` while a
   new folder's panel was still loading, and a failed test left its panel mounted into the next one.
 - Tests: unit `access-edit-everyone-above` (per-group edit, a pair), `b-chat-rooms` and `c-integrations-tools` (the read
   card), `a-folders-keep`; web unit `folder-sharing` (group lines), `folder-sharing-panel` (Discard then Save, a Discard
-  during Save's ask), `access-view`; e2e `folder-access` (two groups, Discard then Save) and the specs that read the
+  during Save's ask, Cancel during Save's ask then kept), `access-view`; e2e `folder-access` (two groups, Discard then Save) and the specs that read the
   access words.
 - Version impact: **patch** (words, a fix, one optional field in the admin edit preview; no data change).

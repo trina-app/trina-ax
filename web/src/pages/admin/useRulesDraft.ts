@@ -139,14 +139,16 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
   const why = keepsOne ? 'keep' : !saveable ? 'same' : !ready ? (preview.error ? 'failed' : 'waits') : null
 
   /** Ask the server again now, for exactly this draft (no wait), and keep the answer: Save decides from it. Null when
-   * the ask failed (the error shows as the preview's). */
-  const askNow = async (): Promise<FolderEditPreview | null> => {
+   * the ask failed (the error shows as the preview's). `live`: false once the caller dropped this draft meanwhile (a
+   * Discard): the answer and a failure are then not kept, so they never stand for the draft on screen. */
+  const askNow = async (o: { live?: () => boolean } = {}): Promise<FolderEditPreview | null> => {
+    const live = () => o.live?.() ?? true
     try {
       const fresh = await api.call(API.previewFolderEdit, { body: { path, rules } })
-      preview.put(fresh)
+      if (live()) preview.put(fresh)
       return fresh
     } catch (e) {
-      setRefused(errorText(e, locale, t('error.network')))
+      if (live()) setRefused(errorText(e, locale, t('error.network')))
       return null
     }
   }

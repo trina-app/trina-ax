@@ -216,9 +216,13 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
     try {
       const shown = data
       const hash = d.base.hash
-      // asked again now, for exactly this draft: what is saved is what the admin was shown
-      const fresh = await d.askNow()
-      if (!fresh || !shown || gone()) return
+      // asked again now, for exactly this draft: what is saved is what the admin was shown. An answer for changes
+      // dropped meanwhile is not kept (it would stand for the draft on screen)
+      const fresh = await d.askNow({ live: () => !gone() })
+      // the leave question is open (Cancel or close pressed meanwhile): this Save stops, and its confirm never takes
+      // that question's place (a dialog replaces the one open without answering it, which kept `leaving` set and
+      // stopped every later Save)
+      if (!fresh || !shown || gone() || leaving.current) return
       // another admin changed this folder: the note says so (the draft kept); the next Save decides
       if (hash !== null && fresh.hash !== hash) return
       if (!sameOutcome(shown, fresh)) {
@@ -248,7 +252,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
         })
         if (!ok || gone()) return
         // a confirm left open covers nothing: asked once more before the write
-        const again = await d.askNow()
+        const again = await d.askNow({ live: () => !gone() })
         if (gone()) return
         if (!again || again.hash !== fresh.hash || !sameOutcome(fresh, again)) {
           if (again && again.hash === fresh.hash) setChangedNow(true)
@@ -421,7 +425,8 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
           <div className="flex items-center justify-end gap-2">
             {edited ? (
               <>
-                <Button variant="ghost" onClick={() => void (async () => {
+                {/* nothing to cancel while the save is being written: it lands */}
+                <Button variant="ghost" disabled={d.saving} onClick={() => void (async () => {
                   if (await askToLeave({ stay: true })) {
                     setDraft(d.initial)
                     setChangedNow(false)

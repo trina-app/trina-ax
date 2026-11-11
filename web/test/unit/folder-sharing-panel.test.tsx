@@ -304,7 +304,49 @@ describe('after a save, and the other ways a save ends', () => {
     const m = await open()
     await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
     await ready(m)
-    // Save's fresh ask is held until the admin answered the discard question
+    // Save's fresh ask (the first ask from here on) is held until the admin dropped the changes and the panel has the
+    // answer for the saved rules again
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    let first = true
+    let answered = false
+    const before = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes('/api/admin/access/edit-preview') || !first) return before(input, init)
+      first = false
+      await held
+      const r = await before(input, init)
+      answered = true
+      return r
+    }) as typeof fetch
+    try {
+      await m.click('sharing-save')
+      await m.click('sharing-cancel')
+      await m.click(await m.until(() => m.find('dialog-confirm'), 'the discard question'))
+      await m.until(() => !m.find('sharing-save') && m.find('sharing-done'), 'the changes dropped')
+      await m.until(() => m.find('sharing-list')?.getAttribute('aria-busy') === null, 'the answer for the saved rules')
+      release()
+      // the dropped Save's fresh answer came last: that Save ended without writing, and its answer (for the dropped
+      // changes) does not take the place of the one for the list on screen
+      await m.until(() => answered, 'the fresh answer')
+      await m.settle(50)
+      expect(calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)).toHaveLength(0)
+      expect(m.get('sharing-list').getAttribute('aria-busy')).toBeNull()
+    } finally {
+      globalThis.fetch = before
+    }
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
+    await ready(m)
+    await m.click('sharing-save')
+    await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`).length, 'the save')
+    await m.unmount()
+  })
+
+  test('Cancel pressed while Save waits for its answer, then kept: Save does not cover the question, and saves after', async () => {
+    const m = await open()
+    // more access: Save asks first
+    await choose(m.get('sharing-general-select'), 'read')
+    await ready(m)
     let release: () => void = () => {}
     const held = new Promise<void>((r) => { release = r })
     let answered = false
@@ -319,19 +361,25 @@ describe('after a save, and the other ways a save ends', () => {
     try {
       await m.click('sharing-save')
       await m.click('sharing-cancel')
-      await m.click(await m.until(() => m.find('dialog-confirm'), 'the discard question'))
-      await m.until(() => !m.find('sharing-save') && m.find('sharing-done'), 'the changes dropped')
+      await m.until(() => m.html().includes(en('folderAccess.discardTitle')), 'the discard question')
       release()
-      // the dropped Save's fresh answer came: that Save ended without writing
       await m.until(() => answered, 'the fresh answer')
       await m.settle()
-      expect(calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)).toHaveLength(0)
+      // still the discard question: Save's "Give access?" did not take its place
+      expect(m.html()).toContain(en('folderAccess.discardTitle'))
+      expect(m.html()).not.toContain(en('folderAccess.giveAccess'))
     } finally {
       globalThis.fetch = before
     }
-    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
-    await ready(m)
+    // keep the changes (the question's other button), then Save: the confirm, Give access, saved
+    const discard = m.get('dialog-confirm')
+    await m.click((discard.parentNode as FakeElement).querySelectorAll('button')[0]!)
+    await m.until(() => !m.find('dialog-confirm'), 'the question closed')
+    expect(m.find('sharing-save')).not.toBeNull()
     await m.click('sharing-save')
+    const confirm = await m.until(() => m.find('dialog-confirm'), 'the confirm')
+    expect(confirm.textContent).toBe(en('folderAccess.giveAccess'))
+    await m.click(confirm)
     await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`).length, 'the save')
     await m.unmount()
   })
