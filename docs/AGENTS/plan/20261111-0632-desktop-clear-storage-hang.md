@@ -53,7 +53,7 @@ Out: Electron upgrade; a bug report upstream (noted in the PR).
 ## Result
 
 Built as planned, PR #384. Reproduced on the Mac: while it was overloaded (load average ~230), a no-list clear and
-`clearData()` never settled in this app and in a bare Electron app, and a pending one kept the app from quitting; each
+`clearData()` never settled in this app and in a bare Electron app; each
 named type and the list together settled in 1-2 s. Likely cause: background-priority subtasks starved (see
 docs/DECISIONS.md). Added after review: a failed (not timed-out) clear does not record the new person, as before; a
 removed team leaves the list before its data is cleared.

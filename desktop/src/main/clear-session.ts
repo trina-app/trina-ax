@@ -9,7 +9,7 @@
 // Chromium for every data type (REMOVE_DATA_MASK_ALL), some of the extra subtasks run on Chromium's background-priority
 // threads, and macOS runs those only when the efficiency cores are free (a process started at background priority did
 // not run for minutes; one at default priority ran at once). The promise settles only when the last subtask reports
-// back, and a pending one also kept the app from quitting. So: always the list, and every clear has a time limit.
+// back. So: always the list, and every clear has a time limit.
 // Chromium starts all subtasks at once, so a clear that runs out of time has still removed what its other subtasks
 // cover; the limit only frees the caller, which logs it and goes on. (A clear that runs out of time and finishes
 // later also removes what the next person stored meanwhile: harmless, they sign in again.)

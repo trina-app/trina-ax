@@ -20255,7 +20255,8 @@ overruled the review's MUST 1 and three of its SHOULDs:
   app had threads stuck while starting at background priority. The likely reason: with no list Electron asks Chromium
   for every data type (`REMOVE_DATA_MASK_ALL`), some of the extra subtasks run on Chromium's background-priority
   threads, macOS runs those only on free efficiency cores, and the promise settles only when the last subtask reports
-  back. A pending one also kept the app from quitting (the bare app stayed after `app.exit`). No matching Electron
+  back. (Quitting was slow on that Mac too, but for every Electron app: a bare one that cleared nothing was still
+  running a minute after `app.exit`, so that is not from the clear.) No matching Electron
   issue was found (electron/electron issues and pull requests for `clearStorageData` and `clearData`). A packaged
   build runs the same Electron, so it is very likely affected on a Mac that busy; how often customers' Macs get there
   is not known.
@@ -20276,8 +20277,7 @@ overruled the review's MUST 1 and three of its SHOULDs:
   and performance-observer data, and device-bound sessions. Sites keep sign-ins in cookies and site storage, which the
   list covers. Device-bound sessions can issue a sign-in cookie again after it is deleted, but they need a signing
   key service that Electron 44 does not give the network service (electron/electron#54074 adds one behind a fuse that
-  is off by default); recheck this list when that lands. A clear that runs out of time is not tried again, and no
-  hard exit was added for a clear still pending at quit: the listed types settled in 1-2 s even on the overloaded Mac.
+  is off by default); recheck this list when that lands. A clear that runs out of time is not tried again.
 - Tests: `tests/unit/e-clear-session.test.ts` (the time limit, the list, side by side, a throwing or rejecting clear,
   `clearFailed`, no other clear call in `desktop/src`, the three call sites, a failed clear not recording the new
   person, the removal order), `desktop/e2e/clear-storage.spec.ts` (a no-list clear that never settles put into the
