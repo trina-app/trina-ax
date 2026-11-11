@@ -180,8 +180,10 @@ describe('a computer', () => {
         expect(m.get('nav-search').textContent?.trim()).toStartWith(ko('sidebar.search'))
         expect(m.get('nav-search').querySelector('kbd')?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/)
         const links = rows.querySelectorAll('a')
-        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects', '/scheduled', '/activity', '/files', '/skills'])
-        expect(links.map((a) => a.textContent?.trim())).toEqual([ko('sidebar.projects'), ko('sidebar.scheduled'), ko('inbox.title'), ko('sidebar.files'), ko('sidebar.skills')])
+        // Connectors last: the apps the AI uses with the person's own accounts (pages/Connectors.tsx); the Inbox opens
+        // its own page, Activity (pages/Activity.tsx)
+        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects', '/scheduled', '/activity', '/files', '/skills', '/connectors'])
+        expect(links.map((a) => a.textContent?.trim())).toEqual([ko('sidebar.projects'), ko('sidebar.scheduled'), ko('inbox.title'), ko('sidebar.files'), ko('sidebar.skills'), ko('integrations.title')])
         expect(m.find('nav-admin')).toBeNull()
         // no icon row and no tooltips any more: each row says its name
         expect(m.find('nav-icons')).toBeNull()
@@ -650,6 +652,9 @@ describe('the phone drawer keeps its own layout', () => {
       expect(m.get('recents-list').querySelectorAll('a[href^="/c/"]').length).toBe(8)
       expect(m.get('recents-toggle').textContent).toBe(ko('sidebar.aiChats', { name: aiName }))
       expect(m.get('nav-skills').getAttribute('href')).toBe('/skills')
+      expect(m.get('nav-connectors').getAttribute('href')).toBe('/connectors')
+      // Activity (the Inbox) is the 나 tab's on a phone, not a drawer row
+      expect(m.find('nav-inbox')).toBeNull()
       expect(m.get('nav-trash').getAttribute('href')).toBe('/trash')
     } finally {
       await m.unmount()

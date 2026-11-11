@@ -149,6 +149,62 @@ describe('transcription', () => {
       expect(fs.readdirSync(bad)).toEqual([])
     } finally { srv.stop(true) }
   })
+  test('a model download that stalls mid-body fails within the idle window, removes the partial file and frees the transcription slot', async () => {
+    // a fake model server that sends the first 64 KB and then nothing, without closing the connection
+    const spec = { file: 'ggml-stall.bin', size: 1024 * 1024, sha256: '0'.repeat(64) }
+    let total = false
+    const srv = Bun.serve({ port: 0, hostname: '127.0.0.1', idleTimeout: 0, fetch: () => new Response(new ReadableStream({
+      async pull(c) {
+        c.enqueue(new Uint8Array(64 * 1024))
+        // the total-deadline case trickles a byte every 50 ms (never idle), the idle case stops sending
+        if (total) { for (;;) { await Bun.sleep(50); c.enqueue(new Uint8Array(1)) } }
+        await new Promise(() => {})
+      },
+    }), { headers: { 'content-length': String(spec.size) } }) })
+    try {
+      const dir = path.join(A.data, 'models-stall')
+      const cfg: TranscribeConfig = { ...C().transcribe, modelDir: dir, modelOverride: spec, baseUrl: `http://127.0.0.1:${srv.port}/`, downloadIdleMs: 300, downloadTotalMs: 60_000 }
+      // the stalled download runs as a transcription job; a second transcription waits for the one slot
+      const order: string[] = []
+      const t0 = Date.now()
+      const a = C().jobs.start({ kind: 'transcribe', userId: 'alice', run: async (h) => { order.push('a'); return ensureModel(cfg, h) } })
+      const b = C().jobs.start({ kind: 'transcribe', userId: 'alice', run: async () => { order.push('b'); return { text: 'ok' } } })
+      await Bun.sleep(100)
+      expect(C().jobs.get(b)!.status).toBe('queued')
+      const ja = (await C().jobs.wait(a))!
+      expect(Date.now() - t0).toBeLessThan(3000)
+      expect(ja.status).toBe('failed')
+      expect(ja.error).toEqual({ code: 'unavailable', message: expect.stringContaining('멈췄거나') }) // alice's locale is ko
+      expect(fs.readdirSync(dir)).toEqual([]) // no .part left
+      expect((await C().jobs.wait(b))!.status).toBe('done')
+      expect(order).toEqual(['a', 'b'])
+      // a link that keeps sending a little but would take forever: the overall deadline
+      total = true
+      const t1 = Date.now()
+      const e = await ensureModel({ ...cfg, downloadIdleMs: 2000, downloadTotalMs: 600 }).catch((x) => x)
+      expect(e).toBeInstanceOf(JobFailure)
+      expect((e as JobFailure).reason).toBe('stalled')
+      expect((e as JobFailure).messages.en).toContain('stopped or was too slow')
+      expect(Date.now() - t1).toBeLessThan(3000)
+      expect(fs.readdirSync(dir)).toEqual([])
+      // the person's own Stop still reads as a cancel, not as a stall
+      total = false
+      const ac = new AbortController()
+      setTimeout(() => ac.abort(), 100)
+      const c = await ensureModel({ ...cfg, downloadIdleMs: 5000 }, { progress: () => {}, signal: ac.signal }).catch((x) => x)
+      expect(c).not.toBeInstanceOf(JobFailure)
+      expect(ac.signal.aborted).toBe(true)
+      expect(fs.readdirSync(dir)).toEqual([])
+    } finally { srv.stop(true) }
+    // a server that takes the connection but never answers: the idle timer covers waiting for the headers too
+    const mute = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+    try {
+      const t2 = Date.now()
+      const e = await ensureModel({ ...C().transcribe, modelDir: path.join(A.data, 'models-mute'), modelOverride: spec, baseUrl: `http://127.0.0.1:${mute.port}/`, downloadIdleMs: 300, downloadTotalMs: 60_000 }).catch((x) => x)
+      expect((e as JobFailure).reason).toBe('stalled')
+      expect(Date.now() - t2).toBeLessThan(3000)
+    } finally { mute.stop(true) }
+  })
   test('whisper JSON parsing', () => {
     const r = parseWhisperJson(JSON.stringify({ result: { language: 'ko' }, transcription: [{ offsets: { from: 0, to: 1500 }, text: ' 안녕하세요.' }, { offsets: { from: 1500, to: 1600 }, text: ' [BLANK_AUDIO]' }, { offsets: { from: 1600, to: 3200 }, text: ' 회의를 시작합니다.' }] }))
     expect(r).toEqual({ text: '안녕하세요. 회의를 시작합니다.', language: 'ko', durationSec: 3.2, segments: [{ start: 0, end: 1.5, text: '안녕하세요.' }, { start: 1.6, end: 3.2, text: '회의를 시작합니다.' }] })

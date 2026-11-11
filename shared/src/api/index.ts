@@ -15,6 +15,7 @@ import { CONNECTED } from './connected'
 import { SYSTEM } from './system'
 import { CREDENTIALS } from './credentials'
 import { DRIVE } from './drive'
+import { GOOGLE_APPS } from './google-apps'
 import { INTEGRATIONS } from './integrations'
 import { NOTIFICATIONS } from './notifications'
 import { PUSH } from './push'
@@ -39,11 +40,11 @@ import { AI_ALLOWANCES } from './ai-allowances'
 import { HANDOVER } from './handover'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_FILES, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...SKILL_SHARES, ...AI_ALLOWANCES, ...HANDOVER } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...GOOGLE_APPS, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_FILES, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...SKILL_SHARES, ...AI_ALLOWANCES, ...HANDOVER } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_FILES, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, SKILL_SHARES, AI_ALLOWANCES, HANDOVER } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, GOOGLE_APPS, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_FILES, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, SKILL_SHARES, AI_ALLOWANCES, HANDOVER } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -69,6 +70,7 @@ export * from './admin'
 export * from './handover'
 export * from './credentials'
 export * from './drive'
+export * from './google-apps'
 export * from './integrations'
 export * from './notifications'
 export * from './push'

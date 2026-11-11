@@ -40,6 +40,10 @@ const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
+const ConnectorsLayout = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.ConnectorsLayout })))
+const ConnectorsHome = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.ConnectorsHome })))
+const ConnectorPage = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.ConnectorPage })))
+const CustomConnectorPage = lazy(() => import('./pages/Connectors').then((m) => ({ default: m.CustomConnectorPage })))
 const SlackLink = lazy(() => import('./pages/SlackLink'))
 const SlackSignInReturn = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackSignInReturn })))
 const SlackDone = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackDone })))
@@ -210,6 +214,13 @@ function Gate() {
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<Welcome />} />
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* Connectors, from the sidebar (pages/Connectors.tsx): the list, a built-in or listed service's page, one of
+              the person's own connections; Settings › Connectors leads here */}
+          <Route path="connectors" element={<ConnectorsLayout key={`${status.me.user.id}:${status.me.session.id}`} />}>
+            <Route index element={<ConnectorsHome />} />
+            <Route path="mcp/:integrationId" element={<CustomConnectorPage />} />
+            <Route path=":id" element={<ConnectorPage />} />
+          </Route>
           {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
           <Route path="slack/link" element={<SlackLink key={`${status.me.user.id}:${status.me.session.id}`} />} />
           {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}

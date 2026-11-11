@@ -25,7 +25,7 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 
 | Group | Sections |
 |---|---|
-| **Account** | Profile, Security & devices, Usage, Memory |
+| **Account** | Profile, Security & devices, Browser, Usage, Memory |
 | **Connections** | Providers (when the team lets members add their own accounts), MCP, App connectors, AI apps |
 | **App** | Notifications, Apps, About |
 
@@ -41,6 +41,8 @@ Press **Esc** or choose **✕**. You are back where you were.
 :::
 
 ![The Settings window: sections on the left, the Profile section on the right with name, email, username and language](../images/settings/settings.webp "The Settings window")
+
+**Browser** has **Allow all websites**. When it is on, the AI opens public websites without asking when you ask it, in your chats and in rooms. Scheduled tasks still ask. Addresses with long hard-to-read strings or a long query still ask, but that catches obvious tokens only: a hidden instruction in a document, page or room message can make the AI send anything it can read to any site. You can also turn it on from an address card ("Allow all websites (turn off in Settings)"). In the desktop app the same switch covers the app's own browser, which asks once more in its own window. The section is there while your team allows it.
 
 On a phone, Settings fills the screen. The section list comes first, and **←** goes back to it.
 

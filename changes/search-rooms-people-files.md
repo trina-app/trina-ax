@@ -1,5 +1,5 @@
 - **⌘K finds conversations and people by name**, first on the All tab: part of a name, or a Korean name's initial consonants ("ㄱㅈ" finds "견적"). A conversation opens; a person opens your 1:1 chat, or the new-chat list with them ticked when you have none yet.
 - **⌘K finds files sent in conversations** by name, after your team's files: the file, who sent it, where and when. Only files of messages you can see are found; choosing one opens the conversation at that message.
-- ⌘K matches **every word in any order** in messages, chats and file names: "견적서 보내" now finds "견적서를 보내드렸어요". It needed the words as one exact run.
+- ⌘K matches **every word in any order** in messages, chats and file names (team files and files sent in conversations; the chat's team-file picker too): "견적서 보내" now finds "견적서를 보내드렸어요", and "budget q4" finds "Q4 Budget.xlsx". It needed the words as one exact run.
 - ⌘K: pressing Enter right after changing the text could open a chat found for the text before. Results now always belong to the text in the box.
 - ⌘K: the highlighted row no longer jumps to another row when more results arrive above it.

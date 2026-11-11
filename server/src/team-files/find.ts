@@ -1,8 +1,11 @@
-// Name search and "recent files" for the composer's team-file picker. Both show only files the caller can read,
+// Name search and "recent files" for the composer's team-file picker and ⌘K. Both show only files the caller can read,
 // decided by the same functions as the file screen's tree and the AI's glob tool: allowedRoots() picks the folders
 // ripgrep may enter (hidden sub-folders are excluded before anything is opened) and visiblePath() checks every hit
-// again (name rules, server folders, read access, regular single-link file). Nothing else is ever listed.
+// again (name rules, server folders, read access, regular single-link file). Nothing else is ever listed. A name matches
+// when it holds every word of the text, in any order and any case (shared/src/search-text.ts searchWords, as ⌘K's room
+// files and messages: "budget q4" finds "Q4 Budget.xlsx").
 import fs from 'node:fs'
+import { searchWords } from '@mycel/shared'
 import type { FileEntry, FileList } from '@mycel/shared/api'
 import { allowedRoots, excludeArgs, runRg } from '../files/search'
 import { authorize, visiblePath } from '../policy/authorize'
@@ -21,13 +24,14 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
   if (!b.st!.isDirectory()) throw new ToolError(`'${b.rel}' is a file`, 'not_folder')
   const { roots, excludes } = allowedRoots(files.fx, rules, user, b.segs)
   if (!roots.length) return { items: [], truncated: false }
-  const needle = fold(q.trim())
+  const words = searchWords(q).map(fold)
   const hits: { rel: string; st: fs.Stats }[] = []
   const cfg = files.ctx.files.cfg
   const r = await runRg(cfg.rg, [...RG_LIST, ...excludeArgs(excludes), '--', ...roots], files.root, '\0', (rec) => {
     const rel = rec.replace(/^\.\//, '')
     const name = rel.slice(rel.lastIndexOf('/') + 1)
-    if (!fold(name).includes(needle)) return
+    const folded = fold(name)
+    if (!words.every((w) => folded.includes(w))) return
     const st = visiblePath(files.fx, rules, user, rel)
     if (st) hits.push({ rel, st })
     if (hits.length >= HIT_CAP) return false

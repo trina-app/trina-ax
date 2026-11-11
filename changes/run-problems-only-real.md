@@ -1,0 +1,2 @@
+- A scheduled task no longer says "Last run finished with problems" when the only things that went wrong were pages it could not open, searches that found nothing or files it could not read, and it still finished its answer. It says so when a save, a send or another change was refused or failed, or when the answer stopped before the end.
+- A scheduled task that saves a file and then sends its summary to a connection no longer has the send refused because the summary names the file (for example `weekly-report_2.md`).

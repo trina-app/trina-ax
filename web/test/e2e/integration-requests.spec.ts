@@ -117,7 +117,7 @@ test('withdrawn and declined requests: the member\'s link says what became of it
 
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto(`/settings/connectors?request=${gone.id}`)
+  await page.goto(`/connectors?request=${gone.id}`)
   await expect(page.getByTestId('integrations-asked-note')).toContainText('관리자가 Board 연결 요청을 철회했어요.')
   const wiki = page.getByTestId('integration-asked').filter({ hasText: 'Wiki' })
   // a sign-in: the token goes to the address's host, even when the sign-in page is the real service's

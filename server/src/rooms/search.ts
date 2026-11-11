@@ -24,20 +24,20 @@
 //                   room (one shown as withheld is dropped): never a quote, a file or a hidden answer's text.
 // And the files sent in those rooms, by name (searchRoomFiles): a file only with the message it was sent with, by the same
 // rule. Only files of a sent message (an upload not sent yet never) of the same room, not deleted, not an event line;
-// who sees the message decided in the query (SEE_MEMBER_SQL), then canSee, then messagesOut: the message must come out
-// not withheld (so never an answer hidden from them, one shared from someone's own AI chat with its files included, nor
-// anything in its thread) and the file must be among its files. Every word of the text in the name (LIKE … ESCAPE, any
-// case of A–Z; names are stored NFC). No index: room_files has one row per file sent, far fewer than messages; it is read
+// who sees the message decided in the query (SEE_MEMBER_SQL), then canSee, then messagesOut's own withheld rule
+// (hiddenAmong: never an answer hidden from them, one shared from someone's own AI chat with its files included, nor
+// anything in its thread); the file is given as the room gives it (fileOut), still sent with that message. Every word
+// of the text in the name (LIKE … ESCAPE, any case of A–Z; names are stored NFC). No index: room_files has one row per file sent, far fewer than messages; it is read
 // newest first by rowid (when the file was uploaded, moments before it was sent: no sort, and a page stops as soon as it
 // is full; a word no name holds reads every name once), each candidate's message found by its key
 // (tests/unit/b-rooms-file-search.test.ts times 20,000). The cursor is below the page's last hit (a file they see).
 import type { Database } from 'bun:sqlite'
 import { searchWords } from '@mycel/shared'
-import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type RoomFileSearchHit, type RoomFileSearchPage, type RoomMessage, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom } from '@mycel/shared/api'
+import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
 import { myRooms, type Mine } from './reader'
-import { canSee, messagesOut, MSG_COLS, roomNaming, SEE_MEMBER_SQL, type MessageRow } from './store'
+import { canSee, fileOut, hiddenAmong, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
 
 /** hits a page gives by default */
 export const ROOM_SEARCH_DEFAULT = 20
@@ -126,20 +126,20 @@ export function searchRoomFiles(db: Database, userId: string, o: SearchInput): R
   // the last one kept below
   const last = page.at(-1)
   const nextCursor = rows.length > limit && last ? encodeCursor({ f: String(last.fr) }) : null
-  // canSee on each (a second check), then each room's messages as its member sees them in the room
-  const kept = page.filter((h) => { const m = mine.get(h.room_id); return !!m && canSee(db, h, m.me) })
-  const shown = new Map<string, RoomMessage>()
-  for (const roomId of new Set(kept.map((h) => h.room_id))) {
-    const m = mine.get(roomId)!
-    const msgs = [...new Map(kept.filter((h) => h.room_id === roomId).map(({ fr: _fr, file_id: _f, ...row }) => [row.id, row as MessageRow])).values()]
-    for (const msg of messagesOut(db, msgs, m.me)) shown.set(msg.id, msg)
-  }
+  // canSee on each (a second check), then, per room, what messagesOut would withhold from its member (one of their
+  // hidden old answers or in its thread: a third check), as the room shows it: never a withheld message's files
+  const seen = page.filter((h) => { const m = mine.get(h.room_id); return !!m && canSee(db, h, m.me) })
+  const withheld = new Set<string>()
+  for (const roomId of new Set(seen.map((h) => h.room_id))) for (const id of hiddenAmong(db, seen.filter((h) => h.room_id === roomId), mine.get(roomId)!.me)) withheld.add(id)
+  const kept = seen.filter((h) => !withheld.has(h.id))
+  // the files as the room gives them (fileOut), still sent with that message, and their senders
+  const files = new Map(kept.length ? (db.query(`SELECT * FROM room_files WHERE id IN (${kept.map(() => '?').join(',')})`).all(...kept.map((h) => h.file_id)) as FileRow[]).map((f) => [f.id, f]) : [])
+  const people = refsOf(db, kept.map((h) => (h.author_kind === 'ai' ? null : h.author_id)))
   const items: RoomFileSearchHit[] = []
   for (const h of kept) {
-    const msg = shown.get(h.id)
-    const file = msg && !msg.withheld && !msg.deletedAt && !msg.event ? msg.files.find((f) => f.id === h.file_id) : undefined
-    if (!msg || !file) continue
-    items.push({ file, messageId: msg.id, roomId: msg.roomId, threadRootId: msg.threadRootId ?? null, author: msg.authorKind === 'ai' ? null : msg.author, createdAt: msg.createdAt })
+    const f = files.get(h.file_id)
+    if (!f || f.message_id !== h.id || f.room_id !== h.room_id) continue
+    items.push({ file: fileOut(f), messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
   }
   const rooms: RoomSearchRoom[] = [...new Set(items.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
   return { items, rooms, nextCursor }
