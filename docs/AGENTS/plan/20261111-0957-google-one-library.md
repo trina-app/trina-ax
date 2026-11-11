@@ -107,6 +107,33 @@ per-app cards there (`service_limited`, as now). Google reviews the hosting serv
 scopes (Gmail and full Drive are restricted: verification and a yearly security assessment); until then only its
 test users can sign in. Self-hosted teams use their own client and are not affected.
 
+### Self-installed servers through the broker
+
+Today only hosted teams sign in through the broker: the team server checks `isHosted` (`broker.ts` `driveBrokerFor`),
+and the hosting service trusts only the relay key of a team it made itself and returns the browser only to that
+team's `<slug>` address. A self-installed server must make its own Google client, register its own return address
+and go through Google's review itself. That is too much for an ordinary office, and it is why our own dev server
+(a self-installed server under the trina.app domain) cannot use the broker.
+
+The change: a self-installed server may use the broker **when the hosting service has registered it**.
+
+- **Team server (this repo):** `driveBrokerFor` no longer requires `deployment: "hosted"`. Setting
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL` is already an explicit operator choice, and a Google client of the server's own
+  still wins (nothing changes for a server that has one). The server signs with its relay team key as a hosted one
+  does (the key exists even when the relay is off). `admin.js google-broker-key` prints the public key and the
+  server's public address, for the operator to register. The admin page says "Google sign-in comes from Trina"; a
+  server the hosting service does not serve (not registered, or removed) keeps the card at "Not available yet", as now.
+- **Hosting service (separate repo, contract here):** a list of registered servers, each with its public key and its
+  **exact** https address, added and removed only by an operator (ops API / CLI, audited). The broker serves a call
+  signed by a hosted team's key or by a registered server's key; the browser goes back only to the address recorded
+  for that key, never to one from the request. Limits per server as per team. Removing a server stops its
+  sign-ins at once (status says no; refresh refuses).
+- **Contract:** no new wire field. Only who is served changes; `drive-broker.ts` documents it.
+
+Our dev server is the first registered server: its own Google client is removed (a copy kept), the broker URL is set,
+and its people connect Google again through the broker. Its address at Google does not change, because Google only
+ever sees the hosting service's one return address.
+
 ### Mac app
 
 The Mac app gets the library in the same pinned way as Linux: a standalone Python build for macOS (arm64, x86_64)
@@ -118,6 +145,7 @@ merges.
 ## Scope
 
 In:
+- Self-installed servers may sign in through the hosting service's Google app once registered; our dev server is the first.
 - Drive tools from the library behind the Trina gate (own Drive read/write/share, team shares read-only).
 - One Google card and one sign-in; one admin client with per-app switches; the broker app `google`.
 - The library on the Mac app (desktop and Mac App Store).
@@ -143,11 +171,16 @@ Out:
 4. **One sign-in:** `google_app = 'google'`, combined scopes, migration (next free number in `server/migrations/` on
    `dev` at the time; today the highest `3xx` is 341), one card in Connected apps, admin page with per-app switches,
    broker app `google` in `shared/src/cloud-protocol/drive-broker.ts` (contract only, MIT folder).
-5. **Mac app:** pinned Python + wheels for macOS in `packages.json`, install on first use, run from
+5. **Self-installed servers through the broker:** `driveBrokerFor` without the hosted check, `admin.js
+   google-broker-key`, admin page wording, docs. The hosting service's registered-server list ships in its own repo
+   in the same week. Then the dev server switches over (after the owner's OK: it changes a live server and asks its
+   people to connect again). Its package sync is `blocked` today (`python3-venv` missing, the library needs it), so
+   `install-linux.sh repair --from <kit>` runs first, at a quiet time (it ends answers in progress).
+6. **Mac app:** pinned Python + wheels for macOS in `packages.json`, install on first use, run from
    `library.ts` (`platform` check opens for darwin), Mac App Store sandbox build checked.
-6. **Remove the old Drive path:** `drive_search` / `drive_list` / `drive_read` become names the gate serves (old
+7. **Remove the old Drive path:** `drive_search` / `drive_list` / `drive_read` become names the gate serves (old
    chats and scheduled tasks keep working), `client.ts` and the Drive REST calls go; docs updated.
-7. Real-Google check on the dev server with a test Google account, QA sheet rows, then `Status: done`.
+8. Real-Google check on the dev server, through the broker, with a test Google account, QA sheet rows, then `Status: done`.
 
 ## Risks
 
@@ -160,6 +193,8 @@ Out:
 - **Google review** for the hosting service's combined scopes; hosted teams stay on test users until then.
 - **Mac App Store sandbox** may refuse running a downloaded Python; if so, step 5 bundles it inside the app instead
   (larger download), decided on a real build.
+- **Our Google app serving self-installed servers:** only servers an operator registered, each bound to one key and one exact address; removing one stops it at once. Their sign-ins count toward the Google app's test-user limit until Google's review is done.
+- **Dev server switch:** its people connect Google again; the old client file is kept so it can switch back.
 - **Migration number clash:** check `server/migrations/` on `dev` right before step 4 merges.
 - **Five app languages:** every new string in `en.ts` first, then the other four; `bun run check:i18n`.
 - **Rooms:** @트리나 in a room still uses only the asker's own Google; answers stay private to the asker.
@@ -172,9 +207,10 @@ Out:
   v2.4.1 output (inside, outside, a file in two folders, a shortcut, an unreadable line), reads through our readers
   (HWP, scanned PDF, photo, Sheets all tabs), one sign-in with a box unticked, members' and per-app switches,
   revoke only for the last sign-in, tokens never in any answer/log/audit.
-- Step 4 and 6: the full web e2e (the card and admin page change).
-- Step 5: a Mac build and a Mac App Store build that run the library and read a Drive file.
-- Step 7: real Google on the dev server: own Drive read/edit/share, a team share (inside and outside a folder),
+- Step 4 and 7: the full web e2e (the card and admin page change).
+- Step 6: a Mac build and a Mac App Store build that run the library and read a Drive file.
+- Step 5: a registered self-installed server signs in through a fake broker; an unregistered one stays "Not available yet"; a server with its own client never calls the broker; the browser goes back only to the recorded address.
+- Step 8: real Google on the dev server, through the broker: own Drive read/edit/share, a team share (inside and outside a folder),
   Gmail send with the confirm card, Docs and Sheets edit.
 
 ## Result
