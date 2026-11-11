@@ -4,6 +4,7 @@
 // access, rows from the folders above, a team project's folder only shown). The mock server keeps its own simple file
 // policy; its edit previews are the server's own computation. What a member may learn and the save's checks are tested
 // on the real server (tests/security/folder-audience, tests/security/folder-sharing).
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { TOP_FOLDER_LABELS } from '@mycel/shared'
@@ -322,6 +323,37 @@ test('one\'s own folder, and Admin\'s `from` that is not "files"', async ({ page
   await expect(page.getByTestId('edit-return')).toHaveCount(0)
 })
 
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the panel has no serious accessibility problems (${scheme}): an admin while changing it, and a member`, async ({ page, browser }) => {
+    // two sign-ins and two axe runs
+    test.setTimeout(120_000)
+    const axe = async (p: Page, where: string) => {
+      const r = await new AxeBuilder({ page: p }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).include('[role="dialog"]').analyze()
+      const serious = r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
+    }
+    await page.emulateMedia({ colorScheme: scheme })
+    await signIn(page)
+    await post(page, '/__test/file', { path: 'marketing/plans/q4.md', text: 'plans' })
+    await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+    await page.goto('/files?path=marketing%2Fplans')
+    await chip(page).click()
+    await expect(page.getByTestId('sharing-above')).toBeVisible()
+    await page.getByTestId('sharing-general-select').selectOption('read')
+    await expect(page.getByTestId('sharing-outcome')).toBeVisible()
+    await axe(page, 'admin panel')
+    // axe needs a page of a context of its own
+    const ctx = await browser.newContext({ baseURL: new URL(page.url()).origin, locale: 'en-US', colorScheme: scheme })
+    const bob = await ctx.newPage()
+    await signIn(bob, BOB)
+    await bob.goto('/files?path=marketing')
+    await chip(bob).click()
+    await expect(bob.getByTestId('folder-access-headline')).toBeVisible()
+    await axe(bob, 'member panel')
+    await ctx.close()
+  })
+}
 
 test('an admin on a folder no member can open: owner and admins only', async ({ page }) => {
   await post(page, '/__test/restrict', { path: 'docs', users: ['olga', 'dana', 'eve'] })
