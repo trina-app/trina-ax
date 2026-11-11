@@ -177,7 +177,8 @@ describe('settings, budgets, usage, audit', () => {
     expect(s).toMatchObject({ teamName: 'Acme', defaultLocale: 'ko', concurrency: 3, auditRetentionDays: 90, chatTrashRetentionDays: 7, browserAllowAll: true })
     expect((await admin.try('PATCH', '/api/admin/settings', { teamName: 'Other' })).status).toBe(403)
     expect((await admin.try('PATCH', '/api/admin/settings', { updateWindow: '25:00' })).status).toBe(400)
-    expect((await admin.call('PATCH', '/api/admin/settings', { updateWindow: '02:00-05:00', trashRetentionDays: 14 })).trashRetentionDays).toBe(14)
+    expect((await admin.call('PATCH', '/api/admin/settings', { updateWindow: '02:00-05:00' })).updateWindow).toBe('02:00-05:00')
+    expect((await owner.call('PATCH', '/api/admin/settings', { trashRetentionDays: 14 })).trashRetentionDays).toBe(14)
     expect((await owner.call('PATCH', '/api/admin/settings', { teamName: 'Acme Corp' })).teamName).toBe('Acme Corp')
     expect((await mem.client.call('GET', '/api/me')).team.name).toBe('Acme Corp')
     const a = await owner.call('GET', '/api/admin/audit?source=admin')
@@ -204,7 +205,7 @@ describe('settings, budgets, usage, audit', () => {
     expect(a.items.find((e: any) => e.action === 'settings.update' && e.detail.browserAllowAll === false)).toBeTruthy()
     // saving the same value again announces nothing; other settings do not announce it
     h.hub.events = []
-    await admin.call('PATCH', '/api/admin/settings', { browserAllowAll: false, trashRetentionDays: 15 })
+    await admin.call('PATCH', '/api/admin/settings', { browserAllowAll: false, introDeckTier: 'quick' })
     expect(announced()).toBe(0)
     // back on (the owner too)
     expect((await owner.call('PATCH', '/api/admin/settings', { browserAllowAll: true })).browserAllowAll).toBe(true)
@@ -213,10 +214,35 @@ describe('settings, budgets, usage, audit', () => {
   })
   test('chat retention is in Me for every member: the chat trash and account deletion texts show the saved value', async () => {
     expect((await mem.client.call('GET', '/api/me')).team.chatTrashRetentionDays).toBe(7)
-    expect((await admin.call('PATCH', '/api/admin/settings', { chatTrashRetentionDays: 3 })).chatTrashRetentionDays).toBe(3)
+    expect((await owner.call('PATCH', '/api/admin/settings', { chatTrashRetentionDays: 3 })).chatTrashRetentionDays).toBe(3)
     expect((await mem.client.call('GET', '/api/me')).team.chatTrashRetentionDays).toBe(3)
     expect((await owner.call('GET', '/api/me')).team.chatTrashRetentionDays).toBe(3)
-    expect((await admin.call('PATCH', '/api/admin/settings', { chatTrashRetentionDays: 7 })).chatTrashRetentionDays).toBe(7)
+    expect((await owner.call('PATCH', '/api/admin/settings', { chatTrashRetentionDays: 7 })).chatTrashRetentionDays).toBe(7)
+  })
+  test('retention periods and the update channel are the owner\'s: an admin is refused, the owner changes them, other settings stay the admin\'s', async () => {
+    // an admin who shortened them would have the nightly sweep erase the audit log and old file versions
+    const before = await owner.call('GET', '/api/admin/settings')
+    const tries: Record<string, unknown>[] = [{ auditRetentionDays: 7 }, { fileHistoryRetentionDays: 1 }, { trashRetentionDays: 1 }, { chatTrashRetentionDays: 1 }, { updateChannel: 'beta' }]
+    for (const body of tries) {
+      const r = await admin.try('PATCH', '/api/admin/settings', body)
+      expect(r.status).toBe(403)
+      expect(r.body.error.fields).toEqual({ [`body.${Object.keys(body)[0]}`]: 'owner only' })
+      expect(r.body.error.message).toBeTruthy()
+    }
+    // mixed with an allowed change: nothing of it is saved, and nothing is audited
+    expect((await admin.try('PATCH', '/api/admin/settings', { aiVision: false, auditRetentionDays: 7 })).status).toBe(403)
+    expect(await owner.call('GET', '/api/admin/settings')).toEqual(before)
+    const audited = (await owner.call('GET', '/api/admin/audit?source=admin')).items.filter((e: any) => e.action === 'settings.update' && ('auditRetentionDays' in e.detail || 'updateChannel' in e.detail || 'aiVision' in e.detail))
+    expect(audited).toEqual([])
+    // the same values again (a whole form saved by an admin) are fine
+    expect((await admin.call('PATCH', '/api/admin/settings', { auditRetentionDays: before.auditRetentionDays, updateChannel: before.updateChannel, trashRetentionDays: before.trashRetentionDays })).auditRetentionDays).toBe(before.auditRetentionDays)
+    // other team settings stay the admin's
+    expect((await admin.call('PATCH', '/api/admin/settings', { aiVision: false, answerStepLimit: 120 })).aiVision).toBe(false)
+    expect((await admin.call('PATCH', '/api/admin/settings', { aiVision: true })).aiVision).toBe(true)
+    // the owner changes each of them
+    const next = await owner.call('PATCH', '/api/admin/settings', { auditRetentionDays: 30, fileHistoryRetentionDays: 14, trashRetentionDays: 20, chatTrashRetentionDays: 5, updateChannel: 'beta' })
+    expect(next).toMatchObject({ auditRetentionDays: 30, fileHistoryRetentionDays: 14, trashRetentionDays: 20, chatTrashRetentionDays: 5, updateChannel: 'beta' })
+    await owner.call('PATCH', '/api/admin/settings', { auditRetentionDays: before.auditRetentionDays, fileHistoryRetentionDays: before.fileHistoryRetentionDays, trashRetentionDays: before.trashRetentionDays, chatTrashRetentionDays: before.chatTrashRetentionDays, updateChannel: before.updateChannel })
   })
   test('budgets: subjects checked, current spend shown, checkBudgets for proxy mode', async () => {
     const team = await admin.call('POST', '/api/admin/budgets', { subjectType: 'team', subjectId: null, period: 'month', limitUsd: 100, action: 'warn' })

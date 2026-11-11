@@ -2063,6 +2063,7 @@ export const ja: Record<MessageKey, string> = {
   'budgets.block': "ブロック",
   'budgets.tokensUsed': "トークン {used} / {limit}",
   'teamSettings.nameOwnerOnly': "チーム名を変更できるのはオーナーのみです。",
+  'teamSettings.ownerOnlyField': "これを変更できるのはチームのオーナーのみです。",
   'teamSettings.defaultLocale': "チームの既定の言語",
   'teamSettings.defaultLocaleHint': "自分で言語を選んでいない人には、この言語が表示されます。",
   'teamSettings.browserAllowAll': "メンバーが「すべてのWebサイトを許可」を有効にできる",
