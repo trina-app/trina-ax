@@ -162,7 +162,7 @@ describe('Home without AI', () => {
         expect(!!m.find('no-ai-own')).toBe(action === 'connect_own')
         expect(m.find('ai-access-banner')).toBeNull()
         expect(m.find('team-goal')).toBeNull()
-        expect(called('GET /api/questions/frequent')).toEqual([])
+        expect(called('GET /api/questions/often-asked')).toEqual([])
       } finally { await m.unmount() }
       calls = []
       useAiAccess.getState().reset()

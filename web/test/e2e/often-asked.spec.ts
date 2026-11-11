@@ -12,11 +12,18 @@ const TEAM = ['회의록을 요약해 줘', '주간 보고서 초안 써 줘', '
 
 const setLists = (page: Page, data: { team?: string[]; groups?: Record<string, string[]> }) => page.request.post('/__test/often-asked', { data })
 const list = (page: Page) => page.getByTestId('often-asked')
+/** someone with a chat: "팀에 준비된 것" (the newcomer block, which goes first) has nothing for them, so the list shows */
+async function withAChat(page: Page) {
+  expect((await page.request.post('/api/chats', { headers: H, data: { title: 'Earlier chat' } })).ok()).toBeTruthy()
+  await page.goto('/')
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+}
 
 async function asBob(browser: Browser, width = 1440): Promise<Page> {
-  const ctx = await browser.newContext({ locale: 'ko-KR', viewport: { width, height: 900 }, serviceWorkers: 'block' })
+  const ctx = await browser.newContext({ locale: 'ko-KR', viewport: { width, height: width < 768 ? 844 : 900 }, serviceWorkers: 'block' })
   const b = await ctx.newPage()
   await signIn(b, BOB)
+  await withAChat(b)
   return b
 }
 
@@ -26,12 +33,13 @@ test('three lines under the box, Show more opens the rest, a line fills the box 
   page.on('request', (r) => { if (r.method() === 'POST' && /\/messages$/.test(new URL(r.url()).pathname)) sent++ })
   await setLists(page, { team: TEAM })
   await signIn(page)
+  await withAChat(page)
   await expect(list(page)).toBeVisible()
   await expect(list(page).getByRole('heading')).toHaveText('우리 팀에서 자주 묻는 질문')
   await expect(list(page).getByTestId('often-asked-item')).toHaveCount(3)
   // no card: no frame around it, no counts, and the two old sections are gone
   await expect(list(page)).not.toHaveClass(/border/)
-  await expect(list(page)).not.toContainText('회')
+  await expect(list(page)).not.toContainText(/\d/)
   await expect(page.getByTestId('popular-skills')).toHaveCount(0)
   await expect(page.getByTestId('frequent-questions')).toHaveCount(0)
   const more = list(page).getByTestId('often-asked-more')
@@ -62,7 +70,7 @@ test('a group\'s list for its members, named in the heading; the team\'s for the
   await expect(list(b).getByTestId('often-asked-more')).toHaveCount(0)
   await b.context().close()
   // the owner is in no group: the team's list
-  await page.reload()
+  await withAChat(page)
   await expect(list(page).getByRole('heading')).toHaveText('우리 팀에서 자주 묻는 질문')
   // too little data: nothing at all, not even the heading
   await setLists(page, { team: TEAM.slice(0, 2) })
@@ -76,6 +84,7 @@ test('Admin › Team settings turns it off for everyone', async ({ page, browser
   await reset(page)
   await setLists(page, { team: TEAM })
   await signIn(page)
+  await withAChat(page)
   await expect(list(page)).toBeVisible()
   await page.goto('/admin/settings')
   const row = page.getByTestId('team-often-asked')
@@ -96,7 +105,6 @@ test('phones: the lines are 44px rows under the box, no frame', async ({ browser
   await reset(page)
   await setLists(page, { team: TEAM })
   const b = await asBob(browser, 390)
-  await b.goto('/')
   await expect(list(b)).toBeVisible()
   const first = list(b).getByTestId('often-asked-item').first()
   const box = (await first.boundingBox())!

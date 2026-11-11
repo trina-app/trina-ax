@@ -1028,7 +1028,7 @@ export const es: Record<MessageKey, string> = {
   "teamSettings.projectCreators": "Los miembros pueden crear proyectos del equipo",
   "teamSettings.row.projectCreatorsDesc": "Desactivado: solo el propietario y los administradores crean proyectos del equipo. Cualquiera puede crear un proyecto personal.",
   "teamSettings.oftenAsked": "Mostrar lo que suele preguntar el equipo",
-  "teamSettings.row.oftenAskedDesc": "Bajo el cuadro de un chat nuevo, las personas ven preguntas que hicieron varias personas de su grupo o equipo, reescritas sin nombres ni números. Nadie ve quién preguntó. Usa la IA del propietario una vez al día.",
+  "teamSettings.row.oftenAskedDesc": "Bajo el cuadro de un chat nuevo, las personas ven preguntas que hicieron varias personas de su grupo o equipo, reescritas sin nombres ni números. Nadie ve quién preguntó. Usa la IA del equipo una vez al día.",
   'chat.sharedLabel': "Chat compartido",
   'chat.shared': "Chat compartido · lo pueden ver {n, plural, one {# persona} other {# personas}} del proyecto",
   'chat.footerShared': "La IA puede cometer errores. Verifique la información importante. {n, plural, one {# persona del proyecto puede} other {# personas del proyecto pueden}} ver este chat.",

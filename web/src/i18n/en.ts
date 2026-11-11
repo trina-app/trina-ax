@@ -1053,7 +1053,7 @@ export const en: Record<MessageKey, string> = {
   "teamSettings.projectCreators": "Members can make team projects",
   "teamSettings.row.projectCreatorsDesc": "Off: only the owner and admins make team projects. Anyone can make a personal project.",
   "teamSettings.oftenAsked": "Show what the team often asks",
-  "teamSettings.row.oftenAskedDesc": "Under the box on a new chat, people see questions several people in their group or team asked, reworded without names or numbers. Nobody sees who asked. Uses the owner's AI once a day.",
+  "teamSettings.row.oftenAskedDesc": "Under the box on a new chat, people see questions several people in their group or team asked, reworded without names or numbers. Nobody sees who asked. Uses the team's AI once a day.",
   'chat.sharedLabel': "Shared chat",
   'chat.shared': "Shared chat · {n, plural, one {# person} other {# people}} in the project can see it",
   'chat.footerShared': "AI can make mistakes. Check important information. {n, plural, one {# person} other {# people}} in the project can see this chat.",

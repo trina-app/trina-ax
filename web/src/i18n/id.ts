@@ -1053,7 +1053,7 @@ export const id: Record<MessageKey, string> = {
   "teamSettings.projectCreators": "Anggota dapat membuat proyek tim",
   "teamSettings.row.projectCreatorsDesc": "Nonaktif: hanya pemilik dan admin yang membuat proyek tim. Siapa pun bisa membuat proyek pribadi.",
   "teamSettings.oftenAsked": "Tampilkan yang sering ditanyakan tim",
-  "teamSettings.row.oftenAskedDesc": "Di bawah kotak obrolan baru, orang melihat pertanyaan yang diajukan beberapa orang di grup atau tim mereka, ditulis ulang tanpa nama atau angka. Tidak ada yang tahu siapa yang bertanya. Memakai AI pemilik sekali sehari.",
+  "teamSettings.row.oftenAskedDesc": "Di bawah kotak obrolan baru, orang melihat pertanyaan yang diajukan beberapa orang di grup atau tim mereka, ditulis ulang tanpa nama atau angka. Tidak ada yang tahu siapa yang bertanya. Memakai AI tim sekali sehari.",
   'chat.sharedLabel': "Chat bersama",
   'chat.shared': "Chat bersama · {n} orang di proyek bisa melihatnya",
   'chat.footerShared': "AI bisa salah. Cek lagi informasi penting. {n} orang di proyek bisa melihat chat ini.",

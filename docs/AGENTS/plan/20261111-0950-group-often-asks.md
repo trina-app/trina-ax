@@ -188,9 +188,9 @@ The server picks one list for the caller (`GET /api/questions/often-asked`):
   `oftenAsked` (boolean, default **on**; `TeamSettings`, `DEFAULT_SETTINGS`), saved with the page's Save bar.
 - Title: **"Show what the team often asks"** (ko "팀이 자주 묻는 질문 보여 주기").
 - Description (short, like its neighbours): "Under the box on a new chat, people see questions several people in
-  their group or team asked, reworded without names or numbers. Nobody sees who asked. Uses the owner's AI once a
+  their group or team asked, reworded without names or numbers. Nobody sees who asked. Uses the team's AI once a
   day." (ko "새 채팅 입력창 아래에, 같은 부서나 팀에서 여러 명이 물은 질문을 이름·숫자 없이 다듬어 보여 줘요. 누가 물었는지는
-  아무도 몰라요. 하루 한 번 팀장의 AI를 써요.")
+  아무도 몰라요. 하루 한 번 팀의 AI를 써요.")
 - Off: the stored lists are deleted at once, the endpoint answers an empty list, no run starts, and questions sent
   while it is off never count. On again: counting starts from that moment.
 - **No personal switch.** Nothing a person typed is ever shown: only a sentence made of words 3+ people used. A switch
