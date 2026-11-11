@@ -26,6 +26,7 @@ async function setup(name: string) {
   h = await harness(`slot-${name}`); await withOwner(h)
   rt = getChatRuntime(h.ctx)
   rt.quarantineProbeMs = 60 * 60_000 // the test probes by hand
+  ;(rt as any).probedAt = Date.now() // and the watcher's first probe waits too (it starts at 0: at once)
   setSetting(h.ctx.db, 'concurrency', 1)
 }
 afterEach(async () => {
