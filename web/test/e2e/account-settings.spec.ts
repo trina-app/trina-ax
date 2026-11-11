@@ -99,9 +99,7 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
   // the search narrows the list by name; a section opens on the right and the address follows
   await dialog.getByTestId('settings-search').fill('mc')
   await expect(dialog.getByTestId('settings-menu').getByRole('link')).toHaveText([/커넥터|Connectors/])
-  await dialog.getByTestId('settings-menu').getByRole('link', { name: /커넥터|Connectors/ }).click()
-  await expect(page).toHaveURL(/\/settings\/connectors$/)
-  await expect(dialog.getByTestId('connectors-header').getByRole('heading', { name: /커넥터|Connectors/ })).toBeVisible()
+  // (Connectors itself is a page of the sidebar now: its section here leads there, connectors-hub.spec.ts)
   await dialog.getByTestId('settings-search').fill('zzz')
   await expect(dialog.getByTestId('settings-no-match')).toBeVisible()
   // Esc: back to the page under it, and the keyboard back on the account button
@@ -163,7 +161,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`the Settings dialog has no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await start(page)
-    for (const path of ['/settings/profile', '/settings/connectors', '/settings/notifications']) {
+    for (const path of ['/settings/profile', '/settings/ai-apps', '/settings/notifications']) {
       await page.goto(path)
       await expect(page.getByRole('dialog', { name: t['settings.title'] })).toBeVisible()
       await page.waitForTimeout(300)

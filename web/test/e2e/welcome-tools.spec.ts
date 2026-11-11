@@ -205,7 +205,7 @@ test('after the setup, Settings › 커넥터: an owner with the members\' switc
   await page.goto('/settings/drive')
   const detail = page.getByTestId('drive-detail')
   await expect(detail.getByTestId('drive-connect')).toHaveText('팀원도 연결할 수 있게 켜고 내 드라이브 연결하기')
-  await expect(detail.getByTestId('drive-detail-line')).not.toHaveText('관리자가 먼저 켜야 해요')
+  await expect(detail).not.toContainText('관리자가 먼저 켜야 해요')
   const popup = page.waitForEvent('popup')
   await detail.getByTestId('drive-connect').click()
   await popup

@@ -108,7 +108,7 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
   await open(page)
   await input(page).fill('MCP')
   await palette(page).getByTestId('search-section-actions').getByRole('option').first().click()
-  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  await expect(page).toHaveURL(/\/connectors$/)
   await expect(page.getByRole('dialog', { name: '직접 커넥터 추가' })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')

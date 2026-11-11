@@ -15,6 +15,15 @@ const openRow = async (r: Locator) => {
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
 }
 
+/** Connectors lists the person's own connections as icons; each opens its page with its row (pages/Connectors.tsx) */
+const openMine = async (page: Page, name: string) => {
+  if (!/\/connectors$/.test(new URL(page.url()).pathname)) await page.goto('/connectors')
+  await page.locator('[data-testid="connected-app"]').filter({ hasText: name }).click()
+  await expect(page.getByTestId('connector-detail')).toBeVisible()
+}
+/** from a connection's page back to the list */
+const toList = (page: Page) => page.getByTestId('connector-back').click()
+
 async function signInPage(page: Page) {
   await page.context().route('https://auth.example.test/**', (r) => r.fulfill({ contentType: 'text/html', body: '<title>Sign in</title><p>Synthetic sign-in page</p>' }))
 }
@@ -23,10 +32,10 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.goto('/settings/connectors')
-  await expect(page.getByRole('heading', { name: '커넥터', level: 2, exact: true })).toBeVisible()
-  // nothing connected yet: one quiet line, then Discover (no empty box, no heading for the empty list)
-  await expect(page.getByTestId('integrations-empty')).toHaveText('아직 연결한 MCP가 없어요')
+  await page.goto('/connectors')
+  await expect(page.getByRole('heading', { name: '커넥터', level: 1, exact: true })).toBeVisible()
+  // nothing connected yet: Popular right under the title (no empty box, no heading for the empty list)
+  await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByRole('heading', { name: '연결됨', exact: true })).toHaveCount(0)
 
@@ -98,7 +107,8 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   // ... without opening it
   await expect(pm.getByTestId('integration-toggle')).toContainText('키를 거절했어요')
 
-  // the server's own refusal shows at its field
+  // the server's own refusal shows at its field (Add is on the list)
+  await toList(page)
   await page.getByTestId('integration-add').click()
   await (await adv(page, 'integration-kind-http')).check()
   await page.getByTestId('integration-name').fill('Local')
@@ -108,13 +118,17 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   await expect(dialog.getByRole('alert')).toContainText('사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.')
   await expect(page.getByTestId('integration-url')).toHaveAttribute('aria-invalid', 'true')
   await dialog.getByRole('button', { name: '취소' }).click()
+  await openMine(page, 'AI PM')
+  await openRow(pm)
 
   // delete asks first
   await pm.getByTestId('integration-delete').click()
   await expect(page.getByRole('dialog')).toContainText('AI PM 연결을 삭제할까요?')
   await page.getByTestId('dialog-confirm').click()
+  // its page is gone: back on the list, with nothing connected
+  await expect(page).toHaveURL(/\/connectors$/)
   await expect(page.getByTestId('integration-row')).toHaveCount(0)
-  await expect(page.getByTestId('integrations-empty')).toBeVisible()
+  await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   // (the 400 is the refused local address above)
   expect(realErrors(errors).filter((e) => !/status of 400/.test(e))).toEqual([])
 })
@@ -124,7 +138,7 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   const errors = watchConsole(page)
   await signInPage(page)
   await signIn(page)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await page.getByTestId('integration-add').click()
   // an MCP server that signs in is the default
   await expect((await adv(page, 'integration-kind-mcp'))).toBeChecked()
@@ -147,6 +161,7 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   await expect(notion.getByTestId('integration-signin-start')).toHaveText('다시 로그인')
 
   // a server without sign-in: two tools at the first check, a third after checking again
+  await toList(page)
   await page.getByTestId('integration-add').click()
   await page.getByTestId('integration-name').fill('Linear')
   await page.getByTestId('integration-url').fill('https://mcp.linear.example/mcp')
@@ -176,7 +191,7 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   const errors = watchConsole(page)
   await signInPage(page)
   await signIn(page)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   // an MCP server that does not register apps (Google's): the client ID behind a choice in Advanced
   await page.getByTestId('integration-add').click()
   await page.getByTestId('integration-name').fill('Gmail')
@@ -208,6 +223,7 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   await page.keyboard.press('Escape')
 
   // an API that signs in (NAVER WORKS style): the app with both addresses, in the main form
+  await toList(page)
   await page.getByTestId('integration-add').click()
   await (await adv(page, 'integration-kind-http')).check()
   await (await adv(page, 'integration-auth-oauth')).check()
@@ -238,7 +254,7 @@ test('a sign-in address that is not https is never opened', async ({ page }) => 
   expect(created.status()).toBe(201)
   for (const bad of ['javascript:document.title="pwned"', 'http://auth.example.test/authorize']) {
     await page.route('**/api/integrations/*/authorize', (r) => r.fulfill({ json: { flowId: 'f1', authorizationUrl: bad, expiresAt: '2099-01-01T00:00:00.000Z' } }))
-    await page.goto('/settings/connectors')
+    await page.goto(`/connectors/mcp/${(await created.json()).id}`)
     const gh = row(page, 'GitHub')
     await expect(gh).toHaveAttribute('data-status', 'needs_auth')
     const popup = page.waitForEvent('popup')
@@ -265,16 +281,19 @@ test('the team turns personal connections off: no adding, and the ones there are
   await sw.getByRole('checkbox').uncheck({ force: true })
   await page.getByRole('button', { name: '저장' }).click()
   expect((await saved).postDataJSON()).toEqual({ personalIntegrations: false })
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await expect(page.getByTestId('integrations-personal-off')).toContainText('팀에서 개인 연결을 꺼 두었어요')
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
-  await expect(page.getByTestId('connector-discover')).toHaveCount(0)
-  await expect(row(page, 'AI PM')).toBeVisible()
-  // nothing to add, and the empty state says why
+  // no MCP service to add (Google's own cards have their own switches in Admin)
+  await expect(page.locator('[data-testid="connector-card"][data-id="notion"]')).toHaveCount(0)
+  await expect(page.getByTestId('connector-custom')).toHaveCount(0)
+  await openMine(page, 'AI PM')
+  await expect(page.getByTestId('connector-connect')).toHaveCount(0)
   await openRow(row(page, 'AI PM'))
   await row(page, 'AI PM').getByTestId('integration-delete').click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByTestId('integrations-empty')).toContainText('팀에서 개인 연결을 꺼 두었어요')
+  await expect(page).toHaveURL(/\/connectors$/)
+  await expect(page.getByTestId('integrations-personal-off')).toHaveCount(0)
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })
@@ -378,7 +397,7 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(row(page, 'Bob MCP').getByText('내 대화에서는 못 씀')).toHaveCount(1)
 
   // the admin's own Settings: what the team provides, read-only, with what the admin gets from each, and one Manage link
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   const fromTeam = page.getByTestId('integrations-from-team')
   await expect(fromTeam.getByRole('heading', { name: 'Acme에서 받은 것' })).toBeVisible()
   await expect(fromTeam.getByTestId('from-team-manage')).toHaveAttribute('href', '/admin/connectors')
@@ -398,7 +417,7 @@ test('an admin gives a team connection to a group and a person; a member sees it
   // Bob sees the team connections he was given read-only, and not the others
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   const team = page.getByTestId('integrations-from-team')
   await expect(team.getByRole('heading', { name: 'Acme에서 받은 것' })).toBeVisible()
   // a member: no Manage link, and none of the team's connections he may not use
@@ -411,8 +430,7 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(shared).toContainText('쓰기 막기')
   for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
   // he has none of his own (no heading, no empty box) and may add one: Discover is under the team's
-  await expect(page.getByTestId('integrations-mine')).toHaveCount(0)
-  await expect(page.getByTestId('integrations-empty')).toHaveCount(0)
+  await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByTestId('integration-add')).toBeVisible()
   // (a 404: Bob's file tree asks for the folder Olga had open, which he cannot see)
@@ -425,7 +443,7 @@ test('single tools on and off: a switch each for whoever manages the connection;
   await signIn(page)
   // a personal MCP connection (two tools at the first check)
   expect((await page.request.post('/api/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none' } })).status()).toBe(201)
-  await page.goto('/settings/connectors')
+  await openMine(page, 'Linear')
   const linear = row(page, 'Linear')
   await openRow(linear)
   await linear.getByTestId('integration-tools-toggle').click()
@@ -466,7 +484,7 @@ test('single tools on and off: a switch each for whoever manages the connection;
   await expect(wiki.getByTestId('integration-tool').filter({ hasText: 'Search pages' })).toHaveAttribute('data-enabled', 'false')
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   const seen = row(page, 'Team wiki')
   await openRow(seen)
   await seen.getByTestId('integration-tools-toggle').click()
@@ -487,13 +505,14 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   // on the same page as the connections, under its own heading
   await expect(page.getByTestId('connector-discover-title')).toHaveText('둘러보기')
   const cards = page.getByTestId('connector-card')
-  // Google Drive (Trina's own) first, then the listed MCP services, Notion leading them
+  // Google Drive (Trina's own) first, then Gmail, Calendar, Docs and Sheets, then the listed MCP services, Notion leading them
   await expect(cards.first()).toHaveAttribute('data-id', 'google-drive')
-  await expect(cards.nth(1)).toContainText('Notion')
+  await expect(cards.nth(1)).toHaveAttribute('data-id', 'gmail')
+  await expect(cards.nth(5)).toContainText('Notion')
   await expect(page.getByTestId('connector-count')).toHaveText(String(await cards.count()))
   await page.getByTestId('connector-show-all').click()
   // a logo comes from this server: anything else would be stopped by the content security policy
-  const logo = cards.nth(1).getByTestId('connector-logo')
+  const logo = cards.nth(5).getByTestId('connector-logo')
   await expect(logo).toHaveAttribute('src', '/icons/connectors/notion.svg')
   await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
   // a logo file runs and loads nothing when opened on its own, and every logo still shows in the app
@@ -585,7 +604,7 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   // a member adds their own the same way, with no question about who may use it, and then has both
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await page.getByRole('button', { name: 'Linear 추가' }).click()
   await expect(dialog.getByRole('heading', { name: 'Linear 추가' })).toBeVisible()
   await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.linear.app/mcp')
@@ -595,14 +614,18 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await page.getByTestId('integration-save').click()
   expect((await own).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', writePolicy: 'ask' })
   await ownSignIn
-  await expect(page.getByRole('heading', { name: '연결됨', exact: true })).toBeFocused()
+  // his new connection's page, with its row
+  await expect(page).toHaveURL(/\/connectors\/mcp\//)
   const mine = page.getByTestId('integrations-mine').getByTestId('integration-row')
-  const shared = page.getByTestId('integrations-from-team').getByTestId('integration-row')
   await expect(mine).toHaveCount(1)
   await expect(mine).toHaveAttribute('data-name', 'Linear')
   await expect(mine).toHaveAttribute('data-scope', 'personal')
   // signed in at the service with his own account
   await expect(mine).toHaveAttribute('data-status', 'connected')
+  // the list: his own among the connected apps, the team's under "From Acme"
+  await page.getByTestId('connector-back').click()
+  await expect(page.locator('[data-testid="connected-app"]').filter({ hasText: 'Linear' })).toHaveCount(1)
+  const shared = page.getByTestId('integrations-from-team').getByTestId('integration-row')
   await expect(shared).toHaveCount(1)
   await expect(shared).toHaveAttribute('data-name', 'Linear')
   await expect(shared).toHaveAttribute('data-scope', 'team')
@@ -632,11 +655,15 @@ test('screenshots', async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     const suffix = scheme === 'dark' ? '-dark' : ''
     await page.setViewportSize({ width: 1360, height: 960 })
-    await page.goto('/settings/connectors')
+    await page.goto('/connectors')
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: `${dir}/int-settings-list${suffix}.png`, fullPage: true })
+    await openMine(page, 'Linear')
     await openRow(row(page, 'Linear'))
     await row(page, 'Linear').getByTestId('integration-tools-toggle').click()
     await page.waitForTimeout(300)
-    await page.screenshot({ path: `${dir}/int-settings-list${suffix}.png`, fullPage: true })
+    await page.screenshot({ path: `${dir}/int-settings-row${suffix}.png`, fullPage: true })
+    await toList(page)
     await page.getByTestId('integration-add').click()
     await (await adv(page, 'integration-kind-http')).check()
     await page.getByTestId('integration-name').fill('AI PM')
@@ -664,6 +691,7 @@ test('screenshots', async ({ page }) => {
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-own-app-mcp${suffix}.png` })
     await page.keyboard.press('Escape')
+    await openMine(page, 'AI PM')
     await openRow(row(page, 'AI PM'))
     await row(page, 'AI PM').getByTestId('integration-edit').click()
     await page.waitForTimeout(200)
@@ -680,7 +708,7 @@ test('screenshots', async ({ page }) => {
     await page.screenshot({ path: `${dir}/int-admin-access${suffix}.png` })
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/settings/connectors')
+    await page.goto('/connectors')
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/int-phone-settings${suffix}.png`, fullPage: true })
     await page.getByTestId('integration-add').click()
@@ -706,7 +734,7 @@ test('screenshots', async ({ page }) => {
   await page.screenshot({ path: `${dir}/int-team-settings.png` })
   await page.getByTestId('team-personal-integrations').getByRole('checkbox').uncheck({ force: true })
   await page.getByRole('button', { name: '저장' }).click()
-  await page.goto('/settings/connectors')
+  await page.goto('/connectors')
   await page.waitForTimeout(300)
   await page.screenshot({ path: `${dir}/int-personal-off.png`, fullPage: true })
   await expect(page.getByTestId('integrations-personal-off')).toBeVisible()
