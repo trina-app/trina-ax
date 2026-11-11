@@ -17961,6 +17961,16 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   team path: `share_file` links are checked per viewer and grant nothing). **Stricter than the review asked:** hidden
   items, instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) and a live project's
   folder or one holding it, personal projects included (`managedInside` leaves `users/` out) are refused too.
+- **Each refused folder says what it is** (QA TC-016, 2026-11-11, `fix/qa-11-11-followups`). Every `projects/<p>`,
+  `groups/<g>` and `users/<id>` got the skill reason ("… the Files screen or the Skills page"), so asked to delete a
+  project's folder the AI sent an admin to the Skills page. Now (`TeamFiles.aiFolderRefusal`, `AI_TRASH_FOLDER_REFUSAL`):
+  a project's folder or one holding it → the project is deleted on the Projects screen, where a team project's folder
+  can go to the trash with it; a group's folder or one holding it → the Files screen, and deleting the group keeps its
+  folder; the person's own folder → it never goes to the trash, what is in it can; a rule folder or one holding it →
+  the Files screen; a folder right in `projects/` or `groups/` that is none of these → its place and the Files screen.
+  The skill reason only for a skill folder, something in one, or a folder with a `skills` entry in it now. What a folder
+  is comes before what it holds. The same folders are refused as before, by `remove()`'s guard too; only the words
+  changed. A reason says where it is done, never who: no reason says "an admin" (the asker may be one).
 - **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
   folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
   card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.

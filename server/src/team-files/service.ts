@@ -91,8 +91,21 @@ export interface AiTrashPlan {
   /** other people who made or changed these files, as the file history shows them to this person */
   others: UserRef[]
 }
-/** delete_files' refusal for a skill root (also TeamFiles.remove's for every AI turn). */
+/** delete_files' refusal for a skill root (also TeamFiles.remove's for every AI turn). Only for a skill folder,
+ * something in one, or a folder with one in it now: the other folders that hold a skill root by their path get the
+ * reason of what they are (AI_TRASH_FOLDER_REFUSAL). */
 export const AI_SKILL_TRASH_REFUSAL = 'a skill folder (skills/, a group\'s, a project\'s or a person\'s own skills: what people\'s AI follows), something in one, or a folder that holds one: skills are not deleted from a chat. The user deletes it on the Files screen or the Skills page'
+/** delete_files' refusals for the other folders that never go to the trash from a chat, each by what the folder is
+ * (TeamFiles.aiFolderRefusal; QA TC-016: a project's folder got the skill reason, and the AI sent an admin to the Skills
+ * page). Each says where it is done, never who does it. */
+export const AI_TRASH_FOLDER_REFUSAL = {
+  project: 'a project\'s folder, or a folder that holds one: it does not go to the trash from a chat. The user deletes the project on the Projects screen, where a team project\'s own folder can go to the trash with it',
+  group: 'a group\'s folder, or a folder that holds one (what the group\'s members share): it does not go to the trash from a chat. The user deletes it on the Files screen; deleting the group itself keeps its folder',
+  own: 'the user\'s own personal folder: it never goes to the trash, from a chat or on the Files screen. The files and folders in it can',
+  rule: 'a folder with its own permissions, or a folder that holds one: it does not go to the trash from a chat. The user deletes it on the Files screen',
+  projectsPlace: 'a folder right in projects/, where a team project keeps its folder and skills: it does not go to the trash from a chat. The user deletes it on the Files screen',
+  groupsPlace: 'a folder right in groups/, where a group keeps its folder and skills: it does not go to the trash from a chat. The user deletes it on the Files screen',
+} as const
 
 export class TeamFiles {
   /** sha256 by (path, inode, size, mtime) so repeated previews of big files don't re-hash */
@@ -1145,7 +1158,9 @@ export class TeamFiles {
     const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: true })
     this.assertMovable(r.segs)
     if (turnId !== null) {
-      if (aiSkillPath(r.rel) || (r.st!.isDirectory() && holdsSkillRoot(r.segs))) throw new Denied(AI_SKILL_TRASH_REFUSAL)
+      if (aiSkillPath(r.rel)) throw new Denied(AI_SKILL_TRASH_REFUSAL)
+      // a folder that holds a skill root by its path, whatever it holds now; the reason says what it is
+      if (r.st!.isDirectory() && holdsSkillRoot(r.segs)) throw new Denied(this.aiFolderRefusal(rules, r.segs) ?? AI_SKILL_TRASH_REFUSAL)
       if (!o.ai) throw new Denied('an AI turn puts things in the trash only with delete_files, after the user\'s yes on its card')
     }
     // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only. Not
@@ -1276,7 +1291,8 @@ export class TeamFiles {
    * team root, a top-level folder, .system, chat attachments, someone else's personal folder, a hidden item, a skill
    * root, something in one or a folder that holds one, an instruction file, a group / project / rule folder or a
    * folder that holds one (managedInside), a plugin's folder or one that holds it, or the target of an open upload
-   * link. The Files screen keeps its own rules (assertMovable, assertMayChangeManaged): this is on top of them.
+   * link. The Files screen keeps its own rules (assertMovable, assertMayChangeManaged): this is on top of them. A
+   * reason says where the person does it, never who (no "an admin": the asker may be one).
    */
   private aiTrashRefusal(user: Principal, rules: RuleSet, segs: string[], isDir: boolean): string | null {
     const rel = segs.join('/')
@@ -1284,24 +1300,75 @@ export class TeamFiles {
     if (segs.length === 0 || fold(segs[0]!) === fold(PRODUCT.systemDir)) return 'the team root and the system folder never go to the trash'
     if (segs.some((x) => fold(x) === '.attachments')) return 'chat attachments (.attachments) go with their chats, not to the trash'
     if (fold(segs[0]!) === 'users' && segs.length >= 2 && segs[1] !== user.id) return 'another person\'s folder'
-    if (isDir && segs.length === 1) return 'a top-level folder never goes to the trash from a chat; an admin deletes it on the Files screen'
-    if (aiSkillPath(rel) || (isDir && holdsSkillRoot(segs))) return AI_SKILL_TRASH_REFUSAL
+    if (isDir && segs.length === 1) return 'a top-level folder never goes to the trash from a chat; the user deletes it on the Files screen'
+    if (aiSkillPath(rel)) return AI_SKILL_TRASH_REFUSAL
+    // a folder by what it is: a project's, a group's, the person's own, a rule folder, one that holds a skill root
+    const folder = isDir ? this.aiFolderRefusal(rules, segs) : null
+    if (folder) return folder
     if (segs.some((x) => x.startsWith('.'))) return 'a hidden item; the user deletes it on the Files screen'
     if (instructionFile(rel)) return 'an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md: what an AI follows); the user deletes it on the Files screen'
-    if (this.managedInside(rules, rel)) return 'a group, project or rule folder, or a folder that holds one: an admin deletes it on the Files screen'
-    // a personal project's folder too (managedInside leaves users/ out): the project would lose its folder
-    if (isDir && this.projectAtOrBelow(rel)) return 'a project\'s folder, or a folder that holds one: the user deletes the project on the Projects screen'
-    if (this.fx.managed?.managerOf(segs) || this.fx.managed?.heldBelow(segs)) return 'a plugin\'s folder, or one that holds it: an admin turns the plugin off in Admin > Plugins'
+    // a file is never a rule folder; asked as before all the same
+    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule
+    if (this.fx.managed?.managerOf(segs) || this.fx.managed?.heldBelow(segs)) return 'a plugin\'s folder, or one that holds it: the plugin is turned off first, in Admin > Plugins'
     if (this.linkTarget(rel, isDir)) return 'an open upload link points here; it can go to the trash once the link is used or expires'
     return null
   }
 
-  /** A live project (not in the trash) uses `rel` or a folder below it, personal projects included. */
-  private projectAtOrBelow(rel: string): boolean {
+  /**
+   * Why the folder `segs` never goes to the trash from a chat, by what it is, or null. The same folders as before
+   * (QA TC-016 changed only the words): every folder that holds a skill root by its path (holdsSkillRoot: groups/<g>,
+   * projects/<p>, users/<id>, whatever is in it now), a live project's folder or one that holds one (personal projects
+   * too: managedInside leaves users/ out, and the project would lose its folder), and a group, project or rule folder
+   * or one that holds one (managedInside). What the folder is comes before what it holds; the skill reason only when a
+   * skills folder is in it now. Another person's folder never reaches here (aiTrashRefusal).
+   */
+  private aiFolderRefusal(rules: RuleSet, segs: string[]): string | null {
+    const rel = segs.join('/')
+    const top = segs[0]!.normalize('NFC').toLowerCase()
+    if (top === 'users' && segs.length === 2) return AI_TRASH_FOLDER_REFUSAL.own
+    const project = this.placeAmong(rel, this.liveProjectFolders())
+    const group = this.placeAmong(rel, this.groupFolders())
+    if (project === 'at') return AI_TRASH_FOLDER_REFUSAL.project
+    if (group === 'at') return AI_TRASH_FOLDER_REFUSAL.group
+    const holder = holdsSkillRoot(segs)
+    if (holder && this.skillsFolderIn(segs)) return AI_SKILL_TRASH_REFUSAL
+    if (project) return AI_TRASH_FOLDER_REFUSAL.project
+    if (group) return AI_TRASH_FOLDER_REFUSAL.group
+    if (this.managedInside(rules, rel)) return AI_TRASH_FOLDER_REFUSAL.rule
+    if (holder) return top === 'groups' ? AI_TRASH_FOLDER_REFUSAL.groupsPlace : AI_TRASH_FOLDER_REFUSAL.projectsPlace
+    return null
+  }
+
+  /** `rel` among `folders`: 'at' (it is one of them), 'above' (one is inside it) or null; letter case and Unicode form
+   * as this volume compares names. */
+  private placeAmong(rel: string, folders: readonly string[]): 'at' | 'above' | null {
     const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
     const me = k(rel)
-    const rows = this.ctx.db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]
-    return rows.some((x) => { const p = k(x.folder_path); return p === me || p.startsWith(me + '/') })
+    let above = false
+    for (const f of folders) {
+      const p = k(f)
+      if (p === me) return 'at'
+      if (p.startsWith(me + '/')) above = true
+    }
+    return above ? 'above' : null
+  }
+  /** The folders of the live projects (not in the trash), personal projects included. */
+  private liveProjectFolders(): string[] {
+    return (this.ctx.db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]).map((x) => x.folder_path)
+  }
+  /** The groups' folders. */
+  private groupFolders(): string[] {
+    return (this.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id').all() as { path: string }[]).map((x) => x.path)
+  }
+  /** A skill root is in the folder `segs` now: an entry named skills, in any letter case or Unicode form (the guard
+   * reads its path that way). Unreadable: counted as one. */
+  private skillsFolderIn(segs: string[]): boolean {
+    let d: fs.Dir | null = null
+    try {
+      d = fs.opendirSync(path.join(this.root, ...segs))
+      for (let e = d.readSync(); e !== null; e = d.readSync()) if (e.name.normalize('NFC').toLowerCase() === SKILLS_DIR) return true
+      return false
+    } catch { return true } finally { try { d?.closeSync() } catch {} }
   }
 
   /** An unused, unexpired upload link of the app connector (connectors/remote-mcp/upload-link.ts) points at `rel` (or,
