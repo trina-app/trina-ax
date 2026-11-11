@@ -1,54 +1,43 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="72" alt="Trina AX logo">
+<img src="web/public/favicon.svg" width="64" alt="Trina AX logo">
 
-# Trina AX
+<h1>The AI your whole team shares.</h1>
 
-**The AI your whole team shares.**
+Trina AX puts your team's files, skills and tools on one server. Everyone's AI starts from them,<br>and every file it opens is checked as the person who asked.
 
-Your team's files, skills and tools on one server. Everyone's AI starts from them.
+<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a>
 
-[Website](https://ax.trina.app) · [Download](https://ax.trina.app/download) · [Docs](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
-
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="58" alt="Get it on Google Play" align="top"></a>
+[Website](https://ax.trina.app) · [Download for Mac and Windows](https://ax.trina.app/download) · [Docs](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-</div>
-
 <br>
 
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="Watch the 97-second story: Alex, a team lead, gets a 7-page proposal from one line; Mina, on her first day, asks the same and her AI answers 'Trina Logistics? Who are they?'"></a>
+<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="Watch the 97-second story. Same Claude, same request, different result: Alex, a team lead, gets a 7-page deck; Mina, on her first day with an empty folder, gets 'Trina Logistics? Who are they?'. With Trina, Mina's AI starts from the team's files and skills."></a>
 
-<p align="center"><sub>A new hire's AI starts in an empty folder. Trina gives it the team's.</sub></p>
-
-## How it works
-
-<img src="docs/images/readme/v3/how.png" width="100%" alt="1 Add your files and skills: a Files window with who can open each folder and the Customer quote skill's four steps. 2 Connect your tools: Higgsfield, Notion, Linear, GitHub and your company API go through your Trina server, checked per person; a deck made with Higgsfield photos. 3 Invite your team: Mina, Alex and Sam ask from their own devices, all to one Trina server with their own access.">
+</div>
 
 ## What your team gets
 
-<img src="docs/images/readme/v3/room.png" width="100%" alt="Ask beside any room, send in one click: in the Expo booth crew room, Mina asks Trina in a side chat only she sees, then sends the answer into the room.">
+**Ask beside any room, send in one click.** A side chat only you see; one click sends Trina's answer into the room.
 
-<p>
-<img src="docs/images/readme/v3/access.png" width="49%" alt="Each person sees only what they may open: folders with the faces of who can open them; Mina can't open shared/Finance.">
-<img src="docs/images/readme/v3/handoff.png" width="49%" alt="Pick up a teammate's AI chat: Sam continues Mina's project chat, with his own access.">
-</p>
+<img src="docs/images/readme/v3/room.gif" width="100%" alt="In the Expo booth crew room, Mina asks Trina in a side chat only she sees when move-in is on Nov 17, clicks Send to room, and the answer lands in the room.">
 
-<p>
-<img src="docs/images/readme/v3/skills.png" width="32%" alt="Write down how your team works: the team lead's Customer quote skill, used by Mina, Sam and Jordan.">
-<img src="docs/images/readme/v3/tools.png" width="32%" alt="Connect the tools you use: any MCP server, Google Drive, Slack, your company API.">
-<img src="docs/images/readme/v3/versions.png" width="32%" alt="Every change is kept: Price sheet.xlsx versions by Alex, Mina and Sam, including one saved during an AI answer, with Restore.">
-</p>
+**Each person sees only what they may open.** Mina can't open Finance, so neither can her AI. [How permissions work](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-answers.png" width="100%" alt="Alex and Mina ask 'What was our revenue last quarter?'. Alex can open Finance and gets $498,000; Mina can't, so her AI says it couldn't find revenue figures in the files she can open.">
+<img src="docs/images/readme/v3/access-band.png" width="100%" alt="Folders with the faces of who can open them; Mina can't open shared/Finance.">
 
-Every file the AI opens is checked as the person who asked. [How permissions work](docs/PERMISSIONS.md)
+- 🤝 **Pick up a teammate's AI chat.** Continue their project chat; your turns run with your access.
+- 📋 **Team skills.** Write down how your team works once; everyone's AI follows it.
+- 🔌 **Your tools.** Any MCP server, Google Drive, Slack and your company API, checked per person.
+- 🕘 **Every change is kept.** By a person or their AI; bring back any version.
+- 📱 **Every device.** Mac, iPhone, Android, Windows and any browser.
 
 ## Get started
 
-- **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Plans](https://ax.trina.app/#pricing)
-- **Apps:** Mac, iPhone, Android and Windows, or any browser. [Download](https://ax.trina.app/download)
+- **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
+- **Apps:** [Mac, iPhone, Android and Windows](https://ax.trina.app/download), or any browser.
 - **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md)
 
 <details>
