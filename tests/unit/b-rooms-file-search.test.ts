@@ -231,6 +231,16 @@ describe('how it matches', () => {
     expect(seen).toEqual(['PAGE-FILE 4.txt', 'PAGE-FILE 3.txt', 'PAGE-FILE 2b.txt', 'PAGE-FILE 2a.txt', 'PAGE-FILE 1.txt'])
     // a cursor that is not one: refused
     expect((await h.req('bob', `/api/room-files?q=PAGE&cursor=${Buffer.from('{"f":"x"}').toString('base64url')}`)).status).toBe(400)
+    // a hand-made cursor at, just above and just below a file he does not see: the files he sees below it, never that
+    // one, and no cursor that names it (as message search, b-rooms-search.test.ts)
+    const unseenRow = (h.ctx.db.query("SELECT rowid AS n FROM room_files WHERE name = 'PAGE-FILE unseen 1.txt'").get() as { n: number }).n
+    const at = (n: number) => Buffer.from(JSON.stringify({ f: String(n) })).toString('base64url')
+    for (const q of ['PAGE-FILE', 'unseen', 'PAGE-FILE unseen', '1.txt'])
+      for (const n of [unseenRow, unseenRow + 1, unseenRow - 1]) {
+        const p = await search('bob', q, { cursor: at(n) })
+        expect(p, `${q} ${n}`).toEqual(EMPTY)
+        expect(await raw('bob', q)).not.toContain('unseen')
+      }
   })
 
   test('20,000 files among 100,000 messages: newest first with no sort, a rare name read through once (timed; the plan)', async () => {
