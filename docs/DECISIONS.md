@@ -19999,6 +19999,12 @@ users are office workers, not developers; the panel must make sense in a few sec
   a project's lines. No list, no Can view / Can edit (whether everyone can edit was never told), no "same as". The
   admin part is a chunk loaded only for admins, and every admin read and write is refused to members by the server.
 - **The chip stays the count** (#341's rule: "3명" for the owner and admins, the total for members).
+- **Outcomes kept apart, in the panel and in Admin's editor** (hands-on QA): read & write → read is "can no longer
+  edit", not losing access. The panel's line says "Erin will no longer be able to edit it"; Admin's Save button and the
+  summary of a change say "Save (2 can no longer open it · 1 can no longer edit · 3 can now open it · 2 can now edit)"
+  (`outcomesOf`, `outcomeWords` in `web/src/lib/access-edit.ts`, from the server's `changes`); their lists' headings
+  say "can do less / can do more", and the folders below "{n} can do less / more" (the server counts those without the
+  kind). "Save (folders inside change)" when only folders below change.
 - **Server:** the edit preview says what the folder above gives everyone in one field, `everyoneAbove: { access, folder
   }` (the permission function for a member nobody names, the folder's own rules left out; null at the team root): the
   grouped `above` shows nobody when every member is named by a group rule. And `latentMore`: the permission function,

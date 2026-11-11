@@ -94,7 +94,7 @@ describe('what will happen, by name', () => {
     // and Erin set here to view lowers her
     const rows = [...WORLD, row('shared/sales', 'user', 'erin', 'write')]
     const a = answer(rows, 'shared/sales/quotes', [...QUOTES, { subjectType: 'user', subjectId: 'erin', access: 'read' }])
-    expect(outcomeLines(en, 'en', a, { skills: false }).map((l) => [l.kind, l.text])).toEqual([['viewOnly', 'Erin will only be able to view it']])
+    expect(outcomeLines(en, 'en', a, { skills: false }).map((l) => [l.kind, l.text])).toEqual([['viewOnly', 'Erin will no longer be able to edit it']])
     // in skills/, losing edit means no longer changing the team's skills
     expect(outcomeLines(en, 'en', a, { skills: true })[0]!.text).toBe("Erin will no longer be able to change the team's skills")
   })

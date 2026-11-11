@@ -12,7 +12,7 @@ import clsx from 'clsx'
 import { ArrowLeft, ArrowRight, Check, Info, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import type { Access, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
-import { addNamed, removeNamed, saveImpact, setNamed, type Basic, type Draft } from '../../lib/access-edit'
+import { addNamed, outcomesOf, outcomeWords, removeNamed, setNamed, type Basic, type Draft } from '../../lib/access-edit'
 import { folderName, isSkillsPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
 import { useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap, useMediaQuery } from '../../components/ui'
@@ -140,13 +140,13 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const impact = ready ? saveImpact(data!) : null
-  // nothing edited: plain "Save" (disabled); the impact is said once there is something to save
+  // nothing edited: plain "Save" (disabled); once there is something to save, what it does, the outcomes kept apart
+  // ("2 can no longer open it · 1 can no longer edit"), or that only folders inside change, or nothing
+  const impact = ready ? outcomeWords(t, outcomesOf(data!.changes)) : null
   const saveLabel = !impact || !d.saveable ? t('common.save')
-    : impact.kind === 'less' ? t('accessEdit.saveLess', { n: impact.n })
-      : impact.kind === 'more' ? t('accessEdit.saveMore', { n: impact.n })
-        : impact.kind === 'both' ? t('accessEdit.saveBoth', { less: impact.less, more: impact.more })
-          : t('accessEdit.saveNone')
+    : impact.length ? t('accessEdit.saveParts', { parts: impact.join(' · ') })
+      : data!.below.length ? t('accessEdit.saveBelow')
+        : t('accessEdit.saveNone')
   const whyId = useId()
   const save = async () => {
     const saved = await d.save()
@@ -541,8 +541,9 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
         ) : (
           <>
             <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-testid="edit-summary">
-              {less.length > 0 && <span className="font-medium text-warn">{t('accessEdit.lessTitle', { n: data.less })}</span>}
-              {more.length > 0 && <span className="font-medium text-ink">{t('accessEdit.moreTitle', { n: data.more })}</span>}
+              {/* the outcomes kept apart: losing edit is not losing access */}
+              {outcomeWords(t, outcomesOf(less)).map((w) => <span key={w} className="font-medium text-warn">{w}</span>)}
+              {outcomeWords(t, outcomesOf(more)).map((w) => <span key={w} className="font-medium text-ink">{w}</span>)}
               {data.below.length > 0 && <span className="text-muted">{t('accessEdit.below')}</span>}
               <button
                 type="button"
@@ -556,8 +557,8 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
               </button>
             </p>
             <div id={peopleId} hidden={!showPeople} data-testid="edit-people-detail">
-              {less.length > 0 && <Changes title={t('accessEdit.lessTitle', { n: data.less })} changes={less} testId="edit-less" />}
-              {more.length > 0 && <Changes title={t('accessEdit.moreTitle', { n: data.more })} changes={more} testId="edit-more" />}
+              {less.length > 0 && <Changes title={t('accessEdit.lessTitle', { n: less.reduce((n, c) => n + c.count, 0) })} changes={less} testId="edit-less" />}
+              {more.length > 0 && <Changes title={t('accessEdit.moreTitle', { n: more.reduce((n, c) => n + c.count, 0) })} changes={more} testId="edit-more" />}
               {data.below.length > 0 && <Below data={data} path={path} />}
             </div>
           </>

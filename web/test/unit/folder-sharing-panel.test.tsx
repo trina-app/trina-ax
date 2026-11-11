@@ -207,7 +207,7 @@ describe('Save asks the server again, and asks first before more access', () => 
     const m = await open()
     await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'read')
     await ready(m)
-    expect(m.get('sharing-outcome').textContent).toContain('Bob will only be able to view it')
+    expect(m.get('sharing-outcome').textContent).toContain('Bob will no longer be able to edit it')
     await m.click('sharing-save')
     await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`).length, 'the save')
     expect(m.find('dialog-confirm')).toBeNull()
