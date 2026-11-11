@@ -63,7 +63,7 @@ test('an admin sets it up with the downloaded file: a private client.json, membe
   expect((await owner.try('PUT', '/api/admin/google-drive/members', { on: true })).body).toMatchObject({ membersCanConnect: true })
   expect((await bob.try('GET', '/api/integrations/google-drive')).body).toMatchObject({ personalAllowed: true })
   expect((await bob.try('POST', '/api/integrations/google-drive/authorize', {})).status).toBe(200)
-  expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action='drive.members_switch'").all()).toEqual([{ detail: JSON.stringify({ on: true }) }])
+  expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action='drive.members_switch'").all()).toEqual([{ detail: JSON.stringify({ on: false }) }, { detail: JSON.stringify({ on: true }) }])
   expect(reg.available('drive_search')).toBe(true)
   expect(h.ctx.services.turnTools?.find((t) => t.name === 'drive_read')?.available?.({} as never) ?? true).toBe(true)
 
