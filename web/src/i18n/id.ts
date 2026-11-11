@@ -3389,6 +3389,7 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.next": "Lanjut",
   "onboarding.profile.back": "Kembali",
   "onboarding.profile.reviewTitle": "Ini yang kami pahami",
+  "onboarding.profile.reviewTitleTyped": "Periksa yang Anda isi",
   "onboarding.profile.reviewDesc": "Hapus atau perbaiki yang salah. Setelah disimpan, AI memakainya di setiap obrolan tim.",
   "onboarding.profile.f.website": "Situs web",
   "onboarding.profile.f.name": "Nama perusahaan",

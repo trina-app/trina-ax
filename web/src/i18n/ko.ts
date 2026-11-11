@@ -3388,6 +3388,7 @@ export const ko = {
   "onboarding.profile.next": "다음",
   "onboarding.profile.back": "뒤로",
   "onboarding.profile.reviewTitle": "이렇게 이해했어요",
+  "onboarding.profile.reviewTitleTyped": "입력한 내용을 확인해 주세요",
   "onboarding.profile.reviewDesc": "틀린 내용은 지우거나 고쳐 주세요. 저장하면 팀의 모든 대화에서 AI가 참고해요.",
   "onboarding.profile.f.website": "홈페이지",
   "onboarding.profile.f.name": "회사 이름",

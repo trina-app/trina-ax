@@ -3389,6 +3389,7 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.next": "Next",
   "onboarding.profile.back": "Back",
   "onboarding.profile.reviewTitle": "Here's what we found",
+  "onboarding.profile.reviewTitleTyped": "Check what you entered",
   "onboarding.profile.reviewDesc": "Remove or fix anything wrong. Once saved, the AI uses it in every team chat.",
   "onboarding.profile.f.website": "Website",
   "onboarding.profile.f.name": "Company name",

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 17:41
 - Branch: `fix/profile-review-title`
-- Status: in progress
+- Status: done
 - Where: `web/src/components/onboarding/ProfileStep.tsx`, `web/src/i18n/*`. Why: onboarding is core (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch, one title
@@ -33,3 +33,7 @@ web/test/unit/welcome.test.tsx`.
 
 ## Result
 
+Built as planned: the review phase carries `from: 'answers'` after the three questions, and its head shows
+`onboarding.profile.reviewTitleTyped`. A read draft or a saved profile keeps "이렇게 이해했어요". The new test in
+`profile-step.test.tsx` failed before the change. `profile-step` + `welcome`: 81 pass. Typecheck, check:i18n and
+check:docs pass.

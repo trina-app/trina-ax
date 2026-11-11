@@ -3345,6 +3345,7 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.next": "Siguiente",
   "onboarding.profile.back": "Atrás",
   "onboarding.profile.reviewTitle": "Esto es lo que entendimos",
+  "onboarding.profile.reviewTitleTyped": "Revise lo que escribió",
   "onboarding.profile.reviewDesc": "Quite o corrija lo que esté mal. Una vez guardado, la IA lo usa en todos los chats del equipo.",
   "onboarding.profile.f.website": "Sitio web",
   "onboarding.profile.f.name": "Nombre de la empresa",
