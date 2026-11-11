@@ -151,26 +151,16 @@ The server picks one list for the caller (`GET /api/questions/often-asked`):
 - **When:** once a day after 05:00 in the team's time zone (after the default update window), at the next chance if
   the server was off. At most one run at a time and one successful run per 20 hours. No AI call while the switch is
   off, or while no audience has 5 people who asked something.
-- **On whose AI:** the owner's (the oldest active owner), as the welcome steps' picks run on the person who asked:
-  their engine, their AI connection, their budget, their usage line; the engine's faster model when the team's model
-  list has one. **Only a connection of the team's own that works now:** never the hosting service's trial credit,
-  never "answer with the other AI". No such connection, the owner's budget used up, or the owner's queue full (3 places
-  per person): no run that day; the lists stay (up to 3 days).
-- **Limits:** one turn, 10 minutes then stopped (nobody waits for it); material at most 600 entries and about 60,000
-  characters (Korean is about 40–60k input tokens: a few cents a day on an API key, one turn a day on a subscription);
-  at most 30 items read from the answer.
-- **No tools, by a list.** The run's turn gets the same refusals as the file picks, named in one place: every file,
-  room, connector, browser, web, memory, skill, sub-agent and ask tool is refused, and it gets no team rules, skills,
-  memories, project or attachments, only its own instructions (`turn.ts` system prompt, `tools.ts` both tool paths).
-  A prompt-injected entry cannot make it read or write anything.
-- **Silent.** The run's turn has one flag, checked where the runtime publishes: **no event of any kind** (queue
-  position, created, streamed text, done, stopped, notices) reaches anyone, the owner included; its answer holds
-  sentences before the checks. `chatFor` (`chat/shared.ts`) refuses its chat by address for everyone, so every chat
-  route does. On failure the log gets the error kind only, never the engine's output.
-- **Gone after reading.** The run's chat is marked by a new table (`often_asked_runs`, in `internal-chats.ts` MARKS):
-  never listed; its material lives only while it runs; it is deleted with its engine folders once read, on failure,
-  and by a sweep after a restart (`forgetPurgedChats`, as `file-rank.ts`). The turn row stays for the owner's usage,
-  without text. Not run during the nightly backup.
+- **On whose AI (changed while building, 2026-11-11):** one call of the file list's reader
+  (`file-list/engine-reader.ts`, which reached dev while this was built), not a chat turn: the team's engine through
+  the launcher, its sandbox and the model proxy, **no tools** and one answer, on a small model (Claude Code's Haiku,
+  else Codex's nano or mini), on a **team-wide AI account only** (never a person's own or assigned one, never the
+  hosted trial credit), counted as a turn of the owner (`turns.chat_id = 'often-asked'`: Admin › Usage, budgets).
+  **No chat is made**, so no message is stored, no realtime event is sent and no route can open anything. This closes
+  the draft's chat-turn risks (events, routes, leftovers, the owner's own account) instead of guarding each one. The
+  reader takes its instructions and chat id as options (`ReadOptions`); a failed call logs its kind only.
+- **Limits:** one call, the reader's 5 minutes; material at most 600 entries and about 60,000 characters; at most 30
+  items read from the answer. No usable AI: no run that day; a try waits 3 hours; the lists stay (up to 3 days).
 
 ### 5. Home
 
@@ -232,15 +222,13 @@ screen reads them after this; a later cleanup).
    `{ scope: 'group', group, items }`; at most 10 items of at most 80 characters) and `API.oftenAsked`
    (`GET /api/questions/often-asked`, auth user, owner B); `TeamSettings.oftenAsked`.
 3. Migration `285_b_often_asked.sql` (B's range; #355 takes 284, check the highest on dev before merge), add-only:
-   `often_asked_runs` (chat_id → chats `ON DELETE CASCADE`, user_id, material, created_at), `often_asked_items`
+   `often_asked_items`
    (audience `team` or a group id `ON DELETE CASCADE`, position, text, passed_at), `group_member_since` (group_id,
    user_id, since; both `ON DELETE CASCADE`) with its insert trigger on `group_members`, and the settings row
    `oftenAsked.since`. No ids of people beside group membership, no counts.
 4. Server: `chat/often-asked.ts` (the material, the words and their generic lists, the checks, the lists, the read for
-   a caller) and `chat/often-asked-run.ts` (the turn, after `onboarding/file-rank.ts`, with its own-connection-only
-   route); `turn.ts`/`tools.ts` (the refusals), the silent flag where the runtime publishes, `internal-chats.ts` (the
-   mark), `chat/shared.ts chatFor` (the refusal), the daily timer, the route, the setting and its `since` reset
-   (`admin/settings.ts`).
+   a caller) and `chat/often-asked-run.ts` (the call on the file list's reader, the daily timer); `file-list/reader.ts`
+   and `engine-reader.ts` (`ReadOptions`), the route, the setting and its `since` reset (`routes/admin.ts`).
 5. Web: `components/OftenAsked.tsx`; Home (remove the two sections, one slot); `TeamPrepared` (the 5-chat end of the
    skill rows; its callback says whether it shows anything); Admin › Team settings switch; mock server; `skillPrompt`
    moves next to its one other user (`AvailableSkills`); delete `PopularSkills.tsx` and `FrequentQuestions.tsx`.
@@ -251,15 +239,14 @@ screen reads them after this; a later cleanup).
 ## Risks
 
 - **Migration:** one add-only file in B's range (285 if #355 merges with 284), with a trigger on a foundation table.
-- **Rollback:** an older build ignores the new tables. A run's chat that exists at that moment (minutes a day) would
-  show in the owner's chat list there, as a file-pick chat would.
+- **Rollback:** an older build ignores the new tables; there is no chat to leave behind.
 - **Privacy limits that remain**, written in DECISIONS:
   - People who agree to ask the same thing can still learn a little about the others; the floor of 5, the 3-day
     hold, join dates and the circle rule make it slow and vague, and an admin's group changes are in the activity log.
   - The checks cannot read meaning: a sentence made of words 3+ people share can still name a shared topic. Personal
     topics are left out by the instructions, not by a check.
-  - The material (short first lines, masked) goes to the owner's AI provider. A member who uses their own AI account
-    for chats has these lines sent through the owner's account too (an owner decision below).
+  - The material (short first lines, masked) goes to the team's AI provider through a team-wide account, as the file
+    list's text does.
 - **Product:** QA rows TEAM-04 and PAR-13 expect the skills card on Home: update them. The newcomer skill rows now end
   after 5 chats (W6.3 changes). The list appears only after enough use, and never in teams under 5 askers.
 - **Prompt injection:** an entry cannot reach a tool, and a sentence must be made of generic words and words 3+ people
@@ -291,9 +278,9 @@ Server unit (`tests/unit/b-often-asked*.test.ts`, the fake engine answering set 
   for it; several groups take turns.
 - The 3-day hold: an item that stops passing stays 3 days, then goes; a list no run renewed for 3 days is gone.
 - The switch off: the endpoint answers nothing, stored lists are gone, no run and no turn row; on: counting restarts.
-- The route: a run never starts on the trial credit or the other engine; no owner connection or budget: no run.
-- The run: every tool refused; zero events of any kind on the owner's connection; every chat route refuses its chat;
-  deleted with its material after success, failure and a restart (sweep); a failure log holds no entry text.
+- The run: what the call is given (the masked lines, never who wrote them, every tag broken), the answer read
+  defensively, no chat made, nothing asked while off, without AI or with too little data; the reader's account rules
+  (team-wide only, never a person's own or the trial) are tested in `c-file-list.test.ts`.
 - The response is strict: no counts or ids, no other person's name (the caller's own group name is the one name).
 - Route coverage for the new route; the `chats`, `frequent-questions`, `internal-chats`, `team-settings`,
   `file-rank`, `groups` and `slack` area files.
@@ -328,8 +315,8 @@ is shorter.
    chose 5). Small trial teams see nothing.
 3. Fall back to the team list for people without a group, or whose groups have none.
 4. No personal switch.
-5. The owner's AI runs it once a day, only on the team's own connection. A member who chats with their own AI account
-   has these short masked lines go through the owner's account too.
+5. The team's AI runs it once a day, as the owner's usage, on a team-wide account only (the file list's reader; never a
+   person's own account or the trial credit).
 6. Only questions sent after the update (and while the switch is on) count; the list appears after a week or two.
 7. The newcomer block's skill rows end after 5 chats (today: never, until a team skill is run), so the list can show.
 

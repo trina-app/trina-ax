@@ -434,6 +434,11 @@ export class MockServer {
   teamGoal: TeamGoal | null = null
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
   popular: { path: string; uses: number; users: number }[] = []
+  /** Home's "what my group often asks" (GET /api/questions/often-asked): none unless /__test/often-asked sets the
+   * team's list (`team`) or a group's (`groups`: group id → its sentences); like the server, a list under 3 items does
+   * not show, a group's only to its members, the team's when none of the caller's groups has one, nothing while the
+   * team setting is off */
+  oftenAsked: { team: string[]; groups: Record<string, string[]> } = { team: [], groups: {} }
   /** POST /__test/dev-env: the dev environment (experiment) is on until the next reset (Me.server.devEnv, Team settings
    * › Dev environment); srt: true is the srt runner (warning version 2, the queue of the chat's runs); otherwise its
    * endpoints answer 404, like a server without MYCEL_DEV_ENV */
@@ -501,6 +506,7 @@ export class MockServer {
     this.cloud = false
     this.teamGoal = null
     this.popular = []
+    this.oftenAsked = { team: [], groups: {} }
     this.devEnv = null
     this.htmlPdf = false
     this.htmlPdfCalls = []
@@ -1815,6 +1821,20 @@ export class MockServer {
       return this.fileList
     },
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
+    oftenAsked: (c) => {
+      if (!this.settings.oftenAsked) return { scope: 'none', items: [] }
+      const shown = (xs: string[] | undefined) => (xs && xs.length >= 3 ? xs.slice(0, 10) : [])
+      const mine = this.groups.filter((g) => c.user.groupIds.includes(g.id) || g.memberIds.includes(c.user.id)).sort((a, b) => a.name.localeCompare(b.name))
+      const lists = mine.map((g) => ({ g, items: shown(this.oftenAsked.groups[g.id]) })).filter((x) => x.items.length)
+      if (lists.length === 1) return { scope: 'group', group: lists[0]!.g.name, items: lists[0]!.items }
+      if (lists.length > 1) {
+        const out: string[] = []
+        for (let i = 0; out.length < 10 && lists.some((l) => i < l.items.length); i++) for (const l of lists) { const t = l.items[i]; if (t && !out.includes(t) && out.length < 10) out.push(t) }
+        return { scope: 'groups', items: out }
+      }
+      const team = shown(this.oftenAsked.team)
+      return team.length ? { scope: 'team', items: team } : { scope: 'none', items: [] }
+    },
     // like server/src/skills/popular.ts: only skills the caller can read now, with their title
     popularSkills: (c) => ({ items: this.popular.flatMap((p) => { const s = this.skillsFor(c.user).find((x) => x.path === p.path && !x.personal); return s ? [{ ...s, uses: p.uses, users: p.users }] : [] }), days: 30 }),
     listSkillIssues: () => ({ items: [] }),
@@ -4517,6 +4537,7 @@ export class MockServer {
     else if (p === '/__test/google-apps') this.googleApps.control(body)
     else if (p === '/__test/drive-client') this.driveClient = body.on === false ? 'none' : 'app'
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
+    else if (p === '/__test/often-asked') this.oftenAsked = { team: (body.team as string[] | undefined) ?? [], groups: (body.groups as Record<string, string[]> | undefined) ?? {} }
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null
     else if (p === '/__test/html-pdf' && req.method === 'GET') return Response.json(this.htmlPdfCalls)
@@ -5243,7 +5264,7 @@ const FAKE_MCP_TOOLS: IntegrationTool[] = [
 const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */

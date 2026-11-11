@@ -161,6 +161,24 @@ export const FrequentQuestions = z.object({
   days: z.literal(30), sampled: z.boolean(),
 })
 export type FrequentQuestions = z.infer<typeof FrequentQuestions>
+/** The longest sentence of "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"). */
+export const OFTEN_ASKED_TEXT_MAX = 80
+/** At most this many on Home (3 at first, More shows the rest). */
+export const OFTEN_ASKED_ITEMS_MAX = 10
+const OftenAskedItems = z.array(z.string().min(1).max(OFTEN_ASKED_TEXT_MAX)).max(OFTEN_ASKED_ITEMS_MAX)
+/**
+ * GET /api/questions/often-asked: one list for the caller, generic sentences only (never who asked, how many or
+ * when). `group`: the caller's one group with a list (its name); `groups`: several of their groups, taking turns;
+ * `team`: the whole team's list (no group of theirs has one); `none`: nothing to show (too little data, or the team
+ * turned it off).
+ */
+export const OftenAsked = z.discriminatedUnion('scope', [
+  z.object({ scope: z.literal('none'), items: z.array(z.string()).max(0) }).strict(),
+  z.object({ scope: z.literal('team'), items: OftenAskedItems }).strict(),
+  z.object({ scope: z.literal('groups'), items: OftenAskedItems }).strict(),
+  z.object({ scope: z.literal('group'), group: z.string().min(1).max(200), items: OftenAskedItems }).strict(),
+])
+export type OftenAsked = z.infer<typeof OftenAsked>
 
 // ---------------- messages ----------------
 /**
@@ -394,6 +412,7 @@ export type ProjectAccessPreview = z.infer<typeof ProjectAccessPreview>
 export const PutProjectParticipantsBody = z.object({ participants: z.array(ProjectParticipant).max(200), expectedHash: z.string().min(1).max(64) })
 
 export const CHATS = {
+  oftenAsked: endpoint({ method: 'GET', path: '/api/questions/often-asked', auth: 'user', owner: 'B', response: OftenAsked, summary: 'Home’s "what my group often asks": generic sentences that 3 or more people of the caller’s group (else the team) asked in a similar way, rewritten once a day; never who asked, how many or when. Empty while the team setting is off or there is too little data.' }),
   frequentQuestions: endpoint({ method: 'GET', path: '/api/questions/frequent', auth: 'user', owner: 'B', response: FrequentQuestions, summary: 'Own repeated questions from current branches in the last 30 days; bounded sample, never other people’s prompts.' }),
   listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount). Without q and trash, the first page starts with my pinned chats of that list (pinnedAt, the most recently pinned first) and the pages after it leave them out.' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on).' }),

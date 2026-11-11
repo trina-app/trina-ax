@@ -20877,3 +20877,79 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   tool calls each, found by a team-wide grep that hit the list lines.
 - Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
   to its own AI provider from the first night after the update (`changes/file-list.md` says so).
+
+## Home: what my group often asks — 우리 부서에서 자주 묻는 질문 (feat/group-often-asks, 2026-11-11, product owner)
+
+넣을 곳: trina-ax `server/src/chat/often-asked*.ts`, `server/src/file-list/` (the reader takes other instructions),
+`shared/src/api`, `web/src` (Home, TeamPrepared, Admin › Team settings), 이유: chat, the AI and Home are core. Plan:
+`docs/AGENTS/plan/20261111-0950-group-often-asks.md`. Amends "New-chat home shows frequently used skills (B-W7-7)" and
+W6.3's note on 「자주 쓰는 스킬」.
+
+The owner on the new chat screen (2026-11-11): the framed "Frequently used skills" card showed skill slugs, AI-facing
+descriptions and "3 uses · 2 people". "Just show simply what prompts the team types, and More shows more. Can an admin
+turn it off?" and "Especially what people in the same group type!" The owner then took every recommendation of the
+reviewed plan ("끝까지 ㄱ"), with the floor at 5.
+
+- **Home.** "Frequently used skills" and "My frequent questions" leave Home (one list; skills stay in the `+` menu and
+  on the Skills page, which still reads `GET /api/skills/popular`; `GET /api/questions/frequent` stays, unread, for a
+  later cleanup). Under the box, no frame: a small heading and 3 one-line questions; "Show more" opens up to 10 in
+  place, "Show less" closes them; a click fills the box and never sends. One block at a time in one place: "팀에 준비된
+  것" while it shows anything, else this list. W6.3 changes: its skill rows end once the person ran a team skill **or has
+  5 chats** (a member who never runs one would never see the list). Phones: 44px rows, the slot after the recent chats.
+- **Headings** (English first): "People in {group} often ask" (one group with a list), "People in your groups often ask"
+  (several, taking turns, the same sentence once), "Your team often asks" (no group of mine has one). Nothing at all
+  when there is nothing: no heading, no empty state.
+- **What counts.** Only what a person typed in the app (every turn of the message from the web, desktop or phone app)
+  in their own AI chat, on its active branch, in the last 30 days, **and only since the switch was turned on** (this
+  build's first start; turning it on again starts again). Never: project chats (own or shared; #355 makes their contents
+  members-only), room AI sessions, side chats (they quote other people's room messages), Slack threads, confidential
+  chats (and nothing while safe operations are on), scheduled runs and server-made requests (a skill merge), auto-sent
+  messages, skill runs ("/name …"), the app's own prompts (one list of templates in five languages, checked against
+  web/src/i18n), a sentence already on a list, deleted chats, disabled accounts. Only the first line that is not a quote,
+  at most 200 characters (longer: pasted text). Masked before the AI sees it: links, emails, digit runs, secrets, `@`
+  mentions, people's names (full, Latin parts, a surname or given name with a title: "김 과장", "田中さん"), project names,
+  group chat names. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
+  line, at most 40 a person and 600 in all (taken in turns), in random order with meaningless ids; never who wrote it.
+- **The AI.** Once a day (from 05:00 team time, 20 h after the last; 28 h after it at any hour; a try waits 3 h), one
+  call of the file list's reader (file-list/engine-reader.ts, `ReadOptions`): no tools, Haiku or Codex's nano/mini, a
+  **team-wide AI account only** (never a person's own or assigned one, never the hosted trial), a turn of the owner
+  (`turns.chat_id = 'often-asked'`: Admin › Usage, budgets). **No chat is made**: no message, no realtime event, nothing a
+  route can open. A failed call logs its kind only. It groups the lines and writes one sentence per group in the team's
+  language, reusing a sentence shown now when it still fits; the answer is read defensively (known ids, strings).
+- **The server's checks** decide everything else, per audience (the team, each group), and drop a sentence rather than
+  repair it: (1) one line, 4–80 characters, no digit, link, email, `@`, `#`, path, file name, bracket or masked name;
+  (2) every word is on a fixed list (function words, plain task words in five languages) or typed by **3 or more
+  people of the audience** (Korean and Japanese by two-letter pieces after a known ending, others whole or by their
+  start), so a name one or two people typed, a transliteration, a translation or a longer form never passes; (3) **3 or
+  more different people** of the audience back it: a line of theirs in the item holds a word of the sentence that is not
+  a function word (the AI's grouping is a candidate only); (4) the people behind it, and behind each word, are not all
+  inside **one circle that leaves someone of the audience out** (a group, a team project's people by rule, a group
+  chat of 3+): three people of Sales make no item for the whole team.
+- **Enough people.** A group or the team has a list only when **5 or more of its members asked something** in the
+  window (the review proposed 10; the owner chose 5); a list shows only with 3 or more items. A group counts a person's
+  questions only from the day they joined (`group_member_since`, kept by triggers on `group_members`; one edit of a
+  group, which deletes and adds everyone at once, keeps the dates; someone added back later starts again).
+- **Lists change slowly.** An item that stops passing stays 3 days, then goes; that is also the longest a deleted chat
+  or a person who left stays behind, and a list no run renewed for 3 days is gone. Order: how many people backed it,
+  then the text (never time). Stored: the sentence, its audience, its place and when it last passed; never a person, a
+  count or the material.
+- **Who sees which.** Read at request time: only a group's current members get its list; owners and admins get what
+  they would get as members; no admin view of the lists or the lines. Not on a project's new chat, the demo screen or
+  while no AI answers the person.
+- **The switch.** Admin › Team settings › Members and AI, "Show what the team often asks" (ko "팀이 자주 묻는 질문 보여
+  주기"), on by default. Off: every list deleted at once, the route answers nothing, no call, and what is sent while
+  off never counts. **No personal switch**: nothing anyone typed is shown, and a switch on every person's screen would
+  suggest it is.
+- **Known limits.** People who agree to ask the same thing can still learn a little about the others; the floor, the
+  hold, join dates and circles make it slow and vague, and group changes are in the activity log. The checks cannot read
+  meaning: a sentence of words 3+ people share can still name a shared topic, and personal topics are left out by the
+  instructions, not by a check. People who share something outside any group, project or group chat are not a circle.
+  Everyone sees the sentences in the team's language.
+- **Compared:** ChatGPT, Gemini and Claude.ai show the same starters to everyone; Notion AI and Slack a short
+  "suggested" list with a small heading, which the look follows. None mines co-workers' prompts (Microsoft 365 Copilot
+  shares a prompt only when someone shares it), hence the stricter rules.
+- Tests: `tests/unit/b-often-asked.test.ts` (what counts, the masks, every check, circles, the floor, join dates, the
+  hold, who gets which, the switch), `b-often-asked-run.test.ts` (what the call is given, the answer, no chat, the
+  route, the admin switch), `b-often-asked-words.test.ts` (the app's prompts against web/src/i18n, how words are read);
+  the route in the P4 matrix; web unit `home-no-ai`, `often-asked`, `team-prepared`; e2e `often-asked.spec.ts`.
+- Version impact: **minor** (a Home section, a team setting on by default, migration 285, two Home sections removed).
