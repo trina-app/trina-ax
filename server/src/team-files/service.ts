@@ -178,8 +178,12 @@ export class TeamFiles {
     const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
     out.sort((a, b) => (a.type === b.type ? coll.compare(a.name, b.name) : a.type === 'folder' ? -1 : 1))
     const start = decodeCursor(cursor)
-    // download-only is looked up for the returned page only (a big folder is listed whole, then paged)
-    const items = out.slice(start, start + limit).map((e) => (e.type === 'file' && this.downloadOnly(path.join(this.root, e.path)) ? { ...e, downloadOnly: true as const } : e))
+    // download-only and fixed are looked up for the returned page only (a big folder is listed whole, then paged)
+    const items = out.slice(start, start + limit).map((e) => {
+      if (e.type === 'file') return this.downloadOnly(path.join(this.root, e.path)) ? { ...e, downloadOnly: true as const } : e
+      const fixed = e.access === 'write' ? this.fixedFor(user, rules, e.path) : null
+      return fixed ? { ...e, fixed } : e
+    })
     return { path: r.rel, access: rules.access(user, r.segs), entries: items, nextCursor: start + limit < out.length ? encodeCursor(start + limit) : null }
   }
 
@@ -309,11 +313,28 @@ export class TeamFiles {
   /** root, users/, users/<id>/ and .system/ never move or go to the trash; nor does a folder holding a skill pack's
    * managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
   private assertMovable(segs: string[]) {
-    if (segs.length === 0 || (segs[0] === 'users' && segs.length <= 2) || segs[0] === PRODUCT.systemDir) fileError('forbidden', 'protectedFolder')
+    const why = this.unmovable(segs)
+    if (why === 'protected') fileError('forbidden', 'protectedFolder')
+    if (why === 'plugin') fileError('forbidden', 'pluginManaged', undefined, { reason: 'plugin_managed' })
+  }
+  private unmovable(segs: string[]): 'protected' | 'plugin' | null {
+    if (segs.length === 0 || (segs[0] === 'users' && segs.length <= 2) || segs[0] === PRODUCT.systemDir) return 'protected'
     // the top projects/ folder (any letter case): moved or renamed, every project folder would leave the members-only
     // zone and open to the owner and admins (docs/DECISIONS.md "Project contents only for members")
-    if (isProjectsTop(segs)) fileError('forbidden', 'protectedFolder')
-    if (this.fx.managed?.heldBelow(segs)) fileError('forbidden', 'pluginManaged', undefined, { reason: 'plugin_managed' })
+    if (isProjectsTop(segs)) return 'protected'
+    if (this.fx.managed?.heldBelow(segs)) return 'plugin'
+    return null
+  }
+  /**
+   * A folder the caller may write that the file screen's rename, move and trash would still refuse (QA TC-224), for the
+   * listing (`FileEntry.fixed`): 'always' when nobody may (assertMovable), 'admin' when only the owner or an admin may
+   * (assertMayChangeManaged: a group, project or rule folder, shared/, skills/, or one holding such a folder). The
+   * refusal itself says the same when pressed, so the mark tells a member nothing new; never 'admin' for an admin.
+   */
+  private fixedFor(user: Principal, rules: RuleSet, rel: string): 'admin' | 'always' | null {
+    if (this.unmovable(segsOf(rel))) return 'always'
+    if (user.role !== 'owner' && user.role !== 'admin' && this.managedInside(rules, rel)) return 'admin'
+    return null
   }
   /** A folder may move / go to the trash only if the caller can write every rule folder inside it: otherwise
    * moving it under users/<me>/ (where rules don't apply) or deleting it would reach what they cannot see. */

@@ -11,8 +11,11 @@ import { TEAM_FILE_DRAG_TYPE } from './teamAttach'
 // ---------------- selection ----------------
 /** a navigation-only folder (access none) has no menu, so nothing to select */
 export const selectable = (e: FileEntry) => e.access !== 'none'
-/** move / trash: like the row menu's rename, move and trash */
-export const canChange = (e: FileEntry) => e.access === 'write'
+/** move / trash: like the row menu's rename, move and trash (not a folder the server marks fixed: a group's or a
+ * project's folder for a member, a personal folder; QA TC-224) */
+export const canChange = (e: FileEntry) => e.access === 'write' && !e.fixed
+/** writable but fixed: selected, it is left out of move and trash for that reason, not as read-only */
+export const isFixed = (e: FileEntry) => e.access === 'write' && !!e.fixed
 /** share (copy): files only, as the row menu offers it */
 export const canShare = (e: FileEntry) => e.type === 'file' && e.access !== 'none'
 
