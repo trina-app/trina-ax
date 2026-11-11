@@ -106,6 +106,9 @@ const outbox = new Map<string, { chatId: string; clientMessageId: string; conten
  * cap the thread is simply reloaded from REST when the message appears.
  */
 const pending = new Map<string, Pending>()
+/** localId -> the send of a message still on its way (settles either way when it ends): Stop waits for it, because the
+ * server has no turn it could stop until the send returns one */
+const delivering = new Map<string, { chatId: string; done: Promise<void> }>()
 /**
  * chatId -> the reload of its messages that is running (one per chat at a time). Answer text, steps and new messages
  * that arrive meanwhile wait in `events` and are applied on top of the server's copy once it is in (overlap is cut by
@@ -408,6 +411,18 @@ export const useChats = create<ChatsState>((set, get) => {
     }
   }
 
+  /** deliver, and remember it as on its way until it ends (Stop waits for it) */
+  const deliverTracked = (localId: string) => {
+    const job = outbox.get(localId)
+    const sent = deliver(localId)
+    if (job) {
+      const done = sent.then(() => {}, () => {})
+      delivering.set(localId, { chatId: job.chatId, done })
+      void done.then(() => { if (delivering.get(localId)?.done === done) delivering.delete(localId) })
+    }
+    return sent
+  }
+
   return {
     ...initial(),
 
@@ -420,6 +435,7 @@ export const useChats = create<ChatsState>((set, get) => {
       outputMessages.clear()
       outbox.clear()
       pending.clear()
+      delivering.clear()
       loads.clear()
       changes.clear()
       for (const t of loadRetries.values()) clearTimeout(t)
@@ -492,7 +508,7 @@ export const useChats = create<ChatsState>((set, get) => {
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
       outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: last?.id, engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict })
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
-      const sent = deliver(localId)
+      const sent = deliverTracked(localId)
       sent.catch(() => {})
       return { chatId, sent }
     },
@@ -502,7 +518,7 @@ export const useChats = create<ChatsState>((set, get) => {
       if (!job) return
       job.firstTry = Date.now()
       setThread(chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'sending') }))
-      await deliver(localId).catch(() => {})
+      await deliverTracked(localId).catch(() => {})
     },
 
     discardLocal(chatId, localId) {
@@ -511,6 +527,15 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async stop(chatId) {
+      // Stop pressed while the message is still on its way: the server has no turn yet, so a stop now would find
+      // nothing and the answer would start anyway. Wait until the send returns its turn (or fails), then stop it.
+      // (a send started after this press is not waited for: the box holds new messages while an answer runs)
+      const session = generation
+      const sending = [...delivering.values()].filter((d) => d.chatId === chatId).map((d) => d.done)
+      if (sending.length) {
+        await Promise.all(sending)
+        if (session !== generation) return
+      }
       await api.call(API.stop, { params: { id: chatId } })
     },
 

@@ -11,7 +11,7 @@ import clsx from 'clsx'
 import { Check, ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
 import { audienceOf, authorizationUrl, canSignIn, flowReasonKey, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
@@ -42,8 +42,10 @@ export interface SignInState {
 
 const WAITING = new Set<SignInState['state']>(['starting', 'pending', 'exchanging'])
 
-/** Signing in at one connection's service at a time: start (with a window reserved during the click), poll, cancel. */
-export function useSignIn(onCompleted: (id: string) => void) {
+/** Signing in at one connection's service at a time: start (with a window reserved during the click), poll, cancel.
+ * `onGone`: the connection is not there any more (404: its template changed or went while the page was open); the
+ * row's failed state is not kept, the caller reads the list again. */
+export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void) {
   const t = useT()
   const locale = useLocale()
   const [s, setS] = useState<SignInState | null>(null)
@@ -51,6 +53,8 @@ export function useSignIn(onCompleted: (id: string) => void) {
   const generation = useRef(0)
   const done = useRef(onCompleted)
   done.current = onCompleted
+  const goneRef = useRef(onGone)
+  goneRef.current = onGone
   useEffect(() => () => {
     generation.current++
     popup.current?.close()
@@ -119,6 +123,11 @@ export function useSignIn(onCompleted: (id: string) => void) {
       if (g !== generation.current) return
       popup.current?.close()
       popup.current = null
+      if (isApiError(e, 'not_found') && goneRef.current) {
+        setS(null)
+        goneRef.current()
+        return
+      }
       setS({ id, flowId: null, url: null, state: 'failed', reason: errorText(e, locale, t('error.network')) })
     }
   }
@@ -141,6 +150,17 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
   const [checking, setChecking] = useState<string | null>(null)
   // one tool on or off for the AI (a second click while its request is on its way is ignored)
   const switching = useRef(new Set<string>())
+  /** a connection that is not there any more (404: an admin changed or deleted the template it was made from while
+   * this page was open): say so and read the lists again, instead of "not found" on a row that stays */
+  const goneNow = () => {
+    toast({ level: 'info', text: t('integrations.gone') })
+    reload()
+  }
+  const gone = (e: unknown) => {
+    if (!isApiError(e, 'not_found')) return false
+    goneNow()
+    return true
+  }
   const setTool = async (i: Integration, name: string, enabled: boolean) => {
     const key = `${i.id}\n${name}`
     if (switching.current.has(key)) return
@@ -148,6 +168,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     try {
       replace(await api.call(API.setIntegrationTool, { params: { id: i.id }, body: { name, enabled } }))
     } catch (e) {
+      if (gone(e)) return
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
       switching.current.delete(key)
@@ -161,6 +182,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
       // connected with a reason: the check failed, the tools saved before stay (the row says so)
       toast(r.status === 'connected' && !r.lastError ? { level: 'success', text: t('integrations.checked') } : { level: 'warn', text: t('integrations.checkFailed') })
     } catch (e) {
+      if (gone(e)) return
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
       setChecking(null)
@@ -174,13 +196,14 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
       toast({ level: 'success', text: t('integrations.deleted') })
       reload()
     } catch (e) {
+      if (gone(e)) return
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
   const signIn = useSignIn(() => {
     toast({ level: 'success', text: t('integrations.signIn.done') })
     reload()
-  })
+  }, goneNow)
   /** the dialog saved `i`: show it, then sign in at the service (in the window reserved during the click) or say how
    * the check went: connected, sign-in still to do, or saved but failing (the row says why) */
   const saved = (i: Integration, next: { window: Window | null } | null, created: boolean) => {

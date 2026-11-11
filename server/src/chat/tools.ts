@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
-import type { TurnTool, TurnToolContext } from '../services'
+import type { ToolCard, TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
@@ -103,6 +103,8 @@ export interface ChatToolSet extends TurnToolSet {
   readsFree(name: string, input: unknown): boolean
   /** in a team chat room's session: one of the asker's own Google apps' tools (the only connection tools a room gets) */
   roomConnection?(name: string): boolean
+  /** a per-person tool's own words for the room card (TurnTool.card), or null for the shared ones */
+  card?(name: string, input: unknown, locale: Locale): ToolCard | null
 }
 
 /** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
@@ -131,6 +133,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   const tools = new Map<string, Tool>()
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
+  const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
   const roomConnections = new Set<string>()
@@ -221,6 +224,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.room) roomConnections.add(t.name)
       if (!add(wrapRegistered(exec, t))) continue
       if (t.label) labels.set(t.name, t.label.bind(t))
+      if (t.card) cards.set(t.name, t.card.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
     }
     if (built.prompt) prompt.push(built.prompt)
@@ -236,6 +240,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     prompt,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
+    card(name, input, locale) { try { return cards.get(name)?.(input, locale) ?? null } catch { return null } },
     connection: (name) => connections.has(name),
     readsOnly: (name, input) => readsOnly(name, input),
     readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),

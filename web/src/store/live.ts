@@ -35,6 +35,9 @@ export const accessChanged = new Emitter<void>()
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
 export const notificationsChanged = new Emitter<void>()
+/** one of my connections went without me (an admin changed or deleted the template it was made from, or it is no longer
+ * for me): the Connectors page reads its lists again */
+export const integrationsChanged = new Emitter<void>()
 /** this window changed a scheduled task (resumed one from its card): the "paused for review" banner recounts */
 export const schedulesChanged = new Emitter<void>()
 /** a ChatGPT sign-in this person started (Admin / Settings > AI providers): its address, code and result */
@@ -130,6 +133,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'notice':
       if (ev.data.code === 'notifications.changed') {
         notificationsChanged.emit()
+        return
+      }
+      if (ev.data.code === 'integrations_changed') {
+        // quiet: the inbox notice says what to do (connect it again); an open Connectors page drops the old row
+        integrationsChanged.emit()
         return
       }
       if (ev.data.code === 'room_alerts_changed') {

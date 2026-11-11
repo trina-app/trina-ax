@@ -119,7 +119,12 @@ const checkModel = (model: string | null | undefined) => {
   if (model !== null && model !== undefined && !safeModel(model)) fail('validation', undefined, { fields: { 'body.model': 'not a model name' } })
 }
 const notAllowed = (locale: Locale): never => fail('forbidden', tr('engineChoiceNotAllowed', locale), { params: { reason: 'engine_choice_not_allowed' } })
-const engineOff = (locale: Locale): never => fail('conflict', tr('engineOff', locale), { params: { reason: 'engine_off' } })
+/** An engine that is off: the owner and admins are told where to turn it on when it is the switch in Admin that is off
+ * (not an engine this installation lacks, or the API engine without its settings), everyone else to pick another. */
+const engineOff = (ctx: Ctx, locale: Locale, p: Person, id: EngineId): never => {
+  const admin = (p.role === 'owner' || p.role === 'admin') && !enginesEnabled(ctx.db)[id]
+  return fail('conflict', tr(admin ? 'engineOffAdmin' : 'engineOff', locale), { params: { reason: 'engine_off' } })
+}
 
 export interface TurnEngine extends EngineModel {
   /** the chat's engine is off: this turn uses the team default instead (a step says so) */
@@ -145,7 +150,7 @@ export function turnEngine(ctx: Ctx, p: Person, chat: { engine: string; model: s
   }
   if (body.engine === undefined && body.model === undefined) return base
   const engine = body.engine ?? base.engine
-  if (!engineOn(ctx, engine)) engineOff(locale)
+  if (!engineOn(ctx, engine)) engineOff(ctx, locale, p, engine)
   const model = body.model !== undefined ? body.model ?? null : engine === base.engine ? base.model : null
   return { engine, model, ...(base.substitutedFrom && engine === base.engine ? { substitutedFrom: base.substitutedFrom } : {}) }
 }
@@ -159,7 +164,7 @@ export function newChatEngine(ctx: Ctx, p: Person, body: { engine?: EngineId; mo
     if (body.model !== undefined && (body.model ?? null) !== mine.model) notAllowed(locale)
     return mine
   }
-  if (body.engine !== undefined && !engineOn(ctx, body.engine)) engineOff(locale)
+  if (body.engine !== undefined && !engineOn(ctx, body.engine)) engineOff(ctx, locale, p, body.engine)
   const engine = body.engine ?? mine.engine
   const model = body.model !== undefined ? body.model ?? null : body.engine !== undefined && body.engine !== mine.engine ? null : mine.model
   return { engine, model }
@@ -174,7 +179,7 @@ export function checkChatEngineChange(ctx: Ctx, p: Person, chat: { engine: strin
     if (body.model !== undefined && (body.model ?? null) !== chat.model) notAllowed(locale)
     return
   }
-  if (body.engine !== undefined && body.engine !== chat.engine && !engineOn(ctx, body.engine)) engineOff(locale)
+  if (body.engine !== undefined && body.engine !== chat.engine && !engineOn(ctx, body.engine)) engineOff(ctx, locale, p, body.engine)
 }
 
 /** How long GET /api/engines waits for an engine's status check; a slower check goes on and is cached for next time. */

@@ -1,0 +1,4 @@
+- A team chat message that arrived while the room was still loading (for example a room opened from a notification) no longer disappears, and the room is no longer marked read up to a message you never saw.
+- A message you send after jumping to an older message from search now stays in the room when it goes back to the newest messages.
+- Edits, reactions and thread replies that come in while a room or thread is loading now show.
+- When someone joins or leaves a room, people who have it open keep their place instead of being sent back to the newest messages.

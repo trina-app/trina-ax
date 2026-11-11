@@ -239,20 +239,36 @@ function latentOf(src: EditSource, before: RuleSet, after: RuleSet, path: string
   const folders = [...Array.from({ length: segs.length + 1 }, (_, len) => segs.slice(0, len).join('/')), ...belowPaths]
   for (const rs of [before, after]) for (const f of folders) for (const r of rs.rulesAt(f)) if (r.subjectType === 'group' && r.subjectId) near.add(r.subjectId)
   const at = [segs, ...belowPaths.map(segsOf)]
-  const gains = (p: Principal) => at.some((s) => RANK[after.access(p, s)] > RANK[before.access(p, s)])
+  // the most a principal gains anywhere at those folders: 0 nothing, 1 view, 2 edit (after above before)
+  const gain = (p: Principal): number => {
+    let most = 0
+    for (const s of at) { const a = RANK[after.access(p, s)], b = RANK[before.access(p, s)]; if (a > b && a > most) most = a }
+    return most
+  }
   const member = (id: string, gs: string[]): Principal => ({ id: `\u0000${id}`, name: '', role: 'member', groups: gs })
-  // who: whoever joins the team, people switched off by name, whoever joins these groups
-  const team = gains(NOBODY)
-  const off = (src.uncounted ?? []).filter(gains)
-  const named = new Set([...groups].filter((g) => gains(member(`group:${g}`, [g]))))
+  // who: whoever joins the team, people switched off by name, whoever joins these groups; and whether each of the three
+  // gains edit somewhere (the panel says "open or edit" then, else "open": QA TC-232)
+  const teamGain = gain(NOBODY)
+  const team = teamGain > 0
+  const offGains = (src.uncounted ?? []).map((p) => [p, gain(p)] as const).filter(([, g]) => g > 0)
+  const off = offGains.map(([p]) => p)
+  const named = new Set<string>()
+  let groupsEdit = false
+  const groupGain = (p: Principal, gs: readonly string[]) => {
+    const g = gain(p)
+    if (g <= 0) return
+    for (const id of gs) named.add(id)
+    if (g === 2) groupsEdit = true
+  }
+  for (const g of groups) groupGain(member(`group:${g}`, [g]), [g])
   const list = [...near]
   // pairs while they stay few (30 groups: 435); and always everyone in all of them. Known limit: with more than 30
   // groups named on the way, pairs are not tried, and the one member in all of them can miss a pair that gains when
   // being in all of them already gave more before the change
   if (list.length <= 30) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-    if (gains(member(`pair:${list[i]}:${list[j]}`, [list[i]!, list[j]!]))) for (const g of [list[i]!, list[j]!]) named.add(g)
+    groupGain(member(`pair:${list[i]}:${list[j]}`, [list[i]!, list[j]!]), [list[i]!, list[j]!])
   }
-  if (list.length > 2 && !named.size && gains(member('all-groups', list))) for (const g of list) named.add(g)
+  if (list.length > 2 && !named.size) groupGain(member('all-groups', list), list)
   const more = team || off.length > 0 || named.size > 0
   return {
     latentMore: more,
@@ -260,6 +276,7 @@ function latentOf(src: EditSource, before: RuleSet, after: RuleSet, path: string
       team,
       off: [...off].sort(byPerson).slice(0, EDIT_PEOPLE).map((u) => ({ id: u.id, name: u.name })),
       groups: [...named].map((id) => ({ id, name: src.groupName(id) ?? id })).sort((a, b) => cmp(a.name, b.name)),
+      edit: { team: teamGain === 2, off: offGains.some(([, g]) => g === 2), groups: groupsEdit },
     } : null,
   }
 }

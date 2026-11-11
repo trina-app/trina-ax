@@ -519,3 +519,133 @@ describe('an event line (a rename, people invited, someone left)', () => {
     expect(d.timeline!.messages.map((m) => m.id)).toEqual([line.id])
   })
 })
+
+describe('a page read while messages come in', () => {
+  // a fake server that holds its answer to a page read until the test lets it go; a send answers at once
+  const realFetch = globalThis.fetch
+  let held: { path: string; release: (body: unknown) => void }[] = []
+  let sent: unknown = null
+  beforeEach(() => {
+    held = []
+    sent = null
+    useRooms.getState().reset()
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), 'http://team.localhost').pathname
+      const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+      if (init?.method === 'POST' && path.endsWith('/messages') && sent) return json(sent, 201)
+      if ((init?.method ?? 'GET') === 'GET' && (path.endsWith('/messages') || path.endsWith('/thread'))) return new Promise<Response>((res) => held.push({ path, release: (body) => res(json(body)) }))
+      return json({ error: { code: 'not_found', message: 'gone' } }, 404)
+    }) as typeof fetch
+  })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    useSession.setState({ status: { kind: 'loading' } })
+    useRooms.getState().reset()
+  })
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+  const seqs = () => useRooms.getState().timeline!.messages.map((m) => m.seq)
+
+  test('a message that arrives while the newest page loads (a room opened from a notification) is still there after', async () => {
+    const r = room({ lastSeq: 2 })
+    const m1 = message({ roomId: r.id, seq: 1 })
+    const m2 = message({ roomId: r.id, seq: 2 })
+    const live = message({ roomId: r.id, seq: 3, body: 'just now' })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: { ...tl(r.id), loading: true } })
+    const loading = useRooms.getState().loadNewest(r.id)
+    await tick()
+    expect(held).toHaveLength(1)
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: live } })
+    // the server read its page before the message came
+    held[0]!.release({ items: [m1, m2], nextCursor: null })
+    await loading
+    expect(seqs()).toEqual([1, 2, 3])
+    expect(useRooms.getState().timeline!.loading).toBe(false)
+  })
+
+  test('my message sent from a search result (a window around an older one) survives the jump back to the newest', async () => {
+    const r = room({ lastSeq: 80 })
+    const old = message({ roomId: r.id, seq: 5 })
+    const newest = message({ roomId: r.id, seq: 80 })
+    const mine = message({ roomId: r.id, seq: 81, author: ME, body: 'my answer' })
+    sent = mine
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: { ...tl(r.id, [old]), newerCursor: 'newer' } })
+    useRooms.getState().send(r.id, { body: 'my answer', mentions: [], files: [] })
+    await tick()
+    await tick()
+    // the server took it (no bubble left), while the newest page is still on its way and was read before it
+    expect(useRooms.getState().pending[r.id]).toBeUndefined()
+    expect(held).toHaveLength(1)
+    held[0]!.release({ items: [newest], nextCursor: 'older' })
+    await tick()
+    await tick()
+    const t = useRooms.getState().timeline!
+    expect(t.messages.map((m) => m.id)).toEqual([newest.id, mine.id])
+    expect(t.newerCursor ?? null).toBeNull()
+  })
+
+  test('an edit made while a page loads shows on that page', async () => {
+    const r = room({ lastSeq: 1 })
+    const m1 = message({ roomId: r.id, seq: 1, body: 'first' })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [m1]) })
+    const loading = useRooms.getState().loadNewest(r.id)
+    await tick()
+    useRooms.getState().handleEvent({ type: 'room.message.updated', seq: 1, at: Date.now(), data: { roomId: r.id, message: { ...m1, body: 'fixed', editedAt: at(1) } } })
+    held[0]!.release({ items: [m1], nextCursor: null })
+    await loading
+    expect(useRooms.getState().timeline!.messages[0]!.body).toBe('fixed')
+  })
+
+  test('a window around an older message: an edit meanwhile shows, a new message waits for the newer pages', async () => {
+    const r = room({ lastSeq: 80 })
+    const old = message({ roomId: r.id, seq: 5, body: 'old' })
+    const newest = message({ roomId: r.id, seq: 80 })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [newest]) })
+    const loading = useRooms.getState().loadAround(r.id, old.id)
+    await tick()
+    useRooms.getState().handleEvent({ type: 'room.message.updated', seq: 1, at: Date.now(), data: { roomId: r.id, message: { ...old, body: 'old, fixed', editedAt: at(1) } } })
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 2, at: Date.now(), data: { roomId: r.id, message: message({ roomId: r.id, seq: 81 }) } })
+    held[0]!.release({ items: [old], nextCursor: null, newerCursor: 'newer' })
+    await loading
+    const t = useRooms.getState().timeline!
+    expect(t.messages.map((m) => m.body)).toEqual(['old, fixed'])
+    expect(t.newerCursor).toBe('newer')
+  })
+
+  test('someone joining or leaving refreshes the newest page in place: older pages and live messages stay', async () => {
+    const r = room({ lastSeq: 3 })
+    const m1 = message({ roomId: r.id, seq: 1 })
+    const m2 = message({ roomId: r.id, seq: 2 })
+    const m3 = message({ roomId: r.id, seq: 3, reactions: [{ emoji: '👍', count: 1, mine: false, users: [CY] }] })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: { ...tl(r.id, [m1, m2, m3]), nextCursor: 'older' } })
+    useRooms.getState().handleEvent({ type: 'room.updated', seq: 1, at: Date.now(), data: { roomId: r.id, change: 'members', room: { ...r, memberCount: 2 } } })
+    await tick()
+    expect(useRooms.getState().timeline!.loading).toBe(false)
+    const live = message({ roomId: r.id, seq: 4 })
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 2, at: Date.now(), data: { roomId: r.id, message: live } })
+    // the newest page as the server has it now: one message (its reactions gone with the person who left)
+    const { reactions: _gone, ...m3now } = m3
+    held.find((h) => h.path.endsWith('/messages'))!.release({ items: [m2, m3now], nextCursor: 'mid' })
+    await tick()
+    await tick()
+    const t = useRooms.getState().timeline!
+    expect(t.messages.map((m) => m.seq)).toEqual([1, 2, 3, 4])
+    expect(t.messages[2]!.reactions).toBeUndefined()
+    expect(t.nextCursor).toBe('older')
+  })
+
+  test('a reply that arrives while its thread loads is still there after', async () => {
+    const r = room()
+    const root = message({ roomId: r.id, seq: 1 })
+    const reply = message({ roomId: r.id, seq: 2, threadRootId: root.id })
+    const live = message({ roomId: r.id, seq: 3, threadRootId: root.id })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [root]) })
+    useRooms.getState().openThread(r.id, root.id)
+    await tick()
+    useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: live } })
+    held.find((h) => h.path.endsWith('/thread'))!.release({ root, items: [reply], nextCursor: null })
+    await tick()
+    await tick()
+    expect(viewOf(useRooms.getState(), r.id, root.id)!.replies.map((m) => m.seq)).toEqual([2, 3])
+  })
+})

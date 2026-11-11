@@ -4,7 +4,9 @@
 // says to ask for a new one.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { DICTS } from '../../src/i18n'
 
 async function audit(page: Page, where: string) {
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
@@ -76,4 +78,27 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await expect(p3.getByTestId('invite-submit')).toHaveCount(0)
   await late.close()
   expect(realErrors(errors)).toEqual([])
+})
+
+test('a join link on a weak connection: Try again, also after a refresh, then the form', async ({ page, browser }) => {
+  await reset(page)
+  await signIn(page)
+  const made = await page.request.post('/api/admin/team-link', { headers: { [CSRF_HEADER]: '1' }, data: {} })
+  expect(made.ok()).toBe(true)
+  const { url } = ((await made.json()) as { link: { url: string } }).link
+  const other = await browser.newContext({ locale: 'ko-KR' })
+  const p2 = await other.newPage()
+  // the link's details do not arrive (no connection)
+  await p2.route('**/api/team-link/info', (r) => r.abort('internetdisconnected'))
+  await p2.goto(url)
+  await expect(p2.getByTestId('join-load-error')).toHaveText(DICTS.ko['error.network'])
+  await expect(p2.getByTestId('join-problem')).toHaveCount(0)
+  await expect(p2).toHaveURL(/\/join$/)
+  // a refresh: the address has no token any more, yet the page still has the link
+  await p2.reload()
+  await expect(p2.getByTestId('join-retry')).toBeVisible()
+  await p2.unroute('**/api/team-link/info')
+  await p2.getByTestId('join-retry').click()
+  await expect(p2.getByTestId('join-form')).toBeVisible()
+  await other.close()
 })
