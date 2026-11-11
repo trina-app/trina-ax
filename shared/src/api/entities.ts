@@ -727,6 +727,10 @@ export const TeamSettings = z.object({
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
+  /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
+   * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
+   * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */
+  oftenAsked: z.boolean(),
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),

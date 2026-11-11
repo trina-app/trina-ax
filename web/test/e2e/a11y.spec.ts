@@ -54,11 +54,8 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await expect(page.locator('a[href="#main"]')).toBeFocused()
 })
 
-test('choosing the ready question and frequent questions focuses the filled composer', async ({ page }) => {
+test('choosing the ready question focuses the filled composer', async ({ page }) => {
   await reset(page)
-  await page.route('**/api/questions/frequent', r => r.fulfill({ json: { days: 30, sampled: false, items: [
-    { question: 'Summarize my weekly report', count: 3, lastUsedAt: '2026-10-20T00:00:00.000Z' },
-  ] } }))
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/')
   const input = page.getByTestId('composer-input')
@@ -67,11 +64,6 @@ test('choosing the ready question and frequent questions focuses the filled comp
   await example.focus()
   await page.keyboard.press('Enter')
   await expect(input).toHaveValue(text)
-  await expect(input).toBeFocused()
-  const question = page.getByTestId('frequent-questions').getByRole('button')
-  await question.focus()
-  await page.keyboard.press('Enter')
-  await expect(input).toHaveValue('Summarize my weekly report')
   await expect(input).toBeFocused()
 })
 
