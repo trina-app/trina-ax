@@ -948,7 +948,7 @@ export default function Files() {
           onRestored={() => void load()}
         />
       )}
-      <FolderAccessPanel target={accessFor} project={accessFor ? (byFolder.get(accessFor.path.normalize('NFC')) ?? null) : null} onClose={() => setAccessFor(null)} />
+      <FolderAccessPanel target={accessFor} project={accessFor ? (byFolder.get(accessFor.path.normalize('NFC')) ?? null) : null} projectOf={(p) => byFolder.get(p.normalize('NFC')) ?? null} onClose={() => setAccessFor(null)} />
       {suggesting && <SuggestSkillDialog source={{ kind: 'file', path: suggesting }} initialName={baseName(suggesting).replace(/\.(md|txt)$/i, '')} onClose={() => setSuggesting(null)} />}
     </div>
   )

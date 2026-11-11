@@ -143,7 +143,8 @@ export const adminRoutes: RouteModule = {
       const { path: p, created } = resolveFolderPath(ctx, body.path, { create: body.create, locale })
       const existing = getFolderByPath(ctx.db, p)
       if (body.expectedHash !== undefined) sameRules(rulesHashAt(ctx.db, p), body.expectedHash, locale)
-      if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale))
+      // a row with rules made meanwhile (a screen that read the folder list before it): told apart from a bare conflict
+      if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale), { params: { reason: 'folder_exists' } })
       const before = captureState(ctx.db)
       const f = ctx.db.transaction(() => {
         const row = ensureFolderRow(ctx.db, p)

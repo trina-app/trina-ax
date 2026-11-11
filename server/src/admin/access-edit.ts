@@ -147,6 +147,10 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
   const now = whoAt({ ...ws, rules: before }, segs)
   const nextWho = whoAt({ ...ws, rules: after }, segs)
   const above = segs.length ? whoAt({ ...ws, rules: withRules(before, path, []) }, segs) : null
+  // "the same as the folder above", in one line: what a member whom no person or group rule names gets here with no
+  // rules of its own, and the folder whose rule decides it (null: no rule on the way up lets them in). Asked of the
+  // permission function itself, for a member who is nobody (no groups, an id no person can have).
+  const everyoneAbove = segs.length ? plainAbove(withRules(before, path, []), segs) : null
 
   // the rule folders below, the same before and after (only `path` changes)
   const below = belowOf(before, path)
@@ -213,6 +217,13 @@ export function editPreview(src: EditSource, path: string, next: readonly RuleLi
   return {
     current, hash: rulesHash(current),
     people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
-    now, next: nextWho, above, changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
+    now, next: nextWho, above, everyoneAbove, changes, below: belowRows, belowMore: hit.length - shown.length, less, more, warnings,
   }
+}
+
+/** A member no person or group rule can name: what the folders above give "everyone" (FolderEditPreview.everyoneAbove). */
+const NOBODY: Principal = { id: '\u0000everyone', name: '', role: 'member', groups: [] }
+function plainAbove(rules: RuleSet, segs: readonly string[]): NonNullable<FolderEditPreview['everyoneAbove']> {
+  const e = rules.explain(NOBODY, segs)
+  return { access: e.access, folder: e.reason.kind === 'rule' ? e.reason.folder : null }
 }

@@ -108,7 +108,7 @@ export const CreateFolderBody = z.object({
   path: RelPath,
   /** create the folder on disk if missing */
   create: z.boolean().default(true),
-  rules: z.array(FolderRuleInput).default([]),
+  rules: z.array(FolderRuleInput).max(200).default([]),
   /** the hash of the rules the editor started from (no row yet: the hash of no rules) */
   expectedHash: ExpectedHash.optional(),
 })
@@ -362,6 +362,10 @@ export const FolderEditPreview = z.object({
   next: z.array(AccessTreeWho),
   /** "follow the folder above": who would see it with no rules of its own (null at the team root, which has none above) */
   above: z.array(AccessTreeWho).nullable(),
+  /** the same in one line, for the Files page's "Who can open it" panel: what a member that no person or group rule
+   * names would get here with no rules of its own, and the folder whose rule decides it ('' = the team root; null: no
+   * rule on the way up lets them in). Null at the team root. Absent: an older server */
+  everyoneAbove: z.object({ access: Access, folder: RelPath.nullable() }).nullable().optional(),
   /** less first, then more */
   changes: z.array(FolderEditChange),
   /** the rule folders below that change too, in the tree's order (at most 20; `belowMore` others) */
