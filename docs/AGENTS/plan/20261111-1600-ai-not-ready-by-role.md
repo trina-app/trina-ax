@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:00
 - Branch: `fix/ai-not-ready-by-role`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`shared/src/api/errors.ts`, `credentials.ts`, `notifications.ts`; `server/src/routes/credentials.ts`,
   `server/src/notifications/service.ts`; `web/src/lib/chatErrors.ts`, `web/src/components/chat/Messages.tsx`, a new
   `web/src/components/chat/NotReadyButton.tsx`; `web/src/components/settings/Notifications.tsx`; i18n; tests)
