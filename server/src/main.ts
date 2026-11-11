@@ -8,7 +8,7 @@ import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import { ConfigError, loadAppConfig, OBSOLETE_KEYS, type AppConfig } from './app-config'
 import { buildApp } from './app'
 import { directFetch } from './http/tunnel'
-import { createContext, socketPathProblems, type AppContext } from './context'
+import { createContext, SERVER_VERSION, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
@@ -26,6 +26,7 @@ import { dropHostedChatKey } from './credentials/hosted-chat'
 import { settleHostedFallback } from './admin/engine-choice'
 import { repointDeckLinks } from './auth/team-links'
 import { retireLegacyDefaultSkills } from './onboarding/retired-skills'
+import { MIGRATE_DB_ENV, migrateBeforeStart, runMigrateChild } from './system/migrate-start'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -165,7 +166,11 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   void removeKnowledgeGraphData(cfg.dataDir, log)
   // a config file written for an older version: what this one ignores, said once
   for (const k of cfg.obsoleteKeys ?? []) log.warn(`config file: "${k}" is obsolete and ignored (${OBSOLETE_KEYS[k]})`, { file: cfg.configFile })
-  const db = openDb(path.join(cfg.dataDir, 'app.db'), { log }) // log: a warning per migration renamed after this DB ran it
+  const dbFile = path.join(cfg.dataDir, 'app.db')
+  // a database with data and pending migrations (after an update): copy + migrations can take minutes on a large one,
+  // so they run in a child process while /api/health answers "migrating" (system/migrate-start.ts, QA TC-278)
+  await migrateBeforeStart({ cfg, file: dbFile, version: SERVER_VERSION, log, entry: import.meta.path, peerIp })
+  const db = openDb(dbFile, { log }) // log: a warning per migration renamed after this DB ran it
   syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
   // which backup was put back, when and by whom: in the activity log and Admin › System (QA TC-208)
   try { recordRestore(db, restored) } catch (e) { log.error('could not log the restore', { err: e }) }
@@ -269,6 +274,9 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
     },
   }
 }
+
+// the child migrateBeforeStart starts: migrate the database and exit (no config, no listener)
+if (import.meta.main && process.env[MIGRATE_DB_ENV]) process.exit(runMigrateChild(process.env[MIGRATE_DB_ENV]!))
 
 if (import.meta.main) {
   let cfg: AppConfig

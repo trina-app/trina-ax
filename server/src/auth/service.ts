@@ -28,6 +28,7 @@ import { windowsAppSourceOf } from '../system/windows-app'
 import { teamAddressOf } from '../system/connection'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { devEnvFlag } from '../devenv/setting'
+import { firstSignIn } from '../onboarding/member-welcome'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
@@ -224,6 +225,8 @@ export class AuthService implements SessionService {
     const info = c.get('info')
     if (info.ip && !(!info.tunnel && isLoopback(info.ip))) this.limiter.rememberNet(userId, limitIp(info.ip))
     const s = this.createSession(userId, client, c.req.header('user-agent') ?? null, o)
+    // someone an admin added directly joins with their first sign-in: the everyone room's line and the owners' notice
+    firstSignIn(this.ctx, userId)
     // the cookie keeps the normal lifetime either way: the server decides when a temporary sign-in ends, and a changed
     // password turns it into a normal session without a new cookie
     if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000)), { append: true })

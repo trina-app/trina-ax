@@ -412,13 +412,24 @@ export class PluginManager {
         changes.push({ path: r.rel, action: 'delete', by, turnId: null })
       } catch { /* already gone */ }
     }
-    for (const r of this.ctx.db.query('SELECT rel FROM plugin_managed_roots WHERE plugin_id = ?').all(id) as { rel: string }[]) this.pruneEmpty(path.join(root, ...r.rel.split('/')))
+    // never through a link at skills/ or above: pruning would remove empty folders wherever it points
+    for (const r of this.ctx.db.query('SELECT rel FROM plugin_managed_roots WHERE plugin_id = ?').all(id) as { rel: string }[]) if (this.folderLinkFree(r.rel)) this.pruneEmpty(path.join(root, ...r.rel.split('/')))
     this.ctx.db.transaction(() => {
       this.ctx.db.query('DELETE FROM plugin_managed_files WHERE plugin_id = ?').run(id)
       if (!keepRoot) this.ctx.db.query('DELETE FROM plugin_managed_roots WHERE plugin_id = ?').run(id)
     })()
     this.roots = null
     if (changes.length) publishChanges(this.ctx, changes)
+  }
+  /** Each existing part of a folder path below the team folder, the folder itself included, is a real folder (no link). */
+  private folderLinkFree(rel: string): boolean {
+    const segs = rel.split('/')
+    for (let i = 1; i <= segs.length; i++) {
+      const st = this.lstatIn(segs.slice(0, i).join('/'))
+      if (!st) return true
+      if (st.isSymbolicLink() || !st.isDirectory()) return false
+    }
+    return true
   }
   /** Remove empty folders below and including `dir` (files someone placed there by other means stay). */
   private pruneEmpty(dir: string): boolean {
@@ -465,6 +476,14 @@ export class PluginManager {
 
   // ------------------------------------------------------------------ views
 
+  /** The build a rollback returns to is not withdrawn and still trusted here (the cheap half of rollback()'s checks:
+   * no hashing; a damaged store is still found by the rollback itself). */
+  private previousTrusted(x: Installed): boolean {
+    const prev = x.install.previous_version ? this.pkg(x.pkg.plugin_id, x.install.previous_version) : null
+    const pm = prev ? this.manifestOf(prev) : null
+    return !!prev && !!pm && !this.isRevoked(prev.plugin_id, prev.manifest_sha256) && this.trusted(prev, pm)
+  }
+
   private installedView(x: Installed, locale: string): InstalledPlugin {
     const m = x.manifest, s = pluginStrings(m.i18n, locale), access = this.access(m.id), approved = this.approved(x)
     const why = this.unsupported(x)
@@ -476,7 +495,7 @@ export class PluginManager {
       permissions: [...m.permissions.required.map((id) => ({ id, required: true, granted: approved.has(id) })), ...m.permissions.optional.map((id) => ({ id, required: false, granted: approved.has(id) }))],
       platforms: m.platforms ?? null, license: m.license,
       components: m.components.map((c) => ({ name: c.name, version: c.version ?? null, license: c.license })),
-      source: x.pkg.source, previousVersion: x.install.previous_version, skills: this.skillsOf(m.id),
+      source: x.pkg.source, previousVersion: x.install.previous_version, previousTrusted: this.previousTrusted(x), skills: this.skillsOf(m.id),
       installedBy: x.pkg.installed_by ? this.person(x.pkg.installed_by) : null, installedAt: x.pkg.installed_at, updatedAt: x.install.updated_at,
     }
   }

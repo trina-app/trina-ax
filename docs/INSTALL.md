@@ -357,7 +357,8 @@ What it creates:
 Running the installer again with the **same** bundle repairs the install. With a **newer** bundle it switches
 `app/current` to it, like an in-app update: the running version stays in `app/versions` as the roll-back version
 (Admin → System → Update → Roll back), and if the new version does not answer within 120 s or crashes 3 times the
-bootstrap goes back to the old one by itself; the installer then exits 1 and says so. An **older** bundle is only
+bootstrap goes back to the old one by itself (a version that is still updating a large database answers "migrating"
+and gets up to 60 minutes, `--migrate-timeout`); the installer then exits 1 and says so. An **older** bundle is only
 staged (warning); the running version stays, and the staged one is kept for a day (switch to it within that day:
 `admin.js switch <version> --restart`). The server keeps only what roll-back uses: ten minutes after it starts and then
 hourly it removes the version folders other than the current one, the previous one (`state.json`), the newest staged

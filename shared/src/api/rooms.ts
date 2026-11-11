@@ -347,7 +347,7 @@ export const RoomEventLine = z.discriminatedUnion('type', [
   z.object({ type: z.literal('added'), users: z.array(UserRef) }),
   z.object({ type: z.literal('left') }),
   z.object({ type: z.literal('removed'), user: UserRef.nullable() }),
-  /** the author joined the team (an invite or the team link): the everyone room's line, nobody notified */
+  /** the author joined the team (an invite, the team link or an admin's "Add directly"): the everyone room's line, nobody notified */
   z.object({ type: z.literal('joined') }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),

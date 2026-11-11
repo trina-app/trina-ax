@@ -72,6 +72,8 @@ export function joinNext(next: string | null | undefined): string {
 let afterJoin: string | null = null
 export const setAfterJoin = (next: string) => { afterJoin = next }
 export const afterJoinTarget = (): string => afterJoin ?? '/'
+/** The join page set where to go: someone just joined (not a team link opened while already signed in). */
+export const afterJoinSet = (): boolean => afterJoin !== null
 export const clearAfterJoin = () => { afterJoin = null }
 
 /**

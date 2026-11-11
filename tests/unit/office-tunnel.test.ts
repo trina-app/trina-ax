@@ -132,6 +132,8 @@ describe('the app through the tunnel path', () => {
     const st = await (await send('/api/setup', { ip: '203.0.113.5' })).text()
     expect(st).not.toContain(SETUP_TOKEN)
     expect(JSON.parse(st).needed).toBe(false)
+    // not even with the setup token: setup is refused there anyway
+    expect((await (await send('/api/setup', { ip: '203.0.113.5', headers: { 'x-mycel-setup-token': SETUP_TOKEN } })).json() as { needed: boolean }).needed).toBe(false)
     expect((await (await send('/api/setup', { host: 'localhost:47830' })).json() as { needed: boolean }).needed).toBe(true)
     expect((await (await send('/api/setup', { port: 8443, peer: '192.168.1.50', host: '192.168.1.18:8443' })).json() as { needed: boolean }).needed).toBe(true)
     const local = await send('/api/setup', { method: 'POST', host: 'localhost:47830', origin: 'http://localhost:47830', body })

@@ -1,11 +1,12 @@
 // Who is signed in (GET /api/me), first-run setup state, and the person's language / theme / text size.
 import { create } from 'zustand'
-import type { Locale, Me, TextSize, Theme, UserPrefs } from '@mycel/shared/api'
+import { SETUP_TOKEN_HEADER, type Locale, type Me, type TextSize, type Theme, type UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
-import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeSettled, unsavedTextSize } from '../lib/textSize'
+import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
 import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
@@ -98,7 +99,16 @@ export const useSession = create<SessionState>((set, get) => ({
         // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
         useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
         try {
-          const s = await api.call(API.setupStatus)
+          // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
+          // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
+          // setupStatusFor)
+          const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
+          rememberSetupToken(linked)
+          const token = linked ?? keptSetupToken()
+          const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
+          // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
+          // per-address token limit that everyone behind this address shares
+          if (!s.needed) forgetSetupToken()
           lastTeamDefault = s.defaultLocale ?? null
           // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
           useLocaleStore.getState().setLocale(pickLocale(storedLocale(), s.defaultLocale))
@@ -248,8 +258,12 @@ export const useSession = create<SessionState>((set, get) => ({
     pickTextSize(textSize)
     try {
       await get().updatePrefs({ textSize })
-    } finally {
       textSizeSettled(textSize)
+    } catch (e) {
+      // back to the account's size (the caller says why); a later pick still being saved is left alone
+      const st = get().status
+      textSizeFailed(textSize, st.kind === 'signed-in' ? st.me.user.prefs.textSize : undefined)
+      throw e
     }
   },
 }))

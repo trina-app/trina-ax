@@ -575,7 +575,13 @@ export class OpsService {
     else if (!this.updates.installed) add('update', 'update', t(M.update), 'ok', t(M.updateDev))
     else {
       const h = this.updates.history().at(-1)
-      if (h && h.result !== 'ok' && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000) add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
+      const recent = !!h && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000
+      // the bootstrap records its stop as a roll-back "stopped: …" (native/cmd/mycel-bootstrap block()); this server
+      // runs, so it was started again since: say what happened in plain words, not the bootstrap's instructions
+      if (h && recent && h.result === 'rolled_back' && h.detail?.startsWith('stopped: ')) add('update', 'update', t(M.update), 'ok', t(M.updateStopped(h.to, this.ctx.version)))
+      else if (h && recent && h.result !== 'ok') add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
+      // went forward again after a failed start (detail "started again after …"): the version plus that it recovered
+      else if (h && recent && h.result === 'ok' && h.detail?.startsWith('started again')) add('update', 'update', t(M.update), 'ok', `${t(M.updateOk(this.ctx.version))}. ${t(h.detail === 'started again after it was stopped' ? M.updateRestarted : M.updateRecovered)}`)
       else add('update', 'update', t(M.update), 'ok', t(M.updateOk(this.ctx.version)))
       const us = this.updates.status()
       // a Linux self-install: whether it updates by itself, and whether it takes unsigned versions (root/install.json

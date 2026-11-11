@@ -4667,6 +4667,7 @@ export class MockServer {
     }
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/google-apps') this.googleApps.control(body)
+    else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
     else if (p === '/__test/drive-client') this.driveClient = body.on === false ? 'none' : 'app'
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/often-asked') this.oftenAsked = { team: (body.team as string[] | undefined) ?? [], groups: (body.groups as Record<string, string[]> | undefined) ?? {} }

@@ -304,6 +304,8 @@ export default function Files() {
   // there, 409 projects_root): no new folder or upload
   const projectsTop = isProjectsTop(path)
   const canAdd = canWrite && !projectsTop
+  // Personal (users/), where a member sees only their own folder
+  const personal = tree?.path === 'users'
   const errText = (e: unknown) => errorText(e, locale, t('error.network'))
   const fail = (e: unknown) => toast({ level: 'error', text: errText(e) })
 
@@ -873,10 +875,18 @@ export default function Files() {
               {/* who else sees this folder: a count where a member can write, their own folder, a project's folder;
                   everything for admins (nothing at the top folders and the root) */}
               {tree && <FolderAccessChip key={tree.path} path={tree.path} access={tree.access} project={byFolder.get(tree.path.normalize('NFC')) ?? null} onOpen={() => setAccessFor({ path: tree.path, access: tree.access })} />}
-              {tree && tree.access !== 'write' && (
+              {/* Personal (users/): what a member can do there is open their own folder inside, so it is not called
+                  read-only (docs/DECISIONS.md "A welcome for invited people") */}
+              {tree && tree.access !== 'write' && (personal ? (
+                <Badge className="ml-2" data-testid="files-personal-badge">{t('files.personalInside')}</Badge>
+              ) : (
                 <Badge tone="warn" className={clsx('ml-2', !path && 'max-md:ml-0')}>
                   <Lock size={11} aria-hidden /> {t(tree.access === 'read' ? 'files.readOnlyFolder' : 'files.navigationOnly')}
                 </Badge>
+              ))}
+              {/* why New folder and Upload are off here (computers: phones hide them) */}
+              {tree && !canWrite && (
+                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? 'files.addInMyFolder' : 'files.addHere')}</span>
               )}
             </nav>
           )}
@@ -1200,7 +1210,8 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           )}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
-          {e.access === 'read' && (
+          {/* not on Personal: the person's own folder inside is theirs to change */}
+          {e.access === 'read' && e.path !== 'users' && (
             <Tooltip label={t('files.readOnlyTip')} description>
               <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />
             </Tooltip>

@@ -20,7 +20,7 @@ import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, plainLabel } from '@mycel/shared/api'
+import { AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -166,7 +166,7 @@ export class Notifications {
     }
     for (const u of touched) this.signal(u)
   }
-  /** Someone joined through the team invite link (auth/team-links.ts): told to the owners and the link's maker. The
+  /** Someone joined (a team link, an invite or an admin's "Add directly"): told to the owners and the inviter. The
    * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
@@ -271,7 +271,9 @@ export class Notifications {
    * covers a new template, a change of who it is for, a person added to one of its groups and someone who joins while
    * it is for everyone: whatever made it reach them, this finds it. Its maker is not told about their own template. The
    * source is the template's id only, and integration_template_offers keeps a second notice from coming once the first
-   * is past its 30 days. Shown always: the person has something to do before their AI can use the service. */
+   * is past its 30 days. Shown always: the person has something to do before their AI can use the service. Not, for
+   * a template already there when they joined, someone who joined in the last days and has not opened Connected apps
+   * yet (member_welcome, migration 286). */
   offerTemplates(opts: { templateId?: string; userId?: string; limit?: number } = {}, at = new Date().toISOString()): number {
     // One set-based query (security review 2, #1): templates × active people, the same test as templateCovers in SQL,
     // so the cost is a single indexed scan instead of 1–3 queries per template and person. Only the pairs still owed a
@@ -283,11 +285,16 @@ export class Notifications {
     const args: (string | number)[] = []
     if (opts.templateId) { where.push('t.id = ?'); args.push(opts.templateId) }
     if (opts.userId) { where.push('u.id = ?'); args.push(opts.userId) }
+    // someone who joined lately is not told at join about the templates already there (docs/DECISIONS.md "A welcome for
+    // invited people"): those wait until they open Connected apps (onboarding/member-welcome.ts templatesSeen) or their
+    // welcome days are over. A template made after they joined is news, and is told as before
+    args.push(new Date(Date.now() - MEMBER_WELCOME_DAYS * 86_400_000).toISOString())
     args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
     const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
       FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
       WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
         NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM member_welcome w WHERE w.user_id = u.id AND w.apps_seen_at IS NULL AND w.joined_at >= ? AND t.created_at <= w.joined_at)
         AND NOT EXISTS (SELECT 1 FROM integrations i WHERE i.template_id = t.id AND i.owner_user_id = u.id)
         AND EXISTS (SELECT 1 FROM integration_template_access a WHERE a.template_id = t.id AND (a.subject_type = 'everyone'
           OR (a.subject_type = 'user' AND a.subject_id = u.id)

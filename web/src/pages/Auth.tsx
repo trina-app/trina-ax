@@ -13,7 +13,7 @@ import { useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
-import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
 import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin, tabJoinToken } from '../lib/team-link'
@@ -251,7 +251,9 @@ export function Setup() {
   const navigate = useNavigate()
   // the link from the account console (#token=…&team=…&lang=…&site=…) or the installer (?token=…), read once
   const [link] = useState(() => readSetupLink(window.location))
-  const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
+  // after a reload the token is no longer in the address: the one this tab's link carried (lib/setupLink.ts)
+  const [linkToken] = useState(() => link.token ?? keptSetupToken())
+  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const passwordHintId = useId()
   const { busy, error, run, setError } = useSubmit()
@@ -266,7 +268,7 @@ export function Setup() {
   }, []) // once, on arrival
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
-    setupToken: link.token ? null : requiredCheck(form.setupToken),
+    setupToken: linkToken ? null : requiredCheck(form.setupToken),
     teamName: requiredCheck(form.teamName),
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
@@ -282,6 +284,7 @@ export function Setup() {
       const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       // the company website from the link: the company profile step starts from it (components/onboarding)
       rememberSetupSite(link.site)
+      forgetSetupToken()
       // then the welcome steps (pages/Welcome.tsx): set before the session switch re-renders /setup (App.tsx AfterSetup)
       setAfterSetup('/welcome')
       signedIn(r.me)
@@ -294,7 +297,7 @@ export function Setup() {
     <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
       <form onSubmit={submit} noValidate className="space-y-6">
         <FormSection title={t('setup.section.team')} testId="setup-section-team">
-          {!link.token && (
+          {!linkToken && (
             <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
               <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
             </Field>
@@ -523,6 +526,11 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
   )
 }
 
+/** Both join pages' title: "{inviter} invited you to {team}" when the link's or invite's maker is known (docs/DECISIONS.md
+ * "A welcome for invited people"), else "Join {team}". */
+export const joinTitle = (t: ReturnType<typeof useT>, team: string, inviter: string | null | undefined) =>
+  inviter ? t('invite.invitedBy', { inviter, team }) : t('invite.joinTeam', { team })
+
 /** Under both join forms: someone who already has an account here signs in instead of making a second one. */
 function HaveAccount() {
   const t = useT()
@@ -614,7 +622,7 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       <JoinChoices path={`/invite/${token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>
@@ -702,7 +710,7 @@ export function TeamJoin() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <JoinChoices path={`/join#t=${link.token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>
