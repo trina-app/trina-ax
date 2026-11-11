@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:47
 - Branch: `fix/older-messages-keep-place`
-- Status: in progress
+- Status: done
 - Where: `web/src/lib/stickToBottom.ts`, `web/src/pages/Chat.tsx`, `web/src/pages/Room.tsx`,
   `web/src/components/rooms/ThreadPanel.tsx`. Why: the message lists are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: the list no longer jumps when older messages load
@@ -48,4 +48,10 @@ chat with more than 50 messages).
 
 ## Result
 
-(filled in at the end)
+Built as planned: `holdPlace` in `lib/stickToBottom.ts`, used by Chat.tsx, Room.tsx and ThreadPanel.tsx (`ROOM_ROW`,
+`CHAT_ROW` there too). The thread uses the same code and rows as the room; it was not driven separately in a browser.
+
+Checked on a local dev server with a room of 180 messages and an AI chat of 56, wheeling up 250 px at a time (1280 x
+800). Before (origin/dev, Chromium): the first message in sight went [133] → [174] and [033] → [061] when a page
+loaded, and in the chat question 5 → 7 (scrollTop 311 → 1877). After, Chromium and WebKit alike: [133] → [130],
+[084] → [082], [033] → [030], chat 5 → 4 (the 250 px wheel step only).
