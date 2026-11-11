@@ -166,7 +166,9 @@ describe('a room with someone outside the audience', () => {
     // ("PS @fake …" is not a directive of bob's own turn: those start a line)
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, target))).toBe(false)
     const card = await ws.alice!.next('turn.request', (f) => f.data.request.kind === 'ask_user', 30_000)
-    expect(card.data.request.kind === 'ask_user' && card.data.request.question).toContain(target)
+    // the card names the place in words since "Plain words in chat errors, confirmation cards and step lines"
+    // (chat/place-words.ts: "Company-wide › sec-room-planted.md"), not the raw path
+    expect(card.data.request.kind === 'ask_user' && card.data.request.question).toContain('sec-room-planted.md')
     expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === card.data.turnId)).toBe(false)
     // nobody answers: the card times out, nothing is written
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(f.data.run.state), 60_000)
