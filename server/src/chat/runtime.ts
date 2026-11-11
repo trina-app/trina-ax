@@ -615,9 +615,10 @@ export class ChatRuntime {
     this.launchGated()
   }
   private launchGated() {
-    const now = performance.now()
+    let now = performance.now()
     while (this.startGate.length) {
-      // a monotonic clock: a wall clock set back must not hold a launch
+      // a monotonic clock (a wall clock set back must not hold a launch), read per launch: a launch's own work counts
+      now = performance.now()
       while (this.recentLaunches.length && now - this.recentLaunches[0]! >= this.startSpreadMs) this.recentLaunches.shift()
       if (this.startSpreadMs > 0 && this.startBurst > 0 && this.recentLaunches.length >= this.startBurst) break
       const exec = this.startGate.shift()!
