@@ -144,16 +144,19 @@ export function Notifications() {
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)
   /** changes made while one is saving: sent together right after it (nothing waits for the server on screen) */
   const queued = useRef<Partial<NotificationPreferences> | null>(null)
+  /** what the server has, as its last answer said (a read, or a save's answer): what a failed save goes back to */
+  const saved = useRef<NotificationPreferences | null>(null)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
-  const load = useCallback(async () => {
+  /** `keepError`: the read after a failed save, which leaves that save's message up */
+  const load = useCallback(async (keepError = false) => {
     const generation = life.current, seq = ++sequence.current
     try {
       const prefs = await api.call(API.getNotificationPreferences)
       if (generation !== life.current || seq !== sequence.current) return
       // while my changes are being saved, the switches show them, not a read from before the last one landed
-      if (!writing.current) setPreferences(prefs)
-      setError(null)
-    } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
+      if (!writing.current) { saved.current = prefs; setPreferences(prefs) }
+      if (!keepError) setError(null)
+    } catch (e) { if (!keepError && generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     // useT returns a fresh function; its translations change only with locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale])
@@ -168,15 +171,19 @@ export function Notifications() {
     setPreferences(current => current ? { ...current, ...patch } : current)
     sequence.current++
     if (writing.current) { queued.current = { ...queued.current, ...patch }; return }
-    const before = preferences
     writing.current = true
     try {
       for (let body: Partial<NotificationPreferences> | null = patch; body; body = queued.current, queued.current = null) {
-        await api.call(API.updateNotificationPreferences, { body })
+        saved.current = await api.call(API.updateNotificationPreferences, { body })
       }
     } catch (e) {
       queued.current = null; writing.current = false
-      if (generation === life.current) { setPreferences(before); setError(errorText(e, locale, t('error.network'))) }
+      if (generation !== life.current) return
+      // back to what the server has, not to the switches as they were when this save began: a change saved before it
+      // (or in the same run of saves) stays. Then read the server again, as it may have more than its last answer said
+      if (saved.current) setPreferences(saved.current)
+      setError(errorText(e, locale, t('error.network')))
+      await load(true)
       return
     }
     writing.current = false
