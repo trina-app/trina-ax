@@ -7,7 +7,8 @@
 // - while the app's connection banner shows: a quiet spinner and no words, no read; the connection back: read at once;
 // - a hidden page reads nothing; shown again, it reads at once;
 // - the message box: a send that fails for the connection keeps the text, says so calmly (never red) and sends it on
-//   [다시 시도]; another failure keeps its red line.
+//   [다시 시도]; another failure keeps its red line; while its line shows, a notice on the same page (Home's block) steps
+//   down to the quiet spinner, so the cause is said once.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, useCallback, useEffect, useState } from 'react'
 import { ApiError } from '@mycel/shared/api'
@@ -233,6 +234,31 @@ describe('the message box', () => {
       await m.until(() => sent.length > 0, 'sent')
       expect(sent).toEqual(['이번 주 회의록 정리해 줘'])
       await m.until(() => !m.find('composer-unsent'), 'the line gone')
+    } finally { await m.unmount() }
+  }, 10_000)
+
+  test('while its line shows, a place on the same page waits quietly: the cause is said once', async () => {
+    next = async () => { throw offline() }
+    let fail = true
+    const m = await mount(
+      <>
+        <Composer draftId="calm-test-3" ensureChat={async () => CHAT} running={false} onSend={async () => { if (fail) throw offline() }} onStop={async () => {}} engine={{ engine: undefined, model: undefined }} />
+        <Place />
+      </>,
+    )
+    try {
+      await m.until(() => notice(m)?.getAttribute('data-state') === 'connection', 'the place\'s notice')
+      await m.type('composer-input', '안녕')
+      await m.click('send')
+      await m.until(() => m.find('composer-unsent'), 'the message box\'s line')
+      await m.until(() => notice(m)?.getAttribute('data-state') === 'waiting', 'the place waiting quietly')
+      expect(notice(m)!.textContent).toBe('')
+      expect(m.container.textContent).not.toContain(ko('conn.now'))
+      // sent after all: the line goes, and the place says it again while it still cannot read
+      fail = false
+      await m.click('composer-unsent-retry')
+      await m.until(() => !m.find('composer-unsent'), 'the line gone')
+      await m.until(() => notice(m)?.getAttribute('data-state') === 'connection', 'the place\'s notice again')
     } finally { await m.unmount() }
   }, 10_000)
 

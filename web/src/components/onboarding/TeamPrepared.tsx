@@ -18,7 +18,9 @@
 // unfolded). `readOnly` (a member under the no-AI card): the rows and 예시 only. Phones (below 768px): a skill row's tap
 // is 써 보기 (it says so at its end, as the files row says 물어보기), with 예시 as its own target at the row's end; the
 // files row is one row. The block reads again when skills, files or access change (once per burst of changes); a failed
-// read is one quiet "다시 불러오기", never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」 out.
+// read is the calm notice (components/LoadError.tsx, docs/DECISIONS.md "How we show errors": the connection reads again
+// by itself), never red under the box and never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」
+// out.
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'

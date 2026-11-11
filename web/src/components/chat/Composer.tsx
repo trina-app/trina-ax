@@ -49,7 +49,7 @@ import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } fro
 import { useDropTarget } from '../FileDropZone'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { Button, IconButton, useMediaQuery } from '../ui'
-import { CalmNotice } from '../LoadError'
+import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 import { SecretWarning, useSecretHold } from './SecretWarning'
@@ -162,6 +162,8 @@ export default function Composer({
   // the send failed for the connection (lib/api.ts isConnectionError): the calm line under the box, the text kept in it
   // and [다시 시도], never red and never sent by itself (docs/DECISIONS.md "How we show errors")
   const [unsent, setUnsent] = useState(false)
+  // it says the connection is down: a notice of the same page (Home's 「팀에 준비된 것」) does not say it again
+  useSaysConnection(unsent && !error)
   // files from this computer: everywhere but a shared chat whose project folder the person may not write
   const computer = sharedUploads?.allowed !== false
   // the chips live outside the component too (components/chat/ComposerFiles.tsx, lib/teamAttach stash): leaving the
