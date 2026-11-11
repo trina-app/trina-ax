@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:28
 - Branch: `feat/phone-attach-sheet`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/` (message boxes) and `server/` + `shared/` (a room route). Why: chat, files and phones are core
   (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new ability (a team file sent in a room from a phone) and one new endpoint; computers unchanged
@@ -72,4 +72,13 @@ unit tests, and the new phone e2e specs (WebKit where iOS matters).
 
 ## Result
 
-Filled in at the end.
+PR #439. Built as planned, with these differences:
+
+- The "@" list floats over the newest messages on a phone (right above the box) instead of pushing the box up: with six
+  files, the list and a long draft in a 480 px view the messages kept only 13 px otherwise.
+- "나만 봐요" goes while the keyboard is up only in a chat nobody else sees; a shared chat keeps its "N명이 볼 수 있어요"
+  line (docs/DECISIONS.md "Who sees it, always": who reads what I type matters most while typing).
+- The phone picker is its own file (`chat/EngineSheet.tsx`), so `EngineMenu.tsx` (#428) is untouched and Composer's
+  picker hunks stay apart from #428's (a test merge with #428, #413, #423 and #429 is clean).
+- Each box's 파일 input keeps the test id its computer input had (`file-input`, `side-chat-file-input`,
+  `room-file-input`).
