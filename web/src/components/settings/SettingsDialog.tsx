@@ -5,21 +5,26 @@
 // `onClose` goes back to that page. On a computer /settings opens on the profile, with the list beside it. On a phone it
 // is the 나 tab (BottomTabs.tsx opens /settings): it fills the screen above the tab bar (the bar is the way out, no ✕)
 // and opens on its list (no search box): the person's photo, name and title on top, which open the profile (the list's
-// own "프로필" row is left out there), then what needs me: 알림함 with its unread count (the 알림 section, whose own row
-// is left out there) and, for admins, 관리자; then the sections, with MCP, app connectors and AI connections behind one
-// "더 보기" row at the end of their group (they open in place). A section on a phone has a ← back to the list and its
-// own name in the bar (its page keeps that heading for screen readers only, so the name is not said twice on screen;
-// "설정" stays the dialog's name). A page under a section (`page`:
+// own "프로필" row is left out there), then what needs me: 활동 (the Activity page, /activity) with its unread count and,
+// for admins, 관리자; then the sections in their groups (알림 in its own) and 로그아웃, in the phone list every
+// settings list uses (phone/PhoneList.tsx: chevrons, the count as the row's value). A row pushes its section, so the
+// phone's own Back returns to the list (it replaced the list before, and Back left Settings); a section opened from a
+// link gets the list put under it (lib/backStack.ts). A section on a phone has the phone bar: ‹ (named after where it
+// goes, "‹ Settings") and its own name (its page keeps that heading for screen readers only, so the name is not said
+// twice on screen; "설정" stays the dialog's name). Computers keep replacing: closing the dialog steps back once.
+// docs/DECISIONS.md "Admin and Settings on phones: a list you tap into". A page under a section (`page`:
 // /settings/account/delete, the account deletion request under the profile) keeps its section marked in the list, and
 // its way back goes to that section. Admin stays its own page.
 import clsx from 'clsx'
-import { ArrowLeft, Bell, ChevronDown, LogOut, Search, Shield, X } from 'lucide-react'
+import { Bell, ChevronRight, LogOut, Search, Shield, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
-import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
+import { useGoBack } from '../../lib/back'
+import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
-import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsTabs } from '../../pages/settingsTabs'
+import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useInboxUnread } from '../../store/inbox'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
@@ -27,17 +32,12 @@ import { Avatar } from '../Avatar'
 import { BottomTabs } from '../BottomTabs'
 import { useLogout } from '../../lib/logout'
 import { PhonePushLine } from './PushNotifications'
+import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
+import { PhonePageBar } from '../phone/PhonePageBar'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
-/** sections few people need on a phone: behind "더 보기" in the phone's list */
-const ADVANCED = new Set(['connectors', 'ai-apps', 'providers'])
-/** sections whose page starts with its own title row that stays (AI providers' card): the phone's bar keeps "설정"
- * there instead of saying the name twice */
-const OWN_TITLE = new Set(['providers'])
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
 const PHONE_TOP = new Set(['profile'])
-/** a row of the phone's list */
-const phoneRow = 'flex h-11 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2'
 
 let openedFrom: HTMLElement | null = null
 /** What gets the keyboard back when the dialog closes, said by whatever opens it when that is not what has focus by
@@ -49,20 +49,13 @@ export function settingsOpenedFrom(el: HTMLElement | null) {
 /** pages under a section, by their address (App.tsx routes them here) */
 export type SettingsPage = 'account-delete'
 const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile' }
-/** The hairline between groups of the list: on a phone it starts where the rows' icons do, 16px in from each edge (the
- * list keeps 4px around the rows' own tap area). */
-const Rule = ({ className }: { className?: string }) => <hr className={clsx('my-2 border-line max-md:mx-3', className)} />
-
 export default function SettingsDialog({ onClose, page }: { onClose: () => void; page?: SettingsPage }) {
   const t = useT()
   const me = useMeStrict()
-  const logout = useLogout()
-  const inbox = useInboxUnread()
   // phones (below 768 px, the width of the phone top bar and tabs): the list first, its photo row, no search box
   const phone = useMediaQuery('(max-width: 767.98px)')
   const params = useParams()
   const tab = page ? PAGE_SECTION[page] : params.tab
-  const navigate = useNavigate()
   const location = useLocation()
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -93,12 +86,23 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   useEffect(() => { if (me.user.webAllowAll) setWebOn(true) }, [me.user.webAllowAll])
   const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites))
   const [query, setQuery] = useState('')
-  const [more, setMore] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = tabs.filter((x) => sectionMatches(x, q, t))
   const groups = SETTINGS_GROUPS.map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
   const waiting = (tab === 'providers' && own === null) || (tab === 'dev-env-sites' && sites === null)
+  // phones: a section opened from a link gets the list under it, once it is the section that stays; the list and the
+  // open section each keep their place for Back (lib/backStack.ts)
+  const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'connectors' || tab === 'credentials'
+  const valid = !!tab && !waiting && !redirecting && tabs.some((x) => x.id === tab)
+  // the Activity page (#364) is the 나 tab's too: 알림 opened from its gear goes back to it, with no list put between
+  useListUnderPage('/settings', phone, valid && !page, ['/activity'])
+  const listRef = useRef<HTMLElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useKeptScroll(listRef, 'settings-list', phone && !tab)
+  useKeptScroll(contentRef, 'settings-section', phone && !!tab && !waiting)
+  const back = useGoBack(page ? `/settings/${tab}` : '/settings')
+  const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => settingsPageName(p, t))
   // Connectors is its own page in the sidebar now (pages/Connectors.tsx): its section here leads there, with what its
   // address asked for (?add=1, ?template=, ?request=); Google Drive and MCP were sections of their own before that
   if (tab === 'connectors' || tab === 'integrations') return <Navigate to={`/connectors${location.search}`} replace />
@@ -110,7 +114,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'
   // phones: the open section's name in the bar (not for a page under a section: that page has its own title)
-  const section = tab && !page && !OWN_TITLE.has(tab) ? tabs.find((x) => x.id === tab) : undefined
+  const section = tab && !page ? tabs.find((x) => x.id === tab) : undefined
   const sectionName = section ? t(section.label) : ''
 
   return (
@@ -125,26 +129,24 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
         onMouseDown={(e) => e.stopPropagation()}
         data-testid="settings-dialog"
       >
-        <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
-          {tab && (
-            <IconButton label={t('settings.allSections')} className="md:hidden" onClick={() => navigate(page ? `/settings/${tab}` : '/settings', { replace: true })} data-testid="settings-back">
-              <ArrowLeft size={18} />
+        {phone && tab ? (
+          // a phone's section: the phone bar (‹ and where it goes, the section's name); a computer's header below
+          <div className="relative">
+            {/* a phone starts on the title, not on its ‹ (focus put there showed a ring nobody asked for) */}
+            <h2 id={titleId} tabIndex={-1} data-autofocus="" className="sr-only">{t('settings.title')}</h2>
+            <PhonePageBar onBack={back} backLabel={backLabel} title={section ? sectionName : ''} titleHidden={!!section} backTestId="settings-back" titleTestId="settings-section-title" className="h-14" />
+          </div>
+        ) : (
+          <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
+            {/* a phone starts on the title, not on a hidden ✕; a computer still starts on its first button */}
+            <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none">
+              {t('settings.title')}
+            </h2>
+            <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
+              <X size={18} />
             </IconButton>
-          )}
-          {/* a phone starts on the title, not on its ← (focus put there showed a ring nobody asked for) or on a hidden
-              ✕; a computer still starts on its first button */}
-          <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className={clsx('min-w-0 flex-1 truncate px-1 font-semibold outline-none', section && 'max-md:sr-only')}>
-            {t('settings.title')}
-          </h2>
-          {section && (
-            <p aria-hidden className="min-w-0 flex-1 truncate px-1 font-semibold md:hidden" data-testid="settings-section-title">
-              {sectionName}
-            </p>
-          )}
-          <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
-            <X size={18} />
-          </IconButton>
-        </div>
+          </div>
+        )}
         <div className="flex min-h-0 flex-1">
           {/* phones: the list on its own until a section is open */}
           <div className={clsx('flex w-full shrink-0 flex-col md:w-64 md:border-r md:border-line', tab && 'max-md:hidden')}>
@@ -160,73 +162,36 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 )}
               </div>
             </div>
-            <nav aria-label={t('settings.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 pb-3 max-md:px-1" data-testid="settings-menu">
-              {/* phones: who is signed in, on top; it opens the profile (in place of the list's "프로필" row) */}
-              <Link to="/settings/profile" replace className="mt-2 mb-2 flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-hover focus-visible:-outline-offset-2 md:hidden" data-testid="settings-me">
-                <Avatar user={me.user} size={48} />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{me.user.name}</span>
-                  <span className="block truncate text-sm text-muted">{me.user.title || t(`role.${me.user.role}`)}</span>
-                </span>
-                <span className="sr-only">{t('settings.profile')}</span>
-              </Link>
-              {/* phones: what needs me, first: the Inbox with its count (the same count as on the 나 tab) and Admin */}
-              <div className="mb-3 space-y-0.5 md:hidden" data-testid="settings-phone-top">
-                <Link to="/activity" className={phoneRow} data-testid="settings-inbox">
-                  <Bell size={16} className="shrink-0 text-muted" aria-hidden /> {t('inbox.title')}
-                  {inbox > 0 && (
-                    <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="settings-inbox-unread">
-                      <span aria-hidden>{inbox > 99 ? '99+' : inbox}</span>
-                      <span className="sr-only">{t('notifications.unread', { count: inbox })}</span>
-                    </span>
-                  )}
-                </Link>
-                {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
-                <PhonePushLine />
-                {isAdmin(me) && (
-                  <Link to="/admin" className={phoneRow} data-testid="settings-admin">
-                    <Shield size={16} className="shrink-0 text-muted" aria-hidden /> {t('sidebar.admin')}
-                  </Link>
+            {phone ? (
+              <PhoneSettingsList tabs={tabs} navRef={listRef} />
+            ) : (
+              <nav aria-label={t('settings.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 pb-3" data-testid="settings-menu">
+                {groups.map((g, i) => (
+                  <div key={g[0]!.group} role="group" aria-labelledby={`settings-group-${g[0]!.group}`} className={clsx('space-y-0.5', i > 0 && 'mt-3')} data-testid={`settings-group-${g[0]!.group}`}>
+                    <p id={`settings-group-${g[0]!.group}`} className="px-3 pb-1 text-xs text-faint">{t(`settings.group.${g[0]!.group}`)}</p>
+                    {g.map((x) => (
+                      <NavLink
+                        key={x.id}
+                        to={`/settings/${x.id}`}
+                        replace
+                        className={({ isActive }) =>
+                          clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'bg-hover font-medium')
+                        }
+                      >
+                        <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
+                      </NavLink>
+                    ))}
+                  </div>
+                ))}
+                {!shown.length && (
+                  <p className="px-3 py-2 text-sm text-muted" data-testid="settings-no-match">
+                    {t('settings.noMatch', { q: query.trim() })}
+                  </p>
                 )}
-              </div>
-              {groups.map((g, i) => (
-                <div key={g[0]!.group} role="group" aria-labelledby={`settings-group-${g[0]!.group}`} className={clsx('space-y-0.5', i > 0 && 'mt-3')} data-testid={`settings-group-${g[0]!.group}`}>
-                  <p id={`settings-group-${g[0]!.group}`} className="px-3 pb-1 text-xs text-faint">{t(`settings.group.${g[0]!.group}`)}</p>
-                  {g.map((x) => (
-                    <NavLink
-                      key={x.id}
-                      to={`/settings/${x.id}`}
-                      replace
-                      className={({ isActive }) =>
-                        clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ((ADVANCED.has(x.id) && !more) || PHONE_TOP.has(x.id)) && 'max-md:hidden')
-                      }
-                    >
-                      <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
-                    </NavLink>
-                  ))}
-                  {/* phones: the rarer sections of this group open here, in place */}
-                  {!more && g.some((x) => ADVANCED.has(x.id)) && (
-                    <button type="button" onClick={() => setMore(true)} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover md:hidden" data-testid="settings-more">
-                      <ChevronDown size={16} className="shrink-0" aria-hidden /> {t('common.more')}
-                    </button>
-                  )}
-                </div>
-              ))}
-              {/* phones: signing out lives here (the drawer has no account menu there) */}
-              <div className="md:hidden">
-                <Rule />
-                <button type="button" onClick={() => void logout()} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover" data-testid="settings-logout">
-                  <LogOut size={16} className="shrink-0 text-muted" aria-hidden /> {t('auth.logout')}
-                </button>
-              </div>
-              {!shown.length && (
-                <p className="px-3 py-2 text-sm text-muted" data-testid="settings-no-match">
-                  {t('settings.noMatch', { q: query.trim() })}
-                </p>
-              )}
-            </nav>
+              </nav>
+            )}
           </div>
-          <div className={clsx('min-h-0 min-w-0 flex-1 overflow-y-auto', !tab && 'max-md:hidden')} data-testid="settings-content">
+          <div ref={contentRef} className={clsx('min-h-0 min-w-0 flex-1 overflow-y-auto', !tab && 'max-md:hidden')} data-testid="settings-content">
             <div className="mx-auto max-w-3xl p-4 sm:p-6">
               {waiting ? (
                 <Spinner />
@@ -245,5 +210,60 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
         <BottomTabs />
       </div>
     </div>
+  )
+}
+
+/** The 나 list on a phone: who is signed in (it opens the profile), what needs me (the Activity page with its count, the
+ * phone app's notifications when they are off, 관리자 for owners and admins), the sections in their groups (알림, the
+ * notification settings, in its own), and 로그아웃. Every row pushes its page, so Back comes back here. */
+function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: React.Ref<HTMLElement> }) {
+  const t = useT()
+  const me = useMeStrict()
+  const logout = useLogout()
+  const inbox = useInboxUnread()
+  const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id))).filter((g) => g.length)
+  return (
+    <nav ref={navRef} aria-label={t('settings.title')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
+      <PhoneListGroup testId="settings-me-group">
+        <li className="group/row">
+          <Link to="/settings/profile" className="flex items-center gap-3 px-4 py-3 hover:bg-hover focus-visible:-outline-offset-2" data-testid="settings-me">
+            <Avatar user={me.user} size={48} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">{me.user.name}</span>
+              <span className="block truncate text-sm text-muted">{me.user.title || t(`role.${me.user.role}`)}</span>
+            </span>
+            <span className="sr-only">{t('settings.profile')}</span>
+            <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+          </Link>
+        </li>
+      </PhoneListGroup>
+      {/* what needs me, first: the Inbox with its count (the same count as on the 나 tab) and Admin */}
+      <PhoneListGroup testId="settings-phone-top">
+        <PhoneListRow
+          icon={<Bell size={16} />}
+          title={t('inbox.title')}
+          to="/activity"
+          badge={inbox > 0 ? (
+            <span className="shrink-0 rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="settings-inbox-unread">
+              <span aria-hidden>{inbox > 99 ? '99+' : inbox}</span>
+              <span className="sr-only">{t('notifications.unread', { count: inbox })}</span>
+            </span>
+          ) : undefined}
+          testId="settings-inbox"
+        />
+        {isAdmin(me) && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}
+      </PhoneListGroup>
+      {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
+      <PhonePushLine />
+      {groups.map((g) => (
+        <PhoneListGroup key={g[0]!.group} title={t(`settings.group.${g[0]!.group}`)} labelId={`settings-group-${g[0]!.group}`} testId={`settings-group-${g[0]!.group}`}>
+          {g.map((x) => <PhoneListRow key={x.id} icon={<x.icon size={16} />} title={t(x.label)} to={`/settings/${x.id}`} testId={`settings-row-${x.id}`} />)}
+        </PhoneListGroup>
+      ))}
+      {/* signing out lives here (the phone has no account menu) */}
+      <PhoneListGroup>
+        <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void logout()} testId="settings-logout" />
+      </PhoneListGroup>
+    </nav>
   )
 }

@@ -105,22 +105,11 @@ test('Admin › Plugins: a long licence list is "Licenses", the list in its tool
   await expect(page.getByTestId('plugin-license-list').first()).toContainText('LicenseRef-HWP-Notices')
 })
 
-test('a phone: a cut row of tabs fades at that edge and keeps a margin before the chosen tab', async ({ page }) => {
+test('a phone: a cut row of tabs fades at that edge', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await phone(page)
-  // the Admin menu, opened on an item far to the right
-  await page.goto('/admin/usage')
-  const nav = page.getByTestId('admin-menu')
-  await expect(nav.locator('[aria-current="page"]')).toBeVisible()
-  await expect.poll(() => fade(nav)).toEqual([true, true])
-  const r = await box(nav)
-  const active = await box(nav.locator('[aria-current="page"]'))
-  expect(active.x).toBeGreaterThanOrEqual(r.x + 16)
-  expect(active.x + active.width).toBeLessThanOrEqual(r.x + r.width - 16)
-  // the start of the menu: only the end fades
-  await page.goto('/admin')
-  await expect.poll(() => fade(nav)).toEqual([false, true])
+  // (Admin's menu was such a row; on a phone it is a list now, docs/DECISIONS.md "Admin and Settings on phones")
   // the search palette's type tabs
   await page.keyboard.press('ControlOrMeta+k')
   const tabs = page.getByTestId('search-palette').getByRole('tablist')

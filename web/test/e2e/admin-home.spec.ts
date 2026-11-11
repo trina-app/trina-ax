@@ -250,20 +250,27 @@ test('an area that cannot be read says so on its card; the others still show', a
   await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
 })
 
-test('the admin menu stays where it is while the page scrolls, on a wide screen and on a phone', async ({ page }) => {
+test('the admin menu stays where it is while the page scrolls on a wide screen; on a phone the page\'s bar does', async ({ page }) => {
   await start(page)
   for (const size of [{ width: 1360, height: 640 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    // Team settings, with the team's AI settings at its end: the longest admin page
-    await page.goto('/admin/settings')
+    const phone = size.width < 768
+    // Team settings, with the team's AI settings at its end: the longest admin page (a phone: its AI engine group, one
+    // page of its own there, pages/admin/teamSettingsGroups.ts)
+    await page.goto(phone ? '/admin/settings/ai' : '/admin/settings')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
-    const menu = page.getByTestId('admin-menu')
+    const menu = page.getByTestId(phone ? 'phone-page-bar' : 'admin-menu')
     const before = (await menu.boundingBox())!
     const content = page.getByTestId('admin-content')
     expect(await content.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
     await content.evaluate((el) => el.scrollTo(0, el.scrollHeight))
     await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
     expect((await menu.boundingBox())!.y).toBe(before.y)
+    if (phone) {
+      await expect(page.getByTestId('admin-bar-title')).toHaveText(t['teamSettings.group.engine'])
+      await expect(page.getByTestId('admin-back')).toBeInViewport()
+      continue
+    }
     await expect(menu.getByRole('link', { name: t['admin.settings'], exact: true })).toBeInViewport()
     await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toBeAttached()
   }

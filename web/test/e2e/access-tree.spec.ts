@@ -443,7 +443,7 @@ for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) 
   })
 }
 
-test('the By folder tab and the menu link go back to the tree from a chosen folder (375px)', async ({ page }) => {
+test('the By folder tab goes back to the tree from a chosen folder, a missing one too (375px)', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   await reset(page)
   await signIn(page)
@@ -454,10 +454,10 @@ test('the By folder tab and the menu link go back to the tree from a chosen fold
   await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).click()
   await expect(tree(page)).toBeVisible()
   await expect(page).not.toHaveURL(/folder=/)
-  // a missing one, then the menu link
+  // a missing one (a phone has no menu link beside the page: Admin's list is a step back)
   await page.goto(`/admin/folders?folder=${encodeURIComponent('gone/away')}`)
   await expect(page.getByTestId('folder-detail-missing')).toBeVisible()
-  await page.getByRole('link', { name: t['admin.folders'], exact: true }).click()
+  await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).click()
   await expect(tree(page)).toBeVisible()
   await expect(page.getByTestId('folder-detail-missing')).toHaveCount(0)
 })

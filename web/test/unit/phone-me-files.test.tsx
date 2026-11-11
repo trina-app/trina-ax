@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import type { Me, TreeResponse } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
@@ -85,9 +85,9 @@ describe('Settings on a phone', () => {
       expect(row.getAttribute('href')).toBe('/settings/profile')
       expect(row.textContent).toContain('김민아')
       expect(row.textContent).toContain('재무 매니저')
+      // the phone's list (phone/PhoneList.tsx) has no 프로필 row of its own: the photo row is it
       const own = m.get('settings-menu').querySelectorAll('a[href="/settings/profile"]').filter((a) => a !== row)
-      expect(own.length).toBe(1)
-      expect(own[0]!.getAttribute('class')).toContain('max-md:hidden')
+      expect(own.length).toBe(0)
       // starts on its title, not on a button that would show a focus ring
       expect(heading(m).getAttribute('data-autofocus')).not.toBeNull()
       expect((globalThis.document as unknown as { activeElement: unknown }).activeElement).toBe(heading(m))
@@ -107,12 +107,40 @@ describe('Settings on a phone', () => {
     }
   })
 
+  // the phone's own Back must return to the list (docs/DECISIONS.md "Admin and Settings on phones"): a phone's row pushes;
+  // a computer's keeps replacing, so closing the dialog steps back once (App.tsx useSettingsOverlay counts pushes)
+  test('a phone\'s row pushes its section; a computer\'s replaces it', async () => {
+    let seen: { path: string; type: string } | null = null
+    function Where() {
+      const l = useLocation()
+      seen = { path: l.pathname, type: useNavigationType() }
+      return null
+    }
+    const click = async (el: FakeElement) => {
+      const ev = new FakeEvent('click', { bubbles: true, cancelable: true })
+      Object.assign(ev, { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })
+      await act(async () => void el.dispatchEvent(ev))
+    }
+    for (const [isPhone, type] of [[true, 'PUSH'], [false, 'REPLACE']] as const) {
+      phone = isPhone
+      const m = await mount(<MemoryRouter initialEntries={['/settings']}><Routes><Route path="/settings/:tab?" element={<><SettingsDialog onClose={() => {}} /><Where /></>} /></Routes></MemoryRouter>)
+      try {
+        const row = m.get('settings-menu').querySelectorAll('a[href="/settings/security"]')[0]!
+        await click(row)
+        expect(seen as unknown).toEqual({ path: '/settings/security', type })
+      } finally {
+        await m.unmount()
+      }
+    }
+  })
+
   test('a computer keeps its start (the first button) and has no photo row', async () => {
     phone = false
     const m = await dialog('/settings')
     try {
       expect(heading(m).getAttribute('data-autofocus')).toBeNull()
-      expect(m.get('settings-me').getAttribute('class')).toContain('md:hidden')
+      // a computer's list is the sections only (the phone list with the photo row is drawn on a phone only)
+      expect(m.find('settings-me')).toBeNull()
     } finally {
       await m.unmount()
     }

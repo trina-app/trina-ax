@@ -326,8 +326,8 @@ test('external services have no serious accessibility problems at phone width', 
 
 // The team logo (Admin › Team settings): a refused file's message, then a logo with the remove button and its preview
 // (the sidebar header in the light and the dark look) open, in both themes and at phone width.
-async function auditTeamIcon(page: Page, where: string) {
-  await page.goto('/admin/settings')
+async function auditTeamIcon(page: Page, where: string, path = '/admin/settings') {
+  await page.goto(path)
   await expect(page.getByTestId('team-icon')).toBeVisible()
   await audit(page, `team logo (default)${where}`)
   await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(SVG) })
@@ -353,7 +353,8 @@ test('the team logo section has no serious accessibility problems at phone width
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await signIn(page)
-  await auditTeamIcon(page, ' (phone)')
+  // a phone: the logo is in Team settings' General (pages/admin/teamSettingsGroups.ts)
+  await auditTeamIcon(page, ' (phone)', '/admin/settings/general')
 })
 
 // The design-gap fixes (docs/DESIGN-SYSTEM.md "Contrast"): the browser bar colour, the in-app browser's site card with its
