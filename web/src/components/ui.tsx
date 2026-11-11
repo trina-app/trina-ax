@@ -100,7 +100,8 @@ export function SidebarSectionTitle({ open, onToggle, controls, children, testId
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
  * tied to the control with aria-describedby. `aside` (a password field's eye button) sits over the control's right edge, outside the label, so
- * the control's name stays the label's words; the control then keeps room for it (pr-11). */
+ * the control's name stays the label's words; the control then keeps room for it (pr-11). The box is the field's
+ * height (44 px on a phone), so a 44 px button sits in its middle. */
 export function Field({ label, children, hint, error, aside }: { label: string; children: ReactNode; hint?: string; error?: ReactNode; aside?: ReactNode }) {
   const id = useId()
   const note = error || hint
@@ -113,7 +114,7 @@ export function Field({ label, children, hint, error, aside }: { label: string; 
   )
   return (
     <div className="block" data-field>
-      {aside ? <div className="relative">{labelled}<div className="absolute right-0 bottom-0 flex h-9 items-center max-sm:h-10" data-testid="field-aside">{aside}</div></div> : labelled}
+      {aside ? <div className="relative">{labelled}<div className="absolute right-0 bottom-0 flex h-9 items-center max-md:h-11" data-testid="field-aside">{aside}</div></div> : labelled}
       {hint && !error && (
         <span id={id} className="mt-1 block text-xs text-faint">
           {hint}

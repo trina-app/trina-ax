@@ -191,7 +191,7 @@ function PasswordField({ label, hint, error, reveal, eyeTestId, eye = true, ...p
   const { show, caps, toggle } = reveal
   const name = show ? t('auth.hidePassword') : t('auth.showPassword')
   const button = eye ? (
-    <IconButton label={name} aria-pressed={show} onClick={toggle} className="mr-0.5 max-sm:mr-0" data-testid={eyeTestId}>
+    <IconButton label={name} aria-pressed={show} onClick={toggle} className="mr-0.5 max-md:mr-0" data-testid={eyeTestId}>
       {show ? <EyeOff size={16} /> : <Eye size={16} />}
     </IconButton>
   ) : undefined
