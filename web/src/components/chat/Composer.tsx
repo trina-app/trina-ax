@@ -6,8 +6,8 @@
 // which keeps it waiting and sends it when the answer is done (store/sendQueue.ts). While the AI waits for an answer
 // to its question (an ask_user card), sending answers that question instead (lib/askAnswer.ts): text only, attached
 // files stay in the box for the next message.
-// The attach button opens a small menu: upload from this computer, or add files of the team folder (TeamFilePicker),
-// which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
+// The attach button opens a small menu (on a phone the attach sheet every message box has: AttachSheet.tsx): upload from
+// this computer, or add files of the team folder (TeamFilePicker), which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // Files from this computer dropped anywhere on the chat's page go into the box (components/FileDropZone.tsx).
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
@@ -52,6 +52,8 @@ import { Button, IconButton, useMediaQuery } from '../ui'
 import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
+import { AttachSheet } from './AttachSheet'
+import { EngineSheet } from './EngineSheet'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { SkillChip } from './SkillChip'
 import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
@@ -192,6 +194,9 @@ export default function Composer({
   const fileRef = useRef<HTMLInputElement>(null)
   const camRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  // a computer's engine list: a click outside it or Escape closes it (a phone's is a sheet: EngineSheet)
+  const engineButtonRef = useRef<HTMLButtonElement>(null)
+  const engineListRef = useRef<HTMLUListElement>(null)
   const voice = useVoiceInput({
     input: taRef,
     root: rootRef,
@@ -275,6 +280,25 @@ export default function Composer({
       document.removeEventListener('keydown', key)
     }
   }, [attachMenu])
+  useEffect(() => {
+    if (!engineMenu) return
+    const close = (e: PointerEvent) => {
+      const at = e.target as Node
+      if (!engineListRef.current?.contains(at) && !engineButtonRef.current?.contains(at)) setEngineMenu(false)
+    }
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setEngineMenu(false)
+      engineButtonRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', key)
+    }
+  }, [engineMenu])
   const attachButton = () => attachMenuRef.current?.querySelector<HTMLElement>('[data-testid="attach-button"]') ?? null
   const menuItems = () => [...(attachMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].filter((x) => x.offsetParent !== null)
   const openMenu = (focusFirst: boolean) => {
@@ -353,8 +377,11 @@ export default function Composer({
   const shownModel = engine.engine && (engine.model ? models?.[engine.engine]?.find((m) => m.id === engine.model)?.label ?? engine.model : engine.engine === 'api' ? models?.api?.[0]?.label : undefined)
   const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
 
-  // attach (its menu and file inputs) and voice: under the box, or inside it on phones
-  const attachControls = (
+  // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
+  // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
+  const attachControls = phone ? (
+    <AttachSheet onFiles={(all) => void addFiles(all)} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={19} />} testId="attach-button" />
+  ) : (
     <>
       <div
         // flex: the button itself is what a phone's slot centres (not a line box around it)
@@ -470,7 +497,9 @@ export default function Composer({
   )
 
   return (
-    <div ref={rootRef}>
+    // a phone with the keyboard up (lib/viewport.ts .keyboard-open): the row under the box (the engine picker) goes, so
+    // the box and send keep the room above the keyboard; it comes back with the keyboard down
+    <div ref={rootRef} className="max-md:in-[.keyboard-open]:[&>[data-testid=composer-controls]]:hidden">
       <VoiceLive voice={voice} />
       {secret.held && (
         <SecretWarning
@@ -560,7 +589,7 @@ export default function Composer({
                   // not disabled: the focus stays in the box while the words are on their way
                   readOnly={voice.busy}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering || hold ? 'pt-2' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full max-md:max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))] min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering || hold ? 'pt-2' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
                   data-testid="composer-input"
                 />
               </div>
@@ -636,11 +665,15 @@ export default function Composer({
         <div className="flex flex-1 basis-0 items-center justify-end">
           {onEngine && (
             <div className="relative">
-              <button type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
+              {/* a phone: the choices as a sheet (a tap outside, Escape or Back closes it); a computer: the small list */}
+              {phone ? (
+                <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={(p) => onEngine?.(p)} label={engineLabel} title={t('composer.engine')} testId="engine-picker" />
+              ) : (<>
+              <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
                 {engineLabel} <ChevronDown size={13} aria-hidden />
               </button>
               {engineMenu && (
-                <ul role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
+                <ul ref={engineListRef} role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
                   <EngineOptions
                     engines={engines ?? []}
                     models={models}
@@ -652,6 +685,7 @@ export default function Composer({
                   />
                 </ul>
               )}
+              </>)}
             </div>
           )}
         </div>
@@ -663,7 +697,7 @@ export default function Composer({
           {waitsFor?.hint}
         </p>
       ) : phone && who && (
-        <p className="px-2 pt-1.5 text-center text-micro break-keep text-faint" data-testid="composer-phone-footer">
+        <p className="px-2 pt-1.5 text-center text-micro break-keep text-faint in-[.keyboard-open]:hidden" data-testid="composer-phone-footer">
           {who}
         </p>
       )}

@@ -147,7 +147,9 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
 
   const list = open ? (
     <div className="px-2 pt-2" data-testid="mention-menu">
-      <ul ref={listRef} id={`${id}-list`} role="listbox" aria-label={t('rooms.mentionList')} className="relative max-h-[min(14rem,40dvh)] overflow-y-auto overscroll-contain">
+      {/* a phone: at most a quarter of what is in sight (lib/viewport.ts --app-h), so with the keyboard up the text field
+          and send stay above it */}
+      <ul ref={listRef} id={`${id}-list`} role="listbox" aria-label={t('rooms.mentionList')} className="relative max-h-[min(14rem,40dvh)] overflow-y-auto overscroll-contain max-md:max-h-[min(14rem,calc(var(--app-h,100dvh)*0.25))]">
         {hits.map((u, i) => (
           <li key={u.id} id={optionId(i)} role="option" aria-selected={i === active}>
             <button

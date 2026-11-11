@@ -12,13 +12,18 @@
 // mic right before send (the clip stays on the left), Space held in the box on a computer, a finger held on the mic; the words go into the box as
 // text (never a voice message, never sent by themselves). A room names no chat: while every chat is confidential and
 // voice input goes to an outside service, the mic says so instead (lib/voice.ts voiceBlockedInRoom).
-// The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
+// The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame; the clip is the
+// attach sheet every message box has there (components/chat/AttachSheet.tsx: 사진 보관함, 사진 찍기, 파일, 팀 파일). A team
+// file is copied as my upload in the room (POST /api/rooms/:id/team-file, the copy "대화방에 보내기" makes) and sent by
+// id like any upload; a line under the files says how many more people it reaches (members who cannot open the team
+// file). With the keyboard up the box keeps its text field and send in sight: its files in one sideways row, the "@"
+// list and the text field each a part of what is in sight (useMentionMenu; at most 30 % for the text).
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
 import clsx from 'clsx'
-import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
+import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
+import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
@@ -30,7 +35,7 @@ import { useMe } from '../../store/session'
 import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
-import { Button, IconButton } from '../ui'
+import { Button, IconButton, useMediaQuery } from '../ui'
 import { Tooltip } from '../Tooltip'
 import { isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
@@ -41,6 +46,8 @@ import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
+import { AttachSheet } from '../chat/AttachSheet'
+import TeamFilePicker from '../chat/TeamFilePicker'
 
 interface Upload {
   key: number
@@ -49,6 +56,9 @@ interface Upload {
   roomFile?: RoomFile
   error?: string
   abort: AbortController
+  /** a team file (the attach sheet's 팀 파일): its team path, and once copied how many other members cannot open it */
+  teamPath?: string
+  unable?: number
 }
 
 let uploadKey = 0
@@ -73,6 +83,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const [files, setFiles] = useState<Upload[]>([])
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
+  // below 768px: the attach sheet (and its team-file picker) instead of the clip's file input
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const [teamPicker, setTeamPicker] = useState(false)
   const setText = (s: string) => {
     setTextState(s)
     if (s) drafts.set(key, s)
@@ -196,6 +209,35 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     for (const u of added) void upload(u)
   }
 
+  // team files (a phone's attach sheet): each copied as my upload in this room, a chip at once while it is copied, then
+  // sent by id like any upload; the limits a picked file has are checked first (the server checks them again)
+  const copyTeamFile = async (u: Upload) => {
+    try {
+      const r = await api.call(API.attachRoomTeamFile, { params: { id: roomId }, body: { path: u.teamPath! }, signal: u.abort.signal })
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
+    } catch (e) {
+      if (u.abort.signal.aborted) return
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')) } : x)))
+    }
+  }
+  const addTeamFiles = (picked: FileEntry[]) => {
+    const room = ROOM_FILES_MAX - files.length
+    if (picked.length > room) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
+    const added: Upload[] = []
+    for (const f of picked.slice(0, Math.max(0, room))) {
+      if ((f.size ?? 0) > SMALL_UPLOAD_MAX) {
+        toast({ level: 'warn', text: t('rooms.tooBig', { name: f.name, max: formatSize(SMALL_UPLOAD_MAX, locale) }) })
+        continue
+      }
+      added.push({ key: ++uploadKey, file: { name: f.name, size: f.size ?? 0 } as File, status: 'uploading', abort: new AbortController(), teamPath: f.path })
+    }
+    if (!added.length) return
+    setFiles((list) => [...list, ...added])
+    for (const u of added) void copyTeamFile(u)
+  }
+  // how many more people the team files reach once sent (the most of them: a count, never who)
+  const widens = Math.max(0, ...files.filter((f) => f.teamPath && f.status === 'done').map((f) => f.unable ?? 0))
+
   // files dropped on the column around the box (the room's, the thread's: FileDropZone) come here, with its checks: a box
   // with no room left for one more refuses the whole drop. Outside every column the box takes drops on itself.
   const inZone = useDropTarget({ files: addFiles, refusal: () => (files.length >= ROOM_FILES_MAX ? t('rooms.tooMany', { n: ROOM_FILES_MAX }) : null) })
@@ -263,7 +305,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height; the box's
           // pictures are one pane of the image viewer (← →)
           <ImageGroup>
-          <ul className="flex flex-wrap items-center gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
+          <ul
+            // a phone: one sideways row (six files and the keyboard would push the text field out of sight)
+            className="scroll-thin flex flex-wrap items-center gap-2 px-3 pt-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0" aria-label={t('composer.attachments')} data-testid="room-file-chips">
             {files.map((f) =>
               picture(f) ? (
                 // a picture as itself, at once: from this computer, or a photo of a send the server gave back (its room
@@ -285,8 +329,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   </span>
                 </li>
               ) : (
-                <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status}>
-                  {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
+                <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
+                  {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
                   <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
                   <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
                     {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
@@ -300,6 +344,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </ul>
           </ImageGroup>
         )}
+        {widens > 0 && (
+          <p className="px-3 pt-1.5 text-xs text-muted max-md:px-4" data-testid="room-team-file-widen">
+            {t('rooms.teamFileWiden', { n: widens })}
+          </p>
+        )}
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
           <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:px-3" />
@@ -310,9 +359,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last */}
             <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
               <div className="flex h-composer-line shrink-0 items-center">
-                <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="room-attach">
-                  <Paperclip size={18} />
-                </IconButton>
+                {phone ? (
+                  <AttachSheet onFiles={addFiles} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" />
+                ) : (
+                  <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="room-attach">
+                    <Paperclip size={18} />
+                  </IconButton>
+                )}
               </div>
               <input
                 ref={picker}
@@ -360,7 +413,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   }
                 }}
                 containerClassName="min-w-0 flex-1"
-                className="max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
+                className="max-h-[200px] resize-none px-1.5 py-2 max-md:max-h-[min(200px,calc(var(--app-h,100dvh)*0.3))] text-reading leading-reading text-ink outline-none placeholder:text-faint"
                 data-testid="room-input"
               />
               {/* the mic right before send, as in ChatGPT's box */}
@@ -387,6 +440,19 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
           {voiceError}
         </p>
+      )}
+      {phone && (
+        <TeamFilePicker
+          open={teamPicker}
+          onClose={() => setTeamPicker(false)}
+          room={Math.max(0, ROOM_FILES_MAX - files.length)}
+          max={ROOM_FILES_MAX}
+          attached={new Set(files.filter((f) => f.teamPath && f.status !== 'failed').map((f) => f.teamPath!))}
+          onPick={(picked) => {
+            setTeamPicker(false)
+            addTeamFiles(picked)
+          }}
+        />
       )}
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}
       {threadRootId && (

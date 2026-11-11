@@ -337,9 +337,10 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
   if (!files.length) return null
   return (
     // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
-    // the box's pictures: ← → in the image viewer walks through these
+    // the box's pictures: ← → in the image viewer walks through these. A phone: one sideways row, so many files and the
+    // keyboard do not push the text field out of sight
     <ImageGroup>
-    <ul className={clsx('flex flex-wrap items-center gap-2', className)} aria-label={t('composer.attachments')}>
+    <ul className={clsx('scroll-thin flex flex-wrap items-center gap-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0', className)} aria-label={t('composer.attachments')}>
       {files.map((f) => {
         const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
         const open = () => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))

@@ -22,7 +22,9 @@
 // wins); each is uploaded into this side chat at once (my own attachments folder, as in any chat of mine; a side chat
 // not made yet is made by the first file) and shows above the box, a picture as its 64 px square, with ✕. At most 20 per message, the same messages when one fails. They go with what
 // is typed in the box (a starter or quick question goes alone, and an answer to the AI's question is its text alone);
-// "Share to room" sends the answer, never these. No team-folder files here (the full chat has them).
+// "Share to room" sends the answer, never these. On a computer no team-folder files here (the full chat has them); a phone's
+// 📎 is the attach sheet every message box has there (components/chat/AttachSheet.tsx), its 팀 파일 attached by reference
+// as in the full chat's box.
 // Which chat it shows, its draft, its quote, its files and whether it is open are kept per room on this page
 // (store/sideChats.ts; the files in the composer's stash, `side:<room id>`): every panel of the room is the same chat, and
 // a draft stays for this page's session. The files were uploaded into the chat shown, so another chat (New chat, 🕘)
@@ -52,11 +54,13 @@ import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
 import { ComposerFileList, useComposerFiles, type Pending } from '../chat/ComposerFiles'
+import { AttachSheet } from '../chat/AttachSheet'
+import TeamFilePicker from '../chat/TeamFilePicker'
 import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { Tooltip } from '../Tooltip'
-import { IconButton } from '../ui'
+import { IconButton, useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
@@ -284,6 +288,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // files dropped anywhere on the panel (FileDropZone), with the box's own check: no room left for one more refuses the drop
   const dropTarget: DropTarget = { files: (all) => void files.addFiles(all), refusal: () => (files.live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) }
   const picker = useRef<HTMLInputElement>(null)
+  // below 768px: the attach sheet and its team-file picker instead of the clip's file input
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const [teamPicker, setTeamPicker] = useState(false)
   // they were uploaded into one chat: once another shows (New chat, 🕘, the chat deleted meanwhile, the room left and
   // joined again), they go, in every panel of the room
   const clearFiles = useRef(files.clear)
@@ -579,10 +586,16 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             data-testid="side-chat-input"
           />
           <div className="flex items-center justify-between gap-2 pr-2 pb-2 pl-1.5">
-            <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="side-chat-attach">
-              <Paperclip size={15} aria-hidden />
-            </IconButton>
-            <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
+            {phone ? (
+              <AttachSheet onFiles={(all) => void files.addFiles(all)} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={15} aria-hidden />} testId="side-chat-attach" />
+            ) : (
+              <>
+                <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="side-chat-attach">
+                  <Paperclip size={15} aria-hidden />
+                </IconButton>
+                <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
+              </>
+            )}
             {/* the room box's send button (RoomComposer): ↑ on a round button, its name (보내기, or 답하기 while the AI waits
                 for an answer to its question) in the tooltip */}
             <Tooltip label={sendLabel}>
@@ -600,6 +613,19 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </div>
         </div>
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
+        {phone && (
+          <TeamFilePicker
+            open={teamPicker}
+            onClose={() => setTeamPicker(false)}
+            room={Math.max(0, MESSAGE_ATTACHMENTS_MAX - files.live.length)}
+            max={MESSAGE_ATTACHMENTS_MAX}
+            attached={new Set(files.live.filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path!))}
+            onPick={(picked) => {
+              setTeamPicker(false)
+              void files.addTeamFiles(picked.map((f) => ({ path: f.path, name: f.name, size: f.size })))
+            }}
+          />
+        )}
         <p className="pt-1.5 text-center text-[11px] text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
     </FileDropZone>
