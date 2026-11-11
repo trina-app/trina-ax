@@ -710,7 +710,6 @@ export const ko = {
   'files.actionsFor': '{name} 작업',
   'files.readOnly': '읽기 전용',
   'files.readOnlyTip': '읽기 전용: 볼 수만 있어요',
-  'files.noAccess': '권한 없음',
   'files.readOnlyFolder': '읽기 전용 폴더',
   'files.navigationOnly': "안의 일부 폴더만 열 수 있어요",
   'files.emptyDrop': '파일을 끌어다 놓으세요',

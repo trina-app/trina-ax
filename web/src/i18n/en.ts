@@ -711,7 +711,6 @@ export const en: Record<MessageKey, string> = {
   'files.actionsFor': 'Actions for {name}',
   'files.readOnly': 'Read only',
   'files.readOnlyTip': 'Read only: you can look but not change it',
-  'files.noAccess': 'No access',
   'files.readOnlyFolder': 'Read-only folder',
   'files.navigationOnly': "Only some folders inside are open to you",
   'files.emptyDrop': 'Drop files here',
