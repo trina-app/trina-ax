@@ -189,7 +189,8 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
         )}
         <div className={clsx('min-w-0 flex-1', narrow && 'pt-1')}>
           {/* one line: what the panel does and for which folder */}
-          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className="text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none">
+          {/* a phone's page: the bar says what it is, ‹ names the folder; the heading is for screen readers */}
+          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className={clsx('text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none', inPage && 'sr-only')}>
             {hadRules ? t('accessEdit.title') : t('accessTree.addRules')}
             <span aria-hidden className="mx-1.5 font-normal text-faint">·</span>
             <span className="font-normal text-muted" data-testid="edit-path">

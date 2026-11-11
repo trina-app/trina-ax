@@ -2276,6 +2276,7 @@ export const ko = {
   'audit.source.admin': '관리자',
   'audit.source.file': '파일',
   'audit.source.tool': 'AI 도구',
+  'audit.recordTitle': "기록",
   'audit.source.auth': '로그인',
   'audit.denied': '거부됨',
   'activity.confirmedByUser': '사용자가 확인함',

@@ -2277,6 +2277,7 @@ export const id: Record<MessageKey, string> = {
   'audit.source.admin': 'Admin',
   'audit.source.file': 'File',
   'audit.source.tool': 'Alat AI',
+  'audit.recordTitle': "Catatan",
   'audit.source.auth': 'Login',
   'audit.denied': 'Ditolak',
   'activity.confirmedByUser': 'dikonfirmasi pengguna',

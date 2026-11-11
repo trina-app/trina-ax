@@ -97,7 +97,7 @@ export default function Audit() {
   const opened = phone && sub ? days.flatMap((d) => d.runs).find((r) => r.entries[0]!.id === sub) : undefined
   const missing = phone && !!sub && !!shown && !busy && !opened
   useEffect(() => { if (missing) upTo('/admin/audit') }, [missing]) // eslint-disable-line react-hooks/exhaustive-deps
-  useAdminBar(opened ? t(`audit.source.${opened.entries[0]!.source}`) : null)
+  useAdminBar(opened ? t('audit.recordTitle') : null)
   const openRun = phone ? (run: ActivityRun) => navigate(`/admin/audit/${encodeURIComponent(run.entries[0]!.id)}${window.location.search}`) : undefined
   if (phone && sub) return opened ? <RecordPage run={opened} /> : <Skeleton lines={4} />
   const clearButton = (

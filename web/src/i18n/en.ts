@@ -2277,6 +2277,7 @@ export const en: Record<MessageKey, string> = {
   'audit.source.admin': 'Admin',
   'audit.source.file': 'File',
   'audit.source.tool': 'AI tool',
+  'audit.recordTitle': "Entry",
   'audit.source.auth': 'Sign-in',
   'audit.denied': 'Denied',
   'activity.confirmedByUser': 'confirmed by the user',

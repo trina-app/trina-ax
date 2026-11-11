@@ -32,6 +32,7 @@ import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
 import { teamSettingsGroup, teamSettingsRedirect } from './teamSettingsGroups'
 import { APP_CONNECTORS, CONNECTORS } from '../../lib/connectors'
+import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
 
@@ -102,6 +103,13 @@ const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
 function pageName(to: string, t: (key: MessageKey) => string, devEnv: boolean | undefined): string | null {
   const path = to.split(/[?#]/)[0]!
   if (path === '/admin') return t('admin.title')
+  // a folder of Folder permissions (under its rule editor): its name; By person (under a person): that view
+  if (path === '/admin/folders') {
+    const q = new URLSearchParams(to.split('?')[1]?.split('#')[0] ?? '')
+    const folder = q.get('folder')
+    if (folder !== null) return folder === '' ? t('accessView.rootFolder') : folderName(t, folder)
+    if (q.get('view') === 'people') return t('accessView.byPerson')
+  }
   if (path.startsWith('/admin/')) {
     const [id, sub] = path.slice('/admin/'.length).split('/')
     const group = id === 'settings' ? teamSettingsGroup(sub, devEnv) : undefined
@@ -179,6 +187,7 @@ export default function AdminLayout() {
   const name = (p: string) => pageName(p, t, devEnv)
   // a folder, a person in By person, the rule editor: the same address with another query is still the page above it
   const label = useBackLabel(up, name) ?? (isAdminDetail(here) && entryBelow(location.key) === location.pathname ? name(up) : null)
+  // (useBackLabel names a page by its path only: the editor's ‹ goes to a folder, named by its query)
   const goBack = useGoBack(up)
   // what the page on show tells the bar: an item's name as the title, a check before ‹ leaves (phoneBar.ts)
   const [bar, setBar] = useState<AdminBar | null>(null)

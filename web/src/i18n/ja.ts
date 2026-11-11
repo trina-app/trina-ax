@@ -2239,6 +2239,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.source.admin': "管理",
   'audit.source.file': "ファイル",
   'audit.source.tool': "AIツール",
+  'audit.recordTitle': "記録",
   'audit.source.auth': "ログイン",
   'audit.denied': "拒否",
   'activity.confirmedByUser': 'ユーザーが確認済み',

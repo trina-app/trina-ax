@@ -103,6 +103,8 @@ test('Folder permissions: a folder and its rule editor are entries of their own;
   await expect(page.getByTestId('edit-back')).toHaveCount(0)
   // marketing has no rules yet: "Set rules" (a folder with rules: "Change rules")
   await expect(bar(page)).toHaveText(t['accessTree.addRules'])
+  // ‹ names the folder it goes back to
+  await expect(backLabel(page)).toHaveText('marketing')
   await expect(page.getByTestId('phone-page-bar')).toBeVisible()
   // the swipe (Back): the editor goes, the folder is there; once more: the tree
   await page.goBack()
