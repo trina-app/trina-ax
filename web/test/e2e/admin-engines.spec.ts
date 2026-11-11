@@ -135,12 +135,16 @@ test('a usage-limits link opens Team settings at Usage limits, with the focus on
 test('Providers and the AI groups of Team settings fit a phone: nothing runs off the side, the switches stay in reach', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 390, height: 800 })
-  for (const [url, id] of [['/admin/providers?engine=api', 'engines-header'], ['/admin/settings#ai', 'team-ai-settings']]) {
+  // a phone (TC-267): ?engine= opens the engine's own page
+  for (const [url, id] of [['/admin/providers?engine=api', 'engine-page'], ['/admin/settings#ai', 'team-ai-settings']]) {
     await page.goto(url)
     await expect(page.getByTestId(id)).toBeVisible()
     const content = page.getByTestId('admin-content')
     await expect.poll(() => content.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
   }
-  await page.goto('/admin/providers')
-  for (const id of ['claude-code', 'codex', 'api']) await expect(page.locator(`[data-engine="${id}"] label`).filter({ has: page.getByTestId(`engine-switch-${id}`) })).toBeInViewport()
+  // each engine's switch is on its page, in reach
+  for (const id of ['claude-code', 'codex', 'api']) {
+    await page.goto(`/admin/providers/${id}`)
+    await expect(page.locator(`[data-engine="${id}"] label`).filter({ has: page.getByTestId(`engine-switch-${id}`) })).toBeInViewport()
+  }
 })
