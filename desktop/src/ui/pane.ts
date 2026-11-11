@@ -1,18 +1,32 @@
-// Browser pane toolbar: tabs, address bar, "AI is using the browser" bar with a stop button and the AI's latest
-// action, the person's permission question (once / always / deny; one at a time), the activity log (everything the
-// AI did or the browser refused, opened from the toolbar), at most one line over the page for what needs the person
-// now (common/pane-activity.ts), and the settings panel (site access: ask / allow all websites, and the sites
-// allowed always; the same value as the team page's Settings > Browser, and "allow all" is off when the team turned
-// that choice off). The page itself is a separate view placed under this toolbar by the main process.
+// Browser pane toolbar: tabs, address bar, the AI-control row while the AI uses the browser (a pulsing dot, "Trina is
+// using the browser", the AI's latest action and a Stop button, with a thin accent line over the page; docs/DECISIONS.md
+// "AI가 브라우저를 쓰는 동안"), the person's permission question (once / always / deny; one at a time), the activity log
+// (everything the AI did or the browser refused, opened from the toolbar), at most one line over the page for what needs
+// the person now (common/pane-activity.ts), and the settings panel (site access: ask / allow all websites, and the
+// sites allowed always; the same value as the team page's Settings > Browser, and "allow all" is off when the team
+// turned that choice off). The page itself is a separate view placed under this toolbar by the main process; until its
+// first page is drawn this view shows the theme's own surface there (a loading line while a page loads). The edge
+// handle on the left (the strip this view reaches over the team page's edge) resizes the browser like the web app's
+// PanelDivider: drag, arrow keys when focused, double-click resets (docs/DECISIONS.md "브라우저 너비는 끌어서").
 import type { DesktopPaneState } from '@mycel/shared'
 import { browserAction } from '../common/browser-action'
 import { addActivity, dismissNotice, drivingLine, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
-import { h, locale, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt, type SiteSettings } from './dom'
+import { isBlankPage } from '../common/net-policy'
+import { h, locale, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt, type PaneWidth, type SiteSettings } from './dom'
 
 /** the line over the page goes away by itself after this long */
 const NOTICE_MS = 20_000
 
+/** a press on the edge is a click until the pointer has gone this far */
+const DRAG_SLOP = 3
+const EDGE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
+
 const root = document.getElementById('root')!
+/** the edge handle and the pane's own box stay in the page across renders (a re-render must not end a drag) */
+const edge = h('div', { id: 'pane-edge', class: 'edge', role: 'separator', 'aria-orientation': 'vertical', tabindex: '0', 'data-testid': 'pane-divider' })
+const main = h('div', { id: 'main' })
+root.replaceChildren(edge, main)
+let width: PaneWidth = { now: 0, min: 0, max: 0, grab: 6 }
 let state: DesktopPaneState = { open: false, tabs: [], driving: false }
 let prompts: PanePrompt[] = []
 let activity: ActivityView = emptyActivity()
@@ -44,7 +58,7 @@ function render() {
         h(
           'div',
           { class: `tab${t.active ? ' active' : ''}`, 'data-testid': 'pane-tab', 'data-tab-id': t.tabId },
-          h('button', { class: 'title', type: 'button', role: 'tab', 'aria-selected': t.active ? 'true' : 'false', title: t.url, onclick: () => ui.pane.select(t.tabId) }, t.popup ? `${tr('pane.popup')}: ${t.title || t.url}` : t.title || t.url || tr('pane.newTab')),
+          h('button', { class: 'title', type: 'button', role: 'tab', 'aria-selected': t.active ? 'true' : 'false', title: t.url, onclick: () => ui.pane.select(t.tabId) }, t.popup ? `${tr('pane.popup')}: ${t.title || t.url}` : tabLabel(t)),
           h('button', { class: 'x', type: 'button', 'aria-label': tr('pane.closeTab'), onclick: () => ui.pane.closeTab(t.tabId) }, '×'),
         ),
       ),
@@ -129,33 +143,40 @@ function render() {
       'div',
       { class: 'driving-bar', role: 'status', 'data-testid': 'driving' },
       h('span', { class: 'dot', 'aria-hidden': 'true' }),
-      h('span', {}, tr('pane.driving')),
+      h('span', { class: 'label' }, tr('pane.driving')),
       // the AI's own latest action in this call, in place of a banner per action (never a refusal or an old entry)
       lastAction ? h('span', { class: 'last', 'data-testid': 'driving-last', title: activityText(lastAction) }, activityText(lastAction)) : null,
-      h('button', { type: 'button', 'data-testid': 'stop', onclick: () => ui.pane.stop() }, tr('pane.stop')),
+      h('button', { type: 'button', class: 'stop', 'data-testid': 'stop', onclick: () => ui.pane.stop() }, h('span', { class: 'stop-mark', 'aria-hidden': 'true' }), tr('pane.stop')),
     ),
     prompts[0] ? promptCard(prompts[0], prompts.length - 1) : null,
     activity.notice ? noticeLine(activity.notice) : null,
     showLog ? logBox() : null,
     showSites ? sitesBox() : null,
   )
-  const body = state.tabs.length ? null : h('p', { class: 'empty' }, tr('pane.empty'))
-  const splitter = h('button', { class: 'splitter', type: 'button', 'aria-label': tr('pane.resize'), tabindex: '-1' })
-  splitter.addEventListener('pointerdown', (e: PointerEvent) => {
-    splitter.setPointerCapture(e.pointerId)
-    const move = (m: PointerEvent) => ui.pane.resize(m.screenX)
-    const up = () => {
-      splitter.removeEventListener('pointermove', move)
-      splitter.removeEventListener('pointerup', up)
-    }
-    splitter.addEventListener('pointermove', move)
-    splitter.addEventListener('pointerup', up)
-  })
-  root.replaceChildren(splitter, toolbar, ...(body ? [body] : []))
-  if (hadFocus) document.getElementById(hadFocus)?.focus()
+  // under the toolbar, where the page goes: seen until the tab's first page is drawn (the main process shows the tab
+  // only then). A page on its way: a quiet loading line; no tab and the AI not at work: what the pane is for.
+  const loading = Boolean(tab?.loading)
+  const stage = h(
+    'div',
+    { class: 'stage', 'data-testid': 'pane-stage' },
+    loading
+      ? h('p', { class: 'loading', role: 'status', 'data-testid': 'pane-loading' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), tr('pane.loading'))
+      : !state.tabs.length && !state.driving
+        ? h('p', { class: 'empty' }, tr('pane.empty'))
+        : null,
+  )
+  edge.setAttribute('aria-label', tr('pane.resize'))
+  main.replaceChildren(toolbar, stage)
+  if (hadFocus && hadFocus !== edge.id) document.getElementById(hadFocus)?.focus()
   observer.disconnect()
   observer.observe(toolbar)
   ui.pane.toolbarHeight(toolbar.getBoundingClientRect().height)
+}
+
+/** a tab's name: its page's title, else its address; an empty tab (about:blank, also its title) is "New tab" */
+function tabLabel(t: DesktopPaneState['tabs'][number]): string {
+  if (isBlankPage(t.url) && (!t.title || isBlankPage(t.title))) return tr('pane.newTab')
+  return t.title || t.url
 }
 
 async function toggleSites(open = !showSites) {
@@ -326,6 +347,78 @@ function sitesBox() {
       : null,
   )
 }
+
+// ---------------------------------------------------------------- the edge handle
+
+function applyWidth(w: PaneWidth) {
+  width = w
+  document.documentElement.style.setProperty('--grab', `${w.grab}px`)
+  edge.hidden = w.grab <= 0
+  edge.setAttribute('aria-valuenow', String(w.now))
+  edge.setAttribute('aria-valuemin', String(w.min))
+  edge.setAttribute('aria-valuemax', String(w.max))
+}
+
+/** a drag of the edge: where it started (screen x), how far the pointer is from the edge, whether it has moved */
+let drag: { x: number; offset: number; moved: boolean } | null = null
+let frame = 0
+let pendingEdge: number | null = null
+
+edge.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return
+  // the toolbar's own focused element (the address bar) keeps the focus: a press here only resizes
+  e.preventDefault()
+  edge.setPointerCapture(e.pointerId)
+  // the edge is where the toolbar's box begins (x = grab in this view): keep the pointer's distance to it
+  drag = { x: e.screenX, offset: width.grab - e.clientX, moved: false }
+  edge.dataset.dragging = ''
+  ui.pane.drag('start')
+})
+edge.addEventListener('pointermove', (e) => {
+  const d = drag
+  if (!d) return
+  if (!d.moved && Math.abs(e.screenX - d.x) < DRAG_SLOP) return
+  d.moved = true
+  // screen coordinates: this view moves under the pointer while the main process lays the views out again
+  pendingEdge = e.screenX + d.offset
+  if (!frame) {
+    frame = requestAnimationFrame(() => {
+      frame = 0
+      if (pendingEdge !== null) ui.pane.drag('move', pendingEdge)
+      pendingEdge = null
+    })
+  }
+})
+/** pointerup: the edge goes where the pointer is; a cancel or a lost capture keeps the last width shown. Either way the
+ * main process remembers it and gives the keyboard back where it was before the press. */
+function endDrag(up: PointerEvent | null) {
+  const d = drag
+  if (!d) return
+  drag = null
+  cancelAnimationFrame(frame)
+  frame = 0
+  const last = up && d.moved ? up.screenX + d.offset : d.moved ? pendingEdge : null
+  pendingEdge = null
+  if (last !== null) ui.pane.drag('move', last)
+  delete edge.dataset.dragging
+  ui.pane.drag('end')
+}
+edge.addEventListener('pointerup', (e) => {
+  endDrag(e)
+  if (edge.hasPointerCapture(e.pointerId)) edge.releasePointerCapture(e.pointerId)
+})
+edge.addEventListener('pointercancel', () => endDrag(null))
+edge.addEventListener('lostpointercapture', () => endDrag(null))
+edge.addEventListener('dblclick', () => ui.pane.drag('reset'))
+edge.addEventListener('keydown', (e) => {
+  if (!EDGE_KEYS.has(e.key)) return
+  e.preventDefault()
+  ui.pane.resizeKey(e.key, e.shiftKey)
+})
+ui.pane.onWidth(applyWidth)
+void ui.pane.width().then((w) => {
+  if (w) applyWidth(w)
+})
 
 const observer = new ResizeObserver((entries) => {
   for (const e of entries) ui.pane.toolbarHeight((e.target as HTMLElement).getBoundingClientRect().height)
