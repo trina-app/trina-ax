@@ -6,6 +6,7 @@
 // come first and [스킬 넣기] (the catalog open) is the filled one, the card's own button beside it quiet; the top of Home
 // showing one thing (the welcome steps' row while unfinished, else the card); the owners' notice text.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { Me, TeamGoal, TeamLinkResponse, WelcomeProgress } from '@mycel/shared/api'
@@ -14,6 +15,7 @@ import { GoalCard, INVITE_STEP_STATE } from '../../src/components/onboarding/Goa
 import { HomeTop } from '../../src/pages/Home'
 import { firstRunText, goalNext, goalNextText, goalProgressText, NOBODY_AFTER_DAYS, objectParticle, quotedSkill, resendText, runnerNames, skillRunUrl, skillTopic, topicParticle } from '../../src/lib/teamGoal'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { useWelcome } from '../../src/store/welcome'
 import { stepTotal } from '../../src/lib/welcome'
 import { installDom, mount, removeDom } from './dom-host'
@@ -459,5 +461,36 @@ describe('the top of Home: one thing', () => {
   test('no goal (an older team, or its time is over): nothing at the top', async () => {
     welcome = null; teamGoal = null
     expect(await top('owner')).toEqual({ resume: null, goal: null, dots: false })
+  })
+  test('Home opened while the connection is down (QA TC-231): the card comes back by itself once the live connection is back, without a reload', async () => {
+    welcome = null; teamGoal = goal()
+    const working = globalThis.fetch
+    let down = true
+    let goalReads = 0
+    // the connection is down: no answer at all (fetch rejects), as in a browser that lost the server
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/onboarding/goal')) goalReads++
+      if (down) throw new TypeError('Failed to fetch')
+      return working(input, init)
+    }) as unknown as typeof fetch
+    useUi.setState({ conn: 'reconnecting' })
+    useSession.setState({ status: { kind: 'signed-in', me: me('admin') } } as never)
+    const m = await mount(<MemoryRouter><HomeTop owner={false} /></MemoryRouter>)
+    try {
+      await m.settle(60)
+      expect(m.find('team-goal')).toBeNull()
+      const failed = goalReads
+      expect(failed).toBeGreaterThan(0)
+      // the live connection is back: the goal is read again at once (the backoff waits seconds; this does not)
+      down = false
+      await act(async () => { useUi.setState({ conn: 'open' }) })
+      await m.until(() => m.find('team-goal'), 'the goal card back')
+      expect(m.get('team-goal').getAttribute('data-state')).toBe('open')
+      expect(goalReads).toBe(failed + 1)
+    } finally {
+      await m.unmount()
+      globalThis.fetch = working
+      useUi.setState({ conn: 'idle' })
+    }
   })
 })

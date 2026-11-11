@@ -240,6 +240,28 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   expect(await rules(page, 'marketing')).toEqual(['everyone::read', 'user:bob:read'])
 })
 
+test('the confirm says who gains later by what they get: "open" for a group added as "Can view", "open or edit" for "Can edit" (QA TC-232)', async ({ page }) => {
+  await signIn(page)
+  // a group nobody is in yet: only whoever joins it later gains
+  expect((await page.request.post('/api/admin/groups', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Design', memberIds: [] } })).ok()).toBe(true)
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  await page.goto('/files?path=marketing')
+  await chip(page).click()
+  await page.getByTestId('edit-add').fill('Des')
+  await page.getByTestId('edit-add-option').filter({ hasText: 'Design' }).click()
+  await page.getByTestId('sharing-save').click()
+  const body = page.getByTestId('sharing-confirm-body')
+  await expect(body.getByTestId('sharing-confirm-latent')).toHaveText(en('folderAccess.latentGroupsView', { groups: 'Design' }))
+  await expect(body).not.toContainText('edit')
+  await page.getByRole('dialog').filter({ has: confirm(page) }).getByRole('button', { name: t['common.cancel'] }).click()
+  // the same group with "Can edit": its future members can edit, said so
+  await page.getByTestId('sharing-row').filter({ hasText: 'Design' }).getByTestId('sharing-level').selectOption('write')
+  await page.getByTestId('sharing-save').click()
+  await expect(body.getByTestId('sharing-confirm-latent')).toHaveText(en('folderAccess.latentGroups', { groups: 'Design' }))
+  await confirm(page).click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+})
+
 test('rows from a folder above: greyed, read only, "Change there" opens that folder and comes back; the names who lose access', async ({ page, playwright }) => {
   await signIn(page)
   await addCarol(page, playwright)

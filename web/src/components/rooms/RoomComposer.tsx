@@ -20,6 +20,7 @@ import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
+import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
@@ -77,6 +78,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (s) drafts.set(key, s)
     else drafts.delete(key)
   }
+  // a reply typed here lives only in this tab's memory (store/rooms.ts roomDrafts): while there is one, the page does not
+  // reload by itself (after an update, or once the connection is back: lib/reload-guard.ts), as the chat's box does
+  useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   // "@전체": everyone else in the room, where it is offered (useEveryone)
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length

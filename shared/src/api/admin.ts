@@ -371,8 +371,13 @@ export const FolderEditPreview = z.object({
    * today). The Files page's panel asks before saving then too. Absent: an older server */
   latentMore: z.boolean().optional(),
   /** with `latentMore`: who, so the panel can say it: whoever joins the team (`team`), people switched off (by name, at
-   * most 50), whoever joins these groups. Null without latentMore. Admin only, like the rest of this answer */
-  latent: z.object({ team: z.boolean(), off: z.array(UserRef), groups: z.array(z.object({ id: z.string(), name: z.string() })) }).nullable().optional(),
+   * most 50), whoever joins these groups. `edit`: for each of the three, whether one of them gets edit somewhere (here
+   * or in a folder inside), not only view; the panel says "open or edit" then, else "open" (absent: an older server,
+   * said as "open or edit"). Null without latentMore. Admin only, like the rest of this answer */
+  latent: z.object({
+    team: z.boolean(), off: z.array(UserRef), groups: z.array(z.object({ id: z.string(), name: z.string() })),
+    edit: z.object({ team: z.boolean(), off: z.boolean(), groups: z.boolean() }).optional(),
+  }).nullable().optional(),
   /** less first, then more */
   changes: z.array(FolderEditChange),
   /** the rule folders below that change too, in the tree's order (at most 20; `belowMore` others) */
