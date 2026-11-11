@@ -19,7 +19,8 @@ const PLACE_WORDS = new Set([
   ...Object.values(STEP_PLACE).flatMap((x) => Object.values(x)).filter((w) => !w.includes('{')),
   ...Object.values(TEXT.placeTop),
 ].map(norm))
-const otherFolder = /^(.*)님의 폴더$|^(.*)'s folder$|^Folder (.*)$|^(.*)さんのフォルダー$|^Carpeta de (.*)$/
+/** "<name>님의 폴더" and its other languages, as a pattern (from placeOther itself) */
+const otherFolder = new RegExp(Object.values(TEXT.placeOther).map((w) => `^${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{name\\}', '.+')}$`).join('|'))
 
 export function placeWords(db: Database, path: string, L: Locale, me: string): string {
   const segs = path.normalize('NFC').split('/').filter(Boolean)
