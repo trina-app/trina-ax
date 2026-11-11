@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 03:27
 - Branch: `fix/desktop-browser-pane`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, the desktop app (`desktop/src/ui/pane.ts`, `ui.css`, `main/app-window.ts`, `main/pane/pane.ts`,
   `main/main.ts`, `preload/ui.ts`, `common/i18n.ts`, a new pure `common/pane-width.ts`), its unit and e2e tests,
   docs/DECISIONS.md, `changes/`. Why: the desktop app and its in-app browser are core (see docs/REPOSITORY-RULES.md).
@@ -73,4 +73,15 @@ own view background (window resize has the same exposed-area behaviour); phones 
 
 ## Result
 
-Filled in at the end.
+Built as planned, PR #360. Differences from the plan:
+- The AI-control row still takes its place in the toolbar while a call runs (the page moves down by it, as for the
+  site question and the notice line); only the 3 px frame's resize of the page is gone.
+- A tab is hidden (`setVisible(false)`) rather than detached until its first real page commits: it keeps its size, so
+  the AI's reads and clicks see the same viewport as before.
+- An empty tab is now called "New tab" instead of "about:blank" (it showed while the first page loaded).
+- The keyboard goes back when the drag ends, not during it (a drag's pointer capture in a view that lost the focus is
+  not something to rely on across systems); during the drag no other view takes it.
+- Local desktop e2e on this Mac: Electron 44.7.2's `session.clearStorageData()` with no options never settles here
+  (each storage type alone does), which stops every AI browser call in the e2e after the first signed-out page load.
+  The runs for this PR used a build with an explicit storage list in the two clear calls (not in this PR); reported
+  separately.
