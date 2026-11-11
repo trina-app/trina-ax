@@ -234,3 +234,28 @@ export async function sha256File(file: string): Promise<string> {
 export async function* counted(src: Bytes, onBytes: (n: number) => void): AsyncGenerator<Uint8Array> {
   for await (const c of src) { onBytes(c.byteLength); yield c }
 }
+
+/** fsync one file or folder (a folder: the names in it, e.g. after a rename). Folders that cannot be opened for it
+ * (some file systems refuse fsync on a directory: EINVAL/EISDIR/EPERM) are skipped: the data itself is what matters. */
+export async function fsyncPath(p: string): Promise<void> {
+  let fh: fsp.FileHandle
+  try { fh = await fsp.open(p, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ELOOP') return // a symlink has no data of its own; its folder holds it
+    throw e
+  }
+  try { await fh.sync() } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code !== 'EINVAL' && code !== 'EISDIR' && code !== 'EPERM' && code !== 'EBADF') throw e
+  } finally { await fh.close() }
+}
+
+/** fsync every file and folder under `dir` (and `dir` itself), so a power loss after a rename of `dir` cannot leave
+ * the new name pointing at files whose data never reached the disk. Symlinks are not followed. */
+export async function fsyncTree(dir: string): Promise<void> {
+  for (const d of await fsp.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, d.name)
+    if (d.isDirectory()) await fsyncTree(p)
+    else if (d.isFile()) await fsyncPath(p)
+  }
+  await fsyncPath(dir)
+}

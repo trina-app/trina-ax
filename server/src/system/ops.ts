@@ -818,6 +818,8 @@ export class OpsService {
     const status = () => this.writeStatusFile().catch((e) => log.warn('status file not written', { err: e }))
     void status()
     this.timers.push(setInterval(status, 30_000))
+    // what a backup the last stop (or a power loss) interrupted left behind; the next backup's prune does the same
+    try { this.backups.removeUnfinished() } catch (e) { log.warn('unfinished backups not removed', { err: e }) }
     this.timers.push(setInterval(() => {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))

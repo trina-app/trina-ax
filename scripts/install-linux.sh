@@ -992,6 +992,7 @@ for name in claude codex; do
     mk "$SRV_USER" "$AGT_GRP" 750 "$dir"
     put "$stage" "$SRV_USER" "$AGT_GRP" 750 "$dir/$name"
     rm -f "$stage"
+    sync "$dir/$name" "$dir" "$BASE/app/engines/$name" || die "engine $name: writing it to the disk failed"
     got=$(engine_version "$dir/$name")
     if [ -n "$pin" ] && [ "$got" != "$pin" ]; then
       # image mode: the version check runs the engine in bwrap, and the build has no user namespaces. A download (or
@@ -1002,9 +1003,12 @@ for name in claude codex; do
       else warn "engine $name: version ${got:-unknown}, the kit pins $pin (the lockdown tests ran with $pin)"; fi
     fi
     nolink "$BASE/app/engines/$name"
-    rm -f "$BASE/app/engines/$name/current"
-    ln -s "$sha" "$BASE/app/engines/$name/current"
-    chown -h "$SRV_USER:$AGT_GRP" "$BASE/app/engines/$name/current"
+    # a rename of a new link: app/engines/<name>/current is never missing, not even for a moment or after a power loss
+    rm -f "$BASE/app/engines/$name/.current-install"
+    ln -s "$sha" "$BASE/app/engines/$name/.current-install"
+    chown -h "$SRV_USER:$AGT_GRP" "$BASE/app/engines/$name/.current-install"
+    mv -f -T "$BASE/app/engines/$name/.current-install" "$BASE/app/engines/$name/current"
+    sync "$BASE/app/engines/$name" || die "engine $name: writing app/engines/$name/current to the disk failed"
     say "engine $name: ${got:-version unknown} ($sha)"
   else
     t=$(readlink "$BASE/app/engines/$name/current" 2>/dev/null || true)
@@ -1048,7 +1052,12 @@ rm -rf "$DEST.partial"; cp -a --no-preserve=ownership "$BUNDLE" "$DEST.partial"
 chown -R "$SRV_USER:$SRV_GRP" "$DEST.partial"
 find "$DEST.partial" -type d -exec chmod 755 {} +
 chmod -R go-w "$DEST.partial"
+# on disk before it gets its name (QA TC-279): after a power loss, a version whose files never reached the disk fails
+# the bootstrap's check, the server rolls back to the version before, which may not read the migrated DB, and stops.
+# sync -f: one syncfs of the file system with the new version (and the engines in app/), not an fsync per file.
+sync -f "$DEST.partial" || die "writing $DEST to the disk failed"
 rm -rf "$DEST"; mv -T "$DEST.partial" "$DEST"
+sync "$BASE/app/versions" || die "writing $BASE/app/versions to the disk failed"
 CUR_T=$(readlink "$BASE/app/current" 2>/dev/null || true)
 CUR=""
 if [[ "$CUR_T" =~ ^versions/([0-9A-Za-z][0-9A-Za-z.+_-]{0,49})$ ]] && [ -L "$BASE/app/current" ] && [ -f "$BASE/app/$CUR_T/manifest.json" ]; then
@@ -1064,9 +1073,11 @@ ACTION=$(kitbun "$ADMIN_JS" install-state --current "$CUR" --version "$VERSION" 
 case "$ACTION" in
   init|switch)
     nolink "$BASE/app"
-    rm -f "$BASE/app/current"
-    ln -s "versions/$VERSION" "$BASE/app/current"
-    chown -h "$SRV_USER:$SRV_GRP" "$BASE/app/current"
+    # a rename of a new link (as mycel-bootstrap and the in-app update switch): app/current is never missing
+    rm -f "$BASE/app/.current-install"
+    ln -s "versions/$VERSION" "$BASE/app/.current-install"
+    chown -h "$SRV_USER:$SRV_GRP" "$BASE/app/.current-install"
+    mv -f -T "$BASE/app/.current-install" "$BASE/app/current"
     RUNNING=$VERSION
     [ "$ACTION" = switch ] && say "switching $CUR -> $VERSION ($CUR stays for roll-back; the server goes back to it by itself if $VERSION does not start)"
     ;;
@@ -1078,6 +1089,8 @@ case "$ACTION" in
   *) die "unexpected plan: $ACTION" ;;
 esac
 put "$ITMP/state.json" "$SRV_USER" "$SRV_GRP" 640 "$BASE/app/state.json"
+# app/current and state.json on disk before the server starts on them
+sync "$BASE/app/state.json" "$BASE/app" || die "writing $BASE/app/state.json to the disk failed"
 
 # ---- office-network TLS certificate (only with --tls-port) ----
 if [ "$TLS_PORT" != 0 ]; then

@@ -29,7 +29,7 @@ import { SCHEMA_READER_LEVEL, checkReadable } from '../db'
 import type { Logger } from '../log'
 import { diskSpace, type InstallLayout } from './layout'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
-import { readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
+import { fsyncPath, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { backupRetentionDays } from './limits'
 import { HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
@@ -75,6 +75,11 @@ export class BackupError extends Error {
 export interface BackupProgress { (fraction: number | null, message: string): void }
 
 const ID_RE = /^[0-9]{8}T[0-9]{6}Z-(daily|manual|pre-update)(-[0-9]+)?$/
+/** a DB copy in data/backups/: `<id>.sqlite`, `<id>.sqlite.partial` (vacuumInto), either one's -journal; [2] set = partial */
+const UNFINISHED_DB_RE = /^(.+)\.sqlite(\.partial)?(-journal)?$/
+/** an unfinished backup's files must be this long unchanged before removeUnfinished takes them (a copy being written
+ * changes every few seconds; reading it back for the checksum does not, and takes minutes on a slow disk) */
+export const UNFINISHED_GRACE_MS = 6 * 3600_000
 const PRE_MIGRATE_RE = /^pre-migrate-[A-Za-z0-9._-]+$/
 /** data/backups/before-restore-<stamp>/ (applyPendingRestore) */
 const BEFORE_RESTORE_RE = /^before-restore-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/
@@ -83,21 +88,68 @@ function stamp(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
 }
 
+/** A DB copy is written as `<dst>.partial` and renamed to `<dst>` once complete and on disk, so a crash (power loss,
+ * kill) leaves a name that says so (BackupManager.removeUnfinished cleans it up), never a `<dst>` that looks finished. */
+export const PARTIAL_SUFFIX = '.partial'
+
 /** Copy a live SQLite DB with VACUUM INTO in a child bun process (never blocks the server's event loop). */
 export async function vacuumInto(src: string, dst: string): Promise<void> {
-  await fsp.rm(dst, { force: true })
+  const tmp = dst + PARTIAL_SUFFIX
+  const clear = () => Promise.all([tmp, `${tmp}-journal`].map((f) => fsp.rm(f, { force: true })))
+  await Promise.all([fsp.rm(dst, { force: true }), clear()])
   const code = `const { Database } = require('bun:sqlite')
 const d = new Database(process.env.MYCEL_VACUUM_SRC)
 d.exec('PRAGMA busy_timeout = 15000')
 d.query('VACUUM INTO ?').run(process.env.MYCEL_VACUUM_DST)
 d.close()`
   const p = Bun.spawn([process.execPath, '-e', code], {
-    env: { MYCEL_VACUUM_SRC: src, MYCEL_VACUUM_DST: dst, PATH: process.env.PATH ?? '/usr/bin:/bin' },
+    env: { MYCEL_VACUUM_SRC: src, MYCEL_VACUUM_DST: tmp, PATH: process.env.PATH ?? '/usr/bin:/bin' },
     stdout: 'ignore', stderr: 'pipe',
   })
   const [err, exit] = await Promise.all([new Response(p.stderr).text(), p.exited])
-  if (exit !== 0) throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] ?? exit}`)
-  await fsp.chmod(dst, 0o600)
+  if (exit !== 0) {
+    await clear()
+    throw new BackupError(`database copy failed: ${err.trim().split('\n').slice(-1)[0] ?? exit}`)
+  }
+  try {
+    await fsp.chmod(tmp, 0o600)
+    // VACUUM INTO does not sync its output: a copy taken just before an update must survive a power loss
+    await fsyncPath(tmp)
+    await fsp.rename(tmp, dst)
+  } catch (e) {
+    await clear()
+    throw e
+  }
+  await fsyncPath(path.dirname(dst))
+}
+
+/** PRAGMA quick_check of a DB file in a child bun process: it reads the whole file, which takes seconds per GB (minutes
+ * on a slow disk), and bun:sqlite is synchronous, so in the server's own process it would stop every request. */
+async function quickCheckInChild(file: string): Promise<string | null> {
+  const code = `const { Database } = require('bun:sqlite')
+const d = new Database(process.env.MYCEL_CHECK_FILE, { readonly: true })
+const r = d.query('PRAGMA quick_check').get()
+d.close()
+process.stdout.write(JSON.stringify(r ? Object.values(r)[0] : null))`
+  const p = Bun.spawn([process.execPath, '-e', code], {
+    env: { MYCEL_CHECK_FILE: file, PATH: process.env.PATH ?? '/usr/bin:/bin' },
+    stdout: 'pipe', stderr: 'pipe',
+  })
+  const [out, err, exit] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited])
+  if (exit !== 0) throw new BackupError(`database copy is damaged (${err.trim().split('\n').slice(-1)[0] || `check exited ${exit}`})`)
+  try { return JSON.parse(out) as string | null } catch { return null }
+}
+
+/** schema facts of a DB copy whose integrity was checked; throws when this server cannot read it */
+function dbCopyFacts(file: string): { schemaVersion: number } {
+  const d = new Database(file)
+  try {
+    checkReadable(d, SCHEMA_READER_LEVEL)
+    const s = d.query('SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations').get() as { v: number }
+    return { schemaVersion: s.v }
+  } finally {
+    d.close()
+  }
 }
 
 /** integrity check + schema facts of a DB copy; throws when it is not usable */
@@ -107,12 +159,17 @@ export function inspectDbCopy(file: string): { schemaVersion: number } {
     const r = d.query('PRAGMA quick_check').get() as Record<string, string> | null
     const v = r ? Object.values(r)[0] : null
     if (v !== 'ok') throw new BackupError(`database copy is damaged (${v ?? 'no answer'})`)
-    checkReadable(d, SCHEMA_READER_LEVEL)
-    const s = d.query('SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations').get() as { v: number }
-    return { schemaVersion: s.v }
   } finally {
     d.close()
   }
+  return dbCopyFacts(file)
+}
+
+/** inspectDbCopy with the integrity check in a child process (the server's backups: the event loop keeps running) */
+export async function inspectDbCopyAsync(file: string): Promise<{ schemaVersion: number }> {
+  const v = await quickCheckInChild(file)
+  if (v !== 'ok') throw new BackupError(`database copy is damaged (${v ?? 'no answer'})`)
+  return dbCopyFacts(file)
 }
 
 export interface BackupManagerOptions {
@@ -207,10 +264,16 @@ export class BackupManager {
     progress(0.02, 'database')
     const dbFile = this.dbCopy(id)
     await vacuumInto(this.o.dbFile, dbFile)
-    const { schemaVersion } = inspectDbCopy(dbFile)
-    const dbStat = await fsp.stat(dbFile)
+    let schemaVersion: number, dbStat: fs.Stats
     const dbSha = crypto.createHash('sha256')
-    for await (const c of readFileChunks(dbFile)) dbSha.update(c)
+    try {
+      schemaVersion = (await inspectDbCopyAsync(dbFile)).schemaVersion
+      dbStat = await fsp.stat(dbFile)
+      for await (const c of readFileChunks(dbFile)) dbSha.update(c)
+    } catch (e) {
+      await fsp.rm(dbFile, { force: true })
+      throw e
+    }
     const meta: BackupMeta = {
       format: 1, id, kind: o.kind, scope: 'db', createdAt: now.toISOString(), serverVersion: this.o.version, schemaVersion,
       db: { file: path.basename(dbFile), size: dbStat.size, sha256: dbSha.digest('hex') }, team: null,
@@ -365,6 +428,65 @@ export class BackupManager {
       for (const p of pre.slice(0, -1)) if (p.t < cutoff) { fs.rmSync(path.join(this.o.layout.dbBackupsDir, p.n), { force: true }); removed.push(p.n.slice(0, -3)) }
     } catch {}
     removed.push(...this.pruneBeforeRestore(cutoff))
+    removed.push(...this.removeUnfinished())
+    return removed
+  }
+
+  /**
+   * What a backup that never finished left behind (the server or the host stopped during the copy): a backup is
+   * complete once its data/backups/<id>.json exists (written last, atomically), so the DB copy (`<id>.sqlite`, its
+   * `.partial` and their -journal), the team-folder archive (team/.system/backups/<id>/) and the metadata's temporary
+   * file of an id without that file are removed, never anything of an id that has it. Only what has not changed for
+   * UNFINISHED_GRACE_MS: another process (mycel-ctl backup) may be writing one right now. Runs after every backup
+   * (prune) and when the server starts.
+   */
+  removeUnfinished(): string[] {
+    const L = this.o.layout
+    const cutoff = this.now().getTime() - UNFINISHED_GRACE_MS
+    const done = (id: string) => fs.existsSync(this.metaFile(id))
+    const mtime = (p: string) => { try { return fs.lstatSync(p).mtimeMs } catch { return 0 } }
+    // id -> paths of the unfinished backup, and the last time any of them changed
+    const found = new Map<string, { paths: string[]; t: number }>()
+    const add = (id: string, p: string, t: number) => {
+      const e = found.get(id) ?? { paths: [], t: 0 }
+      e.paths.push(p); e.t = Math.max(e.t, t)
+      found.set(id, e)
+    }
+    let names: string[] = []
+    try { names = fs.readdirSync(L.dbBackupsDir) } catch {}
+    for (const n of names) {
+      const db = UNFINISHED_DB_RE.exec(n)
+      if (db && ID_RE.test(db[1]!) && (db[2] || !done(db[1]!))) { add(db[1]!, path.join(L.dbBackupsDir, n), mtime(path.join(L.dbBackupsDir, n))); continue }
+      // writeAtomic's temporary file of the metadata (streams.ts): the backup it belongs to finished or not, it is not one
+      if (n.startsWith(PRODUCT.tmpPrefix) && n.endsWith('.json.partial') && ID_RE.test(n.slice(PRODUCT.tmpPrefix.length, -'.json.partial'.length))) {
+        const id = n.slice(PRODUCT.tmpPrefix.length, -'.json.partial'.length)
+        add(id, path.join(L.dbBackupsDir, n), mtime(path.join(L.dbBackupsDir, n)))
+      }
+    }
+    let dirs: fs.Dirent[] = []
+    try { dirs = fs.readdirSync(L.teamBackupsDir, { withFileTypes: true }) } catch {}
+    for (const d of dirs) {
+      if (!d.isDirectory() || !ID_RE.test(d.name) || done(d.name)) continue
+      const dir = path.join(L.teamBackupsDir, d.name)
+      let t = mtime(dir)
+      try { for (const n of fs.readdirSync(dir)) t = Math.max(t, mtime(path.join(dir, n))) } catch {}
+      add(d.name, dir, t)
+    }
+    const removed: string[] = []
+    for (const [id, e] of found) {
+      // the copy of an id may finish between the listing and now: check the marker again right before removing
+      if (e.t >= cutoff) continue
+      const own = e.paths.filter((p) => !p.endsWith(`${id}.sqlite`) && !p.endsWith(`${id}.sqlite-journal`) && path.dirname(p) !== L.teamBackupsDir)
+      const all = done(id) ? own : e.paths
+      if (!all.length) continue
+      try {
+        for (const p of all) fs.rmSync(p, { recursive: true, force: true })
+        removed.push(`unfinished:${id}`)
+      } catch (err) {
+        this.o.log.error('could not remove an unfinished backup', { id, err })
+      }
+    }
+    if (removed.length) this.o.log.warn('removed what unfinished backups left behind', { removed })
     return removed
   }
 
