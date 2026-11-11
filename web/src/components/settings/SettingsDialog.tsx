@@ -100,7 +100,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const waiting = (tab === 'providers' && own === null) || (tab === 'dev-env-sites' && sites === null)
   // phones: a section opened from a link gets the list under it, once it is the section that stays; the list and the
   // open section each keep their place for Back (lib/backStack.ts)
-  const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'connectors' || tab === 'credentials'
+  const redirecting = tab === 'drive' || tab === 'integrations' || tab === 'connectors' || tab === 'credentials' || (phone && !page && !!tab && PHONE_FOLDED.has(tab))
   const valid = !!tab && !waiting && !redirecting && tabs.some((x) => x.id === tab)
   // the Activity page (#364) is the 나 tab's too: 알림 opened from its gear goes back to it, with no list put between
   useListUnderPage('/settings', phone, valid && !page, ['/activity'])
