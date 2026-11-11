@@ -549,6 +549,8 @@ export const ko = {
   'ask.ownAnswer': '직접 답하기',
   'ask.orType': '또는 직접 입력하세요',
   'ask.typeAnswer': '답을 입력하세요',
+  'ask.inBox': '아래 메시지 칸에 답을 입력하세요.',
+  'ask.inBoxOr': '직접 답하려면 아래 메시지 칸에 입력하세요.',
   'ask.noSecrets': '비밀번호·인증 코드는 AI에게 알려 주지 마세요.',
   'ask.skip': '건너뛰기',
   'ask.send': '답하기',

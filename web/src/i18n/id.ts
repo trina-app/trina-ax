@@ -550,6 +550,8 @@ export const id: Record<MessageKey, string> = {
   'ask.ownAnswer': 'Jawaban kamu',
   'ask.orType': 'Atau ketik jawaban sendiri',
   'ask.typeAnswer': 'Ketik jawaban',
+  'ask.inBox': 'Ketik jawaban di kotak pesan di bawah.',
+  'ask.inBoxOr': 'Atau ketik jawaban sendiri di kotak pesan di bawah.',
   'ask.noSecrets': 'Jangan berikan kata sandi atau kode verifikasi ke AI.',
   'ask.skip': 'Lewati',
   'ask.send': 'Jawab',

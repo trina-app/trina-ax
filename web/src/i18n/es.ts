@@ -531,6 +531,8 @@ export const es: Record<MessageKey, string> = {
   'ask.ownAnswer': "Su respuesta",
   'ask.orType': "O escriba su propia respuesta",
   'ask.typeAnswer': "Escriba su respuesta",
+  'ask.inBox': "Escriba su respuesta en el cuadro de mensaje de abajo.",
+  'ask.inBoxOr': "O escriba su propia respuesta en el cuadro de mensaje de abajo.",
   'ask.noSecrets': "No comparta contraseñas ni códigos de verificación con la IA.",
   'ask.skip': "Omitir",
   'ask.send': "Responder",
