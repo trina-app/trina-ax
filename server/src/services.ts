@@ -1,7 +1,7 @@
 // Cross-component service interfaces. Each component implements its service in its own folder and installs it in
 // its route module's init() (ctx.services.x = ...). Until then the app runs with the fallbacks below, which refuse
 // politely instead of pretending to work.
-import type { Attachment, ClientKind, ConnectionStatus, JobKind, Locale, Role, ServerEventInput } from '@mycel/shared/api'
+import type { Attachment, ClientKind, ConfirmDetail, ConnectionStatus, JobKind, Locale, Role, ServerEventInput } from '@mycel/shared/api'
 
 /** Who is calling (set by the session middleware for every request). */
 export interface AuthInfo {
@@ -136,6 +136,9 @@ export interface TurnToolResult {
  * share_file, artifact, web_fetch; B registers remember, forget, ask_user and the browser tools.
  * Register in init(): (ctx.services.turnTools ??= []).push(tool)
  */
+/** A tool's own words on the room card (TurnTool.card). */
+export interface ToolCard { what: string; details: ConfirmDetail[] }
+
 export interface TurnTool {
   name: string
   description: string
@@ -146,6 +149,10 @@ export interface TurnTool {
   call(args: unknown, t: TurnToolContext): Promise<TurnToolResult>
   /** the step label under the answer ("AI PM · create_task"); default: shared/src/step-labels.ts by the tool name */
   label?(args: unknown, locale: Locale): string
+  /** the room card's words for a call (chat/turn.ts confirmRoomChange, after a room read), where the shared ones would
+   * show its raw arguments (QA TC-233): what it does, for the card's question, and its details in words with the exact
+   * call one click away (ConfirmDetail.exact). null: the shared words. Words only: it decides nothing */
+  card?(args: unknown, locale: Locale): ToolCard | null
   /** a connection's tool (integrations/connections/tools.ts): does this call only read (true), or change something at
    * the service, where the tool asks on its own card (false)? After a room read, a read goes on without the room card
    * and a write asks on the connection's card alone (chat/turn.ts confirmRoomChange, TurnPerson.roomsSeen). Only the

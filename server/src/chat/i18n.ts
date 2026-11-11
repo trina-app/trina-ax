@@ -62,6 +62,9 @@ export const TEXT = {
   // a project makes its folder admin-only to move: only someone who could move it may add that lock
   engineChoiceNotAllowed: t("어떤 AI로 답할지는 관리자가 정해요. 그냥 보내면 팀 기본 AI가 답해요.", "Your admin chooses which AI answers. Just send it and the team's AI answers.", "Admin yang menentukan AI mana yang menjawab. Kirim saja, AI bawaan tim yang akan menjawab.", "どのAIが回答するかは管理者が決めます。そのまま送信すると、チームの既定のAIが回答します。", "Su administrador elige qué IA responde. Envíelo tal cual y responderá la IA del equipo."),
   engineOff: t("관리자가 이 AI를 꺼 두었어요. 다른 AI를 골라 주세요.", "Your admin turned this AI off. Pick another one.", "Admin mematikan AI ini. Pilih yang lain.", "管理者がこのAIをオフにしました。別のAIを選んでください。", "Su administrador desactivó esta IA. Elija otra."),
+  // the same to the owner or an admin, who can turn it on themselves (QA TC-234): where, by the names Admin shows
+  // (web admin.title › admin.providers)
+  engineOffAdmin: t("이 AI는 팀에서 꺼져 있어요. 관리자 › AI 계정에서 켜거나 다른 AI를 골라 주세요.", "This AI is turned off for the team. Turn it on in Admin › AI accounts, or pick another one.", "AI ini dimatikan untuk tim. Nyalakan di Admin › Akun AI, atau pilih yang lain.", "このAIはチームでオフになっています。管理 › AIアカウントでオンにするか、別のAIを選んでください。", "Esta IA está desactivada para el equipo. Actívela en Administración › Cuentas de IA o elija otra."),
   browserUnavailable: t('데스크톱 앱 창이 연결되어 있지 않아요.', 'The desktop app window is not connected.', 'Jendela aplikasi desktop tidak terhubung.', "デスクトップアプリのウィンドウが接続されていません。", "La ventana de la aplicación de escritorio no está conectada."),
   // a connect_service card (chat/connect-service.ts, POST /api/turns/:id/connect)
   connectClosed: t('이미 끝났거나 시간이 지난 연결 카드예요.', 'This connection card was already finished or has expired.', 'Kartu koneksi ini sudah selesai atau kedaluwarsa.', "この接続カードは完了済みか、期限切れです。", "Esta tarjeta de conexión ya se completó o venció."),

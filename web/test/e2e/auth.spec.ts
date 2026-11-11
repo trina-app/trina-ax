@@ -295,6 +295,26 @@ test('a language picked before sign-in becomes the account’s own, also through
   await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
 })
 
+test('a link opened with a temporary password: after the new password, the page it asked for (not Home)', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, mustChange: 'bob' })
+  // a link from a chat app that needs signing in (a Slack "link your account" link works the same way)
+  await page.goto('/scheduled')
+  await expect(page).toHaveURL(/\/login\?next=%2Fscheduled$/)
+  await page.getByTestId('login-username').fill('bob')
+  await page.getByTestId('login-password').fill('bob password 1')
+  await page.getByTestId('login-submit').click()
+  await expect(page).toHaveURL(/\/password\?next=%2Fscheduled$/)
+  // signed in, still to change it: an address opened now goes along too; one that holds a token never does
+  await page.goto('/invite/abcdefghijklmnop')
+  await expect(page).toHaveURL(/\/password$/)
+  await page.goto('/scheduled')
+  await expect(page).toHaveURL(/\/password\?next=%2Fscheduled$/)
+  await page.getByTestId('password-new').fill('a brand new password 2')
+  await page.getByTestId('password-new2').fill('a brand new password 2')
+  await page.getByTestId('password-submit').click()
+  await expect(page).toHaveURL(/\/scheduled$/)
+})
+
 test('an error on the sign-in page stays after a language switch; signing out shows the team default again', async ({ page }) => {
   // olga has her own language (Korean); the team default is English
   await reset(page, { teamLocale: 'en' })

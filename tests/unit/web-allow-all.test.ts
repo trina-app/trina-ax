@@ -15,7 +15,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
-import { allowSite, gateUrl, rememberUrls, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
+import { allowSite, gateUrl, rememberUrls, TEXT as GATE_TEXT, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
 import { getTeamSettings, updateTeamSettings } from '../../server/src/admin/settings'
 import { policyEpoch, setWebAllowAll, webAllowAll } from '../../server/src/tools/web-allow-all'
 import { enforceAuth } from '../../server/src/http/route'
@@ -99,7 +99,12 @@ describe('the card', () => {
     expect(values(asked[0])).toEqual(['allow', 'site', ALL_SITES_ANSWER, 'deny'])
     expect(asked[0]!.options![2]!.label).toBe('Allow all websites (turn off in Settings)')
     expect(asked[0]!.question).toContain('If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and in rooms')
-    expect(asked[0]!.question).toContain('catches obvious tokens only')
+    // the same plain words as the site line beside it (#348), no "token"
+    expect(asked[0]!.question).toContain('Addresses with long hard-to-read strings or a lot of text at the end still ask, but that only catches what is easy to spot.')
+    expect(asked[0]!.question).not.toMatch(/token/i)
+    // in Korean too: "긴 글자" as on the lines beside it, never "긴 문자열" or "토큰"; every language without "token"
+    for (const k of ['opaque', 'site', 'all'] as const) expect([k, GATE_TEXT[k].ko.includes('긴 글자')]).toEqual([k, true])
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect([l, /토큰|문자열|token|トークン/i.test(GATE_TEXT.all[l])]).toEqual([l, false])
     expect(asked[0]!.question).toContain(WEB_ALLOW_ALL_RISK.en)
     // the team key off, or the browser switch above it off: not offered
     for (const s of [{ webAllowAll: false }, { browserAllowAll: false }]) {

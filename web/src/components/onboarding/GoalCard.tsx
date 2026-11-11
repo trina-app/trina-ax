@@ -17,10 +17,11 @@
 // place (never [다시 보내기] on phones); reached: "달성했어요 · names" and the way to hide it. From 768px a card.
 import clsx from 'clsx'
 import { Check, CheckCircle2, ChevronDown, Copy, Plus, Target, UserPlus, X } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GENERAL_DECK_SKILL, skillLabel, type TeamGoal, type TeamLinkResponse } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
+import { api, API, isConnectionError } from '../../lib/api'
+import { useAutoRetry } from '../../lib/autoRetry'
 import { SKILL_CATALOG } from '../../lib/nav'
 import { teamLinkMessage } from '../../lib/team-link'
 import { goalNext, goalNextText, goalProgressText, resendText, runnerNames, skillQuote, skillRunUrl } from '../../lib/teamGoal'
@@ -41,16 +42,26 @@ const doneKey = (startedAt: string) => `mycel.teamGoalDone.${startedAt}`
 const readDone = (startedAt: string) => { try { return localStorage.getItem(doneKey(startedAt)) === '1' } catch { return false } }
 
 /** The goal card on Home (owners and admins; Home decides when): loads the goal and shows nothing when there is none,
- * the load failed, or "달성했어요" was dismissed in this browser. */
+ * the load failed, or "달성했어요" was dismissed in this browser. A load the connection failed (Home opened while it was
+ * down, QA TC-231) is read again by itself, at once when the live connection is back (lib/autoRetry.ts, as LoadError
+ * does), and a failed read keeps the card it had. */
 export function HomeGoal() {
   const me = useMeStrict()
   const [goal, setGoal] = useState<TeamGoal | null>(null)
   const [dismissed, setDismissed] = useState(false)
+  // the connection failed the last read: it reads again until one works
+  const [failed, setFailed] = useState(false)
+  const live = useRef(false)
+  const load = useCallback(() => api.call(API.getTeamGoal).then(
+    (r) => { if (live.current) { setGoal(r.goal); setFailed(false) } },
+    (e) => { if (live.current) setFailed(isConnectionError(e)) },
+  ), [])
   useEffect(() => {
-    let live = true
-    api.call(API.getTeamGoal).then((r) => live && setGoal(r.goal), () => live && setGoal(null))
-    return () => { live = false }
-  }, [me.user.id])
+    live.current = true
+    void load()
+    return () => { live.current = false }
+  }, [load, me.user.id])
+  useAutoRetry(failed, load)
   if (!goal || (goal.state === 'reached' && (dismissed || readDone(goal.startedAt)))) return null
   const dismiss = () => {
     try { localStorage.setItem(doneKey(goal.startedAt), '1') } catch { /* this tab only */ }

@@ -403,3 +403,14 @@ describe('the storage rule before each command', () => {
     expect((await shell().call({ command: 'echo hi' })).isError).toBeUndefined()
   })
 })
+
+describe('load order', () => {
+  // runner.ts and jobs.ts reach each other through a long import chain, and jobs.ts sets the end hook while it loads
+  // (srt/end.ts holds it). Loaded runner first, as a single test file can do, nothing may be used before it exists.
+  test.each(['srt/runner', 'jobs'])('loading %s first works', (first) => {
+    const dir = path.resolve(import.meta.dir, '../../server/src/devenv')
+    const code = `await import(${JSON.stringify(path.join(dir, first))}); await import(${JSON.stringify(path.join(dir, 'jobs'))}); console.log('loaded')`
+    const p = Bun.spawnSync([process.execPath, '-e', code], { stdout: 'pipe', stderr: 'pipe' })
+    expect({ code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString().slice(0, 500) }).toEqual({ code: 0, out: 'loaded', err: '' })
+  })
+})

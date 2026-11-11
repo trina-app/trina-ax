@@ -6,10 +6,12 @@
 // Fake engine through the real launcher; fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type MemberEngineChoice } from '@mycel/shared/api'
+import { tr } from '../../server/src/chat/i18n'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { canChooseEngine, filterEnginePrefs, HOSTED_FALLBACK_SET_KEY, LIMIT_FALLBACK_KEY, limitFallbackSetting, personalDefault, readyEngines, settleHostedFallback, turnEngine } from '../../server/src/admin/engine-choice'
 
 setDefaultTimeout(30_000)
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 
@@ -103,8 +105,15 @@ describe('enforcement', () => {
     expect(ac).toMatchObject({ engine: 'codex', model: 'fake-2' })
     await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: false } } })
     try {
-      expect(await status(send('carol', chat.id, { engine: 'codex' }))).toMatchObject({ status: 409, reason: 'engine_off' })
-      expect((await status(h.api('alice').call(API.createChat, { body: { engine: 'codex' } }))).status).toBe(409)
+      // an admin is told it is off for the team and where to turn it on; a member keeps "your admin turned it off" and
+      // never sees who the admins are (QA TC-234)
+      const admin = await status(send('carol', chat.id, { engine: 'codex' }))
+      expect(admin).toMatchObject({ status: 409, reason: 'engine_off' })
+      expect(LOCALES.map((l) => tr('engineOffAdmin', l))).toContain(admin.message!)
+      const member = await status(h.api('alice').call(API.createChat, { body: { engine: 'codex' } }))
+      expect(member).toMatchObject({ status: 409, reason: 'engine_off' })
+      expect(LOCALES.map((l) => tr('engineOff', l))).toContain(member.message!)
+      expect(tr('engineOffAdmin', 'en')).toBe('This AI is turned off for the team. Turn it on in Admin › AI accounts, or pick another one.')
       expect((await h.api('carol').call(API.chatEngines)).engines.map((e) => e.id)).toEqual(['claude-code'])
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })

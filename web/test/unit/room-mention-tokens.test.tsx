@@ -15,6 +15,8 @@ import { act } from 'react'
 import type { Me } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
+import { isBusy } from '../../src/lib/busy'
+import { reloadWouldLose } from '../../src/lib/reload-guard'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { roomDraftMentions, useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -373,6 +375,21 @@ test('a draft keeps its mentions when the box comes back', async () => {
   } finally {
     await m.unmount()
   }
+}, DOM_TEST_MS)
+
+test('a reply typed in a room\'s box counts as a draft: the page does not reload by itself while it is there (QA TC-231)', async () => {
+  const { m, box } = await open()
+  try {
+    expect(isBusy('draft')).toBe(false)
+    await typeText(box, '내일 회의 자료 올려 주세요')
+    expect(isBusy('draft')).toBe(true)
+    expect(reloadWouldLose()).toBe(true)
+    await edit(box, 0, box.value.length, '', 'deleteContentBackward')
+    expect(isBusy('draft')).toBe(false)
+  } finally {
+    await m.unmount()
+  }
+  expect(isBusy('draft')).toBe(false)
 }, DOM_TEST_MS)
 
 test('the edit form: the mentions a message has stand out as on the message, and stay mentions while whole', async () => {

@@ -42,7 +42,7 @@ test('an error stored with the earlier words and no reason is still told apart (
 })
 
 test('refusals about which AI answers and the team\'s security settings in plain words', () => {
-  for (const key of ['engineChoiceNotAllowed', 'engineOff', 'sharedChatCreatorOnly', 'roomAiSafeOps', 'sharedChatSafeOps', 'sharedProjectSafeOps', 'chatShareSafeOps'] as const) {
+  for (const key of ['engineChoiceNotAllowed', 'engineOff', 'engineOffAdmin', 'sharedChatCreatorOnly', 'roomAiSafeOps', 'sharedChatSafeOps', 'sharedProjectSafeOps', 'chatShareSafeOps'] as const) {
     for (const l of LOCALES) {
       const text = tr(key, l)
       expect([key, l, /엔진|engine|mesin|エンジン|motor|안전 작업 모드|safe operations|operasi aman|安全作業モード|operaciones seguras/i.test(text)]).toEqual([key, l, false])

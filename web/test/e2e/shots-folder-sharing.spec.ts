@@ -92,3 +92,22 @@ test('who can open it: admin 1440 light and dark (en, ko), the confirm, a member
   await expect(page.getByTestId('sharing-outcome')).toContainText('Dan')
   await page.screenshot({ path: `${dir}/admin-1440-light-ko.png` })
 })
+
+test('the confirm for a view-only change (QA TC-232): "open", never "open or edit"; 1440 and 390 light, and Korean', async ({ page }) => {
+  for (const [locale, width] of [['en', 1440], ['en', 390], ['ko', 1440]] as const) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await world(page, locale)
+    // a group nobody is in yet and Dan, both "Can view" on Plans
+    await call(page, 'post', '/api/admin/groups', { name: locale === 'ko' ? '디자인' : 'Design', memberIds: [] })
+    await openPanel(page, 'shared/Sales/Plans')
+    for (const [q, name] of [['Dan', 'Dan'], [locale === 'ko' ? '디자' : 'Des', locale === 'ko' ? '디자인' : 'Design']] as const) {
+      await page.getByTestId('edit-add').fill(q)
+      await page.getByTestId('edit-add-option').filter({ hasText: name }).click()
+    }
+    await page.getByTestId('sharing-save').click()
+    await expect(page.getByTestId('sharing-confirm-latent')).toBeVisible()
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: `${dir}/confirm-view-only-${width}-light${locale === 'ko' ? '-ko' : ''}.png` })
+    await page.getByRole('dialog').filter({ has: page.getByTestId('dialog-confirm') }).getByRole('button', { name: locale === 'ko' ? '취소' : 'Cancel' }).click()
+  }
+})
