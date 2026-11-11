@@ -20316,7 +20316,8 @@ engine names, model ids and an English " (job)". The owner approved the audit's 
 - **The person's own draft**: "내 폴더에 저장할 요청 준비" writes "…같은 내용을 내 폴더에 저장해 줘." with the place in words,
   no `users/<id>`; the AI is told which folder 내 폴더 is (`chat/prompt.ts`).
 - **A connection's sign-in failure** is said in words (`integrations.signIn.reason.*`), not its stored code (denied,
-  invalid, changed, superseded).
+  invalid, changed, superseded). Merged with "A sign-in that did not finish says why" (#381), which did the same:
+  its `flowReasonKey` (`lib/integrations.ts`) and its words are kept, and they also cover `client` and `exchange`.
 - **Left for later**: the Google Drive routes' error codes (the web already words them where they show), background
   job exception text, the English-only dev-environment card and errors, the in-app browser's "사내망 주소" card, the
   skill-move card's path box, the schedule template's run message, and every web-only item of the audit (the other
@@ -20505,6 +20506,29 @@ users are office workers, not developers; the panel must make sense in a few sec
 - Version impact: **minor** (new desktop behaviour; no API, bridge or data change; `window.json` keeps its field). Ships
   with the next desktop release.
 
+## A sign-in that did not finish says why — 로그인 실패는 이유를 말한다 (fix/activity-tabs-oauth-errors, 2026-11-11, QA TC-020)
+
+- **Never a code.** A failed sign-in at a service (MCP OAuth, an own app) used to show its stored reason as is: the row
+  said "exchange", and the sign-in window always said to sign in to the same team account. The flow keeps a code
+  (`integration_oauth_flows.reason`, `FlowFailure` in `connections/service.ts`), and both places say it in words:
+  the row through `flowReasonKey` (`web/src/lib/integrations.ts`, `integrations.signIn.reason.*`), the window through
+  `callbackClient` / `callbackDenied` / `callbackChanged` / `callbackExchange` (`connections/text.ts`). A code the app
+  does not know is the plain "Could not sign in. Please try again."
+- **A refused own app is named.** `invalid_client` or `unauthorized_client` from an own app's token address is the
+  reason `client`: "The service did not accept this app's Client ID or Secret", and where to look (the Secret under
+  Advanced when editing the connection; the word is that screen's own). A member whose connection comes from a template
+  signs in with the admin's app, which they never see: for them it is `client_template`, "ask the person who set up
+  this connection to check its Client ID and Secret". A registered app's refusal stays the general "did not finish". The service's answer is never stored or shown (it may repeat what was sent), nor is the secret.
+- **"Sign in to the team account" only when that is the problem**: a browser without the person's session, a used or
+  unknown link. A sign-in the service did not finish says what to do in the app instead.
+- **Done means checked.** The flow is `completed` once the connection's check after the sign-in has ended (it stays
+  `exchanging` meanwhile), so the row the app reads then says connected, not "needs sign-in" until a reload. When the
+  tokens are stored the flow gets a new 10 minutes, so a check that runs past the first 10 is never swept as expired.
+- Tests: server `c-integrations-own-app` (a fake token address answering `invalid_client`; another refusal; the flow
+  completes after the check), web `integrations` (every reason in five languages, never the code), `connect-card` (the
+  card says the reason in words).
+- Version impact: **patch** (words; a new reason code `client`; no API shape or data change).
+
 ## Moving a file out of a personal folder asks first (fix/move-widen-warning, 2026-11-11, QA TC-115)
 
 - **Problem.** On the Files screen, moving a file from users/<me>/ into a project or other shared folder showed no
@@ -20523,3 +20547,75 @@ users are office workers, not developers; the panel must make sense in a few sec
 - **Tests.** `tests/security/r1-managed-folder-move.test.ts` (409 with the count, nothing moved; same-folder rename
   without a question; confirm moves and records it; no askWiden moves as before) and `web/test/unit/bulk-files.test.ts`
   (askWiden sent, one question for the batch, "no" leaves them, no askWiden without confirmWiden).
+
+## How we show errors — 연결이 끊기면 조용히, 다시 연결되면 저절로 (fix/calm-error-states, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`web/src/components/LoadError.tsx`, `web/src/lib/autoRetry.ts`, `web/src/lib/api.ts`, the places
+below, `web/src/components/Layout.tsx`, the five `web/src/i18n/*.ts`), 이유: the screens, their shared blocks and the app
+frame are core. Plan: `docs/AGENTS/plan/20261111-0329-calm-error-states.md`. Amends "W6.3 — What a new member sees first"
+(a failed read of 「팀에 준비된 것」 is the calm notice, no longer "다시 불러오기").
+
+The owner, on Home during a short network hiccup: a bare red sentence under the message box ("팀 서버에 연결하지 못했어요.
+인터넷 연결을 확인한 뒤 다시 시도해 주세요.") and an underlined "다시 불러오기" centred under it, "is this really the best it
+can look?". Red and "팀 서버" for what is usually a blip, unlike the rest of the app; lists elsewhere put the same words in
+a red box. People at work know the calm way from Slack, Gmail and KakaoTalk: one quiet line that says it cannot connect,
+that it is trying again, and the content back by itself.
+
+- **Two kinds of failure.** The connection (`isConnectionError`: no answer at all, or a 502–504 `unavailable` from the
+  relay or a proxy with no reason of the server's own) passes by itself and is not the person's to fix. Anything else is
+  the server's answer (no access, not found, a fault): a real problem, shown as before with the server's words in the
+  red `ErrorNote`. A 503 with the server's own reason (a quarantined file, the queue draining) is the server's answer.
+- **The connection, for a list or section: one calm notice** (`LoadError`). The neutral surface (`bg-subtle`, a hairline
+  edge), a WifiOff icon, "지금 연결이 안 돼요." / "Can't connect right now.", under it "다시 연결하는 중…" /
+  "Reconnecting…" with a small spinner, and a secondary [다시 시도] / [Try again]. `role="status"`, never `alert`; no red.
+- **It comes back by itself.** It reads again after 2, 4, 8 and 15 s, then every 30 s, while the page is visible;
+  nothing while it is hidden; at once when the page shows again, when the browser says it is online again, or when the
+  live connection is back. When a read works the notice goes and the data shows, without a click. [다시 시도] reads at
+  once (its own small spinner while it does, the focus kept on it) and starts the backoff over; never two reads at a
+  time. A place keeps its error until a read works, so the notice stays while it reads (no flicker to a skeleton and
+  back, no backoff starting over): the places changed here were made to (Files, a chat, the side chat, a room's
+  messages, 「팀에 준비된 것」; Settings › Memory reads again the page that failed, so a failed "더 보기" does not shorten
+  the list).
+- **One place says it.** While the app's connection banner shows (the live connection reconnecting, or offline after
+  30 s), a place that could not be read shows only a quiet spinner (named "다시 연결하는 중…" for screen readers) and reads
+  again every 30 s (a proxy that lets reads through but not the live connection) and at once when the connection is
+  back. The same while the message box says its message was not sent: on Home, the box's line says it and 「팀에 준비된
+  것」 waits under it. And of the places on screen that could not be read, one says it, the others wait with the quiet
+  spinner: the page's before the sidebar's 트리나 기록, then the first; when it comes back, the next one says it.
+- **The message box: never lost, never sent by itself.** A first message on Home that cannot reach the server keeps the
+  text in the box and says so on the same calm notice: "지금 연결이 안 돼서 보내지 못했어요. 메시지는 그대로 있어요." with
+  [다시 시도], which sends it. It is not sent again by itself: the person may want to change it. Emptying the box takes the
+  line away. Another failure keeps its red line. (In a chat a message already waits as "보내지 못했어요. · 다시 보내기" in the
+  list; the side chat's box keeps its toast: not changed here.)
+- **The side chat** found no chat for the room because its read failed: the calm notice reads again by itself, but a
+  chat the person opens or starts meanwhile (🕘, a new chat, here or in another panel of the room) stays; the read
+  that comes back only fills in "no chat yet" or a chat found deleted.
+- **The connection banner** is neutral too (`bg-subtle text-muted`, a hairline under it; it was amber, then red after
+  30 s), and offline says what is going on in plain words: "지금 연결이 안 돼요. 다시 연결하는 중이에요. 오래가면 인터넷
+  연결을 확인하거나 팀장에게 알려 주세요." The old line sent members to the team owner to check "서버 맥과 관리자 화면의
+  진단": jargon, wrong for a hosted team, and the admin screen does not open while offline.
+- **`soft`**: a part that is extra on its page (「팀에 준비된 것」) gets the calm notice for any failure, the server's
+  answer included ("불러오지 못했어요." with [다시 시도], no reading by itself), never red under the box.
+- **Where.** Home's 「팀에 준비된 것」 and message box, the sidebar's 트리나 기록 (a failed first read spun forever), the rooms
+  list, a room's messages, the file list, a chat's messages, the side chat, the admin screens' shared loader
+  (`Loadable`: Members, Groups, AI providers, Connections, Team settings and the others that use it) and Settings ›
+  Devices and › Memory. The other places that show a read's failure with `ErrorNote` keep it for now and can move one
+  by one.
+- **Words.** No "팀 서버": the person's side ("지금 연결이 안 돼요") and what is being done ("다시 연결하는 중…"). New
+  strings in five languages (`conn.now`, `conn.retrying`, `conn.loadFailed`, `conn.unsent`; `conn.offline` changed;
+  `home.prepared.retry` went). `error.network` stays for action failures; the chat error texts are
+  `fix/plain-words-errors-cards`'s.
+- **Left out.** Action failures (saving, deleting) and their toasts; the sign-in gate's full-page "연결할 수 없어요"; the
+  desktop and mobile shells' own texts; answer error cards.
+- Tests: `web/test/unit/auto-retry.test.ts` (the backoff on a fake clock, a read that works stops it, never two reads,
+  nothing after stop also with a read in flight, hidden page, the banner's 30 s, Try again; `isConnectionError`),
+  `load-error.test.tsx` (the calm notice, recovery without a click with a typed draft kept, Try again and its spinner,
+  the relay's 502, the server's error red and not read by itself, `soft`, the banner's quiet spinner and the read when
+  it goes, a hidden page, back online, one place says it and the sidebar's last, the message box's calm line with the
+  text kept and sent on Try again, the cause said once), `team-prepared.test.tsx` (the calm notice for a failed read;
+  the connection: back by itself), `side-chat.test.tsx` (a chat opened while the notice shows stays); e2e
+  `calm-errors.spec.ts`
+  (route-aborted reads: Home's block back without a click with the draft kept, the message box, the rooms list's Try
+  again, the file list back by itself, the banner's look; with `SHOTS_DIR`, Home and the rooms list at 1440 and 390,
+  light and dark).
+- Version impact: **patch** (how existing failures look and behave, and a few words; no API or data change).

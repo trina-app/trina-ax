@@ -45,9 +45,3 @@ export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean
   return { key: `chat.error.${reason}`, where: null }
 }
 
-const SIGN_IN_REASONS = new Set(['denied', 'invalid', 'changed', 'superseded'])
-/** Why a connection's sign-in did not finish, in words: the server stores a code (integrations/connections/service.ts:
- * denied, invalid, changed, superseded, exchange); any other, or none, is "Could not sign in". Never the code itself. */
-export function signInFailedKey(reason: string | null | undefined): MessageKey {
-  return reason && SIGN_IN_REASONS.has(reason) ? (`integrations.signIn.reason.${reason}` as MessageKey) : 'integrations.signIn.failed'
-}

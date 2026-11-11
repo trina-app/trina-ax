@@ -5,7 +5,8 @@
 import { expect, test } from 'bun:test'
 import { CHAT_ERROR_MESSAGES, type ChatErrorReason } from '@mycel/shared/api'
 import { translate, type MessageKey } from '../../src/i18n'
-import { adminPath, chatErrorText, signInFailedKey } from '../../src/lib/chatErrors'
+import { adminPath, chatErrorText } from '../../src/lib/chatErrors'
+import { flowReasonKey } from '../../src/lib/integrations'
 
 const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
 const REASONS = Object.keys(CHAT_ERROR_MESSAGES) as ChatErrorReason[]
@@ -63,10 +64,11 @@ test('no AI answers the owner or an admin: the words that go with the connect bu
 })
 
 test('a connection sign-in that did not finish is said in words, never as its stored code', () => {
-  for (const code of ['denied', 'invalid', 'changed', 'superseded']) {
-    const text = translate('ko', signInFailedKey(code))
-    expect(text).not.toContain(code)
-    expect(signInFailedKey(code)).toBe(`integrations.signIn.reason.${code}` as MessageKey)
+  // the sign-in row keeps the words, not the code (lib/integrations.ts flowReasonKey, with #381's client reasons)
+  for (const code of ['denied', 'invalid', 'changed', 'superseded', 'exchange', 'client', 'client_template']) {
+    expect(flowReasonKey(code)).not.toBe('integrations.signIn.failed')
+    expect(translate('ko', flowReasonKey(code))).not.toContain(code)
+    for (const l of LOCALES) expect(translate(l, flowReasonKey(code))).not.toContain('integrations.')
   }
-  for (const other of ['exchange', 'scope_denied', '', null, undefined]) expect(signInFailedKey(other)).toBe('integrations.signIn.failed')
+  for (const other of ['scope_denied', '', null]) expect(flowReasonKey(other)).toBe('integrations.signIn.failed')
 })

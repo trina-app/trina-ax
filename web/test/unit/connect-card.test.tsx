@@ -397,6 +397,20 @@ describe('the card, clicked', () => {
     await m.unmount()
   })
 
+  test('TC-020: a sign-in the service refused says why in words, never the server\'s code', async () => {
+    const r = linear()
+    open(r)
+    connects({ state: 'sign_in', integrationId: 'i9', status: 'needs_auth' })
+    routes['POST /api/integrations/i9/authorize'] = () => json({ flowId: 'f3', authorizationUrl: 'https://auth.linear.example/authorize?state=s3', expiresAt })
+    routes['GET /api/integrations/flows/f3'] = () => json({ flowId: 'f3', state: 'failed', expiresAt, reason: 'client' })
+    const m = await mount(<ConnectCard request={r} />)
+    await m.click('connect-sign-in')
+    await m.until(() => m.get('connect-signin').textContent!.includes(translate('en', 'integrations.signIn.reason.client')), 'the reason in words', 10_000)
+    expect(m.get('connect-signin').textContent).not.toMatch(/\bclient\b/)
+    expect(dom.opened[0]!.closed).toBe(true)
+    await m.unmount()
+  })
+
   test('Google Drive: signed in at Google, the account confirmed, then done', async () => {
     const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined })
     open(r)

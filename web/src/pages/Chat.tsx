@@ -52,7 +52,8 @@ import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
-import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
+import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
+import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
 import { AiMark } from '../components/rooms/AiFace'
@@ -134,10 +135,11 @@ function ChatView({ chatId }: { chatId: string }) {
     if (choose) void loadEngines()
   }, [choose, loadEngines])
 
+  // a failed read's error stays until a read works: the notice stays while it reads again (components/LoadError.tsx)
   const load = useCallback(async () => {
-    setLoadError(null)
     try {
       const [c] = await Promise.all([chatFromList ? Promise.resolve(chatFromList) : api.call(API.getChat, { params: { id: chatId } }), loadThread(chatId)])
+      setLoadError(null)
       setChat(c)
       // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list
       if (c.shared && !c.shared.mine) upsertChat(c)
@@ -377,7 +379,7 @@ function ChatView({ chatId }: { chatId: string }) {
         <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8 max-md:py-4">
           {olderBusy && <Loader2 size={16} className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
           {loading && <Skeleton lines={6} />}
-          {loadError && !loading ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
+          {loadError && !loading ? <LoadError error={loadError} onRetry={load} what="chat" /> : null}
           {/* the chat's pictures (attachments and answers' pictures, this branch): ← → in the image viewer walks through
               these; each says who sent it and when */}
           <ImageGroup>
