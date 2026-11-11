@@ -30,8 +30,18 @@ import { blocksAsText, ReaderLimit, ReaderUnavailable, SYSTEM_PROMPT, type Block
 
 /** turns.chat_id of the reader's calls (no chat has this id) */
 export const READER_CHAT = 'file-list'
-/** its engine folder under the agent root (the launcher runs engines only in a folder right below it) */
+/** its engine folders under the agent root (the launcher runs engines only in a folder right below it), one per call
+ * running at the same time: the launcher empties a folder's .turn when a call starts, so two calls never share one */
 export const READER_DIR = 'file-list-reader'
+const slots = new WeakMap<AppContext, Set<number>>()
+function takeSlot(ctx: AppContext): number {
+  let busy = slots.get(ctx)
+  if (!busy) slots.set(ctx, (busy = new Set()))
+  let i = 0
+  while (busy.has(i)) i++
+  busy.add(i)
+  return i
+}
 /** Claude Code's alias for the current Haiku */
 export const CLAUDE_READER_MODEL = 'haiku'
 /** one call's time limit (a batch of 8 images took about 10 s in the prototype) */
@@ -119,7 +129,8 @@ export class EngineReader implements Reader {
     const owner = ownerId(this.ctx)
     if (!owner) throw new ReaderUnavailable('no owner')
     const { turn, token } = core.turns.create(owner, READER_CHAT, this.engine, this.model)
-    const chatDir = path.join(core.cfg.agentRoot, READER_DIR)
+    const slot = takeSlot(this.ctx)
+    const chatDir = path.join(core.cfg.agentRoot, `${READER_DIR}-${slot}`)
     let limited: string | null = null
     let refused: string | null = null
     let unsubscribe: (() => void) | null = null
@@ -227,6 +238,7 @@ export class EngineReader implements Reader {
       if (signal.aborted) status = 'stopped'
       throw e
     } finally {
+      slots.get(this.ctx)?.delete(slot)
       unsubscribe?.()
       try { revokeProxyTokens(this.ctx.db, turn.id) } catch {}
       core.turns.revoke(turn.id, status)
