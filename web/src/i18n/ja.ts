@@ -852,7 +852,7 @@ export const ja: Record<MessageKey, string> = {
   'files.summary.askOwnFolderPrompt': "{path}への書き込み権限がありませんでした。同じ内容を自分のフォルダー{folder}に保存してください。",
   'files.summary.askOwnFolderHiddenPrompt': "前の保存は許可されませんでした。同じ内容を自分のフォルダー{folder}に保存してください。",
   'projects.title': "プロジェクト",
-  'projects.desc': "チームフォルダー内のフォルダーと指示をまとめたものです。プロジェクト内で開いたチャットは、その情報を共有します。",
+  'projects.desc': "ひとつの仕事に必要なファイル、指示、チャットを一か所にまとめます。",
   'projects.new': "新しいプロジェクト",
   'projects.edit': "プロジェクトを編集",
   'projects.empty': "プロジェクトはまだありません",

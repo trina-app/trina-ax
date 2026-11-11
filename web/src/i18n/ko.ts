@@ -876,7 +876,7 @@ export const ko = {
   'files.summary.askOwnFolderHiddenPrompt': '앞서 저장하려던 위치에는 저장할 수 없었어. 같은 내용을 내 폴더 {folder} 안에 저장해 줘.',
 
   'projects.title': '프로젝트',
-  'projects.desc': '팀 폴더 안의 폴더와 지침을 묶어서, 그 안에서 연 채팅이 같은 맥락으로 대화해요.',
+  'projects.desc': '한 가지 일에 필요한 파일, 지침, 채팅을 한곳에 모아 둬요.',
   'projects.new': '새 프로젝트',
   'projects.edit': '프로젝트 수정',
   'projects.empty': '프로젝트가 없어요',

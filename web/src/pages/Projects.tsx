@@ -14,7 +14,10 @@
 // "Pinned chats"; pinning is the sidebar row's "···").
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 멤버 for people who may change
-// its members (the members dialog, without leaving the list), 링크 복사 for everyone.
+// its members (the members dialog, without leaving the list), 링크 복사 for everyone. Under its name a card says who
+// sees the project in the words of its page's 멤버 line ("멤버 3명", "나만 봐요": whoSeesProject; no folder path), then
+// keeps two lines for the first paragraph of its instructions ("지침이 없어요." when it has none): the cards of a row
+// are one height, and one without instructions does not leave a hole under it.
 // Members (docs/DECISIONS.md "Project members in one panel"): a team project's page has a 멤버 line after 파일 with
 // who sees it, in the words of the line under the box ("나만 봐요", "나와 관리자만 봐요" or "N명이 봐요"); 관리 opens the members dialog (components/ProjectMembersDialog.tsx) for whoever may change
 // them, and for anyone else the line opens to say who does. /projects/:id?members=1 opens the dialog.
@@ -176,6 +179,21 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers }: { proj
   )
 }
 
+/** A card's lines under the name: who sees the project, in its 멤버 line's words, and its instructions' first
+ * paragraph as plain text in two lines' room, also when it is shorter or there is none ("지침이 없어요.", faint). */
+function ProjectCardLines({ project: p }: { project: Project }) {
+  const t = useT()
+  const who = whoSeesProject(t, p, 'projects.whoMembers')
+  const about = p.instructions ? firstParagraph(p.instructions) : ''
+  return (
+    <>
+      {who && <span className="mt-1 block truncate text-xs text-faint" data-testid="project-card-who">{who}</span>}
+      {/* 'block' would cancel line-clamp's display */}
+      <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || t('projects.noInstructions')}</span>
+    </>
+  )
+}
+
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
@@ -222,7 +240,8 @@ export function ProjectList() {
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
-        <ul className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {/* the cells of a row stretch to its tallest card, and each card fills its cell */}
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items?.map((p, i) => (
             <li key={p.id} className="group relative" data-testid="project-card">
               {/* the card stays marked while its "…" menu is open */}
@@ -231,9 +250,7 @@ export function ProjectList() {
                 <span className="flex items-start gap-2 pr-8 font-medium">
                   <FolderKanban size={16} className="mt-1 shrink-0 text-accent-text" aria-hidden /> <span className="min-w-0 break-words">{p.name}</span>
                 </span>
-                <span className="mt-1 block truncate text-xs text-faint">{p.folderPath || t('files.root')}</span>
-                {/* plain text of the first paragraph, at most 2 lines ('block' would cancel line-clamp's display) */}
-                {p.instructions && <span className="mt-2 line-clamp-2 text-sm text-muted">{firstParagraph(p.instructions)}</span>}
+                <ProjectCardLines project={p} />
               </Link>
               <ProjectCardMenu
                 project={p}
@@ -499,6 +516,15 @@ export function ProjectHome() {
   )
 }
 
+/** Who sees a project, by the rule of its page's 멤버 line (MembersRow below), for that line and for its card on the list,
+ * so the two never differ. `own` words the count of its own people (the owner and admins): beside the 멤버 label just the
+ * number ("3명"), on a card with the word ("멤버 3명"). Nothing from a server without the count. */
+function whoSeesProject(t: ReturnType<typeof useT>, p: Project, own: 'projects.membersN' | 'projects.whoMembers'): string | undefined {
+  if (p.audience === undefined) return undefined
+  const shared = { audience: p.audience, alone: p.alone }
+  return whoSees(shared).kind === 'people' && p.audienceSplit ? t(own, { n: p.audienceSplit.direct }) : whoSeesText(t, shared, 'project')
+}
+
 /** The 멤버 line of a team project's page: who sees it, in the words and by the rule of the line under the box
  * (components/chat/WhoSees.tsx whoSeesText, docs/DECISIONS.md "Who sees it, always"): "나만 봐요" when the count (the owner
  * and admins included) is 1, "나와 관리자만 봐요" when nobody else sees it by a rule (Project.alone, which only someone
@@ -512,8 +538,7 @@ export function MembersRow({ project: p, sideAction, onManage }: { project: Proj
   const t = useT()
   const me = useMe()
   const words = useFolderWords()
-  const shared = p.audience !== undefined ? { audience: p.audience, alone: p.alone } : null
-  const meta = !shared ? undefined : whoSees(shared).kind === 'people' && p.audienceSplit ? t('projects.membersN', { n: p.audienceSplit.direct }) : whoSeesText(t, shared, 'project')
+  const meta = whoSeesProject(t, p, 'projects.membersN')
   if (p.membersEditable)
     return (
       <DisclosureRow
