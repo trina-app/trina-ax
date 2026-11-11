@@ -149,22 +149,22 @@ test('remoteOAuthOf takes the origin from server.json appConnectors + tunnel.hos
   } finally { if (saved !== undefined) process.env.MYCEL_REMOTE_MCP_ORIGIN = saved }
 })
 
-test('registered apps without a connection or a sign-in in progress are removed after a day; connected ones stay', async () => {
+test('registered apps without a connection or a sign-in in progress are removed after a week; connected ones stay', async () => {
   const f = await fixture('idle-clients'), start = Date.now()
   const connected = f.client.client_id
   f.exchange(f.code())
   const idle = f.svc.register({ redirect_uris: [redirect] }).client_id
   const signingIn = f.svc.register({ redirect_uris: [redirect] }).client_id
-  f.svc.now = () => start + 24 * 3600_000 - 5 * 60_000
+  f.svc.now = () => start + 7 * 24 * 3600_000 - 5 * 60_000
   f.svc.authorize({ client_id: signingIn, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })
-  f.svc.now = () => start + 24 * 3600_000 + 60_000
+  f.svc.now = () => start + 7 * 24 * 3600_000 + 60_000
   f.svc.ingress('metadata', '192.0.2.1')
   const ids = () => (f.h.ctx.db.query('SELECT id FROM remote_mcp_clients').all() as { id: string }[]).map(r => r.id)
   expect(ids()).toContain(connected)
   expect(ids()).toContain(signingIn)
   expect(ids()).not.toContain(idle)
-  // the sign-in expired unused (10 minutes): a day after its last use the app goes too
-  f.svc.now = () => start + 26 * 3600_000
+  // the sign-in expired unused (10 minutes): a week after its last use the app goes too
+  f.svc.now = () => start + 7 * 24 * 3600_000 + 2 * 3600_000
   f.svc.ingress('metadata', '192.0.2.1')
   expect(ids()).not.toContain(signingIn)
   expect(ids()).toContain(connected)
@@ -199,12 +199,12 @@ test('a full client table makes room from the longest-idle unused apps instead o
   expect(() => f.svc.register({ redirect_uris: [redirect] })).toThrow('temporarily_unavailable')
 })
 
-test('pending sign-ins: at most 10 per app from one address, and a full table makes room from the oldest unopened ones', async () => {
+test('pending sign-ins: at most 50 per app from one address, and a full table makes room from the oldest unopened ones', async () => {
   const f = await fixture('pending'), start = Date.now()
   const ask = (client = f.client.client_id) => new URL(f.svc.authorize({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' })).searchParams.get('id')!
   const from = (ip: string) => f.svc.authorize({ client_id: f.client.client_id, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp' }, ip)
   f.svc.now = () => Math.floor(start / 600_000) * 600_000 + 600_000 // one fixed 10-minute window
-  for (let i = 0; i < 10; i++) from('192.0.2.7')
+  for (let i = 0; i < 50; i++) from('192.0.2.7')
   expect(() => from('192.0.2.7')).toThrow('slow_down')
   // the app's id is public: another address still signs in with it
   expect(from('198.51.100.7')).toStartWith(origin + '/connectors/authorize?id=')

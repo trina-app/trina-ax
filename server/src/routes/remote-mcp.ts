@@ -8,6 +8,10 @@ import { fail } from '../http/errors'
 import { linkUpload } from '../connectors/remote-mcp/upload-link'
 import type { AppContextC } from '../http/env'
 
+const EXPIRED_LINK_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Link expired</title></head>'
+  + '<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 16px;line-height:1.5">'
+  + '<p>This connection link has expired. Start the connection again from Claude or ChatGPT.</p></body></html>'
+
 function browser<T>(fn: () => T): T {
   try { return fn() } catch (e) {
     if (e instanceof OAuthError) return fail(e.status === 404 ? 'not_found' : e.status === 403 ? 'forbidden' : e.status === 503 ? 'unavailable' : e.status === 429 ? 'rate_limited' : 'bad_request')
@@ -40,7 +44,11 @@ export const remoteMcpRoutes: RouteModule = {
         if (c.req.url.length > 8192) throw new OAuthError('invalid_request')
         const target = oauth().authorize(uniqueParams(new URL(c.req.url).searchParams), ip(c))
         return new Response(null, { status: 302, headers: { ...noStore, location: target } })
-      } catch (e) { return oauthError(e) }
+      } catch (e) {
+        // a person's browser lands here: an unknown or removed app gets a page to read, not an OAuth error body
+        if (e instanceof OAuthError && e.code === 'invalid_client') return new Response(EXPIRED_LINK_PAGE, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8', ...noStore, 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" } })
+        return oauthError(e)
+      }
     })
     kit.raw('POST', '/oauth/token', async c => {
       try {

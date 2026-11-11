@@ -20,21 +20,23 @@ const iso = (v: number) => new Date(v).toISOString()
  * Limits of the connector's own OAuth server (mutable for tests). perAddress: [window ms, requests] per client
  * address (an IPv6 address counts by its /64) for each anonymous area. Registration comes from the apps' servers
  * (Claude, ChatGPT), so one of their addresses carries many people's (and anyone can make them register): 240 an
- * hour, while a full table makes room anyway (register()). One authorize makes at most one pending request, so 60
+ * hour, while a full table makes room anyway (register()). One authorize makes at most one pending request, so 200
  * per 10 minutes is also the pending requests per address; pendingPerClient counts one app's sign-ins per address (an
- * app's id is public, so it is not counted per app alone). A token request with a live credential and a live upload
+ * app's id is public, so it is not counted per app alone). Both leave room for an office behind one public address
+ * connecting a whole team to one app. A token request with a live credential and a live upload
  * link are not in the shared bucket: a refresh or a one-time upload link must work during a flood.
  */
 export const OAUTH_LIMITS: {
   perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; mcpPerGrantPerMinute: number
   clients: number; idleClientMs: number; pending: number; pendingPerClient: number
 } = {
-  perAddress: { register: [[60_000, 12], [3600_000, 240]], authorize: [[60_000, 180], [600_000, 60]], default: [[60_000, 180]] },
+  perAddress: { register: [[60_000, 12], [3600_000, 240]], authorize: [[60_000, 180], [600_000, 200]], default: [[60_000, 180]] },
   anonymousPerMinute: 2400, mcpPerGrantPerMinute: 300,
-  clients: 2000, idleClientMs: 24 * 3600_000, pending: 2000, pendingPerClient: 10,
+  clients: 2000, idleClientMs: 7 * 24 * 3600_000, pending: 2000, pendingPerClient: 50,
 }
-/** A registered app that has no connection and no sign-in in progress: removed a day after its last use. An app that
- * got a grant keeps its id while the grant lasts. */
+/** A registered app that has no connection and no sign-in in progress: removed a week after its last use (one
+ * registration is often shared by a team whose members connect days later; a full table makes room anyway). An app
+ * that got a grant keeps its id while the grant lasts. */
 const IDLE_CLIENT = 'id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests)'
 /** When the table is full, also an app whose only sign-ins nobody has opened (anyone can start one for any app): its
  * requests go with it (ON DELETE CASCADE). */

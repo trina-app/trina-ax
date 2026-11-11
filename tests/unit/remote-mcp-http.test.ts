@@ -44,6 +44,17 @@ test('discovery uses configured issuer, never hostile host; public responses and
   expect(response.status).toBe(302); expect(response.headers.get('location')).toStartWith(base + '/connectors/authorize?id=')
   expect(response.headers.get('referrer-policy')).toBe('no-referrer')
 })
+test('a sign-in link of an unknown or removed app shows a page a person can read, not an OAuth error', async () => {
+  const f = await fixture('expired-link')
+  const gone = await f.fetch('/oauth/authorize?' + new URLSearchParams({ client_id: 'tax_client_removed', redirect_uri: redirect, resource: base + '/mcp', response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier) }))
+  expect(gone.status).toBe(401)
+  expect(gone.headers.get('content-type')).toStartWith('text/html')
+  expect(gone.headers.get('cache-control')).toBe('no-store')
+  expect(await gone.text()).toContain('This connection link has expired. Start the connection again from Claude or ChatGPT.')
+  // other errors keep the OAuth body
+  const bad = await f.fetch('/oauth/authorize?' + new URLSearchParams({ client_id: f.client.client_id, redirect_uri: redirect }))
+  expect(bad.headers.get('content-type')).toBe('application/json')
+})
 test('consent requires core login and CSRF; another user cannot inspect a claimed request or revoke its connection', async () => {
   const f = await fixture('consent'), other = await addMember(f.h, f.owner, { username: 'outsider' })
   const response = await f.authorize(), id = new URL(response.headers.get('location')!).searchParams.get('id')!, url = '/api/connectors/remote/requests/' + id
