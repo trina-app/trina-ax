@@ -11,6 +11,8 @@
  *                                    the checks see them as DNS names answering with this computer's address
  *   MYCEL_DESKTOP_UPDATE_TEST  auto-install | notice | off: the updater's mode in an unpacked app (./updater.ts);
  *                              MYCEL_DESKTOP_UPDATE_FIRST_MS the first check's delay
+ *   MYCEL_DESKTOP_UPDATE_UNVERIFIED  1: an unpacked app installs an update without the signed-release check
+ *                              (../common/update-verify.ts verificationRequired; a packaged app always checks)
  *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
  *                              Store build does (common/file-chooser.ts)
  */

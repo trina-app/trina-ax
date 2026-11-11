@@ -77,7 +77,7 @@ As the code works today (`server/src/skills/suggestions.ts`, `server/src/skills/
 | A share proposal to a group | the owner or an admin who is in the group and may write its skills folder | the group's members who may write its skills folder (the proposer included); the owner and admins outside the group do not see it |
 | "스킬로 제안" into a group's skills (`groups/<g>/skills/`) | a member of that group | the group's members who may write that folder; the owner and admins outside the group do not see it |
 
-## AI 연결 (관리자 > AI 제공자)
+## AI 연결 (관리자 > 연결 > 제공자)
 
 AI가 답할 때 쓰는 계정(Claude 구독 토큰, API 키, ChatGPT 로그인)입니다. 자세한 근거는 [DECISIONS.md](DECISIONS.md) "AI 연결".
 

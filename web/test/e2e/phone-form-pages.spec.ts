@@ -11,7 +11,7 @@ import { DICTS } from '../../src/i18n'
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
 
 const t = DICTS.en
-const GROUPS = ['general', 'data', 'members', 'voice', 'ai', 'limits', 'company']
+const GROUPS = ['general', 'data', 'members', 'voice', 'ai', 'limits', 'file-list', 'company']
 const historyLength = (page: Page) => page.evaluate(() => history.length)
 
 /** The desktop app's bridge with only what Settings › Browser reads (browser-settings.spec.ts has the full one). */

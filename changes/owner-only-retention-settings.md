@@ -1,0 +1,1 @@
+- Only the team owner can now change how long the activity log, file history, trash and deleted chats are kept, and the update channel. Admins see these settings read-only with a note that only the owner can change them.

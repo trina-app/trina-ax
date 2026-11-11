@@ -18,6 +18,7 @@ Use the installer and Admin settings first. `server.json` is operator-owned depl
 | `engine.credentialKinds` | Operator can narrow permitted connection kinds; team settings cannot grant forbidden kinds |
 | `engine.anthropicGateway` | Self-hosted, managed mode: Claude Code on another company's models through an Anthropic-compatible address (OpenRouter, DeepSeek, Kimi, GLM). See [below](#anthropic-compatible-gateway) |
 | `relay`, `tunnel`, `update` | Address and feed configuration; preserve the installer's settings and trust checks |
+| `fileList` | The file list (Admin › Team settings › File list): every night the team's AI reads new and changed shared, project, group and connected files and the AI's file tools show one line per file as a `_FILES.md` in each folder. `{ "enabled": false }` turns it off on this server whatever the team's admin chooses: nothing is read, no list is shown, the AI is not told about lists. `maxFilesPerRun` and `maxTokensPerRun` cap one run (defaults 1,500 files and 1,500,000 tokens; the rest waits for the next night). Absent: the team's switch decides, on by default |
 | `knowledgeGraph` | Obsolete: the knowledge graph was removed on 2026-11-11 (the AI finds files with list, glob, grep and read). A file that still has this key loads; the key is ignored and the start logs one warning that it is obsolete. Delete it when convenient. The first start without the knowledge graph also deletes its data in the data folder (`knowledge-graph/` and the downloaded `models/Xenova/multilingual-e5-small`); a host's shared `MYCEL_MODELS_DIR` is never touched |
 
 `engine.modelUpstreams`, fake upstream URLs, native-path overrides and response-validation controls are test/advanced development tools, not recommended onboarding settings. Never point a live credential proxy at an untrusted endpoint. To run Claude Code on other models, use `engine.anthropicGateway` (below), not `modelUpstreams`.
@@ -55,9 +56,9 @@ While it is set:
 
 - **Models.** The proxy forwards exactly the ids in `models`; any other id, and any `claude-*` id (Anthropic's own
   name, which a gateway passes on to Anthropic at Anthropic's price), is refused. The file may not name a `claude-*` id
-  either; for Claude through OpenRouter use its own id (`anthropic/…`). Admin > AI providers lists these models for Claude
+  either; for Claude through OpenRouter use its own id (`anthropic/…`). Admin > Connections > Providers lists these models for Claude
   Code, and the team default model can be one of them.
-- **Connections.** Add the gateway's key in Admin > AI providers as "API key for <label>" (20–300 letters, digits,
+- **Connections.** Add the gateway's key in Admin > Connections > Providers as "API key for <label>" (20–300 letters, digits,
   `.`, `_`, `-`; never an `sk-ant-` key or token). An OpenRouter key is checked on `GET /api/v1/key`; another gateway's
   on `GET <baseUrl>/v1/models` when that list needs a key, else it is "checked on the first question". A key added for
   the gateway is only ever sent there.

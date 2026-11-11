@@ -13,7 +13,7 @@ import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
-import type { SourceLoc } from '@mycel/shared/api'
+import { isFileListName, type SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
 import { makePlaceIndex, placesOfLines, readPlaceIndex, writePlaceIndex, type PlaceIndex } from './place-index'
 
@@ -568,7 +568,14 @@ export class OfficeCache {
   }
 }
 
-export interface SearchDeps { fx: FsCtx; rules: RuleSet; user: Principal; rg: string; timeoutMs: number; office: OfficeCache }
+export interface SearchDeps {
+  fx: FsCtx; rules: RuleSet; user: Principal; rg: string; timeoutMs: number; office: OfficeCache
+  /** files that are not on disk, already rendered for this person (the file list's _FILES.md, files/virtual.ts): team
+   * path -> text. grep searches them first, with the same ripgrep and output; a real file at such a path is left out */
+  virtual?: ReadonlyMap<string, string>
+  /** search only `virtual` (the path named one of them) */
+  virtualOnly?: boolean
+}
 
 function rootsFor(d: SearchDeps, baseSegs: string[], baseIsFile: boolean) {
   if (baseIsFile) return { roots: visiblePath(d.fx, d.rules, d.user, baseSegs.join('/')) ? [baseSegs.join('/')] : [], excludes: [] }
@@ -635,7 +642,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
   const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, officeRetryLater: 0, longSkipped: 0 }
   const hits: GrepHit[] = []
-  if (!roots.length) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits }
+  if (!roots.length && !d.virtual?.size) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits }
   // user glob: basename-only globs go to ripgrep; globs with "/" are matched here against the result path
   if (o.glob?.startsWith('!')) throw new ToolError('negated globs are not supported')
   const pathGlob = o.glob && o.glob.includes('/') ? new Bun.Glob(o.glob) : null
@@ -654,9 +661,12 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   /** files whose content (or the fact that they match) went into the result */
   const files = new Set<string>()
   const seen = new Map<string, boolean>()
+  const listFolders = new Set([...(d.virtual?.keys() ?? [])].map((k) => k.slice(0, Math.max(0, k.lastIndexOf('/')))))
+  const shadowed = (rel: string) => !!d.virtual?.size && isFileListName(rel.slice(rel.lastIndexOf('/') + 1)) && listFolders.has(rel.slice(0, Math.max(0, rel.lastIndexOf('/'))))
   const ok = (shown: string, real: string) => {
     if (!seen.has(real)) {
-      let v = !!visiblePath(d.fx, d.rules, d.user, real)
+      // a virtual file was rendered for this person: every line of it passed visiblePath already
+      let v = d.virtual?.has(real) || !!visiblePath(d.fx, d.rules, d.user, real)
       if (!v) stats.filtered++
       if (v && pathGlob && !pathGlob.match(shown)) v = false
       seen.set(real, v)
@@ -676,12 +686,14 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     return legacy.get(real) ?? false
   }
   // `keep` runs after the access check, so grep reads only files that this user can see
-  const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true) => (rec: string) => {
+  const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true, virtualPass = false) => (rec: string) => {
+    // a real file where this person has a virtual one (its name in any letter case): the virtual one stands in for it
+    const real = (m: { real: string } | null) => m && (virtualPass || !shadowed(m.real))
     if (o.mode === 'content') {
       let j: any; try { j = JSON.parse(rec) } catch { return }
       if (j.type !== 'match' && j.type !== 'context') return
       const raw = j.data.path.text ?? Buffer.from(j.data.path.bytes, 'base64').toString('utf8')
-      const m = map(raw); if (!m || !ok(m.shown, m.real) || !keep(m.real)) return
+      const m = map(raw); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
       const ln: number = j.data.line_number
       const text = (j.data.lines.text ?? Buffer.from(j.data.lines.bytes ?? '', 'base64').toString('utf8')).replace(/\r?\n$/, '')
       if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (!push('--')) return false
@@ -696,7 +708,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       return pushed
     }
     const parts = rec.split('\0')
-    const m = map(parts[0].replace(/^\n/, '')); if (!m || !ok(m.shown, m.real) || !keep(m.real)) return
+    const m = map(parts[0].replace(/^\n/, '')); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
     const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown)
     if (pushed) files.add(m.real)
     return pushed
@@ -784,7 +796,27 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   // strictTime: one deadline for the whole search; a pass that has no time left is not run (timedOut)
   const deadline = started + d.timeoutMs
   const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits })
+  let virtualDir: string | null = null
   try {
+  // pass 0: the virtual files (file lists) first, so their lines lead the result: written for this one search into a
+  // private folder of the server's data, searched with the same ripgrep, paths shown as the team paths they stand for
+  if (d.virtual?.size) {
+    const staging = path.join(path.dirname(d.office.dir), 'search-inputs')
+    fs.mkdirSync(staging, { recursive: true, mode: 0o700 })
+    virtualDir = fs.mkdtempSync(path.join(staging, 'virtual-'))
+    for (const [rel, text] of d.virtual) {
+      const dst = path.join(virtualDir, ...rel.split('/'))
+      fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
+      fs.writeFileSync(dst, text, { mode: 0o400, flag: 'wx' })
+    }
+    const vmap = (p: string) => { const r = strip(p); return d.virtual!.has(r) ? { shown: r, real: r } : null }
+    // a share of the time: the lists are small next to the team folder, and pass 1 gets its own
+    const r0 = await runRg(d.rg, [...common, '--glob-case-insensitive', ...(nameGlob ? ['--glob', nameGlob] : []), ...patArgs, '--', '.'], virtualDir, recSep, handler(vmap, () => true, true), Math.min(d.timeoutMs, 10_000), rgOpts)
+    if (r0.code === 2 && !r0.killed && !out.length && /regex|parse|error/i.test(r0.err)) throw new ToolError('invalid pattern: ' + r0.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r0.err) ? ' (look-around and backreferences are not supported)' : ''))
+    if (r0.killed === 'timeout') return stopped()
+  }
+  // nothing on disk to search (the path named a file list, or no folder of it is readable): never a ripgrep without roots
+  if (d.virtualOnly || !roots.length) return { text: (out.join('\n') || 'No matches') + (truncated ? `\n... (results cut at ${o.limit}; narrow the search)` : ''), truncated, timedOut: false, stats, files, hits }
   live = admission.emptyLedger()
   // The lease rules out quarantine on every DB connection until finally below.
   // Avoid per-result quarantine probes on the default, never-used product path.
@@ -870,6 +902,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     // runRg has reaped the consumer before release, including timeout/abort.
     // Failed cleanup retains the durable lease (fail closed).
     for (const dir of snapshots.values()) fs.rmSync(dir, { recursive: true, force: true })
+    if (virtualDir) fs.rmSync(virtualDir, { recursive: true, force: true })
     admission.close()
   }
 }
