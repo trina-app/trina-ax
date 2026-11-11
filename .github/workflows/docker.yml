@@ -1,8 +1,8 @@
 # Docker image test (docs/INSTALL-DOCKER.md): build the image from a published release kit, start it with
 # docker/docker-compose.yml and run docker/test.sh (health, setup, engine firewall, bubblewrap + Landlock + seccomp).
 # Manual only for now: it downloads the kit (about 190 MB) and the pinned Claude Code (about 300 MB) on each run.
-# The ubuntu-24.04 runner is also the first test on an Ubuntu 24.04 host (AppArmor userns restriction): a failure at
-# "the engine sandbox (bubblewrap) cannot start here" is that open question, not a broken image.
+# The runners are Ubuntu 24.04 hosts: the job sets kernel.apparmor_restrict_unprivileged_userns=0, as
+# docs/INSTALL-DOCKER.md "Ubuntu 24.04 hosts" tells a host owner. Without it the container is never healthy.
 # Same GitHub-hosted runners as ci.yml; no secret is used.
 name: Docker image
 
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: release to test (a tag without the v, for example 0.3.0)
+        description: release to test (a tag without the v, 0.5.0-beta.1 or later)
         type: string
         required: true
 
@@ -36,6 +36,7 @@ jobs:
         run: |
           sudo sysctl -w kernel.yama.ptrace_scope=1
           sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Build, start and check (docker/test.sh)
         env:
           TRINA_AX_VERSION: ${{ inputs.version }}
