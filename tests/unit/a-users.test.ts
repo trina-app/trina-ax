@@ -134,6 +134,32 @@ describe('members and role guards', () => {
     expect((await g.try('POST', `/api/password-resets/${l3.token}`, { newPassword: 'another harbor 78' })).status).toBe(410)
     expect((await g.try('GET', `/api/password-resets/${'y'.repeat(43)}`)).status).toBe(404)
   })
+  test('a reset link stops working once the password changes another way, or the account is disabled', async () => {
+    const g = h.client()
+    const valid = async (token: string) => (await g.call('GET', `/api/password-resets/${token}`)).valid
+    // the person changes their own password: the link pasted in the wrong chat no longer takes the account over
+    const m = await addMember(h, owner, { username: 'sven' })
+    const own = await admin.call('POST', `/api/admin/users/${m.id}/reset-link`)
+    expect(await valid(own.token)).toBe(true)
+    await m.client.call('POST', '/api/auth/password', { currentPassword: m.password, newPassword: 'quiet meadow lamp 31' })
+    expect(await valid(own.token)).toBe(false)
+    expect((await g.try('POST', `/api/password-resets/${own.token}`, { newPassword: 'taken over 4 good' })).status).toBe(410)
+    expect((await m.client.call('GET', '/api/me')).user.id).toBe(m.id)
+    // an admin gives a temporary password instead
+    const temp = await admin.call('POST', `/api/admin/users/${m.id}/reset-link`)
+    await admin.call('POST', `/api/admin/users/${m.id}/reset-password`)
+    expect(await valid(temp.token)).toBe(false)
+    expect((await g.try('POST', `/api/password-resets/${temp.token}`, { newPassword: 'taken over 4 good' })).status).toBe(410)
+    // disabled and enabled again: the link does not come back
+    const n = await addMember(h, owner, { username: 'vera' })
+    const off = await admin.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { status: 'disabled' })
+    await owner.call('PATCH', `/api/admin/users/${n.id}`, { status: 'active' })
+    expect(await valid(off.token)).toBe(false)
+    // a link made after all this still works
+    const fresh = await admin.call('POST', `/api/admin/users/${n.id}/reset-link`)
+    expect(await valid(fresh.token)).toBe(true)
+  })
   test('owner transfer needs the password again; the old owner becomes admin', async () => {
     const t = await addMember(h, owner, { username: 'tom' })
     const wrong = await owner.try('POST', '/api/admin/transfer-ownership', { userId: t.id, password: 'wrong' })
