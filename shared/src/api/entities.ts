@@ -521,6 +521,11 @@ export const FileEntry = z.object({
    * but the AI cannot read it and in-app previews are off, so "Ask AI" and "add to chat" are not offered. Absent on
    * every other entry (and from servers before this field) */
   downloadOnly: z.literal(true).optional(),
+  /** a folder the caller may write that they still may not rename, move or put in the trash (file listings only,
+   * GET /api/files/tree): 'admin' only the owner or an admin may (a group, project or rule folder, shared/, skills/, or
+   * one holding such a folder; never sent to the owner or an admin), 'always' nobody may (a personal folder, a folder
+   * holding a plugin's managed folder). Absent everywhere else and from older servers: the server still decides. */
+  fixed: z.enum(['admin', 'always']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 
