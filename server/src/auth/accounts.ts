@@ -106,6 +106,7 @@ export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null;
  * (SETUP_TOKEN_HEADER, from the setup link), so the owner's link still opens the setup page. A wrong token counts
  * against the caller's IP like a wrong token on POST /api/setup (tokenGuard), so GET is no faster way to guess it.
  * This server itself and the office network see the real answer, as before (installers, demo scripts, the CLI).
+ * Known and accepted ("보안 4차"): defaultLocale still changes when the owner picked another language at setup.
  */
 export function setupStatusFor(c: Context<AppEnv>, ctx: AppContext): ReturnType<typeof setupStatus> {
   const s = setupStatus(ctx)
