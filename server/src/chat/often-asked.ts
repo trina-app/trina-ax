@@ -135,6 +135,9 @@ export const plainLatin = (s: string) => s.normalize('NFD').replace(/(\p{Script=
 const nameOf = (raw: string, minChars = 2): Name | null => {
   const v = plainLatin(raw.normalize('NFKC').trim())
   if ([...v].length < minChars) return null
+  // a name part that is also a plain word (a given name 수정, "fix"; Will): not a name to look for, or every "수정해 줘"
+  // would be masked and dropped; a sentence word still needs its 3 people
+  if (GENERIC.has(v.toLowerCase()) || STOP.has(v.toLowerCase())) return null
   const latin = LATIN.test(v)
   return { s: v, latin, exactCase: latin && v.length < 3 }
 }
@@ -348,8 +351,9 @@ export function buildSnapshot(db: Database, rules: RuleSet, o: { now?: Date; ran
   const principals = people.map((id) => ({ id, name: id, role: 'member' as const, groups: (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(id) as { group_id: string }[]).map((r) => r.group_id) }))
   const audiences: Audience[] = [{ key: 'team', groupId: null, members: active, entries, askers: new Set(entries.map((e) => e.user)) }]
   const since = db.query('SELECT gs.group_id AS g, gs.user_id AS u, gs.since AS since FROM group_member_since gs JOIN group_members gm ON gm.group_id = gs.group_id AND gm.user_id = gs.user_id WHERE gs.left_at IS NULL').all() as { g: string; u: string; since: string }[]
-  // a group counts nothing from before its last real removal (someone still out, or added back later): shrinking a
-  // group around one person cannot single out what that person asked before
+  // a group counts nothing from before its last real change of people (group_count_from: someone added, disabled,
+  // enabled or deleted; or someone still out since they were taken out): reshaping a group around one person cannot
+  // single out what that person asked before
   const reset = new Map<string, string>()
   const later = (g: string, t: string | null) => { if (t && t > (reset.get(g) ?? '')) reset.set(g, t) }
   for (const r of db.query('SELECT group_id AS g, since FROM group_count_from').all() as { g: string; since: string }[]) later(r.g, r.since)

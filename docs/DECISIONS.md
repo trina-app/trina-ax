@@ -20910,7 +20910,9 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   at most 200 characters (longer: pasted text). Masked before the AI sees it: links, emails, digit runs, secrets, `@`
   mentions, people's names (full and written together, "이서연" for "이 서연"; every part of 2+ letters, so a Korean or
   Japanese given name or surname alone, "민수", "田中"; Latin parts as whole words, 2-letter ones as written, accents
-  ignored; a one-letter surname with a title, "김 과장"), project names, group chat names. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
+  ignored; a one-letter surname with a title, "김 과장"), project names, group chat names. A name part that is also a
+  plain verb or function word (a given name 수정, "Will") is not looked for alone, or every "수정해 줘" would be masked
+  and dropped; a sentence word still needs its 3 people, and the full name and the name with a title are masked. Group names and the team's rooms stay: not secret, and often the topic. One entry per person per
   line, at most 40 a person and 600 in all (taken in turns), in random order with meaningless ids; never who wrote it.
 - **The AI.** Once a day (from 05:00 team time, 20 h after the last; 28 h after it at any hour; a try waits 3 h), one
   call of the file list's reader (file-list/engine-reader.ts, `ReadOptions`): no tools, Haiku or Codex's nano/mini, a
@@ -20934,8 +20936,10 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   window (the review proposed 10; the owner chose 5); a list shows only with 3 or more items. A group counts a person's
   questions only from the day they joined (`group_member_since`, kept by triggers on `group_members`; one edit of a
   group, which deletes and adds everyone at once, keeps the dates; someone added back later starts again), and nothing
-  from before its last real removal (`group_count_from`): shrinking a group around one person cannot single out what
-  they asked before.
+  from before its last real change of people (`group_count_from`): someone added (not one edit's delete-and-add-back
+  within 10 seconds), disabled, enabled again or deleted (a trigger on `users`), or taken out. Growing, shrinking or
+  disabling a group around one person cannot single out what they asked before. The price: after such a change a
+  group's list goes quiet (past the 3-day hold) until 5 of its people asked something again.
 - **Lists change slowly.** An item that stops passing stays 3 days, then goes; that is also the longest a deleted chat
   or a person who left stays behind, and a list no run renewed for 3 days is gone. Order: the item's place on the day
   it last passed (most people first), a held item keeping its own, so the order does not show which ones are fading.
@@ -20948,10 +20952,12 @@ reviewed plan ("끝까지 ㄱ"), with the floor at 5.
   주기"), on by default. Off: every list deleted at once, the route answers nothing, no call, and what is sent while
   off never counts. **No personal switch**: nothing anyone typed is shown, and a switch on every person's screen would
   suggest it is.
-- **Known limits.** People who agree to ask the same thing can still learn a little about the others: in a group of 5,
-  two who type the same new question and watch whether it shows learn that a third person typed it too (any "3 or
-  more" rule allows this; the floor, the hold, join dates, removals restarting a group and circles make it slow and
-  vague, and group changes are in the activity log). The checks cannot read
+- **Known limits.** People who agree to ask the same thing can still learn about the others. In a group of exactly 5
+  askers, 4 who agree can learn **exactly** what the fifth asks from then on (two of them type a question and watch
+  whether it shows); with more people it is only "someone else". Any "3 or more" rule allows this; the floor, the hold,
+  join dates and a group's count restarting on every change of its people stop it from reaching back, and group
+  changes are in the activity log. Given names that are everyday words other than verbs (지원, 하늘) are masked
+  everywhere, so a team with such a name gets fewer suggestions with that word. The checks cannot read
   meaning: a sentence of words 3+ people share can still name a shared topic, and personal topics are left out by the
   instructions, not by a check. People who share something outside any group, project or group chat are not a circle.
   Everyone sees the sentences in the team's language.

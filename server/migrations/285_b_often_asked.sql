@@ -10,9 +10,10 @@
 --   group_member_since: since when each person is in a group (a question counts for a group only from then). Kept by
 --     triggers on group_members, so every way of adding someone is covered: a person removed and added back within
 --     10 seconds (one edit of the group, which deletes and adds every member) keeps the date; later, it starts again.
---   group_count_from: a group counts no question from before its last real removal (someone taken out and not added
---     back within 10 seconds), so shrinking a group around one person cannot single out what that person asked. The
---     removal of someone still out is their row's left_at; this table keeps it once they are added back.
+--   group_count_from: a group counts no question from before its last real change of people: someone added (not one
+--     edit's delete-and-add-back within 10 seconds), someone disabled, enabled again or deleted (a trigger on users),
+--     someone taken out (their row's left_at while they stay out). So reshaping a group around one person cannot
+--     single out what that person asked before.
 --   chat_project_left: when a chat left a project (moved out, or its project deleted): what was typed while it was a
 --     project chat never counts, only what comes after.
 --   settings `oftenAsked.since`: only questions sent from then count (this build's first start; the time the switch
@@ -51,9 +52,11 @@ CREATE TRIGGER chat_project_left_mark AFTER UPDATE OF project_id ON chats
   ON CONFLICT (chat_id) DO UPDATE SET left_at = excluded.left_at;
 END;
 CREATE TRIGGER group_member_since_add AFTER INSERT ON group_members BEGIN
+  -- anyone new in the group (not one edit's delete-and-add-back): the group counts from now
   INSERT INTO group_count_from (group_id, since)
-    SELECT NEW.group_id, left_at FROM group_member_since
-    WHERE group_id = NEW.group_id AND user_id = NEW.user_id AND left_at IS NOT NULL AND left_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 seconds')
+    SELECT NEW.group_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE NOT EXISTS (SELECT 1 FROM group_member_since WHERE group_id = NEW.group_id AND user_id = NEW.user_id
+      AND left_at IS NOT NULL AND left_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 seconds'))
   ON CONFLICT (group_id) DO UPDATE SET since = max(group_count_from.since, excluded.since);
   INSERT INTO group_member_since (group_id, user_id, since) VALUES (NEW.group_id, NEW.user_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   ON CONFLICT (group_id, user_id) DO UPDATE SET
@@ -63,6 +66,13 @@ CREATE TRIGGER group_member_since_add AFTER INSERT ON group_members BEGIN
 END;
 CREATE TRIGGER group_member_since_leave AFTER DELETE ON group_members BEGIN
   UPDATE group_member_since SET left_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE group_id = OLD.group_id AND user_id = OLD.user_id;
+END;
+-- someone disabled, enabled again or deleted changes who is in their groups too: those groups count from now
+CREATE TRIGGER group_count_from_people AFTER UPDATE OF status, deleted_at ON users
+  WHEN OLD.status IS NOT NEW.status OR OLD.deleted_at IS NOT NEW.deleted_at BEGIN
+  INSERT INTO group_count_from (group_id, since)
+    SELECT group_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM group_members WHERE user_id = NEW.id
+  ON CONFLICT (group_id) DO UPDATE SET since = max(group_count_from.since, excluded.since);
 END;
 INSERT INTO settings (key, value) VALUES ('oftenAsked.since', json_quote(strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))
   ON CONFLICT (key) DO NOTHING;

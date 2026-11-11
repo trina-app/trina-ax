@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 09:50
 - Branch: `feat/group-often-asks`
-- Status: in progress (revised after an independent review, see "Review"; the owner's decisions of 2026-11-11 below)
+- Status: done (revised after an independent review, see "Review"; the owner's decisions of 2026-11-11 below)
 - Where: this repo (Team AX core): `server/src/chat/`, `server/src/admin/settings.ts`, `shared/src/api`, `web/src`
   (Home, TeamPrepared, Admin › Team settings, i18n), one migration in B's range. Why: chat, the AI and Home are core
   (docs/REPOSITORY-RULES.md).
@@ -322,4 +322,16 @@ is shorter.
 
 ## Result
 
-Filled in at the end.
+Built on `feat/group-often-asks` as PR #431, as planned except:
+
+- **The AI call** is one call of the file list's reader (`file-list/engine-reader.ts`, `ReadOptions`), not a chat turn:
+  no chat, message, realtime event or route exists for it; a team-wide AI account only; Haiku or Codex's nano/mini.
+- **The floor is 5** askers (the owner, 2026-11-11), for every audience.
+- **The checks are stricter** after the build's security review (six must-fix items, all fixed, each with a test):
+  every topic word must be in the item's lines of each of 3+ people (only verbs and manner words are free; no noun
+  list); a sentence word never comes from a shorter typed word; names are masked written together, by every part of
+  2+ letters and without accents; a chat that left a project counts only what came after (`chat_project_left`); a
+  real removal restarts a group's count (`group_count_from`); the material query uses the turns index. Also: no
+  symbols, emoji or invisible characters in a sentence; nothing stored when the switch flipped mid-call; held items
+  keep their place; the switch text names the team AI account.
+- `GET /api/questions/frequent` stays (no screen reads it); the Skills page still reads `GET /api/skills/popular`.

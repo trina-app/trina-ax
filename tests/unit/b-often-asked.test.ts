@@ -52,6 +52,8 @@ function group(id: string, name: string, members: string[], since = '2026-11-01T
   e.db.query('INSERT INTO groups (id, name) VALUES (?, ?)').run(id, name)
   for (const m of members) e.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(id, m)
   e.db.query('UPDATE group_member_since SET since = ? WHERE group_id = ?').run(since, id)
+  // made long ago: no change of people since (adding them just now restarted its count)
+  e.db.query('DELETE FROM group_count_from WHERE group_id = ?').run(id)
 }
 
 describe('the line of a message, the app\'s own prompts, the masks', () => {
@@ -312,6 +314,30 @@ describe('the attacks the security review tried (each one must fail)', () => {
     e.db.query("INSERT INTO group_members (group_id, user_id) VALUES ('g-x', 'p6')").run()
     expect(e.db.query("SELECT COUNT(*) n FROM group_count_from WHERE group_id = 'g-x'").get()).toEqual({ n: 1 })
     expect(groupOf().entries).toEqual([])
+  })
+
+  test('growing a group around one person, or disabling the others, restarts its count too', () => {
+    group('g-v', 'V', ['p1'], ago(30))
+    ask('p1', '연봉 협상 메모 정리해 줘', { at: ago(5) })
+    const groupOf = () => buildSnapshot(e.db, e.files.rules(), { now: realNow(), random: () => 0.5 }).audiences.find((a) => a.key === 'g-v')!
+    expect(groupOf().entries).toHaveLength(1)
+    for (const p of ['p2', 'p3', 'p4', 'p5']) e.db.query("INSERT INTO group_members (group_id, user_id) VALUES ('g-v', ?)").run(p)
+    expect(groupOf().entries).toEqual([])
+    // disabling: a group of p1, p6, p7 grown by nobody, then p6 and p7 disabled
+    group('g-w', 'W', ['p1', 'p6', 'p7'], ago(30))
+    expect(buildSnapshot(e.db, e.files.rules(), { now: realNow() }).audiences.find((a) => a.key === 'g-w')!.entries).toHaveLength(1)
+    e.db.query("UPDATE users SET status = 'disabled' WHERE id IN ('p6', 'p7')").run()
+    expect(buildSnapshot(e.db, e.files.rules(), { now: realNow() }).audiences.find((a) => a.key === 'g-w')!.entries).toEqual([])
+  })
+
+  test('a given name that is also a plain word (수정) is not masked, so "수정해 줘" still works', () => {
+    e.db.query("INSERT INTO users (id, username, name, role) VALUES ('p8', 'sujeong', '이수정', 'member')").run()
+    const n = teamNames(e.db)
+    expect(masker(n)('보고서 수정해 줘')).toBe('보고서 수정해 줘')
+    expect(masker(n)('이수정 님께 메일')).toBe('(person)께 메일')
+    expect(genericShape('보고서 수정해 줘', n)).toBe(true)
+    expect(genericShape('이수정에게 메일 써 줘', n)).toBe(false)
+    e.db.query("DELETE FROM users WHERE id = 'p8'").run()
   })
 
   test('turned off and on while the AI wrote: what it was given is from before, nothing is stored', () => {
