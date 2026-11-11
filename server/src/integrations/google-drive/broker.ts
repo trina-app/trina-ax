@@ -1,17 +1,21 @@
-// Google sign-in through the hosting service (shared/src/cloud-protocol/drive-broker.ts): a hosted team server has no
-// Google client of its own. The control plane holds ONE Google client whose ONE return address is on the console host,
-// so a new team address needs no new registration at Google.
+// Google sign-in through the hosting service (shared/src/cloud-protocol/drive-broker.ts): a hosted team server, or a
+// self-installed server the hosting service registered, has no Google client of its own. The control plane holds ONE
+// Google client whose ONE return address is on the console host, so a new team address needs no new registration at
+// Google.
 //
 // When it is used (driveBrokerFor): ONLY when the operator set MYCEL_GOOGLE_DRIVE_BROKER_URL (the control plane's
-// console origin, e.g. https://account.trina.app; https, or http to this machine), on a hosted server (server.json
-// `deployment: "hosted"`) WITHOUT a Google client of its own (no client.json, no MYCEL_GOOGLE_DRIVE_CLIENT_FILE).
-// Without the variable nothing changes: no call to the hosting service, Drive as today. A self-installed server, and
-// any server with its own client.json, keeps the direct flow (oauth.ts) unchanged. Even when it is set, Drive turns
-// on only after the hosting service answers that it serves this team (oauth.ts checkBroker).
+// console origin, e.g. https://account.trina.app; https, or http to this machine) on a server WITHOUT a Google client of
+// its own (no client.json, no MYCEL_GOOGLE_DRIVE_CLIENT_FILE). Hosted or self-installed alike: setting the variable is
+// the operator's choice, and a self-installed server is served only after the hosting service's operator registered its
+// relay public key and exact address (`admin.js google-broker-key` prints both). Without the variable nothing changes:
+// no call to the hosting service, Drive as today. A server with its own client keeps the direct flow (oauth.ts)
+// unchanged. Even when it is set, Drive turns on only after the hosting service answers that it serves this server
+// (oauth.ts checkBroker); an unregistered or removed server stays "Not available yet".
 //
 // Trust boundaries:
-//  - Every call is signed with this server's relay team key (<data>/relay/team-key.pem). The control plane serves only
-//    the key it recorded for a hosted team, and sends the browser only to that team's own address.
+//  - Every call is signed with this server's relay team key (<data>/relay/team-key.pem; it exists even when the relay is
+//    off). The control plane serves only a key it recorded (a hosted team's, or a registered server's), and sends the
+//    browser only to the address it recorded for that key, never to one from the request.
 //  - The refresh token this server keeps is SEALED by the control plane with this team's id as associated data: it is
 //    useless to Google without the control plane, and useless to the control plane for any other team. It is sealed a
 //    second time here, in the Drive store's own key context, like a direct token.
@@ -22,7 +26,6 @@ import {
   type DriveBrokerOp, type DriveBrokerPurpose, type GoogleBrokerApp,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
-import { isHosted } from '../../system/deployment'
 import { loadOrCreateKey } from '../../relay-client/registration'
 import { DriveError } from './store'
 import type { DriveFetch } from './client'
@@ -42,12 +45,22 @@ export function brokerOrigin(env: Record<string, string | undefined> = process.e
   return u.origin
 }
 
-/** Whether this server signs in through the hosting service: the broker URL set, hosted, no Google client of its own. */
+/** Whether this server signs in through the hosting service: the broker URL set and no Google client of its own (hosted
+ * or self-installed; the hosting service decides whether it serves this server). */
 export function driveBrokerFor(ctx: AppContext, ownClient: boolean, clientFromEnv: boolean, env: Record<string, string | undefined> = process.env): BrokerOptions | null {
-  if (ownClient || clientFromEnv || !isHosted(ctx.config)) return null
+  if (ownClient || clientFromEnv) return null
   const origin = brokerOrigin(env)
   if (!origin) return null
   return { origin, identity: () => { const { key, publicKey } = loadOrCreateKey(ctx.config.dataDir); return { key, publicKey } } }
+}
+
+/** What a self-installed server's operator gives the hosting service to register it (`admin.js google-broker-key`): the
+ * PUBLIC part of the relay team key every broker call is signed with (base64 SPKI, made on first use like
+ * `relay-key`), and the server's public address (https://<tunnel.host>, the only address the browser may come back
+ * to), or null when it has none. Never the private key. */
+export function googleBrokerKey(dataDir: string, tunnelHost: string | null | undefined): { publicKey: string; address: string | null } {
+  const { publicKey } = loadOrCreateKey(dataDir)
+  return { publicKey, address: tunnelHost ? `https://${tunnelHost}` : null }
 }
 
 /** The configuration fingerprint of broker mode: connections made through one control plane origin belong together. */

@@ -13,7 +13,7 @@ import { DRIVE_MEMBERS, membersCanConnect, onShareOwnerCheck, ownerOk, SHARE_CON
 import { setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 
-/** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (hosted, no own client). */
+/** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (broker URL set, no own client). */
 export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
 /** One Drive connection's way to call Google: a person's own, or a team share's (read.ts). */
 export interface DriveConn {
@@ -24,7 +24,7 @@ export interface DriveConn {
  * gone), so nothing from an old connection is delivered. */
 interface Holder { id: string; op: string; fence(): void; load(): Tokens; save(t: Tokens): void; invalidate(): void }
 const TTL = 10 * 60_000
-/** how often a hosted server asks the hosting service whether its Google sign-in serves this team (broker.ts) */
+/** how often a server signing in through the broker asks the hosting service whether its Google sign-in serves this team (broker.ts) */
 const BROKER_CHECK_MS = 10 * 60_000, BROKER_RETRY_MS = 60_000
 const challengeOf = (verifier: string) => crypto.createHash('sha256').update(verifier).digest('base64url')
 const clean = (s: unknown, max: number) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : null
@@ -34,7 +34,8 @@ export class GoogleDrive {
   /** the Google client in use (null: none of its own; Drive is off unless the hosting service signs in, `broker`); an
    * admin's in-app setup replaces it (admin-setup.ts reload()) */
   get config() { return this.cfg }
-  /** sign-in through the hosting service (a hosted server without a client of its own), else null */
+  /** sign-in through the hosting service (a hosted or registered self-installed server without a client
+   * of its own and with MYCEL_GOOGLE_DRIVE_BROKER_URL), else null */
   readonly broker: DriveBroker | null
   private brokerOk = false
   private brokerCheckedAt = 0

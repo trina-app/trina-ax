@@ -7,7 +7,9 @@
 // (tools/drive.ts `available`).
 //
 // What the page may not change:
-//  - a hosted server: the hosting service owns its setup (as the installer refuses --google-drive-client there);
+//  - a hosted server: the hosting service owns its setup (as the installer refuses --google-drive-client there); the
+//    same for a self-installed server that signs in through the hosting service (MYCEL_GOOGLE_DRIVE_BROKER_URL, no
+//    client of its own): its people see exactly what a hosted team's see ('hosted', "set up by the hosting service");
 //  - a client the operator set (MYCEL_GOOGLE_DRIVE_CLIENT_FILE, or a client.json the installer or the operator wrote):
 //    the page shows it as "set by the server" and leaves it alone. Only a client set on this page can be replaced here;
 //  - a server without a public https address (tunnel.host): Google has no address to send people back to.
@@ -15,8 +17,8 @@
 //
 // The client secret never leaves the server: not in a response, the audit log (only "drive.client_set"), or a log line.
 //
-// A hosted server has no client of its own: it signs in through the hosting service (broker.ts), shown as source
-// 'service' once the hosting service answers that it serves this team.
+// A hosted server, or a self-installed one with the broker URL, has no client of its own: it signs in through the hosting
+// service (broker.ts), shown as source 'service' once the hosting service answers that it serves this server.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -39,10 +41,12 @@ export function driveAdminStatus(ctx: AppContext): DriveAdminStatus {
   const svc = googleDriveOf(ctx)
   const configured = svc.enabled
   const byApp = !!svc.config && getSetting<string>(ctx.db, DRIVE_CLIENT_BY_APP) === svc.key && !svc.clientFromEnv
-  // 'service': a hosted server signs in through the hosting service (broker.ts): nothing to set up or upload here
+  // 'service': the server signs in through the hosting service (broker.ts): nothing to set up or upload here
   const source = !configured ? 'none' : svc.mode === 'broker' ? 'service' : byApp ? 'app' : 'server'
   const redirectUri = driveRedirectUri(ctx)
-  const blocked = isHosted(ctx.config) ? 'hosted' : svc.clientFromEnv || source === 'server' ? 'server' : !redirectUri ? 'public_host' : null
+  // through the broker (hosted, or self-installed with the broker URL and no client of its own): the hosting service's
+  // setup, shown the same way on both, also before it answers (then the card stays "Not available yet")
+  const blocked = isHosted(ctx.config) || svc.broker ? 'hosted' : svc.clientFromEnv || source === 'server' ? 'server' : !redirectUri ? 'public_host' : null
   const connectedMembers = configured
     ? (ctx.db.query(`SELECT count(*) n FROM drive_connections d JOIN users u ON u.id=d.user_id
         WHERE d.config_key=? AND d.status='connected' AND u.status='active' AND u.deleted_at IS NULL`).get(svc.key) as { n: number }).n

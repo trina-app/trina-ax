@@ -15,7 +15,11 @@
 //
 // Identity: every API call is signed with the team server's relay team key (<data>/relay/team-key.pem, Ed25519, the
 // same key the relay and the push gateway know). The control plane accepts a key only when it is the key it recorded
-// for a hosted team's primary tenant (enroll); nothing else is trusted, no first use.
+// for a hosted team's primary tenant (enroll), or the key of an enabled REGISTERED server: a self-installed team server
+// an operator of the hosting service added by hand with its public key and its exact https origin (the team server
+// prints both with `admin.js google-broker-key`). One key is never both. Nothing else is trusted, no first use. No wire
+// field differs between the two: only who is served. A registered server's sealed tokens are bound to its registration
+// (not to any team), and disabling or removing it makes `status` answer no and every other call refuse at once.
 //
 // Flow:
 //   1. POST {api}/start   (signed) { purpose, returnState, codeChallenge }  → { authorizationUrl, connectUrl?, expiresAt }
@@ -28,6 +32,7 @@
 //   2. The browser signs in at Google, which returns to {console origin}DRIVE_BROKER_CALLBACK_PATH?state&code. The
 //      control plane sends the browser ONLY to the address of the team that started (from its own records, never from
 //      the request): https://<team>.<teamDomain>DRIVE_BROKER_TEAM_RETURN_PATH?state=<returnState>&handoff=<code>
+//      (a registered server: its recorded origin + DRIVE_BROKER_TEAM_RETURN_PATH)
 //      (or &error=consent_denied | provider_error). No Google token passes through the browser.
 //   3. POST {api}/redeem  (signed) { handoff, codeVerifier }  → token answer (below). The handoff works once, only for
 //      the team that started, only with the verifier of step 1, within DRIVE_BROKER_HANDOFF_TTL_MS. The control
