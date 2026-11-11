@@ -2,11 +2,11 @@
 
 - Date (UTC): 2026-11-11 00:53 (security review applied 2026-11-11)
 - Branch: `feat/allow-all-sites-card`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/tools/url-gate.ts`, new `server/src/tools/web-allow-all.ts`, `server/src/routes/auth.ts`,
   `server/src/routes/admin.ts`, `shared/src/api/auth.ts`, `web/src/pages/BrowserSettings.tsx`,
   `desktop/src/main/app-window.ts`). Why: web access rules and permissions are core (docs/REPOSITORY-RULES.md).
-- Version impact: minor. A new per-person setting, a new team setting (off by default), a new answer on a card, new
+- Version impact: minor. A new per-person setting, a new team setting (on by default), a new answer on a card, new
   `Me` fields and a route, a migration. Old apps keep working.
 
 ## Goal
@@ -22,30 +22,42 @@ go through it. DECISIONS "앱 안 브라우저 … 모든 웹사이트 허용" l
 모른다 … 범위 밖으로 남긴다"), and "설정 › 브라우저와 팀의 정책" says the web_fetch check stays. The Browser tab exists
 only inside the desktop app.
 
-After this change, a team whose admin allows it gets one switch, "Allow all websites". When a person turns it on, the
-AI opens ordinary public addresses without the address card, in that person's own chats, within a budget. The person
-can turn it on from Settings or from the card (from the third address card in a row), and turn it off in Settings.
+After this change, every person gets one switch, "Allow all websites" (an admin can take it away). When a person turns
+it on, the AI opens ordinary public addresses without the address card when that person asks, in chats and rooms. The person can turn
+it on from Settings or from the first address card, and turn it off in Settings.
 
-## Security review (2026-11-11): "build after fixing the MUSTs"
+## Security review (2026-11-11): "build after fixing the MUSTs", and the owner's call
 
-Every MUST and SHOULD below is in this plan; the NITs are folded in where they belong.
+Every MUST below is in this plan, and the SHOULDs the owner kept; the NITs are folded in where they belong.
 
-- MUST 1: ①d and the card's offer only in the person's own chat (no room session, no shared chat, no chat that read
-  rooms). §2.
-- MUST 2: one honest risk sentence, versioned, on the card, in Settings and in the desktop app's window. §3, §4, Risks.
-- SHOULD 3: ①d has its own budget, 60 per answer and 300 per chat. §2.
+**The owner's calls (2026-11-11, final), overruling MUST 1 and three SHOULDs:**
+- MUST 1 dropped: "it's a team, leave it". ①d and the card's answer also apply in rooms, in shared chats and after a room
+  read. It is always the switch of the person whose turn it is, never another member's.
+- SHOULD 3 dropped: no ①d budget. "Always allow" means no more cards for plain addresses; the other exceptions stay.
+- SHOULD 7 dropped: the fourth answer shows on the **first** address card wherever ①d would apply ("Claude's own apps
+  show 'always allow' right away").
+- SHOULD 6 changed: the separate team key `webAllowAll` stays, but it is **on by default** for existing and new teams.
+  Admins can turn it off (one indented line under the existing switch).
+
+The review's list, as built:
+
+- ~~MUST 1: own chat only~~ (dropped by the owner: rooms, shared chats and chats that read rooms are in; always the
+  caller's own switch). §2.
+- MUST 2: one honest risk sentence, versioned, on the card, in Settings and in the desktop app's window; it names room
+  messages. §3, §4, Risks.
+- ~~SHOULD 3: ①d has its own budget~~ (dropped by the owner).
 - SHOULD 4: the echo test is inside `plainAddress`, so echoes ask under ①b and ①d. §2 names the order.
 - SHOULD 5: the policy is race-free through an epoch. §1.
-- SHOULD 6 (decided): a separate team key `webAllowAll`, off by default, one indented line under the existing switch.
-  `browserAllowAll` keeps its meaning. §1, §4.
-- SHOULD 7: the fourth answer shows only from the third address card in one answer or in 10 minutes. §3.
+- SHOULD 6: a separate team key `webAllowAll`, one indented line under the existing switch; `browserAllowAll` keeps its
+  meaning. On by default (the owner). §1, §4.
+- ~~SHOULD 7: the fourth answer only from the third card~~ (dropped by the owner: the first card offers it). §3.
 
 ## Decisions
 
 ### 1. One switch, one value per person on the server, behind its own team key
 
-- **Team key.** A new team setting `webAllowAll` ("…also for web pages the AI opens"), **off by default** for existing
-  and new teams. It is one indented line under "Members can turn on 'Allow all websites'" (`browserAllowAll`) in Admin ›
+- **Team key.** A new team setting `webAllowAll` ("…also for web pages the AI opens"), **on by default** for existing
+  and new teams (the owner's call, 2026-11-11). It is one indented line under "Members can turn on 'Allow all websites'" (`browserAllowAll`) in Admin ›
   Team settings, and it needs that switch on. `browserAllowAll` keeps its meaning: admins agreed to it for the desktop's
   own browser only. While `browserAllowAll && webAllowAll` is not on, nobody's flag works, Settings shows no server
   switch, and the card does not offer it.
@@ -53,7 +65,7 @@ Every MUST and SHOULD below is in this plan; the NITs are folded in where they b
   number in C's range 300–399 on dev; check it again before merge). It is additive (reader 1), with these columns:
   `user_id` (PK, cascade), `allow_all`, `warning` (the version of the risk text the person accepted,
   `WEB_ALLOW_ALL_WARNING_VERSION` in shared), `epoch` (the policy epoch when it was turned on), `via` (`settings` |
-  `card`), `turn_id`, `updated_at`. The same migration adds `chat_all_sites` for the ①d budget (§2).
+  `card`), `turn_id`, `updated_at`.
   - Not `users.prefs`: PATCH /api/me writes prefs freely, with no warning and no audit. A test shows that a `webAllowAll`
     key sent in prefs leaves the flag off.
 - **The effective value.** `webAllowAll(db, userId)` in `tools/web-allow-all.ts` is true only when all of these hold:
@@ -65,7 +77,7 @@ Every MUST and SHOULD below is in this plan; the NITs are folded in where they b
   epoch and writes its row in one transaction, so a row written under the old policy can never count. Turning the key
   back on turns nobody's switch on.
 - **Implicit off is audited too.** A warning-version bump (the row reads as off the next time it is read: one
-  `web.allow_all_off` row, `via: 'warning'`) and an account deactivation (Admin › Members, `via: 'account'`).
+  `web.allow_all_off` row, `via: 'warning'`) and an account deactivated or deleted (Admin › Members, `via: 'account'`).
 - **The route.** `PUT /api/me/web-access` takes `{ on, acceptWarning? }` and returns `{ allowAll }`.
   - Turning on needs `acceptWarning === WEB_ALLOW_ALL_WARNING_VERSION` (else 409 `web_allow_all_warning`) and the team
     allowing it (else 409 `web_allow_all_off`). Turning off always works.
@@ -75,7 +87,7 @@ Every MUST and SHOULD below is in this plan; the NITs are folded in where they b
   - A change sends `notice web_access_changed` to that person's own windows.
 - **How it relates to the desktop app's own value.** The desktop rule stays: the team server can make the in-app browser
   stricter, never wider ("팀 페이지·사이트·AI는 못 바꾼다": that browser holds the person's signed-in sites).
-  - **Turning it on inside the desktop app** (team key on): one decision sets both. The app's own window (its text now
+  - **Turning it on inside the desktop app**: one decision sets both. The app's own window (its text now
     carries the risk sentence) → on yes, the page PUTs on. If the PUT fails, the page puts the browser back to asking.
   - **Turned on somewhere else** (the card, the web app, another computer): this computer's browser keeps asking until
     the person confirms in the app's window. Settings › Browser in the desktop app shows one line under the switch, "The
@@ -84,7 +96,8 @@ Every MUST and SHOULD below is in this plan; the NITs are folded in where they b
     `me.user.webAllowAll` where it reads the team policy now. When it sees the value change from true to false (the last
     value is kept in `permissions.json`), it puts the browser back to asking. It never widens because of this value.
   - **A browser set to "all" before this release** (the server value was never on) stays as it is.
-  - **With the team key off**, Settings › Browser in the desktop app is what it is today (this computer's browser only).
+  - **With the team key turned off by an admin**, Settings › Browser in the desktop app is what it is today (this
+    computer's browser only).
   - **⚙ in the browser panel** still changes this computer's browser only.
 
 ### 2. Rule ①d in `gateUrl`: what opens, in what order, and what still asks
@@ -98,29 +111,25 @@ The order in `gateUrl` (addresses with a long query, or while the exit address i
 3. ①b: `plain` and its site allowed in this chat: opens. ①b still works in rooms (unchanged).
 4. A learned link within the link budget (30 / 150): opens.
 5. An echo: asks (its own text).
-6. ①d: `plain`, the turn is the person's own chat (below), the person's flag is on, and the ①d budget has room: opens.
-   Over the budget: a card with its own text.
+6. ①d: `plain`, a turn ①d applies to (below), and the flag of the turn's own person is on: opens. No budget (the owner).
 7. Anything else: the card.
 
-**Own chat only (MUST 1).** ①d and the card's fourth answer apply only when all of these hold:
-- the chat is the person's own (`chats.user_id`), not a room's AI session (`room_id IS NULL`), not a shared project
-  chat or one others wrote in (`sharedChat`), not a chat that read rooms (`rooms_seen`, a ✦ side chat, or a quote on
-  the answer's branch: `chat/read-rooms.ts readRooms`, used as is), not confidential;
-- the turn was asked from the person's own app with its steps shown live: `clientKind` web, desktop or mobile. Not a
-  scheduled run, a Slack question (its cards wait in the app, but nobody sees its steps live), a company-profile draft,
-  or a turn started by the server.
+**Where ①d applies.** The owner dropped the review's MUST 1 (2026-11-11: "it's a team, leave it"): rooms, shared
+chats and chats that read rooms are in. What stays:
+- **always the caller's own switch**: `gateUrl` takes `userId` from the turn (web_fetch `t.user.id`, the browser tools
+  `spec.userId`); a room's AI session is the asker's, a shared chat's turn is the person's who asked. Another member's
+  switch never applies;
+- the turn was asked from the person's own app with its steps shown live: `clientKind` web, desktop or mobile
+  (`TurnPerson.allSitesHere`). Not a scheduled run, a Slack question (its cards wait in the app, but nobody sees its
+  steps live), a company-profile draft, or a turn started by the server;
+- not a confidential chat.
 
-Why: room messages go into the prompt as `<room_context>` (`rooms/ai.ts`), and web_fetch gets no room card there
-(`rooms/ai-tools.ts` `ROOM_READ_ONLY_TOOLS`, `ROOMS_SEEN_READ_ONLY_TOOLS`; `chat/turn.ts confirmRoomChange`). Member B
-could make Alice's AI send Alice's folders out with no card. ①b still helps in rooms.
+What the owner accepted: room messages go into the prompt as `<room_context>` (`rooms/ai.ts`), and web_fetch gets no
+room card there, so another member's message can steer the asker's AI to send what the asker can read. The risk
+sentence names room messages for that reason.
 
-The check is done twice: the turn says so (`TurnPerson.allSitesHere()`, from the exec: no room, not shared, not
-restricted, a live client, `readRooms` false) and `gateUrl` checks the chat row itself.
-
-**①d budget (SHOULD 3).** At most 60 addresses per answer and 300 per chat open through ①d (`ALL_SITES_BUDGET`), counted
-like `spendLinkBudget`: synchronously, the same address again in the chat is free (`chat_all_sites`). Over it, the card
-asks again ("…as many addresses as Allow all websites lets it open without asking (60 per answer, 300 per
-conversation). This limits how much can go out, not small secrets…").
+**No ①d budget** (the owner's call, 2026-11-11). The review's 60 / 300 cap is dropped: "always allow" means no
+more cards for plain addresses.
 
 **Runs nobody watches: not covered.** Scheduled runs, calls outside a turn and company-profile drafts keep today's
 rules (card-allowed addresses, 8 learned links). Nobody sees their steps as they happen; the person confirmed a schedule
@@ -141,13 +150,12 @@ they do not get ①d's other checks (random-looking parts, long names), with or 
 
 - **The answers.** Open / Allow this site in this conversation / **Allow all websites (turn off in Settings)** (value
   `all_sites`; ko "모든 사이트 허용 (설정에서 끌 수 있어요)") / Don't open. English first in `url-gate.ts` `TEXT`, then ko,
-  id, ja, es. The line under the question: "If you allow all websites, the AI opens public websites without asking in
-  your own chats, until you turn it off in Settings › Browser." followed by the risk sentence (below).
-- **Lean (SHOULD 7).** It is offered only from the **third address card in a row**: within one answer, or within 10
-  minutes (like the desktop's `RepeatPromptHint`, counted per person in memory). The first two cards keep their three
-  answers. And only when all of these hold: ①d could cover this address (`plain`, no long query, exit address known, not
-  an echo or an over-budget card); the turn is the person's own chat (§2); the person can choose; the team allows it;
-  the person's flag is off.
+  id, ja, es. The line under the question: "If you allow all websites, the AI opens public websites without asking when
+  you ask it, in your chats and in rooms, until you turn it off in Settings › Browser. Long hard-to-read strings and long
+  queries still ask, but that catches obvious tokens only." followed by the risk sentence (below).
+- **On the first card** (the owner's call, 2026-11-11; the review's "third card" rule is dropped). Offered when all of
+  these hold: ①d could cover this address (`plain`, no long query, exit address known, not an echo); a turn ①d applies
+  to (§2); the person can choose; the team allows it; the person's flag is off.
 - **Picking it.** This address opens. In one transaction the gate reads the policy and the epoch again and, if the team
   still allows it, sets the flag (`via: 'card'`, `turn_id`, the current warning version), audits `web.allow_all_on` and
   sends the notice. If an admin turned it off while the card was open, the address opens and the flag stays off.
@@ -179,11 +187,11 @@ they do not get ①d's other checks (random-looking parts, long names), with or 
   as today. The tab id stays the same.
   - With the team key on, its one choice (Ask / Allow all) is the server value; the desktop app also shows this
     computer's browser line and the always-allowed sites.
-  - With the team key off, the web and phone show no Browser tab, and the desktop shows today's page.
+  - With the team key turned off, the web and phone show no Browser tab, and the desktop shows today's page.
 - **Text** (English first): the description names web pages the AI reads and files it saves from the web; the "Allow all
-  websites" hint says it opens public websites without asking in your own chats, within a limit, that rooms, shared
-  chats and scheduled tasks still ask, that long random-looking strings and long queries still ask but that catches
-  obvious tokens only, plus the risk sentence.
+  websites" hint says it opens public websites without asking in your chats and rooms, that scheduled tasks still ask,
+  that long random-looking strings and long queries still ask but that catches obvious tokens only, plus the risk
+  sentence.
 - **Turning it on**: web and phone, a confirm dialog with the risk sentence; desktop, the app's own window (its detail
   text gets the risk sentence too).
 - **Admin**: Team settings, one indented line under the browser switch: "Also for web pages the AI opens" with a short
@@ -201,7 +209,7 @@ they do not get ①d's other checks (random-looking parts, long names), with or 
 
 1. Plan update (this commit).
 2. Shared: the team key, `Me` fields, the route, `WEB_ALLOW_ALL_WARNING_VERSION`, `WEB_ALLOW_ALL_RISK`.
-3. Server: migration, `tools/web-allow-all.ts` (flag, epoch, budget, card count), `url-gate.ts` (`plainAddress` with the
+3. Server: migration, `tools/web-allow-all.ts` (flag, epoch), `url-gate.ts` (`plainAddress` with the
    echo, ①d, the fourth answer, texts), `chat/tools.ts turnPerson` (`allSitesHere`, the notice), routes (PUT, `Me`,
    admin PATCH with the epoch, deactivation), summaries in web_fetch and save_url.
 4. Web: Settings › Browser, the admin line, the notice and the toast, i18n in five languages, the mock server.
@@ -210,13 +218,13 @@ they do not get ①d's other checks (random-looking parts, long names), with or 
 
 ## Risks
 
-- **What it does not stop.** With the flag on, a hidden instruction in a document, page or message the AI reads in the
-  person's own chat can make it send anything it can read to any site. The exceptions catch obvious tokens only:
+- **What it does not stop.** With the flag on, a hidden instruction in a document, page or room message the AI reads can
+  make it send anything it can read to any site. The exceptions catch obvious tokens only:
   `opaqueParts` is a hint, not a rule. Lowercase-only data, or data cut into pieces shorter than 20 characters, passes;
-  so do readable words in a path, a short name before the site or a short query. The ①d budget (60 / 300) limits how
-  much goes out, not small secrets: a key fits in one address. This is the risk the sentence names; the team key is off
-  by default, and an admin decides.
-- Rooms, shared chats and chats that read rooms never use the flag (MUST 1).
+  so do readable words in a path, a short name before the site or a short query, as many times as the AI calls. There is
+  no budget (the owner's call). This is the risk the sentence names; each person opts in, and an admin can turn the
+  team key off.
+- **Rooms.** Another member's room message can steer the asker's AI (the owner accepted it; the sentence names it).
 - **Migration number.** Another open branch may take 339. Check it again before merge.
 - **Languages and screens.** The server card, the web and the desktop window, in five languages. On a phone, the card
   shows four radio answers.
@@ -228,21 +236,20 @@ they do not get ①d's other checks (random-looking parts, long names), with or 
 ## Tests
 
 New `tests/unit/web-allow-all.test.ts`, with the same harness and DNS stub as `site-allow.test.ts`:
-- **Flag off**: the card; the fourth answer only from the third card in a row, and only with the team key on.
+- **Flag off**: the first card already offers the fourth answer, with the risk sentence; not with the team key off.
 - **Flag on**: no card, and no lookup before the decision, for an address the AI wrote, a learned link over the link
   budget, save_url, a browser tool's address.
 - **Flag on, still a card**: a random-looking part; a long name before the site; a user name or password (browser
   tool); a query over 200 characters; an unknown exit address (web_fetch and save_url only: the browser tools never pass
   `egressKnown`); an IP address or an address with no site; a confidential chat. A private IP literal is refused before
   any card; a name that resolves into the office network is refused after the lookup.
-- **Own chat only**: with the flag on, a room's AI session, a shared project chat, and the person's own chat after a room
-  read still get a card, and the card has no fourth answer there.
+- **Always the caller's switch**: a room's @트리나 asked by Alice (on) opens without a card, asked by Bob (off) in the
+  same room gets a card; in a chat others wrote in, another member's switch never counts.
 - **Echo**: refused (a card) under ①b and under ①d.
-- **Budget**: over 60 in one answer, a card appears.
 - **Risk text**: the card's text holds `WEB_ALLOW_ALL_RISK` for its language, and the stored warning version is
   `WEB_ALLOW_ALL_WARNING_VERSION`.
-- **Team key**: off → the fourth answer and the Settings switch are not offered (`Me.team.webAllowAll` false), PUT on is
-  409, the gate ignores a row. Policy off → PUT → policy on leaves everyone off (epoch); the reset is audited.
+- **Team key**: on by default; off → the fourth answer and the Settings switch are not offered (`Me.team.webAllowAll`
+  absent), PUT on is 409, the gate ignores a row. Policy off → PUT → policy on leaves everyone off (epoch); the reset is audited.
 - **Only the person**: the AI's own ask_user card answered `all_sites`, typed text, or another person's answer cannot set
   it; PATCH /api/me with `prefs.webAllowAll` leaves it off; a person who must change the password cannot PUT; a wrong
   warning version is 409.
@@ -250,8 +257,8 @@ New `tests/unit/web-allow-all.test.ts`, with the same harness and DNS stub as `s
 - **Implicit off**: a stale warning version reads as off and is audited once; deactivating an account is audited.
 - **Card answer**: opens the address, sets the flag, audits `web.allow_all_on` via card with the turn id, sends the notice.
 
-Elsewhere: the permission matrix and `security-route-coverage` (the new route), `a-admin.test.ts` (the new key is off by
-default and admin-only), `web/test/unit/browser-settings.test.tsx` (the tab follows the team key, the confirm, the
+Elsewhere: the permission matrix and `security-route-coverage` (the new route), `site-allow.test.ts` (a real card now
+offers the fourth answer), `web/test/unit/browser-settings.test.tsx` (the tab follows the team key, the confirm, the
 desktop lines), `e-desktop-common.test.ts` (narrows on true → false, never widens on true).
 
 Checks: `bun run typecheck`, `test:unit` (area files), `check:i18n`, `check:docs`, `docs:api` with
@@ -268,8 +275,21 @@ Checks: `bun run typecheck`, `test:unit` (area files), `check:i18n`, `check:docs
 
 ## Owner questions
 
-None. The team key is off by default (decided in the review).
+None. The owner decided the open points on 2026-11-11 (no budget, first card, team key on by default).
 
 ## Result
 
-Filled in at the end.
+Built as the plan says after the owner's calls of 2026-11-11: no ①d budget, the fourth answer on the first card,
+rooms, shared chats and chats that read rooms included (always the caller's own switch), and the team key `webAllowAll`
+on by default. The review's other points are in: the versioned risk sentence that names room messages, the echo test
+inside `plainAddress`, the policy epoch, audit rows for implicit offs, and no `allowWhilePasswordChange`.
+
+Differences from the plan:
+- An independent code review asked for two more things, both done: deleting a member also turns the switch off with an
+  audit row, and the team-wide notice now goes out when either team switch changes.
+- Two tests were sharpened in the same review: the race test checks the stored row, and the shared-chat test runs the
+  turn as a person who does not own the chat.
+- `teamPolicyOff` also audits rows with an older risk sentence (`via: 'warning'`).
+- Scheduled runs, Slack questions and drafts never use the switch. Their refusal says so.
+
+PR: PR_LINK
