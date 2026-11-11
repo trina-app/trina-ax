@@ -217,7 +217,8 @@ test.describe('each page', () => {
     await expect(page.getByRole('menu', { name: t['common.moreActions'] }).getByRole('menuitem')).toHaveText([t['usage.exportCsv']])
     await page.keyboard.press('Escape')
     await page.getByTestId('usage-limits-link').click()
-    await expect(page).toHaveURL(/\/admin\/settings#ai-limits$/)
+    // on a phone the limits are a group of Team settings of their own (teamSettingsGroups.ts, #342)
+    await expect(page).toHaveURL(/\/admin\/settings\/limits#ai-limits$/)
   })
 
   test('Activity log: the search and Filters on one row, the only part that stays; the kinds open under Filters', async ({ page }) => {
