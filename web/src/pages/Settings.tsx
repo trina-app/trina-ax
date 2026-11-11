@@ -57,7 +57,8 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'profile' && <Profile />}
       {tab === 'security' && <Security />}
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
-      {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll) && <BrowserSettings bridge={browser} />}
+      {/* the dialog decides whether the section is there (it stays after its switch is turned off) */}
+      {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll, true) && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
       {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}

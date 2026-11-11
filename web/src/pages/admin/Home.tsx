@@ -20,6 +20,7 @@ import { actionLabel } from './Audit'
 import { AdminPageHeader, useAction, useLoad } from './common'
 import { JobLine, useUpdateInstall } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
+import { homeCheck, technicalEngineState } from './plain'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only) */
 const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
@@ -114,12 +115,13 @@ export default function Home() {
   const openInvites = invites.data?.filter((i) => !i.usedAt && Date.parse(i.expiresAt) > Date.now()).length ?? 0
   // An engine that is on but never set up (notSetUp) is not a problem while another engine is set up (answers, or only
   // waits for a limit to end): a team on Claude alone has nothing to fix. It is when it is the team default; when no
-  // engine is set up at all, one line says so instead of one per engine. A broken engine (error, untested version,
-  // failed lockdown, a refused API key) always has its own line. A connection that stopped working has its own line
+  // engine is set up at all, one line says so instead of one per engine. A broken engine (error, a refused API key)
+  // always has its own line. A connection that stopped working has its own line
   // below (badCredentials).
   const onEngines = engines.data?.engines.filter((e) => e.enabled) ?? []
-  const anyEngineSetUp = onEngines.some((e) => e.status === 'ok' || e.status === 'limited')
-  const badEngines = onEngines.filter((e) => e.status !== 'ok' && e.status !== 'limited'
+  // an untested version or a failed lockdown test still answers: Diagnostics says it (plain.ts), Home does not
+  const anyEngineSetUp = onEngines.some((e) => e.status === 'ok' || e.status === 'limited' || technicalEngineState(e.status))
+  const badEngines = onEngines.filter((e) => e.status !== 'ok' && e.status !== 'limited' && !technicalEngineState(e.status)
     && (notSetUp(e) ? anyEngineSetUp && e.id === engines.data?.defaultEngine : true))
   const noEngine = !!engines.data && !anyEngineSetUp && onEngines.some(notSetUp)
   // An engine at its limit: the people line (or a credential over its limit) already says it; else one line of its own.
@@ -128,8 +130,10 @@ export default function Home() {
   const badCredentials = credentials.data?.filter((c) => !c.disabled && CREDENTIAL_PROBLEMS.includes(c.state)) ?? []
   const badServices = services.data?.filter((s) => s.status !== 'connected') ?? []
   const storageBad = !!storage.data && (storage.data.level !== 'ok' || storage.data.writesRefused)
-  const failedChecks = diagnostics.data?.filter((c) => c.status === 'fail') ?? []
-  const checksToLook = diagnostics.data?.filter((c) => c.status === 'fail' || c.status === 'warn') ?? []
+  // only the checks an admin can act on (plain.ts homeCheck); the server's internals are in Diagnostics alone
+  const failedChecks = diagnostics.data?.filter((c) => c.status === 'fail' && homeCheck(c)) ?? []
+  const checksToLook = diagnostics.data?.filter((c) => (c.status === 'fail' || c.status === 'warn') && homeCheck(c)) ?? []
+  const allChecksOk = !!diagnostics.data?.every((c) => c.status !== 'fail' && c.status !== 'warn')
 
   const upd = update.data?.u
   const newVersion = upd && !upd.managed && office.data && !office.data.v ? upd.available?.version : undefined
@@ -249,7 +253,7 @@ export default function Home() {
           />
           <Area id="system" to="/admin/system" icon={Activity} title={t('admin.system')} state={storage} problems={(storageBad ? 1 : 0) + checksToLook.length}
             line={storage.data ? t('adminHome.storage', { percent: Math.round(storage.data.percent) }) : ''}
-            meta={owner && diagnostics.data ? (checksToLook.length ? names(checksToLook.map((c) => c.label)) : t('adminHome.checksOk')) : ''}
+            meta={owner && diagnostics.data ? (checksToLook.length ? names(checksToLook.map((c) => c.label)) : allChecksOk ? t('adminHome.checksOk') : '') : ''}
           />
         </div>
       </section>
