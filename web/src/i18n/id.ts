@@ -3471,8 +3471,8 @@ export const id: Record<MessageKey, string> = {
   "teamLink.problem.revoked": "Tautan undangan ini tidak dipakai lagi. Minta tautan baru ke orang yang mengirimnya.",
   "teamLink.problem.full": "Kursi tim sedang penuh. Beri tahu orang yang mengirim tautan.",
   "teamLink.problem.missing": "Tautan undangan ini tidak berfungsi. Periksa apakah tautan tersalin utuh, atau minta tautan baru ke orang yang mengirimnya.",
-  "teamLink.joinedNotice": "{name} bergabung lewat tautan undangan tim.",
-  "teamLink.joinedNoticeGone": "Seseorang bergabung lewat tautan undangan tim.",
+  "teamLink.joinedNotice": "{name} bergabung ke tim.",
+  "teamLink.joinedNoticeGone": "Seseorang bergabung ke tim.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "Hapus akun",
   "accountDeletion.rowHint": "Owner tim atau admin yang menghapus akun.",
@@ -3890,6 +3890,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.event.renamed": "{actor} mengganti nama obrolan menjadi {name}",
   "rooms.event.renamedBack": "{actor} mengembalikan nama obrolan",
   "rooms.event.left": "{actor} keluar",
+  "rooms.event.joined": "{actor} bergabung ke tim",
   "rooms.event.removed": "{actor} mengeluarkan {name}",
   "rooms.event.unknown": "Ada yang berubah di obrolan ini",
   "tabs.label": "Menu utama",

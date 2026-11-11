@@ -26,7 +26,8 @@ import { assertSeatFree } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
-import { notifyTemplateOffers } from '../notifications/service'
+import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { roomsOf } from '../rooms/service'
 import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
@@ -361,6 +362,11 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   notifyTemplateOffers(ctx, { userId: id })
   // a lead invite: the owner who flagged it gets the card's notice (only a hint: the role stays member)
   afterLeadJoin(ctx, r!.id)
+  // told as a join with the team link is: the owners and whoever made the invite (Activity), and one line in the
+  // everyone room for the rest of the team (QA 2026-11-11: a member who joined with an invite was told to nobody)
+  const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+  notifyTeamJoined(ctx, r!.created_by ? [...owners, r!.created_by] : owners, id)
+  roomsOf(ctx).memberJoined(id)
   return a.signIn(c, id, b.client, b.tokenMode)
 }
 class UsernameTaken extends Error {}

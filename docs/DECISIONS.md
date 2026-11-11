@@ -7433,6 +7433,28 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Not done**: the mobile app's address box (`mobile/src/address.ts`) still accepts only `/invite/<token>` links, not `/join#t=`; a list of who joined through which link beyond the audit log; single-use invites keep their token in the path (`/invite/<token>`, unchanged, already masked in logs).
 - Tests: `tests/unit/a-team-links.test.ts` (make, show again, replace, revoke; sealed and hashed at rest; members only with a role in the request; groups; taken username, weak password, unknown token; max uses with three joins at once for two uses; expiry; the per-link limit across addresses, and joins that work not counting; a maker disabled, enabled again or demoted; the use-time check; a restored copy; the owners' and the maker's inbox; seats: default, cap, full; the skill deep link and the folder rules; no path or query parameter and nothing logged with the token), `web/test/unit/team-link.test.tsx` (the fragment, the next page, the message in five languages, the panel's states, the join form without a second password, `/join` sending the token only in POST bodies, every "no longer works" message, InviteStep and its soft dialog), `web/test/e2e/team-link.spec.ts` (the whole flow in a real browser against the mock: make, copy the message, join, land on the skill, no request URL with the token, revoke).
 
+## A new member is told to the team (feat/member-joined-notice, 2026-11-11, QA)
+
+- **Problem.** On potenlab, a member who joined with a single-use invite (qa-d) was told to nobody: no line in the
+  everyone room, nothing in Activity. A join with the team link already told the owners and the link's maker
+  (`team.joined`), but not the rest of the team.
+- **Rule.**
+  - Both kinds of join (an invite: `auth/accounts.ts acceptInvite`; the team link: `auth/team-links.ts`) put one event
+    line in the everyone room, written as the new member: `{type: 'joined'}`, shown as "{name} joined the team". An
+    event line is never unread and does not move the room in the lists, so nobody gets a badge, a notice or a push;
+    the team sees it when they open the room and can say hello. The new member is put in the room first and sees it
+    too.
+  - An invite join now also sends `team.joined` to the owners and the invite's maker (Activity, no push), as the team
+    link does. Its text no longer names the team link ("{name} joined the team").
+  - Names only: no email, no role, no inviter in the room line.
+- **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
+  and the person may not have signed in yet. No push for joins.
+- **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
+  `tests/unit/a-team-links.test.ts` (team link join: the line).
+||||||| 2be3f4b09
+||||||| 1565b39f1
+||||||| 626c5fbfd
+
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
 Onboarding wave 2, stream W. Placement: Team AX core (skills, files and the first chat; nothing about plans, billing

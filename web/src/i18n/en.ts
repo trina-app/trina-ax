@@ -3471,8 +3471,8 @@ export const en: Record<MessageKey, string> = {
   "teamLink.problem.revoked": "This invite link is no longer in use. Ask the person who sent it for a new link.",
   "teamLink.problem.full": "The team has no free seats right now. Let the person who sent the link know.",
   "teamLink.problem.missing": "This invite link doesn't work. Check that you copied all of it, or ask the person who sent it for a new link.",
-  "teamLink.joinedNotice": "{name} joined through the team invite link.",
-  "teamLink.joinedNoticeGone": "Someone joined through the team invite link.",
+  "teamLink.joinedNotice": "{name} joined the team.",
+  "teamLink.joinedNoticeGone": "Someone joined the team.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "Delete account",
   "accountDeletion.rowHint": "The team owner or an admin deletes accounts.",
@@ -3890,6 +3890,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.event.renamed": "{actor} renamed the chat to {name}",
   "rooms.event.renamedBack": "{actor} reset the chat's name",
   "rooms.event.left": "{actor} left",
+  "rooms.event.joined": "{actor} joined the team",
   "rooms.event.removed": "{actor} removed {name}",
   "rooms.event.unknown": "Something in this chat changed",
   "tabs.label": "Main",

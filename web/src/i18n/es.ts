@@ -3427,8 +3427,8 @@ export const es: Record<MessageKey, string> = {
   "teamLink.problem.revoked": "Este enlace de invitación ya no se usa. Pida uno nuevo a quien se lo envió.",
   "teamLink.problem.full": "El equipo no tiene plazas libres ahora. Avise a quien le envió el enlace.",
   "teamLink.problem.missing": "Este enlace de invitación no funciona. Compruebe que lo copió completo o pida uno nuevo a quien se lo envió.",
-  "teamLink.joinedNotice": "{name} se unió con el enlace de invitación del equipo.",
-  "teamLink.joinedNoticeGone": "Alguien se unió con el enlace de invitación del equipo.",
+  "teamLink.joinedNotice": "{name} se unió al equipo.",
+  "teamLink.joinedNoticeGone": "Alguien se unió al equipo.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "Eliminar la cuenta",
   "accountDeletion.rowHint": "El propietario del equipo o un administrador elimina las cuentas.",
@@ -3846,6 +3846,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.event.renamed": "{actor} cambió el nombre del chat a {name}",
   "rooms.event.renamedBack": "{actor} restableció el nombre del chat",
   "rooms.event.left": "{actor} salió",
+  "rooms.event.joined": "{actor} se unió al equipo",
   "rooms.event.removed": "{actor} sacó a {name}",
   "rooms.event.unknown": "Algo cambió en este chat",
   "tabs.label": "Menú principal",

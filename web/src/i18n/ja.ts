@@ -3427,8 +3427,8 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.problem.revoked": "この招待リンクはもう使えません。送ってくれた人に新しいリンクを頼んでください。",
   "teamLink.problem.full": "チームの人数が上限に達しています。リンクを送ってくれた人に伝えてください。",
   "teamLink.problem.missing": "この招待リンクは使えません。リンクを最後までコピーしたか確認するか、送ってくれた人に新しいリンクを頼んでください。",
-  "teamLink.joinedNotice": "{name}さんがチーム招待リンクから参加しました。",
-  "teamLink.joinedNoticeGone": "チーム招待リンクから誰かが参加しました。",
+  "teamLink.joinedNotice": "{name}さんがチームに参加しました。",
+  "teamLink.joinedNoticeGone": "誰かがチームに参加しました。",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "アカウントの削除",
   "accountDeletion.rowHint": "アカウントはチームのオーナーまたは管理者が削除します。",
@@ -3846,6 +3846,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.event.renamed": "{actor}さんがトーク名を{name}に変更しました",
   "rooms.event.renamedBack": "{actor}さんがトーク名を元に戻しました",
   "rooms.event.left": "{actor}さんが退出しました",
+  "rooms.event.joined": "{actor}さんがチームに参加しました",
   "rooms.event.removed": "{actor}さんが{name}さんを外しました",
   "rooms.event.unknown": "トークの情報が変更されました",
   "tabs.label": "メインメニュー",
