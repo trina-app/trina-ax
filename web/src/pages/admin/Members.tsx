@@ -18,8 +18,8 @@
 // "팀장 링크 · 받는 사람: …".
 import { Crown, FolderLock, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
-import { useCallback, useId, useRef, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { z } from 'zod'
 import { cleanLeadFor, type CreatedInvite as CreatedInviteSchema, type Group, type Invite, type Locale, type Me, type User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
@@ -46,6 +46,8 @@ import { HandoverDialog } from '../../components/handover/HandoverDialog'
 import { absoluteUrl, LEAD_DAYS, LeadFlag, LeadMessage, useLeadOffered } from '../../components/handover/LeadInvite'
 import { useHandover } from '../../store/handover'
 import { connectionsOnlyFor, loadConnections } from './ai-assignees'
+import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -202,8 +204,48 @@ export default function Members() {
       : []),
   ]
 
+  // a phone: a person's own page (/admin/members/<id>), pushed from their row (adminScreens.ts): who they are, their
+  // role, groups and folders, and what can be done (delete last). The list stays under it, hidden, with its place
+  const sub = useParams().sub
+  const upTo = useUpTo()
+  const person = phone && sub ? users.data?.items.find((u) => u.id === sub) : undefined
+  const personGone = phone && !!sub && !!users.data && !person
+  useEffect(() => { if (personGone) upTo('/admin/members') }, [personGone]) // eslint-disable-line react-hooks/exhaustive-deps
+  useAdminBar(person?.name ?? null)
+  const personPage = person && (() => {
+    const u = person
+    const actions = canManage(u) ? menuItems(u).filter((a) => a.testId !== 'member-access-link') : []
+    const noAi = users.data?.noAi?.includes(u.id) ?? false
+    return (
+      <div className="-mx-4" data-testid="member-page" data-user={u.username}>
+        <div className="px-4">
+          <h2 className="text-lg font-semibold break-words text-ink">{u.name}</h2>
+          <p className="mt-0.5 text-sm break-all text-muted">{[u.username, u.email].filter(Boolean).join(' · ')}</p>
+          {(u.status === 'disabled' || requested(u) || u.mustChangePassword || noAi) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} /></div>
+          )}
+        </div>
+        <PhoneListGroup>
+          <PhoneListRow title={t('members.role')} end={roleCell(u, true)} testId="member-page-role" />
+          <PhoneListRow title={t('admin.groups')} value={u.groupIds.map(groupName).join(', ') || t('members.noGroups')} testId="member-page-groups" />
+          <PhoneListRow title={t('accessView.membersLink')} to={personViewLink({ person: u.id })} testId="member-page-folders" />
+          <PhoneListRow title={t('members.lastSeen')} value={u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'} />
+        </PhoneListGroup>
+        {actions.length > 0 && (
+          <PhoneListGroup testId="member-page-actions">
+            {[...actions.filter((a) => !a.danger), ...actions.filter((a) => a.danger)].map((a) => (
+              <PhoneListRow key={a.testId} icon={a.icon} title={<span className={a.danger ? 'text-danger' : 'text-ink'}>{a.label}</span>} onClick={a.onSelect} testId={a.testId} />
+            ))}
+          </PhoneListGroup>
+        )}
+      </div>
+    )
+  })()
+
   return (
     <>
+      {personPage}
+      <div hidden={!!personPage} className="contents">
       <AdminPageHeader
         title={
           <>
@@ -268,6 +310,7 @@ export default function Members() {
                   return (
                     <CompactRow
                       key={u.id}
+                      onOpen={() => navigate(`/admin/members/${u.id}`)}
                       rowRef={u.id === focusId ? focusRow : undefined}
                       className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}
                       testId={`member-card-${u.username}`}
@@ -381,6 +424,7 @@ export default function Members() {
           </div>
         </section>
       )}
+      </div>
       {teamLinkOpen && <TeamLinkDialog onClose={() => setTeamLinkOpen(false)} onChange={(r) => teamLink.setData(r)} />}
 
       {inviteOpen && (

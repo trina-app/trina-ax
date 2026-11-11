@@ -4,11 +4,13 @@
 // rows (name · members · "…"); Edit and Delete are in the row's "…". The members column starts with their faces
 // (FaceStack: at most 3 and "+N"), then the count and the names in words. A phone (below 768 px) has one compact row per
 // group (components/CompactRow.tsx): the name, "N members" on the right and "…", the description under it only when
-// there is one; the faces and the names are in the group's dialog (docs/DECISIONS.md "Admin and Settings on phones").
+// there is one; the row opens the group's own page (/admin/groups/<id>, adminScreens.ts): its line, its members, Edit
+// and Delete (docs/DECISIONS.md "Admin and Settings on phones").
 // Who may change team skills is on the Team skills page (SkillManagers.tsx), not here: a group's own skills are its
 // members' anyway (docs/DECISIONS.md "Group skills").
 import { Pencil, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import type { Group, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
@@ -20,6 +22,8 @@ import { useMeStrict } from '../../store/session'
 import { AdminPageHeader, CountBadge, Loadable, SearchBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 import { MemberMenu } from './RowMenu'
 import { connectionsOnlyFor, loadConnections } from './ai-assignees'
+import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { useAdminBar, useUpTo } from './phoneBar'
 
 export default function Groups() {
   const t = useT()
@@ -45,6 +49,37 @@ export default function Groups() {
     if (off.length) void connections.reload()
     await groups.reload()
   }
+  // a phone: a group's own page, pushed from its row
+  const sub = useParams().sub
+  const navigate = useNavigate()
+  const upTo = useUpTo()
+  const group = phone && sub ? groups.data?.find((g) => g.id === sub) : undefined
+  const gone = phone && !!sub && !!groups.data && !group
+  useEffect(() => { if (gone) upTo('/admin/groups') }, [gone]) // eslint-disable-line react-hooks/exhaustive-deps
+  useAdminBar(group?.name ?? null)
+  if (group)
+    return (
+      <>
+        <div className="-mx-4" data-testid="group-page">
+          <div className="px-4">
+            <h2 className="text-lg font-semibold break-words text-ink">{group.name}</h2>
+            {group.description && <p className="mt-0.5 text-sm text-muted">{group.description}</p>}
+          </div>
+          <PhoneListGroup title={`${t('groups.members')} · ${t('groups.memberCount', { n: group.memberIds.length })}`} labelId="group-page-members" testId="group-page-members">
+            {group.memberIds.length
+              ? group.memberIds.map((id) => <PhoneListRow key={id} title={name(id)} />)
+              : <PhoneListRow title={<span className="text-faint">{t('groups.noMembers')}</span>} />}
+          </PhoneListGroup>
+          <PhoneListGroup>
+            <PhoneListRow icon={<Pencil size={14} aria-hidden />} title={t('common.edit')} onClick={() => setEditing(group)} testId="group-edit" />
+            <PhoneListRow icon={<Trash2 size={14} aria-hidden />} title={<span className="text-danger">{t('common.delete')}</span>} onClick={() => void remove(group)} testId="group-delete" />
+          </PhoneListGroup>
+        </div>
+        {editing && (
+          <GroupForm group={editing === 'new' ? null : editing} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void groups.reload() }} />
+        )}
+      </>
+    )
   return (
     <>
       <AdminPageHeader
@@ -90,6 +125,7 @@ export default function Groups() {
                   {list.map((g) => (
                     <CompactRow
                       key={g.id}
+                      onOpen={() => navigate(`/admin/groups/${g.id}`)}
                       testId="group-row"
                       title={g.name}
                       chip={<span className="px-2 text-sm text-muted tabular-nums" data-testid="group-member-count">{t('groups.memberCount', { n: g.memberIds.length })}</span>}

@@ -1,10 +1,12 @@
 // A row's actions behind "…" (Admin › Members and Groups): a small menu at the button, arrow keys move, Escape or Tab
-// closes and goes back to the button, a click outside closes.
+// closes and goes back to the button, a click outside closes. A phone (below 768 px): the app's bottom sheet
+// (rooms/MenuButton.tsx) with 48 px rows, what cannot be undone last, and the row's name above them.
 import clsx from 'clsx'
 import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { useT } from '../../i18n'
-import { IconButton } from '../../components/ui'
+import { IconButton, useMediaQuery } from '../../components/ui'
+import { MenuButton } from '../../components/rooms/MenuButton'
 
 export interface MemberMenuItem { label: string; icon: ReactNode; onSelect: () => void; danger?: boolean; testId: string }
 
@@ -12,6 +14,23 @@ export interface MemberMenuItem { label: string; icon: ReactNode; onSelect: () =
  * back to the button, a click outside closes. rowFocus: the "…" takes the focus when the row before it was deleted
  * (useFocusAfterRemove). */
 export function MemberMenu({ name, items, rowFocus }: { name: string; items: MemberMenuItem[]; rowFocus?: boolean }) {
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  return phone ? <SheetMenu name={name} items={items} rowFocus={rowFocus} /> : <RowDropdown name={name} items={items} rowFocus={rowFocus} />
+}
+
+/** A phone's "…": the bottom sheet, 44 px to tap, delete and the like last (a sheet the caller ordered either way). */
+function SheetMenu({ name, items, rowFocus }: { name: string; items: MemberMenuItem[]; rowFocus?: boolean }) {
+  const t = useT()
+  const button = useRef<HTMLButtonElement>(null)
+  // the "…" a deleted row's neighbour gives the keyboard to (useFocusAfterRemove)
+  useLayoutEffect(() => { button.current?.toggleAttribute('data-row-focus', !!rowFocus) }, [rowFocus])
+  return (
+    <MenuButton label={t('members.actionsFor', { name })} tip={t('members.actionsFor', { name })} sheetTitle={name} buttonRef={button} className="shrink-0" buttonClassName="size-11 !text-muted" testId="member-more"
+      items={[...items.filter((it) => !it.danger), ...items.filter((it) => it.danger)]} />
+  )
+}
+
+function RowDropdown({ name, items, rowFocus }: { name: string; items: MemberMenuItem[]; rowFocus?: boolean }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)

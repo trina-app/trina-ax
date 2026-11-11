@@ -7,6 +7,7 @@ import { ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button, useMediaQuery } from './ui'
 import { Tooltip } from './Tooltip'
+import { MenuButton } from './rooms/MenuButton'
 
 export interface AddMenuItem {
   label: string
@@ -39,8 +40,20 @@ export function SplitAction({ label, icon, onPrimary, items, testId, menuLabel, 
 }
 
 /** The ⌄ half of a split button: a small menu of the other ways. A dialog opened from it gets the focus back on this
- * button when it closes (the item is gone with the menu). */
+ * button when it closes (the item is gone with the menu). A phone (below 768 px): the app's bottom sheet
+ * (rooms/MenuButton.tsx), 48 px rows; a way that is not possible yet is left out there. */
 export function ActionMenu({ items, label, testId }: { items: AddMenuItem[]; label: string; testId: string }) {
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (phone)
+    return (
+      <MenuButton label={label} heading={label} icon={<ChevronDown size={15} aria-hidden />} className="flex" testId={testId}
+        buttonClassName="h-11 !rounded-l-none !rounded-r-lg border-l border-accent-ink/20 !bg-accent !px-2.5 !text-accent-ink hover:!bg-accent-hover"
+        items={items.filter((it) => !it.disabled).map((it) => ({ label: it.label, icon: it.icon, onSelect: it.onSelect, testId: it.testId }))} />
+    )
+  return <ActionDropdown items={items} label={label} testId={testId} />
+}
+
+function ActionDropdown({ items, label, testId }: { items: AddMenuItem[]; label: string; testId: string }) {
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
