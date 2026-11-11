@@ -1621,7 +1621,6 @@ export const ja: Record<MessageKey, string> = {
   'apps.phoneTitle': "スマホアプリ",
   'apps.thisApp': "このアプリ",
   'apps.download': "ダウンロード",
-  'apps.installerFile': "インストーラーをダウンロード",
   'apps.scanQr': "スマホのカメラで読み取ると、アプリを入手できます。",
   'apps.qrLabel': "アプリ入手用のQRコード",
   'apps.updatesItself': "自動で更新されます。",

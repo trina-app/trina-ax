@@ -1650,7 +1650,6 @@ export const en: Record<MessageKey, string> = {
   'apps.phoneTitle': "Phone app",
   'apps.thisApp': "This app",
   'apps.download': "Download",
-  'apps.installerFile': "Download the installer",
   'apps.scanQr': "Scan this with your phone's camera to get the app.",
   'apps.qrLabel': "QR code to get the app",
   'apps.updatesItself': "It updates by itself.",

@@ -1649,7 +1649,6 @@ export const ko = {
   'apps.phoneTitle': "휴대폰 앱",
   'apps.thisApp': "이 앱",
   'apps.download': "내려받기",
-  'apps.installerFile': "설치 파일 내려받기",
   'apps.scanQr': "휴대폰 카메라로 찍으면 앱을 받을 수 있어요.",
   'apps.qrLabel': "앱 받기 QR 코드",
   'apps.updatesItself': "저절로 업데이트돼요.",

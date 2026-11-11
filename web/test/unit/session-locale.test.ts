@@ -152,3 +152,32 @@ describe('session recovery language', () => {
     expect(() => session().signedOut()).not.toThrow()
   })
 })
+
+// GET /api/setup carries the setup link's token (TC-194): through the relay only a visitor with it is told that setup
+// is still needed (server/src/auth/accounts.ts setupStatusFor); a page without a link sends no token at all.
+describe('setup status asks with the setup link token', () => {
+  const g = globalThis as { location?: unknown }
+  const answer = (needed: boolean) => mockFetch(async (input, init) => {
+    seen.push({ url: String(input), token: new Headers(init?.headers).get('x-mycel-setup-token') })
+    return String(input).endsWith('/api/me') ? Response.json({ error: { code: 'unauthorized', message: 'no' } }, { status: 401 }) : Response.json({ needed, teamName: null, defaultLocale: 'en' })
+  })
+  let seen: { url: string; token: string | null }[] = []
+  beforeEach(() => { seen = [] })
+  afterEach(() => { delete g.location })
+
+  for (const [where, loc] of [['#token=', { pathname: '/setup', search: '', hash: '#token=setup-token-0123&team=Acme' }], ['?token=', { pathname: '/setup', search: '?token=setup-token-0123', hash: '' }]] as const)
+    test(`a setup link (${where}) sends its token and opens the setup page`, async () => {
+      Object.defineProperty(g, 'location', { configurable: true, writable: true, value: loc })
+      answer(true)
+      await session().load()
+      expect(seen.find((s) => s.url.endsWith('/api/setup'))?.token).toBe('setup-token-0123')
+      expect(session().status.kind).toBe('setup')
+    })
+  test('no link: no token header, and needed: false is the sign-in page', async () => {
+    Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/', search: '', hash: '' } })
+    answer(false)
+    await session().load()
+    expect(seen.find((s) => s.url.endsWith('/api/setup'))?.token).toBeNull()
+    expect(session().status.kind).toBe('signed-out')
+  })
+})
