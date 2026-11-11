@@ -8,7 +8,8 @@
 //              backup (and every folder entry), plus the list of deleted paths and the list of folders. .system/backups itself is never archived; .system/history (file versions)
 //              and the trash are.
 // Metadata:    data/backups/<id>.json (the list the UI shows). Retention 14 days; a backup another kept backup builds
-//              on is kept, and so is the newest one.
+//              on is kept, and so is the newest one. The DB a restore replaced (before-restore-<time>/) and the migration
+//              runner's copies go by the same retention, the newest of each kept.
 // Restore:     POST /api/admin/restore only puts an older DB back (same Mac; tab 6). The copy is integrity-checked and
 //              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore). Team-folder
 //              restores and moving to another Mac go through scripts/ (admin password) using restoreTeamTo().
@@ -71,6 +72,8 @@ export interface BackupProgress { (fraction: number | null, message: string): vo
 
 const ID_RE = /^[0-9]{8}T[0-9]{6}Z-(daily|manual|pre-update)(-[0-9]+)?$/
 const PRE_MIGRATE_RE = /^pre-migrate-[A-Za-z0-9._-]+$/
+/** data/backups/before-restore-<stamp>/ (applyPendingRestore) */
+const BEFORE_RESTORE_RE = /^before-restore-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/
 
 function stamp(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
@@ -338,9 +341,8 @@ export class BackupManager {
   /** Delete backups older than the retention period that nothing kept builds on; always keeps the newest. */
   prune(): string[] {
     const metas = this.metas()
-    if (!metas.length) return []
     const cutoff = this.now().getTime() - retentionDays() * 86400_000
-    const keep = this.retained(metas, true)
+    const keep = metas.length ? this.retained(metas, true) : new Set<string>()
     const removed: string[] = []
     for (const m of metas) {
       if (keep.has(m.id)) continue
@@ -354,6 +356,40 @@ export class BackupManager {
       const pre = fs.readdirSync(this.o.layout.dbBackupsDir).filter((n) => n.endsWith('.db') && PRE_MIGRATE_RE.test(n.slice(0, -3)))
         .map((n) => ({ n, t: fs.statSync(path.join(this.o.layout.dbBackupsDir, n)).mtimeMs })).sort((a, b) => a.t - b.t)
       for (const p of pre.slice(0, -1)) if (p.t < cutoff) { fs.rmSync(path.join(this.o.layout.dbBackupsDir, p.n), { force: true }); removed.push(p.n.slice(0, -3)) }
+    } catch {}
+    removed.push(...this.pruneBeforeRestore(cutoff))
+    return removed
+  }
+
+  /**
+   * The DB a restore replaced (data/backups/before-restore-<time>/: app.db and the engine session stashes). Same
+   * retention as the other copies, by the time in the name; the newest is always kept, and so is the one the last
+   * restore names (restore-result.json). Nothing goes while a restore is staged (restore-pending.json): the next start
+   * swaps the DB, and the copies stay as they are until it has.
+   */
+  private pruneBeforeRestore(cutoff: number): string[] {
+    const dir = this.o.layout.dbBackupsDir
+    const dataDir = this.o.layout.dataDir
+    if (fs.existsSync(path.join(dataDir, 'restore-pending.json'))) return []
+    let last: string | null = null
+    try {
+      const rr = JSON.parse(fs.readFileSync(path.join(dataDir, 'restore-result.json'), 'utf8')) as { previousDb?: unknown }
+      if (typeof rr.previousDb === 'string') last = path.basename(rr.previousDb)
+    } catch {}
+    const removed: string[] = []
+    try {
+      const copies = fs.readdirSync(dir, { withFileTypes: true })
+        .map((d) => ({ n: d.name, dir: d.isDirectory(), m: BEFORE_RESTORE_RE.exec(d.name) }))
+        .filter((x) => x.dir && x.m)
+        .map((x) => ({ n: x.n, t: Date.parse(`${x.m![1]}-${x.m![2]}-${x.m![3]}T${x.m![4]}:${x.m![5]}:${x.m![6]}Z`) }))
+        .filter((x) => Number.isFinite(x.t))
+        .sort((a, b) => a.t - b.t)
+      for (const c of copies.slice(0, -1)) {
+        if (c.t >= cutoff || c.n === last) continue
+        try { fs.rmSync(path.join(dir, c.n), { recursive: true, force: true }); removed.push(c.n) } catch (e) {
+          this.o.log.error('could not remove an old copy of a replaced database', { dir: c.n, err: e })
+        }
+      }
     } catch {}
     return removed
   }

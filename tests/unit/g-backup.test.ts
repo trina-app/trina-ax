@@ -146,6 +146,52 @@ describe('backups', () => {
     } finally { setPlanForTests(undefined); e.db.close() }
   })
 
+  test('the DB a restore replaced (before-restore-<time>/): same retention, the newest and the last restore\'s kept', async () => {
+    const e = setup('prune-before-restore')
+    const dir = e.layout.dbBackupsDir
+    const copy = (n: string) => {
+      fs.mkdirSync(path.join(dir, n, 'sessions'), { recursive: true })
+      fs.writeFileSync(path.join(dir, n, 'app.db'), 'old')
+      fs.writeFileSync(path.join(dir, n, 'sessions', 's1'), 'stash')
+    }
+    const names = ['before-restore-20260901T040000Z', 'before-restore-20260905T040000Z', 'before-restore-20260910T040000Z', 'before-restore-20260925T040000Z']
+    for (const n of names) copy(n)
+    fs.mkdirSync(path.join(dir, 'before-restore-notes'), { recursive: true }) // not a name the restore makes: left alone
+    e.setClock(new Date('2026-10-01T04:00:00Z')) // 30, 26, 21 and 6 days old
+    // a restore is staged: nothing goes until the next start has swapped the DB
+    fs.writeFileSync(path.join(e.cfg.dataDir, 'restore-pending.json'), '{}')
+    expect(e.mgr.prune()).toEqual([])
+    fs.rmSync(path.join(e.cfg.dataDir, 'restore-pending.json'))
+    // the last restore names the oldest one (a clock that went back): it stays too
+    fs.writeFileSync(path.join(e.cfg.dataDir, 'restore-result.json'), JSON.stringify({ ok: true, previousDb: path.join(dir, names[0]!) }))
+    expect(e.mgr.prune().sort()).toEqual([names[1], names[2]])
+    expect(fs.readdirSync(dir).filter((n) => n.startsWith('before-restore-')).sort()).toEqual([names[0], names[3], 'before-restore-notes'])
+    // all old, no restore result: only the newest stays
+    fs.rmSync(path.join(e.cfg.dataDir, 'restore-result.json'))
+    e.setClock(new Date('2026-11-30T04:00:00Z'))
+    expect(e.mgr.prune()).toEqual([names[0]])
+    expect(fs.existsSync(path.join(dir, names[3]!, 'sessions', 's1'))).toBe(true)
+    e.db.close()
+  })
+
+  test('a backup after a restore prunes the old before-restore copy and keeps the new one', async () => {
+    const e = setup('prune-after-restore')
+    e.setClock(new Date('2026-10-01T04:00:00Z'))
+    fs.mkdirSync(path.join(e.layout.dbBackupsDir, 'before-restore-20260801T040000Z'), { recursive: true })
+    const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
+    await e.mgr.stageDbRestore(m.id, null)
+    e.db.close()
+    expect(applyPendingRestore(e.cfg.dataDir, silentLogger).applied).toBe(true)
+    const db = openDb(e.dbFile)
+    const mgr = new BackupManager({ db, dbFile: e.dbFile, layout: e.layout, log: silentLogger, version: '0.1.0', now: () => new Date('2026-10-02T04:00:00Z') })
+    await mgr.run({ kind: 'manual', scope: 'db' })
+    const left = fs.readdirSync(e.layout.dbBackupsDir).filter((n) => n.startsWith('before-restore-'))
+    expect(left).toHaveLength(1)
+    expect(left[0]).not.toBe('before-restore-20260801T040000Z')
+    expect(fs.existsSync(path.join(e.layout.dbBackupsDir, left[0]!, 'app.db'))).toBe(true)
+    db.close()
+  })
+
   test('not enough disk space: the backup refuses and the failure is reported', async () => {
     const e = setup('disk')
     const { BackupManager: BM } = await import('../../server/src/system/backup')
