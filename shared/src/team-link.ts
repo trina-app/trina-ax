@@ -276,12 +276,15 @@ export interface LinkOffer { id: number; origin: string; host: string; entryPath
  */
 export class LinkGate {
   private offer: (LinkOffer & { shownAt: number | null }) | null = null
+  /** the offer the last yes confirmed: a connect that could not reach the team may go again with it (`retry`) */
+  private confirmed: LinkOffer | null = null
   private next = 1
   constructor(private minMs = 600) {}
   /** a new link replaces the one waiting */
   put(link: TeamInputOk, _now?: number): LinkOffer {
     const offer = { id: this.next++, origin: link.origin, host: link.host, entryPath: link.entryPath, hosted: link.hosted, name: link.name }
     this.offer = { ...offer, shownAt: null }
+    this.confirmed = null
     return offer
   }
   /** ④ is on screen for this offer (the first time counts) */
@@ -296,19 +299,27 @@ export class LinkGate {
   /** the link waits no more (the person went elsewhere) */
   clear() {
     this.offer = null
+    this.confirmed = null
   }
   /** the person's answer on ④: the link to connect to, or null (no, another host, not on screen long enough, nothing
    * waiting) */
   answer(yes: boolean, host: string, now: number): LinkOffer | null {
-    const o = this.offer
-    if (!o) return null
     if (!yes) {
       this.offer = null
+      this.confirmed = null
       return null
     }
+    const o = this.offer
+    if (!o) return null
     if (o.host !== host || o.shownAt === null || now - o.shownAt < this.minMs) return null
     this.offer = null
     const { shownAt: _s, ...offer } = o
+    this.confirmed = offer
     return offer
+  }
+  /** the link the last yes confirmed, once more: its connect could not reach the team and ④ still shows it (Try again
+   * needs no new yes). Only for that host, and never after a no, another link or `clear` */
+  retry(host: string): LinkOffer | null {
+    return this.confirmed && this.confirmed.host === host ? this.confirmed : null
   }
 }
