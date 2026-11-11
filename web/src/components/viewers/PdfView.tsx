@@ -31,7 +31,7 @@ import { useT } from '../../i18n'
 import { Button, IconButton } from '../ui'
 import { pdfjsDataOptions } from '../../lib/pdfjs-assets'
 import { clamp, usePinch, type Pt } from '../../lib/usePinch'
-import { anchorAt, anchorTop, currentPage, pageHeight, pageLayout, pageStart, pageWindow, type PageAnchor, type PageSize, type PageView } from '../../lib/pdfPages'
+import { anchorAt, anchorTop, currentPage, layoutTop, pageHeight, pageLayout, pageStart, pageWindow, type PageAnchor, type PageSize, type PageView } from '../../lib/pdfPages'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 // CMaps, standard fonts and the image decoders from this server: without them scanned pages (fax / JBIG2, JPEG 2000)
@@ -150,8 +150,18 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
 
   // ---- what is in view: the pages drawn and the current one (lib/pdfPages.ts) ----
   const holder = useRef<HTMLDivElement>(null)
+  /** a pinch in progress: where the fingers came down (client coordinates), the transform's origin */
+  const pinchAt = useRef<Pt | null>(null)
+  /** a pinch's live transform on the holder: its origin (px below the holder's layout top) and scale */
+  const live = useRef<{ origin: number; k: number } | null>(null)
+  /** the holder's top in the layout (client y), whatever a pinch's live transform draws: what the view is measured on */
+  const holderTop = (h: HTMLElement) => {
+    const top = h.getBoundingClientRect().top
+    return live.current ? layoutTop(top, live.current.origin, live.current.k) : top
+  }
   /** a pinch's live transform gone */
   const clearLive = () => {
+    live.current = null
     const h = holder.current
     if (h) h.style.transform = h.style.transformOrigin = ''
   }
@@ -173,7 +183,7 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     const h = holder.current
     if (!box || !h) return null
     const sticky = bar.current?.offsetHeight ?? 0
-    return { top: box.getBoundingClientRect().top + box.clientTop + sticky - h.getBoundingClientRect().top, height: Math.max(0, box.clientHeight - sticky) }
+    return { top: box.getBoundingClientRect().top + box.clientTop + sticky - holderTop(h), height: Math.max(0, box.clientHeight - sticky) }
   }, [box])
   const update = useCallback(() => {
     const v = viewOf()
@@ -210,8 +220,10 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     // a pinch's point: from the box's top and left; otherwise the top and the middle
     const at = focus.current
     focus.current = null
-    // a pinch's live transform goes now that the pages are drawn at its width (not before: a frame at the old size)
-    clearLive()
+    // a pinch's live transform goes now that the pages are drawn at its width (not before: a frame at the old size);
+    // not while the fingers are still down (a page's size read meanwhile): the next move would draw it from the wrong
+    // origin and the view be measured without it
+    if (!pinchAt.current) clearLive()
     const r = box.getBoundingClientRect()
     const dy = at ? at.y - (r.top + box.clientTop + (bar.current?.offsetHeight ?? 0)) : 0
     const dx = at ? at.x - (r.left + box.clientLeft) : box.clientWidth / 2
@@ -263,27 +275,30 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
   }
   // the pinch: the pages follow the fingers as a transform (cheap) around the point where they came down, and are
   // drawn at the new width when they lift
-  const pinchAt = useRef<Pt | null>(null)
   usePinch(pages ? box : null, {
     onPinch: ({ scale: k, center, phase }) => {
       const h = holder.current
       if (!h) return
       if (phase === 'start') {
-        // measured before any transform: the holder's own box (a transform does not move it in the layout)
+        // the holder's own box (a transform does not move it in the layout): a previous pinch's not cleared yet is reset
+        clearLive()
         const r = h.getBoundingClientRect()
         pinchAt.current = center
+        live.current = { origin: center.y - r.top, k: 1 }
         h.style.transformOrigin = `${center.x - r.left}px ${center.y - r.top}px`
         return
       }
       const at = pinchAt.current ?? center
-      const live = clamp(scale * k, ZOOMS[0]!, ZOOMS.at(-1)!) / scale
+      const by = clamp(scale * k, ZOOMS[0]!, ZOOMS.at(-1)!) / scale
       if (phase === 'end') {
         pinchAt.current = null
-        // no change (at an end of the steps): nothing is drawn again, so the transform goes now
-        if (!zoomTo(scale * live, at)) clearLive()
+        // the place under the fingers is measured in the layout (viewOf), the transform still drawn until the pages
+        // are at the new width; no change (at an end of the steps): nothing is drawn again, so the transform goes now
+        if (!zoomTo(scale * by, at)) clearLive()
         return
       }
-      h.style.transform = `scale(${live})`
+      if (live.current) live.current.k = by
+      h.style.transform = `scale(${by})`
     },
     onDoubleTap: (at) => zoomTo(scale < (1 + TAP_ZOOM) / 2 ? TAP_ZOOM : 1, at),
   })

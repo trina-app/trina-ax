@@ -1,11 +1,13 @@
 // Phone previews fit the screen (QA TC-259), at 390×844 with touch: an HTML quotation drawn as a fixed 794 px page is
 // fitted to the preview's width (in Files: the script frame; in a room: the static frame), with "실제 크기" to see it at
 // its own size; a pinch inside the page or on a PDF zooms the document (the touches reach the viewer's own handlers);
-// the PDF's zoom buttons are not there on a phone; and on a phone only .md / .txt offer 고치기, from the ⋯
+// the point of a PDF under a two-finger pinch (2x, 2.5x) or a double tap stays under them; the PDF's zoom buttons are not
+// there on a phone; and on a phone only .md / .txt offer 고치기, from the ⋯
 // sheet. Computers are as before: at 1440 the page is at its own size (no fit, no bar) and the PDF keeps its buttons;
 // a narrow window with a mouse is not fitted either and keeps the pencil for every editable kind.
 // SHOTS_DIR=<folder>: screenshots of each step.
 import { expect, test, type Page } from '@playwright/test'
+import { makePagedPdf } from '../../../tests/lib/pdf'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
@@ -30,6 +32,18 @@ const appZoom = (page: Page) => page.evaluate(() => window.visualViewport?.scale
 async function pinch(page: Page, x: number, y: number, scale: number) {
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Input.synthesizePinchGesture', { x, y, scaleFactor: scale, relativeSpeed: 400, gestureSourceType: 'touch' })
+  await cdp.detach()
+}
+
+/** a pinch by `scale` with two touch points (CDP touch events, what a phone sends) around (x, y), the fingers going
+ * apart vertically in steps, then lifting */
+async function touchPinch(page: Page, x: number, y: number, scale: number) {
+  const cdp = await page.context().newCDPSession(page)
+  const from = 60
+  const at = (d: number) => [{ x, y: y - d / 2, id: 0 }, { x, y: y + d / 2, id: 1 }]
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(from) })
+  for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(from * (1 + ((scale - 1) * i) / 8)) })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await cdp.detach()
 }
 
@@ -117,6 +131,67 @@ test('a PDF on a phone: no zoom buttons, a pinch zooms the pages, not the app; a
   await expect.poll(width).toBe(before)
   await tapAt()
   await expect.poll(width).toBeGreaterThan(before * 1.8)
+  expect(await appZoom(page)).toBe(1)
+})
+
+test('a pinch on a PDF keeps the place under the fingers there, at 2x and 2.5x (QA TC-259)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const pages = Array.from({ length: 3 }, (_, i) => Array.from({ length: 40 }, (_, k) => `line ${k + 1} of page ${i + 1}: the quick brown fox jumps over the lazy dog`))
+  expect((await page.request.post('/__test/file', { data: { path: 'docs/terms.pdf', base64: Buffer.from(makePagedPdf(pages)).toString('base64') } })).ok()).toBeTruthy()
+  await openInFiles(page, 'docs', 'terms.pdf')
+  const panel = page.getByTestId('file-panel')
+  const first = panel.locator('[data-page="1"]')
+  await expect(first.locator('canvas')).toBeVisible()
+  const width = async () => Math.round((await first.boundingBox())!.width)
+  const fitted = await width()
+  /** the place on the pages at client y: a page and how far down it (0 to 1) */
+  const placeAt = (y: number) =>
+    panel.locator('[data-page]').evaluateAll((els, y) => {
+      for (const el of els) {
+        const r = el.getBoundingClientRect()
+        if (y >= r.top && y < r.bottom) return { page: Number((el as HTMLElement).dataset.page), at: (y - r.top) / r.height }
+      }
+      return null
+    }, y)
+  /** where that place is now, in client y */
+  const yOf = (p: { page: number; at: number }) => panel.locator(`[data-page="${p.page}"]`).evaluate((el, at) => { const r = el.getBoundingClientRect(); return r.top + at * r.height }, p.at)
+  const zoomKeeps = async (y: number, zoom: () => Promise<void>, want: number, name: string) => {
+    const place = (await placeAt(y))!
+    expect(place).not.toBeNull()
+    await zoom()
+    // drawn at the new width (the placeholder's own width: a pinch's live transform is gone then)
+    await expect.poll(() => first.evaluate((el) => (el as HTMLElement).offsetWidth)).toBeGreaterThan(fitted * want * 0.95)
+    // the same line of the page under the fingers (the finding: ~500 px lower at 2x, ~1,000 at 2.5x)
+    await expect.poll(async () => Math.abs((await yOf(place)) - y)).toBeLessThan(30)
+    await shot(page, name)
+  }
+  const x = (await panel.boundingBox())!.x + 195
+  // on page 1, at about its 12th line
+  await zoomKeeps(300, () => touchPinch(page, x, 300, 2), 2, 'files-pdf-pinch-2x-390')
+  // back to the width with a double tap, then 2.5x lower on the screen
+  await page.touchscreen.tap(x, 400)
+  await page.waitForTimeout(80)
+  await page.touchscreen.tap(x, 400)
+  await expect.poll(width).toBe(fitted)
+  await page.waitForTimeout(300)
+  await zoomKeeps(500, () => touchPinch(page, x, 500, 2.5), 2.5, 'files-pdf-pinch-2_5x-390')
+  // a double tap keeps its place too: back to the width, then 200 % around another point
+  await page.touchscreen.tap(x, 400)
+  await page.waitForTimeout(80)
+  await page.touchscreen.tap(x, 400)
+  await expect.poll(width).toBe(fitted)
+  await page.waitForTimeout(300)
+  await zoomKeeps(
+    350,
+    async () => {
+      await page.touchscreen.tap(x, 350)
+      await page.waitForTimeout(80)
+      await page.touchscreen.tap(x, 350)
+    },
+    2,
+    'files-pdf-double-tap-390',
+  )
   expect(await appZoom(page)).toBe(1)
 })
 
