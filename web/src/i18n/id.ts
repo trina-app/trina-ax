@@ -366,6 +366,7 @@ export const id: Record<MessageKey, string> = {
   'chat.deleteTitle': 'Hapus chat ini?',
   'chat.deleteBody': 'Chat disimpan di "{trash}" selama {days} hari lalu dihapus permanen. Jawaban yang sedang berjalan akan berhenti.',
   'chat.deleted': 'Chat dihapus.',
+  'chat.restoreFailed': "Chat tidak bisa dikembalikan. Chat masih ada di {trash}.",
   'chat.notFound': "Riwayat ini tidak ditemukan.",
   "chat.queued": "Menunggu · perkiraan urutan {n}",
   "chat.queueHint": "Urutan dapat berubah selama pekerjaan berlangsung.",

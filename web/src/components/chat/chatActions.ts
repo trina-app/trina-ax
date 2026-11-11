@@ -10,6 +10,11 @@ import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog } from '../ui'
 
+/** "Undo" on the deleted toast: the chat comes back, or a failure says so (it stays in the trash, where it can still be
+ * restored) */
+export const undoDelete = (chatId: string, failText: string): Promise<void> =>
+  api.call(API.restoreChat, { params: { id: chatId } }).then(useChats.getState().upsertChat, () => toast({ level: 'error', text: failText }))
+
 export function useChatActions() {
   const t = useT()
   const locale = useLocale()
@@ -39,7 +44,8 @@ export function useChatActions() {
       await api.call(API.deleteChat, { params: { id: chat.id } })
       useChats.getState().removeChat(chat.id)
       if (chatId === chat.id) navigate('/')
-      toast({ level: 'info', text: t('chat.deleted'), action: { label: t('common.undo'), run: () => void api.call(API.restoreChat, { params: { id: chat.id } }).then(useChats.getState().upsertChat) } })
+      const undo = () => void undoDelete(chat.id, t('chat.restoreFailed', { trash: t('sidebar.trash') }))
+      toast({ level: 'info', text: t('chat.deleted'), action: { label: t('common.undo'), run: undo } })
     } catch (e) {
       fail(e)
     }

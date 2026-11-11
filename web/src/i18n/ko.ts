@@ -365,6 +365,7 @@ export const ko = {
   'chat.deleteTitle': '기록을 삭제할까요?',
   'chat.deleteBody': '{days}일 동안 "{trash}"에 있다가 완전히 지워져요. 진행 중인 답변은 멈춰요.',
   'chat.deleted': '기록을 삭제했어요.',
+  'chat.restoreFailed': "기록을 되돌리지 못했어요. {trash}에 그대로 있어요.",
   'chat.notFound': "이 기록을 찾을 수 없어요.",
   "chat.queued": "대기 중 · 현재 예상 순서 {n}",
   "chat.queueHint": "진행 상황에 따라 순서가 바뀔 수 있어요.",

@@ -351,6 +351,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.deleteTitle': "このチャットを削除しますか？",
   'chat.deleteBody': "「{trash}」に{days, plural, one {#日間} other {#日間}}保管された後、完全に削除されます。回答中の場合は停止します。",
   'chat.deleted': "チャットを削除しました。",
+  'chat.restoreFailed': "チャットを元に戻せませんでした。{trash}に残っています。",
   'chat.notFound': "この履歴は見つかりません。",
   'chat.queued': "待機中 · 推定待ち順 {n}",
   'chat.queueHint': "処理の進行に応じて順番が変わる場合があります。",
