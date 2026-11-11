@@ -59,8 +59,14 @@ describe('a first run', () => {
     expect(await run()).toBe('done')
     expect(onDisk()).toEqual([])
     const glob = await call('dana', 'glob', { pattern: '**/_FILES.md' })
-    expect(glob.text.split('\n').sort()).toEqual(['groups/finance/_FILES.md', 'groups/marketing/_FILES.md', 'groups/marketing/salaries/_FILES.md', 'projects/atlas/_FILES.md',
-      'projects/falcon/_FILES.md', 'projects/falcon/public/_FILES.md', 'shared/_FILES.md'])
+    // on a case-sensitive file system (Linux CI) the fixture adds `Groups/` and `groups/Marketing/`: other folders, with
+    // lists of their own (exact names, since on macOS existsSync would match `groups/` and `groups/marketing/`)
+    const caseExtras = [
+      ...(fs.readdirSync(A.team).includes('Groups') ? ['Groups/_FILES.md'] : []),
+      ...(fs.readdirSync(path.join(A.team, 'groups')).includes('Marketing') ? ['groups/Marketing/_FILES.md'] : []),
+    ]
+    expect(glob.text.split('\n').sort()).toEqual([...caseExtras, 'groups/finance/_FILES.md', 'groups/marketing/_FILES.md', 'groups/marketing/salaries/_FILES.md', 'projects/atlas/_FILES.md',
+      'projects/falcon/_FILES.md', 'projects/falcon/public/_FILES.md', 'shared/_FILES.md'].sort())
     // skills/, personal folders and the team root are not read
     expect(reader.paths().some((p) => p.startsWith('skills/') || p.startsWith('users/'))).toBe(false)
     expect(named(await readList('alice', 'shared/_FILES.md'))).toContain('shared/glossary.md')
