@@ -52,7 +52,7 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
         {voice.left !== null ? t('voice.left', { time: fmtDuration(voice.left) }) : fmtDuration(voice.seconds)}
       </span>
       <Tooltip label={t('voice.done')}>
-        <button ref={done} type="button" onClick={voice.finish} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
+        <button ref={done} type="button" onClick={voice.finish} className="touch-hit flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
           <Check size={18} />
         </button>
       </Tooltip>
