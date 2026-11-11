@@ -20,7 +20,7 @@ import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { GOAL_PEOPLE, plainLabel } from '@mycel/shared/api'
+import { AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -35,6 +35,9 @@ const reviewSource = (userId: string, since: string) => `${REVIEW_SOURCE}${userI
  * lapse, chat/schedule-scope.ts markLapsed). */
 const SAVE_LAPSE_SOURCE = 'schedule-save-'
 const saveLapseSource = (scheduleId: string, at: string) => `${SAVE_LAPSE_SOURCE}${scheduleId}-${Date.parse(at) || 0}`
+/** Source of a "tried to use Trina but it isn't set up yet" notice (Notifications.aiNotReady): never a user id. */
+const NOT_READY_SOURCE = 'not-ready:'
+const notReadySource = (memberId: string) => `${NOT_READY_SOURCE}${memberId}`
 const services = new WeakMap<AppContext, Notifications>()
 type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null; sort_at?: string }
 type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
@@ -128,6 +131,24 @@ export class Notifications {
     if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
     this.record(ownerId, 'onboarding.ai_request', memberId, createdAt, true)
   }
+  /** "<name> tried to use Trina but it isn't set up yet" (the AI could not start: chat error engine_missing): one
+   * notice per owner and admin, at most once per member in AI_NOT_READY_WINDOW_MS. It shares the inbox table of the
+   * member's ask for an AI connection (the event type's CHECK list is fixed, and the same page fixes both) under a
+   * source of its own (`not-ready:<member id>`), so that ask and its "알렸어요" are untouched; it is never settled (the
+   * server cannot tell when it is fixed). True: told now; false: told within the window, nothing sent. */
+  aiNotReady(memberId: string, now = new Date()): boolean {
+    const source = notReadySource(memberId), at = now.toISOString()
+    const since = new Date(now.getTime() - AI_NOT_READY_WINDOW_MS).toISOString()
+    if (this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND created_at>? LIMIT 1").get(source, since)) return false
+    for (const id of admins(this.ctx.db)) {
+      if (id === memberId) continue
+      // an earlier notice (read or not) comes back unread at the top instead of a second row
+      const again = this.ctx.db.query("UPDATE onboarding_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='onboarding.ai_request' AND source_id=?").run(at, id, source)
+      if (again.changes) { if (this.active(id)) this.signal(id); continue }
+      this.record(id, 'onboarding.ai_request', source, at, true)
+    }
+    return true
+  }
   /** Is this member's ask still waiting (an unread row for any owner)? A settled or read one is not: they can ask again. */
   aiRequested(memberId: string): boolean {
     return !!this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND read_at IS NULL AND created_at>=? LIMIT 1").get(memberId, this.cutoff())
@@ -135,7 +156,7 @@ export class Notifications {
   /** A request whose member can use AI now (or is gone) counts as read: the owner is not left with something done. */
   settleAiRequests(userId?: string) {
     if (!isManaged(this.ctx.config)) return
-    const rows = this.ctx.db.query(`SELECT id, user_id, source_id FROM onboarding_notices WHERE read_at IS NULL ${userId ? 'AND user_id=?' : ''}`).all(...(userId ? [userId] : [])) as { id: string; user_id: string; source_id: string }[]
+    const rows = this.ctx.db.query(`SELECT id, user_id, source_id FROM onboarding_notices WHERE read_at IS NULL AND substr(source_id, 1, ${NOT_READY_SOURCE.length}) != '${NOT_READY_SOURCE}' ${userId ? 'AND user_id=?' : ''}`).all(...(userId ? [userId] : [])) as { id: string; user_id: string; source_id: string }[]
     const now = new Date().toISOString(), touched = new Set<string>()
     for (const r of rows) {
       const m = this.ctx.db.query("SELECT id, role FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(r.source_id) as { id: string; role: string } | null
@@ -438,8 +459,9 @@ export class Notifications {
     }
     // the owner sees who asks (a name, nothing else) and goes to Admin › AI connections
     if (row.event_type === 'onboarding.ai_request') {
-      const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(row.source_id) as { name: string } | null
-      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}) }
+      const notReady = row.source_id.startsWith(NOT_READY_SOURCE)
+      const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(notReady ? row.source_id.slice(NOT_READY_SOURCE.length) : row.source_id) as { name: string } | null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}), ...(notReady ? { notReady: true as const } : {}) }
     }
     // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
     if (row.event_type === 'project.joined') {

@@ -270,15 +270,45 @@ test('an error answer offers retry', async ({ page }) => {
   await signIn(page)
   await ask(page, 'cause an error')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
-  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('지금은 AI가 답할 수 없어요.')
+  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('트리나가 아직 준비되지 않았어요.')
+  await expect(lastAnswer(page).getByTestId('retry')).toBeVisible()
+})
+
+// owner decision 2026-11-11: the AI cannot start. A member reads "not ready yet" with [Tell an admin] (then "Told"); the
+// owner reads their own words with [Connect AI], which opens Admin › AI accounts. "Try again" stays for both.
+test('the AI cannot start: a member tells an admin with one button', async ({ page }) => {
+  await reset(page)
+  await signIn(page, BOB)
+  await ask(page, 'error:engine_missing\n왜?')
+  const box = lastAnswer(page).getByTestId('answer-error')
+  await expect(box).toContainText('트리나가 아직 준비되지 않았어요.')
+  await expect(box.getByTestId('retry')).toBeVisible()
+  const button = box.getByTestId('not-ready-button')
+  await expect(button).toHaveCount(1)
+  await expect(button).toHaveText('관리자에게 알리기')
+  await button.click()
+  await expect(button).toHaveText('알렸어요')
+  await expect(button).toBeDisabled()
+})
+
+test('the AI cannot start: the owner connects the AI with one button', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'error:engine_missing\n왜?')
+  const box = lastAnswer(page).getByTestId('answer-error')
+  await expect(box).toContainText('AI를 연결하면 바로 답할 수 있어요.')
+  await expect(box.getByTestId('retry')).toBeVisible()
+  await expect(box.getByTestId('not-ready-button')).toHaveText('AI 연결하기')
+  await box.getByTestId('not-ready-button').click()
+  await expect(page).toHaveURL(/\/admin\/providers$/)
 })
 
 // docs/DECISIONS.md "Plain words in errors, cards and steps": a member reads what happened and who to tell; the owner
 // reads where to fix it, in the admin menu's own words; nobody reads an engine, a proxy or an HTTP code
 const BOB = { username: 'bob', password: 'bob password 1' }
 for (const [who, as, expected, absent] of [
-  ['member', BOB, ['안전을 위해 답을 멈췄어요. 팀장에게 알려 주세요.', '지금은 AI가 답할 수 없어요. 팀장에게 알려 주세요.'], ['관리자 ›']],
-  ['owner', undefined, ['안전을 위해 답을 멈췄어요. 관리자 › AI 계정에서 원인을 볼 수 있어요.', '지금은 AI가 답할 수 없어요. 관리자 › 시스템 › 상태 점검에서 원인을 볼 수 있어요.'], ['팀장에게 알려 주세요']],
+  ['member', BOB, ['안전을 위해 답을 멈췄어요. 팀장에게 알려 주세요.', '트리나가 아직 준비되지 않았어요.'], ['관리자 ›']],
+  ['owner', undefined, ['안전을 위해 답을 멈췄어요. 관리자 › AI 계정에서 원인을 볼 수 있어요.', '트리나가 아직 준비되지 않았어요. AI를 연결하면 바로 답할 수 있어요.'], ['팀장에게 알려 주세요']],
 ] as const) {
   test(`the error box speaks to the ${who}: what happened and who to tell, or where to fix it`, async ({ page }) => {
     await reset(page)

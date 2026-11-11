@@ -26,7 +26,7 @@ test('the owner\'s Home without AI: one card; "Claude 구독 연결" opens the s
   await expect(card).toContainText('AI를 먼저 연결해 주세요')
   await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
   await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
-  await expect(page.getByTestId('frequent-questions')).toHaveCount(0)
+  await expect(page.getByTestId('often-asked')).toHaveCount(0)
   await expect(page.getByTestId('composer-input')).toBeVisible()
   // the three ways at once (no "다른 방법" fold), equal rows that fit the phone, Claude first and recommended
   await expect(card.getByTestId('welcome-ai-ways').getByRole('button')).toHaveText(['Claude 구독 연결추천', 'ChatGPT 구독 연결', 'API 키로 연결'])

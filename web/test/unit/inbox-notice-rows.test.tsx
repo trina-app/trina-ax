@@ -144,3 +144,12 @@ test('the Inbox: a run is one link with its task, time and dot that reads it; no
     expect(reads).toEqual([run.id])
   } finally { await m.unmount() }
 })
+
+test('"tried to use Trina but it isn\'t set up yet": the name while the account is there, else a team member; the AI accounts page', () => {
+  const ask = (o: Partial<InboxNotification> = {}) => notice({ eventType: 'onboarding.ai_request', code: 'onboarding.ai_request', sourceId: 'not-ready:u1', chatId: null, link: 'admin_credentials', outcome: null, ...o })
+  expect(text(ask({ notReady: true, requester: { name: 'Mia' } }), 'en')).toBe("Mia tried to use Trina but it isn&#x27;t set up yet.")
+  expect(text(ask({ notReady: true }), 'en')).toBe("A team member tried to use Trina but it isn&#x27;t set up yet.")
+  // the ask for an AI connection keeps its words
+  expect(text(ask({ sourceId: 'u1', requester: { name: 'Mia' } }), 'en')).toBe(en('notifications.event.onboarding.ai_requestNamed', { name: 'Mia' }))
+  expect(noticeLink(ask({ notReady: true }))?.to).toBe('/admin/providers')
+})

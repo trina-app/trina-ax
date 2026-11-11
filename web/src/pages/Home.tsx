@@ -1,6 +1,8 @@
-// New chat. Under the box, "팀에 준비된 것" (components/onboarding/TeamPrepared.tsx, docs/DECISIONS.md "W6.3 — What a
-// new member sees first"): the team's skills until the person ran one, the team's files while they have no chats, else
-// one ready question; a member's one filled button is there, an owner's or admin's block is all quiet. While no AI
+// New chat. Under the box, one block at a time: "팀에 준비된 것" (components/onboarding/TeamPrepared.tsx,
+// docs/DECISIONS.md "W6.3 — What a new member sees first": the team's skills until the person ran one or has 5 chats,
+// the team's files while they have no chats, else one ready question; a member's one filled button is there, an
+// owner's or admin's block is all quiet), else what people of my group (or team) often ask (components/OftenAsked.tsx,
+// docs/DECISIONS.md "Home: what my group often asks": 3 lines, More shows up to 10, a click fills the box). While no AI
 // answers a member, the block shows read-only under the no-AI card (owners and admins: the card alone). Owners and
 // admins get ONE thing at the top: on a phone the welcome steps'
 // "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
@@ -38,8 +40,7 @@ import { aiName, landingPath } from '../lib/tabs'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { isUnused, SessionMarker, useChatMarker } from '../components/chat/ChatState'
 import { needsMe } from '../lib/sessionMarkers'
-import { FrequentQuestions } from '../components/FrequentQuestions'
-import { PopularSkills } from '../components/PopularSkills'
+import { OftenAsked } from '../components/OftenAsked'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
@@ -88,9 +89,9 @@ export default function Home() {
   const admin = isAdmin(me)
   /** a suggestion chosen: into the box (focused, the caret after it), never sent */
   const choose = (text: string, waits?: string) => setPreset({ text, n: (preset?.n ?? 0) + 1, waits })
-  // whether "팀에 준비된 것" shows skill rows (null: not known yet): 「자주 쓰는 스킬」 waits for the answer and stays out
-  // while they show, so two lists of skills never sit side by side
-  const [skillRows, setSkillRows] = useState<boolean | null>(null)
+  // whether "팀에 준비된 것" shows anything (null: not known yet): what the group often asks waits for the answer and
+  // stays out while it does, so one block sits under the box at a time
+  const [prepared, setPrepared] = useState<boolean | null>(null)
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
   const top = !noAi && extras && admin && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
   // someone joined with the owner's lead link (docs/DECISIONS.md "W6"): while its card shows, it is the one thing at the
@@ -138,11 +139,9 @@ export default function Home() {
             {phone && extras && !projectId && <RecentChats />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
-            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} readOnly={noAi} onCompose={choose} onSkillRows={setSkillRows} />}
-            {suggest && <FrequentQuestions key={me.user.id} onChoose={choose} />}
-            {/* B-W7-7: the team's top skills, once two or more were used, and not while "팀에 준비된 것" lists skills
-                (W6.3). A different key from FrequentQuestions: same-key siblings render twice */}
-            {suggest && skillRows === false && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={choose} />}
+            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}
+            {/* what my group often asks, in the same place once "팀에 준비된 것" has nothing (one block at a time) */}
+            {suggest && chatsLoaded && prepared === false && <OftenAsked key={`asked-${me.user.id}`} onChoose={choose} />}
           </div>
         </div>
       </div>

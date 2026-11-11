@@ -20,6 +20,7 @@ import { rulesHash } from '../admin/access-edit'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
+import { oftenAskedSwitched } from '../chat/often-asked'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
 import { teamPolicyOff } from '../tools/web-allow-all'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
@@ -399,6 +400,8 @@ export const adminRoutes: RouteModule = {
       const next = ctx.db.transaction(() => {
         const n = updateTeamSettings(ctx.db, body)
         if ((cur.browserAllowAll && cur.webAllowAll) && !(n.browserAllowAll && n.webAllowAll)) turnedOff = teamPolicyOff(ctx.db, auth.user.id)
+        // "Show what the team often asks": off, every list goes at once; on, counting starts again from now
+        if (n.oftenAsked !== cur.oftenAsked) oftenAskedSwitched(ctx.db, n.oftenAsked)
         return n
       })()
       const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))
