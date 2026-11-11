@@ -153,6 +153,14 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         void browserSettingsBridge()?.get().catch(() => null)
         return
       }
+      if (ev.data.code === 'web_access_changed') {
+        // my "Allow all websites" for the AI's web reads changed (Settings in another window, an address card, the team
+        // turning it off): Settings > Browser follows, and the desktop app re-reads GET /api/me itself when the setting is
+        // read (it follows an off, never an on)
+        void useSession.getState().refreshMe()
+        void browserSettingsBridge()?.get().catch(() => null)
+        return
+      }
       if (ev.data.code === 'team_icon_changed') {
         // an admin set or removed the team logo: the sidebar header follows (GET /api/me carries its version); the tab
         // icon stays the product's

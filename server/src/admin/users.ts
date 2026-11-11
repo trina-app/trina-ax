@@ -33,6 +33,7 @@ import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTrans
 import { componentC } from '../team-files/component'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
+import { accountDeactivated } from '../tools/web-allow-all'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -161,6 +162,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   // the directory again when it goes or comes back with the account
   if (changed.status !== undefined) statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true))
   if (changed.status === 'disabled') {
+    // their "Allow all websites" for the AI's web reads goes off for good (audited when it was on)
+    accountDeactivated(ctx.db, id, auth.user.id)
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
@@ -274,6 +277,8 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     // an admin by now who was not asked for the password (they were the owner at the start) is refused too
     if (row.role === 'admin' && !passwordChecked) fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
     guard(c, liveUser(ctx, id), { actor: { id: row.id, role: row.role } })
+    // their "Allow all websites" for the AI's web reads goes off (audited when it was on)
+    accountDeactivated(ctx.db, id, auth.user.id)
     // tombstone: the username is freed for reuse, the id (personal folder name, usage, audit) is never reused
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
       .run(now, `${target.username}#deleted-${Date.parse(now).toString(36)}`, id)

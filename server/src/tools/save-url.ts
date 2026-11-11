@@ -217,6 +217,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       const how = await gateUrl(ctx.db, chatId, source, t.person ?? null, { egressKnown: egressOf(ctx).known, turnId: t.turnId, userId: t.user.id, connection: true })
       if (how === 'confirmed') confirmed = ' (address confirmed by the user)'
       else if (how === 'site') confirmed = ' (site allowed in this chat)'
+      else if (how === 'all') confirmed = ' (all websites allowed)'
       await widen()
       let largeOk = false
       // a redirect to an address that echoes what the AI sent (a link shortener or a service's "/out?to=" given the

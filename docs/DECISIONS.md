@@ -539,7 +539,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **DNS가 답하지 않으면 사내망이 아니라 "모름"이다. 다만 "모름"이 검사를 건너뛰게 하지는 않는다**(보안 리뷰 반영). 이름은 node의 getaddrinfo가 아니라 그 탭 세션의 Chromium 조회기(`ses.resolveHost`)로 확인한다: 검사와 실제 접속이 같은 조회기·같은 캐시를 쓰므로, 검사가 답을 못 받으면 Chromium도 접속할 곳이 없다. 자체 시간 제한(3초)과 자체 캐시는 없앴다: 3.5초 뒤에 192.168.1.1로 답하는 DNS가 "시간 초과 → 공개"로 통과했고, "공개였음" 캐시는 이름 1001개로 밀어낼 수 있었다. 답이 없으면(`net-policy.ts` `unresolvedVerdict`) 탭의 페이지 이동만 계속하고(Chromium도 같은 이유로 실패하거나, 프록시가 대신 조회) 하위 요청·WebSocket·탭 없는 요청은 취소한다. 조회기가 60초 안에 끝나지 않으면 모두 취소한다(늦은 답이 같은 조회기를 통해 접속에 쓰일 수 있음). 같은 이름 조회는 동시에 하나만 돈다. 실제 사내망 답(사설·CGNAT/Tailscale·IPv6 ULA·링크 로컬·사설 IPv4를 담은 NAT64·섞인 답)은 그대로 사내망이다.
 - **접속한 주소 확인은 모든 응답에**: Electron은 접속한 IP를 응답이 온 뒤에야 알려 준다(webRequest의 onBeforeRequest에는 없음). DNS를 거치는 이름이 사내망·이 컴퓨터 주소에서 답하면, 사람이 그 주소를 사내망으로 허용했거나 직접 입력했거나 허용한 사내 페이지가 부른 것이 아닌 한 탭을 멈춘다(`stopIfRebound`, 이미지·스크립트·글꼴 포함 모든 종류). 판정은 "그 이름이 공개로 보였었다"는 캐시가 아니라 요청에 대한 사실로 한다. 프록시는 접속한 주소가 **그 프록시 자신의 주소일 때만** 건너뛴다(`connectedThroughProxy`): 전에는 `PROXY x; DIRECT`처럼 목록에 프록시만 있어도 검사를 껐다. 프록시 정보는 요청 때 미리 받아 둔다(응답 뒤 기다림을 줄임). **남은 것**: 요청 자체는 이미 나간 뒤에 멈춘다(TTL 0 rebinding으로 검사와 접속 사이에 답이 바뀌는 경우), WebSocket·service worker 응답은 CDP에 접속 주소가 없어 사전 검사만 적용된다, 프록시가 조회하는 이름은 프록시의 답을 알 수 없다. Chromium의 Local Network Access 검사가 이 창에서 켜져 있는지는 확인하지 않았다.
 - **띠 대신 활동 기록**(`common/pane-activity.ts`): 스크립트 실행·네트워크 응답 읽기·막은 하위 요청·거부는 도구 막대의 활동 기록(☰, 안 본 개수 표시)에만 남고, "AI가 브라우저를 사용 중" 띠에는 **지금 이 호출에서 AI가 한 동작**(스크립트 실행·네트워크 읽기)만 보인다(UX 리뷰: 다른 사이트의 "요청을 멈췄어요"가 남아 보였다). 같은 기록이 이어지면 한 줄 "×N"으로 묶고, 안 본 개수는 AI의 일상 동작이 아니라 막음·거부만 센다. AI의 이동이 시작 전에 거절된 것(팀 주소·이 컴퓨터, 사람이 거부한 사이트)도 기록에 남는다. 페이지 위에는 사람이 지금 알아야 할 것만 **한 줄**(닫기 단추, 20초 뒤 사라짐, 새 것이 옛 것을 바꿈): 사내망·이 컴퓨터 주소로 가는 페이지 이동을 멈춘 것, 비밀번호·카드 입력란 거절. 사이트 질문 카드도 한 번에 하나만 보이고 나머지는 "질문 N개가 더 기다리고 있어요".
-- **"모든 웹사이트 허용"**(⚙ 설정, 팀마다 이 기기의 `permissions.json`에 `siteAccess`): 기본은 "새 사이트마다 묻기". "모든 웹사이트 허용"이면 공개 사이트는 모두 허용한 것으로 본다: AI의 이동·리다이렉트·AI가 스크립트를 돌린 페이지의 다른 사이트 요청 모두 묻지 않는다. 즉 보안 r3의 데스크톱 쪽 내보내기 막음을 사람이 스스로 끈다(설명 문구에 "그 사이트로 내용을 보낼 수 있어요"라고 적었다). 사내망 범위(`private`)는 건드리지 않아 계속 묻고, 팀 주소·이 컴퓨터는 계속 열 수 없고, 비밀번호·카드 입력란도 그대로다. 켜져 있는 동안 도구 막대에 "모든 사이트 허용 중"이 늘 보인다. 바꿀 수 있는 곳은 데스크톱 자체 화면(`ui:pane-site-access`, 도구 막대 view만)뿐이다: 팀 페이지·사이트·AI는 못 바꾼다. "항상" 목록 보기·지우기도 같은 패널. **남은 것**: 서버 쪽 주소 규칙(`server/src/tools/url-gate.ts`, 채팅에 나오지 않은 주소는 웹 채팅 카드로 묻기)은 이 설정을 모른다. 설정 설명에 "팀 서버가 채팅에서 한 번 더 확인할 수 있어요"라고 적었다. 서버가 창의 설정을 알게 하려면 shared 계약·web·server를 함께 바꿔야 해서 이번 범위 밖으로 남긴다.
+- **"모든 웹사이트 허용"**(⚙ 설정, 팀마다 이 기기의 `permissions.json`에 `siteAccess`): 기본은 "새 사이트마다 묻기". "모든 웹사이트 허용"이면 공개 사이트는 모두 허용한 것으로 본다: AI의 이동·리다이렉트·AI가 스크립트를 돌린 페이지의 다른 사이트 요청 모두 묻지 않는다. 즉 보안 r3의 데스크톱 쪽 내보내기 막음을 사람이 스스로 끈다(설명 문구에 "그 사이트로 내용을 보낼 수 있어요"라고 적었다). 사내망 범위(`private`)는 건드리지 않아 계속 묻고, 팀 주소·이 컴퓨터는 계속 열 수 없고, 비밀번호·카드 입력란도 그대로다. 켜져 있는 동안 도구 막대에 "모든 사이트 허용 중"이 늘 보인다. 바꿀 수 있는 곳은 데스크톱 자체 화면(`ui:pane-site-access`, 도구 막대 view만)뿐이다: 팀 페이지·사이트·AI는 못 바꾼다. "항상" 목록 보기·지우기도 같은 패널. **남은 것**: 서버 쪽 주소 규칙(`server/src/tools/url-gate.ts`, 채팅에 나오지 않은 주소는 웹 채팅 카드로 묻기)은 이 설정을 모른다. 설정 설명에 "팀 서버가 채팅에서 한 번 더 확인할 수 있어요"라고 적었다. 서버가 창의 설정을 알게 하려면 shared 계약·web·server를 함께 바꿔야 해서 이번 범위 밖으로 남긴다. (2026-11-11: 서버 쪽은 사람마다 따로 켜는 값으로 해결했다. 아래 "Allow all websites covers the AI's web reads".)
 - **카드 입력란**(보안 리뷰 4): 비밀번호와 같은 길로 거절한다. `autocomplete` cc-number·cc-csc·cc-exp(-month/-year), 또는 name·id에 card·cvc·cvv·csc·security code가 든 입력란(`page-script.js` `isPw`, `pane.ts` `PW_CHECK`, iframe 안 포함). read_page에 값도 보이지 않는다. 알림 한 줄 "카드 번호, 유효기간, 보안코드 입력란에는 AI가 입력할 수 없어요".
 - **사이트 = 등록 도메인**(UX 리뷰 2): AI가 스크립트를 돌린 페이지의 "같은 사이트"와 허용 범위를 정확한 호스트가 아니라 등록 도메인으로 본다(`site-permissions.ts` `registrableDomain`, PSL 근사: co.kr·co.id 같은 국가 2단계, github.io·vercel.app 같은 공유 호스팅은 하위 이름마다 다른 사이트). edition.cnn.com의 media.cnn.com 이미지는 이제 보이고, naver.com을 허용하면 news.naver.com도 허용이다(news.naver.com 허용은 그것만). static.licdn.com(linkedin.com)·pstatic.net(naver.com)은 여전히 다른 사이트라 "새 사이트마다 묻기"에서는 스크립트를 돌린 페이지에서 새 페이지를 열 때까지 막힌다. 설정 설명에 적었고, 턴이 끝나도 풀지 않는다(스크립트의 타이머는 문서와 함께 살아 있다).
 - 회귀 시험: `tests/unit/e-pane-quiet.test.ts`(늦은 사설 답은 사설, 실패·시간 초과의 처리, 이름 1001개 홍수, 프록시 주소만 예외, 등록 도메인, 기록 묶기·띠 한 줄, 설정), `desktop/e2e/quiet.spec.ts`(스크립트 돈 페이지의 막음이 띠 없이 `offsite`로 기록, 사용 중 띠에 막음이 안 보임, cdn.shop.test는 같은 사이트, 세션 조회기가 127.0.0.1로 답하는 이름은 페이지·하위 요청 모두 거절, 카드 입력란 거절, 거절된 AI 이동 기록, 거부된 페이지 이동은 한 줄, 모든 웹사이트 허용은 공개 사이트를 묻지 않고 사내망은 묻고 저장·재시작 뒤 유지).
@@ -3546,6 +3546,10 @@ medical edition "allow all websites" off by default.
   repository; the decision is recorded for when it resumes. Pinning Claude `web_search_*` versions (review S2), the
   long-string warning on the plain address card (F6; the schedule card has it), URL checks for read-only open-world MCP
   tools (F7b), confidential labels (F9), and WebRTC / `dns-prefetch` in the browser pane (F8) remain follow-ups.
+- **Later (2026-11-11): rule ①d**, a person's own "Allow all websites" for the AI's web reads ("Allow all websites
+  covers the AI's web reads" below). It opens plain addresses on any site with no card and no budget, in the turns of
+  the person whose switch it is (rooms and shared chats included) that they watch. Encoded data in random-looking parts, long names and long queries still
+  asks, and so do echoes. Readable data in a path or a short query goes out without a card.
 - Tests: `tests/unit/p0-exfil-server.test.ts` (stubbed DNS: no lookup before or after a declined card, three parallel
   calls, 50 unattended names, schedule card and runs, auto_sent, "fix it", budget), `e-pane-dns-order.test.ts`,
   `proxy-codex.test.ts`, `c-integrations-tools.test.ts`, `web/test/e2e/safety-cards.spec.ts`.
@@ -19935,3 +19939,113 @@ server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0
   (settings, connectors, credentials, Drive, AI apps, search, engine choice, files, chat, onboarding, states, my usage).
   Server unit `refusal-texts` (the screen names).
 - Version impact: **patch** (words, one control fewer for members, the model id behind a button; no API or data change).
+
+## Allow all websites covers the AI's web reads (feat/allow-all-sites-card, 2026-11-11, product owner)
+
+A teammate asked for "a mode that lets everything through": after one request, many server address cards ("The AI wants
+to open an address that did not appear in this conversation…") came up. The owner: possible in Settings, and from the
+card too. Checked first: Settings › Browser "Allow all websites" was only the desktop app's own value
+(`permissions.json`), and `url-gate.ts` read no per-person setting. So web_fetch, save_url and the browser tools' server
+check asked whatever it said ("앱 안 브라우저 … 모든 웹사이트 허용", 남은 것).
+
+The plan went through a security review ("build after fixing the MUSTs"). **The owner's calls (2026-11-11, final)**
+overruled the review's MUST 1 and three of its SHOULDs:
+- not only the person's own chat: rooms, shared chats and chats that read rooms are in ("it's a team, leave it"),
+  always with the caller's own switch;
+- no budget for the new rule: "always allow" means no more cards for plain addresses;
+- the card offers it on the first address card, not from the third: Claude's own apps show "always allow" right away;
+- the separate team key is on by default for existing and new teams, and admins can turn it off.
+
+- **One switch, one value per person on the server.** `user_web_access` (migration 340) stores the switch, the version
+  of the risk sentence the person accepted, the team's policy epoch, how it was turned on (`settings` / `card`) and the
+  card's turn. It is not stored in `users.prefs`, which PATCH /api/me writes freely: a `webAllowAll` key sent there is
+  dropped. Only two things turn it on, both done by the person:
+  - `PUT /api/me/web-access` with `acceptWarning` equal to `WEB_ALLOW_ALL_WARNING_VERSION`. It is not
+    `allowWhilePasswordChange`, and its body is strict.
+  - The address card's own answer.
+
+  No tool and no MCP tool writes it. `Me.user.webAllowAll` and `Me.team.webAllowAll` carry it to the apps.
+- **The team decides with its own key.** `webAllowAll` ("Also for web pages the AI opens") is one indented line under
+  "Members can turn on 'Allow all websites'" (`browserAllowAll`) and needs that switch on. `browserAllowAll` keeps its
+  meaning: admins agreed to it for the desktop's own browser. The key is on by default (the owner).
+- **Turning the team key off is race-free.** Turning off either switch writes one `web.allow_all_off` row
+  (`via: 'policy'`, the admin as actor) for each person who had it on, turns every row off and raises the epoch
+  (`settings` `web.allowAllEpoch`), all in one transaction. A row counts only with the current epoch, so a write under the
+  old policy never counts. Turning the key on again turns nobody on.
+
+  Implicit offs are audited too: an older risk sentence (`via: 'warning'`, when the row is next read or the team turns
+  the policy off) and a deactivated or deleted account (`via: 'account'`).
+- **Rule ①d** (`url-gate.ts`), in this order:
+  1. typed or allowed;
+  2. `plainAddress`: a site, no random-looking part, no long name before the site, no user name or password, **not an
+     echo**;
+  3. a site allowed here (①b);
+  4. a learned link within the link budget;
+  5. an echo asks;
+  6. ①d;
+  7. the card.
+
+  The echo test moved into `plainAddress`, so an echo now asks under ①b too (before, ①b returned before the echo test).
+  A long query, or an unknown exit address, skips all of this and asks.
+- **Where it applies.** ①d and the card's answer apply:
+  - only with the switch of the person whose turn it is, never another member's. A room's AI session is the asker's,
+    and a shared chat's turn is the turn of the person who asked;
+  - in rooms, shared chats and chats that read rooms too. The owner dropped the review's "own chat only" (MUST 1).
+    Accepted: room messages go into the prompt as `<room_context>`, and web_fetch gets no room card there, so another
+    member's message can steer the asker's AI to send what the asker can read. The risk sentence names room messages;
+  - only in a turn asked from the web, desktop or phone app, with its steps shown live (`TurnPerson.allSitesHere`). Not
+    a scheduled run, a Slack question (no live steps), a draft or a server-started turn;
+  - not in a confidential chat.
+- **The card's fourth answer.** "Allow all websites (turn off in Settings)" / "모든 사이트 허용 (설정에서 끌 수 있어요)"
+  (value `all_sites`).
+  - It is offered on the first card wherever ①d could open that address next time, while the team allows it and the
+    switch is off. It is never offered on an echo's card, or on the card of an address with a marked part, a user
+    name, a long query or an unknown exit address.
+  - Picking it opens the address. The switch is set in one transaction with the policy check: if an admin turned the
+    key off while the card was open, the address opens and the switch stays off.
+  - No second confirm: four answers are radios and [답하기] (two actions), the card shows the full address, and only the
+    turn's owner can answer, with one of its options (`TurnExec.answer`).
+  - The AI's own ask_user card with the same value only answers the AI.
+- **Honest text** (review MUST 2). The card, Settings and the desktop app's window all show one sentence, versioned in
+  shared (`WEB_ALLOW_ALL_RISK`, `WEB_ALLOW_ALL_WARNING_VERSION`): "A hidden instruction in a document, page or room
+  message can make the AI send anything it can read to any site." The texts also say that long random-looking strings and long
+  queries still ask, but that this catches obvious tokens only. A new sentence means a new version, and everyone's
+  switch reads as off until they accept it again.
+- **What it does not stop.** A hidden instruction in what the AI reads (a document, a page, a room message) can send
+  anything it can read to any site, with no budget:
+  - readable words in a path, a short name before the site or a short query;
+  - lowercase-only data, or data cut into pieces shorter than 20 characters. `opaqueParts` is a hint, not a rule.
+
+  Redirect hops get `redirectGuard` (echoes) and the network rules only, not ①d's other checks, with or without the
+  switch. Accepted by the owner: each person opts in after the sentence, and an admin can turn it off for the team.
+- **Unchanged.** There is no DNS lookup before the gate says yes. Private, local, metadata and the server's own
+  addresses are refused, and the in-app browser's office-network card stays. Scheduled runs keep their card-allowed
+  addresses and 8 learned links; a refusal there says the setting does not apply. save_url uses ①d for its address
+  only; its other cards stay. Connection writes, `carriesAddress`, MCP tools and the dev environment's network are not
+  covered.
+- **The desktop app.** The server can make the in-app browser stricter, never wider. In the desktop app, choosing it in
+  Settings › Browser takes the app's own window, then the PUT. Turned on elsewhere (the card, another device), this
+  computer's browser keeps asking, with a line [Allow here too]. The app follows an off (the value going from true to
+  false in GET /api/me) and never widens from it. ⚙ in the panel stays this computer's only.
+  - **The risk sentence in the app's window** (security review of PR #351). The page skips its own confirm only when the
+    desktop app reports the version of the sentence its window shows (`DesktopBrowserSettings.riskVersion`, set by the
+    main process) and it equals `WEB_ALLOW_ALL_WARNING_VERSION`. An app built before this (Mac App Store 0.4, for one)
+    reports none: the page shows its own confirm with the sentence first, then the app's window, then the PUT. So the
+    stored warning version is always one the person was shown.
+  - **How soon an off reaches the in-app browser.** The app re-reads GET /api/me before every AI browser call
+    (`ensureBrowserOwner`), so the AI's next browser step already sees the off. The `web_access_changed` notice makes
+    an open team page re-read Settings › Browser, which re-reads Me within 5 seconds. Without that, the panel's own
+    display catches up on the minute timer. The rules are in `common/me-policy.ts applyMePolicy`.
+- **Audit**:
+  - `web.allow_all_on` with `via`, `warningVersion` and, for the card, `turnId`;
+  - `web.allow_all_off` with `via` (`settings`, `policy`, `warning` or `account`);
+  - each address opened this way ends its tool audit line with "(all websites allowed)", the browser tools' too;
+  - the settings change and the reset of everyone's switch are one transaction.
+- **Tests**:
+  - `tests/unit/web-allow-all.test.ts`: the first card and the team key, the card's pick and its stored version, the
+    exceptions, echoes under ①b and ①d, always the caller's own switch (a real room with one person on and one off, a
+    chat others wrote in), the AI's own card, typed text and another person, prefs and a pending password change, the
+    epoch, implicit offs, unattended runs, save_url;
+  - `site-allow.test.ts`;
+  - the permission matrix and `security-route-coverage.test.ts`;
+  - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
