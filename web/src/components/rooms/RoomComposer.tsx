@@ -386,6 +386,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       {voiceError && (
         <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
           {voiceError}
+          {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
         </p>
       )}
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}
