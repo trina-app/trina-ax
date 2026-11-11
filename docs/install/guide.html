@@ -410,7 +410,7 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   <div class="keep">
   <div class="step"><span class="sn">1-6</span><span class="st">AI 연결 확인</span></div>
   <p><span class="ui">관리자</span> → <span class="ui">AI 엔진</span>을 열어요. 개발 모드에서는 Claude Code가 <b>연결됨 · 팀장 구독 로그인</b>으로 보여야 해요. Claude Code가 2.1.305보다 새 버전으로 업데이트됐으면 <b>지원하지 않는 버전</b>으로 보이는데, 채팅은 그대로 돼요.</p>
-  <figure class="shot"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>관리자 → AI 제공자. Claude Code와 Codex 둘 다 로그인한 맥의 모습이에요.</figcaption></figure>
+  <figure class="shot"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>관리자 → 연결 → 제공자. Claude Code와 Codex 둘 다 로그인한 맥의 모습이에요.</figcaption></figure>
   </div>
   <p>“로그인 필요”로 나오면 같은 맥 사용자로 터미널에서 <code>claude</code>(또는 <code>codex login</code>)를 실행해 로그인하고, 카드 오른쪽 위 새로 고침 버튼을 눌러요. 그다음 새 채팅에서 “안녕”이라고 보내 답이 오는지 봐요.</p>
   <div class="check"><span class="k">확인</span><span>채팅에 답이 와요. “답하다가 멈췄어요”가 나오면 5장 표를 보세요.</span></div>
@@ -585,7 +585,7 @@ pbcopy &lt; /dev/null</pre></li>
   <div class="check"><span class="k">확인</span><span>3의 첫 줄이 <code>-rw-------  1 _axserver …  claude-oauth-token</code>처럼 나와요. 진단의 “AI 엔진: Claude Code” 줄은 팀을 만든 뒤(2-8) <b>로그인됨 (setup-token)</b>으로 보여요.</span></div>
   <ul>
     <li>“this does not look like a token…”(토큰처럼 보이지 않음)이 나오면 복사가 잘못된 거예요. 아무것도 바뀌지 않았으니 1부터 다시 해요.</li>
-    <li>서버를 다시 시작할 필요는 없어요. 레거시 파일은 <code>secrets/claude-oauth-token</code>(서버 계정만 읽음)에 있고 최대 5분 간격으로 관리형 연결에 가져와요. 파일 삭제만으로 가져온 연결이 없어지지 않으므로 관리자 → AI 제공자에서도 확인해요. 엔진에는 답변마다 바뀌는 임시 토큰만 가요.</li>
+    <li>서버를 다시 시작할 필요는 없어요. 레거시 파일은 <code>secrets/claude-oauth-token</code>(서버 계정만 읽음)에 있고 최대 5분 간격으로 관리형 연결에 가져와요. 파일 삭제만으로 가져온 연결이 없어지지 않으므로 관리자 → 연결 → 제공자에서도 확인해요. 엔진에는 답변마다 바뀌는 임시 토큰만 가요.</li>
     <li>실제 유효 기간은 제공사가 정해요. 화면은 저장 시각으로 만료를 추정하고 14일 전부터 알려 줘요. 거절·만료 시 같은 단계로 바꿔 넣어요. 레거시 파일만 지우려면 <code>sudo "/Library/Application Support/mycel/root/set-claude-token" --remove</code>.</li>
   </ul>
 
@@ -608,7 +608,7 @@ cd / &amp;&amp; sudo -u _axserver env MYCEL_MODE=prod HOME="$B/data" \
   </div>
   <div class="warn"><b>Codex는 아직 베타예요 <span class="wip">준비 중</span></b>
     <ul>
-      <li>관리자 → AI 제공자에서 허용된 연결을 사람·그룹·팀에 배정하고, AI 엔진에서 기본 엔진을 정할 수 있어요.</li>
+      <li>관리자 → 연결 → 제공자에서 허용된 연결을 사람·그룹·팀에 배정하고, AI 엔진에서 기본 엔진을 정할 수 있어요.</li>
       <li>실제 ChatGPT 로그인으로 방화벽을 켠 상태의 연결·토큰 갱신·웹 검색은 아직 확인하지 못했어요.</li>
       <li>설치 스크립트는 <code>codex</code> 파일 하나만 복사해요. 옆에 있는 도우미 파일은 옮기지 않아서 일부 기능이 안 될 수 있어요.</li>
     </ul></div>
@@ -625,7 +625,7 @@ open "http://127.0.0.1:47820/setup?token=$C"</pre>
   <div class="step"><span class="sn">2-9</span><span class="st">첫 채팅으로 확인</span></div>
   <table class="t">
     <tr><th style="width:30%">어디</th><th>보여야 하는 것</th></tr>
-    <tr><td>관리자 → AI 제공자</td><td>Claude Code: <b>연결됨</b> · 엔진 계정 로그인. Codex(넣었으면): <b>베타</b> 표시, 2-7 전에는 “로그인 필요”.</td></tr>
+    <tr><td>관리자 → 연결 → 제공자</td><td>Claude Code: <b>연결됨</b> · 엔진 계정 로그인. Codex(넣었으면): <b>베타</b> 표시, 2-7 전에는 “로그인 필요”.</td></tr>
     <tr><td>관리자 → 시스템 → 진단</td><td>AI 엔진: Claude Code “로그인됨 (setup-token)”. 모델 프록시 “127.0.0.1:47821에서 동작 중”. AI 엔진 실행기 “연결됨”. 샌드박스 “모든 엔진 실행에 적용됨”. 방화벽(pf)·예약 작업 차단·타임머신: 실제 검사 결과. 릴리스 서명: 경고(서명 없음, 정상).</td></tr>
     <tr><td>새 채팅</td><td>“안녕”을 보내면 Claude가 답해요.</td></tr>
   </table>
@@ -843,7 +843,7 @@ sudo scripts/uninstall-macos.sh ; bun run dev:service install</pre>
     <tr><td>“AI 연결에 문제가 있어요” + 관리자 알림 “Claude 구독 토큰이 거절됐어요” (정식)</td><td>토큰이 취소·만료됐거나 덜 복사된 채 저장됐어요. <code>claude setup-token</code>으로 새로 만들어 2-6처럼 다시 넣어요.</td></tr>
     <tr><td>“AI가 아직 준비 중이에요” (정식)</td><td>진단의 모델 프록시 줄을 봐요. “포트 사용 중”이면 다른 프로그램이 47821을 쓰는 거예요(<code>lsof -nP -iTCP:47821 -sTCP:LISTEN</code>). 서버가 10초마다 다시 시도해요.</td></tr>
     <tr><td>AI 엔진 카드가 “검증하지 않은 버전”</td><td>Claude Code가 2.1.305가 아닌 버전이에요. 개발 모드는 그대로 써도 돼요. 정식 설치는 1-2의 고정 버전으로 되돌린 뒤 2-5를 다시 실행해요.</td></tr>
-    <tr><td>엔진이 “로그인 필요” (개발 모드)</td><td>같은 맥 사용자로 <code>claude</code>(또는 <code>codex login</code>)를 실행해 로그인 → 관리자 → AI 제공자의 새로 고침.</td></tr>
+    <tr><td>엔진이 “로그인 필요” (개발 모드)</td><td>같은 맥 사용자로 <code>claude</code>(또는 <code>codex login</code>)를 실행해 로그인 → 관리자 → 연결 → 제공자의 새로 고침.</td></tr>
     <tr><td>Codex 명령이 “An unknown error occurred”로 끝나요 (정식)</td><td>명령 앞의 <code>cd / &amp;&amp;</code>를 빠뜨렸어요. 2-7의 명령을 그대로 붙여 넣어요.</td></tr>
     <tr><td>“relay skipped: it needs Node 24+”</td><td><code>brew install node</code>로 Node 24 이상(26 권장). 직접 주소는 그대로 돼요.</td></tr>
     <tr><td>포트가 이미 쓰이고 있어요 / 서버가 안 떠요</td><td><code>lsof -nP -iTCP:19100 -sTCP:LISTEN</code>으로 누가 쓰는지 봐요. 개발: 19100, 19161. 정식: 47820, 8443, 47821. 개발 서비스가 돌고 있으면 <code>bun run dev:service stop</code>.</td></tr>
