@@ -176,7 +176,7 @@ describe('desktop apps', () => {
     for (const c of [web('mac'), web('windows'), web('other'), web('ios'), phoneApp('android'), desktop('mac'), desktop('windows')]) expect(noComputerApps(computerApps(NONE, c, []), c)).toBe(true)
     // the desktop app from the team server, nothing on the server: the empty state and the owner's hint, as before
     const app = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: desktop('mac'), downloads: 'none', owner: true }))
-    expect(app).toContain('teamax desktop add')
+    expect(app).toContain('office-install.sh')
     expect(app).not.toContain('app-row-mac')
     // only the other computer's installer: this app's row says the server has none
     const other = renderToStaticMarkup(createElement(ComputerApps, { links: NONE, client: desktop('mac'), downloads: [win], owner: false }))

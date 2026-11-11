@@ -14,6 +14,8 @@
 //   elsewhere in the page's confirm. The server can make the desktop's browser stricter, never wider, so a value turned
 //   on elsewhere (an address card, another device) leaves this computer's browser asking: one line says so, with
 //   [Allow here too] (the app's window).
+// - A phone shows this as a part of 트리나에게 허용한 것 (`part`, pages/Settings.tsx): a heading and one switch for "Allow all
+//   websites" (the server value; a phone has no in-app browser), turned on after the same risk question.
 import clsx from 'clsx'
 import { Globe, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -23,7 +25,7 @@ import type { BrowserSettingsBridge, DesktopAccessOutcome, DesktopBrowserSetting
 import { api, API, errorText, isApiError } from '../lib/api'
 import { useMeStrict, useSession } from '../store/session'
 import { toast } from '../store/ui'
-import { Badge, Button, Skeleton, confirmDialog } from '../components/ui'
+import { Badge, Button, Skeleton, Switch, confirmDialog } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 
 export interface BrowserSettingsViewProps {
@@ -40,16 +42,34 @@ export interface BrowserSettingsViewProps {
   onClear(): void
   /** server value on, this computer's browser still asking: open the app's window for it */
   onAllowHere?(): void
+  /** a part of a phone's page: a heading and one switch for the server value (outside the desktop app only) */
+  asSwitch?: boolean
 }
 
 /** "Allow all websites" may be chosen: the desktop app's policy and the team server's both allow it. */
 export const allowAllPermitted = (s: DesktopBrowserSettings, serverPolicyOff = false) => s.teamAllowsAll && !serverPolicyOff
 
-export function BrowserSettingsView({ settings: s, web, serverPolicyOff = false, confirming = false, onAccess, onRemove, onClear, onAllowHere }: BrowserSettingsViewProps) {
+export function BrowserSettingsView({ settings: s, web, serverPolicyOff = false, confirming = false, onAccess, onRemove, onClear, onAllowHere, asSwitch = false }: BrowserSettingsViewProps) {
   const t = useT()
   const locale = useLocale()
   const desktop = s !== undefined
   if (desktop ? !s : !web) return <Skeleton lines={3} />
+  if (asSwitch && web && !desktop)
+    return (
+      <section className="mb-8 border-t border-line pt-5" data-testid="browser-settings" data-part="">
+        <h3 className="mb-1 text-sm font-semibold">{t('settings.browser.access')}</h3>
+        <p className="mb-1 text-sm text-muted">{t('settings.browser.descWeb')}</p>
+        <div className="flex items-start gap-4 py-3">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="browser-all-switch" className="text-sm font-medium text-ink">{t('settings.browser.all')}</label>
+            <p id="browser-all-switch-desc" className="mt-0.5 text-sm text-muted">{web.on ? t('settings.browser.allHintWeb', { risk: WEB_ALLOW_ALL_RISK[locale] }) : t('settings.browser.askHintWeb')}</p>
+          </div>
+          <div className="shrink-0 pt-0.5">
+            <Switch id="browser-all-switch" external describedBy="browser-all-switch-desc" checked={web.on} disabled={confirming} label={t('settings.browser.all')} onChange={(v) => onAccess(v ? 'all' : 'ask')} testId="browser-all-switch" />
+          </div>
+        </div>
+      </section>
+    )
   const value: 'ask' | 'all' = web ? (web.on ? 'all' : 'ask') : s!.siteAccess
   // with the web value, the team server allows it already (Me.team.webAllowAll needs browserAllowAll on)
   const permitted = web ? true : allowAllPermitted(s!, serverPolicyOff)
@@ -164,7 +184,7 @@ export function confirmWebAllowAll(t: ReturnType<typeof useT>, locale: keyof typ
 }
 
 /** The section: the desktop app's browser when `bridge` is there, the server value while the team allows it. */
-export function BrowserSettings({ bridge }: { bridge: BrowserSettingsBridge | null }) {
+export function BrowserSettings({ bridge, part = false }: { bridge: BrowserSettingsBridge | null; part?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -290,6 +310,7 @@ export function BrowserSettings({ bridge }: { bridge: BrowserSettingsBridge | nu
       onRemove={(h) => void onRemove(h)}
       onClear={() => void onClear()}
       onAllowHere={() => void onAllowHere()}
+      asSwitch={part}
     />
   )
 }

@@ -2,7 +2,9 @@
 // default for rooms without a level of their own (알림 받을 메시지), replies in threads I follow, quiet hours (방해 금지 시간,
 // in the team's time zone) and the rooms I turned off, with each one's level to change back. Each room's own level is
 // on its bell (components/rooms/RoomNotifyMenu.tsx). The rule is the server's and the sound's (shared room-alerts.ts).
+// A phone: the three levels are checkmark rows (no radio circles), like the iPhone's Settings.
 import clsx from 'clsx'
+import { Check } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NotificationPreferences, QuietHours, RoomNotifyDefault, RoomNotifyLevel } from '@mycel/shared/api'
 import { QUIET_HOURS_DEFAULT } from '@mycel/shared/api'
@@ -11,7 +13,7 @@ import { useLocale, useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
-import { inputCls, Switch } from '../ui'
+import { inputCls, Switch, useMediaQuery } from '../ui'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { roomNotify } from '../rooms/RoomNotifyMenu'
 import { PrefRow, PrefSection } from './PrefRows'
@@ -21,6 +23,7 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
 export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPreferences; onChange: (patch: Partial<NotificationPreferences>) => void }) {
   const t = useT()
+  const phone = useMediaQuery('(max-width: 767.98px)')
   // an older server knows one switch for rooms
   if (!prefs.roomLevel) {
     if (typeof prefs.roomMessages !== 'boolean') return null
@@ -36,6 +39,20 @@ export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPre
       <div className="py-3.5" data-testid="notification-room-level">
         <p id="np-room-level" className="text-sm font-medium text-ink">{t('notifications.roomLevel')}</p>
         <p id="np-room-level-desc" className="mt-0.5 text-sm text-muted">{t('notifications.roomLevelDesc')}</p>
+        {phone ? (
+          <div role="radiogroup" aria-labelledby="np-room-level" aria-describedby="np-room-level-desc" className="mt-2 flex flex-col divide-y divide-line border-y border-line">
+            {LEVELS.map((l) => {
+              const on = prefs.roomLevel === l
+              return (
+                <button key={l} type="button" role="radio" aria-checked={on} onClick={() => { if (!on) onChange({ roomLevel: l }) }}
+                  className="flex min-h-12 items-center gap-3 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2" data-testid={`notification-room-level-${l}`}>
+                  <span className={clsx('min-w-0 flex-1', on && 'font-medium')}>{t(`notifications.roomLevel.${l}`)}</span>
+                  <Check size={18} className={clsx('shrink-0 text-accent', !on && 'invisible')} aria-hidden />
+                </button>
+              )
+            })}
+          </div>
+        ) : (
         <div role="radiogroup" aria-labelledby="np-room-level" aria-describedby="np-room-level-desc" className="mt-2 flex flex-col">
           {LEVELS.map((l) => (
             <label key={l} className="flex min-h-8 items-center gap-2.5 text-sm max-md:min-h-10">
@@ -44,6 +61,7 @@ export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPre
             </label>
           ))}
         </div>
+        )}
       </div>
       <PrefRow id="np-thread-replies" title={t('notifications.roomThreadReplies')} desc={t('notifications.roomThreadRepliesDesc')}
         control={<Switch id="np-thread-replies" external describedBy="np-thread-replies-desc" checked={prefs.roomThreadReplies !== false} onChange={(v) => onChange({ roomThreadReplies: v })} label={t('notifications.roomThreadReplies')} testId="notification-thread-replies" />} />

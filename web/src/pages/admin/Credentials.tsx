@@ -17,7 +17,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 import { CREDENTIAL_PROBLEMS } from './overview'
 
@@ -641,6 +641,8 @@ function EditCredential({ c, groups, users, onClose, onSaved }: { c: Credential;
 export function MyCredentials() {
   const t = useT()
   const actOk = useActionOk()
+  // a phone: "Add account" is the last row under the provider's accounts, not a button beside its name
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const state = useLoad(() => api.call(API.myCredentials))
   const [adding, setAdding] = useState<Family | null>(null)
   return (
@@ -657,11 +659,11 @@ export function MyCredentials() {
                 <section key={fam} aria-labelledby={`my-cred-${fam}`} data-testid={`my-provider-${fam}`}>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 id={`my-cred-${fam}`} className="text-sm font-medium">{t(`credentials.group.${fam}`)}</h3>
-                    {d.allowed && kinds.length > 0 && (
+                    {d.allowed && kinds.length > 0 && !phone && (
                       <Button size="sm" onClick={() => setAdding(fam)} data-testid={`my-credential-add-${fam}`}><Plus size={14} aria-hidden /> {t('providers.addAccount')}</Button>
                     )}
                   </div>
-                  {!list.length ? <p className="text-sm text-faint">{t('providers.noAccounts')}</p> : (
+                  {!list.length && phone && d.allowed && kinds.length > 0 ? null : !list.length ? <p className="text-sm text-faint">{t('providers.noAccounts')}</p> : (
                     <ul className="divide-y divide-line rounded-xl border border-line" data-testid="my-credentials">
                       {list.map((c) => (
                         <CredentialRow key={c.id} c={c} target={t('credentials.target.personal', { name: c.owner?.name ?? '' })} owner={false} checking={false} personal ownDelete
@@ -672,6 +674,11 @@ export function MyCredentials() {
                           }} />
                       ))}
                     </ul>
+                  )}
+                  {d.allowed && kinds.length > 0 && phone && (
+                    <button type="button" onClick={() => setAdding(fam)} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-1 text-left text-sm text-accent-text hover:bg-hover" data-testid={`my-credential-add-${fam}`}>
+                      <Plus size={16} className="shrink-0" aria-hidden /> {t('providers.addAccount')}
+                    </button>
                   )}
                 </section>
               )

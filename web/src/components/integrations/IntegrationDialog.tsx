@@ -10,6 +10,8 @@
 // goes through your own app there (AppSection): its client ID and secret, an API's sign-in and token addresses, the
 // scopes, and the redirect address to register at the service. On a template it is the team's app; members never see
 // its secret. A stored secret stays only where it went before (storedSecretStays, the server's rule).
+// In the phone app a new connection of one's own is made on a computer (its sign-in has no way back to the app, and
+// its key and advanced settings are a computer's work): the dialog is then one line that says so, with no form.
 import clsx from 'clsx'
 import { Check, ChevronRight, Copy, TriangleAlert, UserPlus } from 'lucide-react'
 import { useId, useRef, useState, type ReactNode } from 'react'
@@ -183,6 +185,17 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
     }
   }
 
+  // the phone app: a new connection of my own is made on a computer; here one line says so (no Save, no Advanced)
+  if (phone && !team && !existing && !template)
+    return (
+      <Modal open onClose={onClose} width={420} title={connector ? connector.name : t('integrations.addTitle')}
+        footer={<Button variant="primary" onClick={onClose} data-testid="integration-on-computer-done">{t('common.done')}</Button>}>
+        <div className="space-y-2 text-sm" data-testid="integration-on-computer">
+          <p>{connector ? t('integrations.onComputer', { name: connector.name }) : t('integrations.onComputerNew')}</p>
+          <p className="text-muted">{t('integrations.onComputerHint')}</p>
+        </div>
+      </Modal>
+    )
   const title = template ? t('integrations.template.editTitle')
     : existing ? t('integrations.editTitle')
       : connector ? t(team ? 'integrations.discover.addTeam' : 'integrations.discover.add', { name: connector.name })

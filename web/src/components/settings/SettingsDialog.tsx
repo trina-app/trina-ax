@@ -14,7 +14,10 @@
 // twice on screen; "설정" stays the dialog's name). Computers keep replacing: closing the dialog steps back once.
 // docs/DECISIONS.md "Admin and Settings on phones: a list you tap into". A page under a section (`page`:
 // /settings/account/delete, the account deletion request under the profile) keeps its section marked in the list, and
-// its way back goes to that section. Admin stays its own page.
+// its way back goes to that section. Admin stays its own page. On a phone the sections about what the AI may open
+// (트리나에게 허용한 것, 브라우저, 개발 환경 사이트) are one page, 트리나에게 허용한 것, with a part for each that is shown
+// (PHONE_FOLDED; their old addresses open it), every section has no "나에게만 적용" line (all of 나 is just for you),
+// its bar has a place for the section's one action (SettingsBar.tsx: Memory's "+"), and 로그아웃 asks first.
 import clsx from 'clsx'
 import { Bell, ChevronRight, LogOut, Search, Shield, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
@@ -27,17 +30,21 @@ import { useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useInboxUnread } from '../../store/inbox'
 import { isAdmin, useMeStrict } from '../../store/session'
-import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
+import { IconButton, Spinner, confirmDialog, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
 import { BottomTabs } from '../BottomTabs'
 import { useLogout } from '../../lib/logout'
 import { PhonePushLine } from './PushNotifications'
 import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { PhonePageBar } from '../phone/PhonePageBar'
+import { SettingsBarSlot } from './SettingsBar'
+import type { MessageKey } from '../../i18n'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
 const PHONE_TOP = new Set(['profile'])
+/** sections a phone shows as parts of 트리나에게 허용한 것 (the AI's sites), not as rows of their own */
+const PHONE_FOLDED = new Set(['browser', 'dev-env-sites'])
 
 let openedFrom: HTMLElement | null = null
 /** What gets the keyboard back when the dialog closes, said by whatever opens it when that is not what has focus by
@@ -46,9 +53,12 @@ export function settingsOpenedFrom(el: HTMLElement | null) {
   openedFrom = el
 }
 
-/** pages under a section, by their address (App.tsx routes them here) */
-export type SettingsPage = 'account-delete'
-const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile' }
+/** pages under a section, by their address (App.tsx routes them here): the account deletion request under the
+ * profile, and on a phone the password form and every signed-in device under 보안·기기 */
+export type SettingsPage = 'account-delete' | 'security-password' | 'security-devices'
+const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile', 'security-password': 'security', 'security-devices': 'security' }
+/** a page's name in a phone's bar (the account deletion page says its own) */
+const PAGE_TITLE: Partial<Record<SettingsPage, MessageKey>> = { 'security-password': 'auth.changePassword', 'security-devices': 'settings.devices' }
 export default function SettingsDialog({ onClose, page }: { onClose: () => void; page?: SettingsPage }) {
   const t = useT()
   const me = useMeStrict()
@@ -98,6 +108,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const contentRef = useRef<HTMLDivElement>(null)
   useKeptScroll(listRef, 'settings-list', phone && !tab)
   useKeptScroll(contentRef, 'settings-section', phone && !!tab && !waiting)
+  // the section's one action in a phone's bar (SettingsBar.tsx)
+  const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
   const back = useGoBack(page ? `/settings/${tab}` : '/settings')
   const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => settingsPageName(p, t))
   // Connectors is its own page in the sidebar now (pages/Connectors.tsx): its section here leads there, with what its
@@ -109,10 +121,15 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app while the team does not
   // let members allow all websites for web reads: /settings instead (the list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
+  // a phone: Browser and Dev environment sites are parts of 트리나에게 허용한 것
+  if (phone && tab && !page && !waiting && PHONE_FOLDED.has(tab)) return <Navigate to="/settings/allowances" replace />
   const current = tab ?? 'profile'
   // phones: the open section's name in the bar (not for a page under a section: that page has its own title)
   const section = tab && !page ? tabs.find((x) => x.id === tab) : undefined
-  const sectionName = section ? t(section.label) : ''
+  const pageTitle = page && PAGE_TITLE[page] ? t(PAGE_TITLE[page]!) : ''
+  const sectionName = section ? t(section.label) : pageTitle
+  // a phone's 트리나에게 허용한 것: which of the folded sections are there (each keeps its own condition)
+  const fold = phone && current === 'allowances' && !page ? { browser: tabs.some((x) => x.id === 'browser'), devEnvSites: tabs.some((x) => x.id === 'dev-env-sites') } : undefined
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
@@ -131,7 +148,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
           <div className="relative">
             {/* a phone starts on the title, not on its ‹ (focus put there showed a ring nobody asked for) */}
             <h2 id={titleId} tabIndex={-1} data-autofocus="" className="sr-only">{t('settings.title')}</h2>
-            <PhonePageBar onBack={back} backLabel={backLabel} title={section ? sectionName : ''} titleHidden={!!section} backTestId="settings-back" titleTestId="settings-section-title" className="h-14" />
+            <PhonePageBar onBack={back} backLabel={backLabel} title={sectionName} titleHidden={!!section} backTestId="settings-back" titleTestId="settings-section-title" className="h-14"
+              action={<span ref={setBarSlot} className="flex items-center" data-testid="settings-bar-action" />} />
           </div>
         ) : (
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
@@ -196,8 +214,11 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 <Suspense fallback={<Spinner />}>
                   {/* every section here is just for you (Admin says "Applies to everyone in <team>" the same way, admin/common.tsx) */}
                   {/* mb-3: a section's title row starts 12px higher (-mt-3) and would cover the line's descenders */}
-                  <p className="mb-3 text-xs text-faint" data-testid="page-scope">{t('scope.you')}</p>
-                  <SettingsPane tab={page ?? current} />
+                  {/* a phone: everything under 나 is just for you, so the line is not on every section */}
+                  <p className="mb-3 text-xs text-faint max-md:hidden" data-testid="page-scope">{t('scope.you')}</p>
+                  <SettingsBarSlot.Provider value={phone && tab ? barSlot : null}>
+                    <SettingsPane tab={page ?? current} fold={fold} />
+                  </SettingsBarSlot.Provider>
                 </Suspense>
               )}
             </div>
@@ -218,7 +239,11 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
   const me = useMeStrict()
   const logout = useLogout()
   const inbox = useInboxUnread()
-  const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id))).filter((g) => g.length)
+  const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id) && !PHONE_FOLDED.has(x.id))).filter((g) => g.length)
+  // signing out asks first (a tap at the end of a long list is easily made by mistake)
+  const signOut = async () => {
+    if (await confirmDialog({ title: t('settings.logoutConfirm'), confirm: t('auth.logout'), danger: true })) void logout()
+  }
   return (
     <nav ref={navRef} aria-label={t('settings.title')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
       <PhoneListGroup testId="settings-me-group">
@@ -259,7 +284,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
       ))}
       {/* signing out lives here (the phone has no account menu) */}
       <PhoneListGroup>
-        <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void logout()} testId="settings-logout" />
+        <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void signOut()} testId="settings-logout" />
       </PhoneListGroup>
     </nav>
   )

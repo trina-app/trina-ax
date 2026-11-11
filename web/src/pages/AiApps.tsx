@@ -3,6 +3,9 @@
 // one row per app whose Connect opens numbered steps with the real address (components/integrations/AiAppConnect.tsx),
 // then each connected app with when it connected and Disconnect. Off on this server: members get one line, owners and
 // admins the setup to turn it on. It was part of Settings › App connectors, a page that is gone.
+// A phone (the phone app, or below 768 px): these apps are set up on a computer (a terminal command, a desktop app's
+// settings), so it shows only the apps already connected, with Disconnect (which asks first there), and one line that
+// says to set them up on a computer; with the connector off, one line for everyone (the server setup is a computer's).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { REMOTE_MCP, type RemoteConnectionInfo } from '@mycel/shared/api'
@@ -10,10 +13,11 @@ import { api, errorText } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, reloadAsked } from '../store/live'
-import { Button, ErrorNote, IconButton, Skeleton } from '../components/ui'
+import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useMediaQuery } from '../components/ui'
 import { AiAppDialog, AiAppRows, ConnectorOff } from '../components/integrations/AiAppConnect'
 import { useMeStrict } from '../store/session'
 import type { AiApp } from '../lib/connectors'
+import { mobileApp } from '../lib/mobile'
 
 export default function AiApps() {
   const t = useT(), locale = useLocale()
@@ -49,6 +53,11 @@ export default function AiApps() {
   const on = configured && !!resource
   const isAdmin = me.user.role === 'owner' || me.user.role === 'admin'
   const [openApp, setOpenApp] = useState<AiApp | null>(null)
+  const phone = useMediaQuery('(max-width: 767.98px)') || !!mobileApp()
+  // a phone: a tap is easily made by mistake, so Disconnect asks first
+  const askDisconnect = async (item: RemoteConnectionInfo) => {
+    if (await confirmDialog({ title: t('aiApps.disconnectTitle', { name: item.clientName }), confirm: t('connectors.disconnect'), danger: true })) void disconnect(item.id)
+  }
 
   return (
     <section className="space-y-4" data-testid="ai-apps" data-on={items ? String(on) : undefined}>
@@ -56,9 +65,10 @@ export default function AiApps() {
       <div><h2 className="text-base font-semibold max-md:sr-only">{t('aiApps.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('aiApps.lead')}</p></div>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={2} />}
-      {items && !on && <ConnectorOff admin={isAdmin} />}
-      {items && on && resource && <ConnectorAddress resource={resource} />}
-      {items && <ul className="-mx-2 divide-y divide-line" data-testid="ai-app-list"><AiAppRows on={on} onConnect={setOpenApp} connected={items} /></ul>}
+      {items && !on && (phone ? <p className="text-sm text-muted" data-testid="ai-apps-off">{t(isAdmin ? 'aiApps.offOnComputer' : 'aiApps.off')}</p> : <ConnectorOff admin={isAdmin} />)}
+      {items && on && resource && !phone && <ConnectorAddress resource={resource} />}
+      {items && !phone && <ul className="-mx-2 divide-y divide-line" data-testid="ai-app-list"><AiAppRows on={on} onConnect={setOpenApp} connected={items} /></ul>}
+      {items && on && phone && <p className="text-sm text-muted" data-testid="ai-apps-on-computer">{t('aiApps.onComputer')}</p>}
       {items && items.length > 0 && (
         <div data-testid="connected-apps">
           <p className="mb-1 text-xs font-medium text-muted">{t('aiApps.connectedApps')}</p>
@@ -74,7 +84,7 @@ export default function AiApps() {
               {!item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-rooms">{t(isAdmin && !item.scopes.includes('mcp:admin') ? 'aiApps.reconnectForRoomsAndGroups' : 'aiApps.reconnectForRooms')}</p>}
               {isAdmin && !item.scopes.includes('mcp:admin') && item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</p>}
             </div>
-            <Button variant="danger" size="sm" className="max-md:h-11" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
+            <Button variant="danger" size="sm" className="max-md:h-11" disabled={busy !== null} busy={busy === item.id} onClick={() => void (phone ? askDisconnect(item) : disconnect(item.id))} data-testid="connector-disconnect">{t('connectors.disconnect')}</Button>
           </li>)}</ul>
         </div>
       )}

@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { Locale, PushSettings } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { disablePush, enablePush, isBrave, logPushFailure, notificationPermission, PushError, pushFailure, pushRegistration, pushRetryHelps, pushSupport, type PushFailure } from '../../lib/push'
-import { askLater, mobilePushApp, phonePushView, refreshPhonePush, registerMobilePush, usePhonePush } from '../../lib/mobile-push'
+import { disablePush, disablePushHere, enablePush, isBrave, logPushFailure, notificationPermission, PushError, pushFailure, pushRegistration, pushRetryHelps, pushSupport, type PushFailure } from '../../lib/push'
+import { askLater, mobilePushApp, phonePushView, refreshPhonePush, registerMobilePush, turnOffPhonePush, usePhonePush } from '../../lib/mobile-push'
 import { canOpenAppSettings, mobileApp, openAppSettings } from '../../lib/mobile'
 import { isStandalone, platform, pushNeedsInstall, type Platform } from '../../lib/pwa'
 import { isDesktop } from '../../lib/desktop'
@@ -13,7 +13,7 @@ import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { notificationsChanged } from '../../store/live'
 import { hidesTabs } from '../../lib/tabs'
-import { Button, ErrorNote } from '../ui'
+import { Button, ErrorNote, Switch, confirmDialog, useMediaQuery } from '../ui'
 
 /** What a browser's push failure says (Settings › Notifications and the web ask, components/WebPushAsk.tsx): the reason
  * in plain words (lib/push.ts pushFailure), never the generic "check your connection and try again" when that cannot
@@ -51,8 +51,13 @@ const badgeHintHere = () => badgeHintKey({
   app: isDesktop() || !!mobileApp(), p: platform(),
 })
 
+/** 이 기기's push row (Settings › Notifications). A computer: where push stands here, with the buttons to turn it on and
+ * off (off is for every device). A phone (below 768 px; docs/AGENTS/plan/20261111-1748-phone-settings-rows.md): a
+ * switch for this device only (off: this phone or browser stops, the others keep theirs), and turning it off on every
+ * device is a red row of its own that asks first. */
 export function PushNotifications() {
   const t = useT(), locale = useLocale()
+  const narrow = useMediaQuery('(max-width: 767.98px)')
   const [settings, setSettings] = useState<z.infer<typeof PushSettings> | null>(null)
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
   const [busy, setBusy] = useState(false)
@@ -112,15 +117,34 @@ export function PushNotifications() {
       if (generation === life.current && !(app && (error as Error)?.message === 'push_denied')) fail(error, () => void change(enabled))
     } finally { if (generation === life.current) setBusy(false) }
   }
+  // this device only (a phone's switch): the phone app's registration, or this browser's subscription
+  const offHere = async () => {
+    if (busy || !settings) return
+    const generation = life.current
+    setBusy(true); setFailure(null)
+    try {
+      if (app) { if (settings.native?.deviceId) await turnOffPhonePush(settings.native.deviceId) }
+      else await disablePushHere(registration, settings.subscriptionId)
+      if (generation === life.current) await load()
+    } catch (error) {
+      if (generation === life.current) fail(error, () => void offHere())
+    } finally { if (generation === life.current) setBusy(false) }
+  }
+  const offEverywhere = async () => {
+    if (await confirmDialog({ title: t('push.offEverywhereTitle'), body: t('push.offEverywhereBody'), confirm: t('push.offEverywhere'), danger: true })) void change(false)
+  }
   const view = phonePushView({ permission: phone.permission, on: !!(settings?.enabled && settings.native?.deviceId), canOpenSettings: canOpenAppSettings() })
   // the browser blocked notifications for this site: the status line says so and how to undo it
   const blocked = !app && supported && notificationPermission() === 'denied'
   // One row of 이 기기 (Settings › Notifications): the name, where push stands on this device under it, the action on the
   // right; what push sends (and, for admins, the phone gateway) in a quieter line below. No frame.
   let status: ReactNode = null, action: ReactNode = null
+  // a phone's switch: whether this device gets push, and whether the switch can change that here (null: no switch)
+  let here: { on: boolean; disabled: boolean } | null = null
   if (settings && app) {
     if (settings.native?.available) {
       status = <span data-testid="phone-push-status">{t(view.status)}</span>
+      if (view.action !== 'open-settings') here = { on: view.action === 'disable', disabled: busy }
       action = view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
         : view.action === 'disable' ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
           : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>
@@ -132,12 +156,46 @@ export function PushNotifications() {
     else {
       const on = !!(settings.enabled && settings.subscriptionId && deviceReady)
       status = <span data-testid="push-status">{on ? t('push.on') : blocked ? t('push.denied') : t('push.off')}</span>
+      here = { on, disabled: busy || (!on && !registration) }
       if (!on) action = <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>
     }
     if (settings.enabled) action = <>{action}<Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button></>
   }
   // the reason in words; the status line already says a blocked site
   const failureText = !failure ? null : app ? t('push.failed') : failure.kind === 'denied' && blocked ? null : pushFailureText(failure, t, locale, { admin: isAdmin(me) })
+  // under the row: what push sends (about the browser's push service; the phone app's status line says what matters
+  // there), an installed web app's line about the count on its icon, the phone gateway for admins, and why the last
+  // change did not work ("다시 시도" only where trying again can help: the team server could not be reached or had a
+  // passing fault)
+  const notes = <>
+    {!app && settings?.configured && <p className="mt-2 text-xs text-faint max-md:text-sm">{t('push.description')}</p>}
+    {badgeHint && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="push-badge-hint">{t(badgeHint)}</p>}
+    {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
+    {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}
+  </>
+  if (narrow && here) {
+    return (
+      <div data-testid="push-notifications" data-phone="">
+        <div className="flex items-start gap-4 py-3.5">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="np-push-here" className="text-sm font-medium text-ink">{t('push.thisDevice')}</label>
+            {status && <p id="np-push-here-desc" className="mt-0.5 text-sm text-muted">{status}</p>}
+          </div>
+          <div className="shrink-0 pt-0.5">
+            <Switch id="np-push-here" external describedBy="np-push-here-desc" checked={here.on} disabled={here.disabled} label={t('push.thisDevice')}
+              onChange={(v) => void (v ? change(true) : offHere())} testId="push-here-switch" />
+          </div>
+        </div>
+        {notes}
+        {/* every device of mine: its own red row, which asks first (a switch above is this device's only) */}
+        {settings?.enabled && (
+          <button type="button" onClick={() => void offEverywhere()} disabled={busy} className="-mx-1 mt-1 flex min-h-12 w-[calc(100%+0.5rem)] items-center rounded-lg px-1 text-left text-sm text-danger hover:bg-hover disabled:opacity-60" data-testid="push-off-everywhere">
+            {t('push.offEverywhere')}
+          </button>
+        )}
+      </div>
+    )
+  }
   return (
     <div className="py-3.5" data-testid="push-notifications">
       <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-2.5">
@@ -147,13 +205,7 @@ export function PushNotifications() {
         </div>
         {action && <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>}
       </div>
-      {/* what push sends: about the browser's push service (the phone app's status line says what matters there) */}
-      {!app && settings?.configured && <p className="mt-2 text-xs text-faint max-md:text-sm">{t('push.description')}</p>}
-      {/* an installed web app: where the system lets the count show on its icon (one quiet line) */}
-      {badgeHint && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="push-badge-hint">{t(badgeHint)}</p>}
-      {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
-      {/* "다시 시도" only where trying again can help: the team server could not be reached or had a passing fault */}
-      {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}
+      {notes}
     </div>
   )
 }

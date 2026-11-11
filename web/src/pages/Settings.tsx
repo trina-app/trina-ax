@@ -6,15 +6,20 @@
 // connections are made by the owner in Admin > AI connections). Connectors is its own page now (pages/Connectors.tsx;
 // its section here leads there). Profile ends with "계정 삭제 요청", its own page under the profile
 // (/settings/account/delete, components/settings/AccountDeletion.tsx).
+// Phones (below 768 px; docs/AGENTS/plan/20261111-1748-phone-settings-rows.md): rows and switches like the iPhone's
+// Settings, not a web page's buttons. Language and theme are checkmark lists; Security & devices is two rows that open
+// pages under it (the password form, every signed-in device); Memory has its "+" in the bar, a row opens its edit sheet
+// (forgetting one asks first) and "Forget all" is a red row; 트리나에게 허용한 것 also holds Browser and Dev environment
+// sites (`fold`); Apps in the phone app sends the Apps page to a computer instead of offering Mac and Windows files.
 import clsx from 'clsx'
-import { Brain, ChevronDown, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
+import { Brain, KeyRound, Laptop, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime } from '../lib/format'
-import { deviceLabel } from '../lib/userAgent'
+import { deviceKind, deviceLabel } from '../lib/userAgent'
 import { offeredDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
 import { phoneApps, type AppClient } from '../lib/apps'
 import { browser, canInstallIn, installGuideShown, isStandalone, platform } from '../lib/pwa'
@@ -32,7 +37,7 @@ import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/des
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { teamAddressHost } from '../lib/team-address'
-import { Badge, Button, CopyButton, EmptyState, Field, IconButton, PhoneTargets, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
+import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, PhoneTargets, Skeleton, confirmDialog, inputCls, noKeyRepeat, useCopy, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
@@ -45,11 +50,20 @@ import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
 import AiApps from './AiApps'
+import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
+import { PhoneChecks } from '../components/phone/PhoneChecks'
+import { SettingsBarAction } from '../components/settings/SettingsBar'
+import { useGoBack } from '../lib/back'
 import MyUsage from '../components/settings/MyUsage'
 
+/** What a phone's 트리나에게 허용한 것 holds besides its own list: the Browser and Dev environment sites sections, each
+ * while the dialog shows it (SettingsDialog.tsx PHONE_FOLDED). */
+export interface SettingsFold { browser: boolean; devEnvSites: boolean }
+
 /** One section of the Settings dialog (components/settings/SettingsDialog.tsx, which owns the list, the address and
- * which sections there are): `tab` is one of settingsTabs(), or 'account-delete' (the page under the profile). */
-export default function SettingsPane({ tab }: { tab: string }) {
+ * which sections there are): `tab` is one of settingsTabs(), or a page under a section ('account-delete' under the
+ * profile, 'security-password' and 'security-devices' under 보안·기기). */
+export default function SettingsPane({ tab, fold }: { tab: string; fold?: SettingsFold }) {
   const me = useMeStrict()
   const browser = browserSettingsBridge()
   // the form-like sections: 44 px buttons on a phone (components/ui.tsx PhoneTargets); the list-like ones are their own
@@ -57,10 +71,15 @@ export default function SettingsPane({ tab }: { tab: string }) {
     <PhoneTargets.Provider value={FORM_TABS.has(tab)}>
       {tab === 'profile' && <Profile />}
       {tab === 'security' && <Security />}
+      {tab === 'security-password' && <PasswordPage />}
+      {tab === 'security-devices' && <Security all />}
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll) && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
-      {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} folded={!!fold} />}
+      {/* a phone: the sites the AI may open are parts of this page (Settings' list has no rows of their own for them) */}
+      {tab === 'allowances' && fold?.browser && <BrowserSettings bridge={browser} part />}
+      {tab === 'allowances' && fold?.devEnvSites && <DevEnvSites key={`dev-env:${me.user.id}:${me.session.id}`} part />}
       {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
@@ -72,7 +91,7 @@ export default function SettingsPane({ tab }: { tab: string }) {
   )
 }
 
-const FORM_TABS = new Set(['profile', 'security', 'browser', 'memory', 'allowances', 'notifications', 'about', 'account-delete'])
+const FORM_TABS = new Set(['profile', 'security', 'security-password', 'security-devices', 'browser', 'memory', 'allowances', 'notifications', 'about', 'account-delete'])
 
 /** `page`: the title is the section's own name, which a phone's bar already shows (SettingsDialog.tsx): there it is
  * kept for screen readers only. */
@@ -233,6 +252,20 @@ function Profile() {
           </Row>
         </div>
       </Section>
+      {phone ? (
+        // a phone: the language as a checkmark list (the team's default first)
+        <PhoneSection className="-mt-6" testId="profile-language-part">
+          <PhoneChecks title={t('settings.language')} footer={t('settings.languageHint')} label={t('settings.language')} testId="profile-language"
+            value={me.user.localeChoice ?? 'team'}
+            options={(['team', ...LOCALES.map((l) => l.id)] as const).map((choice) => ({
+              value: choice,
+              label: choice === 'team' ? t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale }) : LOCALES.find((l) => l.id === choice)!.label,
+              lang: choice === 'team' ? undefined : choice,
+              testId: `locale-${choice}`,
+            }))}
+            onChange={(choice) => void setLocale(choice === 'team' ? null : choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
+        </PhoneSection>
+      ) : (
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language')}>
           {[null, ...LOCALES.map((l) => l.id)].map((choice) => {
@@ -255,7 +288,11 @@ function Profile() {
           })}
         </div>
       </Section>
+      )}
       {canChooseEngine(me) && <MyEngine />}
+      {/* a phone: the theme as a checkmark list (its saving is the same setTheme as the buttons') */}
+      {phone && <PhoneTheme theme={theme} />}
+      {!phone && (
       <Section title={t('settings.theme')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.theme')}>
           {(['system', 'light', 'dark'] as Theme[]).map((x) => (
@@ -265,8 +302,29 @@ function Profile() {
           ))}
         </div>
       </Section>
+      )}
       <TextSizeSetting />
     </>
+  )
+}
+
+/** A phone's part of a section in the phone list look (phone/PhoneList.tsx): from edge to edge of the screen, its first
+ * group where the section starts. */
+function PhoneSection({ children, testId, className }: { children: React.ReactNode; testId?: string; className?: string }) {
+  return <div className={clsx('-mx-4 mb-8', className)} data-testid={testId}>{children}</div>
+}
+
+/** 테마 on a phone: a checkmark list. Picking one is the theme buttons' setTheme. */
+function PhoneTheme({ theme }: { theme: Theme }) {
+  const t = useT()
+  const locale = useLocale()
+  const setTheme = useSession((s) => s.setTheme)
+  return (
+    <PhoneSection className="-mt-6">
+      <PhoneChecks title={t('settings.theme')} label={t('settings.theme')} testId="profile-theme" value={theme}
+        options={(['system', 'light', 'dark'] as Theme[]).map((x) => ({ value: x, label: t(`settings.theme.${x}`), testId: `theme-${x}` }))}
+        onChange={(x) => void setTheme(x).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
+    </PhoneSection>
   )
 }
 
@@ -399,7 +457,13 @@ function MyEngine() {
   )
 }
 
-function Security() {
+/** A signed-in device's icon, from what its user agent says it is (Safari on an iPhone is a phone, not a monitor). */
+const DEVICE_ICON = { phone: Smartphone, tablet: Tablet, laptop: Laptop, computer: Monitor } as const
+
+/** 보안·기기. A computer: the password form and every device, as before. A phone: "Change password" and the devices as
+ * rows: this device, then one row with the others that opens them all (`all`: that page, /settings/security/devices,
+ * where a tap on a device asks before it is signed out). */
+function Security({ all = false }: { all?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const [sessions, setSessions] = useState<Session[] | null>(null)
@@ -417,86 +481,105 @@ function Security() {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const ICON = { web: Monitor, desktop: Laptop, mobile: Smartphone } as const
   // tab 5: a reset by an admin (or the owner's recovery on the server Mac) stays visible here, so the person learns of it
   const reset = useMeStrict().passwordReset
-  // phones: the devices come first in view; changing the password (rarer) is one row that opens its form in place
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const [passwordOpen, setPasswordOpen] = useState(false)
-  const formId = useId()
-  // phones: this device and the three last used, the rest one tap away
-  const [allDevices, setAllDevices] = useState(false)
-  const shownSessions = phone && !allDevices && sessions ? [...sessions.filter((x) => x.current), ...sessions.filter((x) => !x.current)].slice(0, 4) : sessions
+  const name = (s: Session) => deviceLabel(s.client, s.userAgent, t)
+  const signOut = async (s: Session) => {
+    try {
+      await api.call(API.revokeMySession, { params: { id: s.id } })
+      void load()
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  // a phone: a tap is easily made by mistake there, so a question before the device is signed out
+  const askSignOut = async (s: Session) => {
+    if (await confirmDialog({ title: t('settings.signOutDeviceConfirm', { device: name(s) }), body: t('settings.signOutDeviceConfirmBody'), confirm: t('settings.signOutDevice'), danger: true })) void signOut(s)
+  }
+  const current = sessions?.filter((x) => x.current) ?? []
+  const others = sessions?.filter((x) => !x.current) ?? []
+  const resetLine = reset && (
+    <p className="mb-6 flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="last-reset">
+      <ShieldAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
+      <span>{reset.by ? t('settings.lastReset', { name: reset.by.name, date: formatDateTime(reset.at, locale) }) : t('settings.lastResetRecovery', { date: formatDateTime(reset.at, locale) })}</span>
+    </p>
+  )
+  const loading = (
+    <>
+      {!!error && <LoadError error={error} onRetry={load} what="settings-devices" />}
+      {!sessions && !error && <Skeleton lines={3} />}
+    </>
+  )
+  if (phone) {
+    // one device as a row: its icon, its name and when it was last used; `onSignOut`: a tap asks to sign it out
+    const deviceRow = (s: Session, onSignOut?: () => void) => {
+      const Icon = DEVICE_ICON[deviceKind(s.client, s.userAgent)]
+      return (
+        <PhoneListRow key={s.id} icon={<Icon size={16} />} testId="device-row" onClick={onSignOut}
+          ariaLabel={onSignOut ? `${t('settings.signOutDevice')} · ${name(s)}` : undefined}
+          title={<span className="block min-w-0"><span className="block truncate" title={s.userAgent ?? undefined} data-testid="device-name">{name(s)}</span><span className="block truncate text-xs text-faint">{t('settings.lastSeen', { date: formatDateTime(s.lastSeenAt, locale) })}</span></span>}
+          value={s.current ? t('settings.thisDevice') : undefined}
+          end={onSignOut ? <LogOut size={16} className="shrink-0 text-faint" aria-hidden data-testid="device-sign-out" /> : undefined} />
+      )
+    }
+    if (all) return (
+      <>
+        <h2 className="sr-only">{t('settings.devices')}</h2>
+        {loading}
+        {sessions && (
+          <PhoneSection className="-mt-4" testId="security-devices-page">
+            <PhoneListGroup footer={t('settings.devicesHint')} testId="security-devices-all">
+              {current.map((s) => deviceRow(s))}
+              {others.map((s) => deviceRow(s, () => void askSignOut(s)))}
+            </PhoneListGroup>
+          </PhoneSection>
+        )}
+      </>
+    )
+    return (
+      <>
+        {resetLine}
+        <PhoneSection className="-mt-4" testId="security-phone">
+          <PhoneListGroup testId="security-password">
+            <PhoneListRow icon={<KeyRound size={16} />} title={t('auth.changePassword')} to="/settings/security/password" testId="password-open" />
+          </PhoneListGroup>
+          <PhoneListGroup title={t('settings.devices')} labelId="security-devices-title" footer={t('settings.devicesHint')} testId="security-devices">
+            {current.map((s) => deviceRow(s))}
+            {others.length > 0 && (
+              <PhoneListRow icon={<Laptop size={16} />} title={t('settings.devicesOther')} value={String(others.length)} to="/settings/security/devices" testId="devices-more" />
+            )}
+          </PhoneListGroup>
+        </PhoneSection>
+        {loading}
+      </>
+    )
+  }
   return (
     <>
-      {reset && (
-        <p className="mb-6 flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="last-reset">
-          <ShieldAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
-          <span>{reset.by ? t('settings.lastReset', { name: reset.by.name, date: formatDateTime(reset.at, locale) }) : t('settings.lastResetRecovery', { date: formatDateTime(reset.at, locale) })}</span>
-        </p>
-      )}
-      {phone ? (
-        <section className="mb-6 border-b border-line pb-2">
-          <h2>
-            <button type="button" aria-expanded={passwordOpen} aria-controls={formId} onClick={() => setPasswordOpen((v) => !v)} className="-mx-2 flex h-11 w-[calc(100%+1rem)] items-center gap-2 rounded-lg px-2 text-left text-base font-semibold hover:bg-hover" data-testid="password-open">
-              <span className="min-w-0 flex-1 truncate">{t('auth.changePassword')}</span>
-              <ChevronDown size={18} className={clsx('shrink-0 text-muted transition', passwordOpen && 'rotate-180')} aria-hidden />
-            </button>
-          </h2>
-          {passwordOpen && (
-            <div id={formId} className="pt-1 pb-4">
-              <p className="mb-3 text-sm text-muted">{t('settings.passwordNote')}</p>
-              <ChangePasswordForm onDone={() => { setPasswordOpen(false); toast({ level: 'success', text: t('settings.passwordChanged') }) }} />
-            </div>
-          )}
-        </section>
-      ) : (
+      {resetLine}
+      {!all && (
         <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
           <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
         </Section>
       )}
       <Section title={t('settings.devices')} desc={t('settings.devicesHint')}>
-        {!!error && <LoadError error={error} onRetry={load} what="settings-devices" />}
-        {!sessions && !error && <Skeleton lines={3} />}
-        {/* phones: plain rows under the section (no frame around them) */}
+        {loading}
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line">
-          {shownSessions?.map((s) => {
-            const Icon = ICON[s.client]
-            const signOut = async () => {
-              try {
-                await api.call(API.revokeMySession, { params: { id: s.id } })
-                void load()
-              } catch (e) {
-                toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-              }
-            }
+          {sessions?.map((s) => {
+            const Icon = DEVICE_ICON[deviceKind(s.client, s.userAgent)]
             return (
               <li key={s.id} className="flex items-center gap-3 py-3 text-sm md:px-4">
                 <Icon size={18} className="shrink-0 text-muted" aria-hidden />
                 <span className="min-w-0 flex-1">
                   {/* a short name ("Chrome on macOS"); the raw user agent in the tooltip */}
-                  <span className="block truncate" title={s.userAgent ?? undefined} data-testid="device-name">{deviceLabel(s.client, s.userAgent, t)}</span>
+                  <span className="block truncate" title={s.userAgent ?? undefined} data-testid="device-name">{name(s)}</span>
                   <span className="block text-xs text-faint">{t('settings.lastSeen', { date: formatDateTime(s.lastSeenAt, locale) })}</span>
                 </span>
                 {s.current ? (
                   <Badge tone="accent">{t('settings.thisDevice')}</Badge>
-                ) : phone ? (
-                  // phones: the icon, so the same word is not said on every row; its name says which device. A tap is
-                  // easily made by mistake there: 44px to hit, and a question before the device is signed out
-                  <IconButton
-                    label={`${t('settings.signOutDevice')} · ${deviceLabel(s.client, s.userAgent, t)}`}
-                    onKeyDown={noKeyRepeat}
-                    onClick={async () => {
-                      const device = deviceLabel(s.client, s.userAgent, t)
-                      if (await confirmDialog({ title: t('settings.signOutDeviceConfirm', { device }), body: t('settings.signOutDeviceConfirmBody'), confirm: t('settings.signOutDevice'), danger: true })) void signOut()
-                    }}
-                    className="touch-hit"
-                    data-testid="device-sign-out"
-                  >
-                    <LogOut size={17} />
-                  </IconButton>
                 ) : (
-                  <Button size="sm" variant="ghost" onKeyDown={noKeyRepeat} onClick={() => void signOut()} data-testid="device-sign-out">
+                  <Button size="sm" variant="ghost" onKeyDown={noKeyRepeat} onClick={() => void signOut(s)} data-testid="device-sign-out">
                     {t('settings.signOutDevice')}
                   </Button>
                 )}
@@ -504,20 +587,29 @@ function Security() {
             )
           })}
         </ul>
-        {sessions && shownSessions && sessions.length > shownSessions.length && (
-          <Button size="sm" variant="ghost" className="mt-1 -ml-2.5" onClick={() => setAllDevices(true)} data-testid="devices-more">
-            {t('settings.devicesMore', { n: sessions.length - shownSessions.length })}
-          </Button>
-        )}
       </Section>
     </>
   )
 }
 
-/** What the AI remembers: newest first; add one, correct one in place (MemoryForm), forget one or all. */
+/** A phone's password page under 보안·기기 (/settings/security/password): the note and the form; done, back to the
+ * section. */
+function PasswordPage() {
+  const t = useT()
+  const back = useGoBack('/settings/security')
+  return (
+    <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')} page>
+      <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t('settings.passwordChanged') }); back() }} />
+    </Section>
+  )
+}
+
+/** What the AI remembers: newest first; add one, correct one in place (MemoryForm), forget one or all. A phone: rows,
+ * "+" in the bar, a row opens a sheet to correct it with "Forget" (which asks first), "Forget all" a red row. */
 function Memories() {
   const t = useT()
   const locale = useLocale()
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const [items, setItems] = useState<Memory[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   // what the read threw, kept until a read works (components/LoadError.tsx); `failedMore`: it was "더 보기", which is
@@ -579,6 +671,61 @@ function Memories() {
       <Plus size={14} aria-hidden /> {t('memory.add')}
     </Button>
   )
+  if (phone) {
+    const open = editing && editing !== 'new' ? items?.find((x) => x.id === editing) : undefined
+    const forget = async (m: Memory) => {
+      if (!(await confirmDialog({ title: t('memory.forgetTitle'), body: m.text, confirm: t('memory.forget'), danger: true }))) return
+      setEditing(null)
+      await remove(m)
+    }
+    return (
+      <Section title={t('settings.memory')} page>
+        {/* the bar's one action: add */}
+        <SettingsBarAction>
+          <IconButton label={t('memory.add')} className="size-11" onClick={() => setEditing('new')} data-testid="memory-add">
+            <Plus size={20} />
+          </IconButton>
+        </SettingsBarAction>
+        <p className="mb-2 text-sm text-muted">{t('memory.desc')}</p>
+        {!!error && <LoadError error={error} onRetry={() => load(failedMore.current)} what="settings-memory" />}
+        {!items && !error && <Skeleton lines={3} />}
+        {items && !items.length && <EmptyState icon={<Brain size={26} />} title={t('memory.empty')} />}
+        {items && items.length > 0 && (
+          <PhoneSection className="-mt-2">
+            <PhoneListGroup testId="memory-list">
+              {items.map((m) => (
+                <PhoneListRow key={m.id} wrap testId="memory-item" onClick={() => setEditing(m.id)} chevron ariaLabel={`${t('memory.editLabel')}: ${m.text}`}
+                  title={<span className="block min-w-0"><span className="line-clamp-3 break-words" data-testid="memory-text">{m.text}</span><span className="mt-0.5 block text-xs text-faint">{formatDateTime(m.createdAt, locale)}</span></span>} />
+              ))}
+              {cursor && <PhoneListRow title={<span className="text-accent-text">{t('common.loadMore')}</span>} onClick={() => void load(true)} testId="memory-more" />}
+            </PhoneListGroup>
+            {/* forgetting everything: a red row of its own (it asks first) */}
+            <PhoneListGroup testId="memory-clear-group">
+              <PhoneListRow title={<span className="text-danger">{t('memory.clear')}</span>} onClick={() => void clear()} testId="memory-clear" />
+            </PhoneListGroup>
+          </PhoneSection>
+        )}
+        {editing === 'new' && (
+          <Modal open title={t('memory.add')} onClose={() => setEditing(null)}>
+            <MemoryForm submitLabel={t('memory.add')} onSubmit={add} onCancel={() => setEditing(null)} testId="memory-form" />
+          </Modal>
+        )}
+        {open && (
+          <Modal open title={t('memory.editLabel')} onClose={() => setEditing(null)}>
+            <div data-testid="memory-sheet">
+              <MemoryForm initial={open.text} submitLabel={t('common.save')} onSubmit={(text) => update(open.id, text)} onCancel={() => setEditing(null)} testId="memory-form" />
+              {open.sourceChatId && (
+                <Link to={`/c/${open.sourceChatId}`} className="mt-3 flex min-h-11 items-center text-sm text-accent-text" data-testid="memory-source">{t('memory.source')}</Link>
+              )}
+              <Button variant="danger" className="mt-3 w-full" onKeyDown={noKeyRepeat} onClick={() => void forget(open)} data-testid="memory-forget">
+                <Trash2 size={15} aria-hidden /> {t('memory.forget')}
+              </Button>
+            </div>
+          </Modal>
+        )}
+      </Section>
+    )
+  }
   return (
     <Section title={t('settings.memory')} desc={t('memory.desc')} page>
       {!!error && <LoadError error={error} onRetry={() => load(failedMore.current)} what="settings-memory" />}
@@ -671,6 +818,9 @@ function Apps() {
   const os = desktop()?.platform
   const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : 'other') : platform()
   const client: AppClient = { kind, here, store }
+  // a phone (the phone app, or a phone's browser): the Mac and Windows apps are for a computer, so the way to send the
+  // Apps page there, not their files and not the owner's hint about the server's installers
+  const phone = useMediaQuery('(max-width: 767.98px)') || kind === 'mobile'
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
     let live = true
@@ -690,10 +840,18 @@ function Apps() {
           <PhoneApps links={APP_DOWNLOADS} client={client} />
         </Section>
       )}
+      {phone ? (
+        <PhoneSection className="-mt-6" testId="apps-computer-phone">
+          <PhoneListGroup title={t('apps.desktopTitle')} footer={t('apps.sendToComputerHint')}>
+            <SendToComputer address={me.team.address} />
+          </PhoneListGroup>
+        </PhoneSection>
+      ) : (
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
         <ComputerApps links={APP_DOWNLOADS} client={client} downloads={downloads} owner={me.user.role === 'owner'}
           server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone() && canInstallIn(browser())} />
       </Section>
+      )}
       {/* a web browser only: the desktop app and the phone app are already apps */}
       {installGuideShown() && (
         <Section title={t('apps.installTitle')} desc={t('apps.installDesc')}>
@@ -702,6 +860,32 @@ function Apps() {
       )}
     </>
   )
+}
+
+/** A phone's row that sends the team's Apps page to a computer: the phone's share sheet where there is one, else the
+ * link is copied (and a toast says so). Opened on the computer, the person signs in and gets the Mac or Windows app
+ * there. The address is the team's (GET /api/me team.address), else this page's. */
+function SendToComputer({ address }: { address: string | undefined }) {
+  const t = useT()
+  const { copy } = useCopy()
+  const link = (() => {
+    try { return `${new URL(address ?? window.location.origin).origin}/settings/apps` } catch { return `${window.location.origin}/settings/apps` }
+  })()
+  const send = async () => {
+    const nav = navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> }
+    if (typeof nav.share === 'function') {
+      try {
+        await nav.share({ url: link, title: t('apps.desktopTitle') })
+        return
+      } catch (e) {
+        // closed without sending: nothing more; a share sheet that failed: the link is copied instead
+        if (e instanceof DOMException && e.name === 'AbortError') return
+      }
+    }
+    await copy(link)
+    toast({ level: 'success', text: t('apps.linkCopied') })
+  }
+  return <PhoneListRow icon={<Send size={16} />} title={t('apps.sendToComputer')} onClick={() => void send()} testId="apps-send-to-computer" />
 }
 
 /**

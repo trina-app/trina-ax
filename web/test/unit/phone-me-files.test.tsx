@@ -3,8 +3,9 @@
 //   linking to the profile, leaves out its own 프로필 row there and starts on its title (no ring on a ←); a computer
 //   keeps its start;
 // - the profile's Save shows only once something changed;
-// - 보안·기기: another device's sign-out icon takes taps from 44px and asks first; this device has no sign-out, only
-//   its "지금 이 기기" label; a computer keeps the worded button (no question, as before);
+// - 보안·기기: rows (Change password and the other devices open pages under it); on the devices page a tap on another
+//   device asks first; this device has no sign-out, only its "지금 이 기기" label; a computer keeps the worded button
+//   (no question, as before);
 // - Files: a long press on a row selects it (the click that ends it does not open the folder), a tap while something
 //   is selected adds or takes a row away, and on a computer a click opens the folder as before.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
@@ -164,23 +165,43 @@ test('the profile shows Save only after a change', async () => {
 })
 
 describe('보안·기기: signing another device out', () => {
-  const page = () => mount(<MemoryRouter><SettingsPane tab="security" /><DialogHost /></MemoryRouter>)
+  const page = (tab = 'security') => mount(<MemoryRouter><SettingsPane tab={tab} /><DialogHost /></MemoryRouter>)
   const signedOut = () => calls.filter((c) => c.startsWith('DELETE /api/me/sessions/'))
 
-  test('a phone: this device has its label and no sign-out; another one\'s icon has a 44px touch area and asks first', async () => {
+  test('a phone: the section is rows (password, this device with its label, the others as one row with their count)', async () => {
     phone = true
     const m = await page()
     try {
+      await m.until(() => m.find('devices-more'), 'the devices')
+      expect(m.get('password-open').getAttribute('href')).toBe('/settings/security/password')
+      const rows = m.container.querySelectorAll('[data-testid="device-row"]')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.textContent).toContain('지금 이 기기')
+      expect(m.find('device-sign-out')).toBeNull()
+      expect(m.get('devices-more').getAttribute('href')).toBe('/settings/security/devices')
+      expect(m.get('devices-more').textContent).toContain('1')
+      // no "n more" text button and no inline password form
+      expect(m.container.textContent).not.toContain('더 보기')
+      expect(m.container.querySelector('input[type="password"]')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a phone: on the devices page a tap on another device asks first; this device has no sign-out', async () => {
+    phone = true
+    const m = await page('security-devices')
+    try {
       await m.until(() => m.find('device-sign-out'), 'the devices')
-      const rows = m.container.querySelectorAll('li').filter((li) => li.querySelector('[data-testid="device-name"]'))
+      const rows = m.container.querySelectorAll('[data-testid="device-row"]')
       expect(rows).toHaveLength(2)
       expect(rows[0]!.textContent).toContain('지금 이 기기')
       expect(rows[0]!.querySelector('[data-testid="device-sign-out"]')).toBeNull()
-      const icon = rows[1]!.querySelector('[data-testid="device-sign-out"]')!
-      expect(icon.className).toContain('touch-hit')
-      expect(icon.getAttribute('aria-label')).toContain('로그아웃')
+      const row = rows[1]!
+      expect(row.tagName).toBe('BUTTON')
+      expect(row.getAttribute('aria-label')).toContain('로그아웃')
       // "No": nothing is signed out
-      await m.click(icon)
+      await m.click(row)
       await m.until(() => m.find('dialog-confirm'), 'the question')
       const dialog = () => m.get('dialog-confirm').closest('[role="dialog"]')!
       expect(dialog().textContent).toContain('macOS의 Chrome에서 로그아웃할까요?')
@@ -189,7 +210,7 @@ describe('보안·기기: signing another device out', () => {
       expect(m.find('dialog-confirm')).toBeNull()
       expect(signedOut()).toEqual([])
       // "Sign out": that device only
-      await m.click(icon)
+      await m.click(row)
       await m.until(() => m.find('dialog-confirm'), 'the question')
       await m.click(m.get('dialog-confirm'))
       await m.until(() => signedOut().length > 0, 'the sign-out')

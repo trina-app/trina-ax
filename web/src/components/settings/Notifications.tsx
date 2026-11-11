@@ -175,8 +175,9 @@ export function Notifications() {
     <div><h2 className="text-base font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!preferences && !error && <Skeleton lines={3} />}
-    {/* the notices themselves are on their own page, Activity (pages/Activity.tsx) */}
-    <Link to="/activity" className="flex items-center gap-3 rounded-lg border border-line px-3 py-2.5 text-sm hover:bg-hover" data-testid="notifications-activity">
+    {/* the notices themselves are on their own page, Activity (pages/Activity.tsx); a phone's 나 list has its row with
+        the count, and Activity's gear opens this page, so no way back to it here (it went round in a loop) */}
+    <Link to="/activity" className="flex items-center gap-3 rounded-lg border border-line px-3 py-2.5 text-sm hover:bg-hover max-md:hidden" data-testid="notifications-activity">
       <Bell size={16} className="shrink-0 text-muted" aria-hidden />
       <span className="min-w-0 flex-1 font-medium">{t('inbox.open')}</span>
       {unread > 0 && <span className="rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink"><span aria-hidden>{unread > 99 ? '99+' : unread}</span><span className="sr-only">{t('notifications.unread', { count: unread })}</span></span>}

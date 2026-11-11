@@ -298,6 +298,9 @@ function Gate() {
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
           {/* the account deletion request, a page under the profile (components/settings/AccountDeletion.tsx) */}
           <Route path="/settings/account/delete" element={<SettingsDialog onClose={settings.close} page="account-delete" />} />
+          {/* a phone's 보안·기기 opens the password form and every signed-in device as pages under it */}
+          <Route path="/settings/security/password" element={<SettingsDialog onClose={settings.close} page="security-password" />} />
+          <Route path="/settings/security/devices" element={<SettingsDialog onClose={settings.close} page="security-devices" />} />
           <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}

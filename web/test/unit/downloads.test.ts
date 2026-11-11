@@ -95,7 +95,8 @@ describe('desktop downloads', () => {
     for (const l of ['ko', 'en', 'id'] as const) {
       expect(DICTS[l]['apps.noDownloadsYet']).not.toMatch(/팀장|owner/i)
       expect(DICTS[l]['apps.noDownloadsOwner']).toContain('office-install.sh')
-      expect(DICTS[l]['apps.noDownloadsOwner']).toContain('teamax desktop add')
+      // no office path with the core product's name in it (QA TC-262: "~/TeamAX/teamax desktop add")
+      expect(DICTS[l]['apps.noDownloadsOwner']).not.toMatch(/TeamAX|teamax/)
     }
   })
 
@@ -141,7 +142,7 @@ describe('desktop downloads', () => {
   test("the owner's empty state names what this server does: an office Mac's command, a Linux server's feed or folder, nothing to run on the hosted service (Diagnostics when its feed should have brought it)", () => {
     const view = (o: Partial<Props>) => computer({ owner: true, here: 'windows', ...o })
     const host = new URL(RELEASE_CHANNEL.feed).host
-    expect(view({})).toContain('teamax desktop add')
+    expect(view({})).toContain('office-install.sh')
     const feed = view({ server: 'feed' })
     expect(feed).toContain(translate(currentLocale(), 'apps.noDownloadsFeed'))
     expect(feed).toContain(host)

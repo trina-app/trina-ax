@@ -58,7 +58,8 @@ export function MemoryForm({ initial = '', submitLabel, onSubmit, onCancel, test
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit() }
           else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel() }
         }}
-        className={clsx(inputCls, 'h-auto min-h-16 resize-y py-2')}
+        // a phone: no resize grip (the sheet grows with the text)
+        className={clsx(inputCls, 'h-auto min-h-16 resize-y py-2 max-md:resize-none')}
         data-testid="memory-input"
       />
       <div className="mt-1 flex items-start gap-3">
