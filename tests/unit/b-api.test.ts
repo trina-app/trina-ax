@@ -56,6 +56,47 @@ describe('chat list', () => {
     erin.close()
   })
 
+  test('a word in most messages, a rare word, several: the chats found once a request, by their own messages (timed)', async () => {
+    // dana's 600 chats of 100 finished messages, every message with "요" and "a"; one rare word in one chat's last message
+    const db = h.ctx.db
+    const ins = { chat: db.query("INSERT INTO chats (id, user_id, title, updated_at) VALUES (?, 'dana', ?, ?)"), msg: db.query("INSERT INTO messages (id, chat_id, role, author_id, content, status) VALUES (?, ?, ?, ?, ?, 'done')") }
+    const t0 = performance.now()
+    let rare = ''
+    db.transaction(() => {
+      for (let c = 0; c < 600; c++) {
+        const id = uuidv7()
+        if (c === 300) rare = id
+        ins.chat.run(id, `기록 ${c}`, new Date(Date.UTC(2026, 0, 1) + c * 60_000).toISOString())
+        for (let k = 0; k < 100; k++) ins.msg.run(uuidv7(), id, k % 2 ? 'assistant' : 'user', k % 2 ? null : 'dana', `요청하신 견적서 정리입니다, a note ${c}-${k}${c === 300 && k === 99 ? ' RAREWORD-QX' : ''}`)
+      }
+    })()
+    const inserted = performance.now() - t0
+    const list = (q: string) => h.api('dana').call(API.listChats, { query: { q, limit: 30 } })
+    const times: Record<string, number> = {}
+    for (const q of ['요', 'a', 'a 요', '견적서 note', 'RAREWORD-QX', 'RAREWORD-QX 요', '없는말입니다']) {
+      const runs: number[] = []
+      for (let i = 0; i < 5; i++) { const t = performance.now(); await list(q); runs.push(performance.now() - t) }
+      times[q] = Number(runs.sort((a, b) => a - b)[2]!.toFixed(1))
+    }
+    console.log(`chat search on 600 chats x 100 messages (insert ${inserted.toFixed(0)} ms), median ms per request:`, JSON.stringify(times))
+    // a loose bound (a busy machine runs these far slower); the per-word pass below is what keeps a common word cheap
+    for (const v of Object.values(times)) expect(v).toBeLessThan(3000)
+    expect((await list('요')).items).toHaveLength(30)
+    expect((await list('a 요')).nextCursor).not.toBeNull()
+    expect((await list('RAREWORD-QX')).items.map((c) => c.id)).toEqual([rare])
+    expect((await list('요 rareword-qx')).items.map((c) => c.id)).toEqual([rare])
+    expect((await list('없는말입니다')).items).toEqual([])
+    // the pages go on through all 600 with a common word, each chat once
+    const seen = new Set<string>()
+    let cursor: string | null | undefined
+    do {
+      const p = await h.api('dana').call(API.listChats, { query: { q: '요', limit: 100, ...(cursor ? { cursor } : {}) } })
+      for (const c of p.items) seen.add(c.id)
+      cursor = p.nextCursor
+    } while (cursor)
+    expect(seen.size).toBeGreaterThanOrEqual(600)
+  }, 240_000)
+
   test('create / rename / move / engine; validation; another person gets not_found', async () => {
     const c = await h.api('alice').call(API.createChat, { body: {} })
     expect(c).toMatchObject({ title: '', engine: 'claude-code', model: null, projectId: null, deletedAt: null, runState: 'idle' })

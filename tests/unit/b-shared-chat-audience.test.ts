@@ -252,6 +252,44 @@ describe('around the transcript', () => {
   })
 })
 
+describe('search by words never counts a word of an answer hidden from me', () => {
+  test('a title word with a hidden word; the project page, my own list, my trash, and my chat once no longer shared', async () => {
+    // bob's shared chat: his question, then alice's answer that read marketing while bob was out of the project (no
+    // card: everyone then could read it), hidden from bob
+    const chatId = (await newShared('bob')).id
+    await ask('bob', chatId, 'WORDS-START\n' + fake({ say: 'BOB-WORDS' }))
+    db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
+    try { await ask('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true })) }
+    finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
+    await h.api('bob').call(API.updateChat, { params: { id: chatId }, body: { title: 'TITLEWORD notes' } })
+    const list = async (user: string, q: string, extra: { projectId?: string; trash?: 'true' } = {}) =>
+      (await h.api(user).call(API.listChats, { query: { q, ...extra } })).items.map((c) => c.id)
+    // shared: on the project's page and in his own list. Every word through what he sees, never through the answer
+    for (const extra of [{ projectId }, {}]) {
+      expect(await list('bob', 'TITLEWORD WORDS-START', extra)).toContain(chatId)
+      expect(await list('bob', 'BOB-WORDS titleword', extra)).toContain(chatId)
+      // one word only in the title, the other only in the hidden answer
+      expect(await list('bob', 'TITLEWORD Autumn', extra)).not.toContain(chatId)
+      // one in his question, the other only in the hidden answer
+      expect(await list('bob', 'WORDS-START Autumn', extra)).not.toContain(chatId)
+      // alice ran the answer: hers to find, on the page and in her list (she wrote in the chat)
+      expect(await list('alice', 'TITLEWORD Autumn', extra)).toContain(chatId)
+    }
+    // the project is deleted (routes/chats.ts deleteProject): the chat goes to its creator's trash, no longer shared;
+    // others wrote in it, so it is still found only through what he sees (the rollback guard: severalAuthors)
+    db().query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = ?, deleted_by = ? WHERE id = ?').run(new Date().toISOString(), 'bob', chatId)
+    expect(await list('bob', 'TITLEWORD WORDS-START', { trash: 'true' })).toContain(chatId)
+    expect(await list('bob', 'TITLEWORD Autumn', { trash: 'true' })).not.toContain(chatId)
+    expect(await list('bob', 'Autumn', { trash: 'true' })).not.toContain(chatId)
+    // restored: his own chat with several authors, not shared
+    db().query('UPDATE chats SET deleted_at = NULL, deleted_by = NULL WHERE id = ?').run(chatId)
+    expect(await list('bob', 'TITLEWORD WORDS-START')).toContain(chatId)
+    expect(await list('bob', 'TITLEWORD Autumn')).not.toContain(chatId)
+    expect(await list('bob', 'WORDS-START Autumn')).not.toContain(chatId)
+    expect(await list('bob', 'Autumn')).not.toContain(chatId)
+  })
+})
+
 describe("a group's skills in a shared chat are its members' only (as in a room)", () => {
   test('not on the list while someone who sees the chat is not in the group; loading it asks with its own words', async () => {
     // a group of alice and erin, its folder groups/<name>/ (the owner and admins read it too), a project on that folder

@@ -114,6 +114,8 @@ interface Skill { path: string; name: string; description: string; title?: strin
 
 const onMac = () => platform() === 'mac' || platform() === 'ios'
 const norm = (s: string) => s.toLocaleLowerCase()
+/** lower case for A–Z only: what SQLite's LIKE takes in any case (the server's searches) */
+const foldAZ = (s: string) => s.replace(/[A-Z]/g, (c) => c.toLowerCase())
 const has = (q: string, ...xs: (string | null | undefined)[]) => xs.some((x) => !!x && norm(x).includes(q))
 const parentOf = (path: string) => path.split('/').slice(0, -1).join('/')
 /** The part of a long text around the first match (of the text, or of the word found first), on one line: "…every
@@ -267,13 +269,16 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
 
   const query = norm(q.trim())
   const words = useMemo(() => searchWords(query), [query])
-  // what the server's answers are kept by: the words (in lower case), so a space more or a letter in another case asks
-  // nothing again and shows what is there
-  const key = words.join(' ')
+  // What the server's answers are kept by: the words as the server reads them (searchWords), with only the letters it
+  // takes in any case folded, so a space more or such a letter in another case asks nothing again and shows what is
+  // there, and nothing else is taken for the same search. Chats, room messages and room files: LIKE, A–Z only ("Été" and
+  // "été" are two searches). Team file names: every letter (team-files/find.ts).
+  const key = useMemo(() => searchWords(q.trim()).map(foldAZ).join(' '), [q])
+  const namesKey = useMemo(() => searchWords(q.trim()).map((w) => w.toLowerCase()).join(' '), [q])
   // the server's answers to the text in the box now (null: none yet)
   const foundNow = found?.q === key ? found.items : null
   const errorNow = error?.q === key ? error.text : null
-  const namesNow = names?.q === key ? names : null
+  const namesNow = names?.q === namesKey ? names : null
   const hitsNow = hits?.q === key ? hits : null
   const roomFilesNow = roomFiles?.q === key ? roomFiles : null
   // chats by title and content, on the server
@@ -303,12 +308,26 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     if (!wantNames) return
     let live = true
     const ctrl = new AbortController()
-    const asked = key
+    const asked = namesKey
     const timer = setTimeout(() => {
       api.call(API.findFiles, { query: { q: q.trim(), path: '', limit: 30 }, signal: ctrl.signal }).then(
         (r) => live && setNames({ q: asked, items: r.items, failed: false }),
         () => live && !ctrl.signal.aborted && setNames({ q: asked, items: [], failed: true }),
       )
+    }, 200)
+    return () => {
+      live = false
+      ctrl.abort()
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [namesKey, wantNames])
+  useEffect(() => {
+    if (!wantNames) return
+    let live = true
+    const ctrl = new AbortController()
+    const asked = key
+    const timer = setTimeout(() => {
       api.call(API.searchRoomFiles, { query: { q: q.trim(), limit: ROOM_FILES_PAGE }, signal: ctrl.signal }).then(
         (r) => live && setRoomFiles({ q: asked, items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), failed: false }),
         () => live && !ctrl.signal.aborted && setRoomFiles({ q: asked, items: [], rooms: new Map(), failed: true }),

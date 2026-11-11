@@ -199,31 +199,37 @@ export const chatsRoutes: RouteModule = {
       if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
       // a search: every word of the text, in any order, each in the title or in one of the chat's messages (the AI's
       // project_chats tool matches the same way, chat/room-project-chats.ts); "견적서 보내" finds "견적서를 보내드렸어요".
-      // The messages that hold any word are read in ONE pass over messages_fts for the request (it is a scan: the
-      // chat records' LIKE … ESCAPE is never handed to FTS5), only for the chats this list may hold, each with the words
-      // it holds: per word, the chats where a person's message has it and the answers that have it. That only narrows
-      // the query below; whether an answer counts for me is decided in found() (it may be hidden from me)
+      // The chats that hold the words are found once per request, before the pages below: a pass per word (the longest
+      // first) over the chats this list may hold, after the first word only over those that held the words before, each
+      // chat's finished messages (status <> 'streaming': what messages_fts holds) read by the chat's index until the
+      // first one with the word. A word in most messages (one letter: ⌘K asks from the first) stops at a chat's first
+      // message; a rare word reads the messages of these chats once, never the rest of the team's (the review of #349
+      // measured a pass over messages_fts at seconds for a common word). That only narrows the query below; whether an
+      // answer counts for me is decided in found() (it may be hidden from me)
       const q = query.q?.trim()
       const words = q ? searchWords(q).map((w) => `%${likeEscape(w)}%`) : []
-      const byWord = words.map(() => new Map<string, ChatHit>())
+      // shared chats of projects I do not see now are never shown (visible() below): the pass leaves them out from the
+      // start (a project's page: all of them; my list and my trash: those of the projects I do not see)
+      const aud = new Audiences(ctx.db, ctx.files)
       if (words.length) {
-        const any = words.map(() => "f.content LIKE ? ESCAPE '\\'")
-        const rows = ctx.db.query(`SELECT f.chat_id AS chat, f.message_id AS id, m.role, ${any.map((x, i) => `(${x}) AS w${i}`).join(', ')}
-          FROM messages_fts f JOIN messages m ON m.id = f.message_id WHERE (${any.join(' OR ')}) AND f.chat_id IN (SELECT id FROM chats WHERE ${where.join(' AND ')})`)
-          .all(...words, ...words, ...args) as ({ chat: string; id: string; role: string } & Record<string, unknown>)[]
-        for (const r of rows) {
-          words.forEach((_, i) => {
-            if (!r[`w${i}`]) return
-            let hit = byWord[i]!.get(r.chat)
-            if (!hit) byWord[i]!.set(r.chat, (hit = { question: false, answers: [] }))
-            if (r.role === 'assistant') hit.answers.push(r.id)
-            else hit.question = true
-          })
+        if (query.projectId) {
+          const p = rt.store.projectRow(query.projectId)
+          if (!p || !aud.sees(me, p)) where.push('shared_at IS NULL')
+        } else {
+          const projects = (ctx.db.query(`SELECT DISTINCT project_id FROM chats WHERE ${where.join(' AND ')} AND shared_at IS NOT NULL AND project_id IS NOT NULL`).values(...args) as [string][]).map((r) => r[0])
+          const seen = projects.filter((id) => { const p = rt.store.projectRow(id); return !!p && aud.sees(me, p) })
+          where.push('(shared_at IS NULL OR project_id IN (SELECT value FROM json_each(?)))')
+          args.push(JSON.stringify(seen))
         }
-        words.forEach((like, i) => {
-          where.push(`(title LIKE ? ESCAPE '\\' OR id IN (SELECT value FROM json_each(?)))`)
-          args.push(like, JSON.stringify([...byWord[i]!.keys()]))
-        })
+        let ids: string[] | null = null
+        for (const like of [...words].sort((a, b) => b.length - a.length)) {
+          ids = (ctx.db.query(`SELECT id FROM chats WHERE ${where.join(' AND ')}${ids ? ' AND id IN (SELECT value FROM json_each(?))' : ''}
+            AND (title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = chats.id AND m.status <> 'streaming' AND m.content LIKE ? ESCAPE '\\'))`)
+            .values(...args, ...(ids ? [JSON.stringify(ids)] : []), like, like) as [string][]).map((r) => r[0])
+          if (!ids.length) break
+        }
+        where.push('id IN (SELECT value FROM json_each(?))')
+        args.push(JSON.stringify(ids ?? []))
       }
       const cur = decodeCursor(query.cursor, ['u', 'id'])
       if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
@@ -237,14 +243,37 @@ export const chatsRoutes: RouteModule = {
       // a shared chat only while I see its project now (its creator too): pages are read until one is full. A search
       // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts).
       // In the trash only what I may restore (chatFor 'manage'): its creator, or an editor of its project now
-      const aud = new Audiences(ctx.db, ctx.files)
       const sight = new AnswerSight(ctx.db, ctx.files)
-      // every word through the title, a person's message, or an answer not hidden from me (the pass above)
+      // where each word is in a chat that reaches found() (a shared chat, or mine with several authors): a person's
+      // message, or which answers. Read for a page round's chats at once (loadHits), only the finished messages that hold
+      // a word, each word's LIKE once a row in the result
+      const hitsOf = new Map<string, ChatHit[]>()
+      const loadHits = (chatIds: string[]) => {
+        const want = chatIds.filter((id) => !hitsOf.has(id))
+        if (!words.length || !want.length) return
+        for (const id of want) hitsOf.set(id, words.map(() => ({ question: false, answers: [] })))
+        const rows = ctx.db.query(`SELECT chat_id, id, role, ${words.map((_, i) => `w${i}`).join(', ')} FROM (SELECT chat_id, id, role, ${words.map((_, i) => `(content LIKE ? ESCAPE '\\') AS w${i}`).join(', ')}
+          FROM messages WHERE chat_id IN (SELECT value FROM json_each(?)) AND status <> 'streaming' AND (${words.map(() => "content LIKE ? ESCAPE '\\'").join(' OR ')}))`)
+          .values(...words, JSON.stringify(want), ...words) as unknown[][]
+        for (const row of rows) {
+          const hs = hitsOf.get(row[0] as string)!
+          for (let i = 0; i < words.length; i++) {
+            if (!row[i + 3]) continue
+            if (row[2] === 'assistant') hs[i]!.answers.push(row[1] as string)
+            else hs[i]!.question = true
+          }
+        }
+      }
+      const chatHits = (chatId: string): ChatHit[] => {
+        loadHits([chatId])
+        return hitsOf.get(chatId)!
+      }
+      // every word through the title, a person's message, or an answer not hidden from me
       const found = (r: ChatRow) => words.every((like, i) => {
         if (ctx.db.query("SELECT 1 FROM chats WHERE id = ? AND title LIKE ? ESCAPE '\\'").get(r.id, like)) return true
-        const hit = byWord[i]!.get(r.id)
-        if (!hit) return false
+        const hit = chatHits(r.id)[i]!
         if (hit.question) return true
+        if (!hit.answers.length) return false
         const hidden = sight.withheld(r.id, me)
         return hit.answers.some((id) => !hidden.has(id))
       })
@@ -267,6 +296,8 @@ export const chatsRoutes: RouteModule = {
         const w = [...where], a = [...args]
         if (after) { w.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); a.push(after.u, after.u, after.id) }
         const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${w.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT ?`).all(...a, limit + 1) as ChatRow[]
+        // the shared chats of this round reach found(): their hits in one read
+        if (q) loadHits(rows.filter(isSharedRow).map((r) => r.id))
         for (const r of rows) if (visible(r)) out.push(r)
         const last = rows[rows.length - 1]
         if (!last || rows.length < limit + 1) break

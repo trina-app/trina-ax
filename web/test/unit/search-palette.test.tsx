@@ -201,6 +201,35 @@ describe('a result of an older text', () => {
   })
 })
 
+describe('what counts as the same search', () => {
+  test('A–Z in another case or a space more: the same for the server; another letter (é, É): another search, but the same team file names', async () => {
+    const { v, input } = await openPalette()
+    const count = (path: string) => asked.filter((x) => x.startsWith(`GET ${path}?`)).length
+    const settled = async () => { await v.settle(300) }
+    await v.type(input, 'Acme Budget')
+    await settled()
+    const chats = count('/api/chats'), names = count('/api/files/find'), files = count('/api/room-files')
+    expect([chats, names, files].every((n) => n >= 1)).toBe(true)
+    // the server's LIKE takes A–Z in any case; findFiles every letter: nothing asked again
+    // (a word again in another case is the same word: searchWords keeps the first)
+    for (const t of ['acme budget', 'ACME   budget', 'acme budget Budget']) {
+      await v.type(input, t)
+      await settled()
+    }
+    expect([count('/api/chats'), count('/api/files/find'), count('/api/room-files')]).toEqual([chats, names, files])
+    // "Été" and "été": two searches for the server's LIKE (it folds A–Z only), one for the team's file names
+    await v.type(input, 'Été')
+    await settled()
+    const afterUpper = [count('/api/chats'), count('/api/files/find'), count('/api/room-files')]
+    await v.type(input, 'été')
+    await settled()
+    expect(count('/api/chats')).toBe(afterUpper[0]! + 1)
+    expect(count('/api/room-files')).toBe(afterUpper[2]! + 1)
+    expect(count('/api/files/find')).toBe(afterUpper[1])
+    await v.unmount()
+  })
+})
+
 describe('the highlighted row', () => {
   test('stays on its row when results arrive above it', async () => {
     const { v, input, key } = await openPalette()

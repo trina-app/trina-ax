@@ -126,6 +126,14 @@ describe('picker listings', () => {
     // NFC/NFD and case do not matter for the search itself
     expect(await find('bob', '급여메모'.normalize('NFD'))).toContain('users/bob/급여메모.md')
     expect(await find('carol', 'BUDGET')).toContain('groups/finance/budget.md')
+    // every word of the text, in any order (as ⌘K's room files and messages); still only what each may read
+    write('groups/finance/Q4 Budget plan.md', 'fake plan')
+    write('groups/marketing/Q4 launch plan.md', 'fake plan')
+    expect(await find('bob', 'budget q4')).toContain('groups/finance/Q4 Budget plan.md')
+    expect(await find('bob', 'plan   Q4 budget')).toContain('groups/finance/Q4 Budget plan.md')
+    expect(await find('bob', 'budget q5')).not.toContain('groups/finance/Q4 Budget plan.md')
+    expect(await find('alice', 'budget q4')).toEqual([])
+    expect(await find('alice', 'plan q4')).toEqual(['groups/marketing/Q4 launch plan.md'])
     // a folder the caller cannot list is "not found"
     expect((await h.req('alice', '/api/files/find?q=budget&path=groups%2Ffinance')).status).toBe(404)
   })
