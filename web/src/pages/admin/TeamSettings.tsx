@@ -13,7 +13,8 @@
 // (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
 // docs/DECISIONS.md "Projects live only in projects/"). The owner hands the role over from Admin › Members'
 // "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
-// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits), which save on their own. The OpenRouter key is
+// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the file list (FileList.tsx, #file-list), which
+// save on their own. The OpenRouter key is
 // sealed in the browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
@@ -33,6 +34,7 @@ import { checkIconFile } from '../../lib/team-icon'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
+import FileListSettings from './FileList'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -116,10 +118,10 @@ export default function TeamSettingsPage() {
                   )}
                 </SettingsSection>
                 <SettingsSection title={t('teamSettings.section.data')} id="ts-data" testId="team-settings-data">
-                  <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} onChange={num('auditRetentionDays', 7, 3650)} />
-                  <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
-                  <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} onChange={num('trashRetentionDays', 1, 365)} />
-                  <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} onChange={num('chatTrashRetentionDays', 1, 365)} />
+                  <DaysRow id="ts-audit" title={t('teamSettings.row.audit')} desc={t('teamSettings.row.auditDesc')} value={f.auditRetentionDays} min={7} max={3650} ownerOnly={!owner} onChange={num('auditRetentionDays', 7, 3650)} />
+                  <DaysRow id="ts-history" title={t('teamSettings.row.history')} desc={t('teamSettings.row.historyDesc')} value={f.fileHistoryRetentionDays} min={1} max={3650} ownerOnly={!owner} onChange={num('fileHistoryRetentionDays', 1, 3650)} />
+                  <DaysRow id="ts-trash" title={t('teamSettings.row.trash')} desc={t('teamSettings.row.trashDesc')} value={f.trashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('trashRetentionDays', 1, 365)} />
+                  <DaysRow id="ts-chat-trash" title={t('teamSettings.row.chatTrash')} desc={t('teamSettings.row.chatTrashDesc')} value={f.chatTrashRetentionDays} min={1} max={365} ownerOnly={!owner} onChange={num('chatTrashRetentionDays', 1, 365)} />
                 </SettingsSection>
                 <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
                   <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
@@ -167,6 +169,8 @@ export default function TeamSettingsPage() {
         {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second tab).
             After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay */}
         {state.data && <TeamAiSettings />}
+        {/* the file list the AI greps first (server/src/file-list/): saves on its own, like the AI groups */}
+        {state.data && <FileListSettings />}
         {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
         <CompanyProfileCard />
         <DevEnvTeamCard />
@@ -175,14 +179,15 @@ export default function TeamSettingsPage() {
   )
 }
 
-/** A retention period: a small number field with "days" after it. */
-function DaysRow({ id, title, desc, value, min, max, onChange }: { id: string; title: string; desc: string; value: number; min: number; max: number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
+/** A retention period: a small number field with "days" after it. Only the owner changes one (the server refuses an
+ * admin: a shorter period makes the nightly sweep erase the audit log or old file versions); an admin sees it read-only. */
+function DaysRow({ id, title, desc, value, min, max, ownerOnly, onChange }: { id: string; title: string; desc: string; value: number; min: number; max: number; ownerOnly: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
   const t = useT()
   return (
-    <SettingRow id={id} title={title} desc={desc}
+    <SettingRow id={id} title={title} desc={ownerOnly ? `${desc} ${t('teamSettings.ownerOnlyField')}` : desc}
       control={
         <span className="inline-flex items-center gap-2">
-          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={min} max={max} value={value} onChange={onChange} />
+          <input id={id} aria-describedby={`${id}-desc`} className={clsx(inputCls, 'text-right tabular-nums')} style={{ width: '6.5rem' }} type="number" min={min} max={max} value={value} disabled={ownerOnly} onChange={onChange} />
           <span className="text-sm text-muted">{t('teamSettings.days')}</span>
         </span>
       } />

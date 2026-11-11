@@ -1,0 +1,4 @@
+- Docker install: the image builds with the latest stable release (0.4.0) and other releases before 0.5.0-beta.1 again. They stopped the build with "this Dockerfile needs a kit …".
+- Docker install: the guide, `env.example` and the test script name the latest stable release (0.4.0) instead of 0.3.0, 0.4.0-beta.10 or a 0.5 beta.
+- Docker install: the guide lists the tested hosts; Colima (an Ubuntu 24.04 VM) needs the Ubuntu host setting and is not tested with it. When the engine sandbox or the firewall cannot start, the container now says so once and waits, instead of restarting again and again.
+- The AI connection page is called by the name the app shows, Admin › Connections › Providers, in the install guides and in the messages that point to it.

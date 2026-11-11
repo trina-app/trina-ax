@@ -43,6 +43,7 @@ import { notificationsOf, type RoomNoticeEvent } from '../notifications/service'
 import { getPreferences, getPreferencesOf } from '../notifications/preferences'
 import { cancelPushUser } from '../notifications/push-events'
 import { teamTimeZone } from '../admin/settings'
+import { welcomeTeamGroupId } from '../onboarding/welcome'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
@@ -963,8 +964,8 @@ export class Rooms {
   }
 
   /**
-   * Make the team rooms and the everyone room match the groups and the people: a room for every group and one for
-   * everyone; members = the group's active people / every active person. Someone added joins at the room's last seq
+   * Make the team rooms and the everyone room match the groups and the people: a room for every group (except the
+   * welcome steps' team group, below) and one for everyone; members = the group's active people / every active person. Someone added joins at the room's last seq
    * (they see the messages from then on); someone removed (left the group, disabled, deleted) loses the room, its
    * notices and their replay buffer. A team room whose group was deleted is archived with no members. Audited.
    * Group chats: who is in one is never changed here, nor any room's own name, except that a disabled or deleted
@@ -987,7 +988,19 @@ export class Rooms {
         db.query("INSERT INTO rooms (id, kind, created_at, activity_at) VALUES (?, 'all', ?, ?)").run(id, now, now)
         audit(db, { actor: null, action: 'room.create', target: id, detail: { kind: 'all' } })
       }
+      // the welcome steps' team group has no room of its own: the everyone room is the team's one room (docs/DECISIONS.md
+      // "One room for the whole team"). A team that has one from before: archived while nobody wrote in it (a written one
+      // is kept; messages are never removed, so this settles once)
+      const teamGroup = welcomeTeamGroupId(this.ctx)
+      if (teamGroup) {
+        const r = db.query("SELECT id FROM rooms WHERE kind = 'team' AND group_id = ? AND archived_at IS NULL").get(teamGroup) as { id: string } | null
+        if (r && !db.query('SELECT 1 FROM room_messages WHERE room_id = ? AND event IS NULL LIMIT 1').get(r.id)) {
+          db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(now, r.id)
+          audit(db, { actor: null, action: 'room.archive', target: r.id, detail: { kind: 'team', groupId: teamGroup, reason: 'team_group' } })
+        }
+      }
       for (const g of db.query("SELECT g.id FROM groups g WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.kind = 'team' AND r.group_id = g.id)").all() as { id: string }[]) {
+        if (g.id === teamGroup) continue
         const id = newId()
         db.query("INSERT INTO rooms (id, kind, group_id, created_at, activity_at) VALUES (?, 'team', ?, ?, ?)").run(id, g.id, now, now)
         audit(db, { actor: null, action: 'room.create', target: id, detail: { kind: 'team', groupId: g.id } })
@@ -1095,6 +1108,15 @@ export function fileOpener(ctx: AppContext, userId: string): (rel: string) => bo
     }
     return ok
   }
+}
+
+/** A group that gets no team room (admin/groups.ts createGroupAs `room: false`: the welcome steps' team group): its
+ * room row written archived, inside the group's own transaction, so sync never makes one (one per group, the unique
+ * index). Audited like an archive. */
+export function noTeamRoom(db: Database, groupId: string) {
+  const id = newId(), now = nowIso()
+  db.query("INSERT INTO rooms (id, kind, group_id, created_at, activity_at, archived_at) VALUES (?, 'team', ?, ?, ?, ?)").run(id, groupId, now, now, now)
+  audit(db, { actor: null, action: 'room.archive', target: id, detail: { kind: 'team', groupId, reason: 'team_group' } })
 }
 
 /** After groups, roles or accounts changed (admin/folders.ts afterAccessChange): rooms follow at once. Never throws. */

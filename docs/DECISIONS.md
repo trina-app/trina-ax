@@ -20756,3 +20756,50 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   tool switch: lists again, no failed state; the notice reaches the page without a toast).
 - Version impact: **patch** (words; two fields always null for members; one new notice code an older web shows as an
   empty toast at most). Needed in the core too (potenlab/team-ax): everything here.
+
+## File list — 파일 목록; the AI greps a `_FILES.md` that says what each file is (feat/file-list, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`server/src/file-list/`, the AI's file tools in `files/service.ts` and `files/search.ts`,
+`chat/prompt.ts`, Admin › Team settings), 이유: files, the AI and its engines are core. Plan:
+`docs/AGENTS/plan/20261111-0630-file-list.md`. Replaces the knowledge graph's job of finding files by what they are.
+
+- **Why.** On a made-up 2,238-file folder, 184 find questions with Claude Code: 172 right with no list, 181 with an
+  English list (180 English + Korean); the line "grep the _FILES.md files first" raised list use from 48% to 92% and cut
+  mean tool calls from 6.0 to 4.3. Haiku read the 2,238 files for USD 0.33 (about 880 tokens per file).
+- **The lists are virtual** (independent review of the plan). Nothing is written into the team folder. The server keeps
+  one line per file in its sidecar (`<data>/file-list/state.db`); the AI's `list`, `glob`, `grep` and `read` (chat
+  engines through MCP and the remote connector, all `FileService.call`) show a `_FILES.md` per access folder rendered
+  for the person asking: a line only for a file that passes `visiblePath` for them now and still has the size, mtime and
+  inode that were read, under the rule chain it was read with, and only when every file of the model call that wrote it
+  passes too (a line may hold a call-mate's text). A rule change or a move that splits a call re-reads all its files. Access is checked at the question, as for search; stale, moved, deleted and hidden files simply do not
+  show. Rejected: real files on disk (they needed a reserved name in `authorize()`, hiding in Files, rewrites on every
+  access change, and could be forged, mirrored or left behind by connected folders and dev environments).
+- **Where.** One list per access unit: `shared`, every other top folder, `projects|groups|connected/<name>`, and every
+  folder with a rule of its own (the deepest), so a list's own path has the access of its files (`file-list/units.ts`).
+  Grep searches the lists first with the same ripgrep (a per-call copy in the data folder) and prints their lines like a
+  real file's. A real `_FILES.md` on disk stays a normal file; the AI's tools show the virtual one in its place where the
+  person has one, and the AI cannot write over it. Reading a list counts as reading its folder (read scope), never as an
+  answer's source.
+- **The line.** `path — type; names as written; date or period; what it is`, English. Validated in code: one line; no
+  control characters, `#`, `<>`, backticks, addresses, `@` or paths; `what` at most 120 characters; a text file's names
+  must be in its text word for word; a cleanup scrubber removes amounts, ID, account, phone and card numbers, emails,
+  passwords and 6+ digit runs outside the date field; personal records keep type, names and date only.
+- **The reader.** The team's engine through the launcher, the model proxy and the sandbox like a chat turn, with no tools
+  and one answer; Claude Code on `haiku` (a gateway's haiku model; none: no run), Codex on a nano or mini model (none: no
+  run), text only. **Team-wide AI accounts only**, never a person's own or assigned one, never the hosted trial; each
+  call is a turn of the owner (`turns.chat_id = 'file-list'`) so Admin › Usage counts it and block budgets stop it.
+  Calls hold files of one access unit only and are read back by their ids; the server's converters extract the text
+  (and reuse the search's fresh text cache); images only when the team sends images to the AI; camera photos without
+  OCR text get a metadata line.
+- **When.** Nightly 02:00–05:00 team time, at least every 30 h; a new server waits for its first night. Only new or
+  changed files (size, mtime, sha256); moves keep their line. A cap per run (1,500 files, 1,500,000 tokens; `server.json`
+  can change it), documents first and newest first; never while a person's chat turn waits or runs; a lease row keeps
+  one run at a time. Admins can start a run now (same cap).
+- **Owner's open questions, as constants** (`file-list/policy.ts`): personal folders are not read; Codex reads text
+  only; switching it off deletes the stored lines.
+- **Measured** on a local dev server (Claude Code, this Mac's sign-in): 323 made-up files uploaded, 231 read in one run
+  (23 calls, 170,669 input and 17,729 output tokens, USD 0.039, 3 min 35 s); 5 of 5 misplaced questions right (a scan
+  named `임시.pdf`, a bank-book photo `IMG_2031.jpg`, scans `스캔_0398.pdf` and `scan_0019.pdf`, `IMG_8812.jpg`) with 3
+  tool calls each, found by a team-wide grep that hit the list lines.
+- Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
+  to its own AI provider from the first night after the update (`changes/file-list.md` says so).

@@ -114,12 +114,12 @@ On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <serv
 Then follow **permissions → AI connection → invite the team → first skill → first backup**:
 
 1. Admin → Groups/Folders: assign sources and verify access with two pilot accounts.
-2. Owner → Admin → AI providers: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
+2. Owner → Admin → Connections → Providers: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
 3. Configure an HTTPS address before inviting colleagues. A separately installed tunnel/reverse proxy must reach `127.0.0.1:47820`; register its hostname with `sudo ./install-linux.sh repair --public-host team.example.com`. Tunnel credentials are managed outside this installer. Official relay registration needs an issued connection code; it is not a free hostname signup.
 4. Invite a small group, copy a [starter skill](../examples/README.md), and review its result against sources.
 5. Make a backup and practice [restore](BACKUP-RESTORE.md) before real rollout.
 
-Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → AI providers. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
+Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → Connections → Providers. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
 
 ## Upgrade and rollback
 
@@ -154,7 +154,9 @@ you updated it.
 
 - Source: `office/<channel>.json` (signed) on the same feed as the server's. The signature, both files' size and
   SHA-256, and that `latest.yml` names exactly that installer are checked. An app newer than the server waits until
-  the server has that release.
+  the server has that release. The signed manifest goes next to the installer as `/downloads/<channel>.json`: the
+  Windows app installs an update only when that signed release names the file it downloaded (else it asks the
+  release feed, and installs nothing when neither matches).
 - One Windows installer is kept (about 110 MB; older ones are removed). Nothing is downloaded when the free space left
   afterwards would be under the team folder's write reserve (512 MB or 2% of the disk, whichever is larger). A newer
   installer put there by hand stays.

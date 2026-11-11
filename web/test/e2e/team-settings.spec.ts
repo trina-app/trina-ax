@@ -108,6 +108,12 @@ test('an admin who is not the owner sees the team name but cannot change it', as
   const name = page.getByLabel(t['setup.teamName'], { exact: true })
   await expect(name).toBeDisabled()
   await expect(name).toHaveAccessibleDescription(t['teamSettings.nameOwnerOnly'])
+  // how long things are kept is the owner's too (the nightly sweep erases what is older): read-only, saying so
+  for (const k of ['audit', 'history', 'trash', 'chatTrash'] as const) {
+    const days = page.getByLabel(t[`teamSettings.row.${k}`], { exact: true })
+    await expect(days).toBeDisabled()
+    await expect(days).toHaveAccessibleDescription(`${t[`teamSettings.row.${k}Desc`]} ${t['teamSettings.ownerOnlyField']}`)
+  }
 })
 
 test('phone width: rows stack, nothing scrolls sideways, the save bar stays reachable', async ({ page }) => {
