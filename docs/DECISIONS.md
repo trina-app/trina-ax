@@ -14793,6 +14793,11 @@ new button or card.
   suite (`b-api.test.ts`, 600 chats × 100 messages, the whole request, median of 5, two runs): a common word before #349
   82–396 ms, #349 629–1361 ms, now 58–114 ms; a word in no message 211–454, 202–351, 41–77 ms. Known limit: a rare word
   still reads every message of the chats the list may show (as before #349, which read every message of the team).
+  After the review of #353: the hits for `found()` are read for a page round's shared chats at once, and only the
+  messages that hold a word (it read every message of each such chat, on top of the chat's tree: a word only in hidden
+  answers was a third slower than dev on 200,000 messages); and the pass leaves out from the start the shared chats of
+  projects I do not see now (a project's page I do not see: all of them; my list and my trash: those projects'), which
+  `visible()` never shows anyway.
 - **Follow-up tests.** `b-shared-chat-audience.test.ts` (a word of the title with a word only in an answer hidden from
   me, on the project page, in my list, in my trash and in my chat once it is no longer shared), `b-api.test.ts` (the
   timing above, pages through every chat with a common word), `b-rooms-file-search.test.ts` (hand-made cursors at a file

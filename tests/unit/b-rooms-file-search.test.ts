@@ -66,7 +66,7 @@ async function sendFiles(user: string, roomId: string, names: string[], extra: R
 const search = (user: string, q: string, extra: { cursor?: string; limit?: number } = {}) => h.api(user).call(API.searchRoomFiles, { query: { q, ...extra } }) as Promise<RoomFileSearchPage>
 const names = (p: RoomFileSearchPage) => p.items.map((i) => i.file.name)
 /** the raw JSON a search answers (to look for names that must never be in it) */
-const raw = async (user: string, q: string) => (await h.req(user, `/api/room-files?q=${encodeURIComponent(q)}`)).text()
+const raw = async (user: string, q: string, cursor?: string) => (await h.req(user, `/api/room-files?q=${encodeURIComponent(q)}${cursor ? `&cursor=${cursor}` : ''}`)).text()
 const EMPTY = { items: [], rooms: [], nextCursor: null }
 const folder = (p: string): ReadSource => ({ type: 'folder', id: (h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string }).id })
 const next = (roomId: string) => (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
@@ -209,6 +209,8 @@ describe('how it matches', () => {
 
   test('pages: newest first, two files of one message apart, no repeats, a cursor only at a file they see', async () => {
     const chat = await groupChat('alice', ['erin', 'carol'])
+    // a file bob sees, sent before all the others (his 1:1 with alice)
+    await sendFiles('alice', await dm('alice', 'bob'), ['PAGE-FILE early.txt'])
     // before bob: never his, so never a cursor of his
     for (let i = 0; i < 3; i++) await sendFiles('alice', chat, [`PAGE-FILE unseen ${i}.txt`])
     await h.api('alice').call(API.inviteRoomMembers, { params: { id: chat }, body: { userIds: ['bob'] } })
@@ -228,18 +230,20 @@ describe('how it matches', () => {
       expect(Number(c.f)).toBe((h.ctx.db.query('SELECT rowid AS n FROM room_files WHERE id = ?').get(last.file.id) as { n: number }).n)
       cursor = page.nextCursor
     }
-    expect(seen).toEqual(['PAGE-FILE 4.txt', 'PAGE-FILE 3.txt', 'PAGE-FILE 2b.txt', 'PAGE-FILE 2a.txt', 'PAGE-FILE 1.txt'])
+    expect(seen).toEqual(['PAGE-FILE 4.txt', 'PAGE-FILE 3.txt', 'PAGE-FILE 2b.txt', 'PAGE-FILE 2a.txt', 'PAGE-FILE 1.txt', 'PAGE-FILE early.txt'])
     // a cursor that is not one: refused
     expect((await h.req('bob', `/api/room-files?q=PAGE&cursor=${Buffer.from('{"f":"x"}').toString('base64url')}`)).status).toBe(400)
     // a hand-made cursor at, just above and just below a file he does not see: the files he sees below it, never that
     // one, and no cursor that names it (as message search, b-rooms-search.test.ts)
     const unseenRow = (h.ctx.db.query("SELECT rowid AS n FROM room_files WHERE name = 'PAGE-FILE unseen 1.txt'").get() as { n: number }).n
     const at = (n: number) => Buffer.from(JSON.stringify({ f: String(n) })).toString('base64url')
-    for (const q of ['PAGE-FILE', 'unseen', 'PAGE-FILE unseen', '1.txt'])
+    for (const q of ['PAGE-FILE', 'unseen', 'PAGE-FILE unseen', '1.txt', '.txt'])
       for (const n of [unseenRow, unseenRow + 1, unseenRow - 1]) {
         const p = await search('bob', q, { cursor: at(n) })
-        expect(p, `${q} ${n}`).toEqual(EMPTY)
-        expect(await raw('bob', q)).not.toContain('unseen')
+        // what he sees below it comes back (the early file), never the unseen ones, and no further cursor
+        expect(names(p), `${q} ${n}`).toEqual(q === 'PAGE-FILE' || q === '.txt' ? ['PAGE-FILE early.txt'] : [])
+        expect(p.nextCursor).toBeNull()
+        expect(await raw('bob', q, at(n))).not.toContain('unseen')
       }
   })
 
