@@ -1142,6 +1142,7 @@ export const ja: Record<MessageKey, string> = {
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': 'すべて',
   'feed.tab.dms': 'DM',
+  'feed.tab.dmsShort': 'DM',
   'feed.tab.mentions': 'メンション',
   'feed.tab.threads': 'スレッド',
   'feed.unreads': '未読',

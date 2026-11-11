@@ -1169,6 +1169,7 @@ export const ko = {
   // Activity (pages/Activity.tsx): the notices as a page of their own, like Slack's
   'feed.tab.all': '전체',
   'feed.tab.dms': 'DM',
+  'feed.tab.dmsShort': 'DM',
   'feed.tab.mentions': '멘션',
   'feed.tab.threads': '스레드',
   'feed.unreads': '안 읽음',
