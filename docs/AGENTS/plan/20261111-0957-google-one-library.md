@@ -130,6 +130,31 @@ The change: a self-installed server may use the broker **when the hosting servic
   sign-ins at once (status says no; refresh refuses).
 - **Contract:** no new wire field. Only who is served changes; `drive-broker.ts` documents it.
 
+For the people on a registered server it looks exactly like a hosted team: the same Google app, the same start
+page on the account host, the same "Google sign-in comes from Trina" on the admin page.
+
+Hosting-service side, in detail (its own plan and PR in its repo, built against this contract):
+
+- A table of registered servers: id, display name, exact origin (`https://<host>`, no path), the server's relay
+  public key (SPKI, unique), `enabled`, who added it and when. Added, disabled and removed only by an operator
+  (ops CLI and ops API), each change audited. No console page for customers in this step.
+- The broker's key lookup: a hosted team's primary tenant key **or** an enabled registered server's key. One key can
+  never be both (checked at registration).
+- Where the browser goes: a hosted team's `<slug>` address as now, or the registered server's recorded origin. Never
+  an address from a request.
+- Sealed refresh tokens bind to the registered server's id (`drive-broker.refresh_token|server:<id>`), so a hosted
+  team's token never opens for it, nor the other way round.
+- The same limits, nonce rule, log rule and start page (it shows the server's display name and host).
+- Disabling or removing a server: `status` answers no, `start`, `redeem` and `refresh` refuse at once.
+
+Rejected:
+
+- **Record the server as a hosted team in the hosting service's database.** A hosted team must have a machine the
+  hosting service runs; it would back it up, monitor it, roll out releases to it and bill it, against a machine it
+  does not manage.
+- **Move the dev server onto the hosting service as a real hosted team.** Hosted teams take release updates from the
+  hosting service, so it would stop installing every `dev` build and stop being the dev server.
+
 Our dev server is the first registered server: its own Google client is removed (a copy kept), the broker URL is set,
 and its people connect Google again through the broker. Its address at Google does not change, because Google only
 ever sees the hosting service's one return address.
