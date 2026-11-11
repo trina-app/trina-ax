@@ -1,6 +1,9 @@
-// "Who can see it" on the Files page (docs/DECISIONS.md "Who can see a folder, in place"): the chip at the end of the
-// breadcrumbs and the panel, for a member, their own folder, a team project's folder and an admin. The mock server keeps
-// its own simple file policy; what a member may learn is checked on the real server (tests/security/folder-audience).
+// "Who can open it" on the Files page (docs/DECISIONS.md "Who can see a folder, in place" and "Who can open it, like
+// Drive's Share"): the chip at the end of the breadcrumbs and the panel, for a member, their own folder, a team
+// project's folder and an admin, who changes it in place (add, change, remove, general access, the confirm before more
+// access, rows from the folders above, a team project's folder only shown). The mock server keeps its own simple file
+// policy; its edit previews are the server's own computation. What a member may learn and the save's checks are tested
+// on the real server (tests/security/folder-audience, tests/security/folder-sharing).
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { TOP_FOLDER_LABELS } from '@mycel/shared'
@@ -29,10 +32,12 @@ test('a member: a count where they can write, no names; the panel from the chip 
   await chip(page).click()
   await expect(panel(page)).toBeVisible()
   await expect(page.getByRole('dialog', { name: t['folderAccess.menu'] })).toBeVisible()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 3 }))
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCount', { n: 3 }))
   await expect(panel(page)).toContainText(t['folderAccess.adminsChange'])
   for (const name of ['Olga', 'Dana', 'Eve']) await expect(panel(page)).not.toContainText(name)
-  await expect(page.getByTestId('folder-access-admin')).toHaveCount(0)
+  // nothing of the admin's panel: no list, no general access, no "can view / can edit"
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  for (const w of [t['folderAccess.canView'], t['folderAccess.canEdit'], t['folderAccess.general']]) await expect(panel(page)).not.toContainText(w)
   await page.keyboard.press('Escape')
   await expect(panel(page)).toHaveCount(0)
 
@@ -42,7 +47,7 @@ test('a member: a count where they can write, no names; the panel from the chip 
   await row(page, 'marketing').getByTestId('file-menu').click()
   await page.getByRole('menuitem', { name: t['folderAccess.menu'] }).click()
   await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 3 }))
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCount', { n: 3 }))
   await page.keyboard.press('Escape')
   // no entry on users/ ("Personal", a container), and no chip at the root
   await row(page, TOP_FOLDER_LABELS.users.en).hover()
@@ -74,7 +79,7 @@ test('a member\'s own folder: only them, without asking', async ({ page }) => {
   await page.goto('/files?path=users%2Fbob')
   await expect(chip(page)).toHaveText(t['folderAccess.onlyYou'])
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.onlyYou'])
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.onlyYouOpen'])
   await expect(panel(page)).toContainText(t['folderAccess.ownFolder'])
 })
 
@@ -117,7 +122,7 @@ test('a team project\'s folder: whoever may change its members gets [Members] (#
   await expect(page.getByTestId('folder-access-panel')).toHaveCount(0)
 })
 
-test('a project made before outside projects/: an admin reads where its members are changed, and keeps 규칙 바꾸기', async ({ page }) => {
+test('a project made before outside projects/: an admin reads where its members are changed, and changes who can open it here', async ({ page }) => {
   await signIn(page)
   const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Old docs', folderPath: 'docs', participants: [] } })
   expect(made.ok()).toBe(true)
@@ -126,35 +131,7 @@ test('a project made before outside projects/: an admin reads where its members 
   await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Old docs' }))
   await expect(page.getByTestId('folder-access-members-hint')).toHaveText(en('projects.legacyNote', { folder: 'docs' }))
   await expect(page.getByTestId('folder-access-members')).toHaveCount(0)
-  await expect(page.getByTestId('folder-access-change')).toBeVisible()
-})
-
-test('an admin: the people by name, where it comes from, the way to Admin', async ({ page, playwright }) => {
-  await signIn(page)
-  // a second member, Carol (an invite accepted in a context of her own)
-  const inv = await page.request.post('/api/admin/invites', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'member' } })
-  expect(inv.ok()).toBe(true)
-  const carol = await playwright.request.newContext({ baseURL: new URL(page.url()).origin })
-  expect((await carol.post(`/api/invites/${(await inv.json()).token}/accept`, { headers: { [CSRF_HEADER]: '1' }, data: { username: 'carol', name: 'Carol', password: 'carol password 1' } })).ok()).toBe(true)
-  await carol.dispose()
-  // marketing: only Bob of the members, the owner and the admins
-  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
-  await page.goto('/files?path=marketing')
-  // the chip: the folder's own rule first (Bob), the owner and the two admins apart, by number (docs/DECISIONS.md "Who
-  // sees it: the project's own people first"); the panel keeps its headline (redesigned in its own branch)
-  await expect(chip(page)).toHaveText(en('folderAccess.direct', { n: 1 }))
-  await expect(chip(page)).toHaveAccessibleName(`${en('folderAccess.people', { n: 1 })} · ${en('folderAccess.byRole', { n: 3 })}`)
-  await chip(page).click()
-  const admin = page.getByTestId('folder-access-admin')
-  await expect(admin).toBeVisible()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
-  await expect(page.getByTestId('folder-access-source')).toHaveText(t['accessTree.source.here'])
-  await expect(admin.getByTestId('folder-detail-counts')).toHaveText(en('accessTree.counts', { see: 4, write: 4, none: 1 }))
-  await expect(admin.getByTestId('folder-person-link').filter({ hasText: 'Bob' })).toHaveAttribute('href', '/admin/folders?view=people&person=bob')
-  await expect(admin.getByTestId('folder-person').filter({ hasText: 'Carol' })).toHaveAttribute('data-level', 'none')
-  await page.getByTestId('folder-access-all').click()
-  await expect(page).toHaveURL(/\/admin\/folders\?folder=marketing/)
-  await expect(page.getByTestId('folder-detail')).toHaveAttribute('data-path', 'marketing')
+  await expect(page.getByTestId('sharing')).toBeVisible()
 })
 
 test('a member with write and an admin on the same folder: the same people, the chip apart for the admin only', async ({ page, browser, playwright }) => {
@@ -168,7 +145,8 @@ test('a member with write and an admin on the same folder: the same people, the 
   await page.goto('/files?path=marketing')
   await expect(chip(page)).toHaveText(en('folderAccess.direct', { n: 1 }))
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
+  // the admin's panel is the list (no total): Bob can edit
+  await expect(page.getByTestId('sharing-row').and(page.locator('[data-subject="user:bob"]'))).toBeVisible()
   // Bob (a member who writes there), in a window of his own: the same 4 people as one total, the owner and admins in
   // it, and no number for them on its own (the server sends him no split)
   const bob = await browser.newPage({ baseURL: new URL(page.url()).origin, locale: 'en-US' })
@@ -176,8 +154,8 @@ test('a member with write and an admin on the same folder: the same people, the 
   await bob.goto('/files?path=marketing')
   await expect(chip(bob)).toHaveText(en('folderAccess.people', { n: 4 }))
   await chip(bob).click()
-  await expect(bob.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
-  await expect(bob.getByTestId('folder-access-admin')).toHaveCount(0)
+  await expect(bob.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCount', { n: 4 }))
+  await expect(bob.getByTestId('sharing')).toHaveCount(0)
   const told = (await (await bob.request.get('/api/files/audience?path=marketing')).json()) as Record<string, unknown>
   expect(told).toEqual({ path: 'marketing', access: 'write', people: 4, everyone: false })
   await bob.close()
@@ -192,64 +170,150 @@ async function addCarol(page: Page, playwright: import('@playwright/test').Playw
   await c.dispose()
 }
 
-test('an admin changes the rules from the panel in Admin\'s editor, and comes back to the folder', async ({ page, playwright }) => {
+const rules = async (page: Page, p: string) => {
+  const items = ((await (await page.request.get('/api/admin/folders')).json()) as { items: { path: string; rules: { subjectType: string; subjectId: string | null; access: string }[] }[] }).items
+  return (items.find((f) => f.path === p)?.rules ?? []).map((r) => `${r.subjectType}:${r.subjectId ?? ''}:${r.access}`).sort()
+}
+const sharingRow = (page: Page, subject: string) => page.getByTestId('sharing-row').and(page.locator(`[data-subject="${subject}"]`))
+const outcome = (page: Page) => page.getByTestId('sharing-outcome')
+const confirm = (page: Page) => page.getByTestId('dialog-confirm')
+
+test('an admin: add a person, change one, save with the confirm; remove one, saved straight; general access', async ({ page, playwright }) => {
   await signIn(page)
   await addCarol(page, playwright)
-  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
   await page.goto('/files?path=marketing')
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-change')).toHaveText(t['accessTree.editRules'])
-  await page.getByTestId('folder-access-change').click()
-  // Admin's own edit panel for this folder, with the way back named
-  await expect(page).toHaveURL(/\/admin\/folders\?folder=marketing$/)
-  const edit = page.getByTestId('edit-panel')
-  await expect(edit).toHaveAttribute('data-path', 'marketing')
-  await expect(edit.getByTestId('edit-return')).toHaveText(t['accessEdit.backToFiles'])
-  // closing without a change: back to the folder in Files, its panel open again
-  await edit.getByTestId('edit-return').click()
-  await expect(page).toHaveURL(/\/files\?path=marketing$/)
-  await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 4 }))
-  // and saving: everyone reads now, so the whole team sees it
-  await page.getByTestId('folder-access-change').click()
-  await page.getByTestId('edit-panel').getByTestId('edit-basic-read').click()
-  const save = page.getByTestId('edit-panel').getByTestId('edit-save')
-  await expect(save).toBeEnabled()
-  await save.click()
-  const confirm = page.getByTestId('dialog-confirm')
-  if (await confirm.isVisible().catch(() => false)) await confirm.click()
-  await expect(page).toHaveURL(/\/files\?path=marketing$/)
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.team'])
-  await page.keyboard.press('Escape')
-  await expect(chip(page)).toHaveText(t['folderAccess.team'])
+  await expect(page.getByTestId('sharing')).toBeVisible()
+  // like Drive's list: Bob, who can edit; general access as the team folder gives it (nobody else)
+  await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level')).toHaveValue('write')
+  await expect(page.getByTestId('sharing-general-select')).toHaveValue('follow')
+  await expect(page.getByTestId('sharing-general-select').locator('option:checked')).toHaveText(t['folderAccess.sameAsTop'])
+  await expect(page.getByTestId('sharing-general-hint')).toHaveText(t['folderAccess.hintAboveOnly'])
+  await expect(page.getByTestId('sharing-footer')).toHaveText(t['folderAccess.adminsAlways'])
+  // no reasons, no counts line, no one who cannot open it, no paths
+  for (const gone of ['Carol', 'Dana', 'Eve', 'Name only', 'Can open:']) await expect(page.getByTestId('sharing-list')).not.toContainText(gone)
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+
+  // add Carol: a row at the top with "Can view", and what will happen, by name
+  await page.getByTestId('edit-add').fill('Car')
+  await page.getByTestId('edit-add-option').filter({ hasText: 'Carol' }).click()
+  await expect(page.getByTestId('sharing-row').first()).toHaveAttribute('data-subject', 'user:carol')
+  await expect(sharingRow(page, 'user:carol').getByTestId('sharing-level')).toHaveValue('read')
+  await expect(outcome(page)).toHaveText(en('folderAccess.willOpen', { names: 'Carol' }))
+  // change Bob to "Can view": named before Save
+  await sharingRow(page, 'user:bob').getByTestId('sharing-level').selectOption('read')
+  await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
+  // Save: more access asks first, by name; Give access saves
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByRole('dialog').filter({ hasText: en('folderAccess.confirmOpen', { n: 1 }) })).toBeVisible()
+  await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
+  await expect(confirm(page)).toHaveText(t['folderAccess.giveAccess'])
+  await confirm(page).click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  expect(await rules(page, 'marketing')).toEqual(['user:bob:read', 'user:carol:read'])
+
+  // remove Carol: only less access, saved without a question
+  await sharingRow(page, 'user:carol').getByTestId('sharing-remove').click()
+  await expect(outcome(page)).toHaveText(en('folderAccess.willLose', { names: 'Carol' }))
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  await expect(confirm(page)).toHaveCount(0)
+  expect(await rules(page, 'marketing')).toEqual(['user:bob:read'])
+
+  // general access: everyone at Acme can view; asks first
+  await page.getByTestId('sharing-general-select').selectOption('read')
+  await expect(page.getByTestId('sharing-general-hint')).toHaveText(en('folderAccess.hintEveryoneView', { team: 'Acme' }))
+  await expect(outcome(page)).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
+  await page.getByTestId('sharing-save').click()
+  await confirm(page).click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  expect(await rules(page, 'marketing')).toEqual(['everyone::read', 'user:bob:read'])
 })
 
-test('no rules editor on a team project\'s own folder or on one\'s own folder; a `from` other than files is no way back', async ({ page }) => {
+test('rows from a folder above: greyed, read only, "Change there" opens that folder and comes back; the names who lose access', async ({ page, playwright }) => {
   await signIn(page)
-  const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Kite', participants: [] } })
-  const p = (await made.json()) as { folderPath: string }
+  await addCarol(page, playwright)
+  const sales = (await (await page.request.post('/api/admin/groups', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Sales', memberIds: ['bob', 'carol'] } })).json()) as { id: string }
+  // the mock keeps each person's groups on the person too (the server has one membership table)
+  for (const id of ['bob', 'carol']) expect((await page.request.patch(`/api/admin/users/${id}`, { headers: { [CSRF_HEADER]: '1' }, data: { groupIds: [sales.id] } })).ok()).toBe(true)
+  await post(page, '/__test/file', { path: 'marketing/plans/q4.md', text: 'plans' })
+  // marketing: Bob can edit, nobody else; plans has no settings of its own
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  await page.goto('/files?path=marketing%2Fplans')
+  await chip(page).click()
+  const above = page.getByTestId('sharing-above').and(page.locator('[data-subject="user:bob"]'))
+  await expect(above).toContainText('Bob')
+  await expect(above).toContainText(en('folderAccess.fromFolder', { folder: 'marketing' }))
+  await expect(above).toContainText(t['folderAccess.canEdit'])
+  await expect(above).toContainText(t['folderAccess.changeThere'])
+  await expect(above.getByRole('combobox')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-row')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-general-select').locator('option:checked')).toHaveText(en('folderAccess.sameAs', { folder: 'marketing' }))
+
+  // the group Sales set to "Can view" here: Bob is in it, so here he can only view; Carol gets in. Both named
+  await page.getByTestId('edit-add').fill('Sal')
+  await page.getByTestId('edit-add-option').filter({ hasText: 'Sales' }).click()
+  await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
+  await expect(outcome(page)).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
+  await expect(sharingRow(page, `group:${sales.id}`)).toContainText(en('accessEdit.kind.group', { n: 2 }))
+  // the confirm says both
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
+  await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
+  await page.getByRole('dialog').filter({ has: confirm(page) }).getByRole('button', { name: t['common.cancel'] }).click()
+
+  // Bob is decided here now (by Sales): his row from above is gone, the change named above
+  await expect(above).toHaveCount(0)
+  // "Change there" (general access, the folder above) with a draft asks first; Discard, then the folder above, and back
+  await page.getByTestId('sharing-general-from').click()
+  await confirm(page).click()
+  await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
+  await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level')).toHaveValue('write')
+  await page.getByTestId('folder-access-back').click()
+  await expect(panel(page)).toHaveAttribute('data-path', 'marketing/plans')
+  await expect(page.getByTestId('sharing-row')).toHaveCount(0)
+  // the greyed row itself opens the folder above too
+  await above.click()
+  await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
+})
+
+test('a team project\'s folder and the folders inside it: shown, not changed, and no admin endpoint is asked', async ({ page }) => {
+  await signIn(page)
+  const made = await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: 'Kite', participants: [{ subjectType: 'user', subjectId: 'bob' }] } })
+  const p = (await made.json()) as { id: string; folderPath: string }
+  await post(page, '/__test/file', { path: `${p.folderPath}/notes/a.md`, text: 'a' })
+  const asked: string[] = []
+  page.on('request', (r) => { if (/\/api\/admin\/(folders|access\/)/.test(r.url())) asked.push(r.url()) })
   await page.goto(`/files?path=${encodeURIComponent(p.folderPath)}`)
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-admin')).toBeVisible()
-  await expect(page.getByTestId('folder-access-change')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-project')).toContainText(en('folderAccess.project', { name: 'Kite' }))
+  await expect(page.getByTestId('folder-access-headline')).toBeVisible()
+  await expect(page.getByTestId('folder-access-footer')).toHaveText(t['folderAccess.adminsAlways'])
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  await expect(panel(page).getByRole('combobox')).toHaveCount(0)
   await page.keyboard.press('Escape')
-  // the project list fails to load: still no rules editor on the project's folder
-  await page.route('**/api/projects', (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 500, body: '{}' }) : r.continue()))
-  await page.goto(`/files?path=${encodeURIComponent(p.folderPath)}`)
+  // inside it: the count, the way to Folder permissions, nothing to change
+  await page.goto(`/files?path=${encodeURIComponent(p.folderPath + '/notes')}`)
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-admin')).toBeVisible()
-  await expect(page.getByTestId('folder-access-change')).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  await page.unroute('**/api/projects')
+  await expect(page.getByTestId('folder-access-headline')).toBeVisible()
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-open-admin')).toHaveAttribute('href', `/admin/folders?folder=${encodeURIComponent(p.folderPath + '/notes')}`)
+  expect(asked).toEqual([])
+})
+
+test('one\'s own folder, and Admin\'s `from` that is not "files"', async ({ page }) => {
+  await signIn(page)
   await page.goto('/files?path=users%2Folga')
   await chip(page).click()
-  await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.onlyYou'])
-  await expect(page.getByTestId('folder-access-change')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.onlyYouOpen'])
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
   // a `from` that is not "files" is no way back anywhere: the editor opens as Admin opens it
   await page.goto('/admin/folders?edit=marketing&from=https%3A%2F%2Fexample.com')
   await expect(page.getByTestId('edit-panel')).toHaveAttribute('data-path', 'marketing')
   await expect(page.getByTestId('edit-return')).toHaveCount(0)
 })
+
 
 test('an admin on a folder no member can open: owner and admins only', async ({ page }) => {
   await post(page, '/__test/restrict', { path: 'docs', users: ['olga', 'dana', 'eve'] })
@@ -270,18 +334,25 @@ test.describe('phone', () => {
     expect(box.x + box.width).toBeLessThanOrEqual(390)
     await chip(page).tap()
     await expect(panel(page)).toBeVisible()
-    await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.peopleAll', { n: 3 }))
+    await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCount', { n: 3 }))
   })
-  test('an admin: the editor is the whole screen, and its back arrow comes back to the folder', async ({ page }) => {
+  test('an admin: the same panel in the sheet; a change, what will happen and Save in reach, nothing wider than the screen', async ({ page }) => {
     await signIn(page)
+    await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
     await page.goto('/files?path=marketing')
     await chip(page).tap()
-    await page.getByTestId('folder-access-change').tap()
-    const edit = page.getByTestId('edit-panel')
-    await expect(edit).toHaveAttribute('data-path', 'marketing')
-    await expect(edit.getByTestId('edit-back')).toHaveAccessibleName(t['accessEdit.backToFiles'])
-    await edit.getByTestId('edit-back').tap()
-    await expect(page).toHaveURL(/\/files\?path=marketing$/)
-    await expect(panel(page)).toBeVisible()
+    const level = page.getByTestId('sharing-row').and(page.locator('[data-subject="user:bob"]')).getByTestId('sharing-level')
+    await expect(level).toBeVisible()
+    expect((await level.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    await level.selectOption('read')
+    await expect(page.getByTestId('sharing-outcome')).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
+    const save = page.getByTestId('sharing-save')
+    await expect(save).toBeInViewport()
+    for (const el of await page.getByTestId('folder-access-panel').locator('*').all()) {
+      const b = await el.boundingBox()
+      if (b) expect(b.x + b.width).toBeLessThanOrEqual(391)
+    }
+    await save.tap()
+    await expect(page.getByTestId('sharing-done')).toBeVisible()
   })
 })

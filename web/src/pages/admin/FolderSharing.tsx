@@ -129,7 +129,8 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, folder, users, gr
   const search = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (!focusKey) return
-    listRef.current?.querySelector<HTMLSelectElement>(`[data-subject="${CSS.escape(focusKey)}"] select`)?.focus()
+    const row = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-testid="sharing-row"]') ?? [])].find((r) => r.getAttribute('data-subject') === focusKey)
+    row?.querySelector<HTMLSelectElement>('select')?.focus()
     setFocusKey(null)
   }, [focusKey])
 
