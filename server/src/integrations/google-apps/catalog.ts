@@ -27,7 +27,7 @@ export function membersOn(db: Database, app: GoogleAppId): boolean {
 export const APP_NAMES: Record<GoogleAppId, string> = { gmail: 'Gmail', calendar: 'Google Calendar', docs: 'Google Docs', sheets: 'Google Sheets' }
 /** the start of the AI's tool names for the app (connections/tools.ts connectionKey: my_<slug>__<tool>) */
 export const APP_SLUGS: Record<GoogleAppId, string> = { gmail: 'gmail', calendar: 'gcal', docs: 'gdocs', sheets: 'gsheets' }
-/** the placeholder address of a connection (migration 339): never resolves, never used to connect */
+/** the placeholder address of a connection (migration 340): never resolves, never used to connect */
 export const placeholderUrl = (app: GoogleAppId) => `https://google-apps.invalid/${app}`
 
 const api = (name: string, id: string) => ({ name, url: `https://console.cloud.google.com/apis/library/${id}` })

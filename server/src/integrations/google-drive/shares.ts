@@ -9,13 +9,13 @@
 //  - When the admin whose Google account it is leaves, is disabled or is no longer an admin, the share stops: its
 //    tokens are deleted (Google revocation is attempted) and every admin gets an Inbox notice to sign in again.
 //  - Members may connect their own Drive only while the team allows it (DRIVE_MEMBERS: on for a team made since
-//    migration 339, which wrote the explicit value for every team that existed then, so theirs stayed as it was).
+//    migration 340, which wrote the explicit value for every team that existed then, so theirs stayed as it was).
 import type { Database } from 'bun:sqlite'
 import type { DriveShare, DriveShareFolder, DriveTeamShare, IntegrationAccess } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { getSetting } from '../../admin/settings'
 
-/** settings key: members may connect their own Google Drive (absent: yes, a team made since migration 339; that
+/** settings key: members may connect their own Google Drive (absent: yes, a team made since migration 340; that
  * migration wrote "false" for every team that existed then and had no value, and 337 "true" for teams whose members had
  * connected) */
 export const DRIVE_MEMBERS = 'integrations.driveMembers'

@@ -19877,7 +19877,7 @@ Plan: `docs/AGENTS/plan/20261111-0346-google-workspace-connectors.md` (the owner
 
 - **A person's connection is a personal `integrations` row with a `google_app` column, not a new `kind`.** The plan
   asked for a new connection kind; `integrations.kind` has a CHECK of `('mcp','http')` and a table is never rebuilt
-  (server/src/db.ts), so migration 339 adds `google_app` (CHECK of the four apps, unique per person and app) and the
+  (server/src/db.ts), so migration 340 adds `google_app` (CHECK of the four apps, unique per person and app) and the
   row is `kind = 'mcp'`. Every rule of a member's own MCP connection then applies without a second code path: sealed
   tokens and refresh, the write card, per-tool switches, scheduled-run rules, audit, secrets hidden in answers. It is
   hidden from the generic list and the generic manage APIs; its `url` is a placeholder under the reserved `.invalid`
@@ -19902,7 +19902,7 @@ Plan: `docs/AGENTS/plan/20261111-0346-google-workspace-connectors.md` (the owner
 - **Revoke only the last Google sign-in.** Google revokes a whole grant, so disconnecting one app (or Google Drive)
   revokes at Google only when none of the person's other Google sign-ins here is left; otherwise `not_needed`. Google
   Drive's Disconnect follows the same rule now.
-- **Google Drive's members switch is on for new teams.** No stored value means on; migration 339 writes "off" for every
+- **Google Drive's members switch is on for new teams.** No stored value means on; migration 340 writes "off" for every
   team that existed then (it has people) and had no value, so a team made earlier keeps exactly what it had. Chosen over
   "on when the team was made after a date" because nothing else has to remember a date, and over flipping every team,
   which would let members connect where an admin had not chosen it.
