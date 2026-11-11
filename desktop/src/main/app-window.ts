@@ -30,6 +30,7 @@ import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-
 import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
+import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
 
 export type Mode = 'welcome' | 'team' | 'offline'
@@ -365,14 +366,12 @@ export class AppWindow {
       this.mode = 'welcome'
       this.layout()
     }
-    // forget everything this team left in the app: cookies, storage, cache, allowed sites
-    for (const kind of ['app', 'browser'] as const) {
-      const ses = session.fromPartition(partitionFor(id, kind))
-      await ses.clearStorageData().catch(() => {})
-      await ses.clearCache().catch(() => {})
-    }
-    this.o.store.removeTeamFiles(id)
+    // the team leaves the list at once (it cannot be opened while its data goes), then everything it left in the app
+    // goes: cookies, storage, cache, HTTP logins (both partitions side by side, each clear with a time limit), then its
+    // files (allowed sites, the in-app browser's owner ...)
     this.saveTeams(removeTeam(this.teams, id))
+    await Promise.all((['app', 'browser'] as const).map((kind) => clearSessionData(session.fromPartition(partitionFor(id, kind)), `team ${id} ${kind}`)))
+    this.o.store.removeTeamFiles(id)
   }
 
   showWelcome() {
@@ -754,19 +753,22 @@ export class AppWindow {
     const change = browserOwnerChange(this.o.store.loadBrowserOwner(teamId), me)
     if (change.clear) {
       debug('in-app browser: another person or signed out, clearing', teamId)
+      let cleared: ClearResult
       if (pane && this.pane === pane) {
-        await pane.resetForNewPerson()
+        cleared = await pane.resetForNewPerson()
         this.send(this.chrome, 'ui:pane-prompts', [])
         this.send(this.chrome, 'ui:pane-activity-reset', null)
         this.sendSiteSettings(pane.siteSettings())
         this.sendPaneState(pane.state())
       } else {
         // the pane is not open for this team: clear its stored data directly
-        const ses = session.fromPartition(partitionFor(teamId, 'browser'))
-        await Promise.all([ses.clearStorageData(), ses.clearCache(), ses.clearAuthCache()])
+        cleared = await clearSessionData(session.fromPartition(partitionFor(teamId, 'browser')), `team ${teamId} browser`)
         const saved = new SitePermissions(this.o.store.loadPermissions(teamId))
         if (saved.resetForNewPerson()) this.o.store.savePermissions(teamId, saved.toJSON())
       }
+      // a clear that failed (not one that ran out of time): the new person is not recorded, so the next check clears
+      // again, and this check (and the AI call waiting for it) fails, as before the time limit
+      if (clearFailed(cleared)) throw new Error('the in-app browser data could not be cleared')
     }
     if (change.clear || this.o.store.loadBrowserOwner(teamId) !== change.owner) this.o.store.saveBrowserOwner(teamId, change.owner)
   }
