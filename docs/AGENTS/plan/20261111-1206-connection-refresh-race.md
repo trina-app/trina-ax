@@ -54,3 +54,5 @@ check moved after the await, so each caller that shared the refresh checks its o
 `tests/unit/c-integrations-oauth.test.ts`: a tool switched off during the refresh (the next call works with no new
 refresh, and the refresh after that too); the address moved during the refresh (nothing stored). The first test failed
 before the fix (the used refresh token stayed stored).
+
+PR: https://github.com/trina-app/trina-ax/pull/407
