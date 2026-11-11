@@ -2,8 +2,10 @@
 // show 16 px text, so iOS Safari does not zoom in when one gets the focus (docs/DECISIONS.md "Phones: 44 px targets
 // and 16 px fields"). Measured at 390×844 in a narrow window without touch, so it holds by width alone: what a tap
 // really reaches, from the control's middle outwards (document.elementFromPoint), so a hit box drawn around a small
-// control (touch-hit) counts and a neighbour drawn over it does not; a field counts with its <label> frame, and a
-// message box's text area (one line in a taller box) only by its text size. On the screens people use most on a phone.
+// control (touch-hit) counts and a neighbour drawn over it does not. It measures a cross through the middle (across
+// and down), not every point of the box. A field counts with its <label> frame, a switch with its label, and a message
+// box's text area (one line in a taller box) only by its text size. A control covered at its middle fails, unless a
+// scrolling row it sits in has scrolled it out of sight. On the screens people use most on a phone.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -12,7 +14,7 @@ import { ROOM_ID, routeRoom } from './rooms-mock'
 // the room's answers come from page.route, which a service worker would go around
 test.use({ viewport: { width: 390, height: 844 }, locale: 'en-US', serviceWorkers: 'block' })
 
-type Control = { what: string; w: number; h: number; font: number | null }
+type Control = { what: string; w: number; h: number; font: number | null; covered?: true }
 
 /** The controls on screen (not under the phone's tab bar) whose tap area is under 44 px, and the fields under 16 px. */
 async function tooSmall(page: Page): Promise<{ small: Control[]; fields: Control[] }> {
@@ -20,13 +22,17 @@ async function tooSmall(page: Page): Promise<{ small: Control[]; fields: Control
   await page.waitForTimeout(300)
   return page.evaluate(() => {
     const bottom = document.querySelector('[data-testid="tab-ai"]')?.getBoundingClientRect().top ?? innerHeight
-    const sel = 'button, a[href], [role=tab], [role=menuitem], input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea'
+    const sel = 'button, a[href], [role=tab], [role=menuitem], input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea, label:has(input[type=checkbox])'
     const small: Control[] = []
     const fields: Control[] = []
     for (const el of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
       const r = el.getBoundingClientRect()
       if (r.width < 1 || r.height < 1 || r.top < 0 || r.bottom > bottom || r.left < 0 || r.right > innerWidth) continue
       if (el.closest('[inert], [aria-hidden="true"], .sr-only-focusable')) continue
+      // drawn see-through (a row's ⋯ that shows on hover with a mouse)
+      let seen = true
+      for (let p: HTMLElement | null = el; p; p = p.parentElement) if (getComputedStyle(p).opacity === '0') seen = false
+      if (!seen) continue
       const cx = r.left + r.width / 2
       const cy = r.top + r.height / 2
       const field = /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)
@@ -36,15 +42,25 @@ async function tooSmall(page: Page): Promise<{ small: Control[]; fields: Control
         const e = document.elementFromPoint(x, y)
         return !!e && (e === target || target.contains(e))
       }
-      // under something else at its middle (a row's fade at the end of a scrolling row): not on screen to tap
-      if (!on(cx, cy)) continue
+      const what = `${el.getAttribute('data-testid') ?? el.tagName.toLowerCase()} "${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 30)}"`
+      if (!on(cx, cy)) {
+        // scrolled out of a scrolling row (a tab past the end of the tabs): out of sight, not covered
+        let clipped = false
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          const cs = getComputedStyle(p)
+          const b = p.getBoundingClientRect()
+          if ((cs.overflowX !== 'visible' || cs.overflowY !== 'visible') && (cx < b.left || cx > b.right || cy < b.top || cy > b.bottom)) clipped = true
+        }
+        if (!clipped) small.push({ what, w: 0, h: 0, font: null, covered: true })
+        continue
+      }
       const reach = (dx: number, dy: number) => {
         let n = 0
         while (n < 30 && on(cx + dx * (n + 1), cy + dy * (n + 1))) n++
         return n
       }
       const c: Control = {
-        what: `${el.getAttribute('data-testid') ?? el.tagName.toLowerCase()} "${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 30)}"`,
+        what,
         w: reach(-1, 0) + reach(1, 0) + 1,
         h: reach(0, -1) + reach(0, 1) + 1,
         font: field ? parseFloat(getComputedStyle(el).fontSize) : null,
@@ -119,7 +135,7 @@ test('sign-in and join: the fields, the buttons and the links under them', async
   await ctx.close()
 })
 
-test('Settings: the list and Profile\'s form', async ({ page }) => {
+test('Settings: the list, Profile\'s form and Notifications\' switches', async ({ page }) => {
   await signIn(page)
   await page.goto('/settings')
   await expect(page.getByTestId('settings-row-notifications')).toBeVisible()
@@ -127,11 +143,15 @@ test('Settings: the list and Profile\'s form', async ({ page }) => {
   await page.goto('/settings/profile')
   await expect(page.getByRole('textbox').first()).toBeVisible()
   await expectPhoneSized(page)
+  await page.goto('/settings/notifications')
+  await expect(page.getByRole('checkbox').first()).toBeAttached()
+  await expectPhoneSized(page)
 })
 
-test('a computer keeps its sizes: 36 px buttons and 14 px fields', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/login')
-  expect((await page.getByTestId('login-submit').boundingBox())!.height).toBe(36)
-  expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
-})
+for (const width of [768, 1440])
+  test(`a computer or tablet keeps its sizes at ${width} px: 36 px buttons and 14 px fields`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/login')
+    expect((await page.getByTestId('login-submit').boundingBox())!.height).toBe(36)
+    expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
+  })

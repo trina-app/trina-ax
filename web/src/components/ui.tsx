@@ -65,10 +65,12 @@ export const noKeyRepeat = (e: React.KeyboardEvent) => {
 
 /** An icon-only button: `label` is its name (aria-label) and its tooltip (components/Tooltip.tsx), shown on hover and
  * keyboard focus. `tip`: other words for the tooltip, when the icon needs more than its name (they describe the button);
- * `tip={false}` only inside a <Tooltip> of its own. `danger`: a destructive icon action (Delete) that turns red on hover. */
-export function IconButton({ label, danger, className, children, tip = true, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; tip?: boolean | string }) {
+ * `tip={false}` only inside a <Tooltip> of its own. `danger`: a destructive icon action (Delete) that turns red on hover.
+ * `compact`: inside a chip or a line whose height it must not change, it keeps its size on a phone and takes taps from a
+ * 44 px box around it instead (touch-hit; not for a button placed with absolute/fixed). */
+export function IconButton({ label, danger, compact, className, children, tip = true, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; compact?: boolean; tip?: boolean | string }) {
   const button = (
-    <button type="button" aria-label={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', PHONE_TARGET, 'max-md:min-w-11', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', compact ? 'touch-hit' : [PHONE_TARGET, 'max-md:min-w-11'], danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
       {children}
     </button>
   )
@@ -575,7 +577,7 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
     void copy(plain, rich)
   }
   const button = (
-    <button type="button" aria-label={l} onClick={click} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={l} onClick={click} className={clsx('inline-flex items-center justify-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', PHONE_TARGET, 'max-md:min-w-11', className)}>
       {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
       {showLabel && <span>{l}</span>}
     </button>
