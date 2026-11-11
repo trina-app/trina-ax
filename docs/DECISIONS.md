@@ -20673,3 +20673,51 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   replaced in this browser (that one stays valid until it expires).
 - Tests: web unit `person-switch` (A's stores and socket, reset completed as B: nothing of A, a new socket, a reload).
 - Version impact: **patch** (no API or data change).
+
+## 브라우저 정리가 멈춰도 트리나는 계속 — a stuck storage clear never stops the in-app browser or team removal (fix/desktop-clear-storage-hang, 2026-11-11)
+
+- **Why:** testing PR #360 on macOS 26.6 (Electron 44.7.2), `session.clearStorageData()` with no list never settled.
+  The in-app browser runs that clear when another person signs in to the team or the person signs out
+  (`BrowserPane.resetForNewPerson`, `AppWindow.checkBrowserOwner`, "In-app browser data belongs to one person" above),
+  and every AI browser call waits for that identity check (`ensureBrowserOwner` shares the pending read), so every
+  later browser call of the AI waited forever; removing a team (`removeTeam`) awaited the same clear and never
+  finished. Reproduced on the same Mac with a bare Electron app (no Trina code) and with a copy under another bundle
+  id: with no list (and `{}`), `clearData()` and `clearData({ dataTypes: ['cache'] })` hung; each of the seven named
+  storage types, the seven together, `clearCache()` and `clearAuthCache()` settled in 1-2 s and removed cookies,
+  localStorage, IndexedDB, Cache Storage and service workers. Earlier the same day, on the same Mac, everything settled.
+  What differed: the Mac was overloaded (load average ~230 on 10 cores): a process started at background priority
+  (`taskpolicy -c background`) had not run after 9 minutes while one at default priority ran at once, and the hung
+  app had threads stuck while starting at background priority. The likely reason: with no list Electron asks Chromium
+  for every data type (`REMOVE_DATA_MASK_ALL`), some of the extra subtasks run on Chromium's background-priority
+  threads, macOS runs those only on free efficiency cores, and the promise settles only when the last subtask reports
+  back. (Quitting was slow on that Mac too, but for every Electron app: a bare one that cleared nothing was still
+  running a minute after `app.exit`, so that is not from the clear.) No matching Electron
+  issue was found (electron/electron issues and pull requests for `clearStorageData` and `clearData`). A packaged
+  build runs the same Electron, so it is very likely affected on a Mac that busy; how often customers' Macs get there
+  is not known.
+- **The rule** (`desktop/src/main/clear-session.ts` `clearSessionData`): every clear of a session in the desktop app
+  names its storage types (`cookies`, `localstorage`, `indexdb`, `filesystem`, `serviceworkers`, `cachestorage`,
+  `shadercache`; session storage goes with local storage) and clears the HTTP cache and HTTP logins beside it. Each of
+  the three has a 10 s limit. One that runs out of time is logged (`[desktop] clearing … did not finish`, on the
+  console only: the desktop app has no log file) and the caller goes on: the pane still closes its tabs and forgets
+  allowed sites, the identity check still records the new person, the team is still removed. Chromium starts all
+  subtasks at once, so the other types are cleared even when one does not report back; a clear that finishes late
+  also removes what the next person stored meanwhile (they sign in again). One that fails (rejects or throws) is
+  handled as before the limit: the new person is not recorded, that identity check and the AI call waiting for it
+  fail, and the next check clears again.
+- **Team removal:** the team leaves the list at once (it can no longer be opened or removed twice while its data
+  goes), then both partitions are cleared side by side (at most one limit, not two), then its files go. Before, the
+  team stayed in the list until the clears were done.
+- **Left out:** the types only a no-list clear asks for: media licences, interest groups, shared storage, attribution
+  and performance-observer data, and device-bound sessions. Sites keep sign-ins in cookies and site storage, which the
+  list covers. Device-bound sessions can issue a sign-in cookie again after it is deleted, but they need a signing
+  key service that Electron 44 does not give the network service (electron/electron#54074 adds one behind a fuse that
+  is off by default); recheck this list when that lands. A clear that runs out of time is not tried again.
+- Tests: `tests/unit/e-clear-session.test.ts` (the time limit, the list, side by side, a throwing or rejecting clear,
+  `clearFailed`, no other clear call in `desktop/src`, the three call sites, a failed clear not recording the new
+  person, the removal order), `desktop/e2e/clear-storage.spec.ts` (a no-list clear that never settles put into the
+  real app: sign-out, the next person's AI call at once and nothing of the first person's cookie, localStorage,
+  IndexedDB, Cache Storage or service worker left, team removal finishing; every clear stuck: the call goes on after
+  the limit, the next person is asked again, team removal still finishes). The first fails on the code before this
+  change (times out). On the overloaded Mac, where `person.spec.ts` failed on dev, it passed with this change.
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
