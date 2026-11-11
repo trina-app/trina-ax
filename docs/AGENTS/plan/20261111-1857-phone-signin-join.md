@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 18:57
 - Branch: `fix/phone-signin-join`
-- Status: in progress
+- Status: done (PR open)
 - Where: `web/src/pages/Auth.tsx`, `web/src/pages/admin/AdminLayout.tsx`, `web/src/i18n/*`. Why: sign-in, invites and
   Admin are core web UI (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, fixes to existing pages, no new feature
@@ -54,3 +54,6 @@ admin, Playwright at 390×844 (WebKit) and 1440 with screenshots.
 
 ## Result
 
+Done as planned, plus (from review): the sign-in page's button in the bar too, the focused field with its hint/error
+scrolled into view above the bar, and the server's wrong-code error saying "setup code". Unit, e2e and Playwright
+(Chromium; WebKit could not start on the test server) at 390×844, 390×480, 1440 pass.
