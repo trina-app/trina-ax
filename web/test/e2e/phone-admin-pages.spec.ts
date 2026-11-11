@@ -36,7 +36,7 @@ test('Connectors: a connector is a page of its own; ‹ and Back return to Conne
   expect(await historyLength(page)).toBe(length + 1)
   await expect(page.getByTestId('gapp-admin-detail')).toBeVisible()
   await expect(bar(page)).toHaveText('Gmail')
-  await expect(backLabel(page)).toHaveText(t['admin.integrations'])
+  await expect(backLabel(page)).toHaveText(t['admin.team.integrations'])
   // the bar's ‹ is the way back: the card's own "← Connected apps" is not shown
   await expect(page.getByTestId('connector-back')).toBeHidden()
   await page.getByTestId('admin-back').click()
@@ -168,8 +168,10 @@ test('Providers: an engine is a row that opens its own page; a server command is
   await expect(page).toHaveURL(/\/admin\/providers\/codex$/)
   await expect(page.getByTestId('engine-page')).toBeVisible()
   await expect(bar(page)).toHaveText('Codex')
-  await expect(backLabel(page)).toHaveText(t['admin.providers'])
+  await expect(backLabel(page)).toHaveText(t['admin.team.providers'])
   await expect(page.getByTestId('engine-switch-codex')).toBeVisible()
+  // its accounts, with Add account
+  await expect(page.getByTestId('engine-page').locator('[data-testid^="provider-accounts-"]')).toBeVisible()
   // "Run `codex login --device-auth` on the server Mac" is a computer's job
   await expect(page.getByTestId('engine-on-computer')).toHaveText(t['admin.onComputer'])
   await page.goBack()
@@ -257,4 +259,133 @@ test('an admin gets the same pages; a member opening one lands at home', async (
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/admin/members/olga')
   await expect(page).not.toHaveURL(/\/admin/)
+})
+
+test('Groups: ⋯ is a bottom sheet, delete last; Usage limits ⌄ is a sheet too; By person\'s segments are 44 px', async ({ page }) => {
+  expect((await page.request.post('/api/admin/groups', { headers: H, data: { name: 'Sales', description: '', memberIds: [] } })).ok()).toBeTruthy()
+  await page.goto('/admin/groups')
+  await page.getByTestId('group-row').filter({ hasText: 'Sales' }).getByTestId('member-more').click()
+  const sheet = page.getByRole('menu')
+  await expect(sheet).toBeVisible()
+  expect(Math.round((await sheet.boundingBox())!.x)).toBe(0)
+  await expect(sheet.getByRole('menuitem').last()).toHaveAttribute('data-testid', 'group-delete')
+  for (const it of await sheet.getByRole('menuitem').all()) expect(Math.round((await it.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  await page.keyboard.press('Escape')
+  // Usage › Usage limits ⌄: Download CSV in the sheet
+  await page.goto('/admin/usage')
+  await expect(page.getByTestId('usage-limits-link-more')).toBeEnabled()
+  await page.getByTestId('usage-limits-link-more').click()
+  await expect(sheet).toBeVisible()
+  expect(Math.round((await sheet.boundingBox())!.x)).toBe(0)
+  await expect(sheet.getByTestId('usage-csv')).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Folder permissions: By folder / By person, each 44 px tall
+  await page.goto('/admin/folders')
+  for (const tab of await page.getByRole('tab').all()) expect(Math.round((await tab.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+})
+
+// - TC-269: the remaining pages in phone layouts. (System is left to the session changing its backup and storage parts.)
+test('Plugins: flat rows, the title once; a plugin\'s page has its name on its own line with the buttons under it', async ({ page }) => {
+  await page.goto('/admin/plugins')
+  await expect(page.getByTestId('plugins-header').getByRole('heading', { name: t['admin.plugins'] })).toHaveClass(/sr-only/)
+  const card = page.getByTestId('plugin-catalog').first()
+  // no grey frame around a row
+  expect(await card.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+  expect(Math.round((await card.getByTestId('plugin-open').boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  const install = page.getByTestId('plugin-install-file')
+  if (await install.count()) expect(Math.round((await install.boundingBox())!.width)).toBeLessThanOrEqual(48)
+  await card.getByTestId('plugin-open').click()
+  const detail = page.getByTestId('plugin-detail')
+  const name = (await detail.getByRole('heading').first().boundingBox())!
+  expect(name.width).toBeGreaterThan(150)
+  const button = (await detail.getByRole('button').filter({ hasNotText: /^$/ }).last().boundingBox())!
+  expect(button.y).toBeGreaterThanOrEqual(name.y + name.height - 1)
+})
+
+test('Activity log: a row opens the record\'s page; Filters open in a sheet; Back to the list', async ({ page }) => {
+  await openAdminPage(page, 'audit', /\/admin\/audit$/)
+  const header = page.getByTestId('activity-header')
+  const before = (await header.boundingBox())!.height
+  await page.getByTestId('activity-more-toggle').click()
+  const sheet = page.getByRole('dialog', { name: t['activity.filters'] })
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByTestId('activity-kinds')).toBeVisible()
+  // the part that stays at the top did not grow
+  expect(Math.round((await header.boundingBox())!.height)).toBe(Math.round(before))
+  await sheet.getByTestId('activity-more-done').click()
+  await expect(sheet).toHaveCount(0)
+  const row = page.getByTestId('activity-row').first()
+  expect(Math.round((await row.getByRole('button').boundingBox())!.height)).toBeGreaterThanOrEqual(48)
+  await row.getByRole('button').click()
+  await expect(page).toHaveURL(/\/admin\/audit\/[^/?]+/)
+  await expect(page.getByTestId('activity-record')).toBeVisible()
+  await expect(page.getByTestId('activity-detail')).toBeVisible()
+  await page.goBack()
+  await expect(page).toHaveURL(/\/admin\/audit$/)
+  await expect(page.getByTestId('audit-list')).toBeVisible()
+})
+
+test('Usage: the breakdown is list rows, not a table', async ({ page }) => {
+  await page.goto('/admin/usage')
+  await expect(page.getByTestId('usage-rows').or(page.getByTestId('usage-none'))).toBeVisible()
+  await expect(page.getByTestId('usage-table')).toHaveCount(0)
+  if (await page.getByTestId('usage-row').count()) await expect(page.getByTestId('usage-total')).toBeVisible()
+})
+
+test('AI apps: tappable rows, no outline Connect buttons; Claude Code and Codex are set up on a computer', async ({ page }) => {
+  await page.goto('/admin/ai-apps')
+  const list = page.getByTestId('admin-ai-app-list')
+  await expect(list).toBeVisible()
+  await expect(list.getByRole('button', { name: t['aiApps.connect'], exact: true })).toHaveCount(0)
+  for (const id of ['claude-code', 'codex']) {
+    await expect(list.getByTestId(`ai-app-${id}`)).toContainText(t['admin.onComputer'])
+    await expect(list.getByTestId(`ai-app-connect-${id}`)).toHaveCount(0)
+  }
+  const claude = list.getByTestId('ai-app-connect-claude')
+  expect(Math.round((await claude.boundingBox())!.height)).toBeGreaterThanOrEqual(48)
+  await claude.click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
+test('page intros: the line is not cut beside the button; the scope line once, on the list; Team … names', async ({ page }) => {
+  await openAdminPage(page, 'members', /\/admin\/members$/)
+  const desc = (await page.getByTestId('members-header-desc').boundingBox())!
+  const actions = (await page.getByTestId('members-header-actions').boundingBox())!
+  expect(actions.y).toBeGreaterThanOrEqual(desc.y + desc.height - 1)
+  expect(desc.width).toBeGreaterThan(300)
+  await expect(page.getByTestId('admin-content').getByTestId('page-scope')).toHaveCount(0)
+  await page.getByTestId('admin-back').click()
+  await expect(page.getByTestId('page-scope')).toHaveCount(1)
+  // the team's versions of what the 나 list has for the person
+  await expect(page.getByTestId('admin-row-providers')).toContainText(t['admin.team.providers'])
+  await expect(page.getByTestId('admin-row-connectors')).toContainText(t['admin.team.integrations'])
+  await expect(page.getByTestId('admin-row-ai-apps')).toContainText(t['admin.team.aiApps'])
+})
+
+test('Team settings › General: the logo in phone words; the update window as two time pickers', async ({ page }) => {
+  await page.goto('/admin/settings/general')
+  await expect(page.getByTestId('team-icon')).toContainText(t['teamIcon.descPhone'].replace('{product}', '').split(' ')[0]!)
+  await expect(page.getByTestId('team-icon-previews')).toHaveCount(0)
+  await expect(page.getByTestId('update-window-from')).toHaveAttribute('type', 'time')
+  await expect(page.getByTestId('update-window-to')).toHaveAttribute('type', 'time')
+})
+
+// - TC-270: computer or server setup is not offered as phone forms.
+test('Slack, Connectors and engines: a status row and "Set this up on a computer" instead of computer forms', async ({ page }) => {
+  // Slack › Replace tokens
+  await page.goto('/admin/slack')
+  await expect(page.getByTestId('slack-status')).toBeVisible()
+  await page.getByTestId('slack-replace').click()
+  await expect(page.getByTestId('slack-on-computer')).toContainText(t['admin.onComputer'])
+  await expect(page.getByTestId('slack-bot-token')).toHaveCount(0)
+  // Connectors › add by address
+  await page.goto('/admin/connectors')
+  await expect(page.getByTestId('connector-discover')).toBeVisible()
+  await expect(page.getByTestId('integration-add')).toHaveCount(0)
+  await expect(page.getByTestId('connector-custom')).toHaveCount(0)
+  await expect(page.getByTestId('connector-custom-note')).toHaveText(t['admin.onComputerAdd'])
+  // AI accounts › an engine's server login text
+  await page.goto('/admin/providers/codex')
+  await expect(page.getByTestId('engine-on-computer')).toHaveText(t['admin.onComputer'])
+  await expect(page.getByTestId('engine-page')).not.toContainText('codex login')
 })
