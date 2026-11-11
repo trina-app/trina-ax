@@ -139,12 +139,13 @@ const TITLES: [RegExp, MessageKey][] = [
  */
 export function useScreenName(): (to: string) => string | null {
   const t = useT()
-  const projects = useProjects((s) => s.byId)
-  const chats = useChats((s) => s.chats)
-  const rooms = useRooms((s) => s.rooms)
   const roomName = useRoomTitle()
   const folderName = useFolderName()
+  // the stores as they are when the label is drawn (no new drawing of the page for every chat or room update)
   return useCallback((to: string) => {
+    const projects = useProjects.getState().byId
+    const chats = useChats.getState().chats
+    const rooms = useRooms.getState().rooms
     const { pathname, search } = split(to)
     const seg = pathname.split('/').filter(Boolean)
     if (pathname === '/') {
@@ -170,5 +171,5 @@ export function useScreenName(): (to: string) => string | null {
     if (settings) return settings
     const key = TITLES.find(([re]) => re.test(pathname))?.[1]
     return key ? t(key) : null
-  }, [t, projects, chats, rooms, roomName, folderName])
+  }, [t, roomName, folderName])
 }

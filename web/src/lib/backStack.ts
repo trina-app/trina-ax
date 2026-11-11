@@ -11,8 +11,11 @@
 //   App.tsx while it renders, before any page does): a push came from the entry shown before it, a replace from what
 //   was under the entry it replaced. It is used only at that moment (the insertion) and for the ‹ button's label; Back
 //   itself always walks the router's real history (lib/back.ts), as DECISIONS "Phone navigation: four tabs" decided.
-// - ‹'s label names where Back goes ("‹ Admin", "‹ Settings", "‹ Members & invites"); ‹ shows alone when Back goes
-//   somewhere else or to the same page (a page that adds history inside itself).
+//   On a phone the history's own stack says it instead (lib/screenHistory.ts: each entry keeps the trail of its tab's
+//   stack), and the document's first entry gets all its parents from there (lib/screens.ts), not only its list.
+// - ‹'s label names where Back goes ("‹ Admin", "‹ Settings", "‹ Members & invites", a folder, a chat): the page's own
+//   names first, then any screen's (lib/screens.ts useScreenName); ‹ shows alone when that has no name or is the same
+//   page (a page that adds history inside itself).
 // - A pushed page starts at the top; Back to a list or a page puts its scroll back (useKeptScroll).
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import { parsePath, useLocation, useNavigate, type Location, type NavigationType as Action } from 'react-router-dom'
