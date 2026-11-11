@@ -351,6 +351,16 @@ let made: ScreenHistory | null = null
 /** The app's one history (App.tsx). */
 export const screenHistory = () => (made ??= createScreenHistory())
 
+/** A tab bar tap: true when the app's history took it (under another router, a test's, the link does its own). */
+export function switchTab(tab: Tab, user: string): boolean {
+  if (!made) return false
+  made.switchTab(tab, user)
+  return true
+}
+
+/** The signed-in app shows its first entry (components/BottomTabs.tsx): see ScreenHistory.settleOpened. */
+export const settleOpened = () => made?.settleOpened()
+
 /** The stack the entry on show belongs to (its tab and the entry under it), on a phone; null on a computer or before
  * the first navigation of ours. */
 export function stackNow(): { tab: Tab | null; below: Item | null; open: boolean } | null {

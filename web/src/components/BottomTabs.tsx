@@ -16,7 +16,7 @@ import { Link } from 'react-router-dom'
 import { useT } from '../i18n'
 import { useRealPath } from '../lib/realPath'
 import { badgeText, totalUnread } from '../lib/rooms'
-import { screenHistory, stackNow } from '../lib/screenHistory'
+import { settleOpened, stackNow, switchTab } from '../lib/screenHistory'
 import { aiName, hidesTabs, tabOf, TAB_ROOT, type Tab } from '../lib/tabs'
 import { useInboxUnread } from '../store/inbox'
 import { useRooms } from '../store/rooms'
@@ -33,14 +33,13 @@ export function BottomTabs() {
   const inbox = useInboxUnread()
   const user = useMe()?.user.id ?? ''
   // the signed-in app shows its first entry: one opened from outside gets its parents put under it
-  useEffect(() => screenHistory().settleOpened(), [])
+  useEffect(() => settleOpened(), [])
   if (hidesTabs(path)) return null
   const current = stackNow()?.tab ?? tabOf(path)
   const go = (tab: Tab) => (e: MouseEvent<HTMLAnchorElement>) => {
     // a new browser tab or window (a modified click) is the link's own
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-    e.preventDefault()
-    screenHistory().switchTab(tab, user)
+    if (switchTab(tab, user)) e.preventDefault()
   }
   return (
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden in-[.keyboard-open]:hidden" data-bottom-bar data-testid="bottom-tabs">
