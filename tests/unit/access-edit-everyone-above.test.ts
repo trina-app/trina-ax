@@ -127,3 +127,28 @@ describe('latentMore: more access for someone the head count cannot see', () => 
     expect(out.latentMore).toBe(true)
   })
 })
+
+describe('latentMore: someone who joins two groups later', () => {
+  test('"G2: no access" here and nobody in both today; "G1: can view" added: a future member of both gets in', () => {
+    const rows = [row('shared', 'everyone', null, 'none'), row('shared/x', 'group', 'g2', 'none')]
+    const out = editPreview({ rules: new RuleSet(rows), people, groupName: (id) => id, personName: (id) => id }, 'shared/x', [{ subjectType: 'group', subjectId: 'g2', access: 'none' }, { subjectType: 'group', subjectId: 'g1', access: 'read' }], { team: null })
+    expect(out.changes).toEqual([])
+    expect(out.latentMore).toBe(true)
+  })
+})
+
+describe('latent: who gains unseen, so the panel can name them', () => {
+  test('people switched off by name, the groups whose future members gain, and whether whoever joins the team does', () => {
+    const gina: Principal = { id: 'gina', name: 'Gina', role: 'member', groups: [] }
+    const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'gina', 'none')]
+    const run = (next: Parameters<typeof editPreview>[2]) => editPreview({ rules: new RuleSet(rows), people, uncounted: [gina], groupName: (id) => id.toUpperCase(), personName: (id) => id }, 'shared/x', next, { team: null })
+    // a group of nobody yet, added with "can view": only its future members gain
+    expect(run([{ subjectType: 'group', subjectId: 'design', access: 'read' }]).latent).toEqual({ team: false, off: [], groups: [{ id: 'design', name: 'DESIGN' }] })
+    // everyone may view: whoever joins the team, and Gina when switched back on
+    const all = run([{ subjectType: 'everyone', subjectId: null, access: 'read' }])
+    expect(all.latent?.team).toBe(true)
+    expect(all.latent?.off).toEqual([{ id: 'gina', name: 'Gina' }])
+    // nothing unseen: null
+    expect(run([]).latent).toBeNull()
+  })
+})

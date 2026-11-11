@@ -16,7 +16,7 @@ import type { Access, Folder, FolderEditPreview, Group, Project, User } from '@m
 import { api, API, errorText } from '../../lib/api'
 import { addNamed, draftOf, removeNamed, setNamed, type Basic, type Draft } from '../../lib/access-edit'
 import { isSkillsPath } from '../../lib/access-view'
-import { aboveRows, askTitle, generalLevel, hasPanel, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
+import { aboveRows, askTitle, generalLevel, hasPanel, namesText, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog } from '../../components/ui'
@@ -130,11 +130,18 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
   }, [])
   // the write itself is on its way: the panel goes without asking (the save lands). Before it (Save's fresh ask, its
   // confirm), leaving asks, and dropping the changes stops that Save
+  /** the leave question is open: a Save whose fresh answer comes meanwhile does not write (the admin may be dropping it) */
+  const leaving = useRef(false)
   const askToLeave = async () => {
     if (!edited || d.saving) return true
-    const ok = await confirmDialog({ title: t('folderAccess.discardTitle'), body: t('folderAccess.discardBody'), confirm: t('accessEdit.discard'), danger: true })
-    if (ok) left.current = true
-    return ok
+    leaving.current = true
+    try {
+      const ok = await confirmDialog({ title: t('folderAccess.discardTitle'), body: t('folderAccess.discardBody'), confirm: t('accessEdit.discard'), danger: true })
+      if (ok) left.current = true
+      return ok
+    } finally {
+      leaving.current = false
+    }
   }
   guard.current = askToLeave
   useEffect(() => () => {
@@ -216,7 +223,10 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
               {/* which folder: the panel behind can show another one by now */}
               <p className="font-medium text-ink" data-testid="sharing-confirm-folder">{nameOf(path)}</p>
               {lines(fresh).filter((l) => l.kind !== 'none' && l.kind !== 'below').map((l) => <p key={l.kind} className={l.kind === 'lose' || l.kind === 'viewOnly' ? 'text-warn' : undefined}>{l.text}</p>)}
-              {ask.later && <p>{t('folderAccess.confirmLater')}</p>}
+              {/* who gains that no head count can see, by name: people switched off, whoever joins these groups or the team */}
+              {fresh.latent?.off.length ? <p>{t('folderAccess.latentOff', { names: namesText(t, locale, fresh.latent.off.map((u) => u.name), fresh.latent.off.length) })}</p> : null}
+              {fresh.latent?.groups.length ? <p>{t('folderAccess.latentGroups', { groups: namesText(t, locale, fresh.latent.groups.map((g) => g.name), fresh.latent.groups.length) })}</p> : null}
+              {fresh.latent?.team && <p>{t('folderAccess.latentTeam', { team })}</p>}
               {ask.widen && fresh.below.some((b) => b.more > 0) && <p>{t('folderAccess.confirmBelow', { n: fresh.below.filter((b) => b.more > 0).length })}</p>}
               {ask.skillsEveryone && <p>{t('folderAccess.warnSkillsEveryone')}</p>}
               {ask.narrow.map((w) => (
@@ -236,7 +246,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
           return
         }
       }
-      if (left.current) return
+      if (left.current || leaving.current) return
       const saved = await d.save()
       if (saved) reload()
     } finally {

@@ -370,6 +370,9 @@ export const FolderEditPreview = z.object({
    * off (when switched back on), or whoever joins the team or a group the rules name (an empty group counts nobody
    * today). The Files page's panel asks before saving then too. Absent: an older server */
   latentMore: z.boolean().optional(),
+  /** with `latentMore`: who, so the panel can say it: whoever joins the team (`team`), people switched off (by name, at
+   * most 50), whoever joins these groups. Null without latentMore. Admin only, like the rest of this answer */
+  latent: z.object({ team: z.boolean(), off: z.array(UserRef), groups: z.array(z.object({ id: z.string(), name: z.string() })) }).nullable().optional(),
   /** less first, then more */
   changes: z.array(FolderEditChange),
   /** the rule folders below that change too, in the tree's order (at most 20; `belowMore` others) */

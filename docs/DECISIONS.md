@@ -19981,8 +19981,9 @@ users are office workers, not developers; the panel must make sense in a few sec
   rules name, an "everyone" that names nobody today). A guess in the web from the settings themselves was tried and
   dropped in review: it asked "Give more access?" for a change that only lowered someone. The title says it ("Let 1
   more person open it?", "Let 2 people edit it?", "Give more access?"), the body names the folder and who (losses in
-  the warning colour; "People who join later, or whose account is switched back on, will be able to open it." when
-  nobody counted gains), and its button asks the server once more before the write. Taking the team's own files or
+  the warning colour; who gains that no head count sees, by name: "Gina (switched off) will be able to open or edit it
+  when switched back on.", "People added to Design later will …", "People who join Acme later will …"; the preview's
+  `latent` says who), and its button asks the server once more before the write. Taking the team's own files or
   skills from members asks in its own words ("Take access away?", "Their AI won't be able to open Company-wide
   either.", "Save anyway"). Anything else that only narrows saves straight, "What will happen" having named who.
   Leaving the panel (close, another folder, a link) while Save is on its way stops that Save at its next step; two
@@ -20001,8 +20002,10 @@ users are office workers, not developers; the panel must make sense in a few sec
 - **Server:** the edit preview says what the folder above gives everyone in one field, `everyoneAbove: { access, folder
   }` (the permission function for a member nobody names, the folder's own rules left out; null at the team root): the
   grouped `above` shows nobody when every member is named by a group rule. And `latentMore`: the permission function,
-  before and after, at the folder and its rule folders below, for every switched-off person, a member nobody names and
-  one made-up member per group the rules name. `POST /api/admin/folders` takes at most 200
+  before and after, at the folder and its rule folders below, for every switched-off person, a member nobody names, one
+  made-up member per group the rules name, one per pair of the groups named on the way to the folder and below it
+  (group rules take the widest, so two groups together can differ from either alone) and one in all of them. A Save
+  whose fresh answer comes while the "Discard your changes?" question is open does not write. `POST /api/admin/folders` takes at most 200
   rules (as PUT), and a rule row made meanwhile is a 409 with `params.reason: 'folder_exists'`.
 - **Phones:** the same panel in the app's bottom sheet, 44 px selects and ✕, a row's second line wrapping (never cut),
   Save and "What will happen" in the sheet's own footer (the Modal's footer slot, on computers too), the confirm over
