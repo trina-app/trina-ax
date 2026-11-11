@@ -3,7 +3,7 @@
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -15,7 +15,8 @@ import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin } from '../lib/team-link'
+import { forgetJoinToken, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
+import { safeNext } from '../lib/nav'
 import { platform } from '../lib/pwa'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { holdMadeBy } from '../lib/starter'
@@ -189,6 +190,7 @@ export function Login() {
   const signedIn = useSession((s) => s.signedIn)
   const status = useSession((s) => s.status)
   const navigate = useNavigate()
+  const location = useLocation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const { busy, error, run } = useSubmit()
@@ -203,8 +205,10 @@ export function Login() {
     void run(async () => {
       const r = await api.call(API.login, { body: { username: username.trim(), password, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me, { adoptPick: true })
-      // the router sends a signed-in person on /login to ?next= (App.tsx AfterSignIn), or to /password
-      if (r.me.user.mustChangePassword) navigate('/password', { replace: true })
+      // the router sends a signed-in person on /login to ?next= (App.tsx AfterSignIn), or to /password, which keeps
+      // ?next= for after the new password (a Slack or connector link opened with a temporary password)
+      const next = safeNext(location.search)
+      if (r.me.user.mustChangePassword) navigate(`/password${next ? `?next=${encodeURIComponent(next)}` : ''}`, { replace: true })
     })
   }
   if (demo && !form) {
@@ -514,30 +518,48 @@ export function AcceptInvite() {
 
 /**
  * /join#t=<token>: the team invite link (one link for many people; it makes members only). The token is read from the
- * fragment and leaves the address bar at once; it goes to the server only in a POST body. After joining, a link that
- * names a skill opens that skill's form (`/skills?run=`) when the new member can read it, else Home.
+ * fragment and leaves the address bar at once; it goes to the server only in a POST body. This tab keeps it until the
+ * person joined or the server said the link does not work (lib/team-link.ts tabJoinToken), and details that did not
+ * load (a weak connection) can be loaded again. After joining, a link that names a skill opens that skill's form
+ * (`/skills?run=`) when the new member can read it, else Home.
  */
 export function TeamJoin() {
   const t = useT()
   const locale = useLocale()
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
-  const [link] = useState(() => readJoinToken(window.location))
+  const [link] = useState(() => tabJoinToken(window.location))
   const [info, setInfo] = useState<TeamLinkInfo | null | 'missing'>(link.token ? null : 'missing')
-  const { busy, error, run, setError, setFailure } = useSubmit()
+  // the details did not load (no connection, a server error): why, and a way to try again; never "the link is wrong"
+  const [loadFailed, setLoadFailed] = useState<{ e: unknown } | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const { busy, error, run, setError } = useSubmit()
   useEffect(() => {
     if (link.cleanUrl) window.history.replaceState(window.history.state, '', link.cleanUrl)
+  }, [link])
+  useEffect(() => {
     if (!link.token) return
     let live = true
+    setLoadFailed(null)
     api.call(API.teamLinkInfo, { body: { token: link.token } }).then(
-      (i) => live && setInfo(i),
-      (e) => live && (isApiError(e, 'not_found') ? setInfo('missing') : setFailure(e)),
+      (i) => {
+        if (!live) return
+        if (!i.valid) forgetJoinToken()
+        setInfo(i)
+      },
+      (e) => {
+        if (!live) return
+        // the server's own "no such link"; a 404 page without its answer (a relay or proxy in between) is a failed load
+        if (isApiError(e, 'not_found') && e.body.params?.httpStatus === undefined) {
+          forgetJoinToken()
+          setInfo('missing')
+        } else setLoadFailed({ e })
+      },
     )
     return () => {
       live = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [link, attempt])
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
@@ -548,6 +570,7 @@ export function TeamJoin() {
       const by = r.skillBy ?? null
       const formPath = by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
       if (formPath && by) holdMadeBy(r.me.user.id, formPath, by)
+      forgetJoinToken()
       setAfterJoin(next)
       signedIn(r.me)
       navigate(next, { replace: true })
@@ -555,7 +578,14 @@ export function TeamJoin() {
   if (info === null)
     return (
       <AuthFrame title={t('invite.title')}>
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
+        {loadFailed ? (
+          <>
+            <p role="alert" className="text-sm text-danger" data-testid="join-load-error">{errorText(loadFailed.e, locale, t('error.network'))}</p>
+            <Button variant="primary" className="mt-4 w-full" onClick={() => setAttempt((n) => n + 1)} data-testid="join-retry">
+              {t('common.retry')}
+            </Button>
+          </>
+        ) : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
       </AuthFrame>
     )
   if (info === 'missing' || !info.valid)
@@ -719,6 +749,8 @@ export function ForcedPassword() {
   const me = useMe()
   const tempLogin = !!me?.session.tempLogin
   const navigate = useNavigate()
+  // where the person was heading (a Slack or connector link that asked them to sign in first): there after the change
+  const next = safeNext(useLocation().search)
   // a shared desk: someone who signed in with the wrong account can leave without changing that password
   const otherAccount = async () => {
     await api.call(API.logout).catch(() => {})
@@ -733,7 +765,7 @@ export function ForcedPassword() {
         forced
         onDone={async () => {
           await load()
-          navigate(signedInHome(), { replace: true })
+          navigate(next ?? signedInHome(), { replace: true })
         }}
       />
       <button type="button" onClick={() => void otherAccount()} className="mt-4 block text-sm text-accent-text underline" data-testid="forced-other-account">
