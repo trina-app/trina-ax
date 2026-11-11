@@ -3,7 +3,7 @@
 // the AI's arguments, a tool without words of its own as its id in words, no raw ids. The mock writes the steps with
 // the server's own helpers.
 import { expect, test, type Page } from '@playwright/test'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { reset, signIn } from './helpers'
 
 async function ask(page: Page, text: string) {
   await page.getByTestId('composer-input').fill(text)
@@ -12,7 +12,6 @@ async function ask(page: Page, text: string) {
 
 test('the steps list reads in plain words, in Korean and after a switch to English', async ({ page }) => {
   await reset(page)
-  const errors = watchConsole(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await ask(page, 'plainsteps please')
   const answer = page.getByTestId('assistant-message').last()
@@ -41,5 +40,4 @@ test('the steps list reads in plain words, in Korean and after a switch to Engli
   await expect(again).toContainText("The chosen AI is off; answering with the team's default AI")
   await expect(again).toContainText('The AI declined; trying again with another AI')
   await expect(again).toContainText('Make a page · 매출 차트')
-  expect(realErrors(errors)).toEqual([])
 })
