@@ -46,11 +46,12 @@ export async function downloadRoute(c: Context<AppEnv>, ctx: AppContext, dir: st
   try { auth = await ctx.services.sessions.resolve(c.req.raw, c.get('info')) } catch (e) { c.get('log').error('session lookup failed', { err: e }) }
   if (!auth) return text(401, `Sign in to ${PRODUCT.displayName} first, then download the app from Settings → Apps.\n`)
   if (auth.user.mustChangePassword) return text(403, 'Change your temporary password first.\n')
-  return serveDownload(c.req.raw, c.req.path.slice('/downloads'.length), dir)
+  return serveDownload(c.req.raw, c.req.path.slice('/downloads'.length), dir, c.get('info')?.via)
 }
 
 /** The file part (no auth check): tests and the route above. */
-export async function serveDownload(req: Request, sub: string, dir: string | null): Promise<Response> {
+/** `via`: how the request came (through the team address: 'relay'; team-files/download.ts fileBody). */
+export async function serveDownload(req: Request, sub: string, dir: string | null, via?: string): Promise<Response> {
   if (!dir || !fs.existsSync(dir)) return text(404, 'Not found\n')
   let name: string
   try { name = decodeURIComponent(sub.replace(/^\//, '')) } catch { return text(404, 'Not found\n') }
@@ -88,12 +89,12 @@ export async function serveDownload(req: Request, sub: string, dir: string | nul
   }
   if (!range) {
     headers.set('Content-Length', String(size))
-    return new Response(head || size === 0 ? null : await fileBody(file, 0, size), { status: 200, headers })
+    return new Response(head || size === 0 ? null : await fileBody(file, 0, size, { relayed: via === 'relay', signal: req.signal }), { status: 200, headers })
   }
   if (range.end === size - 1) {
     headers.set('Content-Range', `bytes ${range.start}-${range.end}/${size}`)
     headers.set('Content-Length', String(size - range.start))
-    return new Response(head ? null : await fileBody(file, range.start, size), { status: 206, headers })
+    return new Response(head ? null : await fileBody(file, range.start, size, { relayed: via === 'relay', signal: req.signal }), { status: 206, headers })
   }
   const end = Math.min(range.end, range.start + RANGE_MAX - 1)
   headers.set('Content-Range', `bytes ${range.start}-${end}/${size}`)

@@ -13,7 +13,7 @@ export const promoVideoRoutes: RouteModule = {
     kit.handle(API.renderPromoVideo, ({ params, auth }) => renderPromoVideo(ctx, auth.user.id, params.id))
     kit.handle(API.downloadPromoVideo, ({ params, auth, c }) => {
       const f = promoVideoFile(ctx, auth.user.id, params.id)
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: 'attachment' })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
     })
   },
 }

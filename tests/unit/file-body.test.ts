@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { fileBody, SENDFILE, streamFile, WHOLE_MAX } from '../../server/src/team-files/download'
+import { fileBody, HELD_CAP, heldBytes, SENDFILE, streamFile, WHOLE_MAX } from '../../server/src/team-files/download'
 
 const W = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-filebody-'))
 afterAll(() => fs.rmSync(W, { recursive: true, force: true }))
@@ -58,6 +58,61 @@ describe('fileBody', () => {
       const got = new Uint8Array(await new Response(body).arrayBuffer())
       expect(Buffer.from(got).equals(Buffer.from(bytes))).toBe(true)
     }
+  })
+
+  test('through the team address (relayed) the body stays the lazily read Bun.file on every system, never read whole', async () => {
+    const { abs, bytes } = makeFile('relayed.bin', 3 * 1024 * 1024 + 7)
+    const before = heldBytes()
+    const whole = await fileBody(abs, 0, bytes.length, { sendfile: false, relayed: true })
+    expect(whole).toBeInstanceOf(Blob)
+    expect(heldBytes()).toBe(before)
+    expect(Buffer.from(await new Response(whole).arrayBuffer()).equals(Buffer.from(bytes))).toBe(true)
+    const tail = await fileBody(abs, 100, bytes.length, { sendfile: false, relayed: true })
+    expect(Buffer.from(await new Response(tail).arrayBuffer()).equals(Buffer.from(bytes.subarray(100)))).toBe(true)
+  })
+
+  test('bodies read whole count against one cap; above it a download goes as the stream; a client that leaves frees its share', async () => {
+    expect(HELD_CAP).toBe(768 * 1024 * 1024)
+    const { abs, bytes } = makeFile('capped.bin', 4000)
+    const start = heldBytes()
+    const a = new AbortController()
+    const first = await fileBody(abs, 0, bytes.length, { sendfile: false, signal: a.signal, heldCap: start + 6000 })
+    expect(first).toBeInstanceOf(Uint8Array)
+    expect(heldBytes()).toBe(start + 4000)
+    // a second one would pass the cap: the stream, the same bytes, nothing more counted
+    const second = await fileBody(abs, 0, bytes.length, { sendfile: false, heldCap: start + 6000 })
+    expect(second).toBeInstanceOf(ReadableStream)
+    expect(Buffer.from(await new Response(second).arrayBuffer()).equals(Buffer.from(bytes))).toBe(true)
+    expect(heldBytes()).toBe(start + 4000)
+    // the first client leaves: its share is free again, and the next download is read whole
+    a.abort()
+    expect(heldBytes()).toBe(start)
+    const b = new AbortController()
+    expect(await fileBody(abs, 0, bytes.length, { sendfile: false, signal: b.signal, heldCap: start + 6000 })).toBeInstanceOf(Uint8Array)
+    b.abort()
+    expect(heldBytes()).toBe(start)
+    // a read that fails frees its share at once
+    const gone = path.join(W, 'gone.bin')
+    await expect(fileBody(gone, 0, 10, { sendfile: false })).rejects.toThrow()
+    expect(heldBytes()).toBe(start)
+  })
+
+  test('streamFile through the team address: Content-Length kept, a 200 MB file read lazily (memory stays flat)', async () => {
+    const big = path.join(W, 'big-relayed.bin')
+    const fd = fs.openSync(big, 'w'); fs.ftruncateSync(fd, 200 * 1024 * 1024); fs.closeSync(fd)
+    Bun.gc(true)
+    const before = process.memoryUsage().rss
+    const held = heldBytes()
+    const res = await streamFile({ abs: big, name: 'big.bin', req: new Request('http://team.localhost/x'), disposition: 'attachment', via: 'relay' })
+    expect(res.headers.get('content-length')).toBe(String(200 * 1024 * 1024))
+    expect(heldBytes()).toBe(held)
+    const reader = res.body!.getReader()
+    let n = 0
+    for (let i = 0; i < 20; i++) { const { value, done } = await reader.read(); if (done) break; n += value.byteLength }
+    await reader.cancel()
+    expect(n).toBeGreaterThan(0)
+    expect(process.memoryUsage().rss - before).toBeLessThan(100 * 1024 * 1024)
+    fs.rmSync(big)
   })
 
   test('a link is refused like a range (opened without following links)', async () => {

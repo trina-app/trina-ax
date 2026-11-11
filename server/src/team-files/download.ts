@@ -11,6 +11,11 @@
 //   office Mac's LAN listener), a bigger one goes as our pull stream. The cost on Bun 1.3.12, which has no backpressure
 //   for either: what a slow client has not taken yet stays in memory (at most the file, freed when the download ends
 //   or the client leaves). Bun 1.4 applies backpressure to stream bodies.
+//   Two limits on that (review of #419): a request that came through the team address (the relay client reads the body
+//   itself, 256 KB at a time, as its own connection takes it: no socket here, so no sendfile either) keeps the
+//   Bun.file body, read lazily as before; and the bodies read whole count against HELD_CAP together, above which a
+//   download goes as the stream. Bun.serve does not say when a body has gone out, so a body counts until its client
+//   leaves (req.signal) or for the time it takes at HELD_FLOOR_RATE, whichever comes first.
 // - Range: Bun 1.3.12 mishandles Bun.file().slice() bodies once anything reads response.body (the stream runs past
 //   the slice end; slice().stream() never ends) — both happen on the relay path. So a range is served from our own
 //   pull stream over [start, end], and one response carries at most RANGE_MAX bytes (Content-Range says what was
@@ -29,6 +34,30 @@ const READ = 256 * 1024
 const WHOLE_READ = 1024 * 1024
 /** without sendfile (macOS), a body up to this size is read whole, so it keeps its Content-Length (see the top) */
 export const WHOLE_MAX = 256 * 1024 * 1024
+/** bodies read whole, all downloads together, at most (see the top); above it a download goes as the stream */
+export const HELD_CAP = 768 * 1024 * 1024
+/** a body read whole counts for at most size / this (bytes per second), at least HELD_MIN_MS */
+const HELD_FLOOR_RATE = 2 * 1024 * 1024
+const HELD_MIN_MS = 10_000
+let held = 0
+/** bytes of bodies read whole that still count against HELD_CAP (tests) */
+export const heldBytes = () => held
+
+function hold(n: number, signal?: AbortSignal): () => void {
+  held += n
+  let done = false
+  const release = () => {
+    if (done) return
+    done = true
+    held -= n
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', release)
+  }
+  const timer = setTimeout(release, Math.max(HELD_MIN_MS, (n / HELD_FLOOR_RATE) * 1000))
+  timer.unref?.()
+  signal?.addEventListener('abort', release, { once: true })
+  return release
+}
 
 /** Bun.file bodies (sendfile) only where sendfile cannot block the JS thread: Linux (see the top of this file). */
 export const SENDFILE = process.platform === 'linux'
@@ -58,25 +87,34 @@ export function rangeStream(abs: string, start: number, end: number, piece = REA
 }
 
 /**
- * The body for bytes [start, size - 1] of a file: the whole file (start 0) or a download resumed to its end. Linux:
- * Bun.file (sendfile, constant memory). Elsewhere (see the top): read whole up to WHOLE_MAX, else our stream, so a slow
- * client cannot stop the server. `size` is the size the caller put in Content-Length; the body never runs past it.
+ * The body for bytes [start, size - 1] of a file: the whole file (start 0) or a download resumed to its end. Linux, and
+ * a request through the team address (`relayed`): Bun.file (sendfile on a socket, read lazily by the relay client).
+ * Elsewhere (see the top): read whole up to WHOLE_MAX while all such bodies stay under HELD_CAP, else our stream, so a
+ * slow client cannot stop the server. `size` is the size the caller put in Content-Length; the body never runs past
+ * it. `signal`: the request's (its client left: the body no longer counts).
  */
-export async function fileBody(abs: string, start: number, size: number, o: { sendfile?: boolean; wholeMax?: number } = {}): Promise<Blob | Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>> {
-  if (o.sendfile ?? SENDFILE) return start === 0 ? Bun.file(abs) : Bun.file(abs).slice(start)
-  if (size - start > (o.wholeMax ?? WHOLE_MAX)) return rangeStream(abs, start, size - 1, WHOLE_READ)
-  const { fd } = openChecked(abs)
+export async function fileBody(abs: string, start: number, size: number, o: { sendfile?: boolean; relayed?: boolean; signal?: AbortSignal; wholeMax?: number; heldCap?: number } = {}): Promise<Blob | Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>> {
+  if (o.relayed || (o.sendfile ?? SENDFILE)) return start === 0 ? Bun.file(abs) : Bun.file(abs).slice(start)
+  const n = size - start
+  if (n > (o.wholeMax ?? WHOLE_MAX) || held + n > (o.heldCap ?? HELD_CAP)) return rangeStream(abs, start, size - 1, WHOLE_READ)
+  const release = hold(n, o.signal)
   try {
-    const buf = new Uint8Array(size - start)
-    let got = 0
-    while (got < buf.length) {
-      const n = await new Promise<number>((res, rej) => fs.read(fd, buf, got, Math.min(WHOLE_READ * 8, buf.length - got), start + got, (err, k) => err ? rej(err) : res(k)))
-      if (n === 0) break
-      got += n
+    const { fd } = openChecked(abs)
+    try {
+      const buf = new Uint8Array(n)
+      let got = 0
+      while (got < buf.length) {
+        const k = await new Promise<number>((res, rej) => fs.read(fd, buf, got, Math.min(WHOLE_READ * 8, buf.length - got), start + got, (err, r) => err ? rej(err) : res(r)))
+        if (k === 0) break
+        got += k
+      }
+      return got === buf.length ? buf : buf.subarray(0, got)
+    } finally {
+      fs.closeSync(fd)
     }
-    return got === buf.length ? buf : buf.subarray(0, got)
-  } finally {
-    fs.closeSync(fd)
+  } catch (e) {
+    release()
+    throw e
   }
 }
 
@@ -107,7 +145,8 @@ export function parseRange(h: string | null | undefined, size: number): { start:
   return { start, end }
 }
 
-export async function streamFile(o: { abs: string; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string }): Promise<Response> {
+/** `via`: how the request came (http/env.ts info.via); 'relay' keeps the lazily read Bun.file body (see the top). */
+export async function streamFile(o: { abs: string; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string; via?: string }): Promise<Response> {
   const { fd, st } = openChecked(o.abs)
   fs.closeSync(fd)
   const size = st.size
@@ -135,7 +174,7 @@ export async function streamFile(o: { abs: string; name: string; req: Request; d
   }
   if (!range) {
     headers.set('Content-Length', String(size))
-    return new Response(o.req.method === 'HEAD' || size === 0 ? null : await fileBody(o.abs, 0, size), { status: 200, headers })
+    return new Response(o.req.method === 'HEAD' || size === 0 ? null : await fileBody(o.abs, 0, size, { relayed: o.via === 'relay', signal: o.req.signal }), { status: 200, headers })
   }
   const end = Math.min(range.end, range.start + RANGE_MAX - 1)
   headers.set('Content-Range', `bytes ${range.start}-${end}/${size}`)

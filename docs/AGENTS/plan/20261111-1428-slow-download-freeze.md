@@ -83,3 +83,14 @@ Checked on a local dev server (macOS, Bun 1.3.12):
   400 MB in 0.5 s, 200 MB in 0.27 s with Content-Length; sha256 equal. Through the relay: Content-Length kept, sha256
   equal, a 1 MB/s download kept the server at 56-123 MB. HEAD keeps Content-Length.
 - Unit: `tests/unit/file-body.test.ts` (new) and the 53 test files that touch the download routes: 1046 pass.
+
+Review follow-up (2026-11-12): the relay client reads `res.body` itself, so sendfile never applied there, and the
+first version read every relayed file up to 256 MB whole (10 people fetching a 150 MB file through the team address:
+~1.5 GB held). Now a request through the team address keeps the lazily read `Bun.file` body on every system
+(`streamFile`/`serveDownload` get `via`), and bodies read whole count against one cap (`HELD_CAP`, 768 MB), above
+which a download goes as the stream; a body counts until its client leaves (`req.signal`) or for its size at
+2 MB/s (at least 10 s), since Bun.serve does not say when a body has gone out. Tests in `file-body.test.ts`: the
+relayed body is a `Bun.file`, never counted, a 200 MB relayed file is read lazily with Content-Length (both fail
+without the change), and the cap (stream above it, freed when the client leaves or a read fails).
+`web-static.ts` still sends the app's own files with `Bun.file` on macOS (a few MB, read on every page load): left as
+it was.
