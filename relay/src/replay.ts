@@ -1,7 +1,7 @@
 // Replay cache for signed HTTP calls (operator API and team-signed registry calls), memory only (one relay process; a
 // restart forgets it, which the ±60 s clock window bounds).
 //
-// The key is who signed (operator key id / team id) plus the SHA-256 of the signed message, not the signature text:
+// The key is who signed (operator public key / team id) plus the SHA-256 of the signed message, not the signature text:
 // base64 has more than one spelling of the same bytes (padding dropped, unused low bits of the last character set), so
 // keying on the text let the same signed request through again with a re-spelled signature. The message is what the
 // signature vouches for; one signed message is accepted once within the window, whatever bytes or spelling carry it.

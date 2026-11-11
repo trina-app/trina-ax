@@ -12,6 +12,7 @@ import { OperatorTeamInfoSchema, OpsStatsSchema } from '@mycel/shared/cloud-prot
 import type { RelayClient } from '../../server/src/relay-client/client.ts'
 import { F_WORK, base64Respellings, client, opsCall, opsCreateBody, startRelay, teamUrl, until, writeOpsKeys, type InProcessRelay, type OpsKeySet } from '../lib/f-relay'
 import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
+import { OpsKeysError, parseOperatorKeys } from '../../relay/src/ops-api.ts'
 
 const PORT = 19281
 let R: InProcessRelay
@@ -71,6 +72,21 @@ describe('operator API: where and who', () => {
     for (const respelled of base64Respellings(sig)) {
       const r = await fetch(`${ops}/ops/v1/stats`, { headers: { authorization: first.auth.replace(`sig=${sig}`, `sig=${respelled}`) } })
       expect(r.status).toBe(409)
+    }
+  })
+  test('one public key under two keyIds is refused (the keyId is not signed: a copied call would be new again)', () => {
+    const pub = generateTeamKey().publicKey
+    const entry = (keyId: string, publicKey: string) => ({ keyId, publicKey, scopes: ['teams:read'] })
+    expect(parseOperatorKeys(JSON.stringify([entry('a', pub)]))[0]!.publicKey).toBe(pub)
+    expect(() => parseOperatorKeys(JSON.stringify([entry('a', pub), entry('b', pub)]))).toThrow(OpsKeysError)
+    // the same key spelled another way (no padding, unused low bits set) is the same key
+    const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    const bare = pub.replace(/=+$/, '')
+    const flipped = bare.slice(0, -1) + A[A.indexOf(bare.at(-1)!) ^ ((1 << (2 * (pub.length - bare.length))) - 1)]!
+    for (const respelled of [bare, flipped, flipped + pub.slice(bare.length)]) {
+      expect(respelled).not.toBe(pub)
+      expect(() => parseOperatorKeys(JSON.stringify([entry('a', pub), entry('b', respelled)]))).toThrow(OpsKeysError)
+      expect(parseOperatorKeys(JSON.stringify([entry('b', respelled)]))[0]!.publicKey).toBe(pub)
     }
   })
   test('scopes: a key does only what its scopes allow; unknown endpoints are 404', async () => {
