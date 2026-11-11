@@ -32,7 +32,7 @@ import { browserSettingsBridge, clientKind, desktop, storeApp } from '../lib/des
 import { mobileApp } from '../lib/mobile'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { teamAddressHost } from '../lib/team-address'
-import { Badge, Button, CopyButton, EmptyState, Field, IconButton, PhoneTargets, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
+import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
@@ -52,9 +52,8 @@ import MyUsage from '../components/settings/MyUsage'
 export default function SettingsPane({ tab }: { tab: string }) {
   const me = useMeStrict()
   const browser = browserSettingsBridge()
-  // the form-like sections: 44 px buttons on a phone (components/ui.tsx PhoneTargets); the list-like ones are their own
   return (
-    <PhoneTargets.Provider value={FORM_TABS.has(tab)}>
+    <>
       {tab === 'profile' && <Profile />}
       {tab === 'security' && <Security />}
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
@@ -69,11 +68,9 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'providers' && <MyCredentials />}
       {tab === 'about' && <About />}
       {tab === 'account-delete' && <AccountDeletion key={`${me.user.id}:${me.session.id}`} />}
-    </PhoneTargets.Provider>
+    </>
   )
 }
-
-const FORM_TABS = new Set(['profile', 'security', 'browser', 'memory', 'allowances', 'notifications', 'about', 'account-delete'])
 
 /** `page`: the title is the section's own name, which a phone's bar already shows (SettingsDialog.tsx): there it is
  * kept for screen readers only. */

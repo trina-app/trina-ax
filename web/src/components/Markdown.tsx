@@ -21,6 +21,8 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
+import { mobileApp } from '../lib/mobile'
+import { externalImageHintKey } from '../lib/appWording'
 import { toast } from '../store/ui'
 import { useCopy, useEdgeFade } from './ui'
 import { Tooltip } from './Tooltip'
@@ -354,7 +356,8 @@ function AttachmentThumb({ url, alt }: { url: string; alt?: string }) {
   return <img src={url} alt={alt ?? ''} className="max-h-60 rounded-lg" />
 }
 
-/** An external image: not loaded (its URL could carry data out); the person opens it in a new tab if they want. */
+/** An external image: not loaded (its URL could carry data out); the person opens it in a new tab if they want (in the
+ * phone app it opens in the phone's browser, lib/appWording.ts). */
 function ExternalImage({ href, host, alt }: { href: string; host: string; alt?: string }) {
   const t = useT()
   return (
@@ -363,7 +366,7 @@ function ExternalImage({ href, host, alt }: { href: string; host: string; alt?: 
       <span className="min-w-0">
         <span className="block font-medium text-ink">{t('md.externalImage', { host })}</span>
         {alt && <span className="block truncate">{alt}</span>}
-        <span className="block">{t('md.externalImageHint')}</span>
+        <span className="block">{t(externalImageHintKey(!!mobileApp()))}</span>
       </span>
     </a>
   )

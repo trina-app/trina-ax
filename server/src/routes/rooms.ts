@@ -114,7 +114,7 @@ export const roomsRoutes: RouteModule = {
       // is not refused: the phone app saves a download through fetch (lib/mobile.ts downloadToApp)
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline' })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via })
     })
     // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,
     // isolation and cache). The inline read's checks run on every request, before the cache and the render and again

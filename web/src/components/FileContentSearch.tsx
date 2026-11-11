@@ -3,9 +3,11 @@
 // short snippet with the match highlighted. A click opens the file in the side panel. A word that no line has says
 // "nothing found". Requests are debounced, and an older answer never replaces a newer one. A short rate-limit wait (fast
 // typing) is waited out once, without a message.
-import { FileText } from 'lucide-react'
+// Files whose name holds the words come first (QA TC-260: "로고" finds 로고.png): FileNameResults asks the ⌘K name
+// search (GET /api/files/find, folders too) under the same folder; the server checks each one as the file tree does.
+import { File as FileIcon, FileText, Folder } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { FileContentHit, FileContentHits } from '@mycel/shared/api'
+import type { FileContentHit, FileContentHits, FileEntry } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { highlightParts } from '../lib/highlight'
 import { openTeamFile } from '../lib/sidePanel'
@@ -16,6 +18,8 @@ import { EmptyState, ErrorNote, Skeleton } from './ui'
 /** the wait after the last key press before a search starts */
 export const CONTENT_SEARCH_DEBOUNCE_MS = 300
 const LIMIT = 100
+/** files and folders found by name, at most (the ⌘K dialog asks for 30) */
+export const NAME_LIMIT = 30
 
 /** True when the query is long enough to search: 2 characters, or 1 non-ASCII character (a Korean word can be one). */
 export function contentQueryReady(q: string): boolean {
@@ -65,7 +69,7 @@ export function FileContentList({ res, query, folderLabel }: { res: FileContentH
         </div>
       )}
       {groups.length > 0 && (
-        <ul className="space-y-2" aria-label={t('files.search.label')}>
+        <ul className="space-y-2" aria-label={t('files.search.scope', { q: query, folder: folderLabel })}>
           {groups.map(([p, hits]) => (
             <li key={p} className="rounded-lg border border-line">
               <button type="button" className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2 text-left text-sm hover:bg-hover" onClick={() => openTeamFile(p)} data-testid="content-hit-file">
@@ -136,4 +140,78 @@ export function FileContentResults({ q, path, folderLabel }: { q: string; path: 
       {res && <FileContentList res={res} query={query} folderLabel={folderLabel} />}
     </div>
   )
+}
+
+/** The files and folders whose name holds the words, newest first (folders first). Nothing is shown before the answer
+ * or when no name matches: the line matches below say "nothing found". A file opens in the side panel; a folder opens
+ * in the list (`onFolder`). */
+export function FileNameList({ items, truncated, query, onFolder, stale = false }: { items: FileEntry[]; truncated: boolean; query: string; onFolder: (path: string) => void; stale?: boolean }) {
+  const t = useT()
+  const folderWords = useFolderWords()
+  if (!items.length) return null
+  // stale: the answer of the previous words while the new one is on its way; dimmed, labelled with its own words, and
+  // not clickable (a click would open a file the new words did not find)
+  return (
+    <section className={'mb-3' + (stale ? ' opacity-60' : '')} data-testid="name-search" data-stale={stale || undefined} aria-busy={stale || undefined} inert={stale || undefined}>
+      <p className="px-2 pb-2 text-xs text-faint">{t('files.search.names', { q: query })}</p>
+      <ul className="divide-y divide-line rounded-lg border border-line" aria-label={t('files.search.names', { q: query })}>
+        {items.map((f) => {
+          const parent = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : ''
+          const Icon = f.type === 'folder' ? Folder : FileIcon
+          return (
+            <li key={f.path}>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
+                disabled={stale}
+                onClick={() => (f.type === 'folder' ? onFolder(f.path) : openTeamFile(f.path))}
+                data-testid="name-hit"
+              >
+                <Icon size={15} className="shrink-0 text-faint" aria-hidden />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  <Highlighted text={f.name} query={query} />
+                </span>
+                {parent && <span className="min-w-0 shrink truncate text-xs text-faint max-sm:max-w-[40%]" title={f.path}>{folderWords.path(parent)}</span>}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {truncated && <p className="px-2 pt-1 text-xs text-faint">{t('files.search.namesTruncated', { n: items.length })}</p>}
+    </section>
+  )
+}
+
+export function FileNameResults({ q, path, onFolder }: { q: string; path: string; onFolder: (path: string) => void }) {
+  const t = useT()
+  const locale = useLocale()
+  // the words and folder an answer is for: the last answer stays while the next one is on its way
+  const [res, setRes] = useState<{ items: FileEntry[]; truncated: boolean; q: string; path: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+  const query = q.trim()
+
+  useEffect(() => {
+    let live = true
+    const ctrl = new AbortController()
+    // the last answer stays until the next one is here: the lines below do not jump when it comes
+    setError(null)
+    const timer = setTimeout(() => {
+      api.call(API.findFiles, { query: { q: query, path, limit: NAME_LIMIT, folders: '1' }, signal: ctrl.signal }).then(
+        (r) => live && setRes({ items: r.items, truncated: r.truncated, q: query, path }),
+        (e) => live && !ctrl.signal.aborted && setError(errorText(e, locale, t('error.network'))),
+      )
+    }, CONTENT_SEARCH_DEBOUNCE_MS)
+    return () => {
+      live = false
+      ctrl.abort()
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, path, tick])
+
+  if (error) return <div className="px-2 pt-2"><ErrorNote onRetry={() => setTick((n) => n + 1)}>{error}</ErrorNote></div>
+  if (!res) return null
+  const stale = res.q !== query || res.path !== path
+  return <div className="px-2 pt-2"><FileNameList items={res.items} truncated={res.truncated} query={res.q} onFolder={onFolder} stale={stale} /></div>
 }
