@@ -37,7 +37,7 @@ import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
 import { emojiForm } from '../emoji-form'
 import { isStatusEmoji } from '../status-message'
-import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
+import { ApiErrorBody, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
@@ -684,6 +684,13 @@ export const ReactRoomMessageBody = z.object({ emoji: RoomReactionEmoji, on: z.b
 export const RoomReactions = z.object({ reactions: z.array(RoomReaction) })
 export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).optional(), size: z.string().regex(/^\d+$/).transform(Number).optional() })
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
+/** "팀 파일" in a room's message box (a phone's attach sheet): a team file I may read now, copied as my upload in the
+ * room, sent by id like one from POST /api/rooms/:id/files */
+export const RoomTeamFileBody = z.object({ path: RelPath }).strict()
+/** the copy (not sent yet), and how many other members of the room cannot open the team file now: who will see it only
+ * through this message (a count, never who; as "대화방에 보내기" tells it before a copy goes: AnswerShareFile.unable) */
+export const RoomTeamFile = z.object({ file: RoomFile, unable: z.number().int().nonnegative() })
+export type RoomTeamFile = z.infer<typeof RoomTeamFile>
 
 export const ROOMS = {
   listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
@@ -708,6 +715,7 @@ export const ROOMS = {
   unpinRoom: endpoint({ method: 'DELETE', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Unpin a room ("Unpin"); not pinned: unchanged. My other windows hear it (room.updated).' }),
   leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
+  attachRoomTeamFile: endpoint({ method: 'POST', path: '/api/rooms/:id/team-file', auth: 'user', owner: 'B', status: 201, body: RoomTeamFileBody, response: RoomTeamFile, summary: 'Copy a team-folder file I may read now (not a folder, a link or a quarantined file: 404 like a missing one; ≤ 50 MB) as my upload to send in a room I am in, readable by the room\'s members once sent; with how many other members cannot open the team file (a count). Audited (room.team_file).' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
   getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),

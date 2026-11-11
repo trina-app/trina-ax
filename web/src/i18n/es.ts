@@ -3942,6 +3942,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.room.ai_share": "Publicó una respuesta de la IA en una sala",
   "audit.act.room.ai_shared_chats": "La IA leyó chats compartidos de proyecto en una sala",
   "audit.act.room.answer_share": "Envió una respuesta de la IA de su chat a una sala",
+  "audit.act.room.team_file": "Envió un archivo del equipo a una sala (una copia)",
   "audit.act.room.ai_delete": "Eliminó una respuesta de la IA en una sala",
   "audit.act.room.ai_grant": "Permitió de antemano archivos nuevos en una carpeta en una sala",
   "audit.act.room.ai_grant_revoke": "Quitó un permiso anticipado en una sala",

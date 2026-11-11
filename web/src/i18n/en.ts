@@ -3986,6 +3986,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.room.ai_share": "Posted an AI answer to a room",
   "audit.act.room.ai_shared_chats": "The AI read shared project chats in a room",
   "audit.act.room.answer_share": "Sent an AI answer of their own chat to a room",
+  "audit.act.room.team_file": "Sent a team file to a room (a copy)",
   "audit.act.room.ai_delete": "Deleted an AI answer in a room",
   "audit.act.room.ai_grant": "Allowed new files in a folder in advance in a room",
   "audit.act.room.ai_grant_revoke": "Removed an advance allowance in a room",

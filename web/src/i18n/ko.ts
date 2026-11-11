@@ -3985,6 +3985,7 @@ export const ko = {
   "audit.act.room.ai_share": "트리나 답을 대화방에 올림",
   "audit.act.room.ai_shared_chats": "트리나가 대화방에서 공유 프로젝트 채팅을 읽음",
   "audit.act.room.answer_share": "대화방에 AI 답변 보냄",
+  "audit.act.room.team_file": "대화방에 팀 파일 보냄 (사본)",
   "audit.act.room.ai_delete": "트리나 답 삭제",
   "audit.act.room.ai_grant": "대화방 폴더에 새 파일 미리 허용",
   "audit.act.room.ai_grant_revoke": "대화방 미리 허용 지움",

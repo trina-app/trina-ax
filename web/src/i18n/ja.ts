@@ -3942,6 +3942,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.room.ai_share": "AIの回答をトークルームに投稿",
   "audit.act.room.ai_shared_chats": "AIがトークルームで共有プロジェクトのチャットを読んだ",
   "audit.act.room.answer_share": "自分のチャットのAIの回答をトークルームに送信",
+  "audit.act.room.team_file": "チームのファイルをトークルームに送信(コピー)",
   "audit.act.room.ai_delete": "ルームのAIの回答を削除",
   "audit.act.room.ai_grant": "ルームでフォルダーへの新しいファイルを前もって許可",
   "audit.act.room.ai_grant_revoke": "ルームの事前の許可を削除",
