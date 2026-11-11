@@ -546,9 +546,26 @@ describe('the brief: notices and who connected', () => {
     await connect(cara, e.id, { secret: MCP_KEY })
     reconcile()
     expect((await of(cara, e.id)).length).toBe(0)
+    // someone who joins is not told at join about a template already there (docs/DECISIONS.md "A welcome for invited
+    // people"): Connected apps lists it, and opening it counts as told, with no notice
     const dave = await addMember(h, olga, { username: 'dave' })
     reconcile()
-    expect((await of(dave.client, e.id)).length).toBe(1)
+    expect((await of(dave.client, e.id)).length).toBe(0)
+    expect((await mine(dave.client)).some((x) => x.id === e.id)).toBe(true)
+    reconcile()
+    expect((await of(dave.client, e.id)).length).toBe(0)
+    expect(h.ctx.db.query('SELECT 1 FROM integration_template_offers WHERE template_id = ? AND user_id = ?').get(e.id, dave.id)).toBeTruthy()
+    // one who never opens it is told once their welcome days are over
+    const erin = await addMember(h, olga, { username: 'erin' })
+    reconcile()
+    expect((await of(erin.client, e.id)).length).toBe(0)
+    h.ctx.db.query("UPDATE member_welcome SET joined_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?").run(erin.id)
+    reconcile()
+    expect((await of(erin.client, e.id)).length).toBe(1)
+    // a template made after they joined is news: told at once
+    const later = await make(tpl({ name: 'Later Wiki', access: { ...nobody, users: [dave.id] } }))
+    expect((await of(dave.client, later.id)).length).toBe(1)
+    await ada.call('DELETE', `/api/admin/integration-templates/${later.id}`)
     await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
     await ada.call('DELETE', `/api/admin/integration-templates/${e.id}`)
   })

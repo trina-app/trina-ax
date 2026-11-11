@@ -221,17 +221,23 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
 
 /** Members' own AI accounts: whether members may add their own Claude or Codex account, whether a subscription may be
  * shared with the team (it warns first), and the accounts members connected. The switches are the owner's and the admins'. */
-function MemberAccounts({ tc }: { tc: TeamCredentials }) {
+export function MemberAccounts({ tc }: { tc: TeamCredentials }) {
   const t = useT()
+  // one save at a time, the switches off until its answer: two quick changes would otherwise both go and their answers
+  // (and the list read after one) could come back the other way round, the screen ending on what the server did not keep
+  const [saving, setSaving] = useState(false)
   const d = tc.state.data
   if (!d) return null
   return (
     <SettingsSection title={t('providers.memberAccounts')} testId="member-accounts">
       <SettingRow id="ai-member-own" inline title={t('credentials.memberOwn')} desc={t('credentials.memberOwnHint')}
         control={
-          <Switch id="ai-member-own" external describedBy="ai-member-own-desc" checked={d.memberOwn} disabled={!tc.owner} label={t('credentials.memberOwn')} testId="member-own-switch" onChange={async (v) => {
-            const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { memberOwn: v } }))
-            if (r) tc.state.setData({ ...d, memberOwn: r.memberOwn })
+          <Switch id="ai-member-own" external describedBy="ai-member-own-desc" checked={d.memberOwn} disabled={!tc.owner || saving} label={t('credentials.memberOwn')} testId="member-own-switch" onChange={async (v) => {
+            setSaving(true)
+            try {
+              const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { memberOwn: v } }))
+              if (r) tc.state.setData((cur) => cur && { ...cur, memberOwn: r.memberOwn })
+            } finally { setSaving(false) }
           }} />
         } />
       <SettingRow id="ai-shared-subscriptions" inline title={t('credentials.sharedSubscriptions')}
@@ -240,10 +246,13 @@ function MemberAccounts({ tc }: { tc: TeamCredentials }) {
         testId="shared-subscriptions-row"
         control={
           <div data-testid="shared-subscriptions-setting">
-            <Switch id="ai-shared-subscriptions" external describedBy="ai-shared-subscriptions-desc" checked={d.sharedSubscriptions} disabled={!tc.owner} label={t('credentials.sharedSubscriptions')} onChange={async (v) => {
+            <Switch id="ai-shared-subscriptions" external describedBy="ai-shared-subscriptions-desc" checked={d.sharedSubscriptions} disabled={!tc.owner || saving} label={t('credentials.sharedSubscriptions')} testId="shared-subscriptions-switch" onChange={async (v) => {
               if (v && !(await confirmDialog({ title: t('credentials.sharedRiskTitle'), body: t('credentials.sharedRiskWarning'), confirm: t('credentials.sharedRiskConfirm'), danger: true }))) return
-              const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { sharedSubscriptions: v, ...(v ? { acknowledgedSharedSubscriptionRisk: true } : {}) } }))
-              if (r) void tc.state.reload()
+              setSaving(true)
+              try {
+                const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { sharedSubscriptions: v, ...(v ? { acknowledgedSharedSubscriptionRisk: true } : {}) } }))
+                if (r) await tc.state.reload()
+              } finally { setSaving(false) }
             }} />
           </div>
         } />

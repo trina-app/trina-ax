@@ -175,13 +175,18 @@ describe('admin: members can turn on "Allow all websites"', () => {
 })
 
 describe('"Allow all websites" for the AI\'s web reads (the team allows it: Me.team.webAllowAll)', () => {
-  test('the Browser tab follows the team key outside the desktop app; inside it, it is there either way', () => {
+  test('outside the desktop app the Browser tab is there only while the person\'s own value is on (to turn it off); inside it, either way', () => {
     expect(browserTabShown(false, undefined)).toBe(false)
     expect(browserTabShown(false, false)).toBe(false)
-    expect(browserTabShown(false, true)).toBe(true)
+    // the web has no browser for the AI (server/src/chat/turn.ts): the team allowing it is not enough
+    expect(browserTabShown(false, true)).toBe(false)
+    expect(browserTabShown(false, true, false)).toBe(false)
+    expect(browserTabShown(false, true, true)).toBe(true)
+    // the person's value counts only while the team allows it
+    expect(browserTabShown(false, undefined, true)).toBe(false)
     expect(browserTabShown(true, undefined)).toBe(true)
-    expect(settingsTabs(browserTabShown(false, undefined)).some((x) => x.id === 'browser')).toBe(false)
-    expect(settingsTabs(browserTabShown(false, true)).some((x) => x.id === 'browser')).toBe(true)
+    expect(settingsTabs(browserTabShown(false, true)).some((x) => x.id === 'browser')).toBe(false)
+    expect(settingsTabs(browserTabShown(false, true, true)).some((x) => x.id === 'browser')).toBe(true)
   })
   test('team key off: today\'s desktop page, its own texts, no server lines', () => {
     const html = view(settings({ siteAccess: 'all' }))

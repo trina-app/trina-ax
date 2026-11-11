@@ -1,7 +1,9 @@
 // Shared project chats, phase 1 (docs/DECISIONS.md "Shared project chats"): a project's people see its new chats and
 // continue them, each turn as its sender, with the fake engine through the real launcher and gate. The project is on
-// projects/falcon: alice writes it, the finance group (bob) reads it, carol (admin) and dana (owner) see everything;
-// erin sees only its public/ folder, so she is not in its audience. Covered: the setting, sharing only at creation,
+// projects/falcon: alice writes it, the finance group (bob) reads it; carol (admin) and dana (owner) are not its
+// members, so they do not see its chats either (docs/DECISIONS.md "Project contents only for members": a test that needs
+// carol to read it makes her a member first, `asMember`); erin sees only its public/ folder, so she is not in its
+// audience. Covered: the setting, sharing only at creation,
 // who lists and finds what, access lost or gained, busy, the runner's usage, delete / move / repoint / project
 // delete, the read card (yes / no / timeout) for files, the person's own folder, searches, skills, "/name",
 // attachments and sub-agents, the tool and prompt allowlists, resume only by the same person, the engine folder
@@ -14,7 +16,7 @@ import path from 'node:path'
 import { API, ApiError, type Chat, type Message, type ServerFrame } from '@mycel/shared/api'
 import { FILE_TOOLS } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { oldProject } from '../lib/legacy-project'
+import { legacyProject, oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
 import { sharedChatAudienceCovers, sharedTranscriptText, unshareUncheckedChats } from '../../server/src/chat/shared'
@@ -70,16 +72,32 @@ const messages = async (user: string, chatId: string): Promise<Message[]> => (aw
 const listIds = async (user: string, query: Record<string, string> = {}) => (await h.api(user).call(API.listChats, { query })).items.map((c) => c.id)
 const audits = (action: string, target: string) => db().query('SELECT actor_id AS actor, detail FROM audit_log WHERE action = ? AND target = ? ORDER BY id').all(action, target) as { actor: string; detail: string | null }[]
 const framesFor = (user: string, chatId: string, type: ServerFrame['type']) => ws[user]!.frames.filter((f) => f.type === type && (f as { data: { chatId?: string } }).data.chatId === chatId)
+/** `user` a member of Falcon (a participant: a person rule on its folder) while `fn` runs: the owner and admins read a
+ * project in projects/ only as members (docs/DECISIONS.md "Project contents only for members") */
+async function asMember<T>(user: string, access: 'read' | 'write', fn: () => Promise<T>): Promise<T> {
+  const folder = (db().query("SELECT id FROM folders WHERE path = 'projects/falcon'").get() as { id: string }).id
+  const rule = crypto.randomUUID()
+  db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', ?, ?)").run(rule, folder, user, access)
+  try { return await fn() } finally { db().query('DELETE FROM folder_rules WHERE id = ?').run(rule) }
+}
 
 // ---------------- the setting ----------------
 describe('the project setting', () => {
   test('editors turn it on and off (audited); others may not; the project says who sees it', async () => {
     const p = await h.api('alice').call(API.getProject, { params: { id: projectId } })
-    // alice, bob (finance reads it), carol (admin) and dana (owner); erin sees only public/
-    expect(p).toMatchObject({ shareChats: true, audience: 4 })
+    // alice and bob (finance reads it); carol (admin) and dana (owner) are not members; erin sees only public/
+    expect(p).toMatchObject({ shareChats: true, audience: 2 })
     expect((await errOf(h.api('bob').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } }))).status).toBe(403)
     expect((await errOf(h.api('erin').call(API.getProject, { params: { id: projectId } }))).status).toBe(404)
-    await h.api('carol').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } })
+    // carol (admin) is not a member: the setting is its contents, so she may not change it, and she does not read it
+    // (without `manage` it is not found; with it, its name and member count only)
+    expect((await errOf(h.api('carol').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } }))).status).toBe(403)
+    expect((await errOf(h.api('carol').call(API.getProject, { params: { id: projectId } }))).status).toBe(404)
+    const managed = await h.api('carol').call(API.getProject, { params: { id: projectId }, query: { manage: '1' } })
+    expect(managed).toMatchObject({ name: 'Falcon', member: false, canManage: true, canEdit: false, instructions: '', audience: 2 })
+    expect([managed.shareChats, managed.sharedChats, managed.chatUploads]).toEqual([undefined, undefined, undefined])
+    // once a member who may write it, an admin edits it like its creator
+    await asMember('carol', 'write', () => h.api('carol').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } }))
     expect((await h.api('bob').call(API.getProject, { params: { id: projectId } })).shareChats).toBe(false)
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
     expect(audits('project.share_chats', projectId).map((a) => [a.actor, JSON.parse(a.detail!).on])).toEqual([['alice', true], ['carol', false], ['alice', true]])
@@ -97,10 +115,15 @@ describe('the project setting', () => {
       expect([s.status, s.body.params?.reason]).toEqual([409, 'safe_ops'])
     } finally { delete process.env.MYCEL_SAFE_OPS_1A }
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
-    const atlas = await oldProject(h, 'dana', { name: 'Atlas', folderPath: 'projects/atlas', instructions: '' })
+    // dana (owner) made Atlas but is not a member (finance writes it): she manages it without reading it
+    const atlas = { id: legacyProject(db(), h.team, 'dana', { name: 'Atlas', folderPath: 'projects/atlas', instructions: '' }) }
     db().query("UPDATE projects SET trashed_with = 'trash-1' WHERE id = ?").run(atlas.id)
+    // a project in the trash: nobody reads it, the owner included (docs/DECISIONS.md "Project contents only for
+    // members"); the owner may still manage it (rename, restore, delete), so turning sharing on is refused as a
+    // project in the trash, and nothing changes
     const t = await errOf(h.api('dana').call(API.updateProject, { params: { id: atlas.id }, body: { shareChats: true } }))
     expect([t.status, t.body.params?.reason]).toEqual([409, 'project_in_trash'])
+    expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(atlas.id)).toEqual({ share_chats: 0 })
     db().query('DELETE FROM projects WHERE id = ?').run(atlas.id)
   })
 })
@@ -113,7 +136,7 @@ describe('shared only at creation', () => {
     expect(before.shared).toBeUndefined()
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
     const after = await newShared()
-    expect(after.shared).toMatchObject({ by: { id: 'alice' }, audience: 4, answering: null, mine: true, canDelete: true })
+    expect(after.shared).toMatchObject({ by: { id: 'alice' }, audience: 2, answering: null, mine: true, canDelete: true })
     // turning it on later does not share what was there
     expect((await errOf(h.api('bob').call(API.getChat, { params: { id: before.id } }))).status).toBe(404)
     expect((await h.api('bob').call(API.getChat, { params: { id: after.id } })).shared).toMatchObject({ by: { id: 'alice', name: 'Alice Kim' }, mine: false, canDelete: false })
@@ -140,7 +163,10 @@ describe('who sees a shared chat', () => {
     expect(await listIds('alice')).toContain(chat.id)
     expect(await listIds('bob')).not.toContain(chat.id)
     expect(await listIds('bob', { projectId })).toContain(chat.id)
-    expect(await listIds('carol', { projectId })).toContain(chat.id)
+    // the owner and admins are not members: the project page does not list it for them
+    expect(await listIds('carol', { projectId })).not.toContain(chat.id)
+    expect(await listIds('dana', { projectId })).not.toContain(chat.id)
+    expect((await errOf(h.api('carol').call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
     expect(await listIds('erin', { projectId })).not.toContain(chat.id)
     expect((await errOf(h.api('erin').call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
     expect((await errOf(h.api('erin').call(API.listMessages, { params: { id: chat.id }, query: {} }))).status).toBe(404)
@@ -160,7 +186,8 @@ describe('who sees a shared chat', () => {
     try {
       expect((await errOf(h.api('bob').call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
       expect(await listIds('bob', { projectId })).not.toContain(chat.id)
-      expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).shared?.audience).toBe(3)
+      // alice alone (the owner and admins are not members)
+      expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).shared?.audience).toBe(1)
     } finally { db().query("INSERT INTO group_members VALUES ('finance','bob')").run() }
     expect((await messages('bob', chat.id)).map((m) => m.content)).toEqual(['first question\n' + fake({ say: 'first answer' }), 'first answer'])
     // the creator loses the folder: the chat is hidden from her too
@@ -225,7 +252,10 @@ describe("each turn is its sender's", () => {
     expect(await reason(h.api('alice').call(API.updateChat, { params: { id: chat.id }, body: { projectId: other.id } }))).toEqual([409, 'shared_chat_move'])
     expect((await h.api('alice').call(API.updateChat, { params: { id: chat.id }, body: { title: 'Renamed' } })).title).toBe('Renamed')
     expect(await reason(h.api('bob').call(API.deleteChat, { params: { id: chat.id } }))).toEqual([403, 'shared_chat_manage'])
-    await h.api('carol').call(API.deleteChat, { params: { id: chat.id } })
+    // carol (admin) who is not a member does not see it, so she cannot delete it; once a member who writes it, she can
+    expect((await errOf(h.api('carol').call(API.deleteChat, { params: { id: chat.id } }))).status).toBe(404)
+    expect(audits('chat.delete', chat.id)).toEqual([])
+    await asMember('carol', 'write', () => h.api('carol').call(API.deleteChat, { params: { id: chat.id } }))
     expect(audits('chat.delete', chat.id).map((x) => x.actor)).toEqual(['carol'])
     expect((await errOf(h.api('bob').call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
     expect(await listIds('alice', { trash: '1' })).toContain(chat.id)
@@ -261,16 +291,16 @@ describe('the read card', () => {
     const chat = await newShared()
     const bobFrames = ws.bob!.frames.length
     const r = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), 'share')
-    // 4 people see the chat; bob cannot read groups/marketing
+    // 2 people see the chat (alice and bob; the owner and admins are not members); bob cannot read groups/marketing
     expect(r.card.kind).toBe('ask_user')
     const q = (r.card as { question: string }).question
     expect(q).toContain('Groups › marketing')
-    expect(q).toContain('Of the 4 people in the project who see this chat, 1 cannot see this place')
+    expect(q).toContain('Of the 2 members who see this chat, 1 cannot see this place')
     expect((r.card as { options: { label: string }[] }).options.map((o) => o.label)).toEqual(['Read and share', "Don't read"])
     expect(r.done.content).toContain(CANARY)
     expect(ws.bob!.frames.slice(bobFrames).some((f) => f.type === 'turn.request')).toBe(false)
     const a = audits('chat.shared_read', chat.id).map((x) => JSON.parse(x.detail!))
-    expect(a).toEqual([expect.objectContaining({ decision: 'shared', tool: 'read', places: 1, cannotSee: 1, audience: 4 })])
+    expect(a).toEqual([expect.objectContaining({ decision: 'shared', tool: 'read', places: 1, cannotSee: 1, audience: 2 })])
     expect(JSON.stringify(a)).not.toContain('bob')
     // the same place again in this turn: no second card (a fresh turn asks again)
     const again = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'read', args: { file_path: 'groups/marketing/campaigns/instagram-plan.md' } }, { say: 'twice' }), 'share')
@@ -289,7 +319,7 @@ describe('the read card', () => {
     expect(r.done.content).not.toContain('groups/marketing')
     expect(r.done.content).not.toMatch(/Bob|bob/)
     const step = r.done.steps.find((s) => s.tool === 'read')!
-    expect(step).toMatchObject({ label: 'Not read: not everyone in the project can see that place', status: 'ok' })
+    expect(step).toMatchObject({ label: 'Not read: not every member of the project can see that place', status: 'ok' })
     // bug 8: a card that timed out is not "chose not to share"
     const t = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), null)
     expect(t.done.content).not.toContain(CANARY)
@@ -310,7 +340,8 @@ describe('the read card', () => {
     const chat = await newShared()
     const own = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' }, sayResult: true }), 'skip')
     expect((own.card as { question: string }).question).toContain('your personal folder')
-    expect((own.card as { question: string }).question).toContain('3 cannot see this place')
+    // bob (the owner and admins are not members, so they are not counted)
+    expect((own.card as { question: string }).question).toContain('Of the 2 members who see this chat, 1 cannot see this place')
     expect(own.done.content).not.toContain('Draft Q4 campaign report')
     // no path: the project folder only (everyone who sees the chat reads it): no card, nothing from marketing
     const cards = () => audits('chat.shared_read', chat.id).length
@@ -330,9 +361,13 @@ describe('the read card', () => {
   })
 
   test("an admin's listing that shows names others cannot see asks first", async () => {
-    const chat = await newShared('carol')
-    const r = await askWithCard('carol', chat.id, fake({ tool: 'list', args: { path: '' }, sayResult: true }), 'skip')
-    expect(r.done.content).not.toContain('CLAUDE.md')
+    // an admin who is not a member makes no chat in it (not found); as a member, her listing of the root asks
+    expect((await errOf(newShared('carol'))).status).toBe(404)
+    await asMember('carol', 'write', async () => {
+      const chat = await newShared('carol')
+      const r = await askWithCard('carol', chat.id, fake({ tool: 'list', args: { path: '' }, sayResult: true }), 'skip')
+      expect(r.done.content).not.toContain('CLAUDE.md')
+    })
   })
 
   test('skills: a skill some people cannot read asks before it loads, the tool and "/name" alike', async () => {
@@ -353,7 +388,7 @@ describe('the read card', () => {
     const att = await h.api('alice').call(API.attachTeamFile, { body: { chatId: chat.id, path: 'users/alice/todo.md' } })
     const r = await askWithCard('alice', chat.id, 'see the file\n' + fake({ echo: 'message' }), 'skip', [att.id])
     expect(r.done.content).not.toContain('users/alice/todo.md')
-    expect(r.done.steps.find((s) => s.tool === 'attachment')?.label).toBe('Not read: not everyone in the project can see that place')
+    expect(r.done.steps.find((s) => s.tool === 'attachment')?.label).toBe('Not read: not every member of the project can see that place')
     // bob sees the attachment blanked (he cannot open it)
     const forBob = await messages('bob', chat.id)
     expect(forBob[0]!.attachments[0]).toMatchObject({ unavailable: true, name: '', path: '' })
@@ -481,8 +516,12 @@ describe('what each viewer sees', () => {
     expect(forAlice.files?.saved.map((f) => f.path)).toEqual(['users/alice/shared-note.md'])
     expect(forAlice.steps.find((s) => s.tool === 'read')?.label).toContain(BRIEF)
     expect(JSON.stringify(forAlice.steps)).not.toContain('"sv"')
-    // carol (admin) may read marketing: she sees the path
-    expect((await messages('carol', chat.id)).find((m) => m.id === r.done.id)!.steps.find((s) => s.tool === 'read')?.label).toContain(BRIEF)
+    // carol (admin) is not a member: she does not see the chat at all; as a member (she may read marketing) she sees the
+    // path
+    expect((await errOf(messages('carol', chat.id))).status).toBe(404)
+    await asMember('carol', 'read', async () => {
+      expect((await messages('carol', chat.id)).find((m) => m.id === r.done.id)!.steps.find((s) => s.tool === 'read')?.label).toContain(BRIEF)
+    })
     const failed = await ask('bob', chat.id, fake({ fail: 'BOB-SECRET-ERROR rate limit exceeded' }))
     const seenByAlice = (await messages('alice', chat.id)).find((m) => m.id === failed.done.id)!
     expect(seenByAlice.status).toBe('error')
@@ -615,7 +654,9 @@ describe('reusable pieces (a room\'s AI may use a shared chat later only when ev
     const chat = await newShared()
     await ask('alice', chat.id, 'ALICE-ASKS\n' + fake({ say: 'answer A' }))
     await ask('bob', chat.id, 'BOB-ASKS\n' + fake({ say: 'answer B' }))
-    expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, ['alice', 'bob', 'carol', 'dana'])).toBe(true)
+    expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, ['alice', 'bob'])).toBe(true)
+    // the owner and admins are not members: a set with them is not covered
+    expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, ['alice', 'bob', 'carol', 'dana'])).toBe(false)
     expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, ['alice', 'erin'])).toBe(false)
     expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, [])).toBe(false)
     const own = await h.api('alice').call(API.createChat, { body: {} })

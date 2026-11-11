@@ -25,6 +25,9 @@ test('the provider\'s HTTP status stays in params, never in the words', () => {
 test('an error stored with the earlier words and no reason is still told apart (all five languages)', () => {
   const old: [ChatErrorReason, string][] = [
     ['engine_missing', '지금은 AI 엔진을 쓸 수 없어요. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).'],
+    // the words before "Trina isn't ready yet" (owner decision 2026-11-11)
+    ['engine_missing', "The AI can't answer right now. Let the team owner know."],
+    ['engine_missing', '지금은 AI가 답할 수 없어요. 팀장에게 알려 주세요.'],
     ['proxy_down', 'The AI connection (model proxy) is not ready. Try again in a moment; if it keeps happening, let the team owner know.'],
     ['crash', 'Mesin AI berhenti tiba-tiba. Coba lagi.'],
     ['no_credential', 'このエンジン用のAI接続がありません。管理者に知らせてください。'],

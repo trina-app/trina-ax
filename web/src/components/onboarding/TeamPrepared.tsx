@@ -4,7 +4,8 @@
 //   its title, its one line, [예시] (a kept skill's example, only when there is one) and [써 보기] (its form over Home;
 //   자연스러운 글 fills the box with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" and a new line instead: its form has no box
 //   for the text; the box then waits for the person's text before it sends), then "팀 스킬 N개 더 ›". They stay until
-//   the person ran a team skill, however many chats they have.
+//   the person ran a team skill or has PREPARED_SKILL_CHATS chats (then Home's "what my group often asks" can take the
+//   place: docs/DECISIONS.md "Home: what my group often asks").
 // - Team files: while the person has no chats and the team folder holds documents they can read: "{folder} · 파일 n개"
 //   with [물어보기], which puts a question that names the folder in the box as people read it ("예시커피 폴더", never
 //   "groups/…"; names and types only, the brand folder and the skills folder left out as the count leaves them out,
@@ -19,8 +20,8 @@
 // is 써 보기 (it says so at its end, as the files row says 물어보기), with 예시 as its own target at the row's end; the
 // files row is one row. The block reads again when skills, files or access change (once per burst of changes); a failed
 // read is the calm notice (components/LoadError.tsx, docs/DECISIONS.md "How we show errors": the connection reads again
-// by itself), never red under the box and never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」
-// out.
+// by itself), never red under the box and never the empty state. While the block shows anything, Home leaves "what my
+// group often asks" out: one block under the box at a time.
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -42,6 +43,8 @@ import { LoadError } from '../LoadError'
 
 /** Skill rows on Home before "팀 스킬 N개 더 ›". */
 export const PREPARED_SKILL_ROWS = 3
+/** The skill rows stay until a team skill ran, or until the person has this many chats. */
+export const PREPARED_SKILL_CHATS = 5
 const PHONE = '(max-width: 767.98px)'
 
 /** A file change the block cares about: a skill, the team's group folders, shared/ (the company start of a team that
@@ -92,8 +95,8 @@ export const filesQuestion = (t: (k: 'home.prepared.filesAsk', p: Record<string,
   t('home.prepared.filesAsk', { folder: folderLabel(f.path, locale), brand: f.without[0] ?? '' })
 
 /** What the block shows for this person (the rules above), apart from the data load. Exported for its test. */
-export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin: boolean; readOnly: boolean }) {
-  const skills = d.ranTeamSkill ? [] : d.skills
+export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin: boolean; readOnly: boolean; chats?: number }) {
+  const skills = d.ranTeamSkill || (o.chats ?? 0) >= PREPARED_SKILL_CHATS ? [] : d.skills
   const rows = skills.slice(0, PREPARED_SKILL_ROWS)
   const files = o.firstTime && d.teamFolder && d.teamFolder.files > 0 ? d.teamFolder : null
   const empty = !rows.length && !files
@@ -109,17 +112,19 @@ export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin
 export interface TeamPreparedProps {
   /** the person has no chats yet: the files row and the ready question can show */
   firstTime: boolean
+  /** how many chats the person has: the skill rows end at PREPARED_SKILL_CHATS */
+  chats?: number
   /** puts a request in the message box (never sends it); `waits`: it needs the person's own text after it, and this
    * line says so under the box while the box holds only the request (nothing is sent meanwhile) */
   onCompose: (text: string, waits?: string) => void
   /** no AI answers the person (a member under the no-AI card): rows and 예시 only */
   readOnly?: boolean
-  /** whether skill rows show, once that is known (false after a failed read): Home leaves 「자주 쓰는 스킬」 out while they
-   * do, so two lists of skills never sit side by side */
-  onSkillRows?: (shown: boolean) => void
+  /** whether the block shows anything, once that is known (false after a failed read): Home leaves "what my group often
+   * asks" out while it does, so one block sits under the box at a time */
+  onShown?: (shown: boolean) => void
 }
 
-export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRows }: TeamPreparedProps) {
+export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false, onShown }: TeamPreparedProps) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -130,11 +135,11 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
   const [running, setRunning] = useState<PreparedSkill | null>(null)
   const [viewing, setViewing] = useState<PreparedSkill | null>(null)
   const exampleButtons = useRef(new Map<string, HTMLButtonElement>())
-  const skillRows = data ? preparedView(data, { firstTime, admin, readOnly }).rows.length > 0 : failed ? false : null
+  const shown = data ? preparedView(data, { firstTime, admin, readOnly, chats }).shown : failed ? false : null
   useEffect(() => {
-    if (skillRows !== null) onSkillRows?.(skillRows)
+    if (shown !== null) onShown?.(shown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skillRows])
+  }, [shown])
   if (failed && !data) {
     // the calm notice (the connection: it reads again by itself, and the block shows when a read works); never red
     // under the box, and never the empty state
@@ -145,7 +150,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
     )
   }
   if (!data) return null
-  const v = preparedView(data, { firstTime, admin, readOnly })
+  const v = preparedView(data, { firstTime, admin, readOnly, chats })
   if (!v.shown) return null
 
   const tryIt = (s: PreparedSkill) => {

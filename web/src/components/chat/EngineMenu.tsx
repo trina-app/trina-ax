@@ -9,6 +9,16 @@ export const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude',
 
 export interface EnginePick { engine: EngineId; model: string | null }
 
+/** How many different choices the picker would offer: per engine its "Default model" row and one row per model, except
+ * the API engine, whose one model is its default (one choice). With one choice there is nothing to pick, so the
+ * composer shows no picker (owner 2026-11-11). */
+export function engineChoiceCount(engines: readonly EngineId[], models?: Partial<Record<EngineId, readonly unknown[]>>): number {
+  return engines.reduce((n, id) => {
+    const m = models?.[id]?.length ?? 0
+    return n + (id === 'api' && m <= 1 ? 1 : 1 + m)
+  }, 0)
+}
+
 export function EngineOptions({
   engines,
   models,

@@ -20,7 +20,7 @@ import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { GOAL_PEOPLE, plainLabel } from '@mycel/shared/api'
+import { AI_NOT_READY_WINDOW_MS, GOAL_PEOPLE, MEMBER_WELCOME_DAYS, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -35,6 +35,9 @@ const reviewSource = (userId: string, since: string) => `${REVIEW_SOURCE}${userI
  * lapse, chat/schedule-scope.ts markLapsed). */
 const SAVE_LAPSE_SOURCE = 'schedule-save-'
 const saveLapseSource = (scheduleId: string, at: string) => `${SAVE_LAPSE_SOURCE}${scheduleId}-${Date.parse(at) || 0}`
+/** Source of a "tried to use Trina but it isn't set up yet" notice (Notifications.aiNotReady): never a user id. */
+const NOT_READY_SOURCE = 'not-ready:'
+const notReadySource = (memberId: string) => `${NOT_READY_SOURCE}${memberId}`
 const services = new WeakMap<AppContext, Notifications>()
 type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null; sort_at?: string }
 type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
@@ -49,7 +52,7 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -58,7 +61,7 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
  * a transfer, a locked password check: migration 270) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -128,6 +131,24 @@ export class Notifications {
     if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
     this.record(ownerId, 'onboarding.ai_request', memberId, createdAt, true)
   }
+  /** "<name> tried to use Trina but it isn't set up yet" (the AI could not start: chat error engine_missing): one
+   * notice per owner and admin, at most once per member in AI_NOT_READY_WINDOW_MS. It shares the inbox table of the
+   * member's ask for an AI connection (the event type's CHECK list is fixed, and the same page fixes both) under a
+   * source of its own (`not-ready:<member id>`), so that ask and its "알렸어요" are untouched; it is never settled (the
+   * server cannot tell when it is fixed). True: told now; false: told within the window, nothing sent. */
+  aiNotReady(memberId: string, now = new Date()): boolean {
+    const source = notReadySource(memberId), at = now.toISOString()
+    const since = new Date(now.getTime() - AI_NOT_READY_WINDOW_MS).toISOString()
+    if (this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND created_at>? LIMIT 1").get(source, since)) return false
+    for (const id of admins(this.ctx.db)) {
+      if (id === memberId) continue
+      // an earlier notice (read or not) comes back unread at the top instead of a second row
+      const again = this.ctx.db.query("UPDATE onboarding_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='onboarding.ai_request' AND source_id=?").run(at, id, source)
+      if (again.changes) { if (this.active(id)) this.signal(id); continue }
+      this.record(id, 'onboarding.ai_request', source, at, true)
+    }
+    return true
+  }
   /** Is this member's ask still waiting (an unread row for any owner)? A settled or read one is not: they can ask again. */
   aiRequested(memberId: string): boolean {
     return !!this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND read_at IS NULL AND created_at>=? LIMIT 1").get(memberId, this.cutoff())
@@ -135,7 +156,7 @@ export class Notifications {
   /** A request whose member can use AI now (or is gone) counts as read: the owner is not left with something done. */
   settleAiRequests(userId?: string) {
     if (!isManaged(this.ctx.config)) return
-    const rows = this.ctx.db.query(`SELECT id, user_id, source_id FROM onboarding_notices WHERE read_at IS NULL ${userId ? 'AND user_id=?' : ''}`).all(...(userId ? [userId] : [])) as { id: string; user_id: string; source_id: string }[]
+    const rows = this.ctx.db.query(`SELECT id, user_id, source_id FROM onboarding_notices WHERE read_at IS NULL AND substr(source_id, 1, ${NOT_READY_SOURCE.length}) != '${NOT_READY_SOURCE}' ${userId ? 'AND user_id=?' : ''}`).all(...(userId ? [userId] : [])) as { id: string; user_id: string; source_id: string }[]
     const now = new Date().toISOString(), touched = new Set<string>()
     for (const r of rows) {
       const m = this.ctx.db.query("SELECT id, role FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(r.source_id) as { id: string; role: string } | null
@@ -145,10 +166,15 @@ export class Notifications {
     }
     for (const u of touched) this.signal(u)
   }
-  /** Someone joined through the team invite link (auth/team-links.ts): told to the owners and the link's maker. The
+  /** Someone joined (a team link, an invite or an admin's "Add directly"): told to the owners and the inviter. The
    * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
+  }
+  /** Someone started to see a team project (chat/project-joins.ts): told to its members. The source is the
+   * project.member_gained audit row's id only. Shown always and never pushed: it is rare and quiet. */
+  projectJoined(userId: string, auditId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'project.joined', auditId, createdAt, true)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
@@ -245,7 +271,9 @@ export class Notifications {
    * covers a new template, a change of who it is for, a person added to one of its groups and someone who joins while
    * it is for everyone: whatever made it reach them, this finds it. Its maker is not told about their own template. The
    * source is the template's id only, and integration_template_offers keeps a second notice from coming once the first
-   * is past its 30 days. Shown always: the person has something to do before their AI can use the service. */
+   * is past its 30 days. Shown always: the person has something to do before their AI can use the service. Not, for
+   * a template already there when they joined, someone who joined in the last days and has not opened Connected apps
+   * yet (member_welcome, migration 286). */
   offerTemplates(opts: { templateId?: string; userId?: string; limit?: number } = {}, at = new Date().toISOString()): number {
     // One set-based query (security review 2, #1): templates × active people, the same test as templateCovers in SQL,
     // so the cost is a single indexed scan instead of 1–3 queries per template and person. Only the pairs still owed a
@@ -257,11 +285,16 @@ export class Notifications {
     const args: (string | number)[] = []
     if (opts.templateId) { where.push('t.id = ?'); args.push(opts.templateId) }
     if (opts.userId) { where.push('u.id = ?'); args.push(opts.userId) }
+    // someone who joined lately is not told at join about the templates already there (docs/DECISIONS.md "A welcome for
+    // invited people"): those wait until they open Connected apps (onboarding/member-welcome.ts templatesSeen) or their
+    // welcome days are over. A template made after they joined is news, and is told as before
+    args.push(new Date(Date.now() - MEMBER_WELCOME_DAYS * 86_400_000).toISOString())
     args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
     const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
       FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
       WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
         NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM member_welcome w WHERE w.user_id = u.id AND w.apps_seen_at IS NULL AND w.joined_at >= ? AND t.created_at <= w.joined_at)
         AND NOT EXISTS (SELECT 1 FROM integrations i WHERE i.template_id = t.id AND i.owner_user_id = u.id)
         AND EXISTS (SELECT 1 FROM integration_template_access a WHERE a.template_id = t.id AND (a.subject_type = 'everyone'
           OR (a.subject_type = 'user' AND a.subject_id = u.id)
@@ -372,8 +405,9 @@ export class Notifications {
     if (!project) return base
     const devEnv = { projectId: projectId!, projectName: project.name }
     try {
-      // a project whose folder is in the trash is the admins' and the owner's (chat/projects.ts canSeeProject)
-      if (project.trashed_with !== null && !admins(db).includes(row.user_id)) throw new Error('project folder in the trash')
+      // a project whose folder is in the trash: nobody reads it (chat/projects.ts canSeeProject); an admin still gets a
+      // stop notice's project name and reason below, never the job's text
+      if (project.trashed_with !== null) throw new Error('project folder in the trash')
       authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
     } catch {
       return stop && admins(db).includes(row.user_id) ? { ...base, devEnv: { ...devEnv, stopCode: stop.code } } : base
@@ -391,7 +425,7 @@ export class Notifications {
     const project = run.project_id ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(run.project_id) as { name: string; folder_path: string; trashed_with: string | null } | null : null
     if (project) {
       try {
-        if (project.trashed_with !== null && !admins(db).includes(row.user_id)) throw new Error('project folder in the trash')
+        if (project.trashed_with !== null) throw new Error('project folder in the trash')
         authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
       } catch { return base }
     }
@@ -432,8 +466,21 @@ export class Notifications {
     }
     // the owner sees who asks (a name, nothing else) and goes to Admin › AI connections
     if (row.event_type === 'onboarding.ai_request') {
-      const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(row.source_id) as { name: string } | null
-      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}) }
+      const notReady = row.source_id.startsWith(NOT_READY_SOURCE)
+      const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(notReady ? row.source_id.slice(NOT_READY_SOURCE.length) : row.source_id) as { name: string } | null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}), ...(notReady ? { notReady: true as const } : {}) }
+    }
+    // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
+    if (row.event_type === 'project.joined') {
+      const a = this.ctx.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { detail: string | null } | null
+      let d: { projectId?: string; userId?: string } = {}
+      try { d = JSON.parse(a?.detail ?? '{}') } catch {}
+      const u = d.userId ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(d.userId) as { name: string } | null : null
+      const pr = d.projectId ? this.ctx.db.query('SELECT id, name, folder_path, trashed_with FROM projects WHERE id = ?').get(d.projectId) as { id: string; name: string; folder_path: string; trashed_with: string | null } | null : null
+      let sees = false
+      if (pr && pr.trashed_with === null) { try { sees = atLeast(this.ctx.files.rules().access(this.ctx.files.principal(row.user_id), pr.folder_path.split('/')), 'read') } catch { sees = false } }
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: sees ? 'project' : null, outcome: null,
+        projectJoined: { name: u?.name ?? null, project: sees && pr ? { id: pr.id, name: pr.name } : null } }
     }
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
@@ -524,7 +571,7 @@ export class Notifications {
           if (chat.project_id) {
             const project = this.ctx.db.query('SELECT folder_path, trashed_with FROM projects WHERE id=?').get(chat.project_id) as { folder_path: string; trashed_with: string | null } | null
             if (!project) throw new Error('missing project')
-            if (project.trashed_with !== null && p.role !== 'owner' && p.role !== 'admin') throw new Error('project folder in the trash')
+            if (project.trashed_with !== null) throw new Error('project folder in the trash')
             authorize(this.ctx.files.fx, rules, p, project.folder_path, 'read')
           }
           for (const source of readScope(this.ctx.db, chat.id) ?? []) {

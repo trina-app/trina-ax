@@ -31,9 +31,11 @@ export const sharesNewChats = (p: Pick<Project, 'shareChats' | 'inTrash'> | null
  * Who sees a chat, as the line under its box says it (docs/DECISIONS.md "Who sees it, always"). `shared`: the shared
  * chat's (Chat.shared) or the project's whose new chat will be shared (Project); null for a chat of one person, which
  * nobody else ever sees, admins included.
- * - 'me': a chat of one person, or a shared one whose count is 1 (the count includes the owner and every admin);
- * - 'admins': a shared one nobody else sees by a rule of its folder (`alone`): besides me only the owner and admins;
- * - 'people': how many see it, the owner and admins included (as the project's 멤버 line counts them).
+ * - 'me': a chat of one person, or a shared one whose count is 1;
+ * - 'admins': a shared one nobody else sees by a rule of its folder (`alone`): besides me only the owner and admins. Only
+ *   a project made before outside projects/: in projects/ the owner and admins see it only as members (docs/DECISIONS.md
+ *   "Project contents only for members"), so there `alone` comes only with a count of 1;
+ * - 'people': how many see it (in projects/ its members, as the project's 멤버 line counts them).
  */
 export type WhoSees = { kind: 'me' } | { kind: 'admins' } | { kind: 'people'; n: number }
 export function whoSees(shared: { audience?: number; alone?: boolean } | null | undefined): WhoSees {

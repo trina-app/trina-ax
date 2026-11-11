@@ -385,6 +385,38 @@ func TestUpdateFromBundle(t *testing.T) {
 	}
 }
 
+// the bootstrap rolls back, the old version cannot read the database, the bootstrap goes forward to the new one again
+// and it comes up: `update` reports ok, not rolled_back (no hold on a version that runs)
+func TestUpdateRollBackThenForwardIsOk(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	systemdRunDir = filepath.Join(t.TempDir(), "none")
+	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
+	old := rollbackGrace
+	rollbackGrace = 2 * time.Second
+	t.Cleanup(func() { rollbackGrace = old })
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	k := base64.StdEncoding.EncodeToString(pub)
+	stf := filepath.Join(tb.base, "app/state.json")
+	rb := `{"at":"x","from":"0.2.0","to":"0.1.0","result":"rolled_back","detail":"not healthy within 2m0s"}`
+	updateHooks(t, tb, func(v string) {
+		os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`]}`), 0o644)
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			os.WriteFile(stf, []byte(`{"format":1,"current":"0.1.0","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[`+rb+`],"forward":"0.2.0"}`), 0o644)
+			time.Sleep(2500 * time.Millisecond) // longer than the grace: the forward keeps the wait going
+			tb.health.Store(v)
+		}()
+	})
+	arch := filepath.Join(t.TempDir(), "g.tar.zst")
+	mkArchive(t, signedBundle(t, "0.2.0", priv, "old launcher"), arch, nil)
+	code, out, _ := tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
+	var r UpdateResult
+	json.Unmarshal([]byte(out), &r)
+	if code != 0 || r.Result != "ok" {
+		t.Fatalf("%d %+v", code, r)
+	}
+}
+
 func TestUpdateRefusals(t *testing.T) {
 	tb := newTestBase(t, "0.1.0")
 	systemdRunDir = filepath.Join(t.TempDir(), "none")

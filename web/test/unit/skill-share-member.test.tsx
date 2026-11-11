@@ -37,7 +37,6 @@ let calls: { key: string; body: any }[] = []
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/me/ai-access': () => json(200, { usable: true, action: 'ask_owner', requested: false }),
   'GET /api/skills': () => json(200, { items: [QUOTE, { ...BRIEF, description: '보고서 요약' }] }),
-  'GET /api/questions/frequent': () => json(200, { items: [] }),
   'GET /api/skills/popular': () => json(200, { items: [] }),
   'GET /api/onboarding/welcome': () => json(200, { progress: null }),
   'GET /api/onboarding/goal': () => json(200, { goal: null }),

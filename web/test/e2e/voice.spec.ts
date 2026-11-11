@@ -304,23 +304,23 @@ test.describe('rooms', () => {
 
   // docs/DECISIONS.md "Voice input on a team's own server: the key turns it on": "this server" without ffmpeg (an office
   // Mac) turns voice input off, so the mic no longer shows and then fails every recording, in the AI chat and in rooms
-  test('"this server" without ffmpeg: the owner gets the hint to the setting; a member has no mic and Space stays a Space', async ({ page }) => {
+  test('"this server" without ffmpeg: no mic for the owner nor a member, and Space stays a Space', async ({ page }) => {
     await reset(page)
     await speech(page, 'local')
     expect((await page.request.post('/__test/speech-host', { data: { localMissing: ['ffmpeg'] } })).ok()).toBeTruthy()
     await routeRoom(page, { members: [{ id: 'sora', name: '소라님' }], messages: [ROOT] })
     await signIn(page)
-    await expect(page.getByTestId('voice-off-hint')).toBeVisible()
+    await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
     await page.goto(`/rooms/${ROOM_ID}`)
-    await expect(page.getByTestId('room-composer').getByTestId('voice-off-hint')).toBeVisible()
+    await expect(page.getByTestId('room-input')).toBeVisible()
+    await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
     await page.context().clearCookies()
     await signIn(page, { username: 'bob', password: 'bob password 1' })
     for (const [where, box] of [['/', 'composer-input'], [`/rooms/${ROOM_ID}`, 'room-input']] as const) {
       if (where !== '/') await page.goto(where)
       await expect(page.getByTestId(box)).toBeVisible()
       await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
-      await expect(page.getByTestId('voice-off-hint')).toHaveCount(0)
       await page.getByTestId(box).click()
       await page.keyboard.down('Space')
       await page.waitForTimeout(700)

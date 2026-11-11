@@ -104,7 +104,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   // Admin > 폴더 권한 shows the group's rule on skills/, labelled, and points back at the Team skills page
   await page.goto('/admin/folders?folder=skills')
   const detail = page.getByTestId('folder-detail')
-  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 부서: 읽기·쓰기')
+  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 부서: 고칠 수 있음')
   await expect(detail.getByTestId('skill-manager-badge')).toBeVisible()
   await expect(detail).toContainText('팀 스킬 화면의 "고칠 수 있는 사람"과 같은 설정')
   // no team skills column on Members and Groups any more

@@ -67,6 +67,16 @@ const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
 
 type T = ReturnType<typeof useT>
 
+/** Someone started to see a project I am in (docs/DECISIONS.md "Project contents only for members": an owner or admin
+ * who added themselves, or anyone through a group): who, while their account is there, and the project, while I still
+ * see it; "누군가" and "프로젝트" for the part the server leaves out. */
+export function projectJoinedText(j: NonNullable<InboxNotification['projectJoined']>, t: T): string {
+  if (j.name && j.project) return t('notifications.event.project.joinedNamed', { name: j.name, project: j.project.name })
+  if (j.name) return t('notifications.event.project.joinedName', { name: j.name })
+  if (j.project) return t('notifications.event.project.joinedProject', { project: j.project.name })
+  return t('notifications.event.project.joined')
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -74,10 +84,13 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'credential.change' && item.credentialChange) return credentialChangeText(item.credentialChange, t)
   if (item.code === 'room.dm' || item.code === 'room.mention') return roomText(item, t)
   if (item.code === 'dev_env.job' || item.code === 'dev_env.box') return devEnvText(item, t)
+  // "tried to use Trina but it isn't set up yet" (POST /api/me/ai-not-ready/tell), with the name while the account is there
+  if (item.code === 'onboarding.ai_request' && item.notReady) return item.requester ? t('notifications.event.onboarding.ai_notReadyNamed', { name: item.requester.name }) : t('notifications.event.onboarding.ai_notReady')
   if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })
   if (item.code === 'skills.merge_waiting' && item.merges) return t('notifications.event.skills.merge_waitingN', { n: item.merges.n })
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
   if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
+  if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
@@ -109,6 +122,7 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
   if (item.link === 'room' && item.room) return { to: roomNoticeLink(item.room), testId: 'notification-room-link' }
   if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
+  if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
   if (item.link === 'connections') return { to: '/connectors/google-drive', testId: 'notification-connections-link' }
@@ -130,16 +144,19 @@ export function Notifications() {
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)
   /** changes made while one is saving: sent together right after it (nothing waits for the server on screen) */
   const queued = useRef<Partial<NotificationPreferences> | null>(null)
+  /** what the server has, as its last answer said (a read, or a save's answer): what a failed save goes back to */
+  const saved = useRef<NotificationPreferences | null>(null)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
-  const load = useCallback(async () => {
+  /** `keepError`: the read after a failed save, which leaves that save's message up */
+  const load = useCallback(async (keepError = false) => {
     const generation = life.current, seq = ++sequence.current
     try {
       const prefs = await api.call(API.getNotificationPreferences)
       if (generation !== life.current || seq !== sequence.current) return
       // while my changes are being saved, the switches show them, not a read from before the last one landed
-      if (!writing.current) setPreferences(prefs)
-      setError(null)
-    } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
+      if (!writing.current) { saved.current = prefs; setPreferences(prefs) }
+      if (!keepError) setError(null)
+    } catch (e) { if (!keepError && generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     // useT returns a fresh function; its translations change only with locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale])
@@ -154,15 +171,19 @@ export function Notifications() {
     setPreferences(current => current ? { ...current, ...patch } : current)
     sequence.current++
     if (writing.current) { queued.current = { ...queued.current, ...patch }; return }
-    const before = preferences
     writing.current = true
     try {
       for (let body: Partial<NotificationPreferences> | null = patch; body; body = queued.current, queued.current = null) {
-        await api.call(API.updateNotificationPreferences, { body })
+        saved.current = await api.call(API.updateNotificationPreferences, { body })
       }
     } catch (e) {
       queued.current = null; writing.current = false
-      if (generation === life.current) { setPreferences(before); setError(errorText(e, locale, t('error.network'))) }
+      if (generation !== life.current) return
+      // back to what the server has, not to the switches as they were when this save began: a change saved before it
+      // (or in the same run of saves) stays. Then read the server again, as it may have more than its last answer said
+      if (saved.current) setPreferences(saved.current)
+      setError(errorText(e, locale, t('error.network')))
+      await load(true)
       return
     }
     writing.current = false
