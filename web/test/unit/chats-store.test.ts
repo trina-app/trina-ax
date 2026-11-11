@@ -102,6 +102,56 @@ describe('sending', () => {
     expect(useChats.getState().threads[CHAT]!.messages[0]!.id).toBe(s.userMessage!.id)
     expect(SEND_RETRY_MS).toBe(30_000)
   })
+
+  test('Stop while the message is still on its way: the stop goes once the send returns its turn, never before', async () => {
+    const s = started(null, 'hello')
+    let answer!: (r: Response) => void
+    route = (m, p) => {
+      if (m === 'POST' && p === '/api/chats') return json(chat, 201)
+      if (p.endsWith('/stop')) return json({ stopped: true, turnId: s.turnId })
+      return new Promise<Response>((r) => { answer = r })
+    }
+    await useChats.getState().send({ chatId: null, content: 'hello', attachments: [], author: me })
+    let stopped = false
+    const stop = useChats.getState().stop(CHAT).then(() => { stopped = true })
+    await tick(5)
+    // a stop now would find no turn on the server and the answer would start anyway
+    expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false)
+    expect(stopped).toBe(false)
+    answer(json({ ...s, queuePosition: 0 }, 202))
+    await stop
+    const order = calls.map((c) => c.path)
+    expect(order.at(-1)).toBe(`/api/chats/${CHAT}/stop`)
+    expect(order.indexOf(`/api/chats/${CHAT}/messages`)).toBeLessThan(order.length - 1)
+  })
+
+  test('Stop while a send fails: the stop still goes (nothing waits forever) and nothing else is sent', async () => {
+    route = (_m, p) => (p.endsWith('/stop') ? json({ stopped: false, turnId: null }) : json({ error: { code: 'limit', message: 'limit' } }, 429))
+    useChats.setState({ threads: { [CHAT]: { messages: [], nextCursor: null, stale: false } } })
+    const { sent } = await useChats.getState().send({ chatId: CHAT, content: 'hi', attachments: [], author: me })
+    await useChats.getState().stop(CHAT)
+    await sent.catch(() => {})
+    expect(calls.map((c) => c.path)).toEqual([`/api/chats/${CHAT}/messages`, `/api/chats/${CHAT}/stop`])
+  })
+
+  test('Stop waiting for a send when the session ends (sign-out): no stop goes to the server', async () => {
+    let answer!: (r: Response) => void
+    route = (_m, p) => (p.endsWith('/stop') ? json({ stopped: true, turnId: null }) : new Promise<Response>((r) => { answer = r }))
+    useChats.setState({ threads: { [CHAT]: { messages: [], nextCursor: null, stale: false } } })
+    await useChats.getState().send({ chatId: CHAT, content: 'hi', attachments: [], author: me })
+    const stop = useChats.getState().stop(CHAT)
+    await tick(5)
+    useChats.getState().reset()
+    answer(json(started(null, 'hi'), 202))
+    await stop
+    expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false)
+  })
+
+  test('Stop with nothing on its way stops at once', async () => {
+    route = () => json({ stopped: true, turnId: uuidv7() })
+    await useChats.getState().stop(CHAT)
+    expect(calls.map((c) => c.path)).toEqual([`/api/chats/${CHAT}/stop`])
+  })
 })
 
 describe('events', () => {
