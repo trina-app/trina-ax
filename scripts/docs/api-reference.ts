@@ -22,6 +22,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ADMIN: 'Admin',
   CREDENTIALS: 'AI connections',
   DRIVE: 'Google Drive',
+  GOOGLE_APPS: 'Gmail, Google Calendar, Google Docs and Google Sheets',
   INTEGRATIONS: 'MCP and HTTP connections',
   NOTIFICATIONS: 'Notifications',
   PUSH: 'Push notifications',
