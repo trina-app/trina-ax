@@ -14,6 +14,7 @@ import { msg } from '../auth/messages'
 import { audit } from './audit'
 import { afterAccessChange, captureState, ensureFolderRow, foldersWithRuleOf, keepProjectFloors, resolveFolderPath, type SeenStates } from './folders'
 import { notifyTemplateOffers } from '../notifications/service'
+import { noTeamRoom } from '../rooms/service'
 import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -85,8 +86,10 @@ export function groupFolder(ctx: AppContext, id: string): string | null {
 }
 
 /** Make a group as `actorId` (Admin › Groups, and the welcome steps' team group): the group, its folder groups/<name>/
- * with its folders row and the rule "this group writes", audited as group.create. */
-export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[] }, locale: Locale, from: ChangeFrom = {}): Group {
+ * with its folders row and the rule "this group writes", audited as group.create. `room: false` (the welcome steps' team
+ * group): no team room — its room row is written archived with the group, so rooms/service.ts sync (run at the end,
+ * afterAccessChange) never makes one (docs/DECISIONS.md "One room for the whole team"). */
+export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[]; room?: false }, locale: Locale, from: ChangeFrom = {}): Group {
   const auth = { user: { id: actorId } }
   if (nameTaken(ctx, b.name)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
   const memberIds = checkMembers(ctx, b.memberIds, locale)
@@ -102,6 +105,7 @@ export function createGroupAs(ctx: AppContext, actorId: string, b: { name: strin
       ON CONFLICT(folder_id, subject_type, subject_id) DO UPDATE SET access = 'write', updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
       .run(newId(), f.id, id, auth.user.id, new Date().toISOString())
     audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds, ...viaOf(from) } })
+    if (b.room === false) noTeamRoom(ctx.db, id)
   })()
   afterAccessChange(ctx, before, byOf(auth.user.id, id, from))
   // templates for this group reach its members now (security review 2, #1)

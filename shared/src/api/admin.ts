@@ -108,7 +108,7 @@ export const CreateFolderBody = z.object({
   path: RelPath,
   /** create the folder on disk if missing */
   create: z.boolean().default(true),
-  rules: z.array(FolderRuleInput).default([]),
+  rules: z.array(FolderRuleInput).max(200).default([]),
   /** the hash of the rules the editor started from (no row yet: the hash of no rules) */
   expectedHash: ExpectedHash.optional(),
 })
@@ -362,6 +362,17 @@ export const FolderEditPreview = z.object({
   next: z.array(AccessTreeWho),
   /** "follow the folder above": who would see it with no rules of its own (null at the team root, which has none above) */
   above: z.array(AccessTreeWho).nullable(),
+  /** the same in one line, for the Files page's "Who can open it" panel: what a member that no person or group rule
+   * names would get here with no rules of its own, and the folder whose rule decides it ('' = the team root; null: no
+   * rule on the way up lets them in). Null at the team root. Absent: an older server */
+  everyoneAbove: z.object({ access: Access, folder: RelPath.nullable() }).nullable().optional(),
+  /** the rules give more access here or in a rule folder below to someone `changes` cannot count: a person switched
+   * off (when switched back on), or whoever joins the team or a group the rules name (an empty group counts nobody
+   * today). The Files page's panel asks before saving then too. Absent: an older server */
+  latentMore: z.boolean().optional(),
+  /** with `latentMore`: who, so the panel can say it: whoever joins the team (`team`), people switched off (by name, at
+   * most 50), whoever joins these groups. Null without latentMore. Admin only, like the rest of this answer */
+  latent: z.object({ team: z.boolean(), off: z.array(UserRef), groups: z.array(z.object({ id: z.string(), name: z.string() })) }).nullable().optional(),
   /** less first, then more */
   changes: z.array(FolderEditChange),
   /** the rule folders below that change too, in the tree's order (at most 20; `belowMore` others) */
@@ -458,6 +469,11 @@ export const BudgetBody = z.object({
   action: z.enum(['warn', 'block']),
 })
 export const UpdateSettingsBody = TeamSettings.partial()
+/** Team settings only the owner may change (an admin gets 403 with fields[body.<key>] = 'owner only'; the same value
+ * again is fine). The retention periods decide what the nightly sweep erases (the audit log, file history, both
+ * trashes), so an admin must not be able to shorten them; the update channel goes with them. The team name is the
+ * owner's too, with its own message (the relay address changes). */
+export const OWNER_ONLY_SETTINGS = ['updateChannel', 'auditRetentionDays', 'fileHistoryRetentionDays', 'trashRetentionDays', 'chatTrashRetentionDays'] as const satisfies readonly (keyof TeamSettings)[]
 /** PUT /api/admin/team-icon?type=image/png: the type the file is (PNG, JPEG or WebP; its first bytes must match). The
  * server refuses anything else in words (params.reason: type, mismatch, too_big, too_small, too_large). */
 export const TeamIconQuery = z.object({ type: z.string().min(1).max(100) })
@@ -584,7 +600,7 @@ export const ADMIN = {
   deleteBudget: endpoint({ method: 'DELETE', path: '/api/admin/budgets/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Delete a budget.' }),
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
-  updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings (team name change also renames the relay address: owner only).' }),
+  updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS).' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown in the sidebar header; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: the sidebar shows the product\'s mark again; audited.' }),
   speechHost: endpoint({ method: 'GET', path: '/api/admin/speech-host', auth: 'admin', owner: 'A', response: SpeechHost, summary: 'How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here.' }),

@@ -7433,6 +7433,28 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Not done**: the mobile app's address box (`mobile/src/address.ts`) still accepts only `/invite/<token>` links, not `/join#t=`; a list of who joined through which link beyond the audit log; single-use invites keep their token in the path (`/invite/<token>`, unchanged, already masked in logs).
 - Tests: `tests/unit/a-team-links.test.ts` (make, show again, replace, revoke; sealed and hashed at rest; members only with a role in the request; groups; taken username, weak password, unknown token; max uses with three joins at once for two uses; expiry; the per-link limit across addresses, and joins that work not counting; a maker disabled, enabled again or demoted; the use-time check; a restored copy; the owners' and the maker's inbox; seats: default, cap, full; the skill deep link and the folder rules; no path or query parameter and nothing logged with the token), `web/test/unit/team-link.test.tsx` (the fragment, the next page, the message in five languages, the panel's states, the join form without a second password, `/join` sending the token only in POST bodies, every "no longer works" message, InviteStep and its soft dialog), `web/test/e2e/team-link.spec.ts` (the whole flow in a real browser against the mock: make, copy the message, join, land on the skill, no request URL with the token, revoke).
 
+## A new member is told to the team (feat/member-joined-notice, 2026-11-11, QA)
+
+- **Problem.** On potenlab, a member who joined with a single-use invite (qa-d) was told to nobody: no line in the
+  everyone room, nothing in Activity. A join with the team link already told the owners and the link's maker
+  (`team.joined`), but not the rest of the team.
+- **Rule.**
+  - Both kinds of join (an invite: `auth/accounts.ts acceptInvite`; the team link: `auth/team-links.ts`) put one event
+    line in the everyone room, written as the new member: `{type: 'joined'}`, shown as "{name} joined the team". An
+    event line is never unread and does not move the room in the lists, so nobody gets a badge, a notice or a push;
+    the team sees it when they open the room and can say hello. The new member is put in the room first and sees it
+    too.
+  - An invite join now also sends `team.joined` to the owners and the invite's maker (Activity, no push), as the team
+    link does. Its text no longer names the team link ("{name} joined the team").
+  - Names only: no email, no role, no inviter in the room line.
+- **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
+  and the person may not have signed in yet. No push for joins.
+- **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
+  `tests/unit/a-team-links.test.ts` (team link join: the line).
+||||||| 2be3f4b09
+||||||| 1565b39f1
+||||||| 626c5fbfd
+
 ## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
 
 Onboarding wave 2, stream W. Placement: Team AX core (skills, files and the first chat; nothing about plans, billing
@@ -20244,6 +20266,272 @@ overruled the review's MUST 1 and three of its SHOULDs:
   - the permission matrix and `security-route-coverage.test.ts`;
   - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
 
+## Plain words in errors, cards and steps — 오류·확인 카드·작업 단계를 쉬운 말로 (fix/plain-words-errors-cards, 2026-11-11, product owner)
+
+The owner (2026-11-11): Trina AX is used by office workers, almost never developers; every screen must make sense to a
+non-developer in a few seconds. The plain-words audit (2026-11-10) found the developer words concentrated in what the
+server sends: chat errors naming engines, proxies, API addresses, "(HTTP 502)" and admin menus that no longer exist;
+confirmation cards with `create_task`, a JSON dump, raw paths and a SHA-256; step lines with snake_case ids, raw ids,
+engine names, model ids and an English " (job)". The owner approved the audit's top 15; this is PR 2 of that work
+(items 3, 5, 6 and the server-sent parts of 11 and 15). Plan: `docs/AGENTS/plan/20261111-0044-plain-words-errors-cards.md`.
+
+- **Chat errors say what happened and who to tell** (`shared/src/api/errors.ts` CHAT_ERROR_MESSAGES, the generic
+  `engine_unavailable`): "지금은 AI가 답할 수 없어요. 팀장에게 알려 주세요.", "답하다가 멈췄어요. 다시 해 주세요.", "쓸 수
+  있는 AI 계정이 없어요. 관리자에게 알려 주세요." No engine, proxy, API or HTTP code in any language
+  (`tests/unit/chat-errors-plain.test.ts` checks every one). The server no longer adds " (HTTP 502)" to the text
+  (`chat/i18n.ts engineError`); the status stays in `params.status` for diagnostics.
+- **Where to fix it, for those who can** (`web/src/lib/chatErrors.ts`): the owner and admins read their own words with
+  the admin menu path, built from the menu's labels (`admin.title` › `admin.providers`, or › `admin.system` ›
+  `system.health`), so the path follows the menu when it is renamed (the other plain-words PR renamed 제공자 to AI 계정). The health
+  page is the owner's only (admins see the storage there), so `engine_missing` and `proxy_down` name it to the owner and
+  an admin reads the member's words. A member never sees a menu path. The "no AI" words with the connect button
+  (`aiConnect.error.*`) keep winning while no AI answers the owner or an admin; `credential_unusable` there now names
+  the real menu too (it said "관리 › AI 연결").
+- **Old stored errors still follow the language**: errors saved without `params.reason` are matched by their exact
+  text, so every earlier wording (all five languages) stays in `LEGACY_CHAT_ERRORS` / `LEGACY_ERROR_MESSAGES`, for
+  matching only. The engine and safe-operations refusals ("어떤 AI로 답할지는 관리자가 정해요. 그냥 보내면 팀 기본 AI가
+  답해요.", "이 팀의 보안 설정 때문에 …") have no stored form to keep.
+- **The connected-service card** (`integrations/connections/card-lines.ts`, `tools.ts gate`). It is a safety net, so
+  what the person needs to decide stays on it, and approve / deny do exactly what they did:
+  - The question names the tool by its MCP `title`, else its id in words ("AI가 Tasks에 이 내용을 보내려고 해요: 할 일
+    만들기"). The title is the service's text like the id: made one line, at most 80 characters, invisible and
+    direction-changing characters dropped, so it cannot add lines to the card. A service that would mislead with its
+    title could already mark the tool read-only and never be asked at all (`mcp.ts toolOf`), so the title widens nothing.
+  - Every value of the call is a labelled line (받는 사람, 제목, 마감일 …; a name not in `FIELD_WORDS` as its own words,
+    "page_id" → "Page id"), recipients first, **every text exactly as it is sent** (only a Windows line break read as a
+    line break; a long value scrolls in place). Two values whose names read the same get the name as sent after the
+    words ("내용 (html)"). A name with a long random-looking part stays as it is; names and values are highlighted alike.
+    The names' column takes at most 40% of the card and wraps, so a name never pushes the values out of sight.
+  - The exact JSON is one click away, "보내는 내용 그대로 보기" (`ConfirmDetail.exact`), with its size; open, it is what
+    the card showed before. A client that does not know `exact` shows the JSON open.
+  - Lines are made only when they can show all of it, else no lines and the JSON open as before, the recipients first
+    in words: more than 40 values, nested deeper than 4, over 20,000 characters; a name over 40 characters; an
+    invisible character in a name or a value (control, format, default-ignorable ones such as Unicode tags and
+    variation selectors, private use; an emoji's own joiners, selectors and skin tones are allowed); or spacing a line
+    would not show as sent (two spaces, a tab or another kind of space, a space at a line's end or start, more than one
+    empty line, white space at either end), which can carry data too (the review's finding: collapsing it hid it).
+  - The card now also highlights long random-looking parts (`opaqueParts`), in the lines and in the JSON. It had none.
+  - The size limit (`MAX_CARD_PAYLOAD`) is counted as before, on the JSON and the recipients.
+  - An HTTP API call is a request: "AI가 Tasks에 이 요청을 보내려고 해요: 지우기" (보내기, 바꾸기, 고치기, 지우기 for the
+    method), and the address it calls comes first as "보내는 곳", a word no argument gets; a JSON body as lines, a text
+    body open.
+- **Steps never show the AI's arguments.** A connection's step is "Notion · Create page" (`stepOf`), an HTTP API's
+  "Tasks · 보내기", a `call_tool` whose name matches no tool "작업" (that name is the AI's own text). This amends the 0.2.19 review's "a short look at the arguments" (`argsPreview`, S8): a price check
+  and the paid run it was for no longer read differently in the steps; both are on the activity log and the paid one
+  asked on its card. With no arguments there is nothing to hide, so `argsPreview`, `secretArg`, `hideSecretsInText`
+  and their test are gone.
+- **Step lines** (`shared/src/step-labels.ts`): a tool without words of its own reads as its id in words
+  (`readableToolName`: "TodoWrite" → "Todo write"; nothing left → 작업; cut to 200 characters first, with linear
+  patterns: an AI's long text cannot stall the server); no schedule or Drive ids (the verb alone);
+  no engine names or model ids ("AI가 답하지 않아 다른 AI로 다시 답해요", "고른 AI를 지금 쓸 수 없어 팀 기본 AI로
+  답해요"); " (job)" / " (background)" in the language on screen; verbs 화면 만들기, 자료 지도에서 찾기, 페이지에서 동작
+  실행, 페이지 오류 보기, 페이지 통신 보기, 쓸 수 있는 기능 찾기. Stored steps with the earlier templates or verbs are
+  redrawn in today's words (`LEGACY`, `LEGACY_VERBS`; a model id or engine name they held is dropped).
+- **Places in words on cards** (`chat/place-words.ts`): the Files screen's words for the top folders (`labeledPath`:
+  전사 공유, 부서, 프로젝트, 팀 스킬), 내 폴더 and 첨부한 파일 (`placeName`), another person's folder by their name, the
+  team folder's top as "팀 폴더 맨 위". Not `placeName` alone: it says a group's brand folder and the company's both as
+  "브랜드 폴더", and a card is where the person decides, so two places must never read the same. Two people of the same
+  name are told apart by their user name ("김민수 (kms)님의 폴더"); a folder at the top named like a place ("내 폴더",
+  "전사 공유") reads "팀 폴더 맨 위 › 내 폴더". A path with `.` or `..` is shown as given. Left as is: the person's own
+  attachments read "첨부한 파일 › 사진.jpg" whichever chat they came from (placeName; only their own). Used by the wider-audience card (target and sources), the shared-read card, the room change card's
+  question and fields, move/copy, the trash card's list, the team-skill save card (and the web preview's path, on hover
+  as a path) and save_room_file's default. What the AI reads, refusals and the activity log keep the disk path.
+- **The wider-audience card has no SHA-256 line.** A safe-operations PowerPoint's approval is still bound to those bytes
+  on the server (`safe-ops/publication.ts` binding, checked again before the link); the hash stays in
+  `safe_ops_publications` and the file event of the activity log.
+- **The person's own draft**: "내 폴더에 저장할 요청 준비" writes "…같은 내용을 내 폴더에 저장해 줘." with the place in words,
+  no `users/<id>`; the AI is told which folder 내 폴더 is (`chat/prompt.ts`).
+- **A connection's sign-in failure** is said in words (`integrations.signIn.reason.*`), not its stored code (denied,
+  invalid, changed, superseded). Merged with "A sign-in that did not finish says why" (#381), which did the same:
+  its `flowReasonKey` (`lib/integrations.ts`) and its words are kept, and they also cover `client` and `exchange`.
+- **Left for later**: the Google Drive routes' error codes (the web already words them where they show), background
+  job exception text, the English-only dev-environment card and errors, the in-app browser's "사내망 주소" card, the
+  skill-move card's path box, the schedule template's run message, and every web-only item of the audit (the other
+  plain-words PRs).
+- Tests: `tests/unit/chat-errors-plain.test.ts`, `c-integrations-card-lines.test.ts`, `step-labels-plain.test.ts`,
+  `place-words.test.ts`, `c-integrations-slow-list.test.ts` (no arguments in a step); web unit `chat-error-words`,
+  `ask-card-exact`; e2e `chat.spec.ts` (the error box as a member and as the owner), `safety-cards.spec.ts` (the lines,
+  the exact JSON, the fallback), `plain-steps.spec.ts`, `exfil-followups.spec.ts`.
+- Version impact: **patch** (new wording, one optional card field, no data change).
+
+## 열 수 있는 사람, 드라이브 공유 창처럼 — Who can open it, like Drive's Share (feat/drive-like-access, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`web/src/components/FolderAccess.tsx`, `web/src/pages/admin/FolderSharing.tsx`,
+`web/src/pages/admin/useRulesDraft.ts`, `web/src/lib/folder-sharing.ts`, `server/src/admin/access-edit.ts`), 이유:
+files and permissions are core. Plan: `docs/AGENTS/plan/20261110-1715-drive-like-access.md` (Google Drive's and
+Notion's help pages, two reviews of two rounds). Amends "폴더를 볼 수 있는 사람, 그 자리에서" (#306/#307): its admin part
+and "not a second editor in Files".
+
+The owner, after #306/#307: "It still looks much harder than Google Drive. Is there no way around that?" and then: our
+users are office workers, not developers; the panel must make sense in a few seconds, like Drive's.
+
+- **The admin's panel is Drive's Share dialog in our words.** Title "Who can open it" (열 수 있는 사람; the ⋯ entry too),
+  the folder's own name under it, never a path. One add field ("Add people or groups"), then one row per person or
+  group set here (a group stays one row, "Group · 5 people") with a select **Can view / Can edit** and ✕; a person in a
+  group set here with another setting says "In Sales, but can only view here" (the person's own setting wins here).
+  People and groups that a folder above lets in come after them, greyed, "From the Sales folder · Change there ›": the
+  whole row opens that folder's panel in place, with "Back to Quotes". **General access** is one select with Admin's
+  four basic choices in plain words: "Same as the {folder} folder", "Only people added here", "Everyone at {team} · Can
+  view / Can edit", and one line under it that is true for what is on screen. Then one quiet line, "Owner and admins
+  can always open team folders.", and "2 folders inside are shared differently · Open in Folder permissions".
+- **Removed from the panel:** the rows of people who cannot open it ("Name only", "on the way to"), the reason under
+  each person, a row per admin, the counts line, the headline, the red "folders inside have their own rules" line,
+  [Set rules] and the trip to Admin's editor for everyday changes. Admin › Folder permissions stays the full view
+  (setting someone to "No access", why one person can open something, every folder at once).
+- **Deepest wins, said before Save** (the owner chose to keep it): a setting here can give less than a folder above, and
+  adding a group can lower someone who could edit through a folder above (Drive and Notion only add up). While
+  something is changed, "What will happen" names the people from the server's answer for exactly the draft on screen:
+  "Erin will be able to open it", "Bob will only be able to view it", "Carol will no longer be able to open it" (three
+  names, then "and N others"; in `skills/` losing edit is "…no longer be able to change the team's skills").
+- **One save path.** The draft, the server's preview, the rules hash it started from, the save (PUT
+  `/api/admin/folders/:id/rules`, or POST `/api/admin/folders` with `create: false`), 409 handling and "load theirs"
+  moved out of Admin's editor into one hook (`useRulesDraft`) both use; Admin's editor did not change. The panel always
+  sends the hash; the server's checks are the same as for Admin's editor (admin only, not in `users/`, `shared/` and
+  `skills/` keep a rule, subjects that exist once, the hash, the audit row, the after-change effects).
+- **Keyed per folder.** The panel's body is mounted per folder (`key`), and an answer is kept by its folder and its
+  rules, so a draft or an answer of one folder never counts for another ("Change there" asks first when something
+  changed).
+- **Save asks the server again, and asks before more access.** Save asks the preview again at once for the draft; if the
+  answer differs from what was shown (someone changed a folder above, a group, a role), the new one shows and Save needs
+  another click ("This changed just now. Check the list and save again."). Whether to ask comes only from that answer:
+  someone in the team gains access here or in a folder inside (`changes`, exact for everyone counted), or the rules give
+  more to someone the head count cannot see (`latentMore`: a person switched off, whoever joins the team or a group the
+  rules name, an "everyone" that names nobody today). A guess in the web from the settings themselves was tried and
+  dropped in review: it asked "Give more access?" for a change that only lowered someone. The title says it ("Let 1
+  more person open it?", "Let 2 people edit it?", "Give more access?"), the body names the folder and who (losses in
+  the warning colour; who gains that no head count sees, by name: "Gina (switched off) will be able to open or edit it
+  when switched back on.", "People added to Design later will …", "People who join Acme later will …"; the preview's
+  `latent` says who), and its button asks the server once more before the write. Taking the team's own files or
+  skills from members asks in its own words ("Take access away?", "Their AI won't be able to open Company-wide
+  either.", "Save anyway"). Anything else that only narrows saves straight, "What will happen" having named who.
+  Leaving the panel (close, another folder, a link) while Save is on its way stops that Save at its next step; two
+  clicks are one Save.
+- **A team project's folder and everything inside it** are shown, not changed, and no admin endpoint is asked there
+  (the chip's tree ask too): the count (#341's split for the owner and admins, without its role line: the footer says
+  the owner and admins can always open it), the project's lines and [Members], or inside it "Open in Folder
+  permissions". The owner chose project contents members-only (`feat/project-members-only`,
+  which refuses admin rule writes and answers there); until it lands Admin › Folder permissions still edits inside a
+  project. A project made before outside `projects/` keeps the panel's editing, with its lines on top.
+- **Members learn nothing new.** Their panel says what #306 said, with the panel's one verb: "6 people can open it
+  (owner and admins included)", "Everyone at Acme can open it", "An admin changes who can open it.", their own folder,
+  a project's lines. No list, no Can view / Can edit (whether everyone can edit was never told), no "same as". The
+  admin part is a chunk loaded only for admins, and every admin read and write is refused to members by the server.
+- **The chip stays the count** (#341's rule: "3명" for the owner and admins, the total for members).
+- **Outcomes kept apart, in the panel and in Admin's editor** (hands-on QA): read & write → read is "can no longer
+  edit", not losing access. The panel's line says "Erin will no longer be able to edit it"; Admin's Save button and the
+  summary of a change say "Save (2 can no longer open it · 1 can no longer edit · 3 can now open it · 2 can now edit)"
+  (`outcomesOf`, `outcomeWords` in `web/src/lib/access-edit.ts`, from the server's `changes`); their lists' headings
+  say "can do less / can do more", and the folders below "{n} can do less / more" (the server counts those without the
+  kind). "Save (folders inside change)" when only folders below change.
+- **Server:** the edit preview says what the folder above gives everyone in one field, `everyoneAbove: { access, folder
+  }` (the permission function for a member nobody names, the folder's own rules left out; null at the team root): the
+  grouped `above` shows nobody when every member is named by a group rule. And `latentMore`: the permission function,
+  before and after, at the folder and its rule folders below, for every switched-off person, a member nobody names, one
+  made-up member per group the rules name, one per pair of the groups named on the way to the folder and below it
+  (group rules take the widest, so two groups together can differ from either alone) and one in all of them. A Save
+  whose fresh answer comes while the "Discard your changes?" question is open does not write. `POST /api/admin/folders` takes at most 200
+  rules (as PUT), and a rule row made meanwhile is a 409 with `params.reason: 'folder_exists'`.
+- **Phones:** the same panel in the app's bottom sheet, 44 px selects and ✕, a row's second line wrapping (never cut),
+  Save and "What will happen" in the sheet's own footer (the Modal's footer slot, on computers too), the confirm over
+  the sheet, "Change there" swapping the sheet's content. #339's shared phone rows were not on
+  dev yet; the rows use the same sizes and move to `CompactRow` when it lands.
+- Words: English first, then ko, id, ja, es; no "rule", "inherited", "grant" or path on screen.
+- Tests: `tests/security/folder-sharing.test.ts` (a member is refused every admin read and write of the panel and gets
+  the same audience answer; the save's server checks; the confirm decision on the real server's answers, including
+  people switched off on the server, empty groups and the count-0 "everyone"); `tests/unit/access-edit-everyone-above.test.ts` (against the permission function on
+  random worlds); web unit `folder-sharing.test.ts` (rows from above, names, when Save asks, the answer asked again),
+  `folder-sharing-panel.test.tsx` (per-folder drafts, the fresh ask, the confirm, 409), `folder-access.test.ts`; e2e
+  `folder-access.spec.ts` (add, change, remove, general access, rows from above read only, the names who lose access, a
+  project folder read only, members, phones), `access-edit.spec.ts`.
+- Version impact: **minor** (admins change who can open a folder in the Files page; one optional field on an admin
+  answer; no migration).
+
+## AI가 브라우저를 쓰는 동안 — the AI-control signal in the in-app browser, calm but unmistakable (fix/desktop-browser-pane, 2026-11-11, product owner)
+
+- **Why:** the owner: "the orange is really bad". While the AI ran a browser call, the desktop app's browser toolbar
+  showed a full-width orange bar ("● AI가 브라우저를 사용 중" + 멈추기) and the toolbar view painted its whole body in the accent
+  colour, which showed as a 3 px orange frame around the page (the tab view was inset by 3 px for it) and, before the
+  first tab was on screen (the site question of a turn's first page, the moment the tab was being made), as a pane of
+  solid orange. This is a safety indicator ("the AI is in control of this browser right now"), so its look is recorded
+  here.
+- **The signal now** (`desktop/src/ui/pane.ts`, `ui.css`): one row in the toolbar on the toolbar's own surface (light or
+  dark): a small accent dot that pulses (a ring that grows and fades, 1.6 s), the words "트리나가 브라우저를 쓰는 중" / "Trina is
+  using the browser" (id, ja, es likewise; the AI by its name, as the web app's "트리나가 답하는 중"), the AI's latest action in
+  this call in muted text as before, and **멈추기** as a solid ink pill with a stop square: it stands out by its shape and
+  contrast, not by a colour wash. A **2 px accent line** runs along the top of the page (inside the toolbar's bottom
+  edge, so the page's size does not change). No frame: the page keeps its full width while the AI drives.
+- **Same rules as before for when it shows:** while a browser call runs (`driving`), in the desktop's own toolbar (a
+  page cannot draw, hide or fake it); gone when the call ends or the person presses 멈추기 (stop cancels every running call
+  and denies open questions). The row still takes its place in the toolbar while it shows (the page moves down by it),
+  as the site question and the notice line do.
+- **Kept unmistakable:** text that names who is in control, motion (the pulsing dot; static under "reduce motion"), an
+  accent line across the whole top of the page (the only one there; the edge handle's accent line shows only under the
+  pointer or the keyboard), and the strongest button in the pane. The site question card keeps its accent border: it is
+  a question to the person, not this signal.
+- **No solid colour before the first paint:** the toolbar view's body is never the accent colour. Under the toolbar,
+  where the page goes, it shows the theme's canvas (`--bg`); while the tab's page loads, one quiet line "페이지를 여는 중…"
+  with a small spinner; with no tab and the AI not at work, the old one-line hint. A tab is put on screen (`setVisible`)
+  only once its first real page commits (`did-navigate` to anything but about:blank) or fails with an error page: an
+  empty tab (about:blank, white in dark mode too) is never shown, and its tab is called "새 탭", not "about:blank". Left
+  as is: from the commit to the site's first paint the tab shows its own white base for a moment, as any browser does
+  (showing it later, at its first paint, is not possible while it is hidden: a hidden page does not paint). It stays
+  attached with its size, so the AI's page reads and clicks see the same viewport as before; a screenshot of a
+  still-empty tab draws it first. The window's own colour (behind the views before they draw) follows the system's light
+  or dark look (`nativeTheme`), in place of a fixed light grey.
+- **Rejected:** keeping the orange bar in a softer tint (still a wash of colour on every call); a coloured frame of 1 px
+  (it narrowed the page and every call resized it); moving the signal into the team page (a page served through the
+  relay must not be able to fake or hide it, see "사이트 허용·사내망 확인 창, "AI가 사용 중" 표시는 데스크톱 자체 화면").
+- Tests: `tests/unit/e-pane-width.test.ts` ("wiring": no accent body or bar, no inset, the 2 px line, tabs drawn on
+  their first page, the words in five languages, the window's colour), e2e `desktop/e2e/pane-look.spec.ts` (the signal
+  shows with its words and Stop, the computed colours and a pixel of the pane before the first page draws are the
+  canvas, not the accent; the tab hidden while its first page loads and shown after; the page's width unchanged while
+  the AI drives; Stop and a call's own end take the signal away; the window's colour in dark; with `SHOTS_DIR`, the
+  whole window in light and dark, asking, loading, the AI in control, idle, dragged narrow and wide).
+- Version impact: **minor** (a visible change in the desktop app; no API, bridge or data change). Ships with the next
+  desktop release.
+
+## 브라우저 너비는 끌어서 — the in-app browser's width is set by dragging its edge (fix/desktop-browser-pane, 2026-11-11, product owner)
+
+- **Why:** the owner: "it'd be nice to make the browser wider and narrower", as the thread panel and the file view can
+  be (`web/src/components/PanelDivider.tsx`). The desktop had a splitter, but it was only the toolbar's left 6 px (the
+  tab view covered the rest), not reachable by keyboard, and the width was only written when the window closed.
+- **The edge** (`desktop/src/common/pane-width.ts`, `main/app-window.ts`, `main/pane/pane.ts`, `ui/pane.ts`): the
+  browser toolbar's view reaches 6 px to the left over the team page's right edge; that strip is transparent (the view's
+  own background is `#00000000`, its page paints only the pane) and is the handle, full height: a 1 px line, the
+  `col-resize` cursor, a 2 px accent line on hover, focus and while dragging, as `PanelDivider`. The toolbar view is
+  kept above the team page and the host strip for it. Cost, accepted: the team page's last 6 px take no clicks or wheel
+  of their own (a scrollbar shown all the time there is 6 px narrower to grab), as the web's divider takes 5 px of its
+  panel; the strip cannot sit over the browser's page instead, because the page's view is above the toolbar's. Drag it;
+  double-click for the default width (45% of the window, forgotten); focus it (Tab in the toolbar) and use ←/→ (24 px,
+  Shift 96 px), Home and End. It is a `separator` with its width and limits as aria values.
+- **Limits and memory, as the web's panels:** the team page keeps 360 px and the browser 400 px (the window's minimum
+  width, 900 px, leaves room for both; where a window is narrower the browser's minimum wins). The width is kept as a
+  share of the window in `window.json` (`paneFraction`; absent: the default), written when a drag ends, a moment after
+  the keys stop and on a double-click as well as when the window closes, so a window resize keeps the share within the
+  limits and a restart brings it back. A press without a 3 px move changes nothing.
+- **Layout:** the edge's page sends the edge's screen position once per animation frame while dragging (the views move
+  under the pointer, so not its own coordinates); the main process lays out the team page, the host strip, the toolbar
+  and the tab in the same turn.
+- **Focus (#327, "창으로 돌아오면 키보드는 보던 곳으로"):** a press on the edge lands in the toolbar's view, and the system gives that
+  view the keyboard; the press does not move the focus inside the toolbar (the address bar keeps it). When the drag ends
+  (or a click without a drag), the keyboard goes back to the view that had it before the press, if the toolbar still has
+  it, that view is still on screen and no dialog or menu of the app is open; the team page's own element (the message
+  box, its draft and caret) is kept by focusing the view. The press does not count as "the person's last action was in
+  the in-app browser" (that is set back when the drag starts), so a page load there during or after the drag does not
+  keep the keyboard (`keyboardTaken`: a load there gives it straight back to the toolbar, and the release then to the
+  view before the press). Giving it back during the drag was rejected: the pointer capture of a drag in a view that lost
+  the focus is not something to rely on across systems.
+- **Rejected:** a gutter of a few px between the two pages (always visible, narrows the browser); a separate view for
+  the handle (not reachable by Tab from the toolbar); remembering px (overflows a smaller window).
+- Tests: `tests/unit/e-pane-width.test.ts` (limits, the default, a window resize, reading `window.json`, settling a
+  width, the edge from screen coordinates, keys, the grab strip; the channels answer only the toolbar), e2e
+  `desktop/e2e/pane-resize.spec.ts` (a drag moves both views' bounds; the limits; a press without a move; a smaller and
+  a bigger window; the width after a restart; keys, Shift, Home, End and their aria values; a double-click; the message
+  box keeps the keyboard, its draft and caret across a drag, typing goes on there, also when the AI loads a page in the
+  browser during the drag; the address bar keeps it).
+- Version impact: **minor** (new desktop behaviour; no API, bridge or data change; `window.json` keeps its field). Ships
+  with the next desktop release.
+
 ## A sign-in that did not finish says why — 로그인 실패는 이유를 말한다 (fix/activity-tabs-oauth-errors, 2026-11-11, QA TC-020)
 
 - **Never a code.** A failed sign-in at a service (MCP OAuth, an own app) used to show its stored reason as is: the row
@@ -20386,23 +20674,119 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
 - Tests: e2e `project-list-menu` (the cards of a row are one height at 1440, also beside a name that wraps; one card
   per row at 390; the who line and the empty line). Version impact: **patch** (layout and words on one page; no API or data change).
 
-## A new member is told to the team (feat/member-joined-notice, 2026-11-11, QA)
+## Another person signs in over a session (fix/web-reset-user-switch, 2026-11-11)
 
-- **Problem.** On potenlab, a member who joined with a single-use invite (qa-d) was told to nobody: no line in the
-  everyone room, nothing in Activity. A join with the team link already told the owners and the link's maker
-  (`team.joined`), but not the rest of the team.
-- **Rule.**
-  - Both kinds of join (an invite: `auth/accounts.ts acceptInvite`; the team link: `auth/team-links.ts`) put one event
-    line in the everyone room, written as the new member: `{type: 'joined'}`, shown as "{name} joined the team". An
-    event line is never unread and does not move the room in the lists, so nobody gets a badge, a notice or a push;
-    the team sees it when they open the room and can say hello. The new member is put in the room first and sees it
-    too.
-  - An invite join now also sends `team.joined` to the owners and the invite's maker (Activity, no push), as the team
-    link does. Its text no longer names the team link ("{name} joined the team").
-  - Names only: no email, no role, no inviter in the room line.
-- **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
-  and the person may not have signed in yet. No push for joins.
-- **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
-  `tests/unit/a-team-links.test.ts` (team link join: the line).
-||||||| 2be3f4b09
-||||||| 1565b39f1
+- **A change of the signed-in person in one window is a sign-out and a sign-in.** A password reset link completed while
+  someone else is signed in (a shared computer) used to keep the first person's stores and live connection: only
+  "signed in" → "signed out" emptied them. Now `useSession.signedIn()` (web/src/store/session.ts), when the person
+  changes, first does what a sign-out does in this window, before the new status is shown: it forgets what the tab kept
+  (`forgetPersonInTab`, as `signedOut`) and runs the hook App.tsx sets (`setBeforePersonSwitch`): close the live
+  connection, empty every per-person store (also the AI picker's list, the unread Inbox count, job cards and the chat counted as
+  on screen, emptied at a plain sign-out too), and remove this browser's drafts, send queue and
+  uploads as the account menu's sign-out does (`clearLocalData`). Done there and not in an effect so that no screen of
+  the new person mounts on the last person's data (child effects run before Gate's). `useSessionLifecycle` then opens
+  the new person's connection and loads the page again; the screens are also keyed by the person.
+- Why the reload too: it drops every module's own cache and any answer to a request the last person had on its way,
+  which no list of stores can promise; the in-place sign-out makes the window right at once and stays right when the
+  reload is held back (a "leave this page?" prompt).
+- The AI picker's list (`store/engines.ts`) has `reset()`; a failed read is asked again by the next `load()` (it was
+  kept as "loaded, empty" until a reload). An answer to a request made before a reset is dropped.
+- Left for the server: the reset ends the new person's other sessions, not the session of the person whose cookie it
+  replaced in this browser (that one stays valid until it expires).
+- Tests: web unit `person-switch` (A's stores and socket, reset completed as B: nothing of A, a new socket, a reload).
+- Version impact: **patch** (no API or data change).
+
+## 브라우저 정리가 멈춰도 트리나는 계속 — a stuck storage clear never stops the in-app browser or team removal (fix/desktop-clear-storage-hang, 2026-11-11)
+
+- **Why:** testing PR #360 on macOS 26.6 (Electron 44.7.2), `session.clearStorageData()` with no list never settled.
+  The in-app browser runs that clear when another person signs in to the team or the person signs out
+  (`BrowserPane.resetForNewPerson`, `AppWindow.checkBrowserOwner`, "In-app browser data belongs to one person" above),
+  and every AI browser call waits for that identity check (`ensureBrowserOwner` shares the pending read), so every
+  later browser call of the AI waited forever; removing a team (`removeTeam`) awaited the same clear and never
+  finished. Reproduced on the same Mac with a bare Electron app (no Trina code) and with a copy under another bundle
+  id: with no list (and `{}`), `clearData()` and `clearData({ dataTypes: ['cache'] })` hung; each of the seven named
+  storage types, the seven together, `clearCache()` and `clearAuthCache()` settled in 1-2 s and removed cookies,
+  localStorage, IndexedDB, Cache Storage and service workers. Earlier the same day, on the same Mac, everything settled.
+  What differed: the Mac was overloaded (load average ~230 on 10 cores): a process started at background priority
+  (`taskpolicy -c background`) had not run after 9 minutes while one at default priority ran at once, and the hung
+  app had threads stuck while starting at background priority. The likely reason: with no list Electron asks Chromium
+  for every data type (`REMOVE_DATA_MASK_ALL`), some of the extra subtasks run on Chromium's background-priority
+  threads, macOS runs those only on free efficiency cores, and the promise settles only when the last subtask reports
+  back. (Quitting was slow on that Mac too, but for every Electron app: a bare one that cleared nothing was still
+  running a minute after `app.exit`, so that is not from the clear.) No matching Electron
+  issue was found (electron/electron issues and pull requests for `clearStorageData` and `clearData`). A packaged
+  build runs the same Electron, so it is very likely affected on a Mac that busy; how often customers' Macs get there
+  is not known.
+- **The rule** (`desktop/src/main/clear-session.ts` `clearSessionData`): every clear of a session in the desktop app
+  names its storage types (`cookies`, `localstorage`, `indexdb`, `filesystem`, `serviceworkers`, `cachestorage`,
+  `shadercache`; session storage goes with local storage) and clears the HTTP cache and HTTP logins beside it. Each of
+  the three has a 10 s limit. One that runs out of time is logged (`[desktop] clearing … did not finish`, on the
+  console only: the desktop app has no log file) and the caller goes on: the pane still closes its tabs and forgets
+  allowed sites, the identity check still records the new person, the team is still removed. Chromium starts all
+  subtasks at once, so the other types are cleared even when one does not report back; a clear that finishes late
+  also removes what the next person stored meanwhile (they sign in again). One that fails (rejects or throws) is
+  handled as before the limit: the new person is not recorded, that identity check and the AI call waiting for it
+  fail, and the next check clears again.
+- **Team removal:** the team leaves the list at once (it can no longer be opened or removed twice while its data
+  goes), then both partitions are cleared side by side (at most one limit, not two), then its files go. Before, the
+  team stayed in the list until the clears were done.
+- **Left out:** the types only a no-list clear asks for: media licences, interest groups, shared storage, attribution
+  and performance-observer data, and device-bound sessions. Sites keep sign-ins in cookies and site storage, which the
+  list covers. Device-bound sessions can issue a sign-in cookie again after it is deleted, but they need a signing
+  key service that Electron 44 does not give the network service (electron/electron#54074 adds one behind a fuse that
+  is off by default); recheck this list when that lands. A clear that runs out of time is not tried again.
+- Tests: `tests/unit/e-clear-session.test.ts` (the time limit, the list, side by side, a throwing or rejecting clear,
+  `clearFailed`, no other clear call in `desktop/src`, the three call sites, a failed clear not recording the new
+  person, the removal order), `desktop/e2e/clear-storage.spec.ts` (a no-list clear that never settles put into the
+  real app: sign-out, the next person's AI call at once and nothing of the first person's cookie, localStorage,
+  IndexedDB, Cache Storage or service worker left, team removal finishing; every clear stuck: the call goes on after
+  the limit, the next person is asked again, team removal still finishes). The first fails on the code before this
+  change (times out). On the overloaded Mac, where `person.spec.ts` failed on dev, it passed with this change.
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
+
+## File list — 파일 목록; the AI greps a `_FILES.md` that says what each file is (feat/file-list, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`server/src/file-list/`, the AI's file tools in `files/service.ts` and `files/search.ts`,
+`chat/prompt.ts`, Admin › Team settings), 이유: files, the AI and its engines are core. Plan:
+`docs/AGENTS/plan/20261111-0630-file-list.md`. Replaces the knowledge graph's job of finding files by what they are.
+
+- **Why.** On a made-up 2,238-file folder, 184 find questions with Claude Code: 172 right with no list, 181 with an
+  English list (180 English + Korean); the line "grep the _FILES.md files first" raised list use from 48% to 92% and cut
+  mean tool calls from 6.0 to 4.3. Haiku read the 2,238 files for USD 0.33 (about 880 tokens per file).
+- **The lists are virtual** (independent review of the plan). Nothing is written into the team folder. The server keeps
+  one line per file in its sidecar (`<data>/file-list/state.db`); the AI's `list`, `glob`, `grep` and `read` (chat
+  engines through MCP and the remote connector, all `FileService.call`) show a `_FILES.md` per access folder rendered
+  for the person asking: a line only for a file that passes `visiblePath` for them now and still has the size, mtime and
+  inode that were read, under the rule chain it was read with, and only when every file of the model call that wrote it
+  passes too (a line may hold a call-mate's text). A rule change or a move that splits a call re-reads all its files. Access is checked at the question, as for search; stale, moved, deleted and hidden files simply do not
+  show. Rejected: real files on disk (they needed a reserved name in `authorize()`, hiding in Files, rewrites on every
+  access change, and could be forged, mirrored or left behind by connected folders and dev environments).
+- **Where.** One list per access unit: `shared`, every other top folder, `projects|groups|connected/<name>`, and every
+  folder with a rule of its own (the deepest), so a list's own path has the access of its files (`file-list/units.ts`).
+  Grep searches the lists first with the same ripgrep (a per-call copy in the data folder) and prints their lines like a
+  real file's. A real `_FILES.md` on disk stays a normal file; the AI's tools show the virtual one in its place where the
+  person has one, and the AI cannot write over it. Reading a list counts as reading its folder (read scope), never as an
+  answer's source.
+- **The line.** `path — type; names as written; date or period; what it is`, English. Validated in code: one line; no
+  control characters, `#`, `<>`, backticks, addresses, `@` or paths; `what` at most 120 characters; a text file's names
+  must be in its text word for word; a cleanup scrubber removes amounts, ID, account, phone and card numbers, emails,
+  passwords and 6+ digit runs outside the date field; personal records keep type, names and date only.
+- **The reader.** The team's engine through the launcher, the model proxy and the sandbox like a chat turn, with no tools
+  and one answer; Claude Code on `haiku` (a gateway's haiku model; none: no run), Codex on a nano or mini model (none: no
+  run), text only. **Team-wide AI accounts only**, never a person's own or assigned one, never the hosted trial; each
+  call is a turn of the owner (`turns.chat_id = 'file-list'`) so Admin › Usage counts it and block budgets stop it.
+  Calls hold files of one access unit only and are read back by their ids; the server's converters extract the text
+  (and reuse the search's fresh text cache); images only when the team sends images to the AI; camera photos without
+  OCR text get a metadata line.
+- **When.** Nightly 02:00–05:00 team time, at least every 30 h; a new server waits for its first night. Only new or
+  changed files (size, mtime, sha256); moves keep their line. A cap per run (1,500 files, 1,500,000 tokens; `server.json`
+  can change it), documents first and newest first; never while a person's chat turn waits or runs; a lease row keeps
+  one run at a time. Admins can start a run now (same cap).
+- **Owner's open questions, as constants** (`file-list/policy.ts`): personal folders are not read; Codex reads text
+  only; switching it off deletes the stored lines.
+- **Measured** on a local dev server (Claude Code, this Mac's sign-in): 323 made-up files uploaded, 231 read in one run
+  (23 calls, 170,669 input and 17,729 output tokens, USD 0.039, 3 min 35 s); 5 of 5 misplaced questions right (a scan
+  named `임시.pdf`, a bank-book photo `IMG_2031.jpg`, scans `스캔_0398.pdf` and `scan_0019.pdf`, `IMG_8812.jpg`) with 3
+  tool calls each, found by a team-wide grep that hit the list lines.
+- Version impact: **minor**. On by default: an installed team's shared, project, group and connected file contents go
+  to its own AI provider from the first night after the update (`changes/file-list.md` says so).

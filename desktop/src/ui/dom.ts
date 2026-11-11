@@ -38,6 +38,13 @@ export interface SiteSettings {
   teamAllowsAll: boolean
 }
 
+/** the in-app browser's width beside the team page (main/app-window.ts paneWidth) */
+export interface PaneWidth {
+  now: number
+  min: number
+  max: number
+  grab: number
+}
 export interface MycelUi {
   strings(): { locale: UiLocale; strings: Record<UiKey, string> } | null
   /** the language changed (the team page reported another one, or it was picked on the team list) */
@@ -84,7 +91,13 @@ export interface MycelUi {
     stop(): void
     answer(id: string, decision: 'once' | 'always' | 'deny'): void
     toolbarHeight(h: number): void
-    resize(screenX: number): void
+    /** the browser's width (0: closed), its limits, and the edge's grab strip over the team page (px) */
+    width(): Promise<PaneWidth | null>
+    onWidth(cb: (w: PaneWidth) => void): () => void
+    /** the edge handle: a drag starts, the edge is at `edgeX` (screen coordinates), it ends; reset: double-click */
+    drag(phase: 'start' | 'move' | 'end' | 'reset', edgeX?: number): void
+    /** an arrow key, Home or End on the focused edge handle */
+    resizeKey(key: string, shift: boolean): void
     sites(): Promise<SiteSettings | null>
     removeSite(host: string): void
     clearSites(): void

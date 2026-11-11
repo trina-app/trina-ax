@@ -24,7 +24,8 @@
 // keyboard to that tab: Chromium focuses a page as it loads (checked on dev: the person typing in the team page's
 // message box lost the keyboard to the pane at every load). The tab keeps it only when the person's last action was in
 // the in-app browser (a click or a key in its tab or toolbar, its address bar, opening it from the team page or the
-// menu), when the app itself gave it (keyboardBack, keyboardTarget) or when the tab had it already; else the keyboard
+// menu; not a press on the toolbar's edge handle, which resizes the browser: main/app-window.ts paneDrag), when the app
+// itself gave it (keyboardBack, keyboardTarget) or when the tab had it already; else the keyboard
 // goes straight back to the view that had it, else the team page. The AI's own clicks in a tab (CDP) do not count as
 // the person's. A click into a tab while it loads: the click's mouse press gives the tab the keyboard after all.
 //

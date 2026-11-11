@@ -170,8 +170,10 @@ describe('a turn that cannot carry them all', () => {
     expect(fake.calls.at(-1)).toMatchObject({ name: TOOL_150, args: { video_url: 'https://v.example/2.mp4' } })
     const unknown = await a.call(CALL_TOOL, { name: 'my_studio__no_such_tool', arguments: {} })
     expect(unknown).toMatchObject({ isError: true, summary: 'call_tool my_studio__no_such_tool -> unknown tool' })
-    // its step label is the tool's own
-    expect(a.tools.get(CALL_TOOL)!.label!({ name: `my_studio__${TOOL_150}` }, 'ko')).toBe(`Studio · ${TOOL_150}`)
+    // its step label is the tool's own: the connection and the tool's title (docs/DECISIONS.md "Plain words in errors,
+    // cards and steps"); a name that matches no tool is the AI's own text, never shown
+    expect(a.tools.get(CALL_TOOL)!.label!({ name: `my_studio__${TOOL_150}` }, 'ko')).toBe('Studio · Video analysis')
+    expect(a.tools.get(CALL_TOOL)!.label!({ name: 'my_studio__send_secret_sk_ant' }, 'ko')).toBe('작업')
   })
 
   test('arguments sent as JSON text leave marks as the service gets them: an address hidden by \\u-escapes that comes back is an echo', async () => {
@@ -208,7 +210,9 @@ describe('a turn that cannot carry them all', () => {
     const r = await turn('alice', { person: no }).call(CALL_TOOL, { name: `my_studio__${TOOL_151}`, arguments: { website_id: 'w-1' } })
     expect(r.isError).toBe(true)
     expect(no.questions[0]).toContain('Studio')
-    expect(no.questions[0]).toContain(TOOL_151)
+    // the tool by its title, not its id
+    expect(no.questions[0]).toContain('Publish a website')
+    expect(no.questions[0]).not.toContain(TOOL_151)
     expect(fake.calls.length).toBe(before)
     const yes: Asked = { answer: true, questions: [] }
     const ok = await turn('alice', { person: yes }).call(CALL_TOOL, { name: `my_studio__${TOOL_151}`, arguments: { website_id: 'w-1' } })

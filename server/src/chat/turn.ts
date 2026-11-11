@@ -8,7 +8,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -16,6 +16,7 @@ import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser, hitList } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
+import { fileListPromptOn } from '../file-list/service'
 import { CodexEventParser } from '../engine/codex-parse'
 import { SEARCH_ASKS_MAX, takeSearchAsk, unnamedSearchKind, type SearchAsk } from './codex-search-step'
 import { audit } from '../admin/audit'
@@ -43,6 +44,7 @@ import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedul
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
 import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf } from '../notifications/service'
@@ -285,6 +287,11 @@ export class TurnExec {
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
   private quarantined = false
+  /** the process group of the latest engine launch (the launcher's started event); null: none reported */
+  private enginePgid: number | null = null
+  private quarantinedAt = 0
+  /** a quarantined turn still waiting on its launcher past the release time: stop reading it (abandonOverdue) */
+  private readonly abandon = new AbortController()
   private timeoutSource: 'active' | 'wall' | null = null
   private activeMs = 0
   private humanWaits = 0
@@ -379,7 +386,7 @@ export class TurnExec {
       }
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
-      if (this.spec.engine === 'claude-code') guardOfficeClaudeJson(this.rt.ctx, 'turn')
+      if (this.spec.engine === 'claude-code') { try { guardOfficeClaudeJson(this.rt.ctx, 'turn') } catch (e) { this.rt.log.error('claude.json guard failed', { err: e, turn: this.id }) } }
       await this.finish()
       // a seeded past chat of the demo (demo/replay.ts) says when it was
       if (this.replayDaysAgo) { try { backdateChat(this.rt.db, this.spec.chatId, this.replayDaysAgo) } catch (e) { this.rt.log.warn('demo backdate failed', { err: e, turn: this.id }) } }
@@ -412,8 +419,25 @@ export class TurnExec {
   private quarantine() {
     if (this.quarantined) return
     this.quarantined = true
+    this.quarantinedAt = performance.now()
     this.rt.log.error('turn termination unconfirmed; execution slot retained', { turn: this.id })
     this.rt.turnQuarantined(this)
+  }
+
+  /** A turn that ended while its engine's end is unconfirmed (its slot is quarantined): the engine's process group to
+   * look for, and when the runtime may give the slot back without that proof (performance.now() time). null: not
+   * ended, or not quarantined. */
+  quarantineState(): { pgid: number | null; releaseAt: number } | null {
+    if (!this.quarantined || this.status !== 'finished') return null
+    return { pgid: this.enginePgid, releaseAt: this.quarantineReleaseAt() }
+  }
+  private quarantineReleaseAt() { return Math.max(this.wallEndsAt, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
+  /** A quarantined turn that has not ended (its launcher stays connected but never confirms the end) past the release
+   * time: stop waiting for the launcher, so the turn ends (as failed) and its slot follows the probe. True if it did. */
+  abandonOverdue(): boolean {
+    if (!this.quarantined || this.status === 'finished' || this.abandon.signal.aborted || performance.now() < this.quarantineReleaseAt()) return false
+    this.abandon.abort()
+    return true
   }
 
   private tick() {
@@ -635,6 +659,8 @@ export class TurnExec {
       room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
+      // the file lists (file-list/service.ts): only while the feature is on and this person has one
+      fileList: fileListPromptOn(rt.ctx, this.principal!),
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -1108,6 +1134,7 @@ export class TurnExec {
     lr = { ...lr, timeoutMs: Math.min(lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS, this.remainingWallMs()) }
     const h = core.launcher.launch(lr)
     this.handle = h
+    this.enginePgid = null
     this.terminationUnconfirmed = true
     if (this.stopReason) h.kill()
     // stdout chunks are cut wherever the pipe read stopped: decode as one stream so split characters stay whole
@@ -1116,8 +1143,17 @@ export class TurnExec {
     const notes: string[] = []
     let exit: any = null
     try {
-    for await (const e of h.events) {
-      if (e.ev === 'started') core.turns.bind(this.id, e.pgid)
+    const it = h.events[Symbol.asyncIterator]()
+    const abandoned = new Promise<'abandoned'>((r) => {
+      if (this.abandon.signal.aborted) r('abandoned')
+      else this.abandon.signal.addEventListener('abort', () => r('abandoned'), { once: true })
+    })
+    for (;;) {
+      const next = await Promise.race([it.next(), abandoned])
+      if (next === 'abandoned') { try { h.close?.() } catch {} throw new Error('engine end not confirmed by the release time; turn abandoned') }
+      if (next.done) break
+      const e = next.value
+      if (e.ev === 'started') { this.enginePgid = e.pgid; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') {
@@ -1745,8 +1781,11 @@ export class TurnExec {
   /** ...that may go without the room card: a read by the service's own mark, not api_request's GET (ChatToolSet.readsFree) */
   readsFree(name: string, args: unknown): boolean { return this.toolSet?.readsFree(name, args) ?? false }
   /** what the room card shows of a call, in words (roomChangeDetails), with stored secrets hidden */
+  /** A team path as this person's cards say it ("전사 공유 › 영업 › 보고서.pptx", place-words.ts). */
+  place(path: string): string { return placeWords(this.rt.db, path, this.spec.locale, this.spec.userId) }
+
   roomCardDetails(tool: string, input: unknown): ConfirmDetailT[] {
-    return roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
+    return roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
@@ -2000,7 +2039,7 @@ export class TurnExec {
     const askedAt = new Date().toISOString()
     // the person's own chat: why it asks first (the room card's words after it for a new team file)
     const question = target
-      ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: target.segs.slice(0, -1).join('/'), file: target.segs.at(-1)! })
+      ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
       : own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
       : tr('roomAiConfirm', L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
@@ -2457,7 +2496,7 @@ export class TurnExec {
   private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
-    const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true })))]
+    const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
     const scheduled = this.spec.clientKind === 'schedule'
     const { value: answer, missing: none } = await this.askPerson({
@@ -2674,11 +2713,13 @@ export class TurnExec {
     // server's name only (any member of a group chat may set its own name)
     // a shared chat's read scope also holds what other people's turns read there (also once it stopped being shared: a
     // deleted project's chat, the rollback guard): a place this person cannot see themselves is not named to them
-    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true } : {}))
+    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
     const { value: answer, missing } = await this.askPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: need.segs.join('/'), n: String(need.viewers) }) + (o.extra ?? '') + (o.binding ? '\nSHA-256: ' + JSON.parse(o.binding).hash : ''),
+      // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
+      // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
@@ -2795,7 +2836,8 @@ export class TurnExec {
     const { value: answer, missing } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
-      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: r.rel, what }) : st('confirmProjectNone', L, { folder: project.folder, path: r.rel, what })) : group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
+      // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
+      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -3077,29 +3119,63 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('saving the answer failed', { err: e, turn: this.id }); this.dirty = true }
   }
 
+  /** The end of every turn. Whatever fails in here, the slot is given back (or quarantined), the turn and its answer
+   * get an end state and `done` resolves: a throw must never hold a slot or a chat for good. */
   private async finish() {
     // the cards it closes below change nothing on their own: the end of the turn sends the chat once
     this.finishing = true
     if (this.saver) clearInterval(this.saver)
-    this.flushText()
+    if (this.clock) clearInterval(this.clock)
+    if (this.wallClock) clearTimeout(this.wallClock)
+    if (this.stopGrace) clearTimeout(this.stopGrace)
+    let status: MessageStatus = 'error'
+    try { status = this.finishState() } catch (e) {
+      this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
+      this.endAfterFailure()
+    }
+    this.status = 'finished'
+    try {
+      if (this.terminationUnconfirmed) this.quarantine()
+      else this.rt.turnFinished(this)
+    } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
+    try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
+    finally { this.resolveDone() }
+  }
+
+  /** finish() could not record the end: the rows still get one (never left running or streaming) */
+  private endAfterFailure() {
+    this.error ??= engineError('crash', this.spec.locale)
+    const now = new Date().toISOString()
+    try { if (this.registered) this.activeCore?.turns.revoke(this.id, 'error', this.error.message) } catch {}
+    try {
+      this.rt.db.query("UPDATE turns SET status = 'error', ended_at = ?, error = ? WHERE id = ? AND status IN ('queued','running')").run(now, this.error.message, this.id)
+      this.rt.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(this.error), now, this.spec.assistantId)
+    } catch (e) { this.rt.log.error('recording the failed turn end failed', { err: e, turn: this.id }) }
+  }
+
+  /** Each step of the end on its own: one failing (a card, the relay, a step's audit) does not skip the others. */
+  private finishStep(what: string, f: () => void) {
+    try { f() } catch (e) { this.rt.log.error('a turn end step failed', { err: e, turn: this.id, step: what }) }
+  }
+
+  /** The end state in the DB; returns the answer's status. */
+  private finishState(): MessageStatus {
+    this.finishStep('text', () => this.flushText())
     // a room session: every read of this turn is in the read scope before the room decides where the answer goes
     if (this.room) { try { this.noteReads() } catch (e) { this.rt.log.warn('room read scope failed', { err: e, turn: this.id }) } }
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
     // carries the saved answer, which the apps show in place of the streamed one)
     this.redactorNow = null
     this.content = this.redact(this.content)
-    if (this.clock) clearInterval(this.clock)
-    if (this.wallClock) clearTimeout(this.wallClock)
-    if (this.stopGrace) clearTimeout(this.stopGrace)
-    for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
-    this.rt.relay.cancelTurn(this.id)
-    this.proxyUnsubscribe?.()
+    for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
+    this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
     for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
-    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false) }
+    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
     // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
     // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".
@@ -3117,13 +3193,17 @@ export class TurnExec {
     if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
     // the same for a step the person's Stop cut off: stopped, like Claude Code's "Interrupted" (Step.stopped)
     if (status === 'stopped') for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.stopped = true
-    const files = this.fileSummary()
+    /** the answer's end state was not written (message.done then says error, as endAfterFailure saved it) */
+    let messageSaved = false
+    let files: ReturnType<TurnExec['fileSummary']> = null
+    try { files = this.fileSummary() } catch (e) { this.rt.log.warn('the answer\'s file summary failed', { err: e, turn: this.id }) }
     const db = this.rt.db
     try {
       this.afterTool()
       db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
+      messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure
       // here loses the list only, never the turn's own end state below
@@ -3165,22 +3245,26 @@ export class TurnExec {
       this.rt.store.touchChat(this.spec.chatId)
     } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
+      this.endAfterFailure()
     }
-    if (this.spec.clientKind === 'schedule') notificationsOf(this.rt.ctx).afterTurn(this.id)
+    if (this.spec.clientKind === 'schedule') this.finishStep('notifications', () => notificationsOf(this.rt.ctx).afterTurn(this.id))
     // the 7-day team goal: a member's first successful run of a team skill tells the owners (never throws)
     if (turnStatus === 'done') noteGoalRun(this.rt.ctx, this.id)
     // budget notices (80% / 100%) once the turn's usage is in (admin/budget-watch.ts)
     try { if (this.registered) afterUsage(db, this.spec.userId, credentialsOf(this.rt.ctx).notify) } catch (e) { this.rt.log.warn('budget notices failed', { err: e }) }
-    this.status = 'finished'
-    if (this.terminationUnconfirmed) this.quarantine()
-    else this.rt.turnFinished(this)
-    const row = this.rt.store.messageRow(this.spec.assistantId)
+    return messageSaved ? status : 'error'
+  }
+
+  /** message.done (or the room's end) and the chat's update, after the slot is given back */
+  private announceEnd(status: MessageStatus) {
     if (this.room) this.rt.roomEnded(this.id)
-    else if (row) {
+    else this.finishStep('message.done', () => {
+      const row = this.rt.store.messageRow(this.spec.assistantId)
+      if (!row) return
       const chatRow = this.rt.store.chatRow(this.spec.chatId)
       const message = chatRow ? messageFor(this.rt, chatRow, row, this.spec.userId, this.spec.locale) : this.rt.store.toMessage(row)
       this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message } })
-    }
+    })
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
     // run or a question from Slack (this.tells)
@@ -3189,7 +3273,6 @@ export class TurnExec {
     // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
     if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
-    this.resolveDone()
   }
 }
 
@@ -3412,13 +3495,15 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = ''): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
   const full = (t: string) => (t.length > ROOM_CHANGE_FULL ? `${t.slice(0, ROOM_CHANGE_FULL - 1).trimEnd()}…\n${tr('roomAiChangeCut', L, { n: String(t.length) })}` : t)
-  const verb = FILE_STEP_VERB[tool]?.[L] ?? tool
+  const verb = FILE_STEP_VERB[tool]?.[L] ?? (readableToolName(tool) || STEP_WORDS_OTHER[L])
   const field = (name: Parameters<typeof tr>[0], value: string) => ({ name: tr(name, L), value })
+  // a team path in words (전사 공유 › 영업 › 보고서.md); '' stays '' (no field)
+  const at = (v: string) => (v ? place(v) : v)
   // targets: where it writes; an instruction file among them shows the text in full from the start
   // noSize: the text is a list of paths, not what is written (no "26 characters" for a path, QA TC-091)
   const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = [], noSize = false) => [{
@@ -3431,23 +3516,23 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       if (!Array.isArray(a.file_paths)) break
       const files = a.file_paths.map(String)
       return [
-        { label: tr('roomAiConfirmFiles', L), text: files.join('\n'), noSize: true },
+        { label: tr('roomAiConfirmFiles', L), text: files.map(at).join('\n'), noSize: true },
         { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
       ]
     }
     case 'write':
       // an empty file: said as a field, so the card's size (of the text) is not that of the words "(빈 내용)"
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
     case 'edit':
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
     case 'make_file': {
       // made from a file (a source, a template, pictures): what those hold is not on the card, and the card says so
       const from = [str(a.source), str(a.template), ...(Array.isArray(a.images) ? a.images.filter((x): x is string => typeof x === 'string') : [])].filter(Boolean)
-      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.join(', ') }) : ''
+      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.map(at).join(', ') }) : ''
       return detail([
-        field('roomAiChangeFile', str(a.output)),
-        ...(str(a.source) ? [field('roomAiChangeSource', str(a.source))] : []),
-        ...(str(a.template) ? [field('roomAiChangeTemplate', str(a.template))] : []),
+        field('roomAiChangeFile', at(str(a.output))),
+        ...(str(a.source) ? [field('roomAiChangeSource', at(str(a.source)))] : []),
+        ...(str(a.template) ? [field('roomAiChangeTemplate', at(str(a.template)))] : []),
       ], [notShown, str(a.content)].filter(Boolean).join('\n\n'), [str(a.output)])
     }
     case 'edit_hwp': {
@@ -3456,21 +3541,22 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       // saved as a new file: the rest of the document it copies is not on the card
       // an output whenever one is given (an empty one too): where the tool puts it (hwpOutputPath, tools/edit-hwp.ts)
       const out = typeof a.output === 'string' ? hwpOutputPath(a.output, str(a.file_path)) : ''
-      const notShown = out ? tr('roomAiChangeNotShown', L, { from: str(a.file_path) }) : ''
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(out ? [field('roomAiChangeSaveAs', out)] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), out])
+      const notShown = out ? tr('roomAiChangeNotShown', L, { from: at(str(a.file_path)) }) : ''
+      return detail([field('roomAiChangeFile', at(str(a.file_path))), ...(out ? [field('roomAiChangeSaveAs', at(out))] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), out])
     }
     case 'move_files':
     case 'copy_files':
-      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'), [str(a.to_folder)], true)
+      return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
-      return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
+      return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
     case 'save_url':
-      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
+      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', at(str(a.save_as)))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
     case 'save_room_file': {
       // the file by the name the person sees (only a file of this room, or in the person's own chat of the room the call
       // names, that they may see; an id alone says nothing)
       const name = roomFile(str(a.file), str(a.room) || undefined) ?? (isUuid7(str(a.file).trim().replace(/^file_id=/, '')) ? '' : str(a.file))
-      return detail([...(name ? [field('roomAiChangeFile', name)] : []), field('roomAiChangeSaveAs', str(a.save_as) || 'users/…/downloads/')], '', [str(a.save_as)])
+      // no save_as: the person's own downloads folder (room-tools.ts save_room_file)
+      return detail([...(name ? [field('roomAiChangeFile', name)] : []), field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], '', [str(a.save_as)])
     }
   }
   // any other change (a tool added later): its arguments one per line

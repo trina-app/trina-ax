@@ -26,6 +26,8 @@ import { registerIntegrationRoutes } from './integrations'
 import { registerIntegrations } from '../integrations/connections/tools'
 import { registerPluginRoutes } from './plugins'
 import { pluginsOf } from '../plugins/manager'
+import { registerFileListRoutes } from './file-list'
+import { fileListOf } from '../file-list/service'
 
 export const filesRoutes: RouteModule = {
   name: 'files',
@@ -40,12 +42,17 @@ export const filesRoutes: RouteModule = {
     registerIntegrations(ctx)
     // Gmail, Calendar, Docs and Sheets: the library runs while one of them is set up (integrations/google-apps/)
     try { googleAppsOf(ctx) } catch (e) { ctx.log.error('Google apps failed to start; they stay off', { err: e }) }
+    // the file list: its nightly check and its hooks on moves and access changes (file-list/service.ts); a broken
+    // sidecar never stops the server here
+    try { fileListOf(ctx) } catch (e) { ctx.log.error('file list failed to start; it stays off', { err: e }) }
   },
   register(kit, ctx) {
     registerDriveRoutes(kit, ctx)
     registerGoogleAppsRoutes(kit, ctx)
     registerIntegrationRoutes(kit, ctx)
     registerPluginRoutes(kit, ctx)
+    // Admin › Team settings › File list (file-list/service.ts)
+    registerFileListRoutes(kit, ctx)
     const C = componentC(ctx)
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')

@@ -28,8 +28,10 @@ import { isNotice, type PaneActivity } from '../../common/pane-activity'
 import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK, PRODUCT, WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
+import { paneGrab } from '../../common/pane-width'
 import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
+import { clearSessionData, type ClearResult } from '../clear-session'
 import { debug } from '../debug'
 
 export interface PanePrompt {
@@ -87,6 +89,8 @@ interface Tab {
   forceLeave?: boolean
   /** the AI ran javascript_tool in the current document: its requests to other sites are held back (net-guard.ts) */
   scripted?: boolean
+  /** a real page (not the empty about:blank a tab starts with) has committed: the tab is drawn from then on (layout) */
+  drawn?: boolean
 }
 /** The call being run (for prompts raised by the net guard during it). */
 interface CallCtx {
@@ -235,36 +239,55 @@ export class BrowserPane {
     return this.isOpen
   }
 
-  /** the tab on screen (the pane open), not a popup window */
+  /** the tab on screen (the pane open, its first page drawn), not a popup window */
   shownTab(): WebContentsView | undefined {
     const t = this.isOpen ? this.activeTab() : undefined
-    return t && !t.popup && !t.wc.isDestroyed() ? t.view : undefined
+    return t && !t.popup && t.drawn && !t.wc.isDestroyed() ? t.view : undefined
   }
 
+  /**
+   * Place the toolbar view and the active tab. The toolbar view spans the whole pane and reaches paneGrab px to the
+   * left over the team page's edge: that strip is the edge's handle (transparent, common/pane-width.ts), so the
+   * toolbar view stays above the team page and the host strip. The active tab sits under the toolbar and above it; it
+   * is not drawn (setVisible false) until its first real page commits: before that the toolbar view's own neutral
+   * surface and loading state show there, never an empty white tab or a solid colour. The page is not framed or
+   * narrowed while the AI drives (the signal is in the toolbar; its row there moves the page down while it shows).
+   */
   private layout() {
     if (this.disposed || this.host.win.isDestroyed()) return
-    const win = this.host.win
-    const b = this.isOpen ? this.bounds : undefined
+    const views = this.host.win.contentView
+    const b = this.isOpen && this.bounds && this.bounds.width > 0 ? this.bounds : undefined
     const chrome = this.host.chrome
-    if (b && b.width > 0) {
-      if (!win.contentView.children.includes(chrome)) win.contentView.addChildView(chrome)
-      chrome.setBounds(b)
-    } else if (win.contentView.children.includes(chrome)) win.contentView.removeChildView(chrome)
-    // a 3px accent frame around the page while the AI drives it (the toolbar UI paints it behind the page)
-    const inset = this.driving > 0 ? 3 : 0
+    const tabViews = new Set([...this.tabs.values()].filter((t) => !t.popup).map((t) => t.view as unknown))
+    if (b) {
+      const at = views.children.indexOf(chrome)
+      // added, or raised over a view put above it meanwhile (the team page after the team list, the host strip)
+      if (at < 0 || views.children.slice(at + 1).some((v) => !tabViews.has(v))) {
+        if (at >= 0) debug('browser toolbar raised')
+        views.addChildView(chrome)
+      }
+      const grab = paneGrab(b.x)
+      chrome.setBounds({ x: b.x - grab, y: b.y, width: b.width + grab, height: b.height })
+    } else if (views.children.includes(chrome)) views.removeChildView(chrome)
     for (const t of this.tabs.values()) {
       if (t.popup) continue
-      const shown = b && b.width > 0 && t.id === this.activeId
-      if (shown) {
-        if (!win.contentView.children.includes(t.view)) win.contentView.addChildView(t.view)
-        t.view.setBounds({
-          x: b.x + inset,
-          y: b.y + this.toolbarHeight + inset,
-          width: Math.max(0, b.width - inset * 2),
-          height: Math.max(0, b.height - this.toolbarHeight - inset * 2),
-        })
-      } else if (win.contentView.children.includes(t.view)) win.contentView.removeChildView(t.view)
+      if (b && t.id === this.activeId) {
+        if (views.children.at(-1) !== t.view) {
+          if (views.children.includes(t.view)) debug('browser tab raised')
+          views.addChildView(t.view)
+        }
+        t.view.setBounds({ x: b.x, y: b.y + this.toolbarHeight, width: b.width, height: Math.max(0, b.height - this.toolbarHeight) })
+        const drawn = t.drawn === true
+        if (t.view.getVisible() !== drawn) t.view.setVisible(drawn)
+      } else if (views.children.includes(t.view)) views.removeChildView(t.view)
     }
+  }
+
+  /** The tab's first real page committed (or failed with an error page): draw it from now on. */
+  private drawTab(tab: Tab) {
+    if (tab.drawn || tab.popup) return
+    tab.drawn = true
+    this.layout()
   }
 
   state(): DesktopPaneState {
@@ -350,7 +373,12 @@ export class BrowserPane {
       const host = siteKey(url)
       if (host !== tab.host) tab.network.clear()
       tab.host = host
+      if (!isBlankPage(url)) this.drawTab(tab)
       refresh()
+    })
+    // an error page (no answer, refused): shown as before, in place of the empty tab
+    wc.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
+      if (isMainFrame && code !== -3) this.drawTab(tab)
     })
     wc.on('did-navigate-in-page', refresh)
     if (!popup) {
@@ -563,9 +591,9 @@ export class BrowserPane {
   /**
    * Another person signed in to this team, or the person signed out (common/browser-owner.ts): end running calls,
    * close every tab, forget allowed sites and kept results, and clear the pane's cookies, storage, cache and HTTP
-   * logins. The pane itself stays.
+   * logins. The pane itself stays. Says how the clear went (main/clear-session.ts).
    */
-  async resetForNewPerson() {
+  async resetForNewPerson(): Promise<ClearResult> {
     for (const p of [...this.prompts]) p.settle('deny')
     for (const c of this.calls.values()) this.cancelCtx(c, 'Another person signed in to the team page.')
     for (const t of Array.from(this.tabs.values())) {
@@ -587,13 +615,11 @@ export class BrowserPane {
     this.repeatHint = new RepeatPromptHint()
     this.officeLetThrough.clear()
     if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
-    await Promise.all([
-      this.session.clearStorageData(),
-      this.session.clearCache(),
-      this.session.clearAuthCache(),
-    ])
+    // an explicit list and a time limit: a clear that never settles must not stop every later AI browser call
+    const cleared = await clearSessionData(this.session, 'in-app browser')
     this.hide()
     this.emit()
+    return cleared
   }
 
   /** Close every tab (window closing / team switch): detached tabs would otherwise outlive the window. */
@@ -832,7 +858,6 @@ export class BrowserPane {
     debug('start', call.tool, call.callId)
     this.calls.set(call.callId, ctx)
     this.driving++
-    this.layout()
     this.emit()
     // the server stops waiting at the deadline; stop working on it too
     const deadline = setTimeout(() => this.cancelCtx(ctx, 'The browser call took too long and was stopped.'), Math.min(remaining, MAX_CALL_MS))
@@ -848,7 +873,6 @@ export class BrowserPane {
       clearTimeout(deadline)
       this.calls.delete(call.callId)
       this.driving = Math.max(0, this.driving - 1)
-      this.layout()
       this.emit()
     }
   }
@@ -1106,6 +1130,11 @@ export class BrowserPane {
       const x1 = fit(Math.max(region[0], region[2]), vp.width)
       const y1 = fit(Math.max(region[1], region[3]), vp.height)
       rect = { x: x0, y: y0, width: Math.max(1, x1 - x0), height: Math.max(1, y1 - y0) }
+    }
+    // a blank tab is not drawn yet (layout): draw it for the picture
+    if (!tab.drawn && !tab.popup) {
+      this.drawTab(tab)
+      await sleep(150)
     }
     let img = await tab.wc.capturePage(rect)
     if (img.isEmpty()) throw new ToolError('The tab is not being drawn (it is in the background or the pane is hidden). Front it with tabs_select, or read it with read_page / get_page_text.')

@@ -135,7 +135,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
       await expect(toggle).toBeDisabled()
-      await expect(hint).toHaveText('안전 작업 모드에서는 채팅을 공유할 수 없어요.')
+      await expect(hint).toHaveText('이 팀의 보안 설정 때문에 채팅을 공유할 수 없어요.')
       await audit(page, 'project dialog, safe operations')
     })
 
@@ -570,7 +570,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // safe operations (1A): a shared chat is read-only, and says where to ask instead
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
       await b.goto(`/c/${chatId}`)
-      await expect(b.getByTestId('shared-safe-ops')).toHaveText('안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.')
+      await expect(b.getByTestId('shared-safe-ops')).toHaveText('이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.')
       await expect(b.getByTestId('composer-input')).toHaveCount(0)
       const blocked = await post(b, `/api/chats/${chatId}/messages`, { content: 'x', clientMessageId: uuidv7() })
       expect([blocked.status(), await reason(blocked)]).toEqual([409, 'safe_ops'])
