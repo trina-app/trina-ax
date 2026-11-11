@@ -108,7 +108,7 @@ PR #468. Built as planned, with these differences:
   their address on every width (same layout).
 - The rule editor's entry is `&rules=<path>` (not `&rules=1`): a rule row outside the tree has no `?folder=` under it.
   Back closes the editor without asking (the browser gives no way to ask first, as before); ‹ in the bar asks.
-- By person's segments get 44 px from Folders.tsx itself (a descendant rule), so this does not wait for #453's `Tabs`.
+- By person's 44 px segments come from #453's `Tabs` (merged in `dev` meanwhile).
 - `PhoneFilters` became a bottom sheet with Done, so Members', Folder permissions' and Usage's filters changed with
   Activity log's.
 - AI apps' rows on phones are drawn in `admin/AiApps.tsx` (the shared `AiAppConnect.tsx` rows are the settings

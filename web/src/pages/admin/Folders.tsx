@@ -139,8 +139,6 @@ export default function Folders() {
         actions={<span ref={setActions} className="contents" />}
         controls={
           <>
-            {/* a phone: each choice 44 px tall, for a finger */}
-            <div className="contents max-md:[&_[role=tab]]:min-h-11">
             <Tabs
               segmented
               value={view}
@@ -152,7 +150,6 @@ export default function Folders() {
               ]}
               label={t('accessView.tabs')}
             />
-            </div>
             <span ref={setFilter} className="contents" />
           </>
         }
