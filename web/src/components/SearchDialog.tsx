@@ -552,14 +552,16 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [typeAsk, setTypeAsk] = useState(0)
   const typeButton = useRef<HTMLButtonElement>(null)
-  const [sheet, setSheet] = useState<{ row: Row; ask: number } | null>(null)
-  const openSheet = (r: Row) => setSheet((x) => ({ row: r, ask: (x?.ask ?? 0) + 1 }))
+  // `long`: a long press opened it (the finger lifting is no tap on the sheet: MenuButton's openSignal), else the "⋯"
+  // (openRequest); `n`: a new sheet each time
+  const [sheet, setSheet] = useState<{ row: Row; n: number; long: boolean } | null>(null)
+  const openSheet = (r: Row, long = false) => setSheet((x) => ({ row: r, n: (x?.n ?? 0) + 1, long }))
   const pressed = useRef<Row | null>(null)
   const longAt = useRef(0)
   const longPress = useLongPress(() => {
     if (!pressed.current) return
     longAt.current = Date.now()
-    openSheet(pressed.current)
+    openSheet(pressed.current, true)
   })
   const press = (r: Row) => (phone && r.chat ? { ...longPress, onPointerDown: (e: React.PointerEvent) => { pressed.current = r; longPress.onPointerDown(e) } } : {})
   // the type tabs scroll sideways on a narrow window: fade the cut edge, and bring the chosen one into view (arrow keys
@@ -823,15 +825,16 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
         )}
         {phone && sheet?.row.chat && (
           // a phone's sheet of a chat row's actions (rooms/MenuButton.tsx): opened by its "⋯" or a long press, the chat's
-          // name on top; the keyboard stays down (the person was reading the results)
+          // name on top; the keyboard stays down (no focusBack: the person was reading the results, and each item closes
+          // the search)
           <MenuButton
-            key={sheet.row.key}
+            key={sheet.n}
             label={t('search.rowActions')}
             sheetTitle={sheet.row.title}
             className="contents"
             buttonClassName="hidden!"
-            openSignal={sheet.ask}
-            focusBack={() => inputRef.current?.focus()}
+            openSignal={sheet.long ? 1 : 0}
+            openRequest={sheet.long ? 0 : 1}
             items={[
               { label: t('chat.rename'), icon: <Pencil size={18} aria-hidden />, onSelect: () => { onClose(); void chatActions.rename(sheet.row.chat!) }, testId: 'search-row-rename' },
               { label: t('rooms.menu.copyLink'), icon: <Link2 size={18} aria-hidden />, onSelect: () => { onClose(); void copyChatLink(sheet.row.chat!) }, testId: 'search-row-copy-link' },
