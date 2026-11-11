@@ -102,6 +102,7 @@ export const id: Record<MessageKey, string> = {
   'update.reload': 'Muat ulang',
   'update.chunkFailed': 'Bagian halaman ini tidak bisa dimuat. Muat ulang untuk mendapatkan versi terbaru.',
   'update.chunkUnsent': 'Bagian halaman ini tidak bisa dimuat. Ada pesan, unggahan, atau rekaman yang belum selesai: selesaikan dulu, lalu muat ulang untuk mendapatkan versi terbaru. Jika Anda memuat ulang sekarang, pesan yang belum terkirim kembali ke kotak isiannya.',
+  'update.chunkOffline': 'Bagian halaman ini tidak bisa dimuat karena koneksi terputus. Bagian ini dimuat sendiri setelah koneksi kembali.',
   'update.notesMore': 'Catatan rilis lengkap',
   'update.notesLess': 'Tampilkan lebih sedikit',
   'notice.accessChanged': 'Akses folder kamu berubah: {paths}',

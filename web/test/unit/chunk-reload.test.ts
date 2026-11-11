@@ -102,7 +102,7 @@ describe('the boundary instead of a blank page', () => {
     b.componentDidUpdate({ resetKey: '/admin/members' })
     expect(next).toBeNull()
     b.componentDidUpdate({ resetKey: '/settings' })
-    expect(next).toEqual({ error: null, decided: false })
+    expect(next).toEqual({ error: null, decided: false, offline: false })
   })
   test('every language has the lines', async () => {
     const { DICTS } = await import('../../src/i18n')
@@ -225,6 +225,94 @@ describe('nothing typed is lost by a reload after a server update', () => {
       g.window = saved.window
       g.location = saved.location
       _resetChunkReloadForTest()
+    }
+  })
+})
+
+describe('a page part that failed while the connection was down (QA TC-231)', () => {
+  const chunk = new TypeError('Failed to fetch dynamically imported module: https://team.test/assets/Files-x1.js')
+  const chat = '0190a4c0-0000-7000-8000-000000000002'
+  afterEach(() => {
+    useChats.setState({ threads: {} })
+    useUi.setState({ conn: 'idle' })
+    _resetChunkReloadForTest()
+  })
+  /** a boundary that caught `chunk` (as React would call it), and the reloads it asked for */
+  function caught(store = memory()) {
+    const g = globalThis as { window?: unknown; location?: unknown }
+    const saved = { window: g.window, location: g.location }
+    const reloads = { n: 0 }
+    g.window = { sessionStorage: store }
+    g.location = { reload: () => { reloads.n++ } }
+    const b = new ChunkErrorBoundary({ children: createElement('p', null, 'page'), resetKey: '/files' })
+    b.state = { error: chunk, decided: false, reloading: false }
+    b.setState = ((p: object) => { b.state = { ...b.state, ...p } }) as never
+    b.componentDidCatch(chunk)
+    return { b, reloads, store, restore: () => { b.componentWillUnmount(); g.window = saved.window; g.location = saved.location } }
+  }
+
+  test('the line says it loads by itself; once the live connection is back it reloads, once, with a spinner', () => {
+    useUi.setState({ conn: 'reconnecting' })
+    const c = caught()
+    try {
+      expect(c.reloads.n).toBe(0)
+      expect(c.b.state).toMatchObject({ decided: true, reloading: false, offline: true })
+      const line = renderToStaticMarkup(c.b.render() as never)
+      expect(line).toContain(translate(currentLocale(), 'update.chunkOffline'))
+      expect(line).not.toContain(translate(currentLocale(), 'update.chunkFailed'))
+      // still trying: nothing yet
+      useUi.setState({ conn: 'offline' })
+      useUi.setState({ conn: 'reconnecting' })
+      expect(c.reloads.n).toBe(0)
+      // the connection is back: the page reloads by itself, no click
+      useUi.setState({ conn: 'open' })
+      expect(c.reloads.n).toBe(1)
+      expect(c.store.m.has(CHUNK_RELOAD_KEY)).toBe(true)
+      expect(c.b.state.reloading).toBe(true)
+      expect(renderToStaticMarkup(c.b.render() as never)).not.toContain('<button')
+      // it asked once: later changes ask nothing more
+      useUi.setState({ conn: 'reconnecting' })
+      useUi.setState({ conn: 'open' })
+      expect(c.reloads.n).toBe(1)
+    } finally { c.restore() }
+  })
+
+  test('something that a reload would lose: no reload when the connection is back; the Reload button stays', () => {
+    useUi.setState({ conn: 'reconnecting' })
+    useChats.setState({ threads: { [chat]: { messages: [{ id: 'm1', chatId: chat, role: 'user', content: 'the quarterly numbers', status: 'done', local: { clientMessageId: 'c1', state: 'failed' } }], nextCursor: null, stale: false } } } as never)
+    const c = caught()
+    try {
+      expect(c.b.state).toMatchObject({ decided: true, reloading: false, offline: false, unsent: true })
+      useUi.setState({ conn: 'open' })
+      expect(c.reloads.n).toBe(0)
+      const line = renderToStaticMarkup(c.b.render() as never)
+      expect(line).toContain(translate(currentLocale(), 'update.chunkUnsent'))
+      expect(line).toContain(`>${translate(currentLocale(), 'update.reload')}</button>`)
+      expect(c.store.m.has(CHUNK_RELOAD_KEY)).toBe(false)
+    } finally { c.restore() }
+  })
+
+  test('another page meanwhile, or the boundary gone: nothing reloads when the connection is back', () => {
+    useUi.setState({ conn: 'reconnecting' })
+    const c = caught()
+    try {
+      c.b.componentDidUpdate({ resetKey: '/admin/members' })
+      expect(c.b.state.error).toBeNull()
+      useUi.setState({ conn: 'open' })
+      expect(c.reloads.n).toBe(0)
+    } finally { c.restore() }
+    useUi.setState({ conn: 'reconnecting' })
+    const d = caught()
+    d.restore()
+    useUi.setState({ conn: 'open' })
+    expect(d.reloads.n).toBe(0)
+  })
+
+  test('every language has the line', async () => {
+    const { DICTS } = await import('../../src/i18n')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(DICTS[l]['update.chunkOffline'].length).toBeGreaterThan(10)
+      expect(DICTS[l]['update.chunkOffline']).not.toBe(DICTS[l]['update.chunkFailed'])
     }
   })
 })

@@ -102,6 +102,7 @@ export const en: Record<MessageKey, string> = {
   'update.reload': 'Reload',
   'update.chunkFailed': 'This part of the page could not be loaded. Reload to get the current version.',
   'update.chunkUnsent': 'This part of the page could not be loaded. A message, an upload or a recording is not finished: finish it first, then reload to get the current version. If you reload now, a message that was not sent goes back into its input box.',
+  'update.chunkOffline': 'This part of the page could not be loaded because the connection dropped. It loads by itself once the connection is back.',
   'update.notesMore': 'Full release notes',
   'update.notesLess': 'Show less',
   'notice.accessChanged': 'Your folder access changed: {paths}',

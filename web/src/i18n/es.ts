@@ -100,6 +100,7 @@ export const es: Record<MessageKey, string> = {
   'update.reload': "Recargar",
   'update.chunkFailed': "No se pudo cargar esta parte de la página. Vuelva a cargarla para obtener la versión actual.",
   'update.chunkUnsent': "No se pudo cargar esta parte de la página. Hay un mensaje, una subida o una grabación sin terminar: termine eso primero y luego vuelva a cargar la página para obtener la versión actual. Si la vuelve a cargar ahora, el mensaje que no se envió vuelve a su cuadro de texto.",
+  'update.chunkOffline': "No se pudo cargar esta parte de la página porque se cortó la conexión. Se carga sola cuando vuelve la conexión.",
   'update.notesMore': "Notas de la versión completas",
   'update.notesLess': "Mostrar menos",
   'notice.accessChanged': "Cambió su acceso a las carpetas: {paths}",
