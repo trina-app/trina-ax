@@ -16,6 +16,8 @@ export const APP_LINKS = {
    * answer 404. */
   androidCertSha256: [
     '6F:9C:90:4B:59:83:9C:1C:F4:9C:95:95:77:EE:01:FE:78:02:63:35:CC:32:F8:FB:79:CA:F3:BA:08:C9:CA:7A',
+    // Google Play's app signing key: installs from Play are signed with it (Play Console › App integrity › App signing)
+    '8E:15:1D:64:3C:87:6B:8D:B4:B1:C5:A6:5A:47:00:E2:32:85:66:16:DB:90:79:45:0F:F6:6B:0B:BB:49:9C:81',
   ] as readonly string[],
 }
 
