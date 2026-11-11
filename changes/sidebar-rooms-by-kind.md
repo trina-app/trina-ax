@@ -1,0 +1,1 @@
+- In the sidebar, **Show more** under Conversations now lists the rest by kind — team rooms (the everyone room first, then by name), group chats, direct messages — below the pins and the latest five, which stay in place. A conversation you open from there stays where it is.

@@ -1,6 +1,7 @@
 // The computer's sidebar (768 px and wider; docs/DECISIONS.md "Desktop sidebar: rooms first"), rendered and pressed:
 // - its order: the team's name, one labeled row each (트리나에게 묻기, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬; no
-//   관리자 row), then one scroll: 대화 (the five latest rooms and the room on screen, "더 보기 (N)" with what is unread behind it) and
+//   관리자 row), then one scroll: 대화 (the five latest rooms and the room on screen, "더 보기 (N)" with what is unread behind it;
+//   opened, the top rows stay and the rest follow by kind, docs/DECISIONS.md "Conversations by kind under Show more") and
 //   트리나 기록 (the five latest and the chat on screen, "모두 보기" with what needs me behind it);
 // - the rows: their words and where they go, the shortcut hints, the Inbox's count on its row (in words for a screen reader);
 // - both groups fold, remembered in this browser;
@@ -33,7 +34,7 @@ import { useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useWelcome } from '../../src/store/welcome'
 import { TOOLTIP_DELAY_MS } from '../../src/components/Tooltip'
 import { FakeElement, FakeEvent, installDom, mount, removeDom } from './dom-host'
-import { room } from './rooms-fixtures'
+import { BEN, CY, room } from './rooms-fixtures'
 
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
 const aiName = PRODUCT_NAMED_AFTER_AI ? ko('rooms.aiName') : PRODUCT.shortName
@@ -310,6 +311,156 @@ describe('a computer', () => {
     } finally {
       await m.unmount()
     }
+  })
+
+  describe('"더 보기" opened: the top rows stay, the rest by kind (docs/DECISIONS.md "Conversations by kind under Show more")', () => {
+    const DANA = { id: 'dana', name: 'Dana' }, EVE = { id: 'eve', name: 'Eve' }
+    // the store's order, latest activity first: the five on top, then a mix of every kind
+    const byKind = () => [
+      room({ name: '디자인' }), room({ kind: 'dm', name: null, groupId: null, peers: [BEN] }), room({ kind: 'group', name: '주간회의', groupId: null }),
+      room({ name: '개발' }), room({ kind: 'dm', name: null, groupId: null, peers: [CY] }),
+      room({ kind: 'dm', name: null, groupId: null, peers: [EVE] }), room({ name: '영업' }), room({ kind: 'all', name: null, groupId: null }),
+      room({ kind: 'group', name: '점심 모임', groupId: null }), room({ name: '기획' }), room({ kind: 'dm', name: null, groupId: null, peers: [DANA] }),
+      room({ kind: 'group', name: '가을 워크숍', groupId: null }),
+    ]
+    /** the list's items in order: a section's heading as "# words", a room row as its name, another row as its test id */
+    const items = (m: Awaited<ReturnType<typeof render>>) =>
+      m.get('sidebar-rooms-list').children.map((li) => {
+        const id = li.getAttribute('data-testid')
+        return id === 'sidebar-rooms-section' ? `# ${li.textContent}` : id === 'sidebar-room-row' ? li.querySelector('span[title]')!.getAttribute('title') : li.children[0]!.getAttribute('data-testid')
+      })
+    const hrefs = (m: Awaited<ReturnType<typeof render>>) => m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-room"]').map((a) => a.getAttribute('href'))
+
+    test('the five on top where they were; then 팀 대화방 (전체 first, then by name), 그룹 대화 and 1:1 대화 by latest activity; every room once', async () => {
+      const list = byKind()
+      useRooms.setState({ rooms: list, loaded: true, failed: null })
+      const m = await render()
+      try {
+        const before = hrefs(m)
+        expect(before).toEqual(list.slice(0, 5).map((r) => `/rooms/${r.id}`))
+        expect(m.find('sidebar-rooms-section')).toBeNull()
+        await m.click('rooms-more')
+        expect(hrefs(m).slice(0, 5)).toEqual(before)
+        expect(items(m).slice(5)).toEqual([
+          `# ${ko('rooms.section.team')}`, ko('rooms.all'), '기획', '영업',
+          `# ${ko('rooms.section.group')}`, '점심 모임', '가을 워크숍',
+          `# ${ko('rooms.section.dm')}`, 'Eve', 'Dana',
+          'rooms-more',
+        ])
+        expect(m.get('rooms-more').textContent).toBe(ko('common.less'))
+        expect(new Set(hrefs(m)).size).toBe(list.length)
+        expect(hrefs(m).length).toBe(list.length)
+        // quiet labels: headings inside the list's own items, not counted as items and not buttons
+        const heads = m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-rooms-section"]')
+        expect(heads.map((h) => [h.localName, h.getAttribute('role'), h.children[0]!.localName, h.querySelectorAll('button, a').length])).toEqual(Array(3).fill(['li', 'presentation', 'h3', 0]))
+        expect(heads.map((h) => h.getAttribute('data-section'))).toEqual(['team', 'group', 'dm'])
+        expect(heads[0]!.children[0]!.className).toBe('px-3 pt-4 pb-1 text-micro font-medium text-faint')
+        // the rows below say their section; the top rows none
+        const rows = m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-room-row"]')
+        expect(rows.map((r) => r.getAttribute('data-section'))).toEqual([null, null, null, null, null, 'team', 'team', 'team', 'group', 'group', 'dm', 'dm'])
+        // the fold's aria-controls covers the headings too
+        expect(m.get('rooms-toggle').getAttribute('aria-controls')).toBe(m.get('sidebar-rooms-list').getAttribute('id'))
+        // "접기": as before; the button stays (rooms are behind it), and so does the keyboard
+        m.get('rooms-more').focus()
+        await m.click('rooms-more')
+        expect(hrefs(m)).toEqual(before)
+        expect(m.find('sidebar-rooms-section')).toBeNull()
+        expect(m.get('rooms-more').ownerDocument!.activeElement).toBe(m.get('rooms-more'))
+      } finally {
+        await m.unmount()
+      }
+    })
+
+    test('a kind with no room below the top rows has no heading', async () => {
+      // the one group chat is among the five on top
+      const list = byKind().filter((r) => r.kind !== 'group' || r.name === '주간회의')
+      useRooms.setState({ rooms: list, loaded: true, failed: null })
+      localStorage.setItem('mycel.sidebar.roomsAll', 'yes')
+      const m = await render()
+      try {
+        expect(m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-rooms-section"]').map((h) => h.getAttribute('data-section'))).toEqual(['team', 'dm'])
+        expect(m.html()).not.toContain(ko('rooms.section.group'))
+      } finally {
+        await m.unmount()
+      }
+    })
+
+    test('the room on screen is not added on top while opened: it is in its own section, active; closed, it is the sixth', async () => {
+      const list = byKind()
+      const dana = list[10]!
+      useRooms.setState({ rooms: list, loaded: true, failed: null })
+      localStorage.setItem('mycel.sidebar.roomsAll', 'yes')
+      const m = await render(`/rooms/${dana.id}`)
+      try {
+        expect(hrefs(m).slice(0, 5)).toEqual(list.slice(0, 5).map((r) => `/rooms/${r.id}`))
+        expect(hrefs(m).filter((h) => h === `/rooms/${dana.id}`)).toHaveLength(1)
+        expect(hrefs(m).length).toBe(list.length)
+        const row = m.get('sidebar-rooms-list').querySelector(`[data-testid="sidebar-room"][href="/rooms/${dana.id}"]`)!
+        expect(row.getAttribute('aria-current')).toBe('page')
+        expect(row.closest('[data-testid="sidebar-room-row"]')!.getAttribute('data-section')).toBe('dm')
+        await m.click('rooms-more')
+        expect(hrefs(m)).toEqual([...list.slice(0, 5), dana].map((r) => `/rooms/${r.id}`))
+        expect(m.get('rooms-more').querySelector('span')?.textContent).toBe(ko('sidebar.showMore', { n: 6 }))
+      } finally {
+        await m.unmount()
+      }
+    })
+
+    test('"접기" stays while the only room below the top rows is the one on screen (opened from its section)', async () => {
+      const list = byKind().slice(0, 6)
+      useRooms.setState({ rooms: list, loaded: true, failed: null })
+      // closed, with nothing on screen: "더 보기 (1)"; opened, it is under 1:1 대화
+      let m = await render()
+      try {
+        expect(m.get('rooms-more').querySelector('span')?.textContent).toBe(ko('sidebar.showMore', { n: 1 }))
+        await m.click('rooms-more')
+        expect(items(m).slice(5)).toEqual([`# ${ko('rooms.section.dm')}`, 'Eve', 'rooms-more'])
+      } finally {
+        await m.unmount()
+      }
+      // that room open (its row clicked): still opened, the same rows, "접기" and not "모든 대화"
+      m = await render(`/rooms/${list[5]!.id}`)
+      try {
+        expect(items(m).slice(5)).toEqual([`# ${ko('rooms.section.dm')}`, 'Eve', 'rooms-more'])
+        expect(m.get('rooms-more').textContent).toBe(ko('common.less'))
+        expect(m.get('rooms-more').getAttribute('aria-expanded')).toBe('true')
+        expect(m.find('rooms-all')).toBeNull()
+        // closed: it is the sixth, nothing else is behind "더 보기", so the row is "모든 대화" again, and the keyboard that
+        // pressed "접기" is on it (not dropped to the page with the button)
+        m.get('rooms-more').focus()
+        await m.click('rooms-more')
+        expect(hrefs(m)).toEqual(list.map((r) => `/rooms/${r.id}`))
+        expect(m.find('rooms-more')).toBeNull()
+        expect(m.get('rooms-all').textContent).toBe(ko('sidebar.allRooms'))
+        expect(m.get('rooms-all').ownerDocument!.activeElement).toBe(m.get('rooms-all'))
+      } finally {
+        await m.unmount()
+      }
+    })
+
+    test('rooms I hid stay out of the sections ("모든 대화" leads to them); the hidden room on screen is in its section', async () => {
+      const list = byKind()
+      list[6] = { ...list[6]!, hidden: true } // 영업
+      list[10] = { ...list[10]!, hidden: true } // Dana
+      useRooms.setState({ rooms: list, loaded: true, failed: null })
+      localStorage.setItem('mycel.sidebar.roomsAll', 'yes')
+      let m = await render()
+      try {
+        expect(items(m).slice(5)).toEqual([
+          `# ${ko('rooms.section.team')}`, ko('rooms.all'), '기획', `# ${ko('rooms.section.group')}`, '점심 모임', '가을 워크숍', `# ${ko('rooms.section.dm')}`, 'Eve', 'rooms-more', 'rooms-all',
+        ])
+      } finally {
+        await m.unmount()
+      }
+      m = await render(`/rooms/${list[10]!.id}`)
+      try {
+        expect(items(m).slice(5)).toEqual([
+          `# ${ko('rooms.section.team')}`, ko('rooms.all'), '기획', `# ${ko('rooms.section.group')}`, '점심 모임', '가을 워크숍', `# ${ko('rooms.section.dm')}`, 'Eve', 'Dana', 'rooms-more', 'rooms-all',
+        ])
+      } finally {
+        await m.unmount()
+      }
+    })
   })
 
   test('five AI chats, newest first, then "모두 보기" for the whole history (and "접기" back)', async () => {

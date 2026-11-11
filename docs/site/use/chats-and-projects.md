@@ -64,6 +64,10 @@ Conversations in **대화** (rooms, DMs and group chats) are pinned the same way
 **···**: pinned ones come first, with a small pin after the name, in the sidebar, the full list and the phone's **대화** tab.
 Only you see your pins. A pin goes when you leave the room or hide it. You can pin up to 50 conversations.
 
+On a computer the sidebar's **대화** shows up to ten pins and the five latest conversations. **Show more** (더 보기) keeps
+them where they are and lists the rest below them by kind: **Team rooms** (the everyone room first, then by name),
+**Group chats** and **Direct messages** (the latest first). A pin past the first ten comes first in its own kind.
+
 ## Projects
 
 A project is a folder of the team folder, plus instructions. Use it for work that keeps coming back to the same files: a launch, a client, a quarter's report.

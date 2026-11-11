@@ -11282,7 +11282,8 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   하기 · n/4" or "AI 연결하기" for the owner, W5). Each section folds, and each one's whole list stays open or closed,
   remembered in this browser (`mycel.sidebar.rooms`, `mycel.sidebar.roomsAll`, `mycel.sidebar.recents`,
   `mycel.sidebar.recentsAll`). The order is latest activity; a row moves only when the list changes after a message is
-  sent or received.
+  sent or received. (Since 2026-11-11 an opened "더 보기" lists the rest by kind, team rooms by name: "Conversations by
+  kind under Show more".)
 - **Many rooms: strictly capped sections in one scroll** (the owner, 2026-11-06, decided). The AI history must not sink
   as people chats grow, and the owner chose caps over panes: first the sidebar scrolled as one with a sticky AI heading,
   then two stacked panes (대화 scrolling on its own, 트리나 기록 pinned at the bottom), then caps that always let unread
@@ -14625,7 +14626,8 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   member row). Deleted messages and event lines have body '' and never match. The hit is built from `messagesOut`'s own
   row (a `withheld` one is dropped), so the snippet is the message's own visible text: never a quote, a file name or a
   hidden answer's words. A thread reply is found by whoever sees its thread; its hit names the thread and opens it.
-- **The text as one part**, as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
+- **The text as one part** (since 2026-11-11 every word, in any order: "⌘K: 대화방·사람, 대화방 파일, 모든 단어" below),
+  as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
   NFC. "견적" finds "견적서를"; "견적 보내" finds that phrase, not two words apart.
 - **Index: FTS5 trigram, migration 267**, as `messages_fts` (201) for the chat records. `room_messages_fts(body)`, its
   rowid the message's rowid, kept by triggers: insert (body not ''), `UPDATE OF body` (an edit replaces it, a delete
@@ -14667,17 +14669,17 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   name), "· 스레드" for a reply, the time (12 px, as the rooms list) and one line of the text (14 px, an answer's Markdown
   as plain text) from a little before the match, the match marked as elsewhere in the palette. On a phone the room name
   gives way first.
-- **Not here.** Room file names and file contents, filters, results in the 기록 tab, highlighting more than the first
-  match, searching the AI's steps. Known limits: a word that spans a room link (`#[name](room:…)`) or Markdown marks in
-  the middle ("견적**서**") is not found as typed; the order is the order the messages were written (an AI answer posted
-  from a preview later sorts by when the preview was made). The time a search takes grows with the matches the index
-  walks past, those in rooms the person is not in too: a word written thousands of times only in other rooms takes
-  tens of milliseconds more, and a 1–2 character word scans the index's text (as the chat records' search does); the
-  same for matches in their own rooms they do not see (from before they joined, others' previews). A request has no
-  upper bound: at worst one pass over every match in the index (a row budget whose cursor went on from the last row
-  looked at would bring the cursor leak below back). Over a network that tells little (one match or none is
-  microseconds); scoping the index walk to the person's rooms (a room column FTS5 can filter on) is left for its own
-  change.
+- **Not here.** Room file names (found since 2026-11-11, below) and file contents, filters, results in the 기록 tab,
+  highlighting more than the first match, searching the AI's steps. Known limits: a word that spans a room link
+  (`#[name](room:…)`) or Markdown marks in the middle ("견적**서**") is not found as typed; the order is the order the
+  messages were written (an AI answer posted from a preview later sorts by when the preview was made). The time a
+  search takes grows with the matches the index walks past, those in rooms the person is not in too: a word written
+  thousands of times only in other rooms takes tens of milliseconds more, and a 1–2 character word scans the index's
+  text (as the chat records' search does); the same for matches in their own rooms they do not see (from before they
+  joined, others' previews). A request has no upper bound: at worst one pass over every match in the index (a row
+  budget whose cursor went on from the last row looked at would bring the cursor leak below back). Over a network that
+  tells little (one match or none is microseconds); scoping the index walk to the person's rooms (a room column FTS5
+  can filter on) is left for its own change.
 - **Independent review (security, 2026-11-08) fixes.** The first version filtered with `canSee` after the query and
   looked at 2,000 candidates a request at most; a page that ran out answered with a cursor at the last candidate looked
   at, often a message the person does not see: an empty page with a cursor told that unseen messages held the word, the
@@ -14706,6 +14708,107 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   dark).
 - Version impact: **minor** (a new result type in search, one endpoint, an optional query field and response field,
   one additive migration).
+
+## ⌘K: 대화방·사람, 대화방 파일, 모든 단어 — rooms and people by name, files sent in rooms, every word, two palette bugs (feat/search-rooms-people-files, 2026-11-11, product owner)
+넣을 곳: trina-ax `web/src/components/SearchDialog.tsx`, `shared/src/search-text.ts`, `shared/src/api/rooms.ts`,
+`server/src/rooms/search.ts`, `server/src/rooms/service.ts`, `server/src/routes/rooms.ts`, `server/src/routes/chats.ts`,
+이유: the search palette, rooms and their visibility rule are core chat.
+
+An audit of the palette on dev (2274559af) found five gaps; the owner approved fixing them on 2026-11-11. Amends "⌘K에서
+대화방 메시지 찾기" above ("The text as one part" and "Not here: room file names"). The plan went through an independent
+review before it was built; its must-fix and its decisions are below. Nothing else changed: no new tab, no filter, no
+new button or card.
+
+- **Rooms & people ("대화방·사람"), the first group on the 전체 tab, only while something is typed.** Matched in the
+  browser from lists the app already has: the rooms list (`GET /api/rooms`, `Rooms.list`: the rooms I am in now, not
+  archived; hidden ones included, as message search includes them) and the team's people (`GET /api/people`, the list
+  the new-DM picker uses; never me). Both load in the background when no screen has read them yet, so a row can appear
+  a moment after the text. One row per room or person: a DM stands for its person (their face and name); a team room,
+  the everyone room and a group chat show their icon and the name the app shows (`useRoomTitle`). At most 3 rows, so the
+  chat records stay in sight on a 390 px phone.
+- **Matching** (`shared/src/search-text.ts nameMatch`, no helper existed): NFC on the whole text, then NFKC one
+  character at a time (full-width letters as ASCII; a compatibility jamo ㄱ…ㅎ as its leading consonant; never joined
+  with the next character, so "ㄱㅏ" stays an initial and a vowel and never becomes "가"; ㈜ and "(주)" match), lower case;
+  every word must be in the name; a leading consonant typed alone (ㄱ…ㅎ, ㄲ…ㅉ) stands for any syllable that starts with
+  it: "ㄱㅈ" finds "견적", "ㅁㅎ" "민희", "김ㅁ" "김민희". Order: rooms and DMs first, then people with no DM; within each
+  the whole text at the start of the name, then inside it, then by words or initials; rooms by latest activity, people
+  by name. A match is marked only where it is a plain part of the name (not for initials or full-width letters, and
+  never when lower case changes the name's length: the marks would not land on the letters).
+- **Enter / click.** A room or a DM opens it (`/rooms/:id`; a hidden room opened this way is shown again, as opening it
+  from "숨긴 대화" does: `Room.tsx`). A person with no DM opens the new-DM list with them ticked (`PeoplePicker`,
+  `{kind:'new', preselect:[id]}`) and makes nothing until they press its button. Decided by the lead after the review:
+  `openDm` makes the room at once and the other person's sidebar shows it on top (`room.added`), so a stray Enter in a
+  search must not make one.
+- **Files sent in rooms.** `GET /api/room-files?q=&cursor=&limit=` (`API.searchRoomFiles`, `RoomSearchQuery`;
+  `rooms/search.ts searchRoomFiles`, `Rooms.searchFiles` runs `syncFor` first as `Rooms.search` does): `items` (the file
+  as the room shows it, the message id, roomId, threadRootId, author, createdAt), `rooms` (as `RoomSearchPage.rooms`),
+  `nextCursor`. **Who finds a file: exactly who would see it by opening its message now, by message search's rule.**
+  Candidates only in `reader.ts myRooms` (in the room now, not archived). Only files sent with a message (an upload not
+  sent yet never), of a message in the same room, not deleted, not an event line. Who sees the message is decided in the
+  query (`SEE_MEMBER_SQL` on its room's member row: a later member of a group chat or a 1:1 from their join, a thread
+  reply by whoever sees its thread's first message, a team room's whole history once opened, others' private previews
+  never, the old answers hidden from them and their threads never), then `canSee` on each row, then `messagesOut` once
+  per room: the message must come out not withheld (so never an answer shared from someone's own AI chat with its files
+  that is hidden from them) and the file must be among its files. Leaving or being taken out ends it at once.
+- **How it finds a file.** Every word in the name (`LIKE … ESCAPE`, A–Z in any case, `%` and `_` as themselves; names
+  are stored NFC). No index and no migration: `room_files` holds one row per file sent. The query reads it newest first
+  by rowid (when the file was uploaded, moments before it was sent) with `CROSS JOIN` (room_files, then its message by
+  primary key with the same room, then the member row), so the `ORDER BY` needs no sort and a page stops as soon as it
+  is full; the cursor is the file rowid of the page's last row of the query (a file they see), never one kept after it.
+  The independent review measured a plain `JOIN` (SQLite walked every message of the person's rooms and sorted) at
+  1.5–4 s per query on a million messages and 200,000 files, and this order at 0.1–110 ms. Measured in the suite
+  (`b-rooms-file-search.test.ts`, 20,000 files among 100,000 messages, half in a room of hers, median of 5, two runs on
+  this Mac while other suites ran on it): a word in every name 19–87 ms, its second page 23–78 ms, a rare name (40 files)
+  31–198 ms, two words 54–75 ms, a word in no name 3–4 ms; with one message per file and a quiet machine 2–14 ms. Most
+  of a page with hits is `messagesOut`. A test reads the plan: `SCAN f` (a later page `SEARCH f USING INTEGER PRIMARY KEY (rowid<?)`), no
+  `TEMP B-TREE`. Known limit: as for messages, the walk passes files of rooms they are not in.
+- **The file row.** On the 전체 and 파일 tabs, after the team's files by name: 4 file rows in all on 전체 (the team's first,
+  then the rooms'), all of them on 파일. One line: the file's icon and name (the typed words marked), then dim "who ·
+  where · when" with the room said as a message hit says it ("#디자인 리뷰", "1:1 대화 · Ben", a group chat's name).
+  Opening one opens its message in the room (`/rooms/:id?m=`, a thread reply `/rooms/:id/t/:root?m=`), marked, as a
+  message hit does.
+- **Every word, in any order** (`searchWords`: NFC, split on whitespace, no empty word, none repeated in another case,
+  at most 8, as the AI's room search). "견적서 보내" finds "견적서를 보내드렸어요". Room messages: the words of 3 or more
+  characters go into one FTS5 `MATCH`, each a quoted phrase joined by `AND` (operators, columns, stars and brackets are
+  only text: a test tries `abc OR def`, `NEAR(abc def)`, `abc*`, `body:abc`, `-abc`, `"abc`, `"""`); with none, the
+  trigram `LIKE` with the longest word, as before for a short text; every word is matched again on the body. Visibility,
+  pages and cursors as before. The snippet starts at the word found first in the text. Chat records (`listChats`): every
+  word in the title or in one of the chat's messages (per chat, as `chat/room-project-chats.ts` does for the AI's
+  project_chats tool). The messages that hold any word are read in **one** pass over `messages_fts` per request (it is a
+  scan either way: `LIKE … ESCAPE` is never handed to FTS5), only for the chats that list may hold, each row with the
+  words it holds; that only narrows the query, and whether an answer counts is decided per chat in `found()`: a word
+  counts through the title, a person's message, or an answer not hidden from me, never through a hidden one. The palette
+  marks the first match of every word, and puts first the chats whose title has every word.
+- **Known limits (word by word).** Two short Korean words ("회의 자료", "견적 요청") used to be one 5-character phrase
+  `MATCH`; now they are the trigram `LIKE` with the longer word, a scan of the index's text: on the suite's 50,000-message
+  room 23–26 ms and 53–73 ms (median of 5, two runs while other suites ran), against 12–36 ms for one word of 3 or more
+  characters in the same run. Words apart are found anywhere in a
+  message or a chat, also far apart, and an older result with the text as one run ranks no higher.
+- **A result of an older text is never shown nor opened.** Each answer from the server (chats, the team's file names,
+  room messages and their further pages, room files) is kept with the words it answered (lower case), and rows, the
+  loading state, the failure lines and Enter use it only while those are the words in the box; a space more or a letter
+  in another case asks nothing again. So a fast Enter opens the top row shown at that moment, never a chat of the text
+  before (the audit: search "견적서", replace it with "회의록", Enter: a 견적서 chat opened).
+- **The highlight is kept by its row's key.** Arrows and the pointer choose a row by its key; results arriving above it
+  (room messages after the chats, say) no longer move it to another row. When the row is gone, the row at its place.
+  Typing or another tab goes back to the first row. "메시지 더 보기" keeps the place, so the keys go on to the first new
+  message.
+- **Tests.** `tests/unit/search-text.test.ts` (initials, ㄱㅏ, ㈜, NFKC, case, words, the order), `tests/unit/
+  b-rooms-file-search.test.ts` (a non-member, an owner and an admin; after leaving a group chat and after being taken
+  out of a team room; a later member of a group chat: a file from before their join and one in a later reply of an older
+  thread; a later member of a team room; a 1:1 by its two people only; a file in the thread of a hidden answer and a
+  hidden shared answer's file; a private preview's file; an unsent upload; a deleted message; an archived room; words,
+  case, `%` and `_`, decomposed text; pages, cursors at files they see, a bad cursor; 20,000 files timed, the plan),
+  `tests/unit/b-rooms-search.test.ts` (every word, short and long words, the operators, pages over several words,
+  hand-made cursors with several words, the plan with several words, timings), `tests/unit/b-api.test.ts` and
+  `tests/unit/b-shared-chat-audience.test.ts` (chat records by words across the title and messages; a word only in an
+  answer hidden from the person does not count), the permission matrix (`searchRoomFiles`: the DM's file only for its two
+  people), `web/test/unit/search-palette.test.tsx` (an older text's results neither shown nor opened, also when its
+  answer comes last; the highlight stays on its row; rooms and people, initials, the order, a person with no DM opens the
+  new-DM list and makes nothing; room file rows, 4 file rows on 전체), `web/test/e2e/search-rooms-people-files.spec.ts`
+  (initials → Enter opens the room; a person with no DM; a room file opens its message; Enter right after a new text;
+  axe light and dark; 390 px; `SHOTS_DIR` for 1440 and 390, light and dark).
+- Version impact: **minor** (one endpoint and result type, a new group in the palette, a looser match).
 
 ## 대화방에서 새 파일은 미리 허용 — "이 방에서는 항상 허용" (feat/room-ai-allowances, 2026-11-08, product owner)
 
@@ -16968,7 +17071,8 @@ pins wherever a room allows it.
   need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
   pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
   대화 (lean, as the chat pins): at most ten pins, then the five latest of the others, and the room on screen wherever it
-  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before. /rooms (모든 대화) and the
+  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before (since 2026-11-11, opened,
+  the pins past ten lead their own kind's section: "Conversations by kind under Show more"). /rooms (모든 대화) and the
   phone's 대화 tab (the same page): the 트리나 row stays the very first row (computers), then every pin, then the
   others. Hidden rooms stay under "숨긴 대화" (never pinned). Other room lists (⌘K, the room picker, the AI's room
   list) keep their order.
@@ -19609,6 +19713,60 @@ folder, in place" (the chip).
   `project-participants.spec.ts`, `folder-access.spec.ts`.
 - Version impact: **patch** (new count words; three optional response fields; no data change).
 
+## Conversations by kind under Show more (feat/sidebar-rooms-by-kind, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`web/src/components/rooms/SidebarRooms.tsx`, the five `web/src/i18n/*.ts`), 이유: the rooms and
+their lists are core. Plan: `docs/AGENTS/plan/20261110-1742-sidebar-rooms-by-kind.md`. Amends "Desktop sidebar: rooms
+first" (the order of an opened "더 보기") and "Pinned conversations" (where the pins past ten go).
+
+The owner, on the computer sidebar's 대화 with many rooms: "너무 많아서 정리가 안되는데". "더 보기 (N)" opened every other
+room in place as one long list by latest activity, team rooms, group chats and DMs mixed, hard to scan. Slack's sidebar
+is the reference: its sections (channels, direct messages) sort the many, and a recent conversation does not jump
+between them. Decided after two product reviews.
+
+- **Closed (the default): unchanged.** At most ten pins, the five latest of the others, the room on screen if it is not
+  one of them; "더 보기 (N)" with its pill ("?", "안 읽음 M", "@") as before.
+- **Opened: the pins and the five latest stay where they were.** The same pins (at most ten) and five latest, computed
+  without the room on screen, in the same place. The room on screen, when it was the extra sixth row, moves into its
+  section. Two rare cases move the top rows: with a pin past ten on screen (among the pins while closed, as before) the
+  five latest move up one row when the list opens; and a room I hid that is on screen and among the latest takes a top
+  place while opened, so clicking another row gives that place back and shifts the rows under it. Left as is: opening
+  a hidden room is rare, and keeping it out of the top would move rows on opening instead. Below them every other room
+  (hidden rooms stay out, a hidden room on screen shows) in three sections, in this order: **팀 대화방** (Team rooms:
+  전체 and the groups' rooms), **그룹 대화** (Group chats), **1:1 대화** (Direct messages). A room on top is never
+  repeated below; a section with no room has no heading.
+- **Team rooms by name, the others by latest activity.** 전체 first, then the team rooms by the title their rows show
+  (`useRoomTitle`, so a renamed room and 전체's word in each language sort right), compared in the app's language
+  (`Intl.Collator` with `numeric`: the order of `localeCompare`, numbers by their value, so "팀 2" comes before
+  "팀 10"). Team rooms are a stable set people look for by name, as Slack's channels; group chats and DMs keep latest
+  activity, the order people know from the closed list and /rooms.
+- **The room on screen is not added on top while opened.** It is in its own section, the active row as usual, so a row
+  clicked below never moves. "접기" stays while anything is below the top rows, also when that is only the room on
+  screen (counting the closed list's rows, opening the only room behind "더 보기" turned the row into "모든 대화" with
+  the sections still on screen). "모든 대화" shows as before: when nothing is behind "더 보기", and below an opened one
+  while some rooms are hidden. When "접기" closes onto "모든 대화" (only the room on screen was below), the button goes
+  and the keyboard moves to "모든 대화" instead of falling to the page.
+- **Pins past ten** (rare) no longer lead "더 보기" as one block: each goes first in its own kind's section, the most
+  recently pinned first, with its pin.
+- **The headings: quiet labels, a third level.** `text-micro` (11 px), 500, `text-faint`, the in-list date headings' look
+  and spacing in 트리나 기록 (16 px above, 4 px below), on the left edge of the title, the icons and "더 보기"; no
+  chevron, hover, count or box, so they read under 대화 (12 px, 600, ink) and not as a row like "더 보기" (12 px, muted,
+  a button). An `<h3>` in a list item of its own that is not counted as an item (`role="presentation"`), so the fold's
+  `aria-controls` and `hidden` cover them. English first: "Team rooms", "Group chats", "Direct messages"; ko "팀 대화방",
+  "그룹 대화", "1:1 대화"; es, id, ja in the words those files already use for group chats and DMs.
+- **Rejected.** Sorting the top rows into the sections when the list opens: the rows people just saw would jump.
+  Grouping /rooms too: it is the phone's main 대화 tab, ordered by time on purpose, with its search. A "Recent" label above
+  the top rows: it would push every row down on opening. Folding or counting the headings: "더 보기" is already the fold,
+  and a second level of folds is more to manage than to scan.
+- Unchanged: /rooms and the phone's 대화 tab, the closed list, the pill, hidden rooms, the API.
+- Tests: `web/test/unit/sidebar.test.tsx` (the top rows in place, the sections' order and members, 전체 first, every room
+  once, an empty kind without a heading, the room on screen in its section and not on top, "접기" with only the room on
+  screen below, hidden rooms), `room-pins.test.tsx` (`roomSections`: pins past ten first in their section, the order by
+  name in the app's language; the rows with their pin), e2e `sidebar.spec.ts` ("대화 opened by kind": the top rows and a
+  clicked DM row do not move, the headings in order and their look in both themes, "접기" stays; with `SHOTS_DIR`, the
+  screenshots at 1440×900 and 1280×800, light and dark).
+- Version impact: **patch** (the order of an opened list and three words; no API or data change).
+
 ## Allow all websites covers the AI's web reads (feat/allow-all-sites-card, 2026-11-11, product owner)
 
 A teammate asked for "a mode that lets everything through": after one request, many server address cards ("The AI wants
@@ -19708,4 +19866,3 @@ overruled the review's MUST 1 and three of its SHOULDs:
   - `site-allow.test.ts`;
   - the permission matrix and `security-route-coverage.test.ts`;
   - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
-

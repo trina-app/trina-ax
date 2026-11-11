@@ -205,7 +205,7 @@ describe('what a hit is', () => {
     expect(inIndex('ROWGONE-CANARY')).toBe(0)
   })
 
-  test('Korean by part of a word, the text as one part, A–Z in any case, % and _ as themselves', async () => {
+  test('Korean by part of a word, A–Z in any case, % and _ as themselves', async () => {
     const { roomId } = await teamRoom(['alice', 'erin'])
     await send('alice', roomId, 'KO-CANARY 견적서를 내일까지 보내드릴게요')
     await send('alice', roomId, 'KO-CANARY Quarterly Budget 할인 50% 적용')
@@ -223,6 +223,51 @@ describe('what a hit is', () => {
     expect(searchRoomMessages(h.ctx.db, 'erin', { q: '견적'.normalize('NFD') }).items.map((i) => i.snippet)).toContain('KO-CANARY 견적서를 내일까지 보내드릴게요')
   })
 
+  test('every word, in any order: 3+ characters through the index, 1–2 by the trigram LIKE, mixed', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    await send('alice', roomId, 'WORDS-CANARY 견적서를 보내드렸어요')
+    await send('alice', roomId, 'WORDS-CANARY 견적서는 내일 드릴게요')
+    await send('alice', roomId, 'WORDS-CANARY 네 보내 주세요, the Budget')
+    const one = async (q: string) => bodies(await search('erin', `WORDS-CANARY ${q}`))
+    expect(await one('견적서 보내')).toEqual(['WORDS-CANARY 견적서를 보내드렸어요'])
+    expect(await one('보내 견적서')).toEqual(['WORDS-CANARY 견적서를 보내드렸어요'])
+    expect(await one('견적서 받아')).toEqual([])
+    expect(await one('견적서')).toEqual(['WORDS-CANARY 견적서는 내일 드릴게요', 'WORDS-CANARY 견적서를 보내드렸어요'])
+    // only short words (no WORDS-CANARY here): the trigram LIKE with the longest, every word checked on the text
+    const short = async (q: string) => bodies(await search('erin', q)).filter((b) => b.includes('WORDS-CANARY'))
+    expect(await short('보내 네')).toEqual(['WORDS-CANARY 네 보내 주세요, the Budget'])
+    expect(await short('견적 내일')).toEqual(['WORDS-CANARY 견적서는 내일 드릴게요'])
+    // a long word in any case with a short one
+    expect(await one('BUDGET 네')).toEqual(['WORDS-CANARY 네 보내 주세요, the Budget'])
+    // repeated words and extra spaces change nothing
+    expect(await one('  견적서   견적서 보내 ')).toEqual(['WORDS-CANARY 견적서를 보내드렸어요'])
+    // the hit's text starts at the word found first
+    const hit = (await search('erin', 'WORDS-CANARY 드릴게요 내일')).items[0]!
+    expect(hit.snippet).toBe('WORDS-CANARY 견적서는 내일 드릴게요')
+  })
+
+  test('FTS5 operators are plain text: every word is quoted, none works and none breaks the query', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    await send('alice', roomId, 'OPS-CANARY abc OR def')
+    await send('alice', roomId, 'OPS-CANARY abc def')
+    await send('alice', roomId, 'OPS-CANARY NEAR(abc def) abc* body:abc -abc "abc 네')
+    const one = async (q: string) => bodies(await search('erin', `OPS-CANARY ${q}`)).sort()
+    // OR is a word to find (2 characters: checked on the text), not "either"
+    expect(await one('abc OR def')).toEqual(['OPS-CANARY abc OR def'])
+    expect(await one('def abc')).toEqual(['OPS-CANARY NEAR(abc def) abc* body:abc -abc "abc 네', 'OPS-CANARY abc OR def', 'OPS-CANARY abc def'])
+    const third = ['OPS-CANARY NEAR(abc def) abc* body:abc -abc "abc 네']
+    for (const q of ['NEAR(abc def)', 'abc*', 'body:abc', '-abc', '"abc', 'abc* 네', '네 body:abc']) expect(await one(q), q).toEqual(third)
+    // a quote, a star or a bracket alone is a character to find; quotes, a column filter or an operator no message
+    // holds: nothing. Never an error
+    const raw = async (q: string) => {
+      const r = await h.req('erin', `/api/room-messages?q=${encodeURIComponent(`OPS-CANARY ${q}`)}`)
+      expect(r.status, q).toBe(200)
+      return ((await r.json()) as RoomSearchPage).items.map((i) => i.snippet)
+    }
+    for (const q of ['"', '*', '(']) expect(await raw(q), q).toEqual(third)
+    for (const q of ['"""', 'content:abc', 'AND', 'NOT abc', 'abc"def', '^abc', 'abc + def']) expect(await raw(q), q).toEqual([])
+  })
+
   test('the snippet: around the first match, room links as #name, one line, cut with …', () => {
     const long = `${'가'.repeat(300)} 견적서 ${'나'.repeat(300)}`
     const s = snippetOf(long, '견적서')
@@ -232,6 +277,10 @@ describe('what a hit is', () => {
     expect(s.indexOf('견적서')).toBeLessThan(70)
     expect(snippetOf('see #[디자인 리뷰](room:019a5f00-0000-7000-8000-00000000a001)\n\nand  the 견적', '견적')).toBe('see #디자인 리뷰 and the 견적')
     expect(snippetOf('short one', 'zzz')).toBe('short one')
+    // several words: around the one found first in the text, whichever was typed first
+    const two = snippetOf(`${'가'.repeat(300)} 보내 ${'나'.repeat(150)} 견적서 ${'다'.repeat(100)}`, ['견적서', '보내'])
+    expect(two.indexOf('보내')).toBeGreaterThan(50)
+    expect(two.indexOf('보내')).toBeLessThan(70)
   })
 })
 
@@ -261,6 +310,29 @@ describe('how much', () => {
     expect(searchRoomMessages(h.ctx.db, 'erin', { q: 'PAGE\u0000-CANARY 1' }).items.length).toBeGreaterThan(0)
   })
 
+  test('pages over several words: newest first, no repeats, never a message with only some of them', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    const both: string[] = []
+    h.ctx.db.transaction(() => {
+      for (let i = 0; i < 45; i++) {
+        const id = put(roomId, 'alice', i % 3 === 0 ? `MULTI-PAGE 견적 only ${i}` : `MULTI-PAGE 견적 회의록 ${i}`)
+        if (i % 3) both.push(id)
+      }
+    })()
+    for (const q of ['회의록 MULTI-PAGE 견적', '견적 회의록 multi-page']) {
+      const seen: string[] = []
+      let cursor: string | undefined
+      for (let n = 0; n < 20; n++) {
+        const p = await search('erin', q, { limit: 7, ...(cursor ? { cursor } : {}) })
+        expect(p.items.length).toBeLessThanOrEqual(7)
+        seen.push(...p.items.map((i) => i.id))
+        if (!p.nextCursor) break
+        cursor = p.nextCursor
+      }
+      expect(seen).toEqual([...both].reverse())
+    }
+  })
+
   test('a cursor only ever names a message they see: messages they do not see change no page, no cursor (independent review)', async () => {
     // bob joins a group chat after 2,100 messages with the word, one of them a secret; erin's room has alice's previews
     const chat = await groupChat('alice', ['erin', 'carol'])
@@ -277,7 +349,7 @@ describe('how much', () => {
     const rowid = (id: string) => (h.ctx.db.query('SELECT rowid r FROM room_messages WHERE id = ?').get(id) as { r: number }).r
     const at = (r: number) => Buffer.from(JSON.stringify({ r: String(r) })).toString('base64url')
     const secret = rowid(ids[1_000]!)
-    for (const q of ['공통어', 'SECRET', '3억', 'pad'])
+    for (const q of ['공통어', 'SECRET', '3억', 'pad', '공통어 SECRET', 'pad 공통어', '3억 SECRET'])
       for (const r of [secret, secret + 1, secret - 1]) expect(await search('bob', q, { cursor: at(r) })).toEqual({ items: [], rooms: [], nextCursor: null })
     // erin, in the same room from the start: alice's previews are not hers, the room's messages are, in pages
     const erin = await search('erin', '공통어', { limit: 30 })
@@ -320,7 +392,7 @@ describe('how much', () => {
     })()
     const inserted = performance.now() - t0
     const times: Record<string, number> = {}
-    for (const q of ['견적', '네', '견적서', 'budget', '특별견적', '없는말입니다', '없음']) {
+    for (const q of ['견적', '네', '견적서', 'budget', '특별견적', '없는말입니다', '없음', '견적서를 보내드릴게요', '특별견적 요청', '네 견적', '회의 자료', '견적 요청']) {
       searchRoomMessages(db, 'bob', { q })
       const runs: number[] = []
       for (let i = 0; i < 5; i++) { const t = performance.now(); searchRoomMessages(db, 'bob', { q }); runs.push(performance.now() - t) }
@@ -336,6 +408,11 @@ describe('how much', () => {
     const plan = (db.query(`EXPLAIN QUERY PLAN SELECT f.rowid FROM room_messages_fts f CROSS JOIN room_messages m ON m.rowid = f.rowid WHERE room_messages_fts MATCH '"특별견적"' AND m.room_id IN (SELECT value FROM json_each('[]')) ORDER BY f.rowid DESC LIMIT 5`).all() as { detail: string }[]).map((r) => r.detail)
     expect(plan[0]).toMatch(/VIRTUAL TABLE/)
     expect(plan.join(' | ')).not.toMatch(/SCAN m\b|TEMP B-TREE/)
+    // several words: one MATCH of them all, the index still first
+    const plan2 = (db.query(`EXPLAIN QUERY PLAN SELECT f.rowid FROM room_messages_fts f CROSS JOIN room_messages m ON m.rowid = f.rowid WHERE room_messages_fts MATCH '"특별견적" AND "요청"' AND m.room_id IN (SELECT value FROM json_each('[]')) AND m.body LIKE '%네%' ORDER BY f.rowid DESC LIMIT 5`).all() as { detail: string }[]).map((r) => r.detail)
+    expect(plan2[0]).toMatch(/VIRTUAL TABLE/)
+    expect(plan2.join(' | ')).not.toMatch(/SCAN m\b|TEMP B-TREE/)
+    expect(searchRoomMessages(db, 'bob', { q: '요청 특별견적' }).items).toHaveLength(20)
   })
 
   test('the index keeps its rows on a backup copy (VACUUM INTO) and after VACUUM', async () => {
