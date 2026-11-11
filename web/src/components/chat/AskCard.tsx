@@ -18,6 +18,9 @@ import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
 import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
+import { ALL_SITES_ANSWER } from '@mycel/shared'
+import { navigateTo } from '../../lib/nav'
+import { toast } from '../../store/ui'
 import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 
@@ -45,6 +48,10 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
     setError(null)
     try {
       await answer(r.requestId, body)
+      // the address card's "Allow all websites (turn off in Settings)" (server/src/tools/url-gate.ts): say it is on, and
+      // where it goes off
+      if (body.kind === 'ask_user' && r.kind === 'ask_user' && r.origin === 'server' && body.answer === ALL_SITES_ANSWER)
+        toast({ level: 'success', text: t('settings.browser.allOnFromCard'), action: { label: t('settings.browser.open'), run: () => navigateTo('/settings/browser') } })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
       setBusy(false)

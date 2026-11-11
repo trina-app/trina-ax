@@ -1,5 +1,6 @@
 // Team settings: name, default language, update channel and window, retention periods, whether people may turn on
-// "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it), whether
+// "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it) and, under
+// it, whether that also covers the AI's web reads (on by default; the server enforces it), whether
 // members may add their own external-service connections (Settings > External services), whether AI reads send images
 // and PDF pages to the AI (server/src/files/vision.ts), how many tool rounds one answer may take (Claude Code
 // --max-turns, docs/DECISIONS.md "Tool rounds per answer"), voice input (off, OpenRouter
@@ -18,7 +19,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
-import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
+import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
@@ -124,6 +125,7 @@ export default function TeamSettingsPage() {
                 </SettingsSection>
                 <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
                   <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
+                  <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
                   <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
                   <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                   <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
@@ -332,6 +334,26 @@ function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: str
 export function BrowserPolicySwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return <SwitchRow id="ts-browser-allow-all" testId="team-browser-allow-all" value={value} onChange={onChange} title={t('teamSettings.browserAllowAll')} desc={t('teamSettings.row.browserAllowAllDesc')} more={t('teamSettings.browserAllowAllHint')} />
+}
+
+/**
+ * "Also for web pages the AI opens" (webAllowAll, default on; docs/DECISIONS.md "Allow all websites covers the AI's web
+ * reads"): one indented line under the switch above, which it needs. On: members' "Allow all websites" also lets the AI
+ * open web pages and save files from the web without the address card, in their chats and rooms (scheduled tasks still
+ * ask). "Learn more" carries the risk sentence. Off (or the switch above off): nobody's works, and everyone's is turned off.
+ */
+export function WebAllowAllSwitch({ value, parentOn, onChange }: { value: boolean; parentOn: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const id = 'ts-web-allow-all'
+  const on = value && parentOn
+  return (
+    <div className="ml-4 border-l-2 border-line pl-4 sm:ml-6" data-testid="team-web-allow-all-line">
+      <SettingRow id={id} testId="team-web-allow-all" attrs={{ 'data-on': on ? 'true' : 'false' }} title={t('teamSettings.webAllowAll')} desc={t('teamSettings.row.webAllowAllDesc')}
+        more={t('teamSettings.webAllowAllHint', { risk: WEB_ALLOW_ALL_RISK[locale] })}
+        control={<Switch id={id} external describedBy={`${id}-desc`} checked={on} disabled={!parentOn} onChange={onChange} label={t('teamSettings.webAllowAll')} />} />
+    </div>
+  )
 }
 
 /** "Members can add their own connections" (Settings > MCP), default on. Off: none can be added and the ones there are

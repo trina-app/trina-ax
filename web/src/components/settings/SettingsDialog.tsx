@@ -19,7 +19,7 @@ import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from 're
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
-import { SETTINGS_GROUPS, sectionMatches, settingsTabs } from '../../pages/settingsTabs'
+import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsTabs } from '../../pages/settingsTabs'
 import { useInboxUnread } from '../../store/inbox'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
@@ -86,8 +86,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
     if (!devEnv) return
     api.call(API.myDevEnvSites).then((r) => setSites(r.state !== 'off'), () => setSites(false))
   }, [devEnv])
-  // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
-  const tabs = settingsTabs(Boolean(browserSettingsBridge()), Boolean(own), Boolean(sites))
+  // Browser: inside a desktop app that offers its site setting (that value lives there), or wherever the team lets
+  // members turn on "Allow all websites" for the AI's web reads (Me.team.webAllowAll: that value lives on the server)
+  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll), Boolean(own), Boolean(sites))
   const [query, setQuery] = useState('')
   const [more, setMore] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -100,8 +101,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   if (tab === 'integrations') return <Navigate to={`/settings/connectors${location.search}`} replace />
   // AI connections are now AI providers (the same accounts, by provider)
   if (tab === 'credentials') return <Navigate to="/settings/providers" replace />
-  // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: /settings instead (the
-  // list, and on a computer the profile beside it)
+  // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app while the team does not
+  // let members allow all websites for web reads: /settings instead (the list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'
   // phones: the open section's name in the bar (not for a page under a section: that page has its own title); 알림 is
