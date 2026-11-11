@@ -61,3 +61,5 @@ the new `unanswered` mark in `Steps.tsx`: a grey dashed circle, "답하지 않�
 just for those words. Tests: `b-chat` (the step while waiting, after yes, after no; a question that ran out),
 `step-labels-tools`, `web/test/unit/steps-recovered.test.tsx`. The waiting-label check failed before the fix.
 `bun run test:web` 2366 pass.
+
+PR: https://github.com/trina-app/trina-ax/pull/415
