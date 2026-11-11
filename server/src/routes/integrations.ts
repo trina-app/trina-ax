@@ -9,6 +9,7 @@ import { linkBase } from '../auth/accounts'
 import { integrationsOf, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
+import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
 import { say, type TextKey } from '../integrations/connections/text'
 
@@ -46,7 +47,12 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.withdrawIntegrationRequest, ({ c, auth, params }) => reqs().withdraw(viewer(auth), params.id, linkBase(c, ctx), c.get('locale')))
   // an admin's template: each member it is for connects it with their own key (integrations/connections/templates.ts)
   const tpl = () => templatesOf(ctx)
-  kit.handle(API.listIntegrationTemplates, async ({ c, auth }) => ({ items: await tpl().listMine(viewer(auth), c.get('locale')) }))
+  kit.handle(API.listIntegrationTemplates, async ({ c, auth }) => {
+    const items = await tpl().listMine(viewer(auth), c.get('locale'))
+    // someone who joined lately sees the templates here: they count as offered, with no notice (onboarding/member-welcome.ts)
+    templatesSeen(ctx, auth.user.id, items.filter((t) => !t.connection).map((t) => t.id))
+    return { items }
+  })
   kit.handle(API.connectIntegrationTemplate, ({ c, auth, params, body }) => tpl().connect(viewer(auth), params.id, body, c.get('locale')))
   kit.handle(API.listTeamIntegrationTemplates, async ({ auth }) => ({ items: await tpl().listTeam(viewer(auth)) }))
   kit.handle(API.createIntegrationTemplate, ({ c, auth, body }) => tpl().create(viewer(auth), body, c.get('locale')))

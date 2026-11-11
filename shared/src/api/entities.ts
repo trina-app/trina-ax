@@ -22,6 +22,9 @@ export const UserPrefs = z.object({
   /** set themselves away (the account menu's "자리 비움으로 표시"; docs/DECISIONS.md "접속 상태"): their dot shows away
    * until they change it. Only PUT /api/me/away sets it; PATCH /api/me leaves it as it is. */
   away: z.boolean().optional(),
+  /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
+   * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
+  roomAskHint: z.literal('seen').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 

@@ -7448,7 +7448,10 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
     link does. Its text no longer names the team link ("{name} joined the team").
   - Names only: no email, no role, no inviter in the room line.
 - **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
-  and the person may not have signed in yet. No push for joins.
+  and the person may not have signed in yet. No push for joins. (Changed by "A welcome for invited people",
+  feat/member-welcome, owner's decision: for "Add directly" the line and the owners' notice come at the person's first
+  successful sign-in, once, not when the account is made; an account disabled or deleted before that is never
+  announced.)
 - **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
   `tests/unit/a-team-links.test.ts` (team link join: the line).
 ||||||| 2be3f4b09
@@ -21369,3 +21372,92 @@ decided that Team settings splits into pages on phones and stays one page on com
   during Save's ask, Cancel during Save's ask then kept), `access-view`; e2e `folder-access` (two groups, Discard then Save) and the specs that read the
   access words.
 - Version impact: **patch** (words, a fix, one optional field in the admin edit preview; no data change).
+
+## A welcome for invited people — 초대받은 사람의 첫 5분 (feat/member-welcome, 2026-11-11, product owner)
+
+A walk of the member flow on dev (a local test team, four new accounts, desktop and phone) found that an invited person
+lands on a bare Home: no one says who invited them or what the team is, the team does not hear they joined (since fixed
+on dev by "A new member is told to the team" for invites and team links), the first Activity item is a connection
+template ("connect it with your own key"), ✦ in rooms is explained only by the box's placeholder, and Files calls the
+person's own area read-only. Eight reference products (Slack, Teams, Notion, Linear, Discord, Figma, Claude Team,
+ChatGPT Business) agree: ask almost nothing, people are already in their rooms, say who invited them, one first action
+inside the real screen, and the team welcomes them. The owner approved one Home card and small fixes (no wizard, no
+page, no tooltip tour); decided 2026-11-11: the last row asks Trina "what can I do here" (not "try a team skill": a
+quote skill needs real input), the joined line and the owner's notice for every way of joining (dev's mechanism,
+extended to "Add directly"), no admin-written welcome message yet, the photo row in. Placement: Team AX core (Home,
+rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-welcome.md`.
+
+- **Who gets the card.** Someone who joined with a team link, a single-use invite or an admin's "Add directly"
+  (`member_welcome`, migration 286: invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at, added_by,
+  announced_at), written at
+  the join (`onboarding/member-welcome.ts recordJoin`). Admins who were invited get it too: they are new people as well.
+  Never the team's creator (their start is the welcome steps) and nobody who joined before this release. Never an
+  owner: someone invited who is handed the team (a lead invite, then the handover) gets the owner's own Home again;
+  `transferOwnership` hides the new owner's row for good, and `welcomeOf` answers null for any owner. It shows for
+  14 days after joining (`MEMBER_WELCOME_DAYS`), until hidden or done; an add-directly account that first signs in
+  later has the rest of its days.
+- **The card** (web/src/components/onboarding/MemberWelcome.tsx; `GET`/`PATCH /api/me/welcome`, `auth: 'user'`, the
+  caller's own row only, no id in the address, a strict body): "Welcome to {team}, {first name}", "{inviter} invited you
+  · {n} people are here" (no inviter, "Add directly": the second half alone), "Get started · {done} of {total}", Hide.
+  Rows, each a done circle:
+  a. "You're in Everyone and # Sales" (the everyone room, then the team rooms; done from the start; Open → Conversations);
+  b. "Say hi to the team": "👋 Hi, I'm {first name}" posts that in the everyone room as them (the room's own send); done
+     once they wrote any message in a room since joining it (worked out on the server, so a hi typed in the room counts);
+     then Open → that room;
+  c. "Add your photo" (optional, not counted): the profile photo picker in place (Settings' own square crop), saved at
+     once; done with a photo;
+  d. "Ask Trina what you can do here": one tap starts a normal chat with a fixed question in the person's language ("the
+     team skills I can use and what each needs from me, the team folders I can open, the conversations I'm in, only what
+     I can use"); the chat runs with their permissions like any other, so it can only name what they can reach. Done once
+     started (`asked_at`).
+  Total 3 (a, b, d). All three done: "You're all set" with Close, for 10 minutes after the last one (`ALL_SET_MS`), then
+  gone for good. First names: the first word of a spaced name in a script that writes given names first; Korean,
+  Japanese and Chinese names and names without spaces stay whole.
+- **No AI for the person** (owner's refinement, "AI가 연결이 안되어있으면 어카지?"): row d becomes the existing no-AI way out
+  (ConnectAi.tsx): "Connect your AI so Trina can help you" with Connect my AI (or the team's for an admin who may), or
+  "Trina isn't ready for you yet" with "Tell {owner}" (the onboarding.ai_request notice, once; "Told them" after); the
+  trial credit's line when that is why. Rows a–c work the same. Once AI answers, row d is the question again (not done).
+- **One thing at the top.** While the card shows it takes the place of the no-AI card, the goal card / setup row and
+  "Ready in your team" (no second list of skills); Home waits for its answer so nothing flashes first. The lead card
+  ("W6") still comes first. Phones: the same card under the box like Home's other "one thing", no frame, 44 px targets,
+  the row's button under its words when they need the width.
+- **The joined line and the owners' notice are dev's** ("A new member is told to the team" above, 997f87f4f:
+  `RoomsService.memberJoined`, the `joined` event line, `team.joined` to the owners and the invite's or link's maker).
+  This branch adds no event kind, text or notice of its own. It adds the one case that entry left out, an admin's
+  "Add directly", the way the owner decided: the account is made with its `member_welcome` row (`recordJoin`, with
+  `added_by`), but the person has not joined until they are here, so `memberJoined` and `notifyTeamJoined` (the active
+  owners, except the owner who added them) run at their **first successful sign-in**, once
+  (`onboarding/member-welcome.ts firstSignIn`, called from `auth/service.ts signIn`; `announced_at` is claimed in the
+  same statement). A second sign-in, or the password change after the temporary one, says nothing again. An account
+  disabled or deleted before its first sign-in is never announced. Its 14 days (the card and the held template
+  notices) count from that first sign-in (`joined_at` is set then), not from when the account was made.
+  The line is an event, not a message: it does not mark "Say hi" (row b) done; only a message the person writes does.
+- **The join pages name the inviter**: "{inviter} invited you to {team}" (`inviterName` on both info answers, only while
+  the link or invite works), else "Join {team}" as before.
+- **No connection template notice at join.** The three join paths no longer call `notifyTemplateOffers`; the template
+  backstop (`offerTemplates`) skips, for a person in their welcome days who has not opened Connected apps, the templates
+  that were there when they joined. Opening Connected apps (`GET /api/integration-templates`) records those as offered
+  without a notice (they are listed there). A template made after they joined is news and is told as before; one never
+  opened is told when the 14 days are over.
+- **The ✦ line in rooms** (for everyone, owners and long-time members too: ✦ is hard to find for all; only while the AI
+  can answer the person, `aiAccess` usable, so it waits while they have no AI): the first time a person opens a room,
+  one line under the header: "✦ Ask Trina about this room. Only you see it." The line opens the side chat; ✕ closes it.
+  Closed or ✦ used: never again, on any device (`prefs.roomAskHint: 'seen'` through `PATCH /api/me`; no migration). Not
+  a tour: one line, once.
+- **Small fixes.** A team link opened while signed in: Home with "You're already in {team}" (the single-use invite has
+  its own page since #387). Files › Personal (users/, where a member sees only their own folder): "Your own folder is
+  inside" instead of "Read-only folder", and no lock on its row. Greyed New folder / Upload on a computer get one line:
+  "You can add files in folders you can edit" (on Personal: "Add your files in My folder"); phones hide those buttons.
+- Not built: an admin-written welcome message (next time), a wizard or a tooltip tour, asking role or purpose, the
+  notification permission in the card (the web's one-line ask and the phone app's own question stay).
+- i18n: `memberWelcome.*`, `rooms.askHint`, `invite.invitedBy`, `teamLink.alreadyIn`,
+  `files.personalInside`, `files.addHere`, `files.addInMyFolder` in the five languages (`rooms.event.joined` and the `teamLink.joinedNotice` wording are dev's).
+- Tests: `tests/unit/b-member-welcome.test.ts` (the three ways, with dev's line and notice: unread unchanged, no room notice, who is told; "Add directly": nothing at
+  creation, the line and notice at the first sign-in once, never for an account disabled or deleted before it;
+  the inviter on the info pages and the card; no template notice at join; the card's rows, all set and gone, the photo
+  optional, Hide, the days, the caller's own only), `c-integration-templates` (held at join, offered silently on
+  Connected apps, told after the days, a later template told at once), the permission matrix cases, web
+  `member-welcome.test.tsx` (the rows and done states, the inviter line with and without, say hi, ask, all set, Hide,
+  a phone, no AI: tell the owner once, connect my own, the row back when AI answers; first names; the join title; the ✦
+  line once).
+- Version impact: **minor** (a new endpoint, migration 286 and a visible change on an invited person's first screen).

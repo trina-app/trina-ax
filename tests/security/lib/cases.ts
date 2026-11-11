@@ -136,6 +136,10 @@ export const SPECS: Record<string, Spec> = {
   mySessions: { build: (c) => c.get('/api/me/sessions'), scope: 'byLevel' },
   // own usage only: nothing in the request names another person (tests/unit/a-my-usage.test.ts)
   myUsage: { build: (c) => c.get('/api/me/usage'), scope: 'self' },
+  // the welcome card for invited people (docs/DECISIONS.md "A welcome for invited people"): the caller's own only; no
+  // id in the address, a body that names anyone is refused (strict)
+  getMemberWelcome: { build: (c) => c.get('/api/me/welcome?userId=alice'), scope: 'self' },
+  updateMemberWelcome: { build: (c) => c.patch('/api/me/welcome', { hide: true }), scope: 'self' },
   revokeMySession: { skipPositive: true, build: (c, w) => c.del(`/api/me/sessions/${w.ids.aliceSession}`), scope: 'byLevel',
     // alice's session id: no one else may revoke it (cross-user). bob etc must 404, not kill her session.
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} revoked alice's session`) } },
