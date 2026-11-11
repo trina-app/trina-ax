@@ -1783,6 +1783,8 @@ export class MockServer {
         ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
       : /^\/intro-deck\b/.test(prompt)
         ? (/deck-fail/i.test(prompt) ? '소개서를 끝까지 만들지 못했어요. 다시 해 볼까요?' : '회사 소개서를 만들었어요. 바꾸고 싶은 장이나 문구가 있으면 말씀해 주세요.')
+      : /big numbers/i.test(prompt)
+        ? '채널별 매출이에요.\n\n| 채널 | 이번 달 매출 | 지난달 매출 | 주문 수 | 메모 |\n|---|---|---|---|---|\n| 온라인 스토어 | 1,234,567,890원 | ₩987,654,321 | 12,345건 | 주말 할인 행사 덕분에 늘었어요 |\n| 오프라인 매장 | 98,765,432원 | ₩87,654,321 | 3,210건 | 비슷해요 |\n'
       : /한 줄로/.test(prompt)
         ? '로고 시안은 수요일까지 2개 받기로 했어요. 피드백은 금요일 회의 전에 이 스레드에 모아요.'
       : prompt.includes('answered:')
