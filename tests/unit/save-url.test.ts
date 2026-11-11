@@ -428,7 +428,7 @@ describe('addresses from connections (learned links) and the echo check', () => 
     // the next one in this answer: the person decides
     s.cards.answer = false
     await expect(s.run(urls[T]!, `shared/conn/${T}.png`)).rejects.toThrow(/did not allow/)
-    expect(s.cards.asked[0]).toContain(`as many addresses from web pages and search results without asking as it may (${T} per answer`)
+    expect(s.cards.asked[0]).toContain(`as many addresses from web pages and search results as it may without asking (${T} per answer`)
     // opening one of the first ones again is free
     s.cards.asked = []
     await s.run(urls[0]!, 'shared/conn/0b.png')

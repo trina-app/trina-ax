@@ -288,7 +288,7 @@ describe('while this server does not know its exit address (fail-safe, as before
     const r = await call('web_fetch', { url: TYPED }, turnIn(chat), person(null, asked))
     expect(r.isError).toBe(true)
     expect(asked).toHaveLength(1)
-    expect(asked[0]!.question).toContain("doesn't lead to a device in your office")
+    expect(asked[0]!.question).toContain("doesn't lead to a device inside your network")
     expect(asked[0]!.question).not.toMatch(/office/i)
     expect(lookups).toEqual([])
     // every language says it without the office

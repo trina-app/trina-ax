@@ -14,6 +14,10 @@ import { getChatRuntime } from '../../server/src/chat/runtime'
 import { loadPrincipal } from '../../server/src/policy/access'
 import { instructionLike, ROOM_CHANGE_FULL, roomChangeWrites } from '../../server/src/chat/turn'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, ROOM_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
+import { labeledPath } from '@mycel/shared'
+
+// a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
+const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -492,7 +496,7 @@ describe('changes asked for in a room', () => {
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
     // the card says it in words: what it does, the file, what it writes; never the call's JSON
     const details = (card.data.request as { details?: { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] }).details
-    expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: target }], text: 'written with a yes\n', collapsedAt: 400 }])
+    expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: W(target) }], text: 'written with a yes\n', collapsedAt: 400 }])
     await h.api('alice').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('written with a yes\n')
@@ -505,7 +509,7 @@ describe('changes asked for in a room', () => {
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
     const d = (card.data.request as { details?: { text: string; fields?: { name: string; value: string }[] }[] }).details![0]!
-    expect(d).toMatchObject({ text: '', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: 'shared/room-ai-empty.md' }, { name: 'Content', value: '(empty)' }] })
+    expect(d).toMatchObject({ text: '', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: W('shared/room-ai-empty.md') }, { name: 'Content', value: '(empty)' }] })
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
   })
@@ -527,7 +531,7 @@ describe('changes asked for in a room', () => {
       return (c.data.request as { details?: { text: string; fields?: { value: string }[]; collapsedAt?: number }[] }).details![0]!
     }
     const plain = await card('shared/room-ai-long.md')
-    expect(plain.fields?.map((f) => f.value)).toEqual(['Save', 'shared/room-ai-long.md'])
+    expect(plain.fields?.map((f) => f.value)).toEqual(['Save', W('shared/room-ai-long.md')])
     expect(plain).toMatchObject({ text: long, collapsedAt: 400 })
     for (const file of ['skills/room-ai-rule.md', 'users/alice/skills/room-ai.md', 'shared/CLAUDE.md',
       // other spellings of the same places (the file layer drops empty and "." names)

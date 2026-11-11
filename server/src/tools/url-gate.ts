@@ -497,11 +497,11 @@ export const TEXT = {
     es: "La IA quiere abrir una dirección que no estaba en este chat. Compruebe que no contenga su información.\n\n{url}",
   },
   noEgress: {
-    ko: "AI가 이 주소를 열려고 해요. 회사 안 기기로 가는 주소가 아닌지 확인해 주세요.\n\n{url}",
-    en: "The AI wants to open this address. Check that it doesn't lead to a device in your office.\n\n{url}",
-    id: "AI ingin membuka alamat ini. Pastikan alamat itu tidak mengarah ke perangkat di kantor Anda.\n\n{url}",
-    ja: "AIがこのアドレスを開こうとしています。社内の機器につながるアドレスでないか確認してください。\n\n{url}",
-    es: "La IA quiere abrir esta dirección. Compruebe que no lleve a un dispositivo de su oficina.\n\n{url}",
+    ko: "AI가 이 주소를 열려고 해요. 내부 네트워크의 기기(공유기, 프린터 등)로 가는 주소가 아닌지 확인해 주세요.\n\n{url}",
+    en: "The AI wants to open this address. Check that it doesn't lead to a device inside your network (a router, a printer and the like).\n\n{url}",
+    id: "AI ingin membuka alamat ini. Pastikan alamat itu tidak mengarah ke perangkat di dalam jaringan Anda (router, printer, dan sejenisnya).\n\n{url}",
+    ja: "AIがこのアドレスを開こうとしています。内部ネットワークの機器（ルーター、プリンターなど）につながるアドレスでないか確認してください。\n\n{url}",
+    es: "La IA quiere abrir esta dirección. Compruebe que no lleve a un dispositivo de su red interna (un router, una impresora o similar).\n\n{url}",
   },
   longQuery: {
     ko: "AI가 여는 주소 끝에 긴 내용이 붙어 있어요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}",

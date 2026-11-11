@@ -90,7 +90,7 @@ describe('the same two tools for every engine and sub-agent', () => {
     expect(ran).toContain('<external_data source="Studio">')
     expect(svc.calls.slice(before).map((c) => [c.name, c.args])).toEqual([[TOOL_150, ARGS]])
     expect(r.steps.find((s) => s.tool === 'find_tools')).toMatchObject({ label: 'Find tools "analyze video retention"', status: 'ok' })
-    expect(r.steps.find((s) => s.tool === 'call_tool')).toMatchObject({ label: `Studio · ${TOOL_150} (video_url: "https://v.example/clip.mp4", focus: "retention")`, status: 'ok' })
+    expect(r.steps.find((s) => s.tool === 'call_tool')).toMatchObject({ label: 'Studio · Video analysis', status: 'ok' })
     expect(events(r.turnId, 'call_tool').map((e) => e.summary.split(' (')[0])).toEqual([`${FULL} -> ok`])
     // the model proxy's names for this turn
     const row = h.ctx.db.query('SELECT tools FROM proxy_tokens WHERE turn_id = ? ORDER BY rowid DESC LIMIT 1').get(r.turnId) as { tools: string } | null

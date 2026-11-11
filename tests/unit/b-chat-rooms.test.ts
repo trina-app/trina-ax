@@ -838,7 +838,7 @@ describe('connected services after a room read: reads without a card, one card f
     const get = await answered(chat, fake({ tool: 'api_request', args: { connection: 'my_aipm', method: 'GET', path: '/tasks' }, sayResult: true }), 'allow')
     expect(get.cards).toHaveLength(1)
     expect(get.cards[0]!.question).toStartWith(LEAD)
-    expect(get.cards[0]!.question).toContain('AI PM · GET /tasks')
+    expect(get.cards[0]!.question).toContain('AI PM · Get')
     expect(svc.seen.length).toBe(requests + 1)
   })
 
@@ -873,7 +873,7 @@ describe('connected services after a room read: reads without a card, one card f
       const r = await answered(chat, fake({ tool: 'my_tasks__search_tasks', args: { q } }, { say: 'done' }), 'skip')
       expect(r.cards, q).toHaveLength(1)
       expect(r.cards[0]!.question, q).toStartWith(LEAD)
-      expect(r.cards[0]!.question, q).toContain('Tasks · search_tasks')
+      expect(r.cards[0]!.question, q).toContain('Tasks · Search tasks')
       expect(svc.calls.length, q).toBe(before)
     }
   })
@@ -882,19 +882,19 @@ describe('connected services after a room read: reads without a card, one card f
     const chat = await afterRoomRead()
     const yes = await answered(chat, fake({ tool: 'my_tasks__create_task', args: { title: 'Minutes of the room' } }, { say: 'done' }), 'allow')
     expect(yes.cards).toHaveLength(1)
-    expect(yes.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to do this at Tasks: create_task`)
+    expect(yes.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to send this to Tasks: Create a task`)
     expect(yes.cards[0]!.details![0]!.text).toBe(JSON.stringify({ title: 'Minutes of the room' }, null, 2))
     expect(created()).toContain('Minutes of the room')
     // the team connection that sends without asking: one card here too; declined, nothing is sent
     const team = await answered(chat, fake({ tool: 'team_board__create_task', args: { title: 'Board post' } }, { say: 'done' }), 'deny')
     expect(team.cards).toHaveLength(1)
-    expect(team.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to do this at Board: create_task`)
+    expect(team.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to send this to Board: Create a task`)
     expect(created()).not.toContain('Board post')
     // an API's POST: one card
     const requests = svc.seen.length
     const api = await answered(chat, fake({ tool: 'api_request', args: { connection: 'my_aipm', method: 'POST', path: '/tasks', body: { title: 'x' } } }, { say: 'done' }), 'deny')
     expect(api.cards).toHaveLength(1)
-    expect(api.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to do this at AI PM: POST`)
+    expect(api.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to send this request to AI PM: Send`)
     expect(svc.seen.length).toBe(requests)
   })
 
@@ -919,10 +919,10 @@ describe('connected services after a room read: reads without a card, one card f
       // within alice's own folder: nobody's access changes, so the move card used to be skipped (the room card asked)
       const own = await answered(chat, fake({ tool: 'move_files', args: { paths: [file], to_folder: 'users/alice/archive' } }, { say: 'done' }), 'deny')
       expect(own.cards).toHaveLength(1)
-      expect(own.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to move 1 item to users/alice/archive.`)
+      expect(own.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to move 1 item to My folder › archive.`)
       // what the room card showed: the folder and every file
       expect(own.cards[0]!.details![0]!.text).toBe(file)
-      expect(own.cards[0]!.details![0]!.fields).toContainEqual({ name: 'Into folder', value: 'users/alice/archive' })
+      expect(own.cards[0]!.details![0]!.fields).toContainEqual({ name: 'Into folder', value: 'My folder › archive' })
       expect(fs.existsSync(path.join(h.team, file))).toBe(true)
       // into shared/: the card also says who gains access
       const wider = await answered(chat, fake({ tool: 'copy_files', args: { paths: [file], to_folder: 'shared' } }, { say: 'done' }), 'deny')
