@@ -20321,7 +20321,9 @@ aside).
   it signs in, its models, when it was checked; the details say the same) open with the rest when the name is tapped. An
   account that needs a look (`CREDENTIAL_PROBLEMS`, Home's own list) keeps the accounts in sight.
 - **Connectors (Admin and Settings):** Discover's tiles are rows with hairlines, the line cut to one, no "by <maker>"
-  (the service's page says it), and a 44 px +.
+  (the service's page says it), and a 44 px +. Since #366 Settings › Connectors leads to the Connectors page
+  (`/connectors`, its own design), so this and the header above hold for Admin › Connectors only (batch PR "phone
+  settings").
 - **AI apps (Admin and Settings):** Copy, Connect, Disconnect, Setup guide and Manage are 44 px tall.
 - **Plugins:** the sections without frames (`Card flat`); one line per plugin: its name (it opens what it does, who made
   it and its permissions), its state and its main button (Install, Turn on / off). A trust warning and why it cannot be

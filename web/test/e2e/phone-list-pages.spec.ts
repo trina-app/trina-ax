@@ -39,7 +39,7 @@ const PAGES: { path: string; ready: string; primary?: string; filters?: string }
   { path: '/admin/usage', ready: 'usage-stats', primary: 'usage-limits-link', filters: 'usage-filters' },
   { path: '/admin/audit', ready: 'audit-list', filters: 'activity-more' },
   { path: '/settings/providers', ready: 'my-providers' },
-  { path: '/settings/connectors', ready: 'connector-list', primary: 'integration-add' },
+  // Settings › Connectors leads to the Connectors page (/connectors) since #366: its own design, not a Settings list
   { path: '/settings/ai-apps', ready: 'ai-app-list' },
   { path: '/settings/usage', ready: 'my-usage-totals' },
 ]
@@ -135,7 +135,8 @@ test.describe('each page', () => {
   })
 
   test('Connectors: Discover is rows without frames, with a 44 px +', async ({ page }) => {
-    for (const path of ['/admin/connectors', '/settings/connectors']) {
+    // Admin's (Settings › Connectors leads to the Connectors page since #366)
+    for (const path of ['/admin/connectors']) {
       await page.goto(path)
       const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
       await expect(card).toBeVisible()
@@ -282,7 +283,7 @@ test.describe('a computer', () => {
     await expect(page.getByTestId('group-list')).toContainText('Olga')
     await page.goto('/admin/slack')
     expect(await page.getByTestId('slack-status').locator('xpath=ancestor::section[1]').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
-    for (const path of ['/admin/connectors', '/settings/connectors']) {
+    for (const path of ['/admin/connectors']) {
       await page.goto(path)
       const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
       await expect(card.getByText(t['connectors.by'].replace('{maker}', 'Notion'))).toBeVisible()
