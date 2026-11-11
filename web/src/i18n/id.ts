@@ -1864,7 +1864,7 @@ export const id: Record<MessageKey, string> = {
   'accessView.section.skills': 'Skill',
   'accessView.section.personal': 'Folder pribadinya',
   'accessView.level.listed': "Hanya nama",
-  'accessView.level.none': 'Tidak terlihat',
+  'accessView.level.none': 'Tidak bisa membuka',
   'accessView.rootFolder': 'Puncak folder tim',
   'accessView.who.person': '{name}',
   'accessView.why.ruleHere': 'Aturan folder ini · {who}: {access}',

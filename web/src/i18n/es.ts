@@ -1831,7 +1831,7 @@ export const es: Record<MessageKey, string> = {
   'accessView.section.skills': "Habilidades",
   'accessView.section.personal': "Su carpeta personal",
   'accessView.level.listed': "Solo el nombre",
-  'accessView.level.none': "No la ve",
+  'accessView.level.none': "No puede abrirla",
   'accessView.rootFolder': "Raíz de la carpeta del equipo",
   'accessView.who.person': "{name}",
   'accessView.why.ruleHere': "Regla de esta carpeta · {who}: {access}",

@@ -1863,7 +1863,7 @@ export const ko = {
   'accessView.section.skills': '스킬',
   'accessView.section.personal': '본인 개인 폴더',
   'accessView.level.listed': "이름만 보임",
-  'accessView.level.none': '못 봄',
+  'accessView.level.none': '열 수 없음',
   'accessView.rootFolder': '팀 폴더 맨 위',
   'accessView.who.person': '{name} 님',
   'accessView.why.ruleHere': '이 폴더의 규칙 · {who}: {access}',

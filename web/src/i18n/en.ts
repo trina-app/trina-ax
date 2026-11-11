@@ -1864,7 +1864,7 @@ export const en: Record<MessageKey, string> = {
   'accessView.section.skills': 'Skills',
   'accessView.section.personal': 'Own personal folder',
   'accessView.level.listed': "Name only",
-  'accessView.level.none': 'Cannot see',
+  'accessView.level.none': 'Cannot open',
   'accessView.rootFolder': 'Top of the team folder',
   'accessView.who.person': '{name}',
   'accessView.why.ruleHere': 'Rule on this folder · {who}: {access}',

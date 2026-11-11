@@ -1831,7 +1831,7 @@ export const ja: Record<MessageKey, string> = {
   'accessView.section.skills': "スキル",
   'accessView.section.personal': "本人の個人フォルダー",
   'accessView.level.listed': "名前のみ",
-  'accessView.level.none': "見られない",
+  'accessView.level.none': "開けない",
   'accessView.rootFolder': "チームフォルダーの最上位",
   'accessView.who.person': "{name} さん",
   'accessView.why.ruleHere': "このフォルダーのルール · {who}: {access}",
