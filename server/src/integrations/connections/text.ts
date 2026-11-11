@@ -7,9 +7,23 @@ type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
 
 export const TEXT = {
-  // the card before a call that changes something at the service
-  confirm: t('AI가 {name}에서 이 작업을 하려고 해요: {what}', 'The AI wants to do this at {name}: {what}', 'AI ingin melakukan ini di {name}: {what}', "AIが{name}で次の操作を実行しようとしています：{what}", "La IA quiere hacer esto en {name}: {what}"),
+  // the card before a call that changes something at the service: {what} is the tool's title (MCP `title`, else its id
+  // in words) or, for an HTTP API, what the method does (methodPost …); card-lines.ts
+  confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)"),
+  // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing
+  valueEmpty: t('(비어 있음)', '(empty)', '(kosong)', "（空）", "(vacío)"),
+  valueYes: t('예', 'Yes', 'Ya', "はい", "Sí"),
+  valueNo: t('아니요', 'No', 'Tidak', "いいえ", "No"),
+  valueNone: t('(없음)', '(none)', '(tidak ada)', "（なし）", "(ninguno)"),
+  // an HTTP API call on the card and in its step: the address it calls, and what its method does
+  fieldAddress: t('주소', 'Address', 'Alamat', "アドレス", "Dirección"),
+  methodGET: t('가져오기', 'Get', 'Ambil', "取得", "Obtener"),
+  methodHEAD: t('확인하기', 'Check', 'Periksa', "確認", "Comprobar"),
+  methodPOST: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),
+  methodPUT: t('바꾸기', 'Replace', 'Ganti', "置き換え", "Reemplazar"),
+  methodPATCH: t('고치기', 'Update', 'Perbarui', "更新", "Actualizar"),
+  methodDELETE: t('지우기', 'Delete', 'Hapus', "削除", "Eliminar"),
   ask: t('보낼까요?', 'Send it?', 'Kirim?', "送信しますか？", "¿Enviarlo?"),
   checkBelow: t('보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.', 'Check everything it sends, and where it goes, below.', 'Periksa semua yang dikirim, dan tujuannya, di bawah.', "送信内容全体と送信先を下で確認してください。", "Revise abajo todo lo que envía y a dónde va."),
   sendsLabel: t('보낼 내용', 'What it sends', 'Yang dikirim', "送信内容", "Lo que envía"),
@@ -86,6 +100,34 @@ export const TEXT = {
   key_unsafe: t('서버의 키 보관 폴더를 쓸 수 없어요. 관리자에게 알려 주세요.', 'The server’s key folder cannot be used. Tell your admin.', 'Folder kunci server tidak bisa dipakai. Beri tahu admin Anda.', "サーバーのキーフォルダーを使用できません。管理者に知らせてください。", "No se puede usar la carpeta de claves del servidor. Avise a su administrador."),
 }
 export type TextKey = keyof typeof TEXT
+
+/** A call's argument names in words on the card (card-lines.ts fieldWord), by the name's letters alone ("email_address",
+ * "emailAddress" and "Email-Address" are one). A name not here is said as its own words ("page_id" -> "Page id"). */
+const RECIPIENT_WORD = t('받는 사람', 'Recipient', 'Penerima', "宛先", "Destinatario")
+const CONTENT_WORD = t('내용', 'Content', 'Isi', "内容", "Contenido")
+export const FIELD_WORDS: Record<string, T> = {
+  to: RECIPIENT_WORD, recipient: RECIPIENT_WORD, recipients: RECIPIENT_WORD, email: RECIPIENT_WORD, emails: RECIPIENT_WORD, emailaddress: RECIPIENT_WORD, emailaddresses: RECIPIENT_WORD,
+  cc: t('참조', 'Cc', 'Cc', "CC", "CC"),
+  bcc: t('숨은 참조', 'Bcc', 'Bcc', "BCC", "CCO"),
+  subject: t('제목', 'Subject', 'Subjek', "件名", "Asunto"),
+  title: t('제목', 'Title', 'Judul', "タイトル", "Título"),
+  name: t('이름', 'Name', 'Nama', "名前", "Nombre"),
+  body: CONTENT_WORD, text: CONTENT_WORD, content: CONTENT_WORD, contents: CONTENT_WORD, message: CONTENT_WORD, markdown: CONTENT_WORD, html: CONTENT_WORD, plaintext: CONTENT_WORD,
+  description: t('설명', 'Description', 'Deskripsi', "説明", "Descripción"),
+  summary: t('요약', 'Summary', 'Ringkasan', "要約", "Resumen"),
+  channel: t('채널', 'Channel', 'Saluran', "チャンネル", "Canal"),
+  url: t('주소', 'Address', 'Alamat', "アドレス", "Dirección"), link: t('링크', 'Link', 'Tautan', "リンク", "Enlace"),
+  date: t('날짜', 'Date', 'Tanggal', "日付", "Fecha"),
+  due: t('마감일', 'Due date', 'Tenggat', "期限", "Fecha límite"), duedate: t('마감일', 'Due date', 'Tenggat', "期限", "Fecha límite"),
+  assignee: t('담당자', 'Assignee', 'Penanggung jawab', "担当者", "Responsable"), assignees: t('담당자', 'Assignees', 'Penanggung jawab', "担当者", "Responsables"),
+  priority: t('우선순위', 'Priority', 'Prioritas', "優先度", "Prioridad"),
+  status: t('상태', 'Status', 'Status', "ステータス", "Estado"),
+  tags: t('태그', 'Tags', 'Tag', "タグ", "Etiquetas"), labels: t('라벨', 'Labels', 'Label', "ラベル", "Etiquetas"),
+  note: t('메모', 'Note', 'Catatan', "メモ", "Nota"), notes: t('메모', 'Notes', 'Catatan', "メモ", "Notas"), comment: t('댓글', 'Comment', 'Komentar', "コメント", "Comentario"),
+  project: t('프로젝트', 'Project', 'Proyek', "プロジェクト", "Proyecto"),
+  parent: t('넣을 곳', 'Where it goes', 'Tempat tujuan', "追加先", "Dónde va"),
+  folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta"),
+}
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_failed' | 'key_unsafe'

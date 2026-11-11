@@ -28,14 +28,14 @@ export const FILE_STEP_VERB: Record<string, T> = {
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos"),
   rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre"),
   delete_files: t('휴지통으로 옮기기', 'Move to trash', 'Pindahkan ke tempat sampah', "ゴミ箱に移動", "Mover a la papelera"),
-  artifact: t('아티팩트', 'Artifact', 'Artefak', "アーティファクト", "Artefacto"),
+  artifact: t('화면 만들기', 'Make a page', 'Buat halaman', "画面を作成", "Crear una página"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página"),
   save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo"),
-  hwp_render: t('한글 문서 쪽 보기', 'View HWP page', 'Lihat halaman HWP', "HWPのページを表示", "Ver página HWP"),
+  hwp_render: t('한글 문서 쪽 보기', 'View Hangul document page', 'Lihat halaman dokumen Hangul', "ハングル文書のページを表示", "Ver página del documento Hangul"),
   // the removed search by meaning tool and the removed knowledge graph's tool (docs/DECISIONS.md, 2026-11-11): their
   // steps stay in older chats
   search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado"),
-  knowledge_explore: t('지식 그래프 검색', 'Search knowledge graph', 'Cari di grafik pengetahuan', "ナレッジグラフを検索", "Buscar en el grafo de conocimiento"),
+  knowledge_explore: t('자료 지도에서 찾기', 'Search the file map', 'Cari di peta berkas', "資料マップで探す", "Buscar en el mapa de archivos"),
   schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada"),
   schedule_list: t('예약 작업 보기', 'List scheduled tasks', 'Lihat tugas terjadwal', "定期タスクを一覧表示", "Listar tareas programadas"),
   schedule_delete: t('예약 작업 지우기', 'Delete scheduled task', 'Hapus tugas terjadwal', "定期タスクを削除", "Eliminar tarea programada"),
@@ -51,7 +51,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
   move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad"),
   skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades"),
-  find_tools: t('도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"),
+  find_tools: t('쓸 수 있는 기능 찾기', 'Find features', 'Cari fitur', "使える機能を探す", "Buscar funciones"),
   // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
   set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
@@ -85,11 +85,11 @@ export const BROWSER_STEP_VERB: Record<string, T> = {
   find: t('페이지에서 찾기', 'Find on page', 'Cari di halaman', "ページ内を検索", "Buscar en la página"),
   computer: t('브라우저 조작', 'Use browser', 'Operasikan browser', "ブラウザーを操作", "Usar navegador"),
   form_input: t('양식 채우기', 'Fill form', 'Isi formulir', "フォームに入力", "Rellenar formulario"),
-  javascript_tool: t('페이지 스크립트 실행', 'Run page script', 'Jalankan skrip halaman', "ページのスクリプトを実行", "Ejecutar script de página"),
+  javascript_tool: t('페이지에서 동작 실행', 'Run an action on the page', 'Jalankan aksi di halaman', "ページで操作を実行", "Ejecutar una acción en la página"),
   browser_batch: t('브라우저 여러 단계', 'Browser steps', 'Beberapa langkah browser', "ブラウザーの手順", "Pasos del navegador"),
   resize_window: t('화면 크기 바꾸기', 'Resize', 'Ubah ukuran', "サイズを変更", "Cambiar tamaño"),
-  read_console_messages: t('콘솔 보기', 'Read console', 'Baca konsol', "コンソールを読む", "Leer consola"),
-  read_network_requests: t('네트워크 보기', 'Read network', 'Baca jaringan', "ネットワークを読む", "Leer red"),
+  read_console_messages: t('페이지 오류 보기', 'Check page errors', 'Periksa galat halaman', "ページのエラーを確認", "Revisar errores de la página"),
+  read_network_requests: t('페이지 통신 보기', 'Check page traffic', 'Periksa lalu lintas halaman', "ページの通信を確認", "Revisar el tráfico de la página"),
   tabs_context: t('탭 보기', 'List tabs', 'Lihat tab', "タブを一覧表示", "Listar pestañas"),
   tabs_create: t('새 탭', 'New tab', 'Tab baru', "新しいタブ", "Nueva pestaña"),
   tabs_select: t('탭 바꾸기', 'Switch tab', 'Ganti tab', "タブを切り替え", "Cambiar pestaña"),
@@ -145,25 +145,43 @@ export const STEP_TEXT = {
   attachChanged: t('첨부한 뒤 바뀐 파일, 지금 내용으로 읽음 · {path}', 'Attached file changed since it was attached; using the current version · {path}', 'Berkas lampiran berubah sejak dilampirkan; memakai versi terkini · {path}', "添付後にファイルが変更されたため、現在のバージョンを使用します · {path}", "El archivo cambió desde que se adjuntó; se usa la versión actual · {path}"),
   attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}', "添付ファイルが移動しました · {path}", "El archivo adjunto se movió · {path}"),
   attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi', "添付したチームのファイルは利用できなくなりました", "Un archivo adjunto del equipo ya no está disponible"),
-  refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답해요', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"),
+  refusedRetry: t('AI가 답하지 않아 다른 AI로 다시 답해요', 'The AI declined; trying again with another AI', 'AI menolak; mencoba lagi dengan AI lain', "AIが回答しなかったため、別のAIでもう一度回答します", "La IA no respondió; se intenta de nuevo con otra IA"),
   /** the chat's engine was switched off by an admin: this answer uses the team default */
   /** demo mode (server/src/demo/replay.ts): the answer is a recorded real run played again */
   demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración"),
-  engineOffDefault: t('{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"),
+  engineOffDefault: t('고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo"),
   /** "다른 AI로 대신 답하기": the chat's engine has no AI connection for the person, the other one has
    * (server/src/credentials/access.ts connectionRoute) */
-  engineNoConnection: t('{from}에 쓸 AI 연결이 없어 연결된 {to}로 답해요', 'No AI connection for {from}; answering with {to}, which is connected', 'Tidak ada koneksi AI untuk {from}; menjawab dengan {to} yang terhubung', "{from}用のAI接続がないため、接続済みの{to}で回答します", "No hay conexión de IA para {from}; se responde con {to}, que sí está conectado"),
+  engineNoConnection: t('고른 AI에 연결된 계정이 없어 다른 AI로 답해요', 'The chosen AI has no account connected; answering with another AI', 'AI yang dipilih tidak punya akun terhubung; menjawab dengan AI lain', "選んだAIにアカウントが接続されていないため、別のAIで回答します", "La IA elegida no tiene una cuenta conectada; se responde con otra IA"),
   /** "다른 AI로 대신 답하기": the Claude subscription limit was hit and the admin allowed the fallback */
-  limitFallback: t('{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"),
-  credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"),
+  limitFallback: t('사용 한도에 닿아 다른 AI로 이어서 답해요', 'Usage limit reached; continuing with another AI', 'Batas pemakaian tercapai; dilanjutkan dengan AI lain', "使用量の上限に達したため、別のAIで続けます", "Se alcanzó el límite de uso; se continúa con otra IA"),
+  credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 계정으로 이어서 답해요', 'Usage limit reached; continuing with another AI account', 'Batas pemakaian tercapai; dilanjutkan dengan akun AI lain', "使用量の上限に達したため、別のAIアカウントで続けます", "Se alcanzó el límite de uso; se continúa con otra cuenta de IA"),
+  /** a dev-environment command that runs as a long job, or in the background (box_shell job / background) */
+  jobSuffix: t('오래 걸리는 작업', 'long task', 'tugas panjang', "時間のかかる作業", "tarea larga"),
+  backgroundSuffix: t('뒤에서 실행', 'in the background', 'di latar belakang', "バックグラウンドで実行", "en segundo plano"),
   /** a sub-agent's part of the answer (Claude Code's Agent tool); {d} is the AI's own short description of it */
   subtask: t('하위 작업: {d}', 'Sub-task: {d}', 'Subtugas: {d}', "サブタスク：{d}", "Subtarea: {d}"),
-  credentialSwitchInvalid: t('AI 연결이 거절되어 다른 연결로 이어서 답해요', 'The AI connection was refused; continuing with another one', 'Koneksi AI ditolak; dilanjutkan dengan koneksi lain', "AI接続が拒否されたため、別の接続で続けます", "Se rechazó la conexión de IA; se continúa con otra"),
+  credentialSwitchInvalid: t('AI 계정이 거절되어 다른 계정으로 이어서 답해요', 'The AI account was refused; continuing with another one', 'Akun AI ditolak; dilanjutkan dengan akun lain', "AIアカウントが拒否されたため、別のアカウントで続けます", "Se rechazó la cuenta de IA; se continúa con otra"),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso")
+
+/**
+ * A tool's id as words, for a tool without words of its own (docs/DECISIONS.md "Plain words in errors, cards and
+ * steps"): "create_task" -> "Create task", "getPageText" -> "Get page text", "my_notion__create_page" -> "Create page";
+ * an all-capitals word keeps its capitals ("export_PDF" -> "Export PDF"). Never the id as it is; '' when it holds no
+ * letter or digit.
+ */
+export function readableToolName(id: string): string {
+  const last = id.split('__').filter(Boolean).at(-1) ?? id
+  const words = last.replace(/([\p{Ll}\d])(\p{Lu})/gu, '$1 $2').replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+    .map((w) => (w.length > 1 && w === w.toUpperCase() ? w : w.toLowerCase()))
+  const s = words.join(' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 /**
  * A step's words alone, without what it touched (a path, an address, a query, a remembered text): the verb of its tool,
  * else a word for its kind. The steps of a chat's answers from before it was shared, as everyone but the person whose
@@ -240,9 +258,10 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'hwp_render': return `${verb} · ${clip(a.source, 80)}${typeof a.page === 'number' ? ` #${a.page}` : ''}`
     case 'search': case 'drive_search': case 'knowledge_explore': return `${verb} "${clip(a.query, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'schedule_create': return `${verb} · ${clip(a.title, 80)}`
-    case 'schedule_delete': return `${verb} · ${clip(a.id, 40)}`
-    case 'drive_list': return a.folderId && a.folderId !== 'root' ? `${verb} · ${clip(a.folderId, 60)}` : verb!
-    case 'drive_read': return `${verb} · ${clip(a.fileId, 60)}`
+    // a schedule, a Drive file or folder by its id means nothing to the person: the words alone (the server names a
+    // schedule by its title once it knows it, tools/schedules.ts)
+    case 'schedule_delete': return verb!
+    case 'drive_list': case 'drive_read': return verb!
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
     case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
@@ -255,7 +274,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'change_project_members': return a.project ? `${verb} · ${clip(a.project, 60)}` : verb!
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
-    case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`
+    case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
@@ -265,7 +284,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       const name = a.target === 'google_drive' ? 'Google Drive' : typeof a.name === 'string' ? clip(maskSecrets(a.name.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
       return name ? `${verb} · ${name}` : verb!
     }
-    default: return verb ?? tool
+    default: return verb ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
   }
 }
 
@@ -353,32 +372,56 @@ function templateMatch(template: string, label: string): Record<string, string> 
   return Object.fromEntries(names.map((n, i) => [n, hit[i + 1] ?? '']))
 }
 
-/** The Korean wording before 0.2.16 (합니다체): steps saved with it still follow the language on screen. Matching only. */
-const LEGACY_KO: Partial<Record<StepTextKey, string>> = {
-  refusedRetry: 'AI가 답하지 않아 다른 모델({model})로 다시 답합니다',
-  engineOffDefault: '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다',
-  limitFallback: '{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답합니다',
-  credentialSwitchLimit: '사용 한도에 닿아 다른 AI 연결로 이어서 답합니다',
-  credentialSwitchInvalid: 'AI 연결이 거절되어 다른 연결로 이어서 답합니다',
+/** Earlier wordings: the Korean before 0.2.16 (합니다체), and every language before the plain-words pass (engine names,
+ * model ids; docs/DECISIONS.md "Plain words in errors, cards and steps"). Steps saved with them still follow the
+ * language on screen, in today's words (a model id or an engine name they held is left out). Matching only. */
+const LEGACY: Partial<Record<StepTextKey, readonly string[]>> = {
+  refusedRetry: ['AI가 답하지 않아 다른 모델({model})로 다시 답합니다', 'AI가 답하지 않아 다른 모델({model})로 다시 답해요', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"],
+  engineOffDefault: ['{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다', '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"],
+  engineNoConnection: ['{from}에 쓸 AI 연결이 없어 연결된 {to}로 답해요', 'No AI connection for {from}; answering with {to}, which is connected', 'Tidak ada koneksi AI untuk {from}; menjawab dengan {to} yang terhubung', "{from}用のAI接続がないため、接続済みの{to}で回答します", "No hay conexión de IA para {from}; se responde con {to}, que sí está conectado"],
+  limitFallback: ['{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답합니다', '{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"],
+  credentialSwitchLimit: ['사용 한도에 닿아 다른 AI 연결로 이어서 답합니다', '사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"],
+  credentialSwitchInvalid: ['AI 연결이 거절되어 다른 연결로 이어서 답합니다', 'AI 연결이 거절되어 다른 연결로 이어서 답해요', 'The AI connection was refused; continuing with another one', 'Koneksi AI ditolak; dilanjutkan dengan koneksi lain', "AI接続が拒否されたため、別の接続で続けます", "Se rechazó la conexión de IA; se continúa con otra"],
+}
+/** Verbs before the plain-words pass, in every language: a stored step that starts with one is said with today's verb. */
+const LEGACY_VERBS: Record<string, readonly string[]> = {
+  artifact: ['아티팩트', 'Artifact', 'Artefak', "アーティファクト", "Artefacto"],
+  knowledge_explore: ['지식 그래프 검색', 'Search knowledge graph', 'Cari di grafik pengetahuan', "ナレッジグラフを検索", "Buscar en el grafo de conocimiento"],
+  find_tools: ['도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"],
+  hwp_render: ['View HWP page', 'Lihat halaman HWP', "HWPのページを表示", "Ver página HWP"],
+  javascript_tool: ['페이지 스크립트 실행', 'Run page script', 'Jalankan skrip halaman', "ページのスクリプトを実行", "Ejecutar script de página"],
+  read_console_messages: ['콘솔 보기', 'Read console', 'Baca konsol', "コンソールを読む", "Leer consola"],
+  read_network_requests: ['네트워크 보기', 'Read network', 'Baca jaringan', "ネットワークを読む", "Leer red"],
 }
 
 /** A whole-label template in any language (or its older Korean wording) -> the same template in `locale`. */
 function retemplate(keys: StepTextKey[], label: string, locale: Locale): string | null {
-  for (const key of keys) for (const template of [...LOCALES.map((l) => STEP_TEXT[key][l]), LEGACY_KO[key]]) {
+  for (const key of keys) for (const template of [...LOCALES.map((l) => STEP_TEXT[key][l]), ...(LEGACY[key] ?? [])]) {
     const vars = template === undefined ? null : templateMatch(template, label)
     if (vars) return stepText(key, locale, vars)
   }
   return null
 }
 
-/** "<verb in any language><rest>" -> "<verb in `locale`><rest>" (the longest matching verb wins). */
-function reverb(verbs: T, label: string, locale: Locale): string | null {
-  const known = LOCALES.map((l) => verbs[l]).sort((a, b) => b.length - a.length)
+/** "<verb in any language><rest>" -> "<verb in `locale`><rest>" (the longest matching verb wins; `older`: earlier
+ * wordings of the same verb). */
+function reverb(verbs: T, label: string, locale: Locale, older: readonly string[] = []): string | null {
+  const known = [...LOCALES.map((l) => verbs[l]), ...older].sort((a, b) => b.length - a.length)
   for (const v of known) {
     if (label === v) return verbs[locale]
     if (label.startsWith(v) && (label[v.length] === ' ')) return verbs[locale] + label.slice(v.length)
   }
   return null
+}
+
+/** box_shell's ending in `locale`: " (job)", " (background)" or either in any language. */
+function resuffix(label: string, locale: Locale): string {
+  for (const [key, old] of [['jobSuffix', 'job'], ['backgroundSuffix', 'background']] as const) {
+    for (const w of [old, ...LOCALES.map((l) => STEP_TEXT[key][l])]) {
+      if (label.endsWith(` (${w})`)) return `${label.slice(0, -w.length - 3)} (${STEP_TEXT[key][locale]})`
+    }
+  }
+  return label
 }
 
 /**
@@ -398,9 +441,11 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered'], step.label, locale)
   else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
-  else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale)
+  else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
-  else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale)
+  else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
+  // a dev-environment command's " (job)" / " (background)" (English in every language before) in the language on screen
+  if (tool === 'box_shell' && label) label = resuffix(label, locale)
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
   const detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
   return { label: label ?? step.label, ...(detail !== undefined ? { detail } : {}) }

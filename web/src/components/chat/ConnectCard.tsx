@@ -19,6 +19,7 @@ import { connectCase, connectWithKey, connectWithoutKey, finishConnect, hostOffN
 import { mobileApp } from '../../lib/mobile'
 import { canSeal } from '../../lib/seal'
 import { useLocale, useT } from '../../i18n'
+import { signInFailedKey } from '../../lib/chatErrors'
 import { toast } from '../../store/ui'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
 import { DriveFlowPanel, useDriveFlow } from '../settings/DriveConnection'
@@ -295,7 +296,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
               <p role="status">{t('integrations.signIn.waiting')}</p>
             ) : (
               <p role="alert" className="text-danger">
-                {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}
+                {flow.state === 'expired' ? t('integrations.signIn.expired') : t(signInFailedKey(flow.reason))}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-2">

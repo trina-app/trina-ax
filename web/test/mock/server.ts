@@ -80,9 +80,12 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, CHAT_FILES_FOLDER, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, CHAT_FILES_FOLDER, stepLabel, stepText, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
 import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
+import { TEXT as URL_TEXT } from '../../../server/src/tools/url-gate'
+import { cardLines, methodWord, toolTitle } from '../../../server/src/integrations/connections/card-lines'
+import { say as connectionSay } from '../../../server/src/integrations/connections/text'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
@@ -1267,6 +1270,18 @@ export class MockServer {
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
     }
+    if (/plainsteps/i.test(prompt)) {
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const done = { status: 'ok' as const, endedAt: now() }
+      put(step({ id: 'p1', kind: 'tool', tool: 'engine', label: stepText('engineOffDefault', 'ko', { from: 'Claude Code', to: 'Codex' }), ...done }))
+      put(step({ id: 'p2', kind: 'tool', tool: 'refusal', label: stepText('refusedRetry', 'ko', { model: 'claude-opus-4' }), ...done }))
+      put(step({ id: 'p3', kind: 'tool', tool: 'knowledge_explore', label: stepLabel('knowledge_explore', { query: '견적' }, 'ko', new Set()), ...done }))
+      put(step({ id: 'p4', kind: 'tool', tool: 'my_tasks__create_task', label: `Tasks · ${toolTitle({ name: 'create_task', title: '할 일 만들기' })}`, ...done }))
+      put(step({ id: 'p5', kind: 'tool', tool: 'api_request', label: `Tasks · ${methodWord('POST', 'ko')}`, ...done }))
+      put(step({ id: 'p6', kind: 'tool', tool: 'TodoWrite', label: stepLabel('TodoWrite', {}, 'ko', new Set()), ...done }))
+      put(step({ id: 'p7', kind: 'tool', tool: 'artifact', label: stepLabel('artifact', { title: '매출 차트' }, 'ko', new Set()), ...done }))
+      put(step({ id: 'p8', kind: 'tool', tool: 'schedule_delete', label: stepLabel('schedule_delete', { id: '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }, 'ko', new Set()), ...done }))
+    }
     if (/wrong-guess/i.test(prompt)) {
       // the AI guesses a file name that does not exist, then finds the right file: a failed step it got past
       // (docs/DECISIONS.md "A failed step the AI got past is not red")
@@ -1317,15 +1332,15 @@ export class MockServer {
         ? { kind: 'browser_site', requestId, url: 'http://10.0.0.5/intranet/', host: '10.0.0.5', reason: '사내 문서 페이지를 열려고 해요.' }
         : /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${siteUrl}\n\n사이트를 허용하면 이 대화에서만 example.co.kr의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.`,
+          question: `${URL_TEXT.unseen.ko.replace('{url}', siteUrl)}\n\n${URL_TEXT.site.ko.replace('{site}', 'example.co.kr')}`,
           options: [{ label: '열기', value: 'allow' }, { label: '이 대화에서 이 사이트 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }] }
         : /markask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${markUrl}\n\n주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.`,
+          question: `${URL_TEXT.unseen.ko.replace('{url}', markUrl)}\n\n${URL_TEXT.opaque.ko}`,
           options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }],
           details: [{ label: '주소', text: markUrl, marks: ['c2fsyxj5ltk4nzy1ndmy'] }] }
         : /safety/i.test(prompt)
-        ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 해요.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
+        ? { kind: 'ask_user', origin: 'server', requestId, question: URL_TEXT.unseen.ko.replace('{url}', 'https://example.com/?d=1'), options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
         : /multi/i.test(prompt)
           ? { kind: 'ask_user', requestId, question: '보고서에 어느 분기를 넣을까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], multiple: true, allowText: true }
           : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
@@ -1404,14 +1419,19 @@ export class MockServer {
       prompt += ` answered:${JSON.stringify(answer)}`
     }
     if (/sendcard/i.test(prompt)) {
-      // like server/src/integrations/connections/tools.ts gate: everything a connected service is sent, where it goes first
+      // like server/src/integrations/connections/tools.ts gate: the tool by its title, every value as a labelled line with
+      // where it goes first, the exact JSON one click away ("sendcard raw": a call the lines cannot show, the JSON open)
       const requestId = 'w1'
-      const payload = JSON.stringify({ title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example' }, null, 2)
+      const args = /sendcard raw/i.test(prompt)
+        ? { to: 'outside@evil.example', title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy \u202e' + 'x'.repeat(2000) + ' SECRET-AT-THE-END' }
+        : { title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example', due_date: '2026-11-14' }
+      const payload = JSON.stringify(args, null, 2)
+      const lines = cardLines(args, 'ko', (k) => k === 'to')
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-        question: 'AI가 Tasks에서 이 작업을 하려고 해요: create_task\n\n보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.\n\n보낼까요?',
+        question: `${connectionSay('confirm', 'ko', { name: 'Tasks', what: toolTitle({ name: 'create_task', title: /sendcard raw/i.test(prompt) ? null : '할 일 만들기' }) })}\n\n${connectionSay('checkBelow', 'ko')}\n\n${connectionSay('ask', 'ko')}`,
         options: [{ label: '보내기', value: 'allow' }, { label: '보내지 않기', value: 'deny' }],
-        details: [{ label: '보낼 내용', text: payload, fields: [{ name: 'to', value: 'outside@evil.example' }], marks: ['c2fsyxj5ltk4nzy1ndmy'] }],
+        details: [{ label: connectionSay('sendsLabel', 'ko'), text: payload, fields: lines ?? [{ name: '받는 사람', value: 'outside@evil.example' }], marks: ['c2fsyxj5ltk4nzy1ndmy'], ...(lines ? { exact: true as const } : {}) }],
       }
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
@@ -4687,7 +4707,7 @@ export class MockServer {
       const { shareChats, ...rest } = c.body as { shareChats?: boolean }
       if (shareChats !== undefined) {
         if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', { 'body.shareChats': 'project_personal' }, { reason: 'project_personal' })
-        if (shareChats && this.allConfidential) fail('conflict', 409, '안전 작업 모드에서는 채팅을 공유할 수 없어요.', { 'body.shareChats': 'safe_ops' }, { reason: 'safe_ops' })
+        if (shareChats && this.allConfidential) fail('conflict', 409, CHAT_TEXT.sharedProjectSafeOps.ko, { 'body.shareChats': 'safe_ops' }, { reason: 'safe_ops' })
         if (p.inTrash) fail('conflict', 409, '폴더가 휴지통에 있는 프로젝트예요.', { 'body.shareChats': 'project_in_trash' }, { reason: 'project_in_trash' })
         if (shareChats) this.sharedProjects.add(p.id)
         else this.sharedProjects.delete(p.id)
@@ -4853,7 +4873,7 @@ export class MockServer {
     }
     const mayContinue = (u: User, chatId: string) => {
       view(chatOf(chatId), u)
-      if (this.allConfidential) fail('conflict', 409, '안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.', undefined, { reason: 'safe_ops' })
+      if (this.allConfidential) fail('conflict', 409, CHAT_TEXT.sharedChatSafeOps.ko, undefined, { reason: 'safe_ops' })
     }
     const teamOnly = (ids: string[]) => {
       const atts = ids.map((id) => this.attachments.get(id)).filter((a): a is NonNullable<typeof a> => !!a)
@@ -4925,7 +4945,7 @@ export class MockServer {
       const chat = chatOf(c.params.id!)
       if (this.sharedChats.has(chat.id)) { view(chat, c.user); no('already_shared', '이미 프로젝트 사람들과 공유한 채팅이에요.') }
       if (othersPrivate(chat.id, c.user) || chat.deletedAt) fail('not_found', 404)
-      if (this.allConfidential || chat.confidential) no('safe_ops', '안전 작업 모드이거나 기밀 대화라 공유할 수 없어요.')
+      if (this.allConfidential || chat.confidential) no('safe_ops', CHAT_TEXT.chatShareSafeOps.ko)
       const p = chat.projectId ? this.projects.find((x) => x.id === chat.projectId) : undefined
       if (!p || this.access(p.folderPath, c.user) === 'none') return no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
       if (p.folderPath.startsWith('users/')) no('project_personal', '개인 프로젝트의 채팅은 공유할 수 없어요.')

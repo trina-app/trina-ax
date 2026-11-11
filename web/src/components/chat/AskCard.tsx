@@ -11,9 +11,10 @@
 // choices.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { errorText } from '../../lib/api'
 import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
+import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
@@ -283,13 +284,15 @@ function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choi
 /** What the AI is about to save under skills/ (team skills and rules every teammate's AI follows): the diff. */
 function SkillPreview({ p }: { p: SkillWritePreview }) {
   const t = useT()
+  const words = useFolderWords()
   const lines = p.diff.split('\n')
   const isDiff = lines[0]?.startsWith('@@')
   return (
     <div className="mb-2 overflow-hidden rounded-lg border border-line" data-testid="skill-preview">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
-        <span className="min-w-0 flex-1 truncate font-mono" title={p.path}>
-          {p.path}
+        {/* the file in words (팀 스킬 › 회의록 › SKILL.md), its path on hover */}
+        <span className="min-w-0 flex-1 truncate" title={p.path} data-testid="skill-preview-path">
+          {words.path(p.path, ' › ')}
         </span>
         <span className="text-faint">{p.isNew ? t('ask.skillNew') : t('ask.skillChange')}</span>
         {isDiff && (
@@ -321,8 +324,10 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
 }
 
 /** What a server check is about to let out, every character of it (a connected service's write with where it goes, a
- * scheduled task's instruction and its addresses): scrollable, with its size; long random-looking parts highlighted.
- * `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a rule beside it. */
+ * scheduled task's instruction and its addresses): scrollable, with its size; long random-looking parts highlighted, in
+ * the fields too. `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a
+ * rule beside it. `exact` (a connected service's call, docs/DECISIONS.md "Plain words in errors, cards and steps"): the
+ * fields already show every value, so the text (its exact JSON) is one click away, "보내는 내용 그대로 보기". */
 function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) {
   const t = useT()
   if (plain)
@@ -337,22 +342,27 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
                   {d.fields.map((f, j) => (
                     <div key={j} className="contents">
                       <dt className="min-w-14 text-faint">{f.name}</dt>
-                      <dd className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</dd>
+                      {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
+                      <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
+                        <Marked text={f.value} marks={d.marks} />
+                      </dd>
                     </div>
                   ))}
                 </dl>
               </div>
             ) : null}
             {d.text && (
-              <div>
-                <p className="flex items-baseline gap-2 text-xs text-faint">
-                  <span className="min-w-0 flex-1">{d.label}</span>
-                  {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
-                </p>
-                <div className="mt-1 border-l-2 border-line">
-                  <DetailText d={d} plain />
+              <Exact d={d} plain>
+                <div>
+                  <p className="flex items-baseline gap-2 text-xs text-faint">
+                    <span className="min-w-0 flex-1">{d.label}</span>
+                    {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
+                  </p>
+                  <div className="mt-1 border-l-2 border-line">
+                    <DetailText d={d} plain />
+                  </div>
                 </div>
-              </div>
+              </Exact>
             )}
           </div>
         ))}
@@ -381,15 +391,39 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
                   <span className="shrink-0 text-faint">{f.name}</span>
-                  <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</span>
+                  <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
                 </div>
               ))}
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && <DetailText d={d} />}
+          {d.text && <Exact d={d}><DetailText d={d} /></Exact>}
         </div>
       ))}
+    </div>
+  )
+}
+
+/** A detail's text as it is, behind "보내는 내용 그대로 보기" when the fields above show every value of it (`exact`), with
+ * its size on the button while closed; else as it is. Open, it shows what it shows today (its label, size and marks). */
+function Exact({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; children: ReactNode }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  if (!d.exact) return <>{children}</>
+  return (
+    <div className={plain ? undefined : 'border-t border-line'}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={clsx('flex items-baseline gap-2 text-left text-xs font-medium text-muted hover:text-ink', plain ? 'rounded py-1 underline-offset-2 hover:underline' : 'w-full px-3 py-1.5 hover:bg-hover')}
+        data-testid="ask-detail-exact"
+      >
+        <span>{open ? t('ask.exactHide') : t('ask.exactShow')}</span>
+        {/* open, the size shows beside the text's label (once) */}
+        {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.text.length })}</span>}
+      </button>
+      {open && <div className={plain ? 'mt-1' : 'border-t border-line'}>{children}</div>}
     </div>
   )
 }

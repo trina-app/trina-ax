@@ -17,6 +17,7 @@ import { formatDateTime } from '../../lib/format'
 import { audienceOf, authorizationUrl, canSignIn, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
+import { signInFailedKey } from '../../lib/chatErrors'
 import { toast } from '../../store/ui'
 import { ConnectorLogo } from './ConnectorsView'
 import { Badge, Button, IconButton, Switch, confirmDialog } from '../ui'
@@ -394,7 +395,7 @@ function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: 
     <div className="mx-2 mt-1 mb-2 space-y-2 rounded-xl border border-line bg-subtle p-3 text-sm sm:ml-14" data-testid="integration-signin">
       {failed ? (
         <p role="alert" className="text-danger">
-          {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}
+          {flow.state === 'expired' ? t('integrations.signIn.expired') : t(signInFailedKey(flow.reason))}
         </p>
       ) : (
         <p role="status">{t('integrations.signIn.waiting')}</p>
