@@ -11119,7 +11119,8 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
   upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,
   classes, callers and callees across the team's folders that hold code, from CodeGraph indexes kept up to date after
-  file changes. Details, limits and measurements: [KNOWLEDGE-GRAPH.md](KNOWLEDGE-GRAPH.md).
+  file changes. Details, limits and measurements were in docs/KNOWLEDGE-GRAPH.md (removed with the knowledge graph on
+  2026-11-11, "Knowledge graph removed" below; in git history).
 - **CodeGraph is found, not bundled.** MIT (fine in AGPL-3.0), but each platform's package is about 280 MB with its own
   Node.js runtime, more than the rest of a Linux bundle. It is looked up on the PATH or named in `server.json`
   (`knowledgeGraph.codegraph`). Without it the feature is off and Admin says to install it.
@@ -14624,7 +14625,8 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   member row). Deleted messages and event lines have body '' and never match. The hit is built from `messagesOut`'s own
   row (a `withheld` one is dropped), so the snippet is the message's own visible text: never a quote, a file name or a
   hidden answer's words. A thread reply is found by whoever sees its thread; its hit names the thread and opens it.
-- **The text as one part**, as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
+- **The text as one part** (since 2026-11-11 every word, in any order: "⌘K: 대화방·사람, 대화방 파일, 모든 단어" below),
+  as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
   NFC. "견적" finds "견적서를"; "견적 보내" finds that phrase, not two words apart.
 - **Index: FTS5 trigram, migration 267**, as `messages_fts` (201) for the chat records. `room_messages_fts(body)`, its
   rowid the message's rowid, kept by triggers: insert (body not ''), `UPDATE OF body` (an edit replaces it, a delete
@@ -14666,17 +14668,17 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   name), "· 스레드" for a reply, the time (12 px, as the rooms list) and one line of the text (14 px, an answer's Markdown
   as plain text) from a little before the match, the match marked as elsewhere in the palette. On a phone the room name
   gives way first.
-- **Not here.** Room file names and file contents, filters, results in the 기록 tab, highlighting more than the first
-  match, searching the AI's steps. Known limits: a word that spans a room link (`#[name](room:…)`) or Markdown marks in
-  the middle ("견적**서**") is not found as typed; the order is the order the messages were written (an AI answer posted
-  from a preview later sorts by when the preview was made). The time a search takes grows with the matches the index
-  walks past, those in rooms the person is not in too: a word written thousands of times only in other rooms takes
-  tens of milliseconds more, and a 1–2 character word scans the index's text (as the chat records' search does); the
-  same for matches in their own rooms they do not see (from before they joined, others' previews). A request has no
-  upper bound: at worst one pass over every match in the index (a row budget whose cursor went on from the last row
-  looked at would bring the cursor leak below back). Over a network that tells little (one match or none is
-  microseconds); scoping the index walk to the person's rooms (a room column FTS5 can filter on) is left for its own
-  change.
+- **Not here.** Room file names (found since 2026-11-11, below) and file contents, filters, results in the 기록 tab,
+  highlighting more than the first match, searching the AI's steps. Known limits: a word that spans a room link
+  (`#[name](room:…)`) or Markdown marks in the middle ("견적**서**") is not found as typed; the order is the order the
+  messages were written (an AI answer posted from a preview later sorts by when the preview was made). The time a
+  search takes grows with the matches the index walks past, those in rooms the person is not in too: a word written
+  thousands of times only in other rooms takes tens of milliseconds more, and a 1–2 character word scans the index's
+  text (as the chat records' search does); the same for matches in their own rooms they do not see (from before they
+  joined, others' previews). A request has no upper bound: at worst one pass over every match in the index (a row
+  budget whose cursor went on from the last row looked at would bring the cursor leak below back). Over a network that
+  tells little (one match or none is microseconds); scoping the index walk to the person's rooms (a room column FTS5
+  can filter on) is left for its own change.
 - **Independent review (security, 2026-11-08) fixes.** The first version filtered with `canSee` after the query and
   looked at 2,000 candidates a request at most; a page that ran out answered with a cursor at the last candidate looked
   at, often a message the person does not see: an empty page with a cursor told that unseen messages held the word, the
@@ -14705,6 +14707,107 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   dark).
 - Version impact: **minor** (a new result type in search, one endpoint, an optional query field and response field,
   one additive migration).
+
+## ⌘K: 대화방·사람, 대화방 파일, 모든 단어 — rooms and people by name, files sent in rooms, every word, two palette bugs (feat/search-rooms-people-files, 2026-11-11, product owner)
+넣을 곳: trina-ax `web/src/components/SearchDialog.tsx`, `shared/src/search-text.ts`, `shared/src/api/rooms.ts`,
+`server/src/rooms/search.ts`, `server/src/rooms/service.ts`, `server/src/routes/rooms.ts`, `server/src/routes/chats.ts`,
+이유: the search palette, rooms and their visibility rule are core chat.
+
+An audit of the palette on dev (2274559af) found five gaps; the owner approved fixing them on 2026-11-11. Amends "⌘K에서
+대화방 메시지 찾기" above ("The text as one part" and "Not here: room file names"). The plan went through an independent
+review before it was built; its must-fix and its decisions are below. Nothing else changed: no new tab, no filter, no
+new button or card.
+
+- **Rooms & people ("대화방·사람"), the first group on the 전체 tab, only while something is typed.** Matched in the
+  browser from lists the app already has: the rooms list (`GET /api/rooms`, `Rooms.list`: the rooms I am in now, not
+  archived; hidden ones included, as message search includes them) and the team's people (`GET /api/people`, the list
+  the new-DM picker uses; never me). Both load in the background when no screen has read them yet, so a row can appear
+  a moment after the text. One row per room or person: a DM stands for its person (their face and name); a team room,
+  the everyone room and a group chat show their icon and the name the app shows (`useRoomTitle`). At most 3 rows, so the
+  chat records stay in sight on a 390 px phone.
+- **Matching** (`shared/src/search-text.ts nameMatch`, no helper existed): NFC on the whole text, then NFKC one
+  character at a time (full-width letters as ASCII; a compatibility jamo ㄱ…ㅎ as its leading consonant; never joined
+  with the next character, so "ㄱㅏ" stays an initial and a vowel and never becomes "가"; ㈜ and "(주)" match), lower case;
+  every word must be in the name; a leading consonant typed alone (ㄱ…ㅎ, ㄲ…ㅉ) stands for any syllable that starts with
+  it: "ㄱㅈ" finds "견적", "ㅁㅎ" "민희", "김ㅁ" "김민희". Order: rooms and DMs first, then people with no DM; within each
+  the whole text at the start of the name, then inside it, then by words or initials; rooms by latest activity, people
+  by name. A match is marked only where it is a plain part of the name (not for initials or full-width letters, and
+  never when lower case changes the name's length: the marks would not land on the letters).
+- **Enter / click.** A room or a DM opens it (`/rooms/:id`; a hidden room opened this way is shown again, as opening it
+  from "숨긴 대화" does: `Room.tsx`). A person with no DM opens the new-DM list with them ticked (`PeoplePicker`,
+  `{kind:'new', preselect:[id]}`) and makes nothing until they press its button. Decided by the lead after the review:
+  `openDm` makes the room at once and the other person's sidebar shows it on top (`room.added`), so a stray Enter in a
+  search must not make one.
+- **Files sent in rooms.** `GET /api/room-files?q=&cursor=&limit=` (`API.searchRoomFiles`, `RoomSearchQuery`;
+  `rooms/search.ts searchRoomFiles`, `Rooms.searchFiles` runs `syncFor` first as `Rooms.search` does): `items` (the file
+  as the room shows it, the message id, roomId, threadRootId, author, createdAt), `rooms` (as `RoomSearchPage.rooms`),
+  `nextCursor`. **Who finds a file: exactly who would see it by opening its message now, by message search's rule.**
+  Candidates only in `reader.ts myRooms` (in the room now, not archived). Only files sent with a message (an upload not
+  sent yet never), of a message in the same room, not deleted, not an event line. Who sees the message is decided in the
+  query (`SEE_MEMBER_SQL` on its room's member row: a later member of a group chat or a 1:1 from their join, a thread
+  reply by whoever sees its thread's first message, a team room's whole history once opened, others' private previews
+  never, the old answers hidden from them and their threads never), then `canSee` on each row, then `messagesOut` once
+  per room: the message must come out not withheld (so never an answer shared from someone's own AI chat with its files
+  that is hidden from them) and the file must be among its files. Leaving or being taken out ends it at once.
+- **How it finds a file.** Every word in the name (`LIKE … ESCAPE`, A–Z in any case, `%` and `_` as themselves; names
+  are stored NFC). No index and no migration: `room_files` holds one row per file sent. The query reads it newest first
+  by rowid (when the file was uploaded, moments before it was sent) with `CROSS JOIN` (room_files, then its message by
+  primary key with the same room, then the member row), so the `ORDER BY` needs no sort and a page stops as soon as it
+  is full; the cursor is the file rowid of the page's last row of the query (a file they see), never one kept after it.
+  The independent review measured a plain `JOIN` (SQLite walked every message of the person's rooms and sorted) at
+  1.5–4 s per query on a million messages and 200,000 files, and this order at 0.1–110 ms. Measured in the suite
+  (`b-rooms-file-search.test.ts`, 20,000 files among 100,000 messages, half in a room of hers, median of 5, two runs on
+  this Mac while other suites ran on it): a word in every name 19–87 ms, its second page 23–78 ms, a rare name (40 files)
+  31–198 ms, two words 54–75 ms, a word in no name 3–4 ms; with one message per file and a quiet machine 2–14 ms. Most
+  of a page with hits is `messagesOut`. A test reads the plan: `SCAN f` (a later page `SEARCH f USING INTEGER PRIMARY KEY (rowid<?)`), no
+  `TEMP B-TREE`. Known limit: as for messages, the walk passes files of rooms they are not in.
+- **The file row.** On the 전체 and 파일 tabs, after the team's files by name: 4 file rows in all on 전체 (the team's first,
+  then the rooms'), all of them on 파일. One line: the file's icon and name (the typed words marked), then dim "who ·
+  where · when" with the room said as a message hit says it ("#디자인 리뷰", "1:1 대화 · Ben", a group chat's name).
+  Opening one opens its message in the room (`/rooms/:id?m=`, a thread reply `/rooms/:id/t/:root?m=`), marked, as a
+  message hit does.
+- **Every word, in any order** (`searchWords`: NFC, split on whitespace, no empty word, none repeated in another case,
+  at most 8, as the AI's room search). "견적서 보내" finds "견적서를 보내드렸어요". Room messages: the words of 3 or more
+  characters go into one FTS5 `MATCH`, each a quoted phrase joined by `AND` (operators, columns, stars and brackets are
+  only text: a test tries `abc OR def`, `NEAR(abc def)`, `abc*`, `body:abc`, `-abc`, `"abc`, `"""`); with none, the
+  trigram `LIKE` with the longest word, as before for a short text; every word is matched again on the body. Visibility,
+  pages and cursors as before. The snippet starts at the word found first in the text. Chat records (`listChats`): every
+  word in the title or in one of the chat's messages (per chat, as `chat/room-project-chats.ts` does for the AI's
+  project_chats tool). The messages that hold any word are read in **one** pass over `messages_fts` per request (it is a
+  scan either way: `LIKE … ESCAPE` is never handed to FTS5), only for the chats that list may hold, each row with the
+  words it holds; that only narrows the query, and whether an answer counts is decided per chat in `found()`: a word
+  counts through the title, a person's message, or an answer not hidden from me, never through a hidden one. The palette
+  marks the first match of every word, and puts first the chats whose title has every word.
+- **Known limits (word by word).** Two short Korean words ("회의 자료", "견적 요청") used to be one 5-character phrase
+  `MATCH`; now they are the trigram `LIKE` with the longer word, a scan of the index's text: on the suite's 50,000-message
+  room 23–26 ms and 53–73 ms (median of 5, two runs while other suites ran), against 12–36 ms for one word of 3 or more
+  characters in the same run. Words apart are found anywhere in a
+  message or a chat, also far apart, and an older result with the text as one run ranks no higher.
+- **A result of an older text is never shown nor opened.** Each answer from the server (chats, the team's file names,
+  room messages and their further pages, room files) is kept with the words it answered (lower case), and rows, the
+  loading state, the failure lines and Enter use it only while those are the words in the box; a space more or a letter
+  in another case asks nothing again. So a fast Enter opens the top row shown at that moment, never a chat of the text
+  before (the audit: search "견적서", replace it with "회의록", Enter: a 견적서 chat opened).
+- **The highlight is kept by its row's key.** Arrows and the pointer choose a row by its key; results arriving above it
+  (room messages after the chats, say) no longer move it to another row. When the row is gone, the row at its place.
+  Typing or another tab goes back to the first row. "메시지 더 보기" keeps the place, so the keys go on to the first new
+  message.
+- **Tests.** `tests/unit/search-text.test.ts` (initials, ㄱㅏ, ㈜, NFKC, case, words, the order), `tests/unit/
+  b-rooms-file-search.test.ts` (a non-member, an owner and an admin; after leaving a group chat and after being taken
+  out of a team room; a later member of a group chat: a file from before their join and one in a later reply of an older
+  thread; a later member of a team room; a 1:1 by its two people only; a file in the thread of a hidden answer and a
+  hidden shared answer's file; a private preview's file; an unsent upload; a deleted message; an archived room; words,
+  case, `%` and `_`, decomposed text; pages, cursors at files they see, a bad cursor; 20,000 files timed, the plan),
+  `tests/unit/b-rooms-search.test.ts` (every word, short and long words, the operators, pages over several words,
+  hand-made cursors with several words, the plan with several words, timings), `tests/unit/b-api.test.ts` and
+  `tests/unit/b-shared-chat-audience.test.ts` (chat records by words across the title and messages; a word only in an
+  answer hidden from the person does not count), the permission matrix (`searchRoomFiles`: the DM's file only for its two
+  people), `web/test/unit/search-palette.test.tsx` (an older text's results neither shown nor opened, also when its
+  answer comes last; the highlight stays on its row; rooms and people, initials, the order, a person with no DM opens the
+  new-DM list and makes nothing; room file rows, 4 file rows on 전체), `web/test/e2e/search-rooms-people-files.spec.ts`
+  (initials → Enter opens the room; a person with no DM; a room file opens its message; Enter right after a new text;
+  axe light and dark; 390 px; `SHOTS_DIR` for 1440 and 390, light and dark).
+- Version impact: **minor** (one endpoint and result type, a new group in the palette, a looser match).
 
 ## 대화방에서 새 파일은 미리 허용 — "이 방에서는 항상 허용" (feat/room-ai-allowances, 2026-11-08, product owner)
 
@@ -19680,3 +19783,175 @@ between them. Decided after two product reviews.
   clicked DM row do not move, the headings in order and their look in both themes, "접기" stays; with `SHOTS_DIR`, the
   screenshots at 1440×900 and 1280×800, light and dark).
 - Version impact: **patch** (the order of an opened list and three words; no API or data change).
+
+## A scheduled task's instruction names rooms by their names — 예약 작업 지시문의 대화방은 이름으로 (fix/schedule-room-name-last-run, 2026-11-11)
+
+QA on dev (e2d645ff): a scheduled task the AI made from a chat showed its instruction as "… room_id 01a1ba5f-…" on the
+task page and in each run's question; and the task page's run block said "Last run" three times and did not change
+after **Run now** until a reload.
+
+- **Why the id is in the text, and stays there.** The AI is given a room the person picked as its id
+  (`chat/turn.ts roomRefsBlock`, `[#room room_id=…]` for earlier messages), `room_read` reads a room by its id ("never a
+  room found by its name instead"), and `schedule_create` asks for an instruction that "works without this conversation".
+  So the AI writes the id into the instruction, and a run needs it: a name is ambiguous, can change, and is set by the
+  room's members. The stored instruction is not changed; only what people read is.
+- **Decision: the creation path does not store a "#" token (`#[name](room:<id>)`) instead.** A token puts the room's
+  name into the stored text, and that text is copied into every run's question (`messages.content`): the name would
+  freeze at the time of creation (a renamed room shows the old name), and it would travel to wherever that text goes
+  (the API sends a message's content as stored, so hiding it in the app is not enough). The bare id carries no name and
+  is resolved for each viewer when it is shown. A token is still read the same way when one is there.
+- **Shown as the name, for a viewer in the room** (`web/src/lib/roomNames.ts`, `components/RoomNames.tsx`): on the task
+  page's instruction, the list card's preview and in a chat's question bubble (a run's question is its instruction),
+  `room_id <id>`, `room_id=<id>`, `room id: <id>`, `room:<id>`, `[#room room_id=<id>]` and a token read as `#<name>`
+  (a 1:1 chat: the other person's name, as the app names it everywhere: `roomTitle`). A bare id reads as a name only when
+  it is one of the viewer's rooms; any other bare id stays as written (it may be a file's or a thread's), and so does an
+  id in a web address, a path, a query, a Markdown link (`[label](room:<id>)`), code (a backtick span or a fenced block)
+  or a quoted value (`"roomId":"<id>"`): data someone pasted. The matching is linear in the text (one run of spaces
+  before an id; the places an id stays as written walked with one pointer): two review rounds found a long run of spaces,
+  and many links with many ids, costing seconds in every bubble. The component reads only the rooms the text names from
+  the room list and keeps its parts until the text or those rooms change (a message in another room draws nothing).
+- **A copy gives the ids.** A selection of the instruction or of a question copies each room as it is written
+  (`copyRoomIds`, the span's `data-raw`), so a copied instruction still names the room a run reads; a token of a room the
+  viewer is not in copies as `room:<id>`, never its title.
+- **Access rule.** The names come only from the viewer's own room list (`GET /api/rooms`, the rooms they are in now,
+  not archived; the store keeps it current with room events). A room the viewer is not in reads "a conversation you're
+  not in" (ko "참여하지 않은 대화방"), never its name. On the Scheduled pages that holds for a token too (the text is
+  the AI's). Until the list is loaded (or when it could not be), an id stays as written and a token there shows "#…": no
+  claim either way, and no name. Runs and their chats are never shared (`share-chat.ts scheduled_run`), so today the
+  viewer is the task's owner, who may have left the room since; the rule holds for any viewer.
+- **One exception, kept: a token in a chat bubble.** The bubble cannot tell a run's question from a message the person
+  typed, and a "#" chip the person picked keeps the title it was picked by, as before (`tokenTitles`). So a token in a
+  run's question would show its stored title. That is unlikely: the AI never sees tokens (they reach it as `[#room N]`
+  and `[#room room_id=…]`); only `schedule_create`'s `reads` description shows the form. The task page itself never
+  shows a token's title to someone outside the room.
+- **Left as they are:** the schedule card (create, edit, check again) shows the instruction exactly as it runs, ids
+  included: it is the confirmation of what runs, and a room's name is set by its members (any member of a group chat),
+  so it must not change how the instruction reads at the moment of the yes (the card names the rooms of `reads` by name
+  already). The edit dialog's text box keeps the stored text, so an edit keeps the id. A message waiting in the send
+  queue shows its text as typed.
+- **The "Last run" block: one heading, then the state and when.** "Succeeded · 2 minutes ago" (the time on hover in
+  full), "Running" while a run is queued or running (linked to its chat with "Open chat"), a failure in its colour with
+  the reason under it, an occurrence that did not run in its own words ("Usage limit prevented the run"). The list card
+  and the line under the title keep "Last run failed": they have no heading. The details' "Last run" time is the same
+  run's.
+- **Run now is that run.** `runNow` moves only `last_chat_id` (not `last_run_at`, "Scheduled tasks: run now, edit,
+  pause"), so the block took the time of the last run at its time and the result of the run before it. `Schedule` now
+  has `lastOutcomeAt` (when the last result came: the run's end, or when an occurrence was skipped;
+  `Schedules.lastResult`) and `running` (a run of it is queued or running; its chat is `lastChatId`:
+  `Schedules.isRunning`). Both optional: an older server's block uses `lastRunAt`.
+- **Refresh:** the page reads the list again right after Run now's answer; when the chat of a task's last run changes
+  (`chat.updated`: that run starting or ending; a few events of one run are read once; other chats never); when a task
+  is due (`nextDueRead`: its time plus 10 s for the server's tick, again every 10 s for up to 3 minutes while it is due
+  and not started, so a run at its time is known and its end followed); and after a reset connection (`reloadAsked`), as
+  other pages do. No polling while nothing is due, no new box.
+- Tests: `web/test/unit/room-names.test.tsx` (every form, a 1:1 chat, the access rule with and without a token, a viewer
+  who left or was taken out (the room event), the list not loaded, ids in links, paths, code and quoted values, long
+  runs of spaces, many links with many ids, what a copy gives, the bubble of a room the viewer is not in),
+  `web/test/unit/scheduled-view.test.tsx` (one heading, "Succeeded · 2 minutes ago", running, a failure, an older
+  server, when a due run is looked for), `tests/unit/schedule-edit.test.ts` (run now: `running`, then `lastOutcomeAt` =
+  the turn's end, `lastRunAt` untouched), e2e `web/test/e2e/schedules.spec.ts` (the room names, a copy of the
+  instruction, Run now followed to its result without a reload).
+- Version impact: **patch** (two optional response fields; corrected words; no data change).
+
+## Knowledge graph removed — 지식 그래프를 없앤다; the AI finds files with list, glob, grep and read (chore/remove-knowledge-graph, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`server/src/knowledge-graph/` and its callers, the Files search, Admin › Team settings, the
+bundles), 이유: chat, files and the AI are core. Plan: `docs/AGENTS/plan/20261111-0135-remove-knowledge-graph.md`.
+Replaces "K — Knowledge graph" (2026-11-06), "지식 그래프로 더 빠른 답" and "뜻으로도 찾는 지식 그래프" (2026-11-07).
+
+- **Why.** On the same dev build with the knowledge graph on and off, the AI found the same files either way (a
+  2,204-file test folder, the 92 questions that finished). The index alone put the right file in its top 5 for 28% of
+  hard questions, where a plain file-name search got 57%. It saved about 27% of input tokens on easy questions and used
+  more on others. It leaked stale text: text taken out of a file stayed searchable, and the AI quoted it, until the
+  folder was indexed again (30 s to overnight). After every restart on Linux nothing was indexed for 10–15 minutes, and
+  on a 4 GB server searches took 1–7 s while it indexed and the meaning indexer went over its 800 MiB cap. Anthropic's
+  guidance is to start with agentic search (semantic search is "less accurate, more difficult to maintain"); the Claude
+  Code team found grep and glob beat vector databases and indexing ("stale indexes, permission complexity").
+- **Gone.** The document index and its search worker, search by meaning (multilingual-e5-small, the embedding process,
+  `@huggingface/transformers` with onnxruntime and sharp, `scripts/vendor-semantic.ts`), the CodeGraph code map, the
+  `knowledge_explore` tool, the `<document_matches>` lookup before the model and its prompt rules, the Files search's
+  "관련 문서" rows, Admin › Team settings › Knowledge graph and `/api/admin/knowledge-graph`, `scripts/bench/quality/`.
+  The old `search` tool stays removed.
+- **Stays.** The Files search lists exact-line matches as before the knowledge graph, and a word no file has says
+  "nothing found" (QA TC-061). The MCP connection's side-by-side read-only calls stay for `list`, `glob`, `grep` and
+  `read`. The document-question benchmark (`scripts/bench/run.ts`) stays, without an index to wait for.
+- **Old data.** The first start deletes `<data>/knowledge-graph/` (copies of private document text and code; renamed at
+  once and deleted in the background, so a large one does not hold the start) and the downloaded model in
+  `<data>/models/Xenova/multilingual-e5-small`, with one info line. Whisper's models stay; a link is removed and never
+  followed, so a host's shared `MYCEL_MODELS_DIR` is never touched. Migration 339 deletes the switch's settings rows.
+- **Old configs and content.** A `server.json` with `knowledgeGraph` still loads: the key is ignored and the start logs
+  once that it is obsolete (CONFIGURATION.md). Older chats keep their `knowledge_explore` steps with their label, and
+  old Activity rows keep theirs. Scheduled templates never stored a tool list (their scope is two folders); a call of
+  the old tool is refused like any tool a template does not list.
+- **Release notes.** The knowledge graph's first part (the code map and the document index) shipped in 0.5.0-beta.1;
+  waves 1–3 never did, so their notes leave "Unreleased" (the side-by-side reads keep theirs) and
+  `changes/remove-knowledge-graph.md` says what goes, including the older `search` tool (`MYCEL_SEMANTIC=on`, shipped
+  until 0.5.0-beta.1), whose removal note was one of those lines, and its model, which that note said would stay.
+- Version impact: **minor** (0.x): a feature and an admin API are removed; nothing an installed team set up stops
+  loading.
+## Plain words for members — 멤버 화면은 쉬운 말로 (fix/plain-words-member-screens, 2026-11-11, product owner)
+
+Trina AX is used by ordinary office workers, almost never developers (owner rule, 2026-11-11). A read-only audit of
+`dev` listed where the app talks like a developer tool; the owner approved its top 15 and two decisions. This is the
+first of two PRs: the words on the screens members see. Chat errors, the AI's confirmation cards and step labels are
+server-sent text and the second PR does them. Plan: `docs/AGENTS/plan/20261111-0051-plain-words-member-screens.md`.
+
+- **One plain name per page, in Settings and in Admin.** #289 kept the same noun in both and let the container say
+  whose ("Just for you" / "Applies to everyone in `<team>`"). The audit proposed "My AI accounts" for Settings; "My" is
+  the scope word #289 dropped ("My connectors" was its rejected first version), so both say the same: **AI accounts**
+  (was Providers; ko AI 계정), **Connected apps** (was Connectors; ko 연결한 서비스), **Use from other AI apps** (was AI
+  apps; ko 다른 AI 앱에서 쓰기). The Settings section "Codex" is **ChatGPT** (people know the product, not the engine),
+  and so is the web's name for that AI everywhere else (`ENGINE_LABEL`: the composer's list, the switch line, the
+  answer's button, My usage), as Claude Code was already "Claude"; Admin › AI accounts keeps the engine rows' own names.
+  The page line says "Your questions use your own account first, then the team's." Every pointer follows: the stale
+  "Settings › MCP" (schedule reasons and notice, template note, team settings, the AI's own screen names in
+  `policy/refusal.ts` SCREEN, the connection tools' and connect tool's "can fix it in …"), "Settings › App connectors"
+  (the Slack link message), "Admin › AI connections" (the owners' AI-account notices), "Admin › Providers or
+  Connectors" (handover), "in Providers" (Members), "the AI engines page" (owner onboarding). The schedule texts keep
+  "your own key": the template notices and the connect card say "key" too. The trial and AI-connection errors
+  that point at a missing "Admin › AI connections" are chat errors: the second PR points them at "Admin › AI accounts".
+- **No "MCP" on member screens.** The empty line ("No apps connected yet"), Search's tab ("Apps" / 서비스) and action
+  ("Connect an app" / 서비스 연결하기; "MCP" still finds it), the onboarding tools step ("Connect another tool"), the
+  notice ("An admin asked you to connect an app."), "Other apps" in Use from other AI apps, and the connectors page's
+  "Popular apps", "More apps", "Search apps". A connection's line under its name says what a known service does (the
+  Discover card's line) instead of "MCP server"; one added by its address keeps "MCP server" / "API". "AI provider"
+  in the Drive privacy line and the key warning is "AI company". Admin's form keeps "MCP server / API", sign-in method,
+  headers and scopes: an expert task. The setup steps in Use from other AI apps keep Claude Code's `/mcp` and the
+  "Other apps" dialog's MCP and OAuth words (another app's own terms; folding them under "For developers" is later).
+- **Members do not add a service by its address** (owner decision). Settings › Connected apps shows a member no Add
+  button and, under Discover, "Not listed? Ask an admin to add it." in place of the address link (also under "Nothing
+  matches" when their search finds nothing); `?add=1` (Search, old links) no longer opens the form for them, and
+  Search's action takes them to the page. Owners and admins keep both
+  (the link reads "Add one by its address"). A member's existing connections, Discover's cards and the AI's connect card
+  in chat are unchanged. There is no member → admin request in the app: the existing request goes the other way (an
+  admin asks a member to connect), so the line tells the member to ask; the admin then adds it for the team or sends
+  that request. A button that notifies the admins is an open question for the owner.
+- **No model id under an answer.** It read like an error code ("claude-sonnet", on a server a dated id). People who may
+  choose the AI (owner, admins, people the admin allowed: `canChooseEngine`) get a small info button at the end of the
+  answer's actions whose tooltip, and toast on touch, says "Answered by Claude Sonnet": the label from the model list
+  they pick from, the AI's name ("Claude") when the model is not in it, the raw id only when nothing else is known
+  (`answeredByName`; a gateway's model, whose label is its id, is said once). Everyone else sees nothing. Like ChatGPT
+  and Claude, which stamp no model on a reply. The engine list it reads loads once: answers that ask while it is on its
+  way share the one request (`store/engines.ts`).
+- **"Engine" becomes "AI"** (owner decision; DESIGN-SYSTEM's copy rule listed "AI engine" as a user word and now lists
+  "AI or the AI's name"). Composer picker "Default AI", its list "Choose an AI", Settings › Profile "AI for new chats"
+  with the field "AI", the switch line "Switched to Claude. It carries on from the conversation so far.", the dev-mode
+  banner, the owner's AI-settings notice, Settings' search words, Admin's AI accounts line.
+- **The rest of the top 15 that is words only.** Use from other AI apps: "Connection address", "Signing out where you
+  allowed the app, or disconnecting it, ends the app's access." (the login it was allowed in, not every login),
+  "Connected AI apps". Files: a folder you can only go through reads "Only some folders" (its line "Only some folders
+  inside are open to you"), not "Pass-through only"; a conflict
+  copy is a **separate copy** ("Saved as a separate copy", "1 saved as a copy", "yours was saved next to it as …"); the
+  file name the server gives the copy still says "conflict copy" (`lib/paths.ts` recognizes it), a follow-up. The skill
+  suggestion and the skills-folder note name "team skill" and "the Projects folder", not `skills/` and `projects/`.
+  The project members dialog says "Access an admin set separately", "set by an admin", "After saving, only the members
+  here can see this project…", "The project's creator is added back as a member." instead of rules and floors. Settings
+  › Usage: no token tile (Admin › Usage keeps tokens), "A rough estimate, not a bill.", "Your answers by AI".
+- **Left for later** (structural, not words): Claude Code and other apps folded under "For developers", plain model
+  names in the usage rows, the onboarding skills block folded, the draft prompt that names `users/<id>`, raw error codes
+  and validator text (item 15).
+- Tests: web unit `answered-by` (the name, who sees it), the changed strings in `i18n`, `handover`, `welcome`; e2e
+  `integrations` (a member: no Add, the ask line, `?add=1` opens nothing), and the specs that read the old words
+  (settings, connectors, credentials, Drive, AI apps, search, engine choice, files, chat, onboarding, states, my usage).
+  Server unit `refusal-texts` (the screen names).
+- Version impact: **patch** (words, one control fewer for members, the model id behind a button; no API or data change).

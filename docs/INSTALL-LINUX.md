@@ -99,8 +99,7 @@ bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whis
 cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
 ```
 
-- `--ignore-scripts`: 서버 키트에는 패키지 설치 스크립트(Electron·Windows 설치 파일·CUDA 내려받기)가 필요 없다. 의미 검색의
-  onnxruntime·sharp 리눅스 파일은 패키지에 들어 있다. 이 옵션 없이 `bun install`이 `node: command not found`
+- `--ignore-scripts`: 서버 키트에는 패키지 설치 스크립트(Electron·Windows 설치 파일)가 필요 없다. 이 옵션 없이 `bun install`이 `node: command not found`
   (`electron-winstaller` exited with 127)로 멈추면, bun이 `node` 대신 쓰는 `/tmp/bun-node-*/node`가 지워진 bun을 가리키는
   것이다(이전 빌드의 bun을 지운 경우, 2026-10-30 QA). `--ignore-scripts`로 다시 하거나 그 폴더를 지운다.
 - 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다. 이 설정은 repair·update에도 남으므로
@@ -331,7 +330,7 @@ Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보�
 새 키트만 읽는다. 그보다 오래된 `mycel-ctl apply-plan`은 이 필드가 든 파일을 통째로 거절한다). 파일이 있으면 그 카드가 생긴다.
 
 리눅스에서는 요금제 파일이 없어도 서버의 보조 프로그램이 코어를 다 쓰지 않는다(ripgrep 2스레드, 받아쓰기 최대 4스레드,
-의미 검색 모델은 질문에 2스레드·색인에 1스레드, 32 MB 넘는 엑셀·한글 파일은 서버 안에서 읽지 않음). 대기열은 팀 max(10, 4×동시 실행), 한 사람 3개까지.
+32 MB 넘는 엑셀·한글 파일은 서버 안에서 읽지 않음). 대기열은 팀 max(10, 4×동시 실행), 한 사람 3개까지.
 
 Voice input is off by default. In Admin › Team settings › Voice input, saving the team's OpenRouter API key turns it on
 (audio goes to OpenRouter; about $0.1 per hour of recording), or pick this server (whisper.cpp; on 2 vCPU a 2 s clip

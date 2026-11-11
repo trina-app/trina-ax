@@ -361,8 +361,8 @@ export const MessageSourceFile = z.object({
   name: z.string(),
   /** places the AI looked at (pages, sheets, slides, sections), at most 20; empty: the file as a whole */
   locs: z.array(SourceLoc).max(20),
-  /** how: 'read' (the read tool), 'search' (passages of knowledge_explore or the lookup before the model), 'grep'
-   * (matching lines) */
+  /** how: 'read' (the read tool), 'search' (passages of a removed search tool, in older answers), 'grep' (matching
+   * lines) */
   via: z.array(z.enum(['read', 'search', 'grep'])).min(1),
   /** a sub-agent of the answer (not the main AI) opened it; absent: the main AI did */
   subagent: z.literal(true).optional(),

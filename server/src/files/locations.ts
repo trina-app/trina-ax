@@ -5,12 +5,11 @@
 //     out; a quoted cell may span lines (an odd number of quotes so far means the row goes on)
 //   - PowerPoint: `=== Slide N ===` before each slide's text and each slide's notes and charts
 //   - Word, OpenDocument, Hangul: Markdown headings (`## 환불 정책`); a body line that starts like one is indented
-// From these this module tells the place of any line (grep results, a read by lines), cuts text into search pieces
-// that never cross a page, slide, sheet or section (knowledge-graph/documents/index.ts), and writes the short labels
-// the AI sees ("p.12", "시트 '매출' A1:F40", "슬라이드 3", "§ 환불 정책"). Text cached before the marks (an older text
-// cache) gives what it can: pages always, sheet names without ranges, and no slides or sections.
+// From these this module tells the place of any line (grep results, a read by lines), cuts text into pieces that never
+// cross a page, slide, sheet or section (chunkDoc), and writes the short labels the AI sees ("p.12", "시트 '매출' A1:F40",
+// "슬라이드 3", "§ 환불 정책"). Text cached before the marks (an older text cache) gives what it can: pages always, sheet
+// names without ranges, and no slides or sections.
 import type { SourceLoc } from '@mycel/shared/api'
-import { fileShareUrl } from '@mycel/shared/api'
 import { ext } from './extract'
 
 export type Structure = 'pages' | 'sheets' | 'slides' | 'headings' | null
@@ -174,7 +173,9 @@ export interface Piece { text: string; loc: SourceLoc | null }
 /**
  * ~800-character pieces of a document along paragraph / line breaks, long lines cut, as before; a piece never goes
  * past a page, slide, sheet or section, and keeps its place (a sheet piece: the A1 range of its rows). Structure-only
- * lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of the text. Tiny pieces are dropped.
+ * lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of the text. Tiny pieces are dropped. No search uses
+ * it since the knowledge graph was removed (docs/DECISIONS.md, 2026-11-11); its tests check the places the extractors
+ * leave in the text (tests/unit/sources-locations.test.ts).
  */
 export function chunkDoc(text: string, name: string): Piece[] {
   const kind = structureOf(name)
@@ -243,15 +244,4 @@ export function locLabel(l: SourceLoc, lang: Lang = 'en'): string {
     case 'sheet': return fill(w.sheet, cleanLabel(l.sheet, 60)) + (l.range ? ` ${l.range}` : '')
     case 'heading': return `§ ${cleanLabel(l.heading, 60)}`
   }
-}
-
-/** "매출보고서.pdf · p.12": the file name (cleaned, at most 80 characters) and the place. */
-export function sourceLabel(rel: string, l: SourceLoc | null, lang: Lang = 'en'): string {
-  const name = cleanLabel(rel.slice(rel.lastIndexOf('/') + 1), 80)
-  return l ? `${name} · ${locLabel(l, lang)}` : name
-}
-
-/** A ready-made Markdown link to the file at that place, for the AI's answer (the preview opens there). */
-export function sourceLink(rel: string, l: SourceLoc | null, lang: Lang = 'en'): string {
-  return `[${sourceLabel(rel, l, lang).replace(/[[\]]/g, '')}](${fileShareUrl(rel, 'preview', l)})`
 }

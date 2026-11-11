@@ -28,6 +28,12 @@ export const Schedule = z.object({
   sourcePath: z.string().nullable().optional(), outputPath: z.string().nullable().optional(),
   pendingDueAt: z.string().nullable().optional(), retryAt: z.string().nullable().optional(), deferredCount: z.number().optional(),
   lastOutcome: z.enum(['done', 'problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable', 'needs_key', 'project_gone']).nullable().optional(),
+  /** when lastOutcome came: the run's end, or when an occurrence was skipped. A "Run now" run moves only lastChatId (not
+   * lastRunAt, the last run at its time), so this is the time of the last run the page links to; older servers omit it */
+  lastOutcomeAt: z.string().nullable().optional(),
+  /** a run of it is queued or running now; its chat is lastChatId (lastOutcome is still the run before it). Older
+   * servers omit it */
+  running: z.boolean().optional(),
   /** lastOutcome 'needs_key': the connection template whose own key the run needed (its owner has not connected it, or
    * its key stopped working); older servers omit it */
   lastNeed: z.object({ templateId: z.string(), name: z.string() }).nullable().optional(),

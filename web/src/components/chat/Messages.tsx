@@ -16,8 +16,8 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Info, Loader2, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
@@ -33,7 +33,9 @@ import { useChats, useQueuePosition } from '../../store/chats'
 import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
-import { useMe } from '../../store/session'
+import { canChooseEngine, useMe } from '../../store/session'
+import { useEngines } from '../../store/engines'
+import { toast } from '../../store/ui'
 import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
@@ -54,7 +56,7 @@ import SourcesList from './SourcesList'
 import Steps, { StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
-import { WithRoomRefs } from './RoomRefMenu'
+import { copyRoomIds, WithRoomNames } from '../RoomNames'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 import { Tooltip } from '../Tooltip'
@@ -168,13 +170,14 @@ export function UserText({ content: sent, clamp, quotes = false }: { content: st
   const cmd = splitCommand(content)
   const items = useSkillList(!!cmd)
   const skill = cmd && items ? skillByName(items, cmd.name) : null
-  // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles
+  // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles; a room named by its id alone (a
+  // scheduled run's question is its instruction, "… room_id <id>") by its name for a viewer in it (components/RoomNames.tsx)
   const text = !cmd || !skill ? (
-    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
+    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={content} tokenTitles /></div>
   ) : (
     <div data-testid="user-text-skill">
       <SkillChip title={skillLabel(skill)} name={skill.name} />
-      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={cmd.rest} /></div>}
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={cmd.rest} tokenTitles /></div>}
     </div>
   )
   if (!quote) return text
@@ -729,7 +732,7 @@ export function AssistantMessage({
               )}
             </span>
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-            {m.model && <span className={clsx('ml-1 text-micro text-faint', untilTap && UNTIL_TAP)}>{m.model}</span>}
+            {(m.model || m.engine) && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
           </div>
         )}
         {sendHere && shareable && !streaming && <SendHereNote answerId={m.id} />}
@@ -739,6 +742,41 @@ export function AssistantMessage({
         {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} roomId={shareRoomId} onClose={() => setSharing(false)} />}
       </div>
     </div>
+  )
+}
+
+/** The plain name of the AI that wrote an answer: the model's name from the list the person may pick from ("Claude
+ * Sonnet"), else the AI's ("Claude"), the raw model id only when nothing else is known. */
+export function answeredByName(m: Pick<ViewMessage, 'engine' | 'model'>, models: Partial<Record<EngineId, { id: string; label: string }[]>>): string | null {
+  const engine = m.engine as EngineId | null
+  const list = engine ? models[engine] ?? [] : []
+  // the server keeps the id the AI reported: an alias ("sonnet") or a full id ("claude-sonnet-4-5-…")
+  const hit = m.model ? list.find((x) => x.id === m.model) ?? (engine === 'claude-code' ? list.find((x) => m.model!.includes(x.id)) : undefined) : undefined
+  const ai = engine ? ENGINE_LABEL[engine] : undefined
+  // (a gateway's model has no display name: its label is the id, and "Claude claude-…" would say it twice)
+  if (hit) return ai && engine === 'claude-code' && hit.label !== hit.id && !hit.label.startsWith(ai) ? `${ai} ${hit.label}` : hit.label
+  return ai ?? m.model ?? null
+}
+
+/** Which AI answered, for the people who choose the AI (owner, admins, people the admin allowed): a quiet info button
+ * with the plain name in its tooltip, and a toast on touch (no tooltips there). Everyone else sees nothing: a model id
+ * under each answer reads like an error code to them, and ChatGPT and Claude do not stamp one either. */
+function AnsweredBy({ m, className }: { m: ViewMessage; className?: string }) {
+  const t = useT()
+  const me = useMe()
+  const chooser = canChooseEngine(me)
+  const models = useEngines((s) => s.models)
+  const load = useEngines((s) => s.load)
+  // the list the plain names come from (a chat page loads it already; a room's side chat may not have)
+  useEffect(() => { if (chooser) void load() }, [chooser, load])
+  if (!chooser) return null
+  const name = answeredByName(m, models)
+  if (!name) return null
+  const label = t('chat.answeredBy', { ai: name })
+  return (
+    <IconButton label={label} onClick={() => toast({ level: 'info', text: label })} className={clsx('touch-hit', className)} data-testid="answer-model">
+      <Info size={13} />
+    </IconButton>
   )
 }
 

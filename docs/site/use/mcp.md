@@ -20,7 +20,7 @@ Before 0.4.0, this screen is called **External services**.
 
 | | Personal | Team |
 |---|---|---|
-| Made by | The member, in **Settings › MCP** | An admin, in **Admin › MCP** |
+| Made by | The member, in **Settings › Connected apps** (from Discover; by address only owners and admins) | An admin, in **Admin › Connected apps** |
 | Used by | That member, in their own chats | The people its rules name: everyone, groups or people |
 | Visible to | Only that member, not admins | Admins |
 
@@ -32,13 +32,13 @@ Admins manage team connections but do not use them unless a rule names them. Who
 ## Add a connection
 
 :::steps
-#### Open the MCP screen
-**Settings › MCP** for yourself, or **Admin › MCP** for the team.
+#### Open Connected apps
+**Settings › Connected apps** for yourself, or **Admin › Connected apps** for the team.
 
-![Settings › MCP: no MCP connected yet, with Discover under it on the same page, and an Add connection button](../images/mcp/connected.webp "Settings › MCP")
+![Settings › Connected apps: nothing connected yet, with Discover under it on the same page](../images/mcp/connected.webp "Settings › Connected apps")
 
 #### Pick a service or add by address
-**Discover**, under your connections on the same page, lists services that support sign-in with Trina AX. **Add connection** takes any MCP server address.
+**Discover**, under your connections on the same page, lists services that support sign-in with Trina AX. Owners and admins can also add any MCP server or API by its address (**Add**, or "Not listed? Add one by its address"). A member reads "Not listed? Ask an admin to add it.": the admin adds it for the team, or asks the member to connect it with their own account (below).
 
 ![Discover: MCP servers ready to add, such as Notion, Linear, Atlassian, Canva and Figma, each with a + button](../images/mcp/discover.webp "Discover: services you can add by name")
 
@@ -71,10 +71,10 @@ Many services give a key its owner's rights and log every call under that person
 
 :::steps
 #### Add a template
-In **Admin › MCP**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
+In **Admin › Connected apps**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
 
 #### Members connect
-The members it is for see it in **Settings › MCP** under **From** and your team's name, and choose **Connect your account**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
+The members it is for see it in **Settings › Connected apps** under **From** and your team's name, and choose **Connect your account**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
 :::
 
 | | Team connection (one key) | Template |
@@ -83,7 +83,7 @@ The members it is for see it in **Settings › MCP** under **From** and your tea
 | Whose rights the AI uses | The key owner's, for everyone | Each member's own |
 | What the admin sees | The connection | Who connected it and when, and whose key stopped working; never a key |
 
-The people it is for get a notice in their **Inbox** that opens its **Connect**. In a chat, the AI offers a card to connect your own key when you ask for that service. On the template's line in Admin › MCP, **N connected** shows who it is for: **Connected** (with the date), **Not connected** or **Key stopped working**. A scheduled task that needs a template doesn't run without your own key: its result says "Needs your own key for …" and links to **Connect**.
+The people it is for get a notice in their **Inbox** that opens its **Connect**. In a chat, the AI offers a card to connect your own key when you ask for that service. On the template's line in Admin › Connected apps, **N connected** shows who it is for: **Connected** (with the date), **Not connected** or **Key stopped working**. A scheduled task that needs a template doesn't run without your own key: its result says "Needs your own key for …" and links to **Connect**.
 
 A member can change only their key or sign-in and the write rule, and can disconnect at any time. If the admin changes a template's address or sign-in method, every member's key is deleted and they connect again; a new name or note keeps everyone connected. If a template changes while a member is connecting, they're asked to check it and connect again. Deleting the template, or removing someone from it, deletes their connections.
 

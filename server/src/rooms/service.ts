@@ -32,7 +32,7 @@
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -52,7 +52,7 @@ import {
 import { roomFilesOf } from './files'
 import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
-import { searchRoomMessages, type SearchInput } from './search'
+import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
 import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
@@ -524,6 +524,12 @@ export class Rooms {
   search(userId: string, o: SearchInput): RoomSearchPage {
     this.syncFor(userId)
     return searchRoomMessages(this.db, userId, o)
+  }
+  /** ⌘K: the files sent in my rooms with a message I can see, by name (rooms/search.ts searchRoomFiles); my team rooms'
+   * histories opened first, as for the messages. */
+  searchFiles(userId: string, o: SearchInput): RoomFileSearchPage {
+    this.syncFor(userId)
+    return searchRoomFiles(this.db, userId, o)
   }
 
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A

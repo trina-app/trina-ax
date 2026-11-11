@@ -23,7 +23,7 @@ test('Connectors is in the Admin menu; Drive not set up yet: Set up takes the cl
   const menu = page.getByTestId('admin-menu')
   await expect(menu.getByRole('link', { name: 'MCP', exact: true })).toHaveCount(0)
   await expect(menu.getByRole('link', { name: '앱 커넥터', exact: true })).toHaveCount(0)
-  await menu.getByRole('link', { name: '커넥터', exact: true }).click()
+  await menu.getByRole('link', { name: '연결한 서비스', exact: true }).click()
   await expect(page).toHaveURL(/\/admin\/connectors$/)
   // Discover is on the same page, under the team's connections (none yet)
   await expect(page.getByTestId('connector-discover-title')).toHaveText('둘러보기')

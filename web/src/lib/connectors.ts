@@ -69,12 +69,13 @@ export const builtInLogo = (id: AppConnector['id']) => appConnectorLogo(APP_CONN
 
 /** Outside AI apps that can use this server's MCP connector (Settings › AI apps, components/integrations/
  * AiAppConnect.tsx). Only apps whose sign-in the server accepts are named: the connector's OAuth takes claude.ai's
- * callback (Claude on the web, desktop and phone) and a loopback http://localhost/…/callback (Claude Code and other
- * apps that sign in on the computer); server/src/connectors/remote-mcp/policy.ts redirectAllowed. `logo: null` is the
+ * callback (Claude on the web, desktop and phone) and a loopback http://localhost/…/callback (Claude Code, Codex and
+ * other apps that sign in on the computer); server/src/connectors/remote-mcp/policy.ts redirectAllowed. `logo: null` is the
  * generic card for any other MCP app. */
 export const AI_APPS = [
   { id: 'claude', name: 'Claude', logo: 'claude.svg' },
   { id: 'claude-code', name: 'Claude Code', logo: 'claude.svg' },
+  { id: 'codex', name: 'Codex', logo: 'codex.svg' },
   { id: 'other', name: null, logo: null },
 ] as const
 export type AiApp = (typeof AI_APPS)[number]
