@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { CARD_NEWS_ARTIFACT_KEY, Chat, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type TurnStarted } from '@mycel/shared/api'
 import { typingOnPhone } from '../../src/lib/sidePanel'
-import { PENDING_EVENTS_MAX, SEND_RETRY_MS, useChats } from '../../src/store/chats'
+import { LOAD_RETRY_MS, PENDING_EVENTS_MAX, SEND_RETRY_MS, useChats } from '../../src/store/chats'
 import { CHAT, msg } from './fixtures'
 
 const realFetch = globalThis.fetch
@@ -451,18 +451,33 @@ describe('reloads while an answer streams', () => {
     expect(useChats.getState().threads[CHAT]!.messages[0]!.content).toBe('all')
   })
 
-  test('a read that fails does not start one more read per piece held during it', async () => {
-    const a = msg({ role: 'assistant', status: 'streaming', content: 'ab' })
-    useChats.setState({ threads: { [CHAT]: { messages: [a], nextCursor: null, stale: false } } })
+  test('a read that fails: no read per piece held during it, what can be applied is, and one more read a moment later', async () => {
+    const a = msg({ role: 'assistant', content: 'one' })
+    const b = msg({ role: 'assistant', parentId: a.id, status: 'streaming', content: 'ab' })
+    useChats.setState({ threads: { [CHAT]: { messages: [a, b], nextCursor: null, stale: false } } })
+    let down = true
     const waiting: (() => void)[] = []
-    route = (_m, p) => (p.endsWith('/messages') ? new Promise<Response>((r) => waiting.push(() => r(json({ error: { code: 'internal', message: 'down' } }, 500)))) : json({ items: [] }))
-    delta(1, a.id, 4, 'ef') // gap: reload
-    for (let i = 0; i < 10; i++) delta(2 + i, a.id, 6 + i, 'x')
+    route = (_m, p) => {
+      if (!p.endsWith('/messages')) return json({ items: [] })
+      if (!down) return json({ items: [a, b], nextCursor: null })
+      return new Promise<Response>((r) => waiting.push(() => r(json({ error: { code: 'internal', message: 'down' } }, 500))))
+    }
+    delta(1, b.id, 4, 'ef') // gap: reload
+    for (let i = 0; i < 10; i++) delta(2 + i, b.id, 6 + i, 'x')
+    // a question from my phone during the read
+    const phone = msg({ role: 'user', parentId: b.id, content: 'from the phone' })
+    useChats.getState().handleEvent({ type: 'message.created', seq: 20, at: 0, data: { chatId: CHAT, message: phone } })
     for (const w of waiting.splice(0)) w()
     await tick()
     await tick()
     expect(gets()).toBe(1)
-    expect(useChats.getState().threads[CHAT]!.stale).toBe(true)
+    const t = useChats.getState().threads[CHAT]!
+    expect(t.stale).toBe(true)
+    expect(t.messages.map((m) => m.id)).toEqual([a.id, b.id, phone.id])
+    down = false
+    await tick(LOAD_RETRY_MS + 100)
+    expect(gets()).toBe(2)
+    expect(useChats.getState().threads[CHAT]!.stale).toBe(false)
   })
 
   test('a message from another device after one I am still sending goes after the last saved one, no reload', () => {

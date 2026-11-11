@@ -120,6 +120,8 @@ const changes = new Map<string, number>()
 const changed = (chatId: string) => changes.set(chatId, (changes.get(chatId) ?? 0) + 1)
 /** a reload asked for again and again (the server keeps changing the branch) gives up after this many reads */
 const LOAD_ROUNDS = 3
+/** a read that failed is tried once more after this long */
+export const LOAD_RETRY_MS = 3000
 /** requests closed lately: a listTurnRequests answer computed before the close must not bring the card back */
 const closedRequests = new Set<string>()
 let generation = 0
@@ -204,10 +206,12 @@ export const useChats = create<ChatsState>((set, get) => {
     }
   }
 
+  /** replaying what came during a read that failed: a gap only marks the chat stale (the retry reads it) */
+  let replayingFailed = false
   const markStale = (chatId: string) => {
     if (!get().threads[chatId]) return
     setThread(chatId, (t) => ({ ...t, stale: true }))
-    load(chatId, true).catch(() => {})
+    if (!replayingFailed) load(chatId, true).catch(() => {})
   }
 
   /** One read of the thread from REST; false: a local change came in meanwhile, so its answer was not used. */
@@ -233,7 +237,7 @@ export const useChats = create<ChatsState>((set, get) => {
 
   /** Reload a chat's messages, one reload per chat at a time; `fresh`: one already running is not new enough, so it
    * reads once more when it is done (a missed piece, a reconnect). */
-  const load = (chatId: string, fresh: boolean): Promise<void> => {
+  const load = (chatId: string, fresh: boolean, retry = true): Promise<void> => {
     const running = loads.get(chatId)
     if (running) {
       if (fresh) running.again = true
@@ -255,9 +259,23 @@ export const useChats = create<ChatsState>((set, get) => {
         throw e
       } finally {
         if (loads.get(chatId) === l) loads.delete(chatId)
-        // what came over the socket meanwhile, on top of the server's copy (a piece still beyond it reloads again);
-        // after a failed read the thread stays marked stale and the next piece tries again, not every held one
-        if (session === generation && !failed) for (const ev of l.events) get().handleEvent(ev)
+        if (session === generation) {
+          // what came over the socket meanwhile, on top of the server's copy (a piece still beyond it reloads again);
+          // after a failed read nothing reads again for each of them: the chat is marked stale and read once more a
+          // moment later (then the socket's next gap or a reconnect does)
+          replayingFailed = failed
+          try {
+            for (const ev of l.events) get().handleEvent(ev)
+          } finally {
+            replayingFailed = false
+          }
+          if (failed && retry && get().threads[chatId]) {
+            setThread(chatId, (t) => ({ ...t, stale: true }))
+            setTimeout(() => { if (session === generation && get().threads[chatId]?.stale) load(chatId, true, false).catch(() => {}) }, LOAD_RETRY_MS)
+          }
+          // asked for again during the last round allowed: one more read of its own
+          else if (!failed && l.again) load(chatId, false).catch(() => {})
+        }
       }
     })()
     return l.promise

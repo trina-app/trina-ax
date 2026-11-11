@@ -184,8 +184,8 @@ export function mergeFresh(current: ViewMessage[], fresh: Message[]): ViewMessag
     return m
   })
   // a question still "sending" whose server copy is in the page already (its message.created came during the read)
-  // is not shown twice
-  const sentCopy = (m: ViewMessage) => m.local?.state === 'sending' && fresh.some((x) => x.role === 'user' && x.parentId === m.parentId && x.content === m.content && x.author?.id === m.author?.id && !current.some((c) => c.id === x.id))
+  // is not shown twice; one sent before any message was in (no parent) cannot be told from an older question
+  const sentCopy = (m: ViewMessage) => m.local?.state === 'sending' && m.parentId !== null && fresh.some((x) => x.role === 'user' && x.parentId === m.parentId && x.content === m.content && x.author?.id === m.author?.id && !current.some((c) => c.id === x.id))
   for (const m of current) if (m.local && !out.some((x) => x.id === m.id) && !sentCopy(m)) out.push(m)
   return out
 }

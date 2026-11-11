@@ -158,5 +158,9 @@ describe('reload and own messages', () => {
     const answer = msg({ role: 'assistant', parentId: saved.id, status: 'streaming' })
     expect(mergeFresh([a, local], [a, saved, answer]).map((m) => m.id)).toEqual([a.id, saved.id, answer.id])
     expect(mergeFresh([a, local], [a]).map((m) => m.id)).toEqual([a.id, local.id])
+    // sent before anything was loaded (no parent): an older question with the same words is not taken for it
+    const first = optimisticUserMessage({ id: uuidv7(), chatId: CHAT, parentId: null, content: 'hi', author: { id: 'olga', name: 'Olga' }, attachments: [], clientMessageId: 'cm-87654321', now: new Date().toISOString() })
+    const old = msg({ role: 'user', parentId: null, content: 'hi', author: { id: 'olga', name: 'Olga' } })
+    expect(mergeFresh([first], [old]).map((m) => m.id)).toEqual([old.id, first.id])
   })
 })
