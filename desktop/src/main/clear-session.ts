@@ -1,14 +1,17 @@
 // Clearing a session's data (fix/desktop-clear-storage-hang, 2026-11-11). The in-app browser clears its partition
 // when another person signs in or the person signs out (pane.ts resetForNewPerson, app-window.ts checkBrowserOwner),
 // and removing a team clears both of its partitions (app-window.ts removeTeam). Every AI browser call waits for the
-// first of these, so a clear that never finishes stopped the in-app browser for good.
+// first of these, so a clear that never finished stopped the in-app browser for good.
 //
-// Seen on macOS 26.6 with Electron 44.7.2: `clearStorageData()` with no list never settled. Without a list Electron
-// passes Chromium's REMOVE_DATA_MASK_ALL, which also asks for data types this app never uses (media licences, interest
-// groups, shared storage, device-bound sessions ...) and waits for every one of them; an explicit list of the types a
-// page can store settled. So: always the list below, and every clear has a time limit. A clear that is not done in
-// time is logged and the caller goes on (Chromium keeps clearing in the background; the data a page can store is
-// removed by the time the next page loads in practice, and the time limit only frees the caller).
+// Seen on a Mac (macOS 26.6, Electron 44.7.2) under heavy load: `clearStorageData()` with no list, and `clearData()`,
+// never settled, in this app and in a bare Electron app alike. With no list Electron asks Chromium for every data type
+// (REMOVE_DATA_MASK_ALL), and some of the extra subtasks run on Chromium's background-priority threads; macOS runs
+// those only when the efficiency cores are free, so on a busy Mac they can wait without end (a process started at
+// background priority did not run at all for minutes; one at default priority ran at once). The promise settles only
+// when the last subtask reports back, and a pending one also kept the app from quitting. Each type in the list below,
+// and the list together, settled in 1-2 s at the same time. So: always the list, and every clear has a time limit.
+// Chromium starts all subtasks at once, so a clear that runs out of time has still removed what its other subtasks
+// cover; the limit only frees the caller, which logs it and goes on.
 import type { Session } from 'electron'
 import { debug } from './debug'
 

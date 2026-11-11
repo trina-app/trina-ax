@@ -1,8 +1,8 @@
-// fix/desktop-clear-storage-hang (2026-11-11): on macOS 26.6 with Electron 44.7.2, `session.clearStorageData()` with
-// no list never settled. The in-app browser clears its data when the person signs out or someone else signs in, and
-// every AI browser call waits for that, so the in-app browser stopped for good; removing a team never finished.
-// The clears now name their storage types and have a time limit (main/clear-session.ts). Here the stuck clear is
-// put into the real app's main process, because it does not happen on every Mac.
+// fix/desktop-clear-storage-hang (2026-11-11): on a busy Mac (macOS 26.6, Electron 44.7.2), `session.clearStorageData()`
+// with no list never settled. The in-app browser clears its data when the person signs out or someone else signs in,
+// and every AI browser call waits for that, so the in-app browser stopped for good; removing a team never finished.
+// The clears now name their storage types and have a time limit (main/clear-session.ts). Here the stuck clear is put
+// into the real app's main process, because it happens only while the Mac is overloaded (docs/DECISIONS.md).
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
@@ -20,8 +20,8 @@ function appLog(app: ElectronApplication): string[] {
 }
 
 type Stuck = 'no-list' | 'all'
-/** Make the browser's clears hang in the main process: 'no-list' as seen on macOS 26 (a clear with no list of storage
- * types never settles, a list does), 'all' every clear of every session. */
+/** Make the browser's clears hang in the main process: 'no-list' as seen on a busy Mac (a clear with no list of
+ * storage types never settles, a list does), 'all' every clear of every session. */
 async function stickClears(app: ElectronApplication, how: Stuck) {
   await app.evaluate(({ session }, how) => {
     const proto = Object.getPrototypeOf(session.defaultSession) as Record<string, (...a: unknown[]) => Promise<void>>
@@ -62,7 +62,7 @@ async function removeOnlyTeam(app: ElectronApplication, page: Awaited<ReturnType
   await w.getByTestId('remove-confirm').getByRole('button', { name: '지우기' }).click()
 }
 
-test('a clear with no list that never settles (macOS 26): the next person\'s AI browser call works at once and finds nothing of the first person; removing the team finishes', async () => {
+test('a clear with no list that never settles (a busy Mac): the next person\'s AI browser call works at once and finds nothing of the first person; removing the team finishes', async () => {
   test.setTimeout(150_000)
   const userData = newUserData()
   const app = await launch(userData, {}, SECURE_SHOP)

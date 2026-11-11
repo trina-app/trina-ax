@@ -1,4 +1,4 @@
-// Desktop app (fix/desktop-clear-storage-hang, 2026-11-11): on macOS 26.6 with Electron 44.7.2, the in-app browser's
+// Desktop app (fix/desktop-clear-storage-hang, 2026-11-11): on a busy Mac (macOS 26.6, Electron 44.7.2) the in-app browser's
 // "new person" clear (`session.clearStorageData()` with no list) never settled. Every AI browser call waits for that
 // clear, so the in-app browser stopped for good after a sign-out or a person switch, and removing a team never
 // finished. Every clear now names its storage types and has a time limit (desktop/src/main/clear-session.ts).

@@ -20238,3 +20238,36 @@ overruled the review's MUST 1 and three of its SHOULDs:
 - **Tests.** `tests/security/r1-managed-folder-move.test.ts` (409 with the count, nothing moved; same-folder rename
   without a question; confirm moves and records it; no askWiden moves as before) and `web/test/unit/bulk-files.test.ts`
   (askWiden sent, one question for the batch, "no" leaves them, no askWiden without confirmWiden).
+
+## 브라우저 정리가 멈춰도 트리나는 계속 — a stuck storage clear never stops the in-app browser or team removal (fix/desktop-clear-storage-hang, 2026-11-11)
+
+- **Why:** testing PR #360 on macOS 26.6 (Electron 44.7.2), `session.clearStorageData()` with no list never settled.
+  The in-app browser runs that clear when another person signs in to the team or the person signs out
+  (`BrowserPane.resetForNewPerson`, `AppWindow.checkBrowserOwner`, "In-app browser data belongs to one person" above),
+  and every AI browser call waits for that identity check (`ensureBrowserOwner` shares the pending read), so every
+  later browser call of the AI waited forever; removing a team (`removeTeam`) awaited the same clear and never
+  finished. Reproduced on the same Mac with a bare Electron app (no Trina code) and with a copy under another bundle
+  id: with no list (and `{}`), `clearData()` and `clearData({ dataTypes: ['cache'] })` hung; each of the seven named
+  storage types, the seven together, `clearCache()` and `clearAuthCache()` settled in 1-2 s and removed cookies,
+  localStorage, IndexedDB, Cache Storage and service workers. Earlier the same day, on the same Mac, everything settled.
+  What differed: the Mac was overloaded (load average ~230 on 10 cores): a process started at background priority
+  (`taskpolicy -c background`) did not run for minutes while one at default priority ran at once, and the hung app
+  had threads stuck while starting at background priority. With no list Electron asks Chromium for every data type,
+  and some of the extra subtasks run on Chromium's background-priority threads, which macOS runs only on free
+  efficiency cores. A pending one also kept the app from quitting. No matching Electron issue was found.
+- **The rule** (`desktop/src/main/clear-session.ts` `clearSessionData`): every clear of a session in the desktop app
+  names its storage types (`cookies`, `localstorage`, `indexdb`, `filesystem`, `serviceworkers`, `cachestorage`,
+  `shadercache`; session storage goes with local storage) and clears the HTTP cache and HTTP logins beside it. Each of
+  the three has a 10 s limit; one that is not done is logged (`[desktop] clearing … did not finish`) and the caller
+  goes on: the pane still closes its tabs and forgets allowed sites, the identity check still records the new person,
+  the team is still removed. Chromium starts all subtasks at once, so the other types are cleared even when one does
+  not report back. Team removal clears both partitions side by side (at most one limit, not two).
+- **Left out:** data types the no-list clear also asked for and this app never keeps (media licences, interest groups,
+  shared storage, device-bound sessions, attribution and performance-observer data): none of them holds a sign-in.
+  A clear that never settles is not retried.
+- Tests: `tests/unit/e-clear-session.test.ts` (the time limit, the list, side by side, a throwing or rejecting clear,
+  no other clear call in `desktop/src`, the three call sites), `desktop/e2e/clear-storage.spec.ts` (a no-list clear
+  that never settles put into the real app: sign-out, the next person's AI call at once and nothing of the first
+  person's cookie, localStorage, IndexedDB, Cache Storage or service worker left, team removal finishing; every clear
+  stuck: the call goes on after the limit, the next person is asked again, team removal still finishes).
+- Version impact: **patch** (desktop app only; no API, bridge or data change). Ships with the next desktop release.
