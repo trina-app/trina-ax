@@ -12,3 +12,5 @@
   server and the office network keep the 409.
 - Settings › Apps: on an office Mac server with a Mac App Store listing, the owner's hint names only the Windows
   installer to add.
+- The desktop app installed from a team server `.dmg` now says, when a new version is out, to get the Mac App Store
+  app from Settings › Apps (it updates by itself), in builds with a Mac App Store listing.
