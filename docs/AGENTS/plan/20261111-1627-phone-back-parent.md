@@ -55,9 +55,13 @@ a tab), Files layout, Admin in-page views getting addresses.
   makes, rewrites or counts them; a pop onto or off one reaches the router as the same screen, as before.
 - A push or replace made while an overlay entry is on top is the overlays' to place: #452 wraps `pushState` and
   `replaceState` (a page opened from inside an overlay takes its entry). The screen history writes through them.
-- Rewrites (tab switch, back to an ancestor, back to a tab's root) go back past the overlay entries on top (their
-  depth), and on past any left under a page once backCloses' own skip has had its moment; each overlay closes on its
-  own popstate, as for a Back. Entries written here are new entries and don't carry a page's `mycelPage` token.
+- Rewrites (tab switch, back to an ancestor, back to a tab's root) with an overlay entry on top first give that
+  overlay its moment to back off its own entry (a sheet's item that opens the screen closes the sheet on the same tap),
+  then run as a step of ours (`lib/historySteps.ts` `historyStepping()`/`whenStepsDone()`): while one is on its way
+  backCloses starts no back of its own and counts its popstates as not the person's. Never two backs at once (Chromium
+  applies both). The steps go past overlay entries still over the page (their depth) and any left under one; each
+  overlay closes on its own popstate, as for a Back. Entries written here are new entries and don't carry a page's
+  `mycelPage` token.
 
 ## Steps
 
@@ -92,3 +96,7 @@ Built as planned, PR #457. Differences:
 - #344's `useListUnderPage` reads what is under an entry from the stack (a filter's replace no longer rebuilds the
   list); Folder permissions opened from a folder or a project gets no list under it (FILES-15).
 - The overlay take-over of a push is #452's (it wraps `pushState`), not done twice here.
+- Review fixes: each entry keeps its stack's first index and entry (`base`, `root`), so a tab tap goes back to it
+  whatever the trail kept and only a Forward onto a left stack is skipped (a Back trap past 30 deep); a saved stack and
+  the parents put under a page opened from outside keep the tab's root; overlays back off first (above); no address
+  with a one-time token is saved, and sign-out clears the saved stacks; `?m=` on a room is the same screen.

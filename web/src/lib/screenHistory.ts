@@ -28,6 +28,8 @@
 // over it), each overlay closing on its own popstate as for a Back. The entries this module writes are new entries
 // (a new key, often a new address): they don't carry over a page's overlay token (`mycelPage`).
 import { createPath, NavigationType, parsePath, UNSAFE_createBrowserHistory, type HistoryRouterProps, type Location, type To } from 'react-router-dom'
+import { stepping } from './historySteps'
+import { TAB_STACKS_KEY } from './localData'
 import { chainOf, rootTab, sameScreen, screenOf } from './screens'
 import { TAB_ROOT, type Tab } from './tabs'
 
@@ -37,8 +39,10 @@ type Action = History['action']
 
 /** One entry of a stack: its React Router key, its address (path, query and hash) and its state. */
 export interface Item { k: string; p: string; u?: unknown }
-/** What a phone's entry keeps of its stack. `open`: opened from outside, its parents not put under it yet. */
-export interface Scr { tab: Tab | null; sid: string; trail: Item[]; open?: true }
+/** What a phone's entry keeps of its stack: its tab, its id, the router index of its first entry (`base`) and that entry
+ * (`root`), and the trail of the entries up to this one (the last KEEP of them, one after another). `open`: opened from
+ * outside, its parents not put under it yet. */
+export interface Scr { tab: Tab | null; sid: string; base: number; root: Item; trail: Item[]; open?: true }
 /** What a navigation does to the stack: go back `back` entries, replace the entry then on show, push the rest. */
 export interface Plan { back: number; replace?: Item; push: Item[] }
 
@@ -87,9 +91,9 @@ export function planFor(trail: readonly Item[], target: Item, kind: 'push' | 're
   return kind === 'push' ? { back: 0, push: [target] } : { back: 0, replace: target, push: [] }
 }
 
-// --- the stacks a tab tap saves and puts back (this tab's life; never another person's) ---
+// --- the stacks a tab tap saves and puts back (this tab's life; never another person's; sign-out clears them) ---
 
-const STACKS = 'mycel.tabStacks'
+const STACKS = TAB_STACKS_KEY
 type Saved = { user: string; stacks: Partial<Record<Tab, Item[]>> }
 
 function loadSaved(user: string): Saved {
@@ -106,12 +110,22 @@ function save(saved: Saved) {
   } catch { /* private mode: this page's life only */ }
 }
 
-/** the pages whose address holds a token (an invite, a password reset, the setup and team links): never kept */
-const TOKEN_PAGE = /^\/(invite|reset-password|join|setup|login|password)(\/|\?|#|$)/
+/** the pages whose address holds a token (an invite, a password reset, the setup, team and Slack links, a sign-in's
+ * return) and any address with a one-time code in its query: never kept */
+const TOKEN_PAGE = /^\/(invite|reset-password|join|setup|login|password|slack|connectors\/authorize)(\/|\?|#|$)/
+const TOKEN_QUERY = /[?&](t|token|code|state|ticket|secret|key)=/i
+const holdsToken = (p: string) => TOKEN_PAGE.test(p) || TOKEN_QUERY.test(p)
+
+/** A stack as a tab tap saves it: its first entry kept, then its last ones (RESTORE in all). */
+export function stackToSave(sc: Pick<Scr, 'root' | 'trail' | 'base'>, idx: number): Item[] {
+  // the trail reaches the stack's first entry, or the first entry goes before what it kept
+  const whole = idx - (sc.trail.length - 1) <= sc.base ? sc.trail : [sc.root, ...sc.trail]
+  return whole.length > RESTORE ? [whole[0]!, ...whole.slice(-(RESTORE - 1))] : [...whole]
+}
 
 /** A trail that survives JSON (an entry's state that does not is left out), without the pages that hold a token. */
 function plain(items: readonly Item[]): Item[] {
-  return items.filter((x) => !TOKEN_PAGE.test(x.p)).map((x) => {
+  return items.filter((x) => !holdsToken(x.p)).map((x) => {
     try {
       return x.u === undefined || x.u === null ? { k: x.k, p: x.p } : { k: x.k, p: x.p, u: JSON.parse(JSON.stringify(x.u)) }
     } catch {
@@ -146,8 +160,13 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
   /** this entry's stack: its own, or one of just itself for an entry made before (on a computer) */
   function scrNow(): Scr {
     const s = stateNow()
-    if (s?.scr && Array.isArray(s.scr.trail) && s.scr.trail.length) return s.scr
-    return { tab: screenOf(pathNow()).tab, sid: shownSid ?? newKey(), trail: [{ k: base.location.key, p: pathNow(), u: base.location.state }] }
+    const sc = s?.scr
+    if (sc && Array.isArray(sc.trail) && sc.trail.length) {
+      const first = idxNow() - (sc.trail.length - 1)
+      return { ...sc, base: typeof sc.base === 'number' ? sc.base : first, root: sc.root ?? sc.trail[0]! }
+    }
+    const here: Item = { k: base.location.key, p: pathNow(), u: base.location.state }
+    return { tab: screenOf(pathNow()).tab, sid: shownSid ?? newKey(), base: idxNow(), root: here, trail: [here] }
   }
   let shownSid: string | null = null
   let shownIdx = 0
@@ -186,19 +205,29 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
   /** one step of history.go, done when its popstate came (or after 700 ms: a step that went nowhere) */
   const step = (n: number) => nextPop(700, n)
 
-  /** Back `n` router entries, and past the overlay entries over the page on show; then on past any overlay entry
-   * landed on (one left under a page), after the overlays' own skip over it has had its moment (lib/backCloses.ts
-   * skips entries of overlays no longer open by itself). */
+  /** popstates that others bring (an overlay backing off its own entry, backCloses skipping one left behind): until
+   * none came for 150 ms, at most `ms` */
+  async function othersSettle(ms: number) {
+    const until = Date.now() + ms
+    while (Date.now() < until && (await nextPop(Math.min(150, until - Date.now())))) { /* another one */ }
+  }
+
+  /** Back `n` router entries. An overlay entry on top (a sheet whose item was the tap): its overlay backs off its own
+   * entry first, as it does when it closes (lib/historySteps.ts: never two backs at once); then our steps (as a step of
+   * ours, so backCloses starts none meanwhile), past the overlay entries still over the page and any left under one. */
   async function backBy(n: number) {
     const target = idxNow() - n
-    const over = overlayDepth(stateNow())
-    if (n + over > 0) await step(-(n + over))
-    for (let tries = 0; tries < 8; tries++) {
-      const s = stateNow()
-      if (!isOverlay(s) && idxNow() <= target) break
-      if (isOverlay(s) && (await nextPop(150))) continue
-      await step(-1)
-    }
+    if (isOverlay(stateNow())) await othersSettle(400)
+    await stepping(async () => {
+      for (let tries = 0; tries < 8; tries++) {
+        const s = stateNow()
+        const left = idxNow() - target
+        const over = overlayDepth(s)
+        if (!over && left <= 0) break
+        await step(-(Math.max(left, 0) + over))
+        if (isOverlay(stateNow())) await othersSettle(300)
+      }
+    })
   }
 
   /** Make the entries of a plan from the entry on show (after its steps back), and tell the router once. A push or
@@ -209,16 +238,21 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
     let trail = sc.trail
     let idx = idxNow()
     let tab = sc.tab ?? screenOf((p.replace ?? p.push[0])?.p ?? pathNow()).tab
+    let root = sc.root
     if (p.replace) {
       // the first entry of a stack says which stack it is
-      if (trail.length === 1) tab = screenOf(p.replace.p).tab ?? tab
+      const first = idx <= sc.base
+      if (first) {
+        tab = screenOf(p.replace.p).tab ?? tab
+        root = p.replace
+      }
       trail = [...trail.slice(0, -1), p.replace]
-      write('replace', p.replace, idx, { tab, sid: sc.sid, trail, ...(sc.open && trail.length === 1 ? { open: true as const } : {}) })
+      write('replace', p.replace, idx, { tab, sid: sc.sid, base: sc.base, root, trail, ...(sc.open && first ? { open: true as const } : {}) })
     }
     for (const item of p.push) {
       idx += 1
       trail = [...trail, item]
-      write('push', item, idx, { tab, sid: sc.sid, trail })
+      write('push', item, idx, { tab, sid: sc.sid, base: sc.base, root, trail })
     }
     emit(p.push.length ? NavigationType.Push : p.replace ? NavigationType.Replace : NavigationType.Pop, p.push.length || -p.back)
   }
@@ -256,13 +290,21 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
     if (!isPhone()) return kind === 'push' ? base.push(to, usr) : base.replace(to, usr)
     const { pathname, search = '', hash = '' } = typeof to === 'string' ? parsePath(to) : to
     const item: Item = { k: newKey(), p: createPath({ pathname: pathname ?? base.location.pathname, search, hash }), u: usr ?? null }
-    return run(planFor(scrNow().trail, item, kind))
+    const sc = scrNow()
+    let p = planFor(sc.trail, item, kind)
+    // the stack's first entry, older than the trail an entry keeps: back to it, as to any screen in the stack
+    const reached = idxNow() - (sc.trail.length - 1) <= sc.base
+    if (!reached && p.back === 0 && !sameScreen(sc.trail.at(-1)!.p, item.p) && sameScreen(sc.root.p, item.p)) {
+      p = { back: idxNow() - sc.base, replace: sc.root.p === item.p ? undefined : item, push: [] }
+    }
+    return run(p)
   }
 
   // a phone's first entry: its stack, marked as opened from outside until the app has shown it
   if (isPhone() && !stateNow()?.scr) {
     const sid = newKey()
-    h.replaceState({ ...(stateNow() ?? {}), idx: idxNow(), scr: { tab: screenOf(pathNow()).tab, sid, trail: [{ k: base.location.key, p: pathNow(), u: base.location.state }], open: true } }, '')
+    const here: Item = { k: base.location.key, p: pathNow(), u: base.location.state }
+    h.replaceState({ ...(stateNow() ?? {}), idx: idxNow(), scr: { tab: screenOf(pathNow()).tab, sid, base: idxNow(), root: here, trail: [here], open: true } }, '')
   }
   shownSid = stateNow()?.scr?.sid ?? null
   shownIdx = idxNow()
@@ -275,10 +317,11 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
     if (u.action === 'POP' && isPhone()) {
       const s = stateNow()
       const sid = s?.scr?.sid
-      // a Forward onto an entry of the stack a tab tap left: back where it came from, unseen
-      if (sid && shownSid && sid !== shownSid) {
+      // a Forward onto an entry of the stack a tab tap left: back where it came from, unseen (only a Forward: Back
+      // never lands on one, the stack's first entry being where the tab tap put the new stack)
+      if (sid && shownSid && sid !== shownSid && idxNow() > shownIdx) {
         const was = shownIdx
-        enqueue(() => quietly(async () => void (await step(was - idxNow()))))
+        enqueue(() => quietly(() => stepping(async () => void (await step(was - idxNow())))))
         return
       }
     }
@@ -315,27 +358,31 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
         if (!isPhone()) return base.push(root)
         const sc = scrNow()
         const i = sc.trail.length - 1
+        // the router entries back to the stack's first one (the trail may not reach it)
+        const toBase = idxNow() - sc.base
         if (sc.tab === tab) {
           // the tab on show: back to its root, without a new entry
           const j = sc.trail.findIndex((x) => rootTab(x.p) === tab)
-          if (j < 0) return run({ back: i, replace: { k: newKey(), p: root }, push: [] })
-          const exact = sc.trail[j]!.p === root
-          if (j === i && exact) return
-          return run({ back: i - j, replace: exact ? undefined : { k: newKey(), p: root }, push: [] })
+          const back = j >= 0 ? i - j : toBase
+          const at = j >= 0 ? sc.trail[j]! : sc.root
+          const exact = at.p === root
+          if (back === 0 && exact) return
+          return run({ back, replace: exact && rootTab(at.p) === tab ? undefined : { k: newKey(), p: root }, push: [] })
         }
         const saved = loadSaved(user)
-        if (sc.tab) saved.stacks[sc.tab] = plain(sc.trail).slice(-RESTORE)
+        if (sc.tab) saved.stacks[sc.tab] = plain(stackToSave(sc, idxNow()))
         save(saved)
         const stack = saved.stacks[tab]?.length ? saved.stacks[tab]! : [{ k: newKey(), p: root }]
         return quietly(async () => {
-          await backBy(i)
+          await backBy(toBase)
           const sid = newKey()
-          let idx = idxNow()
-          write('replace', stack[0]!, idx, { tab, sid, trail: stack.slice(0, 1) })
+          const first = idxNow()
+          let idx = first
+          write('replace', stack[0]!, idx, { tab, sid, base: first, root: stack[0]!, trail: stack.slice(0, 1) })
           try {
             for (let m = 1; m < stack.length; m++) {
               idx += 1
-              write('push', stack[m]!, idx, { tab, sid, trail: stack.slice(0, m + 1) })
+              write('push', stack[m]!, idx, { tab, sid, base: first, root: stack[0]!, trail: stack.slice(0, m + 1) })
             }
           } catch { /* too many pushes for the browser: the stack as far as it got */ }
           emit(NavigationType.Pop, null)
@@ -348,15 +395,19 @@ export function createScreenHistory(win: Window = window): ScreenHistory {
         const sc = s?.scr
         if (!isPhone() || !sc?.open || isOverlay(s)) return
         const here: Item = { k: base.location.key, p: pathNow(), u: base.location.state }
-        const above = idxNow() === 0 ? chainOf(here.p).slice(0, -1) : []
+        // its tab's root and the screens just above it (a folder twenty deep: the team folder and the last ones)
+        const chain = chainOf(here.p).slice(0, -1)
+        const above = idxNow() !== 0 ? [] : chain.length > RESTORE ? [chain[0]!, ...chain.slice(-(RESTORE - 1))] : chain
         if (!above.length) {
-          h.replaceState({ ...s, scr: { tab: sc.tab ?? screenOf(here.p).tab, sid: sc.sid, trail: sc.trail } }, '')
+          const { open: _open, ...kept } = sc
+          h.replaceState({ ...s, scr: { ...kept, tab: sc.tab ?? screenOf(here.p).tab } }, '')
           return
         }
         const tab = screenOf(above[0]!).tab ?? sc.tab
         const items = [...above.map((p) => ({ k: newKey(), p })), here]
-        write('replace', items[0]!, 0, { tab, sid: sc.sid, trail: items.slice(0, 1) })
-        for (let m = 1; m < items.length; m++) write('push', items[m]!, m, { tab, sid: sc.sid, trail: items.slice(0, m + 1) })
+        const root = items[0]!
+        write('replace', root, 0, { tab, sid: sc.sid, base: 0, root, trail: items.slice(0, 1) })
+        for (let m = 1; m < items.length; m++) write('push', items[m]!, m, { tab, sid: sc.sid, base: 0, root, trail: items.slice(0, m + 1) })
         emit(NavigationType.Pop, null)
       })
     },
