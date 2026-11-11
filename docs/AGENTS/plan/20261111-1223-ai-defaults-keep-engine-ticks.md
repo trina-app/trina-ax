@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:23
 - Branch: `fix/ai-defaults-keep-engine-ticks`
-- Status: in progress
+- Status: done
 - Where: `web/src/pages/admin/TeamAiSettings.tsx` (core web). Why: a bug in the Team settings AI screen (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a bug fix on an admin screen
 
@@ -35,4 +35,7 @@ None beyond this screen; no server, migration or text change.
 
 ## Result
 
-(filled in at the end)
+As planned. `MemberChoice` keys its reset on the saved choice's JSON. The mock server now stores `defaultModel` like
+the server does, so the e2e can follow the QA steps (tick Bob under "고른 부서·사람만", change 기본 모델, save the
+defaults: Bob stays ticked and the choice's Save bar stays; it then saves). The new e2e failed without the fix
+(the choice snapped back to "허용 안 함") and passes with it.
