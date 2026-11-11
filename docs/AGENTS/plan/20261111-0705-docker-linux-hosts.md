@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 07:05
 - Branch: `fix/docker-linux-hosts`
-- Status: in progress
+- Status: done
 - Where: `docker/`, `docs/INSTALL-DOCKER.md`, `.github/workflows/docker.yml`. Why: the Docker install files and their
   docs are in this repository (see docs/REPOSITORY-RULES.md)
 - Version impact: none. Docs, the Docker test script and a manual CI workflow change; no app or kit file changes
@@ -56,4 +56,7 @@ Out:
 
 ## Result
 
-Filled in at the end.
+Built as planned. The Docker image workflow on this branch with 0.5.0-beta.1 passed all checks of `docker/test.sh` on
+amd64 and arm64 (Ubuntu 24.04 runners, kernel 7.0): health, setup page, engine firewall, bubblewrap + Landlock +
+seccomp as `axagent`, launcher ready, first-run setup, a new container on the same volume. Still open: a Debian 13 host
+and a real AI turn in Docker.
