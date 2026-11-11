@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 17:45
 - Branch: `fix/desktop-bridge-opaque-origin`
-- Status: in progress
+- Status: done
 - Where: `desktop/src/common/trust.ts`, `desktop/src/main/main.ts`, `desktop/src/main/app-window.ts`. Why: the
   desktop app is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a security fix with no new behaviour for the team page
@@ -47,3 +47,11 @@ through `heavy.sh`).
 
 ## Result
 
+Built as planned. `isTrustedAppSender` requires `origin` (the document's) to equal the URL's team origin. `fromApp`
+passes `senderFrame.origin`, and `chooseFiles` passes the CDP top frame's `securityOrigin`.
+
+In a real Electron (desktop e2e, fake team server with `/sandbox/frame` and `sandbox allow-scripts`), the page there
+has `window.origin === 'null'` and no `window.mycelDesktop`, and the team page keeps it. With the origin check
+removed, the same test failed with the bridge present ("object"). Also run: `desktop.spec` "the bridge exists only in
+the top frame" and `file-chooser.spec` (the CDP path), all passing. `e-desktop-common`: 58 pass. Typecheck,
+check:i18n and check:docs pass.

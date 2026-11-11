@@ -605,8 +605,8 @@ export class AppWindow {
     this.choosingFiles = true
     try {
       const { frameTree } = await dbg.sendCommand('Page.getFrameTree')
-      const top = frameTree.frame as { id: string; url: string }
-      if (top.id !== frameId || !isTrustedAppSender({ url: top.url, isTop: true, isAppView: this.app === app }, this.allowedOrigins())) return
+      const top = frameTree.frame as { id: string; url: string; securityOrigin?: string }
+      if (top.id !== frameId || !isTrustedAppSender({ url: top.url, origin: top.securityOrigin ?? '', isTop: true, isAppView: this.app === app }, this.allowedOrigins())) return
       const { node } = await dbg.sendCommand('DOM.describeNode', { backendNodeId })
       const L = this.o.locale()
       const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes, home: electronApp.getPath('home'), claude: { message: t(L, 'files.claudeMessage'), button: t(L, 'files.claudeButton') } }))

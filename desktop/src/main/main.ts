@@ -184,7 +184,7 @@ const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
   Boolean(
     win &&
       isTrustedAppSender(
-        e.senderFrame ? { url: e.senderFrame.url, isTop: e.senderFrame.parent === null, isAppView: e.sender === win.app?.webContents } : null,
+        e.senderFrame ? { url: e.senderFrame.url, origin: e.senderFrame.origin, isTop: e.senderFrame.parent === null, isAppView: e.sender === win.app?.webContents } : null,
         win.allowedOrigins(),
       ),
   )
