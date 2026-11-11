@@ -66,10 +66,13 @@ function useConnectorsState() {
   useEffect(() => reloadAsked.on(reload), [reload])
   // a connection of mine went without me (its template changed or went): the lists again, so no stale row stays
   useEffect(() => integrationsChanged.on(reload), [reload])
-  // an app I asked for may be ready now (its notice comes with notifications.changed): the asks and the apps again, so
-  // its page offers Connect without a reload; only while I have an ask open
+  // an app I asked for may be ready now (its notice comes with notifications.changed): only while I have an ask open,
+  // the asks again, and when fewer are open the apps too, so its page offers Connect without a reload
   const onNotice = useRef(() => {})
-  onNotice.current = () => { if (asks.waiting) { void reloadAsks(); void reloadGoogle(); drive.load() } }
+  onNotice.current = () => {
+    const before = asks.open
+    if (before) void reloadAsks().then((n) => { if (n !== null && n < before) { void reloadGoogle(); drive.load() } })
+  }
   useEffect(() => notificationsChanged.on(() => onNotice.current()), [])
   const actions = useIntegrationActions({
     add: (i) => list.setData((d) => (d ? { ...d, items: [...d.items, i] } : d)),

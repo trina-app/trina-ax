@@ -16,34 +16,42 @@
 //     members' switch, and on a 30-second check for a setup made elsewhere: the operator's file, the hosting service's
 //     Google sign-in coming up), with a 'service.ready' notice to the member; 'left' when the member left the team or
 //     became an owner or admin; 'expired' after the inbox's 30 days (they may ask again). With none left for an app,
-//     the admins' notice counts as read.
+//     the admins' notice counts as read. The same check keeps the admins' notices with the people who are owners and
+//     admins now (notifications/service.ts syncServiceRequests).
+//   - An app whose setup is not the admins' to make (a hosted team's, an operator's) cannot be asked for: nobody could
+//     answer it here.
 import { isRequestableService, SERVICE_REQUESTS_PER_DAY, type AskServiceResult, type RequestableService, type ServiceRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { audit } from '../admin/audit'
 import { admins } from '../credentials/store'
-import { NOTIFICATION_RETENTION_MS, notifyServiceReady, notifyServiceRequested, settleServiceRequestNotices } from '../notifications/service'
+import { NOTIFICATION_RETENTION_MS, notifyServiceReady, notifyServiceRequested, settleServiceRequestNotices, syncServiceRequestNotices } from '../notifications/service'
 import { googleDriveOf } from './google-drive/oauth'
 import { membersCanConnect } from './google-drive/shares'
 import { googleAppsOf } from './google-apps/service'
+import { setupOf } from './google-apps/config'
+import { isHosted } from '../system/deployment'
 
 const DAY_MS = 86_400_000
 /** how often open requests are checked against the apps' setup (a setup made outside Admin › Connected apps) */
 const CHECK_MS = 30_000
 
-/** What the team's setup of an app means for a member now: it can be asked for (not set up), they can connect it
- * (available: a request closes), or neither (turned off for members, this computer cannot run it). */
+/** What the team's setup of an app means for a member now: it can be asked for (not set up, and an admin can set it
+ * up here), they can connect it (available: a request closes), or neither (turned off for members, this computer cannot
+ * run it, the hosting service's Google review lets only its test users in for now, or the setup is not the admins' to
+ * make: a hosted team's comes from the hosting service, an operator's file from the server). */
 export type ServiceState = 'not_set_up' | 'available' | 'other'
 
 export function serviceState(ctx: AppContext, service: RequestableService): ServiceState {
   if (service === 'google-drive') {
-    if (!googleDriveOf(ctx).enabled) return 'not_set_up'
+    const drive = googleDriveOf(ctx)
+    if (!drive.enabled) return isHosted(ctx.config) || drive.clientFromEnv ? 'other' : 'not_set_up'
     return membersCanConnect(ctx.db) ? 'available' : 'other'
   }
   const reason = googleAppsOf(ctx).reasonOf(service)
-  // 'service_limited': set up, and the hosting service's Google review lets only its test users in for now
-  return reason === 'not_set_up' ? 'not_set_up' : reason === null || reason === 'service_limited' ? 'available' : 'other'
+  if (reason === 'not_set_up') return isHosted(ctx.config) || setupOf(ctx, service).byOperator ? 'other' : 'not_set_up'
+  return reason === null ? 'available' : 'other'
 }
 
 const refuse = (code: 'bad_request' | 'forbidden' | 'conflict' | 'rate_limited', reason: string): never => { throw new HttpError(code, undefined, { params: { reason } }) }
@@ -121,9 +129,13 @@ export function afterServiceSetup(ctx: AppContext, service: RequestableService) 
   try { settleServiceRequests(ctx, service) } catch { ctx.log.warn('app request check deferred') }
 }
 
-/** The 30-second check (a setup made outside Admin › Connected apps, the 30 days, members who left). */
+/** The 30-second check: a setup made outside Admin › Connected apps, the 30 days, members who left; and who gets the
+ * admins' notices (someone no longer an owner or admin loses them, a new one gets those of the apps asked for now). */
+export function serviceRequestsTick(ctx: AppContext) {
+  try { settleServiceRequests(ctx) } catch { ctx.log.warn('app request check deferred') }
+  syncServiceRequestNotices(ctx)
+}
 export function installServiceRequests(ctx: AppContext) {
-  const tick = () => { try { settleServiceRequests(ctx) } catch { ctx.log.warn('app request check deferred') } }
-  const timer = setInterval(tick, CHECK_MS); timer.unref?.()
+  const timer = setInterval(() => serviceRequestsTick(ctx), CHECK_MS); timer.unref?.()
   ctx.onClose(() => clearInterval(timer))
 }

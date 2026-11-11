@@ -20890,15 +20890,19 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   those with their own account, and asking for something you can add yourself is refused too); "Not listed?" (it names
   no app in the list, so its line stays); an app an admin turned **off** for members (that was the admin's choice: no
   button, the reason stays as before); when the team turned personal connections off (members see no listed services,
-  and asking for a team connection there is a bigger change). Owners and admins cannot ask (they set it up).
+  and asking for a team connection there is a bigger change); a setup that is not the admins' to make (a hosted team's
+  comes from the hosting service, an operator's file from the server: nobody here could answer it, so the server
+  refuses it). Owners and admins cannot ask (they set it up).
 - **One notice per app, not per ask.** Each owner and admin has one Activity row per app ("Alice asked to add Gmail",
   "Erin and 2 others asked to add Gmail", newest asker first); a new ask makes it unread again and moves it up. The row
   opens the app's setup in Admin › Connected apps, with a small "Set up Gmail" button inside it. Names are read when the
-  inbox is shown, never stored with the notice; someone who is no longer an owner or admin sees the app only.
+  inbox is shown, never stored with the notice. A 30-second check keeps the notices with whoever is an owner or admin
+  now: someone demoted loses them, someone promoted gets those of the apps asked for now.
 - **Closing.** When members can connect the app (an admin set it up, or turned the members' switch on after that; a
   setup made elsewhere is caught by a 30-second check), its requests close, the admins' notice is marked read and says
   "Added", and each asker gets one quiet notice ("Gmail is ready. You can connect it now.", inbox only, never an OS
-  push) that opens its page. Set up but off for members does not close them: the member still cannot connect it.
+  push) that opens its page. Set up but off for members does not close them (the member still cannot connect it; the
+  notice's page has the members' switch), nor does a hosting service's Google review that lets only its test users in.
   Requests also close after the inbox's 30 days, or when their member leaves or becomes an owner or admin.
 - **Limits.** One open request per member and app (a partial unique index; "already" sends nothing), at most 10 new
   requests per member a day. Nothing a member gets names an admin ("Admins are never named", above).

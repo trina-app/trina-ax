@@ -169,6 +169,19 @@ export class Notifications {
   serviceReady(userId: string, requestId: string, at = new Date().toISOString()) {
     this.record(userId, 'service.ready', requestId, at, true)
   }
+  /** Who handles the asks changed (the 30-second check): someone no longer an active owner or admin loses the notices
+   * (nothing there is theirs to do), and an owner or admin made since gets the notice of each app asked for now. */
+  syncServiceRequests() {
+    const db = this.ctx.db
+    const gone = db.query(`DELETE FROM service_request_notices WHERE event_type='service.request'
+      AND user_id NOT IN (SELECT id FROM users WHERE role IN ('owner','admin') AND status='active' AND deleted_at IS NULL) RETURNING user_id`).all() as { user_id: string }[]
+    for (const u of new Set(gone.map((r) => r.user_id))) if (this.active(u)) this.signal(u)
+    const open = (db.query('SELECT DISTINCT service FROM service_requests WHERE closed_at IS NULL').all() as { service: string }[]).map((r) => r.service)
+    if (!open.length) return
+    const has = db.query("SELECT 1 FROM service_request_notices WHERE user_id=? AND event_type='service.request' AND source_id=?")
+    const at = new Date().toISOString()
+    for (const id of admins(db)) for (const s of open) if (!has.get(id, s)) this.record(id, 'service.request', s, at, true)
+  }
   /** No request for the app waits any more: the owners' and admins' notice for it counts as read. */
   settleServiceRequests(service: string) {
     const rows = this.ctx.db.query("UPDATE service_request_notices SET read_at=? WHERE event_type='service.request' AND source_id=? AND read_at IS NULL RETURNING user_id").all(new Date().toISOString(), service) as { user_id: string }[]
@@ -700,6 +713,10 @@ export function notifyServiceRequested(ctx: AppContext, userIds: Iterable<string
 export function notifyServiceReady(ctx: AppContext, userId: string, requestId: string) {
   try { notificationsOf(ctx).serviceReady(userId, requestId) }
   catch { ctx.log.warn('app ready notice deferred') }
+}
+export function syncServiceRequestNotices(ctx: AppContext) {
+  try { notificationsOf(ctx).syncServiceRequests() }
+  catch { ctx.log.warn('app request notices deferred') }
 }
 export function settleServiceRequestNotices(ctx: AppContext, service: string) {
   try { notificationsOf(ctx).settleServiceRequests(service) }

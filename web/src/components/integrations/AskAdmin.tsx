@@ -24,14 +24,19 @@ export function useServiceAsks(admin: boolean) {
   const [error, setError] = useState<{ service: RequestableService; text: string } | null>(null)
   const life = useRef(0)
   useEffect(() => () => { life.current++ }, [])
-  const load = useCallback(async () => {
-    if (admin) { setOpen(new Set()); return }
+  const load = useCallback(async (): Promise<number | null> => {
+    if (admin) { setOpen(new Set()); return 0 }
     const g = life.current
     // an older server has no requests: the pages work as before (no button is offered without the list)
     try {
       const r = await api.call(API.myServiceRequests)
-      if (g === life.current) setOpen(new Set(r.items.map((x) => x.service)))
-    } catch { if (g === life.current) setOpen((s) => s ?? null) }
+      if (g !== life.current) return null
+      const now = new Set(r.items.map((x) => x.service))
+      setOpen(now)
+      // what a tap answered holds only while the request is open (an app added, then taken away again, asks anew)
+      setAnswered((a) => Object.fromEntries(Object.entries(a).filter(([k]) => now.has(k as RequestableService))))
+      return now.size
+    } catch { if (g === life.current) setOpen((s) => s ?? null); return null }
   }, [admin])
   useEffect(() => { void load() }, [load])
   const stateOf = useCallback((s: RequestableService): AskState => answered[s] ?? (open?.has(s) ? 'already' : 'none'), [answered, open])
@@ -54,7 +59,8 @@ export function useServiceAsks(admin: boolean) {
         : reason === 'not_requestable' ? t('serviceRequest.notRequestable', { name }) : t('serviceRequest.failed') })
     } finally { if (g === life.current) setBusy(null) }
   }
-  return { ready: open !== null, waiting: !!open?.size, stateOf, ask, busy, error, reload: load }
+  /** `reload`: the asks again; how many are open now (null when they could not be read) */
+  return { ready: open !== null, open: open?.size ?? 0, stateOf, ask, busy, error, reload: load }
 }
 export type ServiceAsks = ReturnType<typeof useServiceAsks>
 

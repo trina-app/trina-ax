@@ -478,7 +478,7 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   // only the apps in the list: anything else is refused by the server
   for (const s of ['notion', 'https://mcp.notion.com/mcp', 'slack']) expect((await ask(s)).status()).toBe(400)
   await page.goto('/connectors')
-  await expect(gmail.getByTestId('connector-off')).toHaveText('요청함')
+  await expect(gmail.getByTestId('connector-off')).toHaveText('요청 보냄')
   // the member's words never name an admin
   await expect(page.getByTestId('integrations')).not.toContainText('Olga')
 

@@ -10,7 +10,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, 
 import { SERVICE_REQUESTS_PER_DAY } from '@mycel/shared/api'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { APP_CLIENT, FakeLibrary } from '../lib/fake-google-apps'
-import { settleServiceRequests } from '../../server/src/integrations/service-requests'
+import { serviceRequestsTick, settleServiceRequests } from '../../server/src/integrations/service-requests'
+import { googleAppsOf } from '../../server/src/integrations/google-apps/service'
 import { newId } from '../../server/src/db'
 
 setDefaultTimeout(30_000)
@@ -209,4 +210,40 @@ test('someone who is no longer an owner or admin sees the app only, without the 
   A.ctx.db.query("INSERT INTO service_request_notices (id, user_id, event_type, source_id, created_at) VALUES (?, 'dana', 'service.request', 'notion', ?)").run(newId(), new Date().toISOString())
   const odd = (await notices('dana', 'service.request')).find((x) => x.sourceId === 'notion')
   expect(odd.serviceRequest).toBeUndefined()
+})
+
+test('the 30-second check: a setup made elsewhere closes the requests; the admins\' notices follow who is an owner or admin now', async () => {
+  await ask('alice', 'calendar')
+  await ask('bob', 'gmail')
+  // set up without the route (as an operator or another server process would): the check closes it
+  googleAppsOf(A.ctx).setClient('carol', 'calendar', { clientId: APP_CLIENT.clientId, clientSecret: APP_CLIENT.clientSecret })
+  expect(openRows('calendar')).toHaveLength(1)
+  serviceRequestsTick(A.ctx)
+  expect(openRows('calendar')).toEqual([])
+  expect((await notices('alice', 'service.ready'))[0]).toMatchObject({ serviceRequest: { service: 'calendar' } })
+  // Carol is no longer an admin: her notices go (nothing there is hers to do); Erin became one: she gets the open app's
+  A.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
+  A.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'erin'").run()
+  serviceRequestsTick(A.ctx)
+  expect(A.ctx.db.query("SELECT COUNT(*) AS n FROM service_request_notices WHERE user_id = 'carol'").get()).toEqual({ n: 0 })
+  expect(A.ctx.db.query("SELECT source_id, read_at FROM service_request_notices WHERE user_id = 'erin' AND event_type = 'service.request'").all()).toEqual([{ source_id: 'gmail', read_at: null }])
+  // the owner's stay; a second pass adds nothing
+  serviceRequestsTick(A.ctx)
+  expect(A.ctx.db.query("SELECT COUNT(*) AS n FROM service_request_notices WHERE event_type = 'service.request'").get()).toEqual({ n: 3 })
+})
+
+test('an app whose setup is not the admins\' to make cannot be asked for: a hosted team, an operator\'s file', async () => {
+  const env = 'MYCEL_GOOGLE_SHEETS_CLIENT_FILE'
+  process.env[env] = '/nonexistent/acme-sheets-client.json'
+  try {
+    const r = await ask('alice', 'sheets')
+    expect(r.status).toBe(409)
+    expect(r.body.error.params.reason).toBe('not_requestable')
+  } finally { delete process.env[env] }
+  ;(A.ctx.config as any).deployment = 'hosted'
+  for (const s of ['gmail', 'google-drive']) {
+    const r = await ask('alice', s)
+    expect({ s, status: r.status, reason: r.body.error.params.reason }).toEqual({ s, status: 409, reason: 'not_requestable' })
+  }
+  expect(openRows()).toEqual([])
 })

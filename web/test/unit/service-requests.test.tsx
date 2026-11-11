@@ -81,7 +81,7 @@ describe('a Google app\'s page for a member, not set up', () => {
     expect(already).toContain('Already asked')
     expect(page(ask('none', en('serviceRequest.tooMany')))).toContain('data-testid="service-ask-error"')
   })
-  test('the member\'s words say "admin", in every language, and name nobody', () => {
+  test('the member\'s words are there in every language, plain, and name nobody; the button says who it goes to', () => {
     for (const [locale, d] of Object.entries(DICTS)) {
       for (const k of ['serviceRequest.ask', 'serviceRequest.sent', 'serviceRequest.already', 'serviceRequest.waiting', 'serviceRequest.asked', 'notifications.event.service.readyNamed'] as const) {
         expect({ locale, k, set: !!d[k] }).toEqual({ locale, k, set: true })
@@ -90,5 +90,7 @@ describe('a Google app\'s page for a member, not set up', () => {
     }
     expect(en('serviceRequest.ask')).toBe('Ask admin to add it')
     expect(ko('serviceRequest.ask')).toContain('관리자')
+    expect(DICTS.ja['serviceRequest.ask']).toContain('管理者')
+    expect(DICTS.id['serviceRequest.ask']).toContain('admin')
   })
 })

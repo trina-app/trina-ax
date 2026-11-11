@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:52
 - Branch: `feat/ask-admin-service`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/integrations/service-requests.ts`, `server/src/notifications/service.ts`, the Google
   app and Google Drive setup; `shared/src/api/service-requests.ts`, `notifications.ts`; `web/src/pages/Connectors.tsx`,
   `web/src/pages/Activity.tsx`, `web/src/components/settings/Notifications.tsx`; i18n; mock server; tests). Why: the
@@ -88,4 +88,13 @@ Phone at 390 px. No admin name in a member's answers or notices; no free text fr
 
 ## Result
 
-Filled in at the end.
+Built as planned in PR #446. Changes after the plan, from the independent review:
+- A setup that is not the admins' to make (a hosted team's, an operator's file) cannot be asked for (409
+  `not_requestable`): nobody could answer it here.
+- The hosting service's Google review ("only its test users") does not close requests as ready.
+- The 30-second check also keeps the admins' notices with whoever is an owner or admin now.
+- An open page offers Connect as soon as the app is ready (the "ready" notice brings it), without a reload.
+- Wording: es "Pedir que lo añadan" / "Solicitado", ko "요청 보냄", ja "管理者に追加を依頼".
+
+Not done: the admins' notice still says "Set up Gmail" when the app is set up but turned off for members (the page it
+opens has the members' switch).

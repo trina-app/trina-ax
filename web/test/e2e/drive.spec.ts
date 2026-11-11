@@ -143,7 +143,7 @@ test('a server without a Google client: Drive is "not set up" in Popular and a m
   await expect(detail(page).getByTestId('service-asked')).toHaveAttribute('data-state', 'sent')
   await expect(detail(page).getByTestId('service-asked-note')).toHaveText('Google Drive 준비가 끝나면 알려 드릴게요.')
   await page.goto('/connectors')
-  await expect(driveCard(page).getByTestId('connector-off')).toHaveText('요청함')
+  await expect(driveCard(page).getByTestId('connector-off')).toHaveText('요청 보냄')
 })
 
 test('a Drive that needs a new sign-in says so on the page, with Reconnect', async ({ page }) => {

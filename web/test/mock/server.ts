@@ -1098,7 +1098,7 @@ export class MockServer {
   serviceState(service: RequestableService): 'not_set_up' | 'available' | 'other' {
     if (service === 'google-drive') return this.driveClient === 'none' ? 'not_set_up' : this.driveMembers ? 'available' : 'other'
     const r = this.googleApps.reasonOf(this.googleApps.app(service)!)
-    return r === 'not_set_up' ? 'not_set_up' : r === null || r === 'service_limited' ? 'available' : 'other'
+    return r === 'not_set_up' ? 'not_set_up' : r === null ? 'available' : 'other'
   }
   /** like settleServiceRequests: an app members can connect now closes its asks (each member hears it is ready), a member
    * who left or became an admin closes theirs; with none left the admins' notice counts as read */
