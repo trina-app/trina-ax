@@ -8283,7 +8283,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `group` (tables are never rebuilt, so a later step can add such rooms without a new table); no code writes one, the
   contract's `RoomKind` does not list it, and `POST /api/rooms` takes `dm` only. Team rooms
   and the everyone room are made by the server only (`POST /api/rooms` opens DMs only).
-- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group and the everyone room, and
+- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group (except the welcome team group:
+  "One room for the whole team") and the everyone room, and
   sets their members from `group_members` and the active accounts. It runs at start, at the end of every
   `afterAccessChange` (group create, edit, delete, a person's role or groups), when a person's rooms are out of step on
   their `GET /api/rooms` (a new account from an invite or the team link), and once a minute. A disabled or deleted
@@ -17326,7 +17327,8 @@ what each one is for.
   one when shared/ has a templates folder under any language's name (NFC, any letter case). Existing teams are not
   touched (nothing runs it for them). No department folders.
 - **The company start in shared/.** The team's start (`setupWelcomeTeam`) still makes the team group (the invite link
-  puts joiners in it; its team room), but the meeting notes and brand folders go to `shared/회의록/` and `shared/브랜드/`
+  puts joiners in it; no team room since "One room for the whole team"), but the meeting notes and brand folders go
+  to `shared/회의록/` and `shared/브랜드/`
   (with `이미지/`), and the welcome row records `teamGroup.home: 'shared'` (`TeamGroupRef.home`, optional; `teamHome()`).
   회사 소개's brand action writes 회사 소개.md and the website's pictures there; 팀 파일 uploads into `shared/<picked
   folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
@@ -21598,3 +21600,563 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   get their own copy gets the copy, never the shared original back (which they would then edit). Hidden or unreadable
   names are never looked at.
 - Tests: `tests/unit/c-uploads-same.test.ts`, `web/test/unit/upload-wait.test.ts`, `web/test/unit/file-upload-retry.test.tsx`.
+
+## Docker install builds with the latest stable — Docker 설치는 최신 정식 버전으로 (fix/docker-install-versions, 2026-11-11)
+
+- **The image builds with any release, not only 0.5.0-beta.1 and later.** The Dockerfile used to need the kit's
+  `root/packages.json`, which only kits from 0.5.0-beta.1 have, so the latest stable (0.4.0) stopped the build with
+  "this Dockerfile needs a kit …". Now a kit without the list installs the packages from its own signed
+  `app/<v>/deps.txt` plus the docker group (procps, passwd, python3; allowed with a reason in the package-list test).
+  The 0.5 path is unchanged. HTML to PDF (`TRINA_AX_PACKAGE_GROUPS`) with an old kit stops with a plain message.
+- **`--minimal` only when the kit knows it.** The entrypoint passes `--minimal` only when the kit has
+  `root/packages.json`; the 0.3.0 and 0.4.0 installers refuse it (`unknown option --minimal`).
+- **The restart loop stops.** The nftables and bubblewrap host checks print their message once and then wait
+  (`docker stop` still ends it at once), instead of exiting and restarting again and again (seen on Colima, an Ubuntu
+  24.04 VM). Transient failures still exit and are retried. `docker/test.sh` stops early when the container reports a
+  host problem.
+- **One version everywhere.** README, `docker/env.example`, the guide, `test.sh` and the Dockerfile name the latest
+  stable release (0.4.0) or say "latest stable" without a number; before, they named 0.3.0, 0.4.0-beta.2 and
+  0.4.0-beta.10. When stable 0.5.0 is tagged, `TRINA_AX_VERSION=0.4.0` in `docker/env.example` (and the example in the
+  Dockerfile header comment) moves up. Merged with #377: its Ubuntu 24.04 host setting and test results stay; its
+  0.5.0-beta.1 minimum goes, because the fallback builds 0.3.0 and 0.4.0.
+- **A host table in INSTALL-DOCKER.md** says what was actually run: OrbStack on a Mac works (2026-11-04, 0.3.0 and
+  0.4.0-beta.2); Colima does not work as installed (2026-11-11, 0.4.0: the image builds, the container stops at the
+  bubblewrap check; the Ubuntu host setting inside the VM should fix it, not tested); an Ubuntu 24.04 server works with
+  the host setting (2026-11-11, 0.5.0-beta.1 and a kit from `dev`); Docker Desktop and Debian 13 are not tested. A full
+  start of 0.4.0 still needs an OrbStack or Debian host.
+- The AI connection page is called by the name the app shows, Admin › Connections › Providers, in the install guides
+  and in the messages that point to it (`admin/engines.ts`, `system/messages.ts`, 5 languages).
+- Tests: `tests/unit/system-packages.test.ts` (the fallback package list), a real image build with 0.4.0 through
+  `docker/test.sh` on Colima.
+- Version impact: **patch** (Docker install files, docs and two server messages; no API or data change).
+
+## Turn slots always come back (fix/turn-slot-leaks, 2026-11-11)
+
+- **A quarantined slot is probed, not kept forever.** A turn whose engine end is unconfirmed (the launcher connection
+  broke: `launcher: …` transport error, or a kill that failed) still holds its execution slot and its chat, so nothing
+  new runs beside an engine that may still write. Before, nothing ever released it: the chat said running until the
+  server restarted, sends got 409, and three such turns (the default concurrency) stopped the whole team.
+  `ChatRuntime.probeQuarantined` (every `QUARANTINE_PROBE_MS`, 2 s, from the capacity watcher; Stop on such a chat
+  probes at once) looks at each quarantined turn that already ended: the slot comes back when the engine's process
+  group (the launcher's `started` pgid) no longer exists (`kill(-pgid, 0)` = ESRCH; EPERM, the engine account's normal
+  answer, counts as alive), or, with no group known, when the launcher reports no live engine at all (`liveTurns: 0`,
+  the same trust as startup recovery). Without that proof it comes back at the turn's wall deadline plus
+  `QUARANTINE_RELEASE_GRACE_MS` (5 min): the launcher was told to end the engine by the wall deadline
+  (`LaunchRequest.timeoutMs`) and, while it lives, ends its groups when the connection closes, so this is a bounded
+  wait. The answer is already saved as failed (`error`) by then; the release is logged at error level. A turn
+  quarantined before it ended (the launcher stays connected but never confirms the end) stops reading the launcher at
+  that same time (`TurnExec.abandonOverdue`, on the next probe; it drops the launcher connection, which the launcher
+  takes as a kill), ends as failed, and its slot follows the same rules.
+- `liveTurns: 0` from a launcher that restarted says nothing about engines its earlier process left behind (on macOS
+  nothing kills them when the launcher dies; on Linux `Pdeathsig` does). It is trusted only when no process group was
+  reported, i.e. the engine most likely never started.
+- **A dispatch failure fails one turn.** A throw from `QueueStore.claim` rolled its transaction back, so the turn stays
+  queued and is claimed again after a pause of `MEMORY_RECHECK_MS` (`CLAIM_TRIES`, 3 in all); after that, or for a throw after a committed claim
+  (the `TurnExec` constructor), that turn ends with the crash error (turn and answer `error`, its queue ticket settled,
+  `message.done`), is never claimed again, and the loop goes on. A throw elsewhere in `schedule()` is logged and the capacity watcher tries
+  again; it no longer latches `closing` (every later send was 503 `draining` until a restart).
+- **`finish()` always ends.** Each part of a turn's end (text, cards, relay, proxy, sub-agent audit, file summary,
+  `message.done`) is guarded on its own; if the end state itself fails, the turn and answer still get `error`; the slot
+  is given back (or quarantined) and `done` resolves whatever failed.
+- Tests: `tests/unit/turn-slot-leaks.test.ts` (a broken launcher connection with the group gone, still alive until the
+  deadline, no group known with the launcher busy or idle, a launcher that never confirms the end; an injected claim
+  failure once and every time; injected failures in the end).
+
+## Retention and the update channel are owner-only — 보관 기간과 업데이트 채널은 팀장만 (fix/owner-only-retention-settings, 2026-11-11)
+
+An audit found that an admin could set the audit log to 7 days, file history and both trashes to 1 day, and the update
+channel to beta, after which the nightly sweep (`auth/sweeper.ts`, `admin/audit.ts`, `team-files/service.ts`) erased
+the audit trail and old file versions; the owner was left with one `settings.update` row. Team settings stay the
+admins' otherwise; these join the team name as the owner's own: `OWNER_ONLY_SETTINGS` in `shared/src/api/admin.ts`
+(`auditRetentionDays`, `fileHistoryRetentionDays`, `trashRetentionDays`, `chatTrashRetentionDays`, `updateChannel`).
+PATCH /api/admin/settings refuses an admin's change of any of them with 403 (`fields["body.<key>"] = "owner only"`) and
+saves nothing of that request; sending the value it already has is fine, so the contract does not change. Admin › Team
+settings shows an admin the four retention fields read-only with "Only the team owner can change this." The update
+channel has no field there (it is the installation's own). Periods an admin already shortened stay until the owner
+changes them.
+
+- Out of scope: an admin can still delete one trashed item for good (`DELETE /api/files/trash/:id`, purgeTrash), which
+  also drops that item's file versions. That is the trash's own design and is audited (`trash.purge`); the audit
+  retention that keeps that row is now the owner's.
+- Version impact: **patch** (an admin's change of five settings is refused; no response or data change).
+
+## The Windows app installs only what the signed release names — Windows 앱은 서명된 릴리스에 있는 업데이트만 설치 (fix/windows-update-verify-signature, 2026-11-11, product owner)
+
+- **Why.** The Windows app (unsigned NSIS installer, electron-updater on `<team>/downloads/`) checked only the sha512 in
+  `latest.yml`, which comes from the same team server as the installer. Whoever controls a team server, or its disk,
+  could push any program to every desk.
+- **Decision (owner):** the app installs a downloaded update only when the product's Ed25519-signed office manifest
+  names it, checked with the existing release keys (`RELEASE_CHANNEL.keys`, edition-branded at build time). Checked in
+  `desktop/src/common/update-verify.ts`: the signature, the product, the channel, `windows.version` equal to the
+  downloaded version and newer than the running app, and `windows.installer.sha256` equal to the SHA-256 of the
+  downloaded file. The signature check is one copy, `shared/src/release-manifest.ts`; the server's `verifyRelease` uses
+  it too (same messages).
+- **No code-signing certificate yet.** Authenticode and the SmartScreen warning are not part of this; macOS (notice
+  only) and store builds are unchanged.
+- **Where the manifest comes from.** Team servers (office Mac and Linux, `offerWindows` → `placeSignedManifest`) put the
+  signed manifest next to the installer as `/downloads/<channel>.json`, written before `latest.yml` names a new
+  installer and also for an installer already offered; the downloads route serves it. So an office without internet
+  still updates. Otherwise the app asks the release feed (`<feed>/office/<version>/<channel>.json`, then the head).
+- **The updater.** electron-updater's auto-download, install-on-quit and web installer are off. The app downloads
+  itself, never while a download is being checked, and re-hashes the file right before installing (restart and quit).
+  A contradicted download is deleted, logged and not downloaded again in that run; the person sees once: "This update
+  couldn't be checked, so it wasn't installed." (5 languages). Nothing readable at all (server down, no internet) keeps
+  the download for the next check. Unpacked dev runs may skip (`MYCEL_DESKTOP_UPDATE_UNVERIFIED=1` or no keys); a
+  packaged app always checks.
+- Tests: `office-update-desktop.test.ts` (good signature, wrong key, tampered payload, broken signature, hash mismatch,
+  wrong channel, version or product, downgrade, sources, dev skip, server placement),
+  `office-update-desktop-updater.test.ts` (ready only after a match; delete, one notice, no second download; unreadable
+  keeps the file; no download during a check; a file swapped after its check is never installed). A real Windows
+  install was not run: QA TC-166.
+- Version impact: **patch** (a security fix; one new notice; no API change beyond the new served file).
+
+## W7 — Onboarding: no own skills in the setup (fix/onboarding-no-own-skills, 2026-11-11, product owner)
+
+- **Decision (owner, final):** the setup's skills step shows only the skills Trina prepared (the kept catalog, W6). The
+  "bring my own skills" part is gone from it: the folder pick (`.claude`, `.codex`, `.agents`), the hidden-folder hint
+  (⌘ ⇧ .), the Claude Code / Codex one-line block, the polling for a proposal, the embedded share list and the phone's
+  "add them on a computer" line. Why: office workers almost never have a `.claude` folder, and asking them to find a
+  hidden one confused them. "Bring my skills" stays on Team skills (`BringSkillsSheet`, which now owns `useSkillPick`;
+  `lib/skillScan.ts`, `lib/codexToml.ts`, `FolderHint`, the Mac App Store app's window at `.claude` and
+  `/skills/share/:id` are unchanged).
+- **The step stays** (step id `skills`, "2/5"): it still has something to choose. Nothing about stored progress changes,
+  so a half-done setup resumes on a valid step. When every prepared skill is already in the team, one line says so and
+  the primary goes on (records the step done); there is no 나중에 하기 beside it then. The progress bar calls it
+  **Skills** / **스킬** (was "My skills" / "내 스킬"): the step no longer has the person's own skills.
+- **Removed with it:** `SkillShareReview`'s embedded mode (`embedded`, `onState`, `handle`, `earlier`, `onApplied`),
+  `PackNotes`' `failedText`, and the 17 i18n keys only the step used (`welcome.skills.cc.*`, `ccFold*`, `bring`,
+  `checking`, `partOwn`, `phoneOwn`, `putMore`). The server is unchanged: a share applied elsewhere during the setup still
+  records the step done, and old rows with `skillsLater` read as before.
+- Tests: web unit `onb6-skills` (no own part on a computer or a phone, every skill in → one line and 다음),
+  `skill-share` (was `skills-step`: the picker, the list and the 30-second end now on the Team skills sheet and
+  `/skills/share/:id`), `welcome`; e2e `welcome-skills` (the setup walk with prepared skills only, and Bring my skills
+  reading only known places), `onb6-skills`, `welcome-notes`, `welcome-tools`.
+- Version impact: **patch** (a step shows less; no API or data change).
+
+## One room for the whole team — 팀 대화방은 하나 (fix/one-default-room, 2026-11-11, product owner)
+
+- **The welcome steps' team group gets no team room.** `setupWelcomeTeam` makes the team group (the team link and the
+  lead invite put joiners in it, so its room had the same people as the everyone room: two rooms for one team, a side
+  effect of "rooms follow groups", never a choice). The everyone room (`kind 'all'`) is the team's one room. The group
+  itself stays (the welcome steps, the team link and the handover read `teamGroup`).
+- How: `createGroupAs(…, { room: false })` writes the group's team room row archived, in the group's own transaction
+  (`noTeamRoom`, audited `room.archive` reason `team_group`), so the sync that runs at the end (`afterAccessChange`)
+  never makes a live one. `Rooms.sync()` also skips the group the welcome row records (`welcomeTeamGroupId`).
+- **A team from before:** at every sync, the recorded team group's live room is archived while it has no message
+  (event lines do not count). Archived = the existing mechanism: row kept, members removed, nobody can read it; never
+  deleted. A room somebody wrote in is left alone; messages are never removed, so this settles once. No migration.
+- Other groups still get their team rooms as before.
+- Tests: server unit `b-rooms-one-room` (a new team: only the everyone room, other groups keep rooms; an older team: an
+  empty room archived once, a written one kept).
+- Version impact: **patch** (one room fewer for new teams; no API or schema change).
+
+## A signed relay call is accepted once (fix/relay-replay-cache, 2026-11-11, QA TC-170)
+
+- **One replay check, on the signed message.** The relay remembers a signed call by its signer and the SHA-256 of the
+  signed message (`relay/src/replay.ts`), never by the signature's text: base64 has several spellings of the same
+  bytes, so a copied operator call could be sent again with a re-spelled signature. The operator API and the
+  team-signed registry calls (`GET`/`PATCH`/`DELETE /teams/:id`, the heartbeat, `Registry.verifyApi`, which had no
+  replay check at all) both use it and answer a call sent again with 409 `replayed`. It is checked only after the
+  signature verifies.
+- A call is remembered for the whole clock window (2 × the allowed clock skew + 1 ms), so it is refused even in the
+  last millisecond the clock check accepts it.
+- **Room per signer.** Each team has room for 1,000 calls and each operator key for 10,000; a signer that floods drops
+  only its own oldest entries, so one team cannot push out another team's entries and replay its call. When the whole
+  cache is full of live entries, new calls are refused (429 for a team, 503 for an operator) instead of forgetting
+  anyone. Accepted: a signer that sends more than its own room in two minutes can make its own oldest calls replayable.
+- Operator keys are kept per public key, in one spelling. The signed string does not name the key id, so an
+  `operator-keys.json` that lists one public key under two ids is refused, and all operator calls stop until it is
+  fixed.
+- The team server's registry client signs with a strictly increasing `ts`, so two identical calls in one millisecond
+  stay distinct (Ed25519 is deterministic).
+- Tests: `tests/unit/f-*.test.ts` (re-spelled operator replay, team-signed replay, per-signer room, a key under two
+  ids).
+- Version impact: **patch** (a call sent again is refused; no API change for a first call).
+
+## An update roll-back goes forward again when the old version cannot read the database (fix/update-rollback-schema-too-new, 2026-11-11, QA TC-167)
+
+- **Why.** A new version migrates the database and then fails its health check; `mycel-bootstrap` rolls back. When the
+  migration raised `min_compatible_reader` above the old build's `SCHEMA_READER_LEVEL`, the old build exits 75
+  (`SchemaTooNewError`) on every start, and the bootstrap restarted it forever. No version ran and the owner had no
+  screen to fix it from.
+- **Go forward, not restore.** Exit 75 right after a roll-back (the last history entry is `rolled_back <new> ->
+  <this>`) sends `app/current` back to the newer version, which already migrated the database. It is watched like an
+  update but never rolled back; when healthy, history records `ok <old> -> <new>` ("started again after <old> could
+  not read the database…") and `previous` is cleared. Restoring a `pre-migrate-*.db` is not done by the bootstrap: it
+  would have to pick the right file and swap SQLite files from outside the server, and a wrong pick loses data.
+  Restoring stays the owner's choice, and the stop message names it.
+- **No endless loop.** A forwarded version that dies `--max-attempts` times or exits 75, or an exit 75 with nothing to
+  go forward to, stops the bootstrap: `state.json` gets `blocked {version, since, detail}` and history a `rolled_back
+  <v> -> <v>` whose detail starts with "stopped:" (the existing result value, because older servers parse `result` as
+  a strict enum). It stays stopped across bootstrap restarts, even when `state.json` cannot be written, and starts
+  again when `app/current` changes, `blocked` is removed, or on SIGHUP (one more watched try).
+- `mycel-ctl status` prints `SERVER STOPPED at …` (`serverStopped` in `--detail --json`). `mycel-ctl update` reports
+  `rolled_back` only after the roll-back has lasted 20 s and not while `state.json` `forward` names the new version.
+- `shared/src/install.ts` `AppState` gains optional `forward` and `blocked`; older readers drop them.
+- The bootstrap is a root file, so the release that carries this is a root update.
+- Tests: bootstrap Go tests with fake versions (roll-back → 75 → forward → healthy; forward keeps dying → stop, SIGHUP,
+  restarted bootstrap; forwarded 75; 75 with no roll-back; `state.json` not writable), ctl `TestStatusShowsServerStopped`
+  and `TestUpdateRollBackThenForwardIsOk`.
+- Version impact: **patch** (root update; two optional `AppState` fields).
+
+## Plugins: trust is checked again under the current settings; skills are never placed through a link (fix/plugin-trust-recheck, 2026-11-11, QA TC-169)
+
+- **Trust is not only an install-time check.** A plugin's stored trust and key id are checked again against the trust
+  settings in effect now: an unsigned package needs unsigned packages to be allowed, and a key must still be in
+  `PLUGIN_TRUST`, allowed for this publisher and id, and still an official key for a package recorded as official.
+  Release-pinned official builds (HWP) stay trusted; a withdrawn build is still `revoked`. So a pack taken in while
+  `MYCEL_PLUGINS_ALLOW_UNSIGNED` or `MYCEL_PLUGINS_TEST_KEYS` was on, or signed with a key later dropped, stops being
+  usable.
+- New reason `untrusted`: Admin › Plugins says it in plain words (5 languages); enable and roll back refuse
+  (`signature` for unsigned, `untrusted` for a key); at start such a plugin is turned off and its skills removed (audit
+  `plugin.untrust`), one plugin at a time so one failure never blocks the others; the HWP "turn it on" to-do stays
+  quiet for it.
+- **No link is followed in the team folder.** Placing skills checks every path part with lstat before anything is
+  saved and refuses links, non-folders and files with another hard link (and a FIFO swapped in) as `skills_conflict`;
+  folders are made one level at a time and files opened with `O_NOFOLLOW` and `O_NONBLOCK`. Removal never goes through
+  a link.
+- Tests: `tests/unit/plugins-trust-recheck.test.ts`.
+- Version impact: **patch** (an untrusted plugin is turned off; no API change beyond the new reason).
+
+## A join link survives a weak connection; a temporary password keeps `?next=` (fix/join-link-retry-next, 2026-11-11, QA TC-171)
+
+- **Join link.** `/join#t=…` still takes the token out of the address bar at once, but the tab keeps it in
+  sessionStorage (`mycel.joinToken`) until the person joined or the server says the link does not work (invalid, or
+  the server's own `not_found`). A failed load (no connection, a server error, a 404 without the server's JSON answer)
+  shows the error and one **Try again**, never "link invalid".
+- **`?next=` through the forced password change.** Login, the Gate's must-change branch and ForcedPassword carry
+  `?next=` to `/password` and go there after the change. One check for all of them, `safeNext`
+  (`web/src/lib/nav.ts`): same-site paths only and no control characters. Addresses that hold a token (`/invite/…`,
+  `/reset-password/…`, `/join`) are never carried into `?next=`.
+- Tests: web unit team-link, forced-password-next, team-link-skill-form; e2e `auth.spec.ts`, `team-link.spec.ts`,
+  `first-run.spec.ts`.
+- Version impact: **patch** (web only).
+
+## Connector OAuth: limits a flood cannot fill (fix/connector-oauth-limits, 2026-11-11, QA TC-168)
+
+- **Why.** The connector's own OAuth server (remote MCP "AI apps") refused every new app at 2,000 registered clients
+  and every sign-in at 2,000 pending requests, and one server-wide bucket counted every request, authenticated tool
+  calls included, before the per-address bucket. One address could stop new Claude or ChatGPT connections for a month
+  and make connected people's tool calls 429.
+- **Tables make room.** A registered app with no grant and no sign-in in progress is removed a week after its last use
+  (one registration is often shared by a team whose members connect days later). A full table evicts the longest-idle
+  apps without a grant and without a sign-in a person has opened (unopened requests go with them); 503 only if nothing
+  can go. The pending table makes room from the oldest unopened requests. A sign-in link of a removed app shows a short
+  page that says to start again.
+- **Per address** (`OAUTH_LIMITS`): register 12 a minute and 240 an hour; authorize 180 a minute and 200 per 10
+  minutes; 50 sign-ins per app and address per 10 minutes (app ids are public, so nothing is limited per app alone).
+  IPv6 counts by /64 (`ipKey`). The address comes only from the socket, the relay or the office tunnel, never a
+  client header.
+- **Order:** a full shared bucket refuses before anything is written; then the address's own buckets (an address over
+  its limit does not spend the shared one); then the shared one.
+- **Outside the anonymous bucket:** `/mcp` calls with a live access token (300 a minute per grant), token requests
+  with a live code or refresh token of a live grant of the named app (they also skip the app's token bucket; failures
+  are charged to the shared bucket afterwards), and live upload links without a foreign Origin.
+- The two scanning housekeeping deletes run at most every 10 s. Kept: PKCE S256, state, redirect and resource checks,
+  hashed storage, no raw IPs in the database, per-person tool limits.
+- Accepted: a sign-in nobody has opened yet can be dropped by a flood above the pending cap (they start again); anyone
+  can spend the registration budget of Claude's or ChatGPT's own address on this server. The busy-minute share is in
+  "Connector sign-in: a busy minute slows only the flooding networks" below.
+- Tests: `tests/unit/remote-mcp-*.test.ts`.
+- Version impact: **patch** (limits only; no API change).
+
+## Home and Getting started polish (fix/home-onboarding-polish, 2026-11-11, product owner, QA TC-181..TC-184)
+
+**Home and Getting started polish (owner, 2026-11-11, final).**
+1. The Getting started invite step has no "This person will be the owner" checkbox. One team link invites many people,
+   so ownership is handed over after people join, from Admin › Members (a person's "…"). The owner link remains in
+   Admin › Members' invite dialog, and the server API is unchanged. This supersedes the welcome-step part of "W6 —
+   easy owner handover".
+2. When voice input can't be used on this server, nobody sees a mic, owners and admins included. There is no
+   crossed-out mic hint. The composer's AI picker shows only when there is more than one choice.
+3. The 7-day goal card's title invites people to make documents with colleagues. It names up to three of the team's
+   own skills: the goal's skill first, never the intro deck. The count and days follow it in small type. This
+   supersedes the "7일 안에 3명이 … 써 보기" title in "G" and "W5".
+4. A chat started from a skill is called by the skill's display name, never its slash name. The title stays automatic,
+   so the AI may refine it, and a rename by the person wins.
+
+## "Trina isn't ready yet": the chat error by role (fix/ai-not-ready-by-role, 2026-11-11, product owner)
+
+**"Trina isn't ready yet": the chat error by role (owner, 2026-11-11).** When the AI cannot start (`engine_missing`),
+a member reads "Trina isn't ready yet." with one button, [Tell an admin]. It sends each owner and admin an Inbox notice
+("<name> tried to use Trina but it isn't set up yet", opening Admin › AI accounts) and then reads "Told". The server
+sends at most one such notice per member per hour (`POST /api/me/ai-not-ready/tell`; the notice re-arms after the hour
+instead of adding a row). The owner and admins read "Trina isn't ready yet. Connect an AI so it can answer." with one
+button, [Connect AI], to Admin › AI accounts. Try again stays. No engine or Diagnostics words in either. The notice
+shares `onboarding_notices` under the source `not-ready:<member id>`, separate from the member's ask for an AI
+connection, and is never settled.
+
+## Admin in plain words; Browser settings on the desktop app (fix/admin-ui-plain, 2026-11-11, product owner, QA TC-185..TC-187)
+
+**Admin in plain words (owner, 2026-11-11).** Admin › Home lists only what an admin can act on, in plain words ("No AI
+is connected", a service to sign in again, storage, backups, a failed update, an engine sign-in).
+- Server internals are shown in Admin › System › Diagnostics only: an engine version other than the pinned or
+  lockdown-tested one, a failed lockdown test, socket paths, sandbox, launcher, relay, queue, managed files and the
+  like.
+- An engine in such a state still answers. Providers, Home and the owner checklist treat it as connected.
+- The allowlist is `web/src/pages/admin/plain.ts` `homeCheck`. A new server check stays in Diagnostics unless it is
+  added there.
+
+**Browser settings on the desktop app (owner, 2026-11-11).** Settings › Browser is in the desktop app, the only client
+whose AI has the browser.
+- On the web and phones it shows only while the person's own "Allow all websites" for web reads is on, so it can be
+  turned off where it was turned on.
+- This narrows the Settings › Browser part of "Allow all websites covers the AI's web reads" (it was on every client).
+
+## Mac users get the App Store only; the relay does not say whether setup is done (fix/mac-store-setup-hidden, 2026-11-11, product owner, QA TC-193, TC-194)
+
+**Mac: the App Store only (owner, 2026-11-11, TC-193).** With the edition's Mac App Store listing, Settings › Apps
+offers Mac users only the App Store, everywhere: browsers, the iPhone app, and the desktop app installed from a team
+server `.dmg` (its own row is "This app" with the App Store link). The team server's unsigned installer is no longer
+offered there, not even folded under the row. This replaces the 11-10 "App Store first, installer folded" entry (#343).
+A build without a Mac App Store listing still offers the server's installer. Windows, iPhone and Android are
+unchanged.
+
+**The relay does not say whether setup is done (owner, 2026-11-11, TC-194).** `GET /api/setup` from the internet,
+signed out, does not tell whether first-run setup is finished:
+- The office tunnel always says `needed: false`.
+- The relay says `needed: true` only to a caller with the right setup token in `x-mycel-setup-token`. The setup link's
+  page sends it, and the tab keeps it in `sessionStorage` until the team is made. Wrong tokens count on the same per-IP
+  token limit as `POST /api/setup`. Through the relay, `POST /api/setup` checks the token before the team's state, so a
+  wrong token gets the same 403 before and after setup.
+- This server and the office network see the real answer.
+
+This is the same line as #369 for `/api/health`.
+
+## Budget during an answer: usage counted as it comes, the answer stops at a used-up block budget (fix/budget-mid-answer, 2026-11-11)
+
+- **Usage is counted as it comes.** The engine's usage goes on the turn row on every usage event (Claude Code's running
+  per-call usage, the API engine's per-round usage), so one person's parallel answers see each other's spend. The model
+  proxy's count stays authoritative: its first count replaces the engine's numbers. A run that is cut off keeps the
+  tokens of its finished model calls.
+- **A used-up block budget stops the answer while it works.** The budget is checked again after a usage event of a
+  model call the answer goes on from (Claude Code or the API engine asked for a tool, a sub-agent's call: the
+  `continues` flag), before every engine launch and between the API engine's rounds. A used-up budget ends the answer
+  like Stop, as an error with the existing budget message; the API engine's round that used it up runs none of its
+  tool calls.
+- **A finished answer is never turned into a budget error.** A run's total or the answer's last call is recorded only;
+  the next answer is refused before it starts. A Codex sign-in reports its use only when its answer ends, and a
+  dollar-only limit on a Claude Code sign-in is priced only then, so for those the next attempt or question is refused.
+- **One teardown.** `stop()` and `checkBudget()` share one `halt()`: the slot is taken back for the ending engine and
+  answers held for a slot are dropped (as for Stop since "Answers waiting for a person hold no slot"), so a held card
+  answer never reaches its tool after a budget stop.
+- Tests: `tests/unit/b-budget-mid-answer.test.ts`, `tests/unit/turn-waiting-slots.test.ts`.
+- Version impact: **patch** (an answer can stop earlier at a used-up limit; no API change).
+
+## Answers waiting for a person hold no slot; a chat still ending says so (fix/turn-waiting-slots, 2026-11-11, QA TC-190, TC-191)
+
+**Answers waiting for a person hold no slot (2026-11-11, TC-190).** The concurrency limit protects CPU and engine
+processes doing work. A turn with an open card is idle: its engine waits on the tool call. So the slot goes to the next
+answer while any card of the turn is open. The turn stays the chat's running turn: the chat stays busy, Stop works, and
+its card timeout and the 45-minute wall limit still run. A card answered meanwhile reaches its tool only once the turn
+holds a slot again. The turn takes the next free slot, before any queued answer, oldest answer first. It is never
+starved, and the answers holding a slot never go over the limit. Meanwhile the chat says "Waiting for a free place".
+Three exceptions: a lowered limit never stops answers already running, an engine that is ending (Stop, the wall limit,
+a quarantine) holds a slot again even if it was waiting on a card, because it may be working; and an answered turn
+whose tool call would time out (25 min after its card opened) goes on over the limit.
+
+**The engine stays up while it waits; it is not suspended.** Ending the engine and resuming its session later would
+lose the tool call in progress and its state. It would also cost a full engine start for each answer, often more than
+the wait itself. The wait is bounded by the card timeout (at most 15 min) and the wall limit. An idle engine uses
+memory but no CPU. So the number of engines up is capped at twice the limit on every platform, waiting ones included;
+past that, answers stay queued. On Linux, memory admission also reads the machine's real free memory, so idle engines
+count there too. On a Mac and in office mode it is off, and the cap is the only guard. Accepted edge case: a non-card
+tool the AI runs in parallel with an open card runs without a slot. This is the same rule the active clock already
+used.
+
+**A chat still ending says so (TC-191).** While an earlier answer's engine end is unconfirmed (a quarantined slot, at
+most the answer's wall deadline + 5 min), the chat shows one plain line: "Waiting for the earlier answer to finish.
+Other chats work as usual." A send there gets the same words (409, reason `earlier_answer_ending`).
+
+## An update waits for a long database migration (fix/large-db-update, 2026-11-12, QA TC-278)
+
+Update with a long database migration (QA TC-278, 2026-11-12): a server that must migrate a database with data answers
+`/api/health` 503 `status: "migrating"` (with its version) while the pre-migrate copy and the migrations run in a child
+process. mycel-bootstrap and `mycel-ctl update` keep waiting while it says so: each answer gives `--health-timeout`
+from then, and if it is still migrating after `--migrate-timeout` (60 min) the update is rolled back. Attempts and
+roll-back rules are unchanged. A new pre-migrate copy replaces older copies of the same schema (but not those from
+before the last restore), and staging folders of dead processes are removed.
+
+## Linux installer: download and build before the server stops (fix/update-packages-before-stop, 2026-11-11, QA TC-279)
+
+The Linux installer does every download and build (headless browser, Python venvs, `--engine` binaries; apt already
+did) before it stops the team server. After the stop it only switches `current` links and the app version.
+packages.sh has prepare/switch pairs for the browser and for Python programs for this.
+
+## changelog:check compares the release PR with dev (fix/release-pr-changelog, 2026-11-11)
+
+`changelog:check` compares the dev → main release PR with dev, not main. The rule "a PR does not add lines under
+`## Unreleased`" is enforced where PRs land (dev). Other PRs into main still compare with main.
+
+Version impact: none (CI/tooling only).
+
+## A stopped bootstrap keeps `current` at the version that ran (fix/update-plugin-followups, 2026-11-11, QA TC-167, TC-169)
+
+While the bootstrap is stopped after an update, state.json `current` stays the version before the update (the last
+version that ran) and `blocked.version` names the stopped one. `current` only follows app/current when an
+administrator switches to another version.
+
+## A token refresh is not a team policy change (fix/audit-small-server-1, 2026-11-11, audit row 18)
+
+The safe-operations policy generation no longer counts a connection's sealed secret (`secret_enc`, `key_version`) or
+health (`status`). A key, sign-in, sign-out or new address still counts through `version`, which every such change
+moves. Rule for new code: a path that changes where a key goes or who may use a connection must bump
+`integrations.version`.
+
+## File versions under their own hash; the spent setup code goes (fix/audit-small-server-2, 2026-11-11, audit rows 33, 120)
+
+Replacing a team file (upload, copy onto it, restore) keeps the current file as a version and installs the new one in
+the same synchronous step as the check that the hashed file is still the one on disk. A version's blob always hashes to
+its `sha256`. On Linux, the installer deletes `setup/code` once the team has its owner.
+
+## Mermaid follows the app's look (fix/phone-polish-small, 2026-11-11, QA TC-265)
+
+- Mermaid diagrams in answers follow the app's look (dark theme in the dark look). This replaces the old code comment
+  "always the light theme".
+
+Version impact: patch (look and wording fixes on existing screens).
+
+## Rooms: read only what was shown; a reply from a search result lands at the newest (fix/room-read-visible, 2026-11-11)
+
+A room's timeline is marked read only up to the newest message that was loaded and came into sight. Nothing is marked
+read while a page is loading, or while unread messages are older than the loaded pages. A send or "최근 메시지로" from a
+window around an older message lands at the newest messages, at the bottom, and drops `?m=`.
+
+Version impact: patch (web bug fix, no API or data change).
+
+## A failed settings save goes back to what the server has (fix/settings-save-rollbacks, 2026-11-11)
+
+A setting saved from the web app that fails to save goes back to what the server has (its last answer, else the value
+in use before), never to a snapshot from before the save, and only if no later change is still being saved. The error
+is shown. Switches that save in turn are off while one of their saves runs.
+
+## One chat row menu (fix/project-chat-row-menu, 2026-11-11, QA TC-248)
+
+**One chat row menu.** A project page's chat row "···" has the same items as the sidebar's chat row, built by one hook
+(`components/chat/chatMenuItems.tsx`) with the same rights (`sharedRights`): pin, copy link, rename (creator), move
+(not for a shared chat), delete (creator or project editor). A row's menu button is centred with flex, never a
+transform, because a transform would hold the phone's fixed bottom sheet inside the button's box.
+
+## The office Mac's update waits for a large database too (fix/office-update-migrating, 2026-11-12, QA TC-278)
+
+- The office Mac's update waits for a version that reports "migrating" with the same rule and bound as a Linux
+  server's bootstrap. The office `install` started by the updater waits up to 4 min itself (for updates run by an older
+  updater), then hands the wait to the updater. `mycel-ctl update` reads `--migrate-timeout` from the bootstrap's
+  loaded ExecStart (`native/internal/bootflags`), never its own constant (QA TC-278 follow-up, 2026-11-12).
+
+## The notice index is for signed-in people when the caller comes from the internet (fix/licenses-version-signed-out, 2026-11-11, QA TC-160)
+
+**The notice index is for signed-in people when the caller comes from the internet.**
+- Signed out, through the relay or the office internet address, `/licenses/manifest.json` and `/licenses/README.txt`
+  answer 404, like `/api/health` gives such callers no version.
+- LICENSE, NOTICE, the package notice files and the source-code offer stay public.
+- Trade-off (owner to confirm): the package notice paths carry `name@version-hash`, so without the index a signed-out
+  visitor from the internet has no list of them. Any index would reveal the versions.
+- Alternative, if notices must be listable signed out: write a version-free web copy, e.g. package names + licence
+  texts under stable paths. That changes the release-notices layout and the verifier.
+
+## Codex lockdown: `.codex` cannot be renamed, every lock file goes each turn; a second desktop start exits at once (fix/desktop-small-audit, 2026-11-11, audit rows 37, 38)
+
+Codex lockdown (audit row 37): the engine sandbox refuses writes to `<chat>/.codex` itself (rename, remove, replace)
+as well as to the lock files: `config.toml`, `models_cache.json`, `catalog.json`, `AGENTS.md`, `AGENTS.override.md`,
+`hooks.json`, `.env`, `skills/`, `plugins/`, `rules/`, `prompts/`. The Linux launcher binds the same names read-only.
+The macOS sandbox compares names the way the disk does, so other spellings need no extra rules (tested). The server
+also removes every lock file before and after each turn (`CODEX_LOCK_FILES`). The `.codex` folder is not wiped,
+because the turn's sessions and state stay. Desktop (audit row 38): a second app start exits with `app.exit(0)` and
+sets nothing up; only the instance holding the single-instance lock registers handlers.
+
+## A chat's version is switched only between answers (fix/branch-switch-while-answering, 2026-11-11)
+
+A chat's version (branch) is switched only between answers: while an answer runs or waits in the chat, whoever asked
+it, `selectBranch` answers 409 `branch_while_answering` and the web app turns the version arrows off (in a shared chat
+also during another member's answer, whose live text is not on the viewer's screen).
+
+## Connector sign-in: a busy minute slows only the flooding networks (fix/connector-signin-flood, 2026-11-11, QA TC-168)
+
+**Connector sign-in: a busy minute slows only the flooding networks.**
+- Past 2,400 anonymous OAuth requests in a minute, each IPv4 /24 or IPv6 /48 gets 30 more that minute. 30,000 a minute
+  is only a last-resort cap.
+- Trade-off: during a busy minute, Claude's or ChatGPT's servers get about 6 new connections a minute per egress
+  network. Connected apps are not affected.
+- Owner to decide: whether to add a coarser IPv6 level (e.g. per /32), so that one large IPv6 block cannot fill the
+  30,000 cap.
+
+## A resync drops every cached room member list (fix/rooms-small-audit, 2026-11-11, audit rows 71, 76, 77)
+
+- A resync drops every cached room member list. Rooms on screen read theirs again at once; other rooms read theirs on
+  their next open.
+
+## Job progress: step labels are never throttled away; a queued job says it waits (fix/voice-queue-labels, 2026-11-11)
+
+Job progress throttling applies only within one step: a change of a job's step label is always delivered right away,
+and the last throttled update is delivered when the throttle window closes. A job announces its start (`job.progress`
+with null progress/message) when it goes from queued to running, so clients can tell waiting from running.
+
+## Phone sign-in and join pages (fix/phone-signin-join, 2026-11-11, QA TC-272)
+
+- Phone auth pages: the form's button stays above the keyboard (a sticky bar in the page's own scroll box), and the
+  password eye sits inside the field. Inside the phone app, the auth pages show no website footer (source link,
+  language select). The app's Settings › About has the source offer.
+- A member opening an /admin address sees an "Only admins can see this" notice instead of a silent redirect.
+- The setup secret is called a "setup code" on screen and in its error.
+
+## Phone previews fit the screen (fix/phone-previews-fit, 2026-11-11, QA TC-259)
+
+Phone file previews (narrow and touch only; computers unchanged): an HTML file wider than its preview is fitted to the
+width by default (CSS zoom inside the frame, with a "실제 크기" toggle). Document viewers (PDF, HTML page) handle pinch
+and double tap themselves and hold back the browser's page zoom on their element only; the rest of the app keeps the
+browser's zoom (accessibility). On phones only prose (.md / .txt) is offered for editing, from the ⋯ sheet.
+
+Version impact: patch (the same files are shown better on phones; no API, data or migration change).
+
+## A backup is complete only with its record; a new version is synced before the switch (fix/update-backup-durability, 2026-11-11)
+
+A local backup is complete only when its `data/backups/<id>.json` exists, and that file is written last and fsynced.
+Anything else of that id that has not changed for 6 h is removed after a backup and at start. The one exception fails
+closed: a team-folder archive with its own `meta.json` is never removed this way, and nothing is removed when
+`data/backups` is missing or cannot be listed. Version folders (installer and in-app update) are synced before they get
+their final name, and `app/current` is switched only by renaming a new link.
+
+## Files search finds files by name first (fix/files-search-names-first, 2026-11-11, QA TC-260)
+
+The Files search box searches names and contents: files and folders whose name holds every word come first (the ⌘K
+name search, with the same permission checks), then the lines that contain the text. An HTML file's line is shown as
+its plain text, and a line is left out only when the match is in its markup alone (tags, attributes, comments,
+scripts, styles); a title or hidden text is still found.
+
+Version impact: patch (a fix of the file screen's search; no API change).
+
+## Phones: one place to type an ask answer; side chat long press like the room (fix/phone-polish-2, 2026-11-11, QA TC-265)
+
+- Amends "The message box answers the AI's open question": while the message box on screen answers an AI question,
+  that card has no text box or secrets line of its own. It says to type below. The secrets line is the box's: the full
+  chat and now the side chat too, which also has the secret hold and the length check. Other cards keep their box (see
+  above). This applies on every screen size, since the duplicate boxes were on every size.
+- Amends "Trina side chat": in the side chat panel on a phone, a message's actions open with a long press as a sheet,
+  as in a room. The send-here button stays in sight under each finished answer.
+
+## Spread engine launches through a start gate (fix/spread-engine-starts, 2026-11-11)
+
+- To spread answer starts, delay only the engine launch, never the queue claim. A turn is claimed, holds its slot and
+  counts as running at once. Its `TurnExec.run` waits in a FIFO start gate (3 per 200 ms).
+- So the queue's order, fairness and limits never depend on the spread.
+
+Version impact: patch (a performance fix; no API, setting or data change).
+
+Supersedes #463.
+
+## Phone-app wording (fix/phone-app-wording, 2026-11-11, QA TC-264)
+
+**Phone-app wording.** Copy that names the browser ("browser settings", "new tab") is picked by where the page runs.
+Inside the phone app (`mobileApp()` is set), it names the phone's Settings for the app (per the bridge's `platform`)
+or "your browser" for links that leave the app. When the bridge offers `push-permission-v1`, a permission problem gets
+an "Open Settings" button (`openAppSettings`). The choices are pure functions in `web/src/lib/appWording.ts`, so they
+can be unit tested.
+
+## Phones edit only .md and .txt; no 다시 시도 when the HWP preview cannot work here (fix/phone-edit-and-hwp-retry, 2026-11-11)
+
+- On a phone, a file can be edited from the ⋯ sheet only when it is Markdown (`.md`, `.markdown`) or `.txt`. This is
+  decided by file extension, not by preview kind. Computers keep the pencil for every editable kind.
+- The HWP preview offers 다시 시도 only when trying again can change the answer. A final server reason (`engine`,
+  `isolation`, `unsupported`, `locked`, `distribution`, `damaged`, `limit`, `loss`) shows the download only. Transient
+  reasons, `disabled` and `missing`, and failures without the server's answer keep the retry.
