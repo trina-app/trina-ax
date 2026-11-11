@@ -747,6 +747,7 @@ export const en: Record<MessageKey, string> = {
   'files.readOnlyFolder': 'Read-only folder',
   'files.navigationOnly': "Only some folders inside are open to you",
   'files.emptyDrop': 'Drop files here',
+  'files.emptyTap': 'No files yet. Tap Upload to add some',
   'files.emptyReadOnly': 'This folder is empty',
   'md.copyQuote': 'Copy {what}',
   'files.noSubfolders': 'No subfolders',

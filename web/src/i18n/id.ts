@@ -747,6 +747,7 @@ export const id: Record<MessageKey, string> = {
   'files.readOnlyFolder': 'Folder hanya baca',
   'files.navigationOnly': "Hanya sebagian folder di dalamnya yang bisa Anda buka",
   'files.emptyDrop': 'Tarik file ke sini',
+  'files.emptyTap': 'Belum ada file. Ketuk Unggah untuk menambahkan',
   'files.emptyReadOnly': 'Folder ini kosong',
   'md.copyQuote': 'Salin {what}',
   'files.noSubfolders': 'Tidak ada subfolder',

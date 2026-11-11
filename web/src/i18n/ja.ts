@@ -723,6 +723,7 @@ export const ja: Record<MessageKey, string> = {
   'files.readOnlyFolder': "読み取り専用フォルダー",
   'files.navigationOnly': "中の一部のフォルダーだけ開けます",
   'files.emptyDrop': "ここにファイルをドロップ",
+  'files.emptyTap': "まだファイルがありません。アップロードをタップして追加してください",
   'files.emptyReadOnly': "このフォルダーは空です",
   'md.copyQuote': '{what}をコピー',
   'files.noSubfolders': "サブフォルダーはありません",

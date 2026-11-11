@@ -867,7 +867,7 @@ export default function Files() {
                 )}
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
-                  <EmptyState icon={<Upload size={28} />} title={canWrite ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
+                  <EmptyState icon={<Upload size={28} />} title={canWrite ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
                     {canWrite && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}

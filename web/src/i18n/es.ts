@@ -723,6 +723,7 @@ export const es: Record<MessageKey, string> = {
   'files.readOnlyFolder': "Carpeta de solo lectura",
   'files.navigationOnly': "Solo puede abrir algunas carpetas de dentro",
   'files.emptyDrop': "Suelte archivos aquí",
+  'files.emptyTap': "Aún no hay archivos. Toca Subir para añadir",
   'files.emptyReadOnly': "Esta carpeta está vacía",
   'md.copyQuote': 'Copiar {what}',
   'files.noSubfolders': "No hay subcarpetas",

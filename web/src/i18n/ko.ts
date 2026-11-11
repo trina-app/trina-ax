@@ -746,6 +746,7 @@ export const ko = {
   'files.readOnlyFolder': '읽기 전용 폴더',
   'files.navigationOnly': "안의 일부 폴더만 열 수 있어요",
   'files.emptyDrop': '파일을 끌어다 놓으세요',
+  'files.emptyTap': '아직 파일이 없어요. 올리기를 눌러 넣어 보세요',
   'files.emptyReadOnly': '빈 폴더예요',
   'md.copyQuote': '{what} 복사',
   'files.noSubfolders': '하위 폴더가 없어요',
