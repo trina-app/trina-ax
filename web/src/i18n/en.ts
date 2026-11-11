@@ -731,7 +731,7 @@ export const en: Record<MessageKey, string> = {
   'files.search.scope': 'Lines that contain “{q}” in {folder}',
   'files.search.none': 'No file you can open contains this text.',
   'files.search.names': 'Files and folders named “{q}”',
-  'files.search.namesTruncated': 'Only the first {n} names are shown. Type more text to narrow the search.',
+  'files.search.namesTruncated': '{n, plural, one {Only the first name is shown.} other {Only the first # names are shown.}} Type more text to narrow the search.',
   'files.search.line': 'Line {n}',
   'files.search.truncated': '{n, plural, one {Only the first line is shown.} other {Only the first # lines are shown.}} Type more text to narrow the search.',
   'files.search.timedOut': 'The search stopped at the time limit. Some results can be missing.',
