@@ -34,12 +34,26 @@ Out: per-address limits, table caps and eviction (unchanged, QA found them right
 
 ## Risks
 
-Claude's / ChatGPT's servers send for many people from few networks: during a busy minute a network gets 30 anonymous
-requests (about 6 new connections a minute per network); outside busy minutes nothing changes. Connected apps (tokens,
-live refresh) never use the shared bucket. One more small write per anonymous request (the network counter; rows
-expire like the others). The sticky row: checked on phone and laptop sizes; scroll-padding keeps focused boxes clear.
+- Claude's / ChatGPT's servers send for many people from few networks. During a busy minute a network gets 30 anonymous
+  requests, about 6 new connections a minute per network. Outside busy minutes nothing changes.
+- The cost of making a minute busy is unchanged: 14 addresses (2,400 / 180). What changes is that a busy minute now
+  slows only the flooding networks; it no longer stops everyone.
+- Connected apps (tokens, live refresh) never use the shared bucket.
+- Writes: a request refused by its network's share is refused before anything is written, so ever new addresses of one
+  network add no rows. Per anonymous request let in, one more small write (the network counter). The last-resort cap
+  is 30,000 a minute, 12.5 times the old 2,400, so the bound on rows written in a minute is about 12.5 times higher too:
+  about 3 per request, plus one hour-long row per registration.
+- Left open (owner): filling the 30,000 cap in one minute takes about 900 IPv4 /24s, or 900 IPv6 /48s. An attacker
+  with a large IPv6 block (a /32 holds 65,536 /48s) can still do that. A coarser IPv6 level (for example a share per
+  /32) would close it, at the cost of counting large providers as one network.
+- The sticky row was checked on phone and laptop sizes; scroll-padding keeps focused boxes clear.
 
 ## Result
 
-Done: unit tests (remote-mcp-oauth, remote-mcp-http) and Playwright (connectors.spec.ts at 1280x720 and 390x844) pass;
-the two new Playwright cases fail on the old page. Live relay check: see the PR.
+Done:
+- Unit tests pass (remote-mcp-oauth, remote-mcp-http), including a row-count check that fails on the first version
+  (125 rows instead of 25).
+- Playwright passes (connectors.spec.ts at 1280x720 and 390x844). The two new cases fail on the old page.
+- Live, through a local relay with QA's scripts (15 x 170 metadata requests in one minute):
+  - this branch: 2,410 let in and 140 refused, and a new person connects all the way to a tool call.
+  - origin/dev: 2,400 let in and 150 refused, and the new person gets 429 at register.

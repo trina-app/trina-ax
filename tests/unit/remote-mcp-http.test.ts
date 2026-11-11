@@ -317,11 +317,17 @@ test('busy minute: an IPv6 flood gets one share per /48; refused requests do not
   const f = await fixture('busy-v6'), minute = Math.floor(Date.now() / 60_000) * 60_000 + 60_000
   f.oauth.now = () => minute + 1000
   OAUTH_LIMITS.busyPerMinute = 20; OAUTH_LIMITS.networkPerMinute = 3; OAUTH_LIMITS.anonymousPerMinute = 40
-  const meta = (ip: string) => f.from(ip, '/.well-known/oauth-authorization-server').then(r => r.status)
+  const meta = async (ip: string) => (await f.from(ip, '/.well-known/oauth-authorization-server')).status
   // one /48, ever new /64s (each its own address limit): 20 get in, then the minute is busy and the /48 is over its 3
   const v6: number[] = []
-  for (let i = 1; i <= 100; i++) v6.push(await meta(`2001:db8:7:${i.toString(16)}::1`))
+  const rows = () => (f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_limits').get() as { n: number }).n
+  for (let i = 1; i <= 20; i++) v6.push(await meta(`2001:db8:7:${i.toString(16)}::1`))
+  const before = rows()
+  for (let i = 21; i <= 100; i++) v6.push(await meta(`2001:db8:7:${i.toString(16)}::1`))
   expect(v6.filter(s => s === 200).length).toBe(20)
+  // the refused ones wrote nothing, also a registration (an hour-long row per address) from fresh /64s
+  for (let i = 101; i <= 110; i++) expect((await f.from(`2001:db8:7:${i.toString(16)}::1`, '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: [redirect] }) })).status).toBe(429)
+  expect(rows()).toBe(before)
   // the 80 refused ones did not spend the cap: 20 fresh networks still get in (up to 3 each), then the cap (40) holds
   const fresh: number[] = []
   for (let n = 1; n <= 10; n++) for (let i = 0; i < 3; i++) fresh.push(await meta(`203.0.${n}.${i + 1}`))

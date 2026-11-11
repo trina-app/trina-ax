@@ -87,7 +87,7 @@ export default function ConnectorConsent() {
       </fieldset>}
       {request.admin && <p className="text-sm" data-testid="connector-admin">{t('connectors.adminIncluded')}</p>}
       <p className="text-sm text-muted">{t('connectors.sessionBound')}</p><p className="text-sm text-muted">{t('connectors.scopeLimit')}</p>
-      <div className="sticky bottom-0 z-20 -mx-6 flex gap-3 border-t border-line bg-[var(--sticky-bg)] px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]" data-testid="connector-actions"><Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="connector-allow">{t('connectors.allow')}</Button><Button disabled={busy} onClick={() => void decide(false)} data-testid="connector-deny">{t('connectors.deny')}</Button></div>
+      <div className="sticky bottom-0 z-20 -mx-6 flex gap-3 border-t border-line bg-[var(--sticky-bg)] px-6 py-4" data-testid="connector-actions"><Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="connector-allow">{t('connectors.allow')}</Button><Button disabled={busy} onClick={() => void decide(false)} data-testid="connector-deny">{t('connectors.deny')}</Button></div>
     </>}
     {!request && <div className="pb-6" />}
   </section>

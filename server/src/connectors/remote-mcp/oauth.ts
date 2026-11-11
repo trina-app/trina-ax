@@ -34,7 +34,8 @@ const iso = (v: number) => new Date(v).toISOString()
  *   authorize), so they still get in; a flooding network does not. Its refused requests are not counted in the bucket.
  * - anonymousPerMinute: the last-resort cap for everyone, so the work and the rows written stay bounded. Only requests
  *   let in count, so filling it during busy minutes takes (30,000 - 2,400) / 30 = about 900 networks (/24s or /48s) in
- *   one minute; filling the busy level takes 14 addresses (2,400 / 180).
+ *   one minute; filling the busy level takes 14 addresses (2,400 / 180). Its bound on rows: at most 30,000 requests
+ *   a minute write rows (about 3 each: the address's buckets, the network, plus one hour-long row for register).
  */
 export const OAUTH_LIMITS: {
   perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; busyPerMinute: number; networkPerMinute: number
@@ -122,6 +123,11 @@ export class RemoteOAuth {
   rate(area: string, identity: string, limit: number, window = 60_000) {
     if (this.count(area, identity, window) > limit) throw new OAuthError('slow_down', 429)
   }
+  /** This minute's count, read only. */
+  private peek(area: string, identity: string): number {
+    const r = this.db.query('SELECT bucket,count FROM remote_mcp_limits WHERE key=?').get(hash(area + '\0' + identity)) as { bucket: number; count: number } | null
+    return r && r.bucket === Math.floor(this.now() / 60_000) + 1 ? r.count : 0
+  }
   /** Count one more in this window and return the count (no limit). */
   private count(area: string, identity: string, window = 60_000): number {
     const bucket = (Math.floor(this.now() / window) + 1) * (window / 60_000), key = hash(area + '\0' + identity)
@@ -129,29 +135,28 @@ export class RemoteOAuth {
       ON CONFLICT(key) DO UPDATE SET bucket=excluded.bucket,count=CASE WHEN bucket=excluded.bucket THEN count+1 ELSE 1 END RETURNING count`).get(key, bucket) as { count: number }).count
   }
   /**
-   * A request no credential vouches for yet. Order: a shared bucket at its last-resort cap refuses at once, writing
-   * nothing (so a flood from ever new addresses adds no rows then); then the address's own buckets (an address over
-   * its limit does not spend the shared one); then, in a busy minute (past busyPerMinute), the network's share: a
-   * network that already sent more than networkPerMinute is refused and does not spend the shared bucket either; then
-   * the shared bucket. `shared: false`: only the address's buckets (token, which with a live code or refresh token, see
+   * A request no credential vouches for yet. Order, first the read-only refusals that write nothing (so a flood from
+   * ever new addresses adds no rows then): a shared bucket at its last-resort cap; in a busy minute (past
+   * busyPerMinute), a network that already sent networkPerMinute. Then the address's own buckets (an address over its
+   * limit does not spend the shared one); then the network's count and the shared bucket. `shared: false`: only the address's buckets (token, which with a live code or refresh token, see
    * liveCredential(); an upload link that is live).
    * An /mcp call with a live access token goes through granted() instead.
    */
   ingress(area: string, ip: string | null, o: { shared?: boolean } = {}) {
     this.enabled()
     const shared = o.shared !== false
-    let used = 0
     if (shared) {
-      const g = this.db.query('SELECT bucket,count FROM remote_mcp_limits WHERE key=?').get(hash('global\0all')) as { bucket: number; count: number } | null
-      used = g && g.bucket === Math.floor(this.now() / 60_000) + 1 ? g.count : 0
+      const used = this.peek('global', 'all')
       if (used >= OAUTH_LIMITS.anonymousPerMinute) throw new OAuthError('slow_down', 429)
+      // a busy minute: a network over its share is refused before anything is written, so ever new addresses of one
+      // network add no rows (and spend nothing). All callers without an address share one network ('unknown').
+      if (used >= OAUTH_LIMITS.busyPerMinute && this.peek('network', networkKey(ip)) >= OAUTH_LIMITS.networkPerMinute) throw new OAuthError('slow_down', 429)
     }
     const who = ipKey(ip)
     for (const [window, limit] of OAUTH_LIMITS.perAddress[area] ?? OAUTH_LIMITS.perAddress.default!) this.rate(window === 60_000 ? area : `${area}@${window}`, who, limit, window)
     if (shared) {
-      // counted in every minute (not only busy ones), so a network that flooded before the minute got busy is known
-      const sent = this.count('network', networkKey(ip))
-      if (used >= OAUTH_LIMITS.busyPerMinute && sent > OAUTH_LIMITS.networkPerMinute) throw new OAuthError('slow_down', 429)
+      // counted in every minute (not only busy ones), so a network that sent much before the minute got busy is known
+      this.count('network', networkKey(ip))
       this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
     }
     this.housekeep()
