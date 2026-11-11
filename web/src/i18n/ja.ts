@@ -486,7 +486,7 @@ export const ja: Record<MessageKey, string> = {
   'voice.transcribing': "文字起こし中…",
   'voice.waiting': "ほかの音声入力が終わるのを待っています…",
   'voice.denied': "マイクへのアクセスがブロックされています。ブラウザーの設定でマイクを許可してください。",
-  'voice.deniedIos': "マイクへのアクセスがブロックされています。iPhoneの設定 › {product}でマイクをオンにしてください。",
+  'voice.deniedIos': "マイクへのアクセスがブロックされています。iPhoneの「設定」›「{product}」を開き、マイクをオンにしてください。",
   'voice.deniedAndroid': "マイクへのアクセスがブロックされています。スマートフォンの設定 › アプリ › {product} › 権限でマイクを許可してください。",
   'voice.openSettings': "設定を開く",
   'voice.unsupported': "このブラウザーでは音声を録音できません。",

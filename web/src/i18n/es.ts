@@ -487,7 +487,7 @@ export const es: Record<MessageKey, string> = {
   'voice.waiting': "Esperando a que termine otra entrada de voz…",
   'voice.denied': "El acceso al micrófono está bloqueado. Permítalo en la configuración del navegador.",
   'voice.deniedIos': "El acceso al micrófono está bloqueado. En su iPhone, abra Ajustes › {product} y active Micrófono.",
-  'voice.deniedAndroid': "El acceso al micrófono está bloqueado. En su teléfono, abra Ajustes › Aplicaciones › {product} › Permisos y permita el micrófono.",
+  'voice.deniedAndroid': "El acceso al micrófono está bloqueado. En su teléfono, abra Ajustes › Aplicaciones › {product} › Permisos y permita el acceso al micrófono.",
   'voice.openSettings': "Abrir Ajustes",
   'voice.unsupported': "Este navegador no puede grabar audio.",
   'voice.tooLong': "La grabación es demasiado larga. Debe ocupar menos de 50 MB.",

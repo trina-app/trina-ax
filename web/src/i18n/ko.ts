@@ -503,7 +503,7 @@ export const ko = {
   'voice.waiting': '다른 받아쓰기가 끝나길 기다리는 중…',
   'voice.denied': '마이크 사용이 막혀 있어요. 브라우저 설정에서 마이크를 허용해 주세요.',
   'voice.deniedIos': "마이크 사용이 막혀 있어요. iPhone의 설정 › {product}에서 마이크를 켜 주세요.",
-  'voice.deniedAndroid': "마이크 사용이 막혀 있어요. 휴대폰의 설정 › 애플리케이션 › {product} › 권한에서 마이크를 허용해 주세요.",
+  'voice.deniedAndroid': "마이크 사용이 막혀 있어요. 휴대폰의 설정 › 앱 › {product} › 권한에서 마이크를 허용해 주세요.",
   'voice.openSettings': "설정 열기",
   'voice.unsupported': '이 브라우저에서는 녹음할 수 없어요.',
   'voice.tooLong': '녹음이 너무 길어요. 50MB 이하로 나눠서 녹음해 주세요.',

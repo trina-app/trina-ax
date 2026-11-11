@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 21:02
 - Branch: `fix/phone-app-wording`
-- Status: in progress
+- Status: done
 - Where: web/ (copy and the two message boxes). Why: the phone app is a wrapper around the web app, so the fix is in the web UI's wording choice (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, wording fixes with no new feature or API
 
@@ -27,4 +27,4 @@ Out: ConnectorsView (PR #399), the empty folder wording (TC-207), other "new tab
 
 ## Result
 
-(filled at the end)
+Done as planned, one change: the iPhone/Android choice reads the app bridge's own `platform` (lib/mobile.ts mobileApp), not the user agent. Unit test web/test/unit/phone-app-wording.test.tsx; Playwright web/test/e2e/phone-app-wording.spec.ts at 1440 and 390×844 (browser vs app mic note, the Settings button sends `open-settings`, folder vs file menu).
