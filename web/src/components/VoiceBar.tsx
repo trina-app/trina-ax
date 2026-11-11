@@ -4,19 +4,18 @@
 //   for a clicked recording on a computer, that Space can be held), the input level, the time (the time left in the
 //   last 30 seconds), ✓ (the words go to the box).
 // - VoiceMic: the mic (a click toggles; on touch screens a finger held on it talks), a spinner on it while
-//   transcribing; for admins while voice input is off, the way to Admin › Team settings; nothing for members then.
+//   transcribing; nothing while voice input can't be used on this server (lib/voice.ts micState).
 // - VoiceLive: the polite live region (녹음 중, 텍스트로 바꾸는 중, 텍스트를 넣었어요). Always there, so a change is read.
 // - VoiceProgress: the job's own label (a model download, a conversion) over a box that has text; an empty box shows it
 //   as its placeholder.
 // Ping and level movement only without reduced motion.
 import clsx from 'clsx'
-import { Check, Loader2, Mic, MicOff, X } from 'lucide-react'
+import { Check, Loader2, Mic, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useT } from '../i18n'
 import { fmtDuration } from '../lib/format'
-import { navigateTo } from '../lib/nav'
 import type { VoiceInputState } from '../lib/useVoiceInput'
-import { SPEECH_SETTINGS_PATH, type MicState } from '../lib/voice'
+import type { MicState } from '../lib/voice'
 import { Tooltip } from './Tooltip'
 import { IconButton } from './ui'
 
@@ -64,12 +63,6 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
 export function VoiceMic({ voice, mic, disabled = false, tip = false, className }: { voice: VoiceInputState; mic: MicState; disabled?: boolean; tip?: boolean; className?: string }) {
   const t = useT()
   if (mic === 'hidden') return null
-  if (mic === 'adminHint')
-    return (
-      <IconButton tip={tip} label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className={clsx('text-faint max-md:hidden', className)} data-testid="voice-off-hint">
-        <MicOff size={18} />
-      </IconButton>
-    )
   return (
     <IconButton
       tip={tip}

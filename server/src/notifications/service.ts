@@ -52,7 +52,7 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
 export type ServiceRequestEvent = Extract<NotificationEventType, 'service.request' | 'service.ready'>
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -60,9 +60,10 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
- * a transfer, a locked password check: migration 270) and a member's ask to add an app with its answer (migration 343)
+ * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
+ * a member's ask to add an app with its answer (migration 343)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'service_request_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -153,6 +154,11 @@ export class Notifications {
    * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
+  }
+  /** Someone started to see a team project (chat/project-joins.ts): told to its members. The source is the
+   * project.member_gained audit row's id only. Shown always and never pushed: it is rare and quiet. */
+  projectJoined(userId: string, auditId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'project.joined', auditId, createdAt, true)
   }
   /** A member asked to add an app the team has not set up (integrations/service-requests.ts): one notice per owner or
    * admin and app (the source is the app's id). A new ask arms it again (unread, its time now: it moves up and names
@@ -409,8 +415,9 @@ export class Notifications {
     if (!project) return base
     const devEnv = { projectId: projectId!, projectName: project.name }
     try {
-      // a project whose folder is in the trash is the admins' and the owner's (chat/projects.ts canSeeProject)
-      if (project.trashed_with !== null && !admins(db).includes(row.user_id)) throw new Error('project folder in the trash')
+      // a project whose folder is in the trash: nobody reads it (chat/projects.ts canSeeProject); an admin still gets a
+      // stop notice's project name and reason below, never the job's text
+      if (project.trashed_with !== null) throw new Error('project folder in the trash')
       authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
     } catch {
       return stop && admins(db).includes(row.user_id) ? { ...base, devEnv: { ...devEnv, stopCode: stop.code } } : base
@@ -428,7 +435,7 @@ export class Notifications {
     const project = run.project_id ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(run.project_id) as { name: string; folder_path: string; trashed_with: string | null } | null : null
     if (project) {
       try {
-        if (project.trashed_with !== null && !admins(db).includes(row.user_id)) throw new Error('project folder in the trash')
+        if (project.trashed_with !== null) throw new Error('project folder in the trash')
         authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
       } catch { return base }
     }
@@ -475,6 +482,18 @@ export class Notifications {
     if (row.event_type === 'onboarding.ai_request') {
       const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(row.source_id) as { name: string } | null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}) }
+    }
+    // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
+    if (row.event_type === 'project.joined') {
+      const a = this.ctx.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { detail: string | null } | null
+      let d: { projectId?: string; userId?: string } = {}
+      try { d = JSON.parse(a?.detail ?? '{}') } catch {}
+      const u = d.userId ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(d.userId) as { name: string } | null : null
+      const pr = d.projectId ? this.ctx.db.query('SELECT id, name, folder_path, trashed_with FROM projects WHERE id = ?').get(d.projectId) as { id: string; name: string; folder_path: string; trashed_with: string | null } | null : null
+      let sees = false
+      if (pr && pr.trashed_with === null) { try { sees = atLeast(this.ctx.files.rules().access(this.ctx.files.principal(row.user_id), pr.folder_path.split('/')), 'read') } catch { sees = false } }
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: sees ? 'project' : null, outcome: null,
+        projectJoined: { name: u?.name ?? null, project: sees && pr ? { id: pr.id, name: pr.name } : null } }
     }
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
@@ -565,7 +584,7 @@ export class Notifications {
           if (chat.project_id) {
             const project = this.ctx.db.query('SELECT folder_path, trashed_with FROM projects WHERE id=?').get(chat.project_id) as { folder_path: string; trashed_with: string | null } | null
             if (!project) throw new Error('missing project')
-            if (project.trashed_with !== null && p.role !== 'owner' && p.role !== 'admin') throw new Error('project folder in the trash')
+            if (project.trashed_with !== null) throw new Error('project folder in the trash')
             authorize(this.ctx.files.fx, rules, p, project.folder_path, 'read')
           }
           for (const source of readScope(this.ctx.db, chat.id) ?? []) {

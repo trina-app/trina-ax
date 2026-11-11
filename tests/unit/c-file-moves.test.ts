@@ -7,6 +7,7 @@ import path from 'node:path'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { fileSummaryOf } from '../../server/src/chat/turn'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('c-file-moves') })
@@ -333,36 +334,74 @@ describe('move_files', () => {
     const moved = await call('alice', 'move_files', { paths: ['projects/falcon/drafts/skills'], to_folder: 'projects/falcon' }, { person: ask(true), turn: true })
     expect(moved.isError).toBe(true)
     expect(has('projects/falcon/skills/evil')).toBe(false)
-    // a folder holding a skills/ folder into projects/: it would become a project's skills folder
+    // a folder holding a skills/ folder into projects/: it would become a project's skills folder. An admin who is no
+    // member writes nothing in projects/<name> (docs/DECISIONS.md "Project contents only for members"); someone a rule
+    // on projects/ lets write there meets the skill guard
     put('shared/kit/skills/x/SKILL.md', '---\nname: x\ndescription: x\n---\nsteps\n')
     const turnId = A.turn('carol', A.chat('carol'))
-    expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/do not move or copy with the file tools/)
-    // emptied, or carried off with the project's folder
+    const aliceTurn = A.turn('alice', A.chat('alice'))
+    expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    A.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_moves_projects_top', 'projects')").run()
+    A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_moves_projects_top', 'f_moves_projects_top', 'user', 'alice', 'write')").run()
+    try {
+      expect(() => componentC(A.ctx).files.move('alice', 'shared/kit', 'projects/kit', 'fail', { turnId: aliceTurn })).toThrow(/do not move or copy with the file tools/)
+      // the rule on projects/ does not reach in for an admin
+      expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    } finally {
+      A.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_moves_projects_top'").run()
+      A.ctx.db.query("DELETE FROM folders WHERE id = 'f_moves_projects_top'").run()
+    }
+    expect(has('projects/kit')).toBe(false)
+    // emptied, or carried off with the project's folder (by its member; an admin who is no member does not see it)
     put('projects/falcon/skills/kept/SKILL.md', '---\nname: kept\ndescription: x\n---\nsteps\n')
     const out = await call('alice', 'move_files', { paths: ['projects/falcon/skills/kept'], to_folder: 'projects/falcon/drafts' }, { person: ask(true), turn: true })
     expect(out.isError).toBe(true)
-    expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/do not move or copy with the file tools/)
-    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/do not move or copy with the file tools/)
+    expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
+    // carol as a member who writes all of it (person rules on its rule folders, as its members dialog adds them): the
+    // skill guard for the AI; and a project's folder never leaves projects/, also on the Files screen (409)
+    type Rule = { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: string | null; access: 'none' | 'read' | 'write' }
+    const rulesOf = (p: string) => A.ctx.db.query('SELECT r.subject_type AS subjectType, r.subject_id AS subjectId, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = ?').all(p) as Rule[]
+    const kept = ['projects/falcon', 'projects/falcon/public'].map((p) => [p, rulesOf(p)] as const)
+    for (const [p, rules] of kept) legacyProjectFolder(A.ctx.db, A.team, p, [...rules, { subjectType: 'user', subjectId: 'carol', access: 'write' }])
+    try {
+      expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/do not move or copy with the file tools/)
+      await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/do not move or copy with the file tools/)
+      let err: unknown
+      try { componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail') } catch (e) { err = e }
+      expect((err as { params?: Record<string, unknown> } | undefined)?.params).toEqual({ reason: 'project_location' })
+    } finally {
+      for (const [p, rules] of kept) legacyProjectFolder(A.ctx.db, A.team, p, rules)
+    }
+    await expect(componentC(A.ctx).files.copy('alice', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId: aliceTurn })).rejects.toThrow(/do not move or copy with the file tools/)
     expect(has('projects/falcon/skills/kept/SKILL.md')).toBe(true)
+    expect(has('shared/falcon-old')).toBe(false)
   })
 
-  test('a person moving a project\'s folder into projects/ is asked first: its skills switch on there', async () => {
+  test('an admin moving a project\'s folder into projects/ is refused when no member there: nothing moves, no skill switches on', async () => {
     const { componentC } = await import('../../server/src/team-files/component')
     put('shared/pricing/skills/margin/SKILL.md', '---\nname: margin\ndescription: x\n---\nsteps\n')
     put('shared/pricing/skills/README.md', '# x\n')
     A.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run('01900000-0000-7000-8000-0000000c0001', 'Pricing', 'shared/pricing', 'carol', new Date().toISOString())
     const svc = componentC(A.ctx).files
-    let err: unknown
-    try { svc.move('carol', 'shared/pricing', 'projects/pricing', 'fail') } catch (e) { err = e }
-    expect((err as { params?: Record<string, unknown> }).params).toEqual({ reason: 'project_skills_on', skills: 'margin', count: 1 })
+    // projects/<name> is its members' (docs/DECISIONS.md "Project contents only for members"): asked first or not, an
+    // admin writes no new folder there, so the skills are never switched on there
+    for (const skillsOk of [false, true]) expect(() => svc.move('carol', 'shared/pricing', 'projects/pricing', 'fail', { skillsOk })).toThrow(/not found or no access|only a new project makes a folder directly in 'projects\/'/)
     expect(has('shared/pricing/skills/margin/SKILL.md')).toBe(true)
-    svc.move('carol', 'shared/pricing', 'projects/pricing', 'fail', { skillsOk: true })
-    expect(has('projects/pricing/skills/margin/SKILL.md')).toBe(true)
-    const a = A.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/pricing/skills/margin/SKILL.md'").get() as { target: string; detail: string }
-    expect(JSON.parse(a.detail)).toMatchObject({ change: 'move', from: 'shared/pricing/skills/margin/SKILL.md', kind: 'skill', project: { name: 'Pricing' } })
-    // a rename inside projects/ keeps them on: nothing to ask
-    svc.move('carol', 'projects/pricing', 'projects/pricing-2', 'fail')
-    expect(has('projects/pricing-2/skills/margin/SKILL.md')).toBe(true)
+    expect(has('projects/pricing')).toBe(false)
+    expect(A.ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'skills.change' AND target = 'projects/pricing/skills/margin/SKILL.md'").get()).toBeNull()
+  })
+
+  test('a project\'s folder is not renamed inside projects/, also by an admin who is its member: a new name is a new entry right in projects/; its skills stay where they are', async () => {
+    const { componentC } = await import('../../server/src/team-files/component')
+    const svc = componentC(A.ctx).files
+    legacyProjectFolder(A.ctx.db, A.team, 'projects/pricing-1', [{ subjectType: 'user', subjectId: 'carol', access: 'write' }], 'carol')
+    put('projects/pricing-1/skills/margin/SKILL.md', '---\nname: margin\ndescription: x\n---\nsteps\n')
+    // nobody but the server makes an entry directly in projects/ (docs/DECISIONS.md "Project contents only for members")
+    for (const skillsOk of [false, true]) expect(() => svc.move('carol', 'projects/pricing-1', 'projects/pricing-2', 'fail', { skillsOk })).toThrow()
+    expect(has('projects/pricing-1/skills/margin/SKILL.md')).toBe(true)
+    expect(has('projects/pricing-2')).toBe(false)
+    expect(A.ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'skills.change' AND target LIKE 'projects/pricing-2%'").get()).toBeNull()
   })
 
   test('the AI cannot copy into skills/ or a group\'s skills folder (the file layer); a person can', async () => {

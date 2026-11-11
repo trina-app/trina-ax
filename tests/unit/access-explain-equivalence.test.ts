@@ -3,14 +3,62 @@
 // tests/lib/access-before-explain.ts, and random rule sets, people and paths are run through the old access(), the
 // new access() and explain().access. The reason is checked against the old function too: the folder it names decides
 // exactly as the old pick() did, and no deeper folder had a rule for the person.
+// Since "Project contents only for members" (docs/DECISIONS.md) the old function is the reference with one rule added,
+// written out again here (ZonedOld): at or below projects/<name> the owner and admins are judged as a member with the
+// same groups, by the rules at or below projects/<name> only; the system principal keeps write.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { makeEnv } from '../lib/env'
-import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
+import { RuleSet, SYSTEM_PRINCIPAL, type Access, type AccessReason, type Principal } from '../../server/src/policy/access'
 import { OldRuleSet, type OldRule } from '../lib/access-before-explain'
 import { shownPath } from '../../server/src/admin/access-rows'
+
+// ---------------- the reference: the old function and the members-only zone ----------------
+/** at or below projects/<name>: `projects` compared after NFC and lower-casing; projects/ itself is outside */
+const inZone = (segs: readonly string[]) => segs.length >= 2 && segs[0]!.normalize('NFC').toLowerCase() === 'projects'
+/** the owner or an admin (never the system principal) inside the zone */
+const staffInZone = (p: Principal, segs: readonly string[]) => !p.system && (p.role === 'owner' || p.role === 'admin') && inZone(segs)
+const depth = (folder: string) => (folder === '' ? 0 : folder.split('/').length)
+/**
+ * The old permission function (tests/lib/access-before-explain.ts, unchanged) with the zone rule: the owner and admins
+ * inside the zone are a member with the same groups (a role rule for admins or the owner never applies there, one for
+ * members does), and only the rules of folders at or below projects/<name> count for them (rules on projects/ or the
+ * root never reach in). Everyone else, and anyone outside the zone, is judged by the old function as it was.
+ */
+class ZonedOld {
+  private old: OldRuleSet
+  private floor: OldRuleSet
+  constructor(rows: World['rows']) {
+    this.old = new OldRuleSet(rows)
+    this.floor = new OldRuleSet(rows.filter((r) => depth(r.path) >= 2))
+  }
+  /** who is judged at segs */
+  subject(p: Principal, segs: readonly string[]): Principal { return staffInZone(p, segs) ? { id: p.id, name: p.name, role: 'member', groups: p.groups } : p }
+  /** the owner or an admin below projects/<name> who does not read projects/<name> itself (is no member): nothing inside
+   * is theirs, whatever a folder inside says (security review M2: nobody reads part of a project without showing in its
+   * members); the project folder's own decision is the reason */
+  gated(p: Principal, segs: readonly string[]): boolean { return staffInZone(p, segs) && segs.length > 2 && this.floor.access(this.subject(p, segs), segs.slice(0, 2)) === 'none' }
+  access(p: Principal, segs: readonly string[]): Access {
+    if (!staffInZone(p, segs)) return this.old.access(p, segs)
+    return this.gated(p, segs) ? 'none' : this.floor.access(this.subject(p, segs), segs)
+  }
+  /** what the rules at or below projects/<name> alone would give them there (the answer without the membership gate) */
+  ungated(p: Principal, segs: readonly string[]): Access { return this.floor.access(this.subject(p, segs), segs) }
+  /** the answer of one folder's rules alone for p deciding at segs (null: none applies, or a folder above the floor) */
+  at(p: Principal, segs: readonly string[], folder: string): Access | null { return staffInZone(p, segs) ? this.floor.at(this.subject(p, segs), folder) : this.old.at(p, folder) }
+  /** canList() written out: read here, or read on a rule folder strictly below (outside users/), or the own folder below */
+  canList(p: Principal, segs: readonly string[], folders: readonly string[]): boolean {
+    if (this.access(p, segs) !== 'none') return true
+    const own = ['users', p.id]
+    if (own.length > segs.length && segs.every((s, i) => s === own[i])) return true
+    return folders.some((f) => {
+      const c = f === '' ? [] : f.split('/')
+      return c[0] !== 'users' && c.length > segs.length && segs.every((s, i) => s === c[i]) && this.access(p, c) !== 'none'
+    })
+  }
+}
 
 // ---------------- random worlds (seeded: a failure prints its seed and repeats) ----------------
 function rng(seed: number) {
@@ -51,24 +99,61 @@ function world(seed: number): World {
     id: pick(USERS), name: pick(PERSON_NAMES), role: r() < 0.7 ? 'member' : pick(ROLES), groups: GROUPS.filter(() => r() < 0.35),
   }))
   const paths: string[][] = []
-  for (let i = 0; i < 40; i++) {
+  // most worlds have the members-only zone (below); they give 8 of their 40 paths to it
+  const withZone = r() < 0.7
+  for (let i = 0; i < (withZone ? 32 : 40); i++) {
     // half the paths go through a rule folder (so the deepest-folder walk and the tiers are exercised), half are random
     const base = r() < 0.5 ? [...pick(folders)] : []
     paths.push([...base, ...randPath(base.length ? 3 : 6)])
   }
   paths.push([], ['users'], ['users', 'mia'], [PRODUCT.systemDir], ['shared', `${PRODUCT.tmpPrefix}1`, 'x'])
+  // the members-only zone (in most worlds): project folders under projects/ in any letter case, folders inside them with
+  // rules, role rules for admins and the owner inside (they never apply there), and rules on projects/ and on the root
+  // that name the owner and admins (they never reach in for them)
+  if (withZone) {
+    const tops = ['projects', 'Projects', 'PROJECTS']
+    const zone = Array.from({ length: 1 + Math.floor(r() * 3) }, () => [pick(tops), pick(NAMES), ...randPath(2)])
+    const add = (f: string[], subject_type: OldRule['subject_type'], subject_id: string | null, access: Access) => rows.push({ path: f.join('/'), subject_type, subject_id, access })
+    for (const f of zone) {
+      for (let i = 0, n = Math.floor(r() * 4); i < n; i++) {
+        const t = pick(['everyone', 'role', 'group', 'user'] as const)
+        add(f, t, t === 'everyone' ? null : t === 'role' ? pick(ROLES) : t === 'group' ? pick(GROUPS) : pick(USERS), pick(ACCESS))
+      }
+      if (r() < 0.5) add(f, 'role', pick(['admin', 'owner']), pick(['read', 'write'] as const))
+      if (r() < 0.3) add(f.slice(0, 2), 'everyone', null, pick(ACCESS)) // the project folder itself
+    }
+    for (const above of [[pick(tops)], []]) {
+      if (r() < 0.6) add(above, 'user', pick(USERS), pick(['read', 'write'] as const))
+      if (r() < 0.4) add(above, 'role', pick(['admin', 'owner', 'member']), pick(['read', 'write'] as const))
+      if (r() < 0.4) { const t = pick(['everyone', 'group'] as const); add(above, t, t === 'group' ? pick(GROUPS) : null, 'read') }
+    }
+    for (let i = 0; i < 6; i++) {
+      const f = pick(zone)
+      paths.push(r() < 0.3 ? f.slice(0, 2) : [...f.slice(0, 2 + Math.floor(r() * (f.length - 1))), ...randPath(2)])
+    }
+    paths.push([pick(tops)], [pick(tops), pick(NAMES)])
+    // the owner or an admin among the people, with groups the rules there name
+    people.push({ id: pick(USERS), name: pick(PERSON_NAMES), role: pick(['owner', 'admin'] as const), groups: GROUPS.filter(() => r() < 0.5) })
+  }
+  // the server's own principal (admin/folders.ts): write everywhere outside users/ and .system/, the zone included
+  if (r() < 0.3) people.push({ ...SYSTEM_PRINCIPAL, groups: [] })
   return { rows, people, paths }
 }
 
 describe('access() and explain() answer exactly as the permission function did before', () => {
   const SEEDS = 3000
-  test(`${SEEDS} random worlds: old access() = new access() = explain().access, the reason is the old decision, listing() = navigator() = canList()`, () => {
+  test(`${SEEDS} random worlds: old access() (with the members-only zone) = new access() = explain().access, the reason is the old decision, listing() = navigator() = canList()`, () => {
     let checked = 0, listed = 0
     const kinds = new Map<string, number>()
+    // the reasons the owner and admins got inside the zone (never owner-admin)
+    const zoneKinds = new Map<string, number>()
+    // answers where a folder inside a project would have let a non-member owner or admin in, and the gate did not
+    let gatedCut = 0
     for (let seed = 1; seed <= SEEDS; seed++) {
       const w = world(seed)
-      const old = new OldRuleSet(w.rows)
+      const old = new ZonedOld(w.rows)
       const now = new RuleSet(w.rows)
+      const ruleFolders = [...new Set(w.rows.map((r) => r.path))]
       const listings = new Map<Principal, ReturnType<RuleSet['listing']>>()
       const navs = new Map<string, ReturnType<RuleSet['navigator']>>()
       for (const p of w.people) {
@@ -78,13 +163,26 @@ describe('access() and explain() answer exactly as the permission function did b
           const e = now.explain(p, segs)
           if (got !== want || e.access !== want) throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)}: old ${want}, access ${got}, explain ${e.access}`)
           kinds.set(e.reason.kind, (kinds.get(e.reason.kind) ?? 0) + 1)
+          const zone = staffInZone(p, segs)
+          if (zone) {
+            zoneKinds.set(e.reason.kind, (zoneKinds.get(e.reason.kind) ?? 0) + 1)
+            if (old.gated(p, segs) && old.ungated(p, segs) !== 'none') gatedCut++
+            if (e.reason.kind === 'owner-admin') throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)}: owner-admin inside the zone`)
+            // canList() written out: rules above projects/<name> do not list anything inside it for them either
+            if (now.canList(p, segs) !== old.canList(p, segs, ruleFolders)) throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)}: canList ${now.canList(p, segs)}, reference ${old.canList(p, segs, ruleFolders)}`)
+          }
           if (e.reason.kind === 'rule') {
             const { folder, tier, rules } = e.reason
             const fsegs = folder === '' ? [] : folder.split('/')
             // the folder is on the way up, its rules decide as the old pick() did, and no deeper folder had a rule for p
             expect(fsegs.length <= segs.length && fsegs.every((s, i) => s === segs[i])).toBe(true)
-            expect(old.at(p, folder)).toBe(want)
-            for (let len = segs.length; len > fsegs.length; len--) expect(old.at(p, segs.slice(0, len).join('/'))).toBeNull()
+            // inside the zone the owner's and admins' deciding folder is projects/<name> or below, never projects/ or the root;
+            // below a project they are no member of it is projects/<name> itself, whatever a deeper folder says
+            if (zone) expect(fsegs.length).toBeGreaterThanOrEqual(2)
+            const gated = old.gated(p, segs)
+            if (gated) expect(fsegs.length).toBe(2)
+            expect(old.at(p, segs, folder)).toBe(want)
+            if (!gated) for (let len = segs.length; len > fsegs.length; len--) expect(old.at(p, segs, segs.slice(0, len).join('/'))).toBeNull()
             // the rules shown are the person's rules of the deciding step; the widest of them is the answer
             expect(rules.length).toBeGreaterThan(0)
             expect(rules.every((x) => x.subjectType === tier)).toBe(true)
@@ -99,7 +197,8 @@ describe('access() and explain() answer exactly as the permission function did b
           const k = Math.floor((seed * 7 + checked) % (segs.length + 1))
           if (list.listable(segs) !== can || now.listing(p, segs.slice(0, k)).listable(segs) !== can)
             throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)}: canList ${can}, listing ${list.listable(segs)}, within ${k} ${now.listing(p, segs.slice(0, k)).listable(segs)}`)
-          if (p.role === 'member' && segs[0] !== 'users' && segs[0] !== PRODUCT.systemDir) {
+          // (the owner and admins inside the zone are listed like a member, so this holds for them too)
+          if ((p.role === 'member' || zone) && segs[0] !== 'users' && segs[0] !== PRODUCT.systemDir) {
             const v = list.via(segs, 3)
             expect(v.folders.length > 0).toBe(now.hasVisibleDescendant(p, segs))
             for (const f of v.folders) expect(now.canList(p, f.split('/')) && f.startsWith(segs.length ? segs.join('/') + '/' : '')).toBe(true)
@@ -121,7 +220,11 @@ describe('access() and explain() answer exactly as the permission function did b
     }
     // every branch was reached
     for (const k of ['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule']) expect(kinds.get(k) ?? 0, k).toBeGreaterThan(0)
-    console.log(`access-explain equivalence: ${checked} answers compared over ${SEEDS} worlds (listing = navigator = canList too, ${listed} listable); reasons ${JSON.stringify(Object.fromEntries(kinds))}`)
+    // and inside the zone the owner and admins were decided by a rule, by no rule, and by a temp name; never by their role
+    for (const k of ['rule', 'no-rule', 'temp']) expect(zoneKinds.get(k) ?? 0, `zone ${k}`).toBeGreaterThan(0)
+    expect(zoneKinds.get('owner-admin') ?? 0).toBe(0)
+    expect(gatedCut).toBeGreaterThan(0)
+    console.log(`access-explain equivalence: ${checked} answers compared over ${SEEDS} worlds (listing = navigator = canList too, ${listed} listable); reasons ${JSON.stringify(Object.fromEntries(kinds))}; owner/admin in the zone ${JSON.stringify(Object.fromEntries(zoneKinds))}, ${gatedCut} kept out by a project they are not in`)
     expect(checked).toBeGreaterThan(1_000_000)
   }, 120_000)
 
@@ -174,7 +277,7 @@ describe('access() and explain() answer exactly as the permission function did b
     const env = makeEnv('unit-access-explain')
     try {
       const rows = env.db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as World['rows']
-      const old = new OldRuleSet(rows)
+      const old = new ZonedOld(rows)
       const now = RuleSet.load(env.db)
       const paths: string[][] = [[]]
       const walkTree = (dir: string, segs: string[]) => {
@@ -187,14 +290,24 @@ describe('access() and explain() answer exactly as the permission function did b
       walkTree(env.fx.team, [])
       for (const f of now.ruleFolders()) paths.push(f === '' ? [] : f.split('/'))
       const people = (env.db.query('SELECT id FROM users').all() as { id: string }[]).map((u) => env.files.principal(u.id))
-      let n = 0
+      let n = 0, zone = 0
       for (const p of people) for (const segs of paths) {
         const want = old.access(p, segs)
         expect(now.access(p, segs), `${p.id} ${segs.join('/')}`).toBe(want)
         expect(now.explain(p, segs).access, `${p.id} ${segs.join('/')}`).toBe(want)
+        if (staffInZone(p, segs)) { zone++; expect(now.explain(p, segs).reason.kind, `${p.id} ${segs.join('/')}`).not.toBe('owner-admin') }
         n++
       }
       expect(n).toBeGreaterThan(200)
+      // the fixture's projects (falcon, atlas) were compared for its owner and admin too
+      expect(zone).toBeGreaterThan(10)
+      const dana = people.find((p) => p.role === 'owner')!
+      expect(now.access(dana, ['projects', 'falcon', 'plan.md'])).toBe('none')
+      // falcon/public is everyone:read, but dana is no member of falcon: nothing inside it is hers (erin, a member of the
+      // team who is not in falcon either, still reads it)
+      expect(now.access(dana, ['projects', 'falcon', 'public', 'announcement.md'])).toBe('none')
+      expect(now.access(env.files.principal('erin'), ['projects', 'falcon', 'public', 'announcement.md'])).toBe('read')
+      expect(now.access(dana, ['projects'])).toBe('write')
     } finally { env.db.close() }
   })
 
@@ -214,11 +327,85 @@ describe('access() and explain() answer exactly as the permission function did b
     expect(rules.explain(leo, ['projects', 'x', 'drafts'])).toEqual({ access: 'write', reason: { kind: 'rule', folder: 'projects/x/drafts', tier: 'user', rules: [{ subjectType: 'user', subjectId: 'leo', access: 'write' }] } })
     expect(rules.explain(leo, ['projects', 'x'])).toEqual({ access: 'none', reason: { kind: 'rule', folder: 'projects/x', tier: 'everyone', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] } })
     expect(rules.explain(leo, ['projects'])).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
-    expect(rules.explain(adam, ['projects', 'x'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
+    // inside projects/<name> an admin is a member with the same groups: no group here, so everyone:none decides
+    expect(rules.explain(adam, ['projects', 'x'])).toEqual({ access: 'none', reason: { kind: 'rule', folder: 'projects/x', tier: 'everyone', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] } })
+    expect(rules.explain({ ...adam, groups: ['ops'] }, ['projects', 'x', 'a.md'])).toEqual({ access: 'write', reason: { kind: 'rule', folder: 'projects/x', tier: 'group', rules: [{ subjectType: 'group', subjectId: 'ops', access: 'write' }] } })
+    expect(rules.explain(adam, ['projects'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
+    expect(rules.explain(adam, ['projects', 'y'])).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
+    expect(rules.explain(SYSTEM_PRINCIPAL, ['projects', 'x'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
     expect(rules.explain(adam, ['users', 'leo'])).toEqual({ access: 'none', reason: { kind: 'other-personal' } })
     expect(rules.explain(leo, ['users', 'leo', 'a'])).toEqual({ access: 'write', reason: { kind: 'own-personal' } })
     expect(rules.explain(leo, ['users'])).toEqual({ access: 'read', reason: { kind: 'users-root' } })
     expect(rules.explain(adam, [PRODUCT.systemDir, 'trash'])).toEqual({ access: 'none', reason: { kind: 'system' } })
     expect(rules.explain(adam, ['shared', `${PRODUCT.tmpPrefix}1`])).toEqual({ access: 'none', reason: { kind: 'temp' } })
+  })
+
+  test('the members-only zone in a fixed world: rules above never reach in for the owner and admins, role rules for them never apply inside, nothing inside a project they are not in is theirs, members keep theirs', () => {
+    const row = (path: string, subject_type: OldRule['subject_type'], subject_id: string | null, access: Access) => ({ path, subject_type, subject_id, access })
+    const rows = [
+      // an admin's own rules up there (security review M1), and everyone on projects/
+      row('', 'user', 'adam', 'write'), row('projects', 'user', 'adam', 'read'), row('projects', 'role', 'admin', 'write'), row('projects', 'everyone', null, 'read'),
+      // apollo: a group, role rules for admins and the owner (never apply to them there), members shut out (applies to
+      // them too: they are judged as one); inside it a folder for everyone and one for members
+      row('projects/apollo', 'group', 'ops', 'write'), row('projects/apollo', 'role', 'admin', 'write'), row('projects/apollo', 'role', 'owner', 'write'), row('projects/apollo', 'role', 'member', 'none'),
+      row('projects/apollo/pub', 'everyone', null, 'read'), row('projects/apollo/memo', 'role', 'member', 'read'),
+      // zeus: no rules of its own (an older build made it)
+    ]
+    const rules = new RuleSet(rows)
+    const old = new ZonedOld(rows)
+    const adam: Principal = { id: 'adam', name: 'Adam', role: 'admin', groups: [] }
+    const olga: Principal = { id: 'olga', name: 'Olga', role: 'owner', groups: ['ops'] }
+    const mia: Principal = { id: 'mia', name: 'Mia', role: 'member', groups: [] }
+    const shut: AccessReason = { kind: 'rule', folder: 'projects/apollo', tier: 'role', rules: [{ subjectType: 'role', subjectId: 'member', access: 'none' }] }
+    // outside the zone, as before: the admin writes projects/ and everything else
+    expect(rules.explain(adam, ['projects'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
+    expect(rules.explain(adam, ['shared', 'a.md'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
+    // inside: none of the rules up there, nor `role: admin`, opens apollo or zeus to adam; he is judged as a member
+    expect(rules.explain(adam, ['projects', 'apollo'])).toEqual({ access: 'none', reason: shut })
+    expect(rules.explain(adam, ['projects', 'apollo', 'plan.md'])).toEqual({ access: 'none', reason: shut })
+    for (const top of ['projects', 'Projects', 'PROJECTS']) expect(rules.explain(adam, [top, 'zeus', 'plan.md']), top).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
+    for (const top of ['Projects', 'PROJECTS']) expect(rules.explain(adam, [top, 'apollo', 'plan.md']), top).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
+    // …and what is open inside apollo to everyone or to members is not his while he is no member of apollo: the reason is
+    // apollo's own (security review M2: nobody reads part of a project without showing in its members)
+    expect(rules.explain(adam, ['projects', 'apollo', 'pub', 'x.md'])).toEqual({ access: 'none', reason: shut })
+    expect(rules.explain(adam, ['projects', 'apollo', 'memo'])).toEqual({ access: 'none', reason: shut })
+    // the owner in the project's group is a member: the group rule (not `role: owner`), and below it the folders inside
+    // decide for her as for any member
+    expect(rules.explain(olga, ['projects', 'apollo', 'plan.md'])).toEqual({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'group', rules: [{ subjectType: 'group', subjectId: 'ops', access: 'write' }] } })
+    expect(rules.explain(olga, ['projects', 'apollo', 'pub', 'x.md'])).toEqual({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo/pub', tier: 'everyone', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] } })
+    expect(rules.explain(olga, ['projects', 'apollo', 'memo'])).toEqual({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo/memo', tier: 'role', rules: [{ subjectType: 'role', subjectId: 'member', access: 'read' }] } })
+    expect(rules.explain(olga, ['projects', 'zeus'])).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
+    // a member of the team keeps the rules above (projects/ everyone:read reaches zeus for her) and the parts of apollo
+    // open to her, though apollo itself is shut for members
+    expect(rules.explain(mia, ['projects', 'zeus', 'plan.md'])).toEqual({ access: 'read', reason: { kind: 'rule', folder: 'projects', tier: 'everyone', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] } })
+    expect(rules.access(mia, ['projects', 'apollo', 'plan.md'])).toBe('none')
+    expect(rules.access(mia, ['projects', 'apollo', 'pub', 'x.md'])).toBe('read')
+    expect(rules.access(mia, ['projects', 'apollo', 'memo'])).toBe('read')
+    // the system principal writes everywhere in the zone, never under users/ or .system/
+    expect(rules.access(SYSTEM_PRINCIPAL, ['projects', 'zeus', 'plan.md'])).toBe('write')
+    expect(rules.access(SYSTEM_PRINCIPAL, ['projects', 'apollo', 'pub', 'x.md'])).toBe('write')
+    expect(rules.access(SYSTEM_PRINCIPAL, ['users', 'mia'])).toBe('none')
+    expect(rules.access(SYSTEM_PRINCIPAL, [PRODUCT.systemDir, 'trash'])).toBe('none')
+    // listing: adam cannot pass through apollo to pub or memo, nor list zeus; mia lists apollo through them (never named
+    // in the admin answers: shownPath, nothing inside a project); olga reads apollo
+    expect(rules.canList(adam, ['projects', 'apollo'])).toBe(false)
+    expect(rules.hasVisibleDescendant(adam, ['projects', 'apollo'])).toBe(false)
+    expect(rules.canList(adam, ['projects', 'zeus'])).toBe(false)
+    expect(rules.listing(adam).listable(['projects', 'apollo'])).toBe(false)
+    expect(rules.listing(adam).via(['projects', 'apollo'], 3)).toEqual({ folders: [], more: false })
+    expect(rules.navigator(['projects', 'apollo'], 3)(adam)).toEqual({ listable: false, via: [], more: false })
+    expect(rules.navigator(['projects', 'apollo', 'pub'], 3)(adam)).toEqual({ listable: false, via: [], more: false })
+    expect(rules.navigator(['projects', 'apollo'], 3)(mia)).toEqual({ listable: true, via: ['projects/apollo/memo', 'projects/apollo/pub'], more: false })
+    expect(rules.navigator(['projects', 'apollo'], 3, shownPath)(mia)).toEqual({ listable: true, via: [], more: false })
+    expect(rules.navigator(['projects', 'apollo'], 3)(olga)).toEqual({ listable: true, via: [], more: false })
+    expect(rules.navigator(['projects', 'zeus'], 3)(adam)).toEqual({ listable: false, via: [], more: false })
+    expect(rules.navigator(['projects', 'zeus'], 3)(mia)).toEqual({ listable: true, via: [], more: false })
+    expect(rules.navigator(['projects'], 3)(adam)).toEqual({ listable: true, via: [], more: false })
+    // and the reference agrees on every path here, for each of them
+    const paths = [['projects'], ['projects', 'apollo'], ['projects', 'apollo', 'pub'], ['projects', 'apollo', 'memo', 'x'], ['projects', 'zeus'], ['Projects', 'zeus', 'y'], ['Projects', 'apollo', 'pub'], ['shared']]
+    for (const p of [adam, olga, mia, SYSTEM_PRINCIPAL]) for (const segs of paths) {
+      expect(rules.access(p, segs), `${p.id} ${segs.join('/')}`).toBe(old.access(p, segs))
+      if (staffInZone(p, segs)) expect(rules.canList(p, segs), `${p.id} ${segs.join('/')}`).toBe(old.canList(p, segs, rows.map((r) => r.path)))
+    }
   })
 })

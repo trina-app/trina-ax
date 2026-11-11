@@ -6,7 +6,8 @@
 // changed is asked again); after sharing (the others view and continue it, their turn and the creator's next one start a
 // fresh session, the read card applies to new reads, the rollback guard keeps it shared, the earlier steps show their
 // words alone to the others); the budget and the audit row. The project is projects/falcon: alice writes it, bob
-// (finance) reads it, carol (admin) and dana (owner) see everything; erin sees only its public/ folder.
+// (finance) reads it; carol (admin) and dana (owner) are not its members, so they do not read it either (docs/DECISIONS.md
+// "Project contents only for members"); erin sees only its public/ folder.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -123,10 +124,11 @@ describe('who may share it', () => {
     expect(await reason(share('alice', dbChat('alice', { project: quiet.id })))).toEqual([409, 'project_not_sharing'])
     const mine = await h.api('alice').call(API.createProject, { body: { name: 'Mine', scope: 'personal', participants: [], instructions: '' } })
     expect(await reason(share('alice', dbChat('alice', { project: mine.id })))).toEqual([409, 'project_personal'])
-    // a project in the trash: the owner, who still sees it, is told so; a member does not see it any more
+    // a project in the trash: nobody reads it any more, the owner included (docs/DECISIONS.md "Project contents only
+    // for members"), so the owner is told what a member is: nothing about its setting
     db().query("UPDATE projects SET trashed_with = 'trash-1' WHERE id = ?").run(projectId)
     try {
-      expect(await reason(share('dana', dbChat('dana')))).toEqual([409, 'project_in_trash'])
+      expect(await reason(share('dana', dbChat('dana')))).toEqual([409, 'project_not_sharing'])
       expect(await reason(share('alice', dbChat('alice')))).toEqual([409, 'project_not_sharing'])
     } finally { db().query('UPDATE projects SET trashed_with = NULL WHERE id = ?').run(projectId) }
     // safe operations (1A), and a confidential chat
@@ -172,7 +174,8 @@ describe('the check', () => {
     dbAnswer(id, 'alice', null, 'from the glossary', { read: ['shared/glossary.md', 'projects/falcon/plan.md'] })
     const r = await share('alice', id)
     expect(r.status).toBe('shared')
-    if (r.status === 'shared') expect(r.chat.shared).toMatchObject({ by: { id: 'alice' }, audience: 4, mine: true })
+    // alice and bob: the owner and the admin are not members
+    if (r.status === 'shared') expect(r.chat.shared).toMatchObject({ by: { id: 'alice' }, audience: 2, mine: true })
     expect(sharedAt(id)).not.toBeNull()
   })
 
@@ -188,8 +191,8 @@ describe('the check', () => {
     expect(active.some((m) => m.content.includes(CANARY))).toBe(false)
     expect(active[0]!.id).toBe(first.started.userMessage!.id)
     const r = confirmOf(await share('alice', id))
-    // bob cannot read groups/marketing; carol and dana can
-    expect(r).toMatchObject({ audience: 3, memories: false, provenance: { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false } })
+    // bob cannot read groups/marketing; carol and dana, who could, are not members and are not counted
+    expect(r).toMatchObject({ audience: 1, memories: false, provenance: { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false } })
     expect(r.provenance!.unknown).toBeUndefined()
     expect(NAMES.filter((n) => JSON.stringify(r).includes(n))).toEqual([])
     expect(sharedAt(id)).toBeNull()
@@ -198,15 +201,16 @@ describe('the check', () => {
     expect(ok.status).toBe('shared')
     // the dialog's number is the one the line under the box and the copy-link toast say (QA TC-070: 3 vs 4)
     if (ok.status === 'shared') expect(seenOnceShared(r.audience)).toBe(ok.chat.shared!.audience)
-    expect(audits(id)).toEqual([{ actor: 'alice', audience: 3, people: 1, unknown: false, memories: false, confirmed: true }])
+    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, people: 1, unknown: false, memories: false, confirmed: true }])
   })
 
   test('my own folder is named as mine; a place I cannot look myself is not named', async () => {
     const id = dbChat('alice', { scope: [{ type: 'user', id: 'alice' }, { type: 'folder', id: folderId('groups/marketing/salaries') }] })
     dbAnswer(id, 'alice', null, 'notes')
     const r = confirmOf(await share('alice', id))
-    // users/alice: bob, carol and dana miss it; salaries: bob misses it, and alice cannot read it now
-    expect(r.provenance).toEqual({ people: 3, places: [{ kind: 'mine' }], otherPlaces: true })
+    // users/alice: bob misses it (carol and dana are not members, so not counted); salaries: bob misses it, and alice
+    // cannot read it now
+    expect(r.provenance).toEqual({ people: 1, places: [{ kind: 'mine' }], otherPlaces: true })
     expect(JSON.stringify(r)).not.toContain('salaries')
     expect(NAMES.filter((n) => JSON.stringify(r).includes(n))).toEqual([])
   })
@@ -221,10 +225,10 @@ describe('the check', () => {
     // the copy changed since: it counts again
     put('projects/falcon/quote.md', text + 'edited\n')
     const r = confirmOf(await share('alice', id))
-    expect(r.provenance).toMatchObject({ people: 3, places: [{ kind: 'mine' }] })
+    expect(r.provenance).toMatchObject({ people: 1, places: [{ kind: 'mine' }] })
     put('projects/falcon/quote.md', text)
     expect((await share('alice', id)).status).toBe('shared')
-    expect(audits(id)).toEqual([{ actor: 'alice', audience: 3, people: 0, unknown: false, memories: false, confirmed: false }])
+    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, people: 0, unknown: false, memories: false, confirmed: false }])
   })
 
   test('a scope that does not describe every answer (the first message edited since): "not all known", everyone else counted', async () => {
@@ -232,7 +236,8 @@ describe('the check', () => {
     dbAnswer(id, 'alice', null, 'old start')
     dbAnswer(id, 'alice', null, 'new start', { read: ['shared/glossary.md'] })
     const r = confirmOf(await share('alice', id))
-    expect(r.provenance).toMatchObject({ people: 3, unknown: true, otherPlaces: true })
+    // everyone else who sees it: bob (the owner and the admin are not members)
+    expect(r.provenance).toMatchObject({ people: 1, unknown: true, otherPlaces: true })
   })
 
   test('personal memories in play: the memory note (and only that)', async () => {
@@ -242,7 +247,7 @@ describe('the check', () => {
     try {
       dbAnswer(id, 'alice', null, 'tea it is')
       const r = confirmOf(await share('alice', id))
-      expect(r).toMatchObject({ memories: true, provenance: null, audience: 3 })
+      expect(r).toMatchObject({ memories: true, provenance: null, audience: 1 })
       expect(JSON.stringify(r)).not.toContain('MEMORY-CANARY')
     } finally { db().query('DELETE FROM memories WHERE id = ?').run(memory) }
     // a memory deleted since the chat's first answer counts as one they had
@@ -258,12 +263,13 @@ describe('the check', () => {
     const id = dbChat('alice', { scope: [{ type: 'user', id: 'alice' }] })
     dbAnswer(id, 'alice', null, 'mine')
     const first = confirmOf(await share('alice', id))
-    expect(first.audience).toBe(3)
+    // bob only: the owner and the admin are not members
+    expect(first.audience).toBe(1)
     // erin joins finance: she reads the project now (the same people miss my folder, plus her)
     db().query("INSERT INTO group_members VALUES ('finance', 'erin')").run()
     try {
       const again = confirmOf(await share('alice', id, first.confirmKey))
-      expect(again).toMatchObject({ reason: 'changed', audience: 4, provenance: { people: 4 } })
+      expect(again).toMatchObject({ reason: 'changed', audience: 2, provenance: { people: 2 } })
       expect(again.confirmKey).not.toBe(first.confirmKey)
       expect(sharedAt(id)).toBeNull()
       // a made-up key, and a key of another chat: the same
@@ -371,7 +377,7 @@ describe('after sharing', () => {
   test('answers that ran dev environment commands are not all known', async () => {
     const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
     dbAnswer(id, 'alice', null, 'ran it', { read: ['shared/glossary.md'], steps: [{ id: 'b1', kind: 'tool', tool: 'box_shell', label: 'Dev environment command · cat groups/finance/budget.md', status: 'ok', startedAt: at(), endedAt: at() }] })
-    expect(confirmOf(await share('alice', id)).provenance).toMatchObject({ people: 3, unknown: true })
+    expect(confirmOf(await share('alice', id)).provenance).toMatchObject({ people: 1, unknown: true })
     // a crash lost the step, the command's audit line is there
     const lost = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
     const a = dbAnswer(lost, 'alice', null, 'ran it', { read: ['shared/glossary.md'] })
@@ -399,10 +405,10 @@ describe('after sharing', () => {
     const id = dbChat('alice', { scope: [] })
     dbAnswer(id, 'alice', null, 'nothing narrow', { read: ['shared/glossary.md'] })
     const r = confirmOf(await h.api('alice').call(API.shareChat, { params: { id }, body: { ask: true } }))
-    expect(r).toMatchObject({ audience: 3, provenance: null, memories: false })
+    expect(r).toMatchObject({ audience: 1, provenance: null, memories: false })
     expect(sharedAt(id)).toBeNull()
     expect((await share('alice', id, r.confirmKey)).status).toBe('shared')
-    expect(audits(id)).toEqual([{ actor: 'alice', audience: 3, people: 0, unknown: false, memories: false, confirmed: true }])
+    expect(audits(id)).toEqual([{ actor: 'alice', audience: 1, people: 0, unknown: false, memories: false, confirmed: true }])
     // a key that is sent must be this state's, also when nothing applies: stale or made up, it asks again
     const other = dbChat('alice', { scope: [] })
     dbAnswer(other, 'alice', null, 'nothing narrow', { read: ['shared/glossary.md'] })
@@ -411,14 +417,16 @@ describe('after sharing', () => {
     db().query("INSERT INTO group_members VALUES ('finance', 'erin')").run()
     try {
       const again = confirmOf(await share('alice', other, k1))
-      expect(again).toMatchObject({ reason: 'changed', audience: 4, provenance: null })
+      expect(again).toMatchObject({ reason: 'changed', audience: 2, provenance: null })
       expect(sharedAt(other)).toBeNull()
       expect((await share('alice', other, again.confirmKey)).status).toBe('shared')
     } finally { db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'erin'").run() }
   })
 
   test('a move during the check: the chat is checked again for the project it is in, never shared into one nobody checked', async () => {
-    // nothing in it the Falcon people cannot read; erin, in the marketing project's people, cannot read projects/falcon
+    // nothing in it the Falcon people cannot read; erin, in the marketing project's people, cannot read projects/falcon,
+    // and neither can the owner and the admin, who see the marketing project (an ordinary team folder) by their role but
+    // are not members of Falcon (docs/DECISIONS.md "Project contents only for members")
     const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('projects/falcon') }], listed: true })
     dbAnswer(id, 'alice', null, 'the plan', { read: ['projects/falcon/plan.md'] })
     const marketing = (db().query("SELECT id FROM projects WHERE folder_path = 'groups/marketing'").get() as { id: string }).id
@@ -433,7 +441,7 @@ describe('after sharing', () => {
     }
     try {
       const r = confirmOf(await share('alice', id))
-      expect(r).toMatchObject({ audience: 3, provenance: { people: 1, places: [{ kind: 'folder', path: 'projects/falcon' }] } })
+      expect(r).toMatchObject({ audience: 3, provenance: { people: 3, places: [{ kind: 'folder', path: 'projects/falcon' }] } })
       expect(sharedAt(id)).toBeNull()
     } finally {
       store.chatRow = chatRow

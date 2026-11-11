@@ -14,6 +14,7 @@ import { toast } from '../../store/ui'
 import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
+import { engineVersionChecks } from './plain'
 import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
@@ -155,7 +156,11 @@ function SystemSections() {
 function Health({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  const state = useLoad(() => api.call(API.diagnostics), [rev])
+  // with the engines whose version or lockdown test only shows here (Home and Providers leave it out, plain.ts)
+  const state = useLoad(async () => {
+    const [d, e] = await Promise.all([api.call(API.diagnostics), api.call(API.engines).catch(() => null)])
+    return e ? { ...d, checks: [...d.checks, ...engineVersionChecks(e.engines, t)] } : d
+  }, [rev])
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
   return (

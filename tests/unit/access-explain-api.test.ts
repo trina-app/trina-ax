@@ -8,7 +8,7 @@ import path from 'node:path'
 import { FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
 import { AUTH_MESSAGES } from '../../server/src/auth/messages'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
-import { legacyProject } from '../lib/legacy-project'
+import { legacyProject, legacyProjectFolder } from '../lib/legacy-project'
 
 let h: Harness
 let owner: Client
@@ -35,9 +35,11 @@ beforeAll(async () => {
   await addMember(h, owner, { username: 'carl', groupIds: [sales] })
   await addMember(h, owner, { username: 'dora', groupIds: [sales] }) // like alice, without person rules
   await addMember(h, owner, { username: 'erik' }) // no group, no person rule
-  await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo', rules: [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('user', 'carl', 'write'), rule('everyone', null, 'none')] })
-  await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo/drafts', rules: [rule('user', 'bob', 'write')] })
-  await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo/closed', rules: [rule('everyone', null, 'none')] })
+  // the project's rules as builds before "Project contents only for members" let an admin set them (Admin › Folder
+  // permissions refuses every path at or under projects/<name> now: tests/lib/legacy-project.ts)
+  legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo', [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('user', 'carl', 'write'), rule('everyone', null, 'none')], 'adam')
+  legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo/drafts', [rule('user', 'bob', 'write')], 'adam')
+  legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo/closed', [rule('everyone', null, 'none')], 'adam')
   await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [rule('everyone', null, 'none'), rule('group', ops, 'read')] })
   // a team project, and alice's personal project and file (their names must never reach an admin)
   // made as builds before "Projects live only in projects/" made them on existing folders (tests/lib/legacy-project.ts)
@@ -63,49 +65,73 @@ describe('one folder: every active person, the folder and rule it comes from', (
     expect(r).toMatchObject({ path: 'projects/apollo', exists: true, ruleFolder: 'projects/apollo', total: 6, nextCursor: null })
     const by = Object.fromEntries(r.people.map((p) => [p.user.id, p]))
     expect(Object.keys(by).sort()).toEqual(['adam', 'alice', 'bob', 'dora', 'erik', 'olga']) // carl is switched off
-    expect(by.olga!).toMatchObject({ access: 'write', reason: { kind: 'owner-admin' }, listable: true, via: [] })
+    // the owner and admins are judged as members inside a team project (docs/DECISIONS.md "Project contents only for
+    // members"): no rule names them, so everyone:none decides, and nothing below is open to them
+    const asMember = { access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone', rules: [rule('everyone', null, 'none')] }, listable: false, via: [] }
+    expect(by.olga!).toMatchObject(asMember)
+    expect(by.adam!).toMatchObject(asMember)
     expect(by.alice!).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'user', rules: [rule('user', 'alice', 'write')] } })
     expect(by.dora!).toMatchObject({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'group', rules: [rule('group', sales, 'read')] } })
-    // bob may not read apollo, but its drafts: apollo shows in his tree
-    expect(by.bob!).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' }, listable: true, via: ['projects/apollo/drafts'], viaMore: false })
+    // bob may not read apollo, but its drafts: apollo shows in his tree; the folder inside is never named
+    expect(by.bob!).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' }, listable: true, via: [], viaMore: false })
     expect(by.erik!).toMatchObject({ access: 'none', listable: false, via: [] })
     for (const p of r.people) {
       expect(p.access, p.user.id).toBe(accessOf(p.user.id, 'projects/apollo'))
       expect(p.listable, p.user.id).toBe(canList(p.user.id, 'projects/apollo'))
     }
-    expect(r.summary.access).toEqual({ none: 2, read: 1, write: 3 })
-    expect(r.summary.sources).toEqual([{ reason: 'rule', folder: 'projects/apollo', count: 4 }, { reason: 'owner-admin', folder: null, count: 2 }])
+    expect(r.summary.access).toEqual({ none: 4, read: 1, write: 1 })
+    expect(r.summary.sources).toEqual([{ reason: 'rule', folder: 'projects/apollo', count: 6 }])
+    expect(JSON.stringify(r)).not.toContain('drafts')
   })
 
   test('a folder only for navigation: projects shows for those who read something below', async () => {
     const r = await folderAnswer('projects')
     const by = Object.fromEntries(r.people.map((p) => [p.user.id, p]))
     expect(by.alice!).toMatchObject({ access: 'none', reason: { kind: 'no-rule' }, listable: true, via: ['projects/apollo'] })
-    expect(by.bob!).toMatchObject({ access: 'none', listable: true, via: ['projects/apollo/drafts'] })
+    // bob reads only a folder inside apollo: projects/ shows for him, the folder is not named
+    expect(by.bob!).toMatchObject({ access: 'none', listable: true, via: [] })
     expect(by.erik!).toMatchObject({ access: 'none', listable: false, via: [] })
+    // projects/ itself is outside the members-only zone: the owner and admins as before
+    expect(by.olga!).toMatchObject({ access: 'write', reason: { kind: 'owner-admin' } })
+    expect(by.adam!).toMatchObject({ access: 'write', reason: { kind: 'owner-admin' } })
     for (const p of r.people) expect(p.listable, p.user.id).toBe(canList(p.user.id, 'projects'))
+    expect(JSON.stringify(r)).not.toContain('drafts')
   })
 
   test('someone switched off: what they would get here if switched back on, not the rule that names them', async () => {
-    // carl:write on projects/apollo, everyone:none on projects/apollo/closed: switched back on, carl gets none there
-    const closed = await folderAnswer('projects/apollo/closed')
-    expect(closed.people.some((p) => p.user.id === 'carl')).toBe(false)
-    expect(closed.inactive).toEqual([{ user: { id: 'carl', name: 'CARL' }, role: 'member', access: 'none',
-      reason: { kind: 'rule', folder: 'projects/apollo/closed', tier: 'everyone', rules: [rule('everyone', null, 'none')] }, rules: [{ folder: 'projects/apollo', access: 'write' }] }])
     const apollo = await folderAnswer('projects/apollo')
     expect(apollo.inactive).toMatchObject([{ user: { id: 'carl' }, access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'user' } }])
-    // the same as the person answer for carl, which is computed as if active
-    const carl = await personAnswer('carl')
-    expect(carl.folders.find((f) => f.path === 'projects/apollo/closed')).toMatchObject({ access: 'none' })
+    // carl:write on projects/apollo, everyone:none on projects/apollo/closed: a folder inside a team project has no folder
+    // answer and no row in a person answer any more (docs/DECISIONS.md "Project contents only for members")
+    expect((await admin.try('GET', `/api/admin/access/folder?path=${encodeURIComponent('projects/apollo/closed')}`)).status).toBe(400)
+    expect((await personAnswer('carl')).folders.find((f) => f.path === 'projects/apollo/closed')).toBeUndefined()
+    // the same case in a team folder: carl:write above, everyone:none below; switched back on, carl gets none there
+    const top = await admin.call('POST', '/api/admin/folders', { path: 'shared/carl-team-1d4', rules: [rule('user', 'carl', 'write')] })
+    const below = await admin.call('POST', '/api/admin/folders', { path: 'shared/carl-team-1d4/closed', rules: [rule('everyone', null, 'none')] })
+    try {
+      const closed = await folderAnswer('shared/carl-team-1d4/closed')
+      expect(closed.people.some((p) => p.user.id === 'carl')).toBe(false)
+      expect(closed.inactive).toEqual([{ user: { id: 'carl', name: 'CARL' }, role: 'member', access: 'none',
+        reason: { kind: 'rule', folder: 'shared/carl-team-1d4/closed', tier: 'everyone', rules: [rule('everyone', null, 'none')] }, rules: [{ folder: 'shared/carl-team-1d4', access: 'write' }] }])
+      // the same as the person answer for carl, which is computed as if active
+      const carl = await personAnswer('carl')
+      expect(carl.folders.find((f) => f.path === 'shared/carl-team-1d4/closed')).toMatchObject({ access: 'none' })
+    } finally {
+      await admin.call('DELETE', `/api/admin/folders/${below.id}`)
+      await admin.call('DELETE', `/api/admin/folders/${top.id}`)
+      fs.rmSync(path.join(h.ctx.files.fx.root, 'shared', 'carl-team-1d4'), { recursive: true, force: true })
+    }
   })
 
   test('a folder without rules answers from the nearest folder with rules; a missing one too; a file is not a folder', async () => {
-    const r = await folderAnswer('projects/apollo/drafts/not-yet')
-    expect(r).toMatchObject({ path: 'projects/apollo/drafts/not-yet', exists: false, ruleFolder: 'projects/apollo/drafts' })
+    const r = await folderAnswer('skills/finance/not-yet')
+    expect(r).toMatchObject({ path: 'skills/finance/not-yet', exists: false, ruleFolder: 'skills/finance' })
     const by = Object.fromEntries(r.people.map((p) => [p.user.id, p]))
-    expect(by.bob!).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo/drafts', tier: 'user' } })
-    expect(by.alice!).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'user' } })
-    for (const p of r.people) expect(p.access).toBe(accessOf(p.user.id, 'projects/apollo/drafts/not-yet'))
+    expect(by.erik!).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'skills/finance', tier: 'everyone' } })
+    expect(by.adam!).toMatchObject({ access: 'write', reason: { kind: 'owner-admin' } })
+    for (const p of r.people) expect(p.access).toBe(accessOf(p.user.id, 'skills/finance/not-yet'))
+    // inside a team project: no answer, the same one for a missing folder and one that is there
+    for (const inside of ['projects/apollo/drafts/not-yet', 'projects/apollo/drafts']) expect((await admin.try('GET', `/api/admin/access/folder?path=${encodeURIComponent(inside)}`)).status, inside).toBe(400)
     expect(await folderAnswer('shared/plain-file.md')).toMatchObject({ exists: false, ruleFolder: 'shared' })
     expect(await folderAnswer('shared')).toMatchObject({ exists: true })
     const top = FolderAccessResponse.parse(await admin.call('GET', '/api/admin/access/folder'))
@@ -120,7 +146,7 @@ describe('one folder: every active person, the folder and rule it comes from', (
     do {
       const r: FolderAccessResponse = await folderAnswer('projects/apollo', `&limit=2${cursor ? `&cursor=${cursor}` : ''}`)
       expect(r.total).toBe(6)
-      expect(r.summary.access).toEqual({ none: 2, read: 1, write: 3 })
+      expect(r.summary.access).toEqual({ none: 4, read: 1, write: 1 })
       seen.push(...r.people.map((p) => p.user.id))
       cursor = r.nextCursor
     } while (cursor)
@@ -144,6 +170,16 @@ describe('one folder: every active person, the folder and rule it comes from', (
       expect(r.status, bad).toBe(400)
       expect(notTeam, bad).toContain(r.body.error.message)
     }
+    // nothing inside a team project (docs/DECISIONS.md "Project contents only for members"), any letter case, there or
+    // not: one answer, which names nothing
+    const answers = new Set<string>()
+    for (const inside of ['projects/apollo/drafts', 'projects/apollo/closed', 'PROJECTS/Apollo/drafts', 'projects/apollo/not-there-6b1', 'projects/no-such-8c3/x']) {
+      const r = await admin.try('GET', `/api/admin/access/folder?path=${encodeURIComponent(inside)}`)
+      expect(r.status, inside).toBe(400)
+      expect(notTeam, inside).toContain(r.body.error.message)
+      answers.add(JSON.stringify({ ...r.body.error, requestId: undefined }))
+    }
+    expect(answers.size).toBe(1)
     // not even a relative path: the contract (RelPath) refuses it before the route
     for (const bad of ['../etc', '/etc', 'shared/../users/alice']) expect((await admin.try('GET', `/api/admin/access/folder?path=${encodeURIComponent(bad)}`)).status, bad).toBe(400)
     expect((await alice.client.try('GET', '/api/admin/access/folder?path=shared')).status).toBe(403)
@@ -195,9 +231,10 @@ describe('one person: every team folder and why', () => {
       cursor = r.nextCursor
     } while (cursor)
     expect(seen).toEqual(full.folders.map((f) => f.path))
+    // nothing inside a team project is a row (its rule folders drafts and closed are not named)
     const part = PersonAccessResponse.parse(await admin.call('GET', '/api/admin/access/people/alice?prefix=projects'))
-    expect(part.folders.map((f) => f.path)).toEqual(['projects', 'projects/apollo', 'projects/apollo/closed', 'projects/apollo/drafts'])
-    expect(part).toMatchObject({ total: 4, nextCursor: null })
+    expect(part.folders.map((f) => f.path)).toEqual(['projects', 'projects/apollo'])
+    expect(part).toMatchObject({ total: 2, nextCursor: null })
     const own = PersonAccessResponse.parse(await admin.call('GET', '/api/admin/access/people/alice?prefix=users'))
     expect(own.folders.map((f) => f.path)).toEqual(['users/alice'])
     // the default page is 500 rows
@@ -209,9 +246,12 @@ describe('one person: every team folder and why', () => {
     expect(r.status).toBe('disabled')
     expect(r.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'write', reason: { kind: 'rule', tier: 'user', rules: [rule('user', 'carl', 'write')] } })
     expect((await admin.try('GET', '/api/admin/access/people/nobody-here')).status).toBe(404)
+    // the owner: write everywhere by her role, but inside a team project only as a member (no rule names her in apollo)
     const own = await personAnswer('olga')
-    expect(own.folders.every((f) => f.access === 'write' && f.listable)).toBe(true)
-    expect(own.folders.filter((f) => f.path !== 'users/olga').every((f) => f.reason.kind === 'owner-admin')).toBe(true)
+    const notApollo = own.folders.filter((f) => f.path !== 'projects/apollo')
+    expect(notApollo.every((f) => f.access === 'write' && f.listable)).toBe(true)
+    expect(notApollo.filter((f) => f.path !== 'users/olga').every((f) => f.reason.kind === 'owner-admin')).toBe(true)
+    expect(own.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' }, listable: false })
   })
 
   test('a new person with a role and groups gets what a real person with them gets', async () => {
@@ -222,9 +262,14 @@ describe('one person: every team folder and why', () => {
     const strip = (f: PersonAccessResponse['folders'][number]) => ({ p: f.path, access: f.access, reason: f.reason, listable: f.listable, via: f.via })
     expect(preview.folders.map(strip)).toEqual(dora.folders.filter((f) => f.path !== 'users/dora').map(strip))
     const part = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'member', groupIds: [sales], prefix: 'projects', limit: 1 }))
-    expect(part).toMatchObject({ total: 4, nextCursor: 'projects' })
+    expect(part).toMatchObject({ total: 2, nextCursor: 'projects' })
+    // a new admin: write everywhere but inside a team project, where they are a member with their groups
     const asAdmin = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'admin', groupIds: [], limit: 2000 }))
-    expect(asAdmin.folders.every((f) => f.access === 'write' && f.reason.kind === 'owner-admin')).toBe(true)
+    expect(asAdmin.folders.filter((f) => f.path !== 'projects/apollo').every((f) => f.access === 'write' && f.reason.kind === 'owner-admin')).toBe(true)
+    expect(asAdmin.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' } })
+    // in the project's group they read it as its members of that group do
+    const salesAdmin = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'admin', groupIds: [sales], limit: 2000 }))
+    expect(salesAdmin.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'group' } })
     expect((await admin.try('POST', '/api/admin/access/new-person', { role: 'member', groupIds: ['no-such-group'] })).status).toBe(400)
     expect((await admin.try('POST', '/api/admin/access/new-person', { role: 'owner', groupIds: [] })).status).toBe(400)
   })
@@ -266,13 +311,23 @@ describe('someone new with rules on the team root (the person view, stage 3)', (
   })
 
   test('saving rules for a folder that is not on disk, without create: refused, and nothing is made', async () => {
-    // the person view opens the rule editor on a project whose folder is gone; it saves with create: false
-    const missing = 'projects/gone-9f2'
+    // the person view opens the rule editor on a folder that is gone; it saves with create: false
+    const missing = 'shared/gone-9f2'
     const r = await admin.try('POST', '/api/admin/folders', { path: missing, create: false, rules: [rule('everyone', null, 'read')] })
     expect(r.status).toBe(404)
     expect(Object.values(AUTH_MESSAGES.folderMissing)).toContain(r.body.error.message)
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, missing))).toBe(false)
     expect(h.ctx.db.query('SELECT 1 FROM folders WHERE path = ?').get(missing)).toBeNull()
+    // a project's folder (gone or there) and anything in it: refused first, one answer, nothing made (its members are
+    // changed on its page: docs/DECISIONS.md "Project contents only for members")
+    for (const p of ['projects/gone-9f2', 'projects/apollo', 'Projects/Apollo/drafts']) {
+      const x = await admin.try('POST', '/api/admin/folders', { path: p, create: false, rules: [rule('everyone', null, 'read')] })
+      expect(x.status, p).toBe(409)
+      expect(x.body.error.params.reason, p).toBe('project_members_only')
+    }
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'projects/gone-9f2'))).toBe(false)
+    expect(h.ctx.db.query('SELECT 1 FROM folders WHERE path = ?').get('projects/gone-9f2')).toBeNull()
+    expect(accessOf('erik', 'projects/apollo')).toBe('none')
   })
 })
 

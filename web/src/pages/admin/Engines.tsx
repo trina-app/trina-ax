@@ -20,6 +20,7 @@ import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common
 import { ENGINE_FAMILY, ProviderAccounts, useTeamCredentials } from './Credentials'
 import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
+import { technicalEngineState } from './plain'
 
 export default function Engines() {
   const t = useT()
@@ -82,7 +83,10 @@ function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onTog
   const locale = useLocale()
   const [open, setOpen] = useState(initiallyOpen)
   const details = useId()
-  const ok = e.status === 'ok'
+  // an untested version or a failed lockdown test: it answers, so the row says Connected; the version detail is in
+  // Admin › System › Diagnostics (plain.ts)
+  const technical = technicalEngineState(e.status)
+  const ok = e.status === 'ok' || technical
   const mode = e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })
   const checked = e.checkedAt && t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })
   const models = e.models.map((m) => m.label).join(', ')
@@ -111,7 +115,7 @@ function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onTog
                 <span className="break-words">{e.label}</span>
               </button>
             </h3>
-            <Badge tone={ok ? 'ok' : 'warn'}>{apiNotSet ? t('adminux.engines.apiNotSet') : t(`engines.status.${e.status}`)}</Badge>
+            <Badge tone={ok ? 'ok' : 'warn'}>{apiNotSet ? t('adminux.engines.apiNotSet') : t(`engines.status.${technical ? 'ok' : e.status}`)}</Badge>
             {e.beta && <Badge tone="warn">{t('engines.beta')}</Badge>}
             {e.id === 'api' && <span data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
           </div>
@@ -129,7 +133,7 @@ function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onTog
                 </button>
               )}
             </p>
-          ) : e.detail && (
+          ) : e.detail && !technical && (
             <div className="mt-1 flex min-w-0 items-baseline gap-2 pl-5">
               {/* a problem's line is the fix (a command to run): shown whole, never cut behind "More" */}
               {ok ? (

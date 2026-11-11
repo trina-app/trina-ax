@@ -288,6 +288,8 @@ export class MockServer {
     // the member's "ready" once they can connect it
     | { kind: 'service_request'; service: RequestableService }
     | { kind: 'service_ready'; service: RequestableService; requestId: string }
+    // someone started to see a project I am in (an owner or admin who added themselves: server/src/chat/project-joins.ts)
+    | { kind: 'project_joined'; joinerId: string; projectId: string }
   ))[] = []
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
@@ -346,8 +348,14 @@ export class MockServer {
   projects: Project[] = []
   /** team projects made here (docs/DECISIONS.md "Projects live only in projects/"), by their projects/<name> folder: who
    * works in it, as the folder rules server/src/chat/project-access.ts writes (each participant and the creator write,
-   * everyone else none; the owner and admins always), and a version for the rules hash */
-  projectMembers = new Map<string, { creator: string; participants: { subjectType: 'group' | 'user'; subjectId: string }[]; version: number }>()
+   * everyone else none), and a version for the rules hash. Members only (docs/DECISIONS.md "Project contents only for
+   * members"): the owner and admins read it only as members. `others`: settings the members screen does not set (POST
+   * /__test/project-rules: a person or group who only reads, on the folder itself or on a folder inside it); `hidden`:
+   * how many settings inside it the caller may not read (ProjectAccess.otherRulesHidden, for someone who is not a member) */
+  projectMembers = new Map<string, { creator: string; participants: { subjectType: 'group' | 'user'; subjectId: string }[]; version: number; others?: { path: string; subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: string | null; access: 'none' | 'read' | 'write' }[]; hidden?: number }>()
+  /** a team project's folder in the trash with it (DELETE /api/projects/:id the first time): its files, by project id;
+   * null once purged (POST /__test/project-purge: restoring it is refused, 409 project_folder_purged) */
+  trashedProjects = new Map<string, [string, FileNode][] | null>()
   memories: Memory[] = []
   /** Settings › 트리나에게 허용한 것 (POST /__test/ai-allowances sets them; one person's, like memories) */
   aiAllowances: AiAllowance[] = []
@@ -441,6 +449,11 @@ export class MockServer {
   teamGoal: TeamGoal | null = null
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
   popular: { path: string; uses: number; users: number }[] = []
+  /** Home's "what my group often asks" (GET /api/questions/often-asked): none unless /__test/often-asked sets the
+   * team's list (`team`) or a group's (`groups`: group id → its sentences); like the server, a list under 3 items does
+   * not show, a group's only to its members, the team's when none of the caller's groups has one, nothing while the
+   * team setting is off */
+  oftenAsked: { team: string[]; groups: Record<string, string[]> } = { team: [], groups: {} }
   /** POST /__test/dev-env: the dev environment (experiment) is on until the next reset (Me.server.devEnv, Team settings
    * › Dev environment); srt: true is the srt runner (warning version 2, the queue of the chat's runs); otherwise its
    * endpoints answer 404, like a server without MYCEL_DEV_ENV */
@@ -508,6 +521,7 @@ export class MockServer {
     this.cloud = false
     this.teamGoal = null
     this.popular = []
+    this.oftenAsked = { team: [], groups: {} }
     this.devEnv = null
     this.htmlPdf = false
     this.htmlPdfCalls = []
@@ -558,6 +572,8 @@ export class MockServer {
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
+    this.trashedProjects.clear()
+    this.projectRowIds.clear()
     this.memories = []
     this.aiAllowances = []
     this.schedules = []
@@ -697,12 +713,53 @@ export class MockServer {
       return owner === user.id || user.role === 'owner' ? 'write' : 'none'
     }
     if (path === 'finance' || path.startsWith('finance/')) return user.role === 'owner' ? 'read' : 'none'
-    // a team project's folder: its people, the owner and admins (projectMembers)
+    // a team project's folder: its members only, the owner and admins too only as members (projectMembers; docs/
+    // DECISIONS.md "Project contents only for members"); someone with another setting there reads
     const pm = path.startsWith('projects/') ? this.projectMembers.get(path.split('/').slice(0, 2).join('/')) : undefined
-    if (pm) return user.role !== 'member' || pm.creator === user.id || pm.participants.some((x) => (x.subjectType === 'user' ? x.subjectId === user.id : user.groupIds.includes(x.subjectId))) ? 'write' : 'none'
+    if (pm) {
+      if (pm.creator === user.id || pm.participants.some((x) => (x.subjectType === 'user' ? x.subjectId === user.id : user.groupIds.includes(x.subjectId)))) return 'write'
+      const folder = path.split('/').slice(0, 2).join('/')
+      const other = (pm.others ?? []).filter((r) => (path === r.path || path.startsWith(r.path + '/')) && r.path.startsWith(folder) && this.ruleNames(r, user)).sort((a, b) => b.path.length - a.path.length)[0]
+      return other?.access ?? 'none'
+    }
     // a skills folder only admins can read (POST /__test/skills puts skills there): members never see its skills
     if (path === 'skills/임원' || path.startsWith('skills/임원/')) return user.role === 'member' ? 'none' : 'read'
     return 'write'
+  }
+
+  /** Admin › Folder permissions never writes at or under projects/<name> (server/src/admin/folders.ts assertNotInProject):
+   * a project's members are changed on its page; one answer whether the path is there or not */
+  notInProject(path: unknown, locale: string, field = 'body.path') {
+    const segs = typeof path === 'string' ? path.replace(/\\/g, '/').trim().split('/').filter(Boolean) : []
+    if (segs.length >= 2 && segs[0]!.normalize('NFC').toLowerCase() === 'projects') fail('conflict', 409, serverMsg('projectMembersOnly', locale as Locale), { [field]: 'project_members_only' }, { reason: 'project_members_only' })
+  }
+  /** rule rows of team project folders, as the members screen writes them (explainRules): Admin › Folder permissions
+   * lists them like any rule folder (read only there: 409 project_members_only); nothing inside a project */
+  projectRowIds = new Map<string, string>()
+  projectRuleRows(): Folder[] {
+    const own = new Set(this.folders.map((f) => f.path))
+    return [...this.projectMembers].filter(([path]) => !own.has(path)).map(([path, pm]) => {
+      const id = this.projectRowIds.get(path) ?? uuidv7()
+      this.projectRowIds.set(path, id)
+      const rule = (subjectType: Folder['rules'][number]['subjectType'], subjectId: string | null, access: Folder['rules'][number]['access'], n: number) =>
+        ({ id: `${id.slice(0, -4)}${String(n).padStart(4, '0')}`, folderId: id, subjectType, subjectId, access, updatedBy: null, updatedAt: now() })
+      const list = [['user', pm.creator, 'write'] as const, ...pm.participants.map((x) => [x.subjectType, x.subjectId, 'write'] as const), ['everyone', null, 'none'] as const, ...(pm.others ?? []).filter((r) => r.path === path).map((r) => [r.subjectType, r.subjectId, r.access] as const)]
+      return { id, path, exists: true, createdAt: now(), rules: list.map(([t, sid, a], i) => rule(t, sid, a, i)) }
+    })
+  }
+  /** a setting of projectMembers' `others` that names this person (a person, one of their groups, everyone, their role) */
+  ruleNames(r: { subjectType: string; subjectId: string | null }, u: User): boolean {
+    return r.subjectType === 'everyone' || (r.subjectType === 'user' && r.subjectId === u.id) || (r.subjectType === 'group' && !!r.subjectId && u.groupIds.includes(r.subjectId)) || (r.subjectType === 'role' && r.subjectId === u.role)
+  }
+  /** like server/src/chat/projects.ts canSeeProject: its folder read, and not in the trash (nobody reads it there) */
+  projectSees(p: Project, u: User): boolean {
+    return !p.inTrash && this.access(p.folderPath, u) !== 'none'
+  }
+  /** like mayManageProject: the owner and admins for every team project (also without reading it, also in the trash);
+   * its creator while they may edit it */
+  projectManages(p: Project, u: User): boolean {
+    if (!p.folderPath.startsWith('users/') && u.role !== 'member') return true
+    return !p.inTrash && p.createdBy?.id === u.id && this.access(p.folderPath, u) === 'write'
   }
 
   entry(path: string, n: FileNode, user: User): FileEntry {
@@ -721,7 +778,18 @@ export class MockServer {
   // simplified policy), and the server's own rows, order, pages and counts (server/src/admin/access-rows.ts): nothing
   // under users/ but the person's own folder, no .system/ or temp names. Group folders are groups/<group name> when
   // that folder is here; connected folders are the folders under connected/ (POST /__test/file makes either).
-  explainRules() { return new RuleSet(this.folders.flatMap((f) => f.rules.map((r) => ({ path: f.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })))) }
+  explainRules() {
+    // a team project's folder carries the rules its members screen writes (chat/project-access.ts): the creator and each
+    // participant write, everyone else none, and its other settings (projectMembers; the file screens read it there)
+    const own = new Set(this.folders.map((f) => f.path))
+    const projectRules = [...this.projectMembers].filter(([path]) => !own.has(path)).flatMap(([path, pm]) => [
+      { path, subject_type: 'user' as const, subject_id: pm.creator, access: 'write' as const },
+      ...pm.participants.map((x) => ({ path, subject_type: x.subjectType, subject_id: x.subjectId, access: 'write' as const })),
+      { path, subject_type: 'everyone' as const, subject_id: null, access: 'none' as const },
+      ...(pm.others ?? []).map((r) => ({ path: r.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })),
+    ])
+    return new RuleSet([...this.folders.flatMap((f) => f.rules.map((r) => ({ path: f.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))), ...projectRules])
+  }
   explainPrincipal(u: User) { return { id: u.id, name: u.name, role: u.role, groups: u.groupIds } }
   isFolder(p: string) { return p === '' || this.files.get(p)?.type === 'folder' || this.folders.some((f) => f.path === p) }
   explainFolder(q: { path?: string; cursor?: string; limit?: string }): FolderAccessResponse {
@@ -729,6 +797,8 @@ export class MockServer {
     if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? '개인 폴더(users/)는 본인만 봐요. 사람 기준으로 확인해 주세요.' : '팀 폴더 경로가 아니에요.', { 'query.path': input.detail })
     const segs = (input as { segs: string[] }).segs
     const p = segs.join('/')
+    // inside a team project: one answer, before anything is read (access-explain.ts)
+    if (!shownSegs(p)) fail('validation', 400, '팀 폴더 경로가 아니에요.', { 'query.path': 'not a team folder' })
     const rules = this.explainRules()
     const ruleFolder = ruleFolderOf(new Set(rules.ruleFolders()), segs)
     const at = ruleFolder === null ? segs : segsOf(ruleFolder)
@@ -786,6 +856,7 @@ export class MockServer {
     if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? '개인 폴더(users/)는 본인만 봐요. 사람 기준으로 확인해 주세요.' : '팀 폴더 경로가 아니에요.', { 'query.path': input.detail })
     const segs = (input as { segs: string[] }).segs
     const p = segs.join('/')
+    if (!shownSegs(p)) fail('validation', 400, '팀 폴더 경로가 아니에요.', { 'query.path': 'not a team folder' })
     const sub = (s: readonly string[]) => {
       const base = s.join('/')
       const out: string[] = []
@@ -1131,6 +1202,13 @@ export class MockServer {
   inboxItem(n: MockServer['inbox'][number]): InboxNotification {
     if (n.kind === 'service_request' || n.kind === 'service_ready') return this.serviceNoticeItem(n)
     const viewer = this.users.find((x) => x.id === n.userId)
+    if (n.kind === 'project_joined') {
+      // who, while the account is there; the project while the reader still sees it (link 'project' then)
+      const who = this.users.find((x) => x.id === n.joinerId)
+      const pr = this.projects.find((x) => x.id === n.projectId)
+      const sees = !!pr && !!viewer && this.projectSees(pr, viewer)
+      return { id: n.id, eventType: 'project.joined', sourceId: n.id, code: 'project.joined', createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: sees ? 'project' : null, projectJoined: { name: who?.name ?? null, project: sees ? { id: pr!.id, name: pr!.name } : null } }
+    }
     const code = n.kind === 'lead_joined' ? 'owner.lead_joined' : n.kind === 'transferred' ? 'owner.transferred' : 'owner.reauth_locked'
     const base = { id: n.id, eventType: code, sourceId: n.id, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
     if (n.kind === 'reauth_locked') return { ...base, handover: { kind: 'reauth_locked' } }
@@ -1858,6 +1936,20 @@ export class MockServer {
       return this.fileList
     },
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
+    oftenAsked: (c) => {
+      if (!this.settings.oftenAsked) return { scope: 'none', items: [] }
+      const shown = (xs: string[] | undefined) => (xs && xs.length >= 3 ? xs.slice(0, 10) : [])
+      const mine = this.groups.filter((g) => c.user.groupIds.includes(g.id) || g.memberIds.includes(c.user.id)).sort((a, b) => a.name.localeCompare(b.name))
+      const lists = mine.map((g) => ({ g, items: shown(this.oftenAsked.groups[g.id]) })).filter((x) => x.items.length)
+      if (lists.length === 1) return { scope: 'group', group: lists[0]!.g.name, items: lists[0]!.items }
+      if (lists.length > 1) {
+        const out: string[] = []
+        for (let i = 0; out.length < 10 && lists.some((l) => i < l.items.length); i++) for (const l of lists) { const t = l.items[i]; if (t && !out.includes(t) && out.length < 10) out.push(t) }
+        return { scope: 'groups', items: out }
+      }
+      const team = shown(this.oftenAsked.team)
+      return team.length ? { scope: 'team', items: team } : { scope: 'none', items: [] }
+    },
     // like server/src/skills/popular.ts: only skills the caller can read now, with their title
     popularSkills: (c) => ({ items: this.popular.flatMap((p) => { const s = this.skillsFor(c.user).find((x) => x.path === p.path && !x.personal); return s ? [{ ...s, uses: p.uses, users: p.users }] : [] }), days: 30 }),
     listSkillIssues: () => ({ items: [] }),
@@ -2231,7 +2323,8 @@ export class MockServer {
       r!(c.body.kind === 'ask_user' ? c.body.answer : c.body.decision)
       return undefined
     },
-    listProjects: () => ({ items: this.projects }),
+    // like server/src/routes/chats.ts: the projects the caller reads; manage=1 also those they manage without reading
+    listProjects: (c) => ({ items: this.projects.filter((p) => this.projectSees(p, c.user) || (c.query.manage === '1' && this.projectManages(p, c.user))) }),
     // like server/src/routes/chats.ts (docs/DECISIONS.md "Projects live only in projects/"): a team project is a new
     // projects/<name> (a taken name gets "-2") with its people, a personal one users/<me>/projects/<name>. The app sends
     // no folder. A spec may still name one: that sets up a project as older builds made them on an existing folder (the
@@ -2253,53 +2346,86 @@ export class MockServer {
       this.projects.push(p)
       return { status: 201, body: p }
     },
-    getProject: (c) => this.projects.find((p) => p.id === c.params.id) ?? fail('not_found', 404),
-    updateProject: (c) => Object.assign(this.projects.find((p) => p.id === c.params.id) ?? fail('not_found', 404), c.body),
+    getProject: (c) => this.projectFor(c, c.query.manage === '1'),
+    // a new name is management (also without reading it); its instructions and chat sharing are its contents
+    updateProject: (c) => {
+      const p = this.projectFor(c, true)
+      const nameOnly = c.body.instructions === undefined && c.body.shareChats === undefined && c.body.folderPath === undefined
+      if (!(nameOnly ? this.projectManages(p, c.user) : this.projectSees(p, c.user))) fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
+      return Object.assign(p, c.body)
+    },
+    // a team project in projects/<name> goes to the trash with its folder first (it stays, inTrash, for the owner and
+    // admins to restore or delete for good); a second DELETE, or any other project: for good (its folder's files too)
     deleteProject: (c) => {
-      const p = this.projects.find((x) => x.id === c.params.id)
-      // its projects/<name> folder to the trash too, when asked
-      if (p && c.query.trashFolder === '1' && this.projectMembers.has(p.folderPath)) {
-        for (const k of [...this.files.keys()]) if (k === p.folderPath || k.startsWith(p.folderPath + '/')) this.files.delete(k)
+      const p = this.projectFor(c, true)
+      if (!this.projectManages(p, c.user)) fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
+      const under = (k: string) => k === p.folderPath || k.startsWith(p.folderPath + '/')
+      if (this.projectMembers.has(p.folderPath) && !p.inTrash) {
+        this.trashedProjects.set(p.id, [...this.files.entries()].filter(([k]) => under(k)))
+        for (const k of [...this.files.keys()]) if (under(k)) this.files.delete(k)
+        p.inTrash = true
+        return undefined
+      }
+      if (p.inTrash) {
+        this.trashedProjects.delete(p.id)
         this.projectMembers.delete(p.folderPath)
       }
       this.projects = this.projects.filter((x) => x.id !== c.params.id)
       return undefined
     },
-    getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c)),
+    // its folder back from the trash, with its members (the owner and admins); purged meanwhile: 409
+    restoreProject: (c) => {
+      const p = this.projectFor(c, true)
+      if (c.user.role === 'member' || p.folderPath.startsWith('users/')) fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
+      const kept = this.trashedProjects.get(p.id)
+      if (!p.inTrash || !kept) fail('conflict', 409, CHAT_TEXT.projectRestoreGone[c.user.locale as Locale] ?? CHAT_TEXT.projectRestoreGone.ko, undefined, { reason: 'project_folder_purged' })
+      for (const [k, n] of kept!) this.files.set(k, n)
+      this.trashedProjects.delete(p.id)
+      p.inTrash = false
+      return this.sharedProjectOut(p, c.user)
+    },
+    getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c), c.user),
+    // like server/src/chat/project-access.ts previewAccess: members only (docs/DECISIONS.md "Project contents only for
+    // members"): a new project counts the caller and the people chosen, for everyone; an existing one its members after
+    // the change (`removeRules`: other settings of its folder taken out). Asked by someone who manages it without reading
+    // it: nothing of what is in it is counted (contentsHidden)
     previewProjectAccess: (c) => {
-      const people = (members: { creator: string; participants: { subjectType: string; subjectId: string }[] }, admins = true) => this.users.filter((u) => u.status === 'active' && ((admins && u.role !== 'member') || u.id === members.creator || members.participants.some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId)))))
-      // a member's new project: the owner and admins are not counted (as the server: the count never says who is an admin)
+      const after = (members: { creator: string; participants: { subjectType: string; subjectId: string }[] }, others: { subjectType: string; subjectId: string | null; access: string }[] = []) =>
+        this.users.filter((u) => u.status === 'active' && (u.id === members.creator || members.participants.some((x) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId))) || others.some((r) => r.access !== 'none' && this.ruleNames(r, u))))
       if (!c.body.projectId) {
-        const admin = c.user.role !== 'member'
-        const n = people({ creator: c.user.id, participants: c.body.participants }, admin).length
-        // the owner and admins: apart too (the caller and the people chosen, then the other admins)
-        const direct = people({ creator: c.user.id, participants: c.body.participants }, false).length
-        return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...(admin ? { split: { direct, byRole: n - direct } } : { adminsApart: true }) }
+        const n = after({ creator: c.user.id, participants: c.body.participants }).length
+        return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...(c.user.role !== 'member' ? { split: { direct: n, byRole: 0 } } : {}) }
       }
       const p = this.projectToEdit({ ...c, params: { id: c.body.projectId } })
       const pm = this.projectMembers.get(p.folderPath) ?? fail('conflict', 409, '이 프로젝트를 볼 수 있는 사람은 관리자 › 폴더 권한에서 바꿔요.', undefined, { reason: 'project_not_editable' })
-      const before = new Set(people(pm).map((u) => u.id))
-      const after = people({ creator: pm.creator, participants: c.body.participants })
-      const added = after.filter((u) => !before.has(u.id)).length
-      const removed = [...before].filter((id) => !after.some((u) => u.id === id)).length
-      // the owner and admins: its people by its rules after the change, apart from the admins by role
-      const byRules = people({ creator: pm.creator, participants: c.body.participants }, false).length
-      const split = c.user.role !== 'member' ? { split: { direct: byRules, byRole: after.length - byRules } } : {}
-      if (!added) return { people: after.length, added, removed, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...split }
+      const own = (pm.others ?? []).filter((r) => r.path === p.folderPath)
+      const removing = this.removedRules(pm, p, c.body.removeRules)
+      const before = new Set(this.sharedAudience(p).map((u) => u.id))
+      const next = after({ creator: pm.creator, participants: c.body.participants }, own.filter((r) => !removing.includes(r)))
+      const added = next.filter((u) => !before.has(u.id)).length
+      const removed = [...before].filter((id) => !next.some((u) => u.id === id)).length
+      const split = c.user.role !== 'member' ? { split: { direct: next.length, byRole: 0 } } : {}
+      const hidden = !this.projectSees(p, c.user)
+      if (!added || hidden) return { people: next.length, added, removed, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...split, ...(hidden ? { contentsHidden: true } : {}) }
       const under = [...this.files.entries()].filter(([k, v]) => v.type === 'file' && k.startsWith(p.folderPath + '/'))
       const files = under.filter(([k]) => !k.startsWith(`${p.folderPath}/skills/`)).length
       const skillNames = under.filter(([k]) => k.startsWith(`${p.folderPath}/skills/`) && /^[^/]+\/SKILL\.md$/.test(k.slice(p.folderPath.length + 8))).map(([k]) => k.slice(p.folderPath.length + 8).split('/')[0]!).sort()
       const skills = skillNames.length
       const sharedChats = this.chats.filter((x) => x.projectId === p.id && !x.deletedAt && this.sharedChats.has(x.id)).length
-      return { people: after.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split }
+      return { people: next.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10), ...split }
     },
     putProjectParticipants: (c) => {
       const p = this.projectToEdit(c)
       const pm = this.projectMembers.get(p.folderPath) ?? fail('conflict', 409, '이 프로젝트를 볼 수 있는 사람은 관리자 › 폴더 권한에서 바꿔요.', undefined, { reason: 'project_not_editable' })
       if (c.body.expectedHash !== `v${pm.version}`) fail('conflict', 409, '그사이 누군가 이 프로젝트를 볼 수 있는 사람을 바꿨어요. 바뀐 내용을 확인한 뒤 다시 저장해 주세요.', undefined, { reason: 'rules_changed' })
+      const removing = this.removedRules(pm, p, c.body.removeRules)
+      const before = new Set(this.sharedAudience(p).map((u) => u.id))
       pm.participants = (c.body.participants as { subjectType: 'group' | 'user'; subjectId: string }[]).filter((x) => !(x.subjectType === 'user' && x.subjectId === pm.creator))
+      if (removing.length) pm.others = (pm.others ?? []).filter((r) => !removing.includes(r))
       pm.version++
-      return this.projectAccessOf(p)
+      // an owner or admin who starts to see it: its members are told (a stored notice; chat/project-joins.ts)
+      for (const u of this.sharedAudience(p)) if (!before.has(u.id) && u.role !== 'member') for (const id of before) this.note(id, { kind: 'project_joined', joinerId: u.id, projectId: p.id })
+      return this.projectAccessOf(p, c.user)
     },
     // a personal project becomes a team project: a new projects/<name> with the participants, its files copied there
     shareProject: (c) => {
@@ -3190,7 +3316,7 @@ export class MockServer {
     },
     // like the server (admin/folder-keep.ts, the mock's names are case-sensitive): rows parked with a trashed folder are
     // not listed, and each row says why the API keeps it
-    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false), hidden: shownSegs(f.path) === null, rulesHash: rulesHash(f.rules) })) }),
+    listFolders: () => ({ items: [...this.folders, ...this.projectRuleRows()].filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false), hidden: shownSegs(f.path) === null, rulesHash: rulesHash(f.rules) })) }),
     // ---- team skills ----
     listSkillManagers: () => this.skillManagersResponse(),
     setSkillManager: (c) => {
@@ -3273,6 +3399,7 @@ export class MockServer {
       return this.suggestionFor(s!, c.user)
     },
     createFolder: (c) => {
+      this.notInProject(c.body.path, c.user.locale)
       if (isTeamDefaultFolder(c.body.path, false) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
       // like the server: rules made there meanwhile (the hash the editor started from is not the rules' now)
       if (c.body.expectedHash !== undefined && c.body.expectedHash !== rulesHash(this.folders.find((f) => f.path === c.body.path)?.rules ?? [])) throw new Fail('conflict', 409, serverMsg('rulesChanged', c.user.locale), undefined, { reason: 'rules_changed' })
@@ -3289,6 +3416,7 @@ export class MockServer {
     },
     putFolderRules: (c) => {
       const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
+      this.notInProject(f.path, c.user.locale, 'params.id')
       if (isTeamDefaultFolder(f.path, false) && !c.body.rules.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
       // like the server: another admin changed the rules since the editor read them
       if (c.body.expectedHash !== undefined && c.body.expectedHash !== rulesHash(f.rules)) throw new Fail('conflict', 409, serverMsg('rulesChanged', c.user.locale), undefined, { reason: 'rules_changed' })
@@ -3297,6 +3425,7 @@ export class MockServer {
     },
     deleteFolder: (c) => {
       const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
+      this.notInProject(f.path, c.user.locale, 'params.id')
       // the server refuses these at the admin API (routes/admin.ts): shared/ and skills/, and a group's folder
       const keep = folderKeep(f.path, f.groupId ?? null, false)
       if (keep === 'team') fail('conflict', 409, serverMsg('teamFolderKeepsRules', c.user.locale))
@@ -3310,12 +3439,15 @@ export class MockServer {
       return this.explainPerson({ user: u, role: u.role, groupIds: u.groupIds }, { prefix: c.query.prefix, cursor: c.query.cursor, limit: c.query.limit ? Number(c.query.limit) : undefined })
     },
     explainAccessTree: (c) => this.explainTree(c.query),
-    previewFolderEdit: (c) => this.explainEdit(c.body, c.user.locale),
+    previewFolderEdit: (c) => {
+      this.notInProject(c.body.path, c.user.locale)
+      return this.explainEdit(c.body, c.user.locale)
+    },
     explainNewPersonAccess: (c) => {
       if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
       return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] }, c.body)
     },
-    previewRules: (c) => ({
+    previewRules: (c) => (c.body.changes.forEach((ch: Json, i: number) => this.notInProject(ch.path, c.user.locale, `body.changes.${i}.path`)), {
       folders: c.body.changes.map((ch: Json) => ({ path: ch.path, users: this.users.map((u) => ({ user: { id: u.id, name: u.name }, role: u.role, before: u.role === 'owner' ? 'write' : 'none', after: u.role === 'owner' ? 'write' : (ch.rules as Json[]).some((r) => r.subjectType === 'everyone') ? 'read' : 'none' })) })),
       losing: [{ user: { id: 'bob', name: 'Bob' }, paths: [c.body.changes[0].path], chatsReset: 2 }],
     }),
@@ -4590,6 +4722,7 @@ export class MockServer {
     else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
     else if (p === '/__test/drive-client') { this.driveClient = body.on === false ? 'none' : 'app'; this.settleServiceRequests() }
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
+    else if (p === '/__test/often-asked') this.oftenAsked = { team: (body.team as string[] | undefined) ?? [], groups: (body.groups as Record<string, string[]> | undefined) ?? {} }
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null
     else if (p === '/__test/html-pdf' && req.method === 'GET') return Response.json(this.htmlPdfCalls)
@@ -4687,6 +4820,34 @@ export class MockServer {
       this.shareEpoch++
     }
     else if (p === '/__test/restrict') this.restricted.set(String(body.path), (body.users as string[]) ?? [])
+    // a team project as another person made it (members only: the owner and admins are not in it unless chosen)
+    else if (p === '/__test/project') {
+      const by = this.users.find((u) => u.id === String(body.by ?? 'bob')) ?? fail('validation', 400, 'no such person')
+      const folderPath = `projects/${String(body.name)}`
+      for (const d of ['projects', folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
+      this.projectMembers.set(folderPath, { creator: by.id, participants: (body.participants as { subjectType: 'group' | 'user'; subjectId: string }[] | undefined) ?? [], version: 1 })
+      const pr: Project = { id: uuidv7(), name: String(body.name), folderPath, instructions: String(body.instructions ?? ''), createdBy: { id: by.id, name: by.name }, createdAt: now(), canEdit: true }
+      this.projects.push(pr)
+      for (const [name, text] of Object.entries((body.files as Record<string, string> | undefined) ?? {})) this.putFile(`${folderPath}/${name}`, text)
+      // a chat of the caller there (`chatsOf`: whose, by id; their own chats stay theirs, also after they lose it)
+      for (const [uid, title] of (body.chats as [string, string][] | undefined) ?? []) {
+        const chat: Chat = { id: uuidv7(), projectId: pr.id, title, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+        this.chats.push(chat)
+        this.chatOwners.set(chat.id, uid)
+      }
+      return Response.json({ id: pr.id })
+    }
+    // a team project folder's other settings (ProjectAccess.otherRules) and how many inside a non-member may not read
+    else if (p === '/__test/project-rules') {
+      const pm = this.projectMembers.get(String(body.folder)) ?? fail('not_found', 404)
+      pm.others = (body.others as NonNullable<typeof pm.others> | undefined) ?? []
+      if (typeof body.hidden === 'number') pm.hidden = body.hidden
+      pm.version++
+    }
+    // a trashed project's folder purged from the trash: restoring it is refused (409 project_folder_purged)
+    else if (p === '/__test/project-purge') this.trashedProjects.set(String(body.id), null)
+    // a stored notice that someone joined a project (inbox), for `to`
+    else if (p === '/__test/project-joined') this.note(String(body.to), { kind: 'project_joined', joinerId: String(body.joiner), projectId: String(body.projectId) })
     else if (p === '/__test/managed') this.pluginManaged.add(String(body.path))
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
@@ -4724,26 +4885,46 @@ export class MockServer {
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
 
-  /** a project the caller may change (its creator or an admin), like routes/chats.ts mayEdit */
+  /** A project the caller reads, or with `manage` one they manage (routes/chats.ts projectFor): else 404, the same
+   * answer as no project */
+  projectFor(c: Ctx, manage: boolean): Project {
+    const p = this.projects.find((x) => x.id === c.params.id)
+    if (!p || !(this.projectSees(p, c.user) || (manage && this.projectManages(p, c.user)))) fail('not_found', 404)
+    return p!
+  }
+  /** a project whose members the caller may change (its creator, the owner or an admin, also without being a member),
+   * like routes/chats.ts mayManage */
   projectToEdit(c: Ctx): Project {
-    const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-    if (this.access(p.folderPath, c.user) === 'none') fail('not_found', 404)
-    if (p.createdBy?.id !== c.user.id && c.user.role === 'member') fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
+    const p = this.projectFor(c, true)
+    if (!this.projectManages(p, c.user)) fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
     return p
   }
-  /** GET /api/projects/:id/access, from projectMembers (a project made before on another folder: not editable here) */
-  projectAccessOf(p: Project) {
+  /** The other settings of a project's own folder a members save takes out (`removeRules`): each must be one there that
+   * the members screen does not set, else 400 (chat/project-access.ts proposed) */
+  removedRules(pm: { others?: { path: string; subjectType: string; subjectId: string | null; access: string }[] }, p: Project, refs: unknown) {
+    const list = (Array.isArray(refs) ? refs : []) as { subjectType: string; subjectId: string | null }[]
+    return list.map((x, i) => (pm.others ?? []).find((r) => r.path === p.folderPath && r.subjectType === x.subjectType && (r.subjectId ?? null) === (x.subjectId ?? null)) ?? fail('validation', 400, '이 폴더에 없는 설정이에요.', { [`body.removeRules.${i}`]: 'not an other rule of this folder' }))
+  }
+  /** GET /api/projects/:id/access, from projectMembers (a project made before on another folder: not editable here).
+   * Settings on folders inside it only for someone who reads it; for anyone else counted (otherRulesHidden). */
+  projectAccessOf(p: Project, viewer: User) {
     const pm = this.projectMembers.get(p.folderPath)
     const userName = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
+    const subjectName = (r: { subjectType: string; subjectId: string | null }) => r.subjectType === 'user' ? userName(r.subjectId ?? '') : r.subjectType === 'group' ? this.groups.find((g) => g.id === r.subjectId)?.name ?? null : null
     const participants = pm ? [
       { subjectType: 'user' as const, subjectId: pm.creator, name: userName(pm.creator), creator: true },
       ...pm.participants.map((x) => ({ ...x, name: x.subjectType === 'user' ? userName(x.subjectId) : this.groups.find((g) => g.id === x.subjectId)?.name ?? '' })),
     ] : []
-    return { editable: !!pm, participants, otherRules: [], rulesHash: pm ? `v${pm.version}` : 'v0', people: this.users.filter((u) => u.status === 'active' && this.access(p.folderPath, u) !== 'none').length }
+    const reads = this.projectSees(p, viewer)
+    const others = pm?.others ?? []
+    const otherRules = others.filter((r) => r.path === p.folderPath || reads).map((r) => ({ ...r, name: subjectName(r) }))
+    const hidden = (reads ? 0 : others.filter((r) => r.path !== p.folderPath).length) + (pm?.hidden ?? 0)
+    return { editable: !!pm && !p.inTrash, participants, otherRules, rulesHash: pm ? `v${pm.version}` : 'v0', people: this.sharedAudience(p).length, ...(hidden ? { otherRulesHidden: hidden } : {}) }
   }
 
   sharedAudience(p: Project): User[] {
-    return this.users.filter((u) => u.status === 'active' && this.access(p.folderPath, u) !== 'none')
+    // while its folder is in the trash nobody reads it
+    return p.inTrash ? [] : this.users.filter((u) => u.status === 'active' && this.access(p.folderPath, u) !== 'none')
   }
   /** like server/src/chat/shared.ts Audiences.alone (Project.alone): nobody but `viewer` sees it as a member would
    * (role-blind), so anyone else is the owner or an admin */
@@ -4766,8 +4947,12 @@ export class MockServer {
     // in place, by its creator (while active) or an admin
     const pm = this.projectMembers.get(p.folderPath)
     const creator = this.users.find((u) => u.id === p.createdBy?.id && u.status === 'active')
-    const members = personal ? {} : { membersEditable: !!pm && !p.inTrash && !!viewer && this.sharedMayEdit(p, viewer), creatorChangesMembers: !!pm && !p.inTrash && !!creator }
-    return { ...p, shareChats, audience: this.sharedAudience(p).length,
+    const canManage = !!viewer && this.projectManages(p, viewer)
+    const members = personal ? {} : { membersEditable: !!pm && !p.inTrash && !!viewer && (this.sharedMayEdit(p, viewer) || canManage), creatorChangesMembers: !!pm && !p.inTrash && !!creator }
+    // the owner or an admin who manages it without reading it (or one in the trash): its name, creator and member count,
+    // nothing of its contents (routes/chats.ts projectOut)
+    if (viewer && !this.projectSees(p, viewer)) return { ...p, instructions: '', canEdit: false, member: false, canManage, shareChats, audience: this.sharedAudience(p).length, ...members }
+    return { ...p, canManage, shareChats, audience: this.sharedAudience(p).length,
       sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length,
       ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer) } : {}), ...members,
       // only for someone who may read its rules anyway (server/src/chat/project-access.ts membersView)
@@ -4786,7 +4971,7 @@ export class MockServer {
     const s = this.sharedChats.get(chat.id)
     if (!s) return chat
     const p = this.projects.find((x) => x.id === s.projectId)
-    if (!p || this.access(p.folderPath, viewer) === 'none') return null
+    if (!p || !this.projectSees(p, viewer)) return null
     const { waiting: _w, unseen: _u, shared: _s, ...rest } = chat
     const runner = s.runner && s.runner !== viewer.id ? this.users.find((u) => u.id === s.runner) : undefined
     return {
@@ -4901,10 +5086,18 @@ export class MockServer {
     // the project goes for good); everyone else who saw one hears it is gone
     over('deleteProject', (c, base) => {
       const pj = this.projects.find((x) => x.id === c.params.id)
+      // to the trash with its folder: its shared chats leave everyone's lists until it comes back
+      if (pj && this.projectMembers.has(pj.folderPath) && !pj.inTrash) {
+        const audience = this.sharedAudience(pj).map((u) => u.id)
+        const out = base(c)
+        for (const x of this.chats.filter((y) => y.projectId === pj.id && this.sharedChats.has(y.id))) this.sharedSend((uid) => (audience.includes(uid) ? { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: null } } : null))
+        return out
+      }
       const audience = pj ? this.sharedAudience(pj).map((u) => u.id) : []
       const shared = this.chats.filter((x) => x.projectId === c.params.id && this.sharedChats.has(x.id))
       const by = (x: Chat) => this.sharedChats.get(x.id)!.by.id
       const keeps = (x: Chat) => { const u = this.users.find((y) => y.id === by(x)); return !!pj && !!u && this.access(pj.folderPath, u) !== 'none' }
+      if (pj) this.projectFor(c, true)
       const kept = shared.filter(keeps)
       for (const x of shared) this.sharedSend((uid) => (audience.includes(uid) && !(kept.includes(x) && uid === by(x)) ? { type: 'chat.updated', data: { chatId: x.id, change: 'purged', chat: null } } : null))
       for (const x of kept) {
@@ -5316,7 +5509,7 @@ const FAKE_MCP_TOOLS: IntegrationTool[] = [
 const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, webAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, projectCreators: 'members', oftenAsked: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */

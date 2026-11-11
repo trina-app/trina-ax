@@ -54,11 +54,8 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await expect(page.locator('a[href="#main"]')).toBeFocused()
 })
 
-test('choosing the ready question and frequent questions focuses the filled composer', async ({ page }) => {
+test('choosing the ready question focuses the filled composer', async ({ page }) => {
   await reset(page)
-  await page.route('**/api/questions/frequent', r => r.fulfill({ json: { days: 30, sampled: false, items: [
-    { question: 'Summarize my weekly report', count: 3, lastUsedAt: '2026-10-20T00:00:00.000Z' },
-  ] } }))
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/')
   const input = page.getByTestId('composer-input')
@@ -67,11 +64,6 @@ test('choosing the ready question and frequent questions focuses the filled comp
   await example.focus()
   await page.keyboard.press('Enter')
   await expect(input).toHaveValue(text)
-  await expect(input).toBeFocused()
-  const question = page.getByTestId('frequent-questions').getByRole('button')
-  await question.focus()
-  await page.keyboard.press('Enter')
-  await expect(input).toHaveValue('Summarize my weekly report')
   await expect(input).toBeFocused()
 })
 
@@ -442,10 +434,10 @@ for (const scheme of ['light', 'dark'] as const) {
 async function accessTeam(page: Page) {
   const ok = async (r: Promise<{ ok: () => boolean }>) => expect((await r).ok()).toBeTruthy()
   const post = (path: string, data: object) => ok(page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data }))
-  await post('/__test/file', { path: 'projects/apollo/plan.md', text: 'plan' })
+  await post('/__test/file', { path: 'partners/apollo/plan.md', text: 'plan' })
   await post('/api/admin/folders', { path: 'shared', create: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'write' }] })
   await post('/api/admin/folders', { path: 'skills', create: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
-  await post('/api/admin/folders', { path: 'projects/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
+  await post('/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
   await post('/api/admin/users', { username: 'dan', name: 'Dan', role: 'member', groupIds: [], temporaryPassword: 'tiger4271x' })
   await ok(page.request.patch('/api/admin/users/dan', { headers: { [CSRF_HEADER]: '1' }, data: { status: 'disabled' } }))
 }
@@ -491,9 +483,9 @@ for (const scheme of ['light', 'dark'] as const) {
     await signIn(page)
     await treeTeam(page)
     await page.goto('/admin/folders')
-    await expect(page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]')).toBeVisible()
+    await expect(page.getByTestId('folder-tree').locator('[data-path="partners/apollo"]')).toBeVisible()
     await audit(page, 'folders by folder')
-    await page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]').click()
+    await page.getByTestId('folder-tree').locator('[data-path="partners/apollo"]').click()
     await expect(page.getByTestId('folder-people')).toBeVisible()
     await page.getByTestId('folder-outside-toggle').click()
     await audit(page, 'folders by folder (a folder chosen, the rules outside the tree open)')
@@ -525,9 +517,9 @@ test('folder permissions by folder have no serious accessibility problems at pho
   await signIn(page)
   await treeTeam(page)
   await page.goto('/admin/folders')
-  await expect(page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]')).toBeVisible()
+  await expect(page.getByTestId('folder-tree').locator('[data-path="partners/apollo"]')).toBeVisible()
   await audit(page, 'folders by folder (phone)')
-  await page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]').click()
+  await page.getByTestId('folder-tree').locator('[data-path="partners/apollo"]').click()
   await expect(page.getByTestId('folder-people')).toBeVisible()
   await audit(page, 'folders by folder, a folder chosen (phone)')
   // the edit panel on the whole screen

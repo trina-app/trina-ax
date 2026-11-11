@@ -81,6 +81,16 @@ const serviceRequestText = (item: InboxNotification, sr: NonNullable<InboxNotifi
 export const serviceSetupLink = (service: NonNullable<InboxNotification['serviceRequest']>['service']) =>
   service === 'google-drive' ? '/admin/connectors?drive=1' : `/admin/connectors?app=${encodeURIComponent(service)}`
 
+/** Someone started to see a project I am in (docs/DECISIONS.md "Project contents only for members": an owner or admin
+ * who added themselves, or anyone through a group): who, while their account is there, and the project, while I still
+ * see it; "누군가" and "프로젝트" for the part the server leaves out. */
+export function projectJoinedText(j: NonNullable<InboxNotification['projectJoined']>, t: T): string {
+  if (j.name && j.project) return t('notifications.event.project.joinedNamed', { name: j.name, project: j.project.name })
+  if (j.name) return t('notifications.event.project.joinedName', { name: j.name })
+  if (j.project) return t('notifications.event.project.joinedProject', { project: j.project.name })
+  return t('notifications.event.project.joined')
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -92,6 +102,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'skills.merge_waiting' && item.merges) return t('notifications.event.skills.merge_waitingN', { n: item.merges.n })
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
   if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
+  if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
@@ -124,6 +135,7 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
   if (item.link === 'room' && item.room) return { to: roomNoticeLink(item.room), testId: 'notification-room-link' }
   if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
+  if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
   if (item.link === 'connections') return { to: '/connectors/google-drive', testId: 'notification-connections-link' }

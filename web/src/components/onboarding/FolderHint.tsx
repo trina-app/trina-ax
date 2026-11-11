@@ -1,6 +1,6 @@
 // The hint under a skill folder picker (docs/DECISIONS.md "SK", "W5", "MC"): where Claude's folder (.claude) and Codex's
-// (.codex, .agents) are, and the keys that show hidden folders in this computer's folder window. The owner's 내 스킬
-// step (SkillsStep.tsx) and a member's skill folder pick (components/skills/ContributeSheet.tsx) show the same words.
+// (.codex, .agents) are, and the keys that show hidden folders in this computer's folder window. Team skills › Bring my
+// skills (components/skills/BringSkillsSheet.tsx) and a member's skill folder pick (ContributeSheet.tsx) show it.
 import type { ReactNode } from 'react'
 import { useT } from '../../i18n'
 import { withNodes } from './SkillShareReview'

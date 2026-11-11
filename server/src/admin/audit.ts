@@ -52,21 +52,67 @@ export function redactPersonal(s: string, viewer: string): string {
   // a path (file event target, detail value) becomes just the folder; a summary keeps its first word (the tool)
   return PERSONAL.test(head) || /^users\//i.test(s.trim()) ? tail : `${head} ${tail}`
 }
-function redactValue(v: unknown, viewer: string): unknown {
-  if (typeof v === 'string') return redactPersonal(v, viewer)
-  if (Array.isArray(v)) return v.map((x) => redactValue(x, viewer))
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redactValue(x, viewer)]))
+function redactValue(v: unknown, viewer: string, sight?: ProjectSight): unknown {
+  if (typeof v === 'string') return redactProjects(redactPersonal(v, viewer), sight)
+  if (Array.isArray(v)) return v.map((x) => redactValue(x, viewer, sight))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redactValue(x, viewer, sight)]))
   return v
+}
+
+/**
+ * What the viewer of the list may know of team projects (docs/DECISIONS.md "Project contents only for members"): the
+ * owner and admins read a project only as members, so the log shows nothing inside one they do not read: no file name,
+ * size or hash, no tool summary that names one, no instructions or dev environment command of it. Built by the route
+ * from the folder rules (admin/audit-sight.ts).
+ */
+export interface ProjectSight {
+  /** the viewer does not read this project folder (`projects/<name>` as written in the log; any letter case) */
+  hides(folder: string): boolean
+  /** a project's folder by its id (null: no such project now: its rows are hidden) */
+  folderOf(projectId: string): string | null
+  /** the project folder of the chat a turn ran in (null: none) */
+  turnFolder(turnId: string): string | null
+}
+// a path inside a team project anywhere in a string: projects/<name>/… A name may hold spaces, ' and ` (the team folder
+// refuses only " and /: policy/names.ts badSegment); the rest goes with it, up to a " or the end of the line or the next
+// projects/ (each is judged on its own): errs on the side of hiding (security review M3)
+const PROJECT_PATH = /(^|[^A-Za-z0-9._-])(projects)\/([^/\n\r"]+)\/(?:(?!projects\/)[^\n\r"])*/gi
+/** Cut every path inside a project the viewer does not read to `projects/<name>/…`. */
+export function redactProjects(s: string, sight?: ProjectSight): string {
+  if (!sight || !/projects\//i.test(s)) return s
+  return s.replace(PROJECT_PATH, (all, pre: string, top: string, name: string) => (sight.hides(`${top}/${name}`) ? `${pre}${top}/${name}/…` : all))
+}
+/** Does `s` name something inside a project the viewer does not read? */
+const namesHiddenProject = (s: string, sight?: ProjectSight) => !!sight && redactProjects(s, sight) !== s
+/** A path (a file event's target, a filter): inside a project the viewer does not read, by its own segments. */
+function pathHidden(p: string, sight?: ProjectSight): boolean {
+  if (!sight) return false
+  const segs = p.split('/').filter(Boolean)
+  if (segs.length >= 3 && segs[0]!.normalize('NFC').toLowerCase() === 'projects' && sight.hides(`${segs[0]}/${segs[1]}`)) return true
+  return namesHiddenProject(p, sight)
+}
+
+/** projects/<name>/… of a path inside a project */
+const cutPath = (p: string) => { const s = p.split('/').filter(Boolean); return `${s[0]}/${s[1]}/…` }
+/** Rows about one project (target: its id) that hold what is in it. */
+const PROJECT_CONTENT_ACTIONS = new Set(['project.update', 'dev_env.command', 'dev_env.job'])
+/** project.update without the instructions' text (the name change stays: the project's name is the owner's and
+ * admins' to know). */
+function withoutInstructions(d: Record<string, unknown>): Record<string, unknown> {
+  const { instructions: _drop, ...rest } = d
+  return rest
 }
 
 /**
  * Newest first, keyset-paginated over (at, sid). `path` limits the list to file events at or under that path.
  * `viewer` (the admin reading the list) sees inside their own personal folder only.
  */
-export function listAudit(db: Database, f: AuditFilter, viewer: string): Page<AuditEntry> {
+export function listAudit(db: Database, f: AuditFilter, viewer: string, sight?: ProjectSight): Page<AuditEntry> {
   const limit = Math.min(Math.max(f.limit ?? 50, 1), 200)
-  // filtering by a path inside someone else's personal folder would tell whether such a file exists
+  // filtering by a path inside someone else's personal folder would tell whether such a file exists; so would one
+  // inside a project the viewer does not read
   if (f.path !== undefined && mentionsOtherPersonal(f.path + '/', viewer)) return { items: [], nextCursor: null }
+  if (f.path !== undefined && (pathHidden(f.path + '/x', sight) || namesHiddenProject(f.path + '/', sight))) return { items: [], nextCursor: null }
   const parts: string[] = []
   const args: (string | number)[] = []
   const want = (s: AuditEntry['source']) => (!f.source || f.source === s) && (f.path === undefined || s === 'file')
@@ -108,17 +154,27 @@ export function listAudit(db: Database, f: AuditFilter, viewer: string): Page<Au
   const page = rows.slice(0, limit)
   return {
     items: page.map((r) => {
-      const hidden = r.source === 'file' && r.target !== null && mentionsOtherPersonal(r.target, viewer)
+      const hidden = r.source === 'file' && r.target !== null && (mentionsOtherPersonal(r.target, viewer) || pathHidden(r.target, sight))
+      let detail = hidden ? null : (redactValue(parseDetail(r.detail), viewer, sight) as Record<string, unknown> | null)
+      // a tool call of a turn in a project the viewer does not read: no summary at all (it may name files without a path)
+      if (r.source === 'tool' && detail && r.turn_id && sight) { const tf = sight.turnFolder(r.turn_id); if (tf && sight.hides(tf)) detail = { ok: detail.ok ?? null } }
+      // a skill moved or copied from or into a project the viewer does not read: not its name either
+      if (r.source === 'admin' && detail && sight && r.action.startsWith('skills.') && namesHiddenProject(r.detail ?? '', sight)) { const { name: _n, as: _a, ...rest } = detail; detail = rest }
+      // a project's own rows: its instructions, its dev environment's commands and jobs, only for who reads it
+      if (r.source === 'admin' && detail && r.target && sight && PROJECT_CONTENT_ACTIONS.has(r.action)) {
+        const pf = sight.folderOf(r.target)
+        if (pf === null || sight.hides(pf)) detail = r.action === 'project.update' ? withoutInstructions(detail) : null
+      }
       return {
         id: r.sid,
         source: r.source,
         at: r.at,
         actor: r.actor_id ? { id: r.actor_id, name: r.actor_name ?? r.actor_id } : null,
         action: r.action,
-        target: r.target === null ? null : redactPersonal(r.target, viewer),
+        target: r.target === null ? null : r.source === 'file' && pathHidden(r.target, sight) ? cutPath(r.target) : redactProjects(redactPersonal(r.target, viewer), sight),
         turnId: r.turn_id && /^[0-9a-f]{8}-[0-9a-f]{4}-7/.test(r.turn_id) ? r.turn_id : null,
-        // size / sha256 of a file nobody but its owner may see would still identify it
-        detail: hidden ? null : (redactValue(parseDetail(r.detail), viewer) as Record<string, unknown> | null),
+        // size / sha256 of a file nobody but its owner (or a project's members) may see would still identify it
+        detail,
       }
     }),
     nextCursor: more ? encodeCursor(page[page.length - 1]!) : null,

@@ -4,6 +4,7 @@ import { USER_OF, type Who } from './world'
 /** Configured OAuth flows have separate synthetic-provider tests. This permanent matrix also covers disabled setup. */
 export const P4_SPECS: Record<string, Spec> = {
   frequentQuestions: { build: c => c.get('/api/questions/frequent?userId=alice'), scope: 'self' },
+  oftenAsked: { build: c => c.get('/api/questions/often-asked?userId=alice&groupId=marketing'), scope: 'self' },
   popularSkills: { build: c => c.get('/api/skills/popular'), scope: 'self' },
   listScheduleTemplates: { build: c => c.get('/api/schedule-templates'), scope: 'self' },
   createScheduleFromTemplate: {
