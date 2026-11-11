@@ -2544,7 +2544,7 @@ export const en: Record<MessageKey, string> = {
   'system.backupScope.incremental': 'Incremental',
   'system.restore': 'Restore',
   'system.restoreTitle': 'Restore this backup?',
-  'system.restoreBody': 'Every change after {date} to chats, memories, settings, folder rules and accounts is lost, and chats deleted since then come back. The server restarts and everyone has to sign in again; invite and reset links not used yet stop working. Files in the team folder stay as they are now (bring files back from their version history or the trash). This cannot be undone.',
+  'system.restoreBody': 'Every change after {date} to chats, memories, settings and accounts is lost, and chats deleted since then come back. The server restarts and everyone has to sign in again; invite and reset links not used yet stop working. Files in the team folder and folder permissions stay as they are now (bring files back from their version history or the trash). This cannot be undone.',
   'system.restoreDone': 'Restored. Please reload the page.',
   'system.lastRestore': "On {at}, {name} restored the backup made on {backup}.",
   'system.lastRestoreNoName': "On {at}, the backup made on {backup} was restored.",

@@ -8,7 +8,7 @@ A local backup is on the same disk. Keep an encrypted off-host copy and test rec
 
 | Operation | Restores | Does not restore |
 |---|---|---|
-| Admin → System → Backups → Restore | Database: accounts, chats, settings; applied at next server start | Team files are unchanged |
+| Admin → System → Backups → Restore | Database: accounts, chats, settings; applied at next server start | Team files are unchanged, and so are folder permissions (who may open which folder stays as it is now) |
 | `restore-team --backup ID --to NEWDIR` | Team files reconstructed from the full/incremental chain into a new folder | Does not replace the live team or database |
 | `archive` / `restore-archive` | Database + team files (including file history present there), extracted to `db/app.sqlite` and `team/` | OS accounts, services, config, CA keys, provider secret keys and data-directory session state |
 | Office `teamax restore-archive` | Stops the app and swaps the recovered DB/team into the office installation | Does not reconstruct missing deployment settings or external accounts |
@@ -51,7 +51,7 @@ Role-account Mac uses the same `admin.js` commands as `_axserver`, with `MYCEL_C
 
 Before any replacement, make a current backup, pause team use and preserve the current version/configuration.
 
-- DB only: use Admin → System → Backups → Restore (password confirmation), or `trina_admin stage-restore --backup ID`. Restart the server (`sudo systemctl restart mycel-server` on default Linux). After the restart, Admin → System → Backups and the activity log ("Restored a backup") say which backup was put back, when it was made, when and by whom it was restored, and whether it worked. The old DB is retained under `data/backups/before-restore-*` for the same period as backups (the newest one is always kept). Everyone signs in again. Team files remain current.
+- DB only: use Admin → System → Backups → Restore (password confirmation), or `trina_admin stage-restore --backup ID`. Restart the server (`sudo systemctl restart mycel-server` on default Linux). Folder permissions stay as they were just before the restore, because the files they protect stay too: a folder closed after the backup stays closed (if the current database cannot be read, the backup's permissions apply and Admin → System says to check them). After the restart, Admin → System → Backups and the activity log ("Restored a backup") say which backup was put back, when it was made, when and by whom it was restored, and whether it worked. The old DB is retained under `data/backups/before-restore-*` for the same period as backups (the newest one is always kept). Everyone signs in again. Team files remain current.
 - File recovery: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. The target must be new. Compare files, then restore only selected files through the app with appropriate permissions. This avoids replacing unrelated work.
 - Encrypted archive drill: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. Verify the resulting DB and team tree; extraction alone does not start a server.
 

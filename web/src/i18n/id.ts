@@ -2544,7 +2544,7 @@ export const id: Record<MessageKey, string> = {
   'system.backupScope.incremental': 'Inkremental',
   'system.restore': 'Pulihkan',
   'system.restoreTitle': 'Pulihkan backup ini?',
-  'system.restoreBody': 'Semua perubahan setelah {date} pada chat, memori, pengaturan, aturan folder, dan akun hilang, dan chat yang dihapus sejak itu kembali. Server dimulai ulang dan semua orang harus masuk lagi; tautan undangan dan reset yang belum dipakai tidak berlaku lagi. Berkas di folder tim tetap seperti sekarang (pulihkan berkas dari riwayat versi atau tempat sampah). Ini tidak bisa dibatalkan.',
+  'system.restoreBody': 'Semua perubahan setelah {date} pada chat, memori, pengaturan, dan akun hilang, dan chat yang dihapus sejak itu kembali. Server dimulai ulang dan semua orang harus masuk lagi; tautan undangan dan reset yang belum dipakai tidak berlaku lagi. Berkas di folder tim dan izin folder tetap seperti sekarang (pulihkan berkas dari riwayat versi atau tempat sampah). Ini tidak bisa dibatalkan.',
   'system.restoreDone': 'Sudah dipulihkan. Muat ulang halaman.',
   'system.lastRestore': "Pada {at}, {name} memulihkan backup dari {backup}.",
   'system.lastRestoreNoName': "Pada {at}, backup dari {backup} dipulihkan.",

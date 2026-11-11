@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:10
 - Branch: `fix/restore-keeps-closed-folders`
-- Status: in progress
+- Status: done
 - Where: `server/src/system/backup.ts` (core). Why: the in-app restore is core backup code (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a security fix to the existing restore, no new feature or API
 
@@ -67,4 +67,17 @@ new rule folder; a parked row; unreadable live DB), and the QA steps on a local 
 
 ## Result
 
-(filled in at the end)
+Built as planned: `keepFolderAccess` in `server/src/system/backup.ts`, called by `applyPendingRestore` before the swap;
+`restore-result.json` has `folderRules: "kept" | "backup"`; System's checks warn for 7 days after a restore that kept the
+backup's rules; the restore dialog says files and folder permissions stay as they are now (five languages);
+docs/BACKUP-RESTORE.md and DECISIONS updated. Tests: `tests/unit/g-restore-folder-rules.test.ts` (7 cases),
+`tests/unit/g-linux-diag.test.ts` (the warning). On a local dev server: backup, then shared/HR made with everyone: none
++ owner write and a salary file, and shared/Plans (everyone: read at the backup) closed; restore and restart: both
+members get 404 for HR and Plans, find "급여" returns nothing, the owner still reads the file, Admin › Folder
+permissions lists both folders with today's rules. The people side (group memberships, switched-off people, roles)
+is left for the owner's decision (Options above).
+
+Review (2026-11-12, independent): the folder logic holds, no blockers. Still open, as above: the people side. Someone
+taken out of a group after the backup is back in it after the restore (group memberships, roles and switched-off
+accounts come back as at the backup); that needs the owner's decision and a follow-up. Rebased onto dev after #464
+(TC-208): `applyPendingRestore` keeps dev's outcome and adds `folderRules`.
