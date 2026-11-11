@@ -12,9 +12,8 @@
 // (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
 // docs/DECISIONS.md "Projects live only in projects/"). The owner hands the role over from Admin › Members'
 // "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
-// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
-// #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
-// browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
+// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits), which save on their own. The OpenRouter key is
+// sealed in the browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 // On a phone (below 768 px) the page is a list of its groups, each its own page at /admin/settings/<group>
 // (teamSettingsGroups.ts); this one component draws the list and every group, so the form's draft stays while they
 // change, and it keeps a phone's unsaved changes when Team settings is left.
@@ -40,7 +39,6 @@ import { checkIconFile } from '../../lib/team-icon'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
-import KnowledgeGraphSettings from './KnowledgeGraph'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -113,7 +111,7 @@ export default function TeamSettingsPage() {
     if (group?.id === 'general') showFix()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group?.id])
-  // a link to a part of the page (#speech, #ts-time, #knowledge-graph; #ai and #ai-limits bring their own group in):
+  // a link to a part of the page (#speech, #ts-time, #company-profile; #ai and #ai-limits bring their own group in):
   // that part into view, on a computer's one page and on a phone's group. The parts above it load their own data and
   // grow, and a part may come late (the dev environment): it is put in view again while it moves, for up to 2 s, until
   // the person scrolls
@@ -276,8 +274,6 @@ export default function TeamSettingsPage() {
             {!phone && state.data && <TeamAiSettings />}
             {group?.id === 'ai' && <TeamAiSettings part="engine" />}
             {group?.id === 'limits' && <TeamAiSettings part="limits" />}
-            {/* the code map the AI uses (knowledge_explore; server/src/knowledge-graph/): saves on its own, like the AI groups */}
-            {(phone ? group?.id === 'knowledge' : !!state.data) && <KnowledgeGraphSettings />}
             {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
             {shows('company') && <CompanyProfileCard />}
             {shows('dev-env') && <DevEnvTeamCard />}

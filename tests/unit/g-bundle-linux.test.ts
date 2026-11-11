@@ -11,7 +11,6 @@ import zlib from 'node:zlib'
 import { assertLinuxHost, elfArch, kitName, LINUX_FONT_FILES, LINUX_ROOT_COPIES, LINUX_ROOT_NATIVE, LINUX_ROOT_SCRIPTS, linuxBundleFiles, parseBundleArgs, SERVER_KIT, whisperFiles } from '../../scripts/build-bundle'
 import { downloadFor, LINUX_DOWNLOADS, LINUX_FONTS, parseChecksums, unzipMember } from '../../scripts/linux/downloads'
 import { catalogFromCache, checkEnginesLock, checkLockedCatalog, codexAsset, codexCatalogName, pinnedVersion } from '../../scripts/linux/lock-engines'
-import { ortPlatformDir } from '../../scripts/vendor-semantic'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..')
 const versions = JSON.parse(fs.readFileSync(path.join(ROOT, 'versions.json'), 'utf8')) as Record<string, string>
@@ -43,11 +42,13 @@ describe('build-bundle.ts arguments', () => {
     const files = linuxBundleFiles({ arch: 'amd64', codexVersion: '0.163.0', whisper: true, systemd: ['launcher.service.in'] })
     for (const f of ['bin/bun', 'bin/rg', 'bin/pandoc', 'bin/typst', 'bin/whisper-cli', 'bin/whisper-cli-v2', 'native/mycel-gate', 'native/mycel-bridge', 'native/mycel-safeops',
       'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'server/src/deck-worker.js',
-      'server/src/hwp-preflight.js', 'server/src/doc-search-worker.js', 'root/mycel-bootstrap', 'root/mycel-launcher', 'root/mycel-sandbox', 'root/mycel-ctl', 'root/mycel-boxd',
+      'server/src/hwp-preflight.js', 'root/mycel-bootstrap', 'root/mycel-launcher', 'root/mycel-sandbox', 'root/mycel-ctl', 'root/mycel-boxd',
       'root/mycel-account', 'root/set-claude-token', 'root/safe-fs.sh', 'root/apparmor-bwrap.in', 'root/systemd/launcher.service.in', 'engines.lock.json',
       'engines/codex-0.163.0.model_catalog.json', 'root/packages.json', 'root/packages.sh']) expect(files).toContain(f)
     // the list of system packages replaced deps.txt (scripts/system/packages.json; tests/unit/system-packages.test.ts)
     expect(files).not.toContain('deps.txt')
+    // the knowledge graph's workers went with it (docs/DECISIONS.md, 2026-11-11)
+    expect(files.filter((f) => /doc-search-worker|kg-embed-worker/.test(f))).toEqual([])
     expect(linuxBundleFiles({ arch: 'arm64', codexVersion: '0.163.0', whisper: true, systemd: [] })).not.toContain('bin/whisper-cli-v2')
     expect(linuxBundleFiles({ arch: 'arm64', codexVersion: '0.163.0', whisper: false, systemd: [] }).some((f) => f.includes('whisper'))).toBe(false)
     expect(whisperFiles('amd64')).toEqual(['whisper-cli', 'whisper-cli-v2'])
@@ -65,11 +66,6 @@ describe('build-bundle.ts arguments', () => {
     fs.writeFileSync(path.join(d, 'a'), h(0xb7)); fs.writeFileSync(path.join(d, 'x'), h(0x3e)); fs.writeFileSync(path.join(d, 's'), '#!/bin/sh\n')
     expect([elfArch(path.join(d, 'a')), elfArch(path.join(d, 'x')), elfArch(path.join(d, 's'))]).toEqual(['arm64', 'amd64', null])
     fs.rmSync(d, { recursive: true, force: true })
-  })
-  test('onnxruntime-node platform folder per target', () => {
-    expect(ortPlatformDir({ os: 'darwin', arch: 'arm64' })).toEqual(['darwin', 'arm64'])
-    expect(ortPlatformDir({ os: 'linux', arch: 'amd64' })).toEqual(['linux', 'x64'])
-    expect(ortPlatformDir({ os: 'linux', arch: 'arm64' })).toEqual(['linux', 'arm64'])
   })
 })
 

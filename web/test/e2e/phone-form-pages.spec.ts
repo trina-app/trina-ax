@@ -11,7 +11,7 @@ import { DICTS } from '../../src/i18n'
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
 
 const t = DICTS.en
-const GROUPS = ['general', 'data', 'members', 'voice', 'ai', 'limits', 'knowledge', 'company']
+const GROUPS = ['general', 'data', 'members', 'voice', 'ai', 'limits', 'company']
 const historyLength = (page: Page) => page.evaluate(() => history.length)
 
 /** The desktop app's bridge with only what Settings › Browser reads (browser-settings.spec.ts has the full one). */
@@ -249,7 +249,7 @@ test.describe('a computer', () => {
   test('one page as before; a group\'s address opens the page at that group', async ({ page }) => {
     await page.goto('/admin/settings')
     await expect(page.getByTestId('team-settings-list')).toHaveCount(0)
-    for (const id of ['team-settings-general', 'team-settings-data', 'team-settings-ai', 'team-speech', 'engine-defaults', 'engine-budgets', 'knowledge-graph']) await expect(page.getByTestId(id)).toBeAttached()
+    for (const id of ['team-settings-general', 'team-settings-data', 'team-settings-ai', 'team-speech', 'engine-defaults', 'engine-budgets']) await expect(page.getByTestId(id)).toBeAttached()
     await page.goto('/admin/settings/voice')
     await expect(page).toHaveURL(/\/admin\/settings#speech$/)
     await expect(page.getByTestId('team-settings-general')).toBeAttached()

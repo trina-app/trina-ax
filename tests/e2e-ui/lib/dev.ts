@@ -83,10 +83,9 @@ export async function startDev(o: { keepData?: boolean } = {}): Promise<State> {
     fs.rmSync(STATE_FILE, { force: true })
   }
   fs.mkdirSync(DEV_HOME, { recursive: true })
-  // the run's own server.json, with search by meaning off: every run starts on a fresh data folder, so the server would
-  // download the model again and embed the uploads in the background (a developer's .dev/server.json does not apply)
+  // the run's own server.json, empty: a developer's .dev/server.json does not apply
   const config = path.join(DEV_HOME, 'server.json')
-  fs.writeFileSync(config, JSON.stringify({ knowledgeGraph: { meaning: false } }, null, 2) + '\n')
+  fs.writeFileSync(config, '{}\n')
   const log = fs.openSync(DEV_LOG, 'w')
   const child = spawn('bun', ['run', 'scripts/dev.ts'], {
     cwd: REPO,

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { websocket } from 'hono/bun'
 import { PRODUCT } from '@mycel/shared'
 import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
-import { ConfigError, loadAppConfig, type AppConfig } from './app-config'
+import { ConfigError, loadAppConfig, OBSOLETE_KEYS, type AppConfig } from './app-config'
 import { buildApp } from './app'
 import { directFetch } from './http/tunnel'
 import { createContext, socketPathProblems, type AppContext } from './context'
@@ -46,9 +46,8 @@ export function ensureSetupToken(cfg: AppConfig, db: AppContext['db']): string |
 }
 
 /** The index of the removed search by meaning tool (`search`): its vectors in <data>/semantic.db, with SQLite's WAL
- * files beside it. Nothing reads them any more (the knowledge graph has its own search by meaning, in its document
- * index), so the first start of this version deletes them and says so in one line; later starts find nothing. The model
- * it downloaded (<data>/models) stays: the knowledge graph uses the same pinned files. */
+ * files beside it. Nothing reads them any more, so the first start of a version without it deletes them and says so in
+ * one line; later starts find nothing. (The model it downloaded is removed with the knowledge graph's data, below.) */
 export function removeOldSemanticIndex(dataDir: string, log: Pick<Logger, 'info' | 'warn'>): boolean {
   let bytes = 0
   const found = ['semantic.db', 'semantic.db-wal', 'semantic.db-shm'].map((n) => path.join(dataDir, n)).filter((f) => {
@@ -62,8 +61,70 @@ export function removeOldSemanticIndex(dataDir: string, log: Pick<Logger, 'info'
     log.warn('the old search by meaning index (semantic.db) could not be removed', { err: e })
     return false
   }
-  log.info('removed the old search by meaning index (semantic.db): the knowledge graph has its own', { bytes })
+  log.info('removed the old search by meaning index (semantic.db): nothing uses it', { bytes })
   return true
+}
+
+/** What the removed knowledge graph kept in the data folder (docs/DECISIONS.md, 2026-11-11), relative to it: its
+ * indexes (copies of the team's document text and code), and the files of its search by meaning model, which nothing
+ * else reads (speech-to-text keeps its own models in models/whisper). */
+export const KNOWLEDGE_GRAPH_DATA = { index: 'knowledge-graph', model: ['models', 'Xenova', 'multilingual-e5-small'] } as const
+/** the index's folder while it is deleted in the background (`<name>-<uuid>`): a start that finds one (the last one
+ * stopped before the end) deletes the rest */
+const KG_REMOVING = '.knowledge-graph-removing'
+
+/** a real folder, never a link to one (lstat) */
+const realDir = (p: string) => { try { const st = fs.lstatSync(p); return st.isDirectory() && !st.isSymbolicLink() } catch { return false } }
+const isUnder = (p: string, root: string) => p === root || p.startsWith(root + path.sep)
+
+/**
+ * The first start of a version without the knowledge graph deletes what it kept (KNOWLEDGE_GRAPH_DATA) and says so in
+ * one line; later starts find nothing. The index folder can hold many thousands of files, so it is renamed at once
+ * (nothing reads it from then on) and deleted in the background: the start does not wait for the disk, and the returned
+ * promise ends when it is gone. The model folder is a few files and goes at once.
+ * - Only the server's own data folder: a link in place of a folder is removed itself, never followed, and the model is
+ *   removed only through real folders (`models/`, `Xenova/`), so a link to a host's shared models
+ *   ($MYCEL_MODELS_DIR, read-only and shared by its teams) is never followed into it; nothing under that folder is
+ *   ever removed.
+ * - `Xenova/` held only this model: it goes when that leaves it empty.
+ */
+export function removeKnowledgeGraphData(dataDir: string, log: Pick<Logger, 'info' | 'warn'>, env: Record<string, string | undefined> = process.env): Promise<boolean> {
+  const removed: string[] = []
+  const index = path.join(dataDir, KNOWLEDGE_GRAPH_DATA.index)
+  try {
+    if (fs.lstatSync(index).isSymbolicLink()) fs.unlinkSync(index)
+    else fs.renameSync(index, path.join(dataDir, `${KG_REMOVING}-${crypto.randomUUID()}`))
+    removed.push(KNOWLEDGE_GRAPH_DATA.index)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') log.warn('the knowledge graph\'s old index could not be removed', { err: e })
+  }
+  const [models, vendor, name] = KNOWLEDGE_GRAPH_DATA.model
+  const model = path.join(dataDir, models, vendor, name)
+  let shared: string | null = null
+  try { shared = env.MYCEL_MODELS_DIR ? fs.realpathSync(env.MYCEL_MODELS_DIR) : null } catch {}
+  const inShared = (p: string) => { try { return !!shared && isUnder(fs.realpathSync(p), shared) } catch { return false } }
+  if (realDir(path.join(dataDir, models)) && realDir(path.join(dataDir, models, vendor)) && fs.existsSync(model) && !inShared(model)) {
+    try {
+      if (fs.lstatSync(model).isSymbolicLink()) fs.unlinkSync(model)
+      else fs.rmSync(model, { recursive: true, force: true })
+      removed.push(KNOWLEDGE_GRAPH_DATA.model.join('/'))
+      try { fs.rmdirSync(path.join(dataDir, models, vendor)) } catch {}
+    } catch (e) { log.warn('the knowledge graph\'s old model files could not be removed', { err: e }) }
+  }
+  // the index folder, now under a temporary name (also any an earlier start left half deleted)
+  let removing: string[] = []
+  try { removing = fs.readdirSync(dataDir).filter((n) => n === KG_REMOVING || n.startsWith(`${KG_REMOVING}-`)).map((n) => path.join(dataDir, n)) } catch {}
+  if (!removing.length) {
+    if (removed.length) log.info('removed the knowledge graph\'s old index and model files: the knowledge graph was removed', { removed })
+    return Promise.resolve(removed.length > 0)
+  }
+  return Promise.all(removing.map((p) => fs.promises.rm(p, { recursive: true, force: true }))).then(() => {
+    log.info('removed the knowledge graph\'s old index and model files: the knowledge graph was removed', { removed: removed.length ? removed : [KNOWLEDGE_GRAPH_DATA.index] })
+    return true
+  }, (e: unknown) => {
+    log.warn('the knowledge graph\'s old index could not be removed', { err: e })
+    return false
+  })
 }
 
 /** The socket peer as rate limits and the audit log see it: an IPv4 client of a dual-stack ('::') listener arrives
@@ -101,6 +162,9 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
   removeOldSemanticIndex(cfg.dataDir, log)
+  void removeKnowledgeGraphData(cfg.dataDir, log)
+  // a config file written for an older version: what this one ignores, said once
+  for (const k of cfg.obsoleteKeys ?? []) log.warn(`config file: "${k}" is obsolete and ignored (${OBSOLETE_KEYS[k]})`, { file: cfg.configFile })
   const db = openDb(path.join(cfg.dataDir, 'app.db'), { log }) // log: a warning per migration renamed after this DB ran it
   syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
   // the hosting service's speech key belongs to its hosted servers only (a hosted team's backup restored here keeps none)

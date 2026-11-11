@@ -1,20 +1,15 @@
-// File content search on the file screen (R2-ETC-02): GET /api/files/search. The server shows only files the person
-// can open, the same check as the AI's grep. Two parts, in this order:
-// - documents the knowledge graph found (FileContentHits.documents, absent when its documents part is off): one row per
-//   document with a short passage, the query's words highlighted, and its place (page, sheet, slide or section). A
-//   click opens the file there.
-// - the exact-line matches, grouped by file: a line shows its number and a short snippet with the match highlighted.
-//   A click opens the file in the side panel.
-// Requests are debounced, and an older answer never replaces a newer one. A short rate-limit wait (fast typing) is
-// waited out once, without a message.
+// File content search on the file screen (R2-ETC-02): GET /api/files/search. The server shows only lines of files
+// the person can open, the same check as the AI's grep. Results are grouped by file; a line shows its number and a
+// short snippet with the match highlighted. A click opens the file in the side panel. A word that no line has says
+// "nothing found". Requests are debounced, and an older answer never replaces a newer one. A short rate-limit wait (fast
+// typing) is waited out once, without a message.
 import { FileText } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { FileContentDocument, FileContentHit, FileContentHits } from '@mycel/shared/api'
+import type { FileContentHit, FileContentHits } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { highlightParts, type TextPart } from '../lib/highlight'
+import { highlightParts } from '../lib/highlight'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
-import { locChip } from './chat/SourcesList'
 import { useFolderWords } from '../lib/folderLabels'
 import { EmptyState, ErrorNote, Skeleton } from './ui'
 
@@ -28,26 +23,12 @@ export function contentQueryReady(q: string): boolean {
   return s.length >= 2 || (s.length === 1 && s.charCodeAt(0) > 0x7f)
 }
 
-/** The words of a query that a document passage highlights (a passage need not hold the whole query), longest first. */
-export function queryWords(q: string): string[] {
-  return [...new Set(q.trim().normalize('NFC').split(/\s+/).filter(contentQueryReady))].sort((a, b) => b.length - a.length)
-}
-
-/** highlightParts for each word in turn, on the parts no earlier word matched */
-export function wordParts(text: string, words: readonly string[]): TextPart[] {
-  let parts: TextPart[] = [{ text: text.normalize('NFC'), match: false }]
-  for (const w of words) parts = parts.flatMap((p) => (p.match ? [p] : highlightParts(p.text, w)))
-  return parts
-}
-
-/** `query`: the whole query as one literal text (a line match); `words`: each word on its own (a document passage; no
- * side padding there, so a marked word and the Korean particle after it still read as one word) */
-export function Highlighted({ text, query, words }: { text: string; query?: string; words?: readonly string[] }) {
+export function Highlighted({ text, query }: { text: string; query: string }) {
   return (
     <>
-      {(words ? wordParts(text, words) : highlightParts(text, query ?? '')).map((p, i) =>
+      {highlightParts(text, query).map((p, i) =>
         p.match ? (
-          <mark key={i} className={words ? 'rounded-sm bg-accent-soft text-inherit' : 'rounded-sm bg-accent-soft px-0.5 text-inherit'}>
+          <mark key={i} className="rounded-sm bg-accent-soft px-0.5 text-inherit">
             {p.text}
           </mark>
         ) : (
@@ -58,32 +39,9 @@ export function Highlighted({ text, query, words }: { text: string; query?: stri
   )
 }
 
-function DocumentRow({ d, words }: { d: FileContentDocument; words: readonly string[] }) {
-  const t = useT()
-  const place = d.loc ? locChip(t, d.loc) : null
-  return (
-    <li>
-      <button type="button" className="flex w-full gap-2 rounded-lg px-3 py-2 text-left hover:bg-hover" onClick={() => openTeamFile(d.path, d.loc)} title={d.path} data-testid="content-doc">
-        <FileText size={15} className="mt-0.5 shrink-0 text-faint" aria-hidden />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2 text-sm">
-            <span className="min-w-0 truncate font-medium">{d.name}</span>
-            {place && <span className="max-w-[45%] shrink-0 truncate text-xs text-faint" data-testid="content-doc-place">{place}</span>}
-          </span>
-          <span className="mt-0.5 line-clamp-2 text-xs leading-relaxed break-words break-keep text-muted">
-            <Highlighted text={d.snippet} words={words} />
-          </span>
-        </span>
-      </button>
-    </li>
-  )
-}
-
-/** One search's answer: the document rows, then the line matches (today's list, unchanged). */
+/** One search's answer: the line matches, grouped by file, or "nothing found". */
 export function FileContentList({ res, query, folderLabel }: { res: FileContentHits; query: string; folderLabel: string }) {
   const t = useT()
-  const documents = res.documents ?? []
-  const words = queryWords(query)
   const folderWords = useFolderWords()
   const groups: [string, FileContentHit[]][] = []
   for (const h of res.items) {
@@ -92,23 +50,10 @@ export function FileContentList({ res, query, folderLabel }: { res: FileContentH
     else groups.push([h.path, [h]])
   }
   const notes = res.truncated || res.timedOut || res.indexing > 0 || res.notQueued > 0 || res.retryLater > 0 || res.longSkipped > 0
-  // with document rows and no line at all, the line part says nothing more: the documents' label says that no line has
-  // the words and that these rows are close in meaning only (a word no file has still gets meaning rows: no score floor)
-  const lines = res.items.length > 0 || !documents.length
   return (
     <>
-      {documents.length > 0 && (
-        <section className="pb-3" data-testid="content-documents">
-          <p className="px-2 pb-1 text-xs text-faint" id="content-documents-label">
-            {res.items.length > 0 ? t('files.search.documents') : t('files.search.documentsOnly', { q: query })}
-          </p>
-          <ul aria-labelledby="content-documents-label">
-            {documents.map((d) => <DocumentRow key={d.path} d={d} words={words} />)}
-          </ul>
-        </section>
-      )}
-      {lines && <p className="px-2 pb-2 text-xs text-faint">{t('files.search.scope', { q: query, folder: folderLabel })}</p>}
-      {!res.items.length && !documents.length && !notes && <EmptyState icon={<FileText size={28} />} title={t('files.search.none')} />}
+      <p className="px-2 pb-2 text-xs text-faint">{t('files.search.scope', { q: query, folder: folderLabel })}</p>
+      {!res.items.length && !notes && <EmptyState icon={<FileText size={28} />} title={t('files.search.none')} />}
       {notes && (
         <div className="mx-2 mb-2 space-y-1 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted" role="status">
           {res.truncated && <p>{t('files.search.truncated', { n: res.items.length })}</p>}

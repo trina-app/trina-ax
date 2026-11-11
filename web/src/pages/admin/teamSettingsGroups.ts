@@ -6,7 +6,7 @@
 // Time and updates; the AI defaults with who picks the engine and members' own accounts). `form`: its fields save with
 // the page's one Save (the save bar shows there); the others save on their own. `heading`: no section of the group
 // has the group's name, so the page says it (for screen readers; the phone bar shows it).
-import { Archive, Briefcase, Cpu, Gauge, Mic, Network, Settings2, TerminalSquare, UsersRound } from 'lucide-react'
+import { Archive, Briefcase, Cpu, Gauge, Mic, Settings2, TerminalSquare, UsersRound } from 'lucide-react'
 import type { MessageKey } from '../../i18n'
 
 export interface TeamSettingsGroup {
@@ -28,7 +28,6 @@ export const TEAM_SETTINGS_GROUPS: TeamSettingsGroup[] = [
   { id: 'voice', label: 'speech.title', icon: Mic, anchors: ['speech'], form: true },
   { id: 'ai', label: 'teamSettings.group.engine', icon: Cpu, anchors: ['ai'], heading: true },
   { id: 'limits', label: 'budgets.title', icon: Gauge, anchors: ['ai-limits'] },
-  { id: 'knowledge', label: 'kg.title', icon: Network, anchors: ['knowledge-graph'] },
   { id: 'company', label: 'onboarding.profile.title', icon: Briefcase, anchors: ['company-profile'] },
   { id: 'dev-env', label: 'devEnv.title', icon: TerminalSquare, anchors: ['dev-env'], heading: true, devEnv: true },
 ]
