@@ -121,7 +121,7 @@
 - **로그인 횟수 제한**(DB `login_attempts`, 재시작해도 유지): 15분 창에서 계정당 실패 10회, 실제 IP당 30회(여러 계정 합산), 로그인한 사람의 비밀번호 재확인·현재 비밀번호 확인 5회, 초대·재설정·첫 설정 토큰 추측은 IP당 30회. 넘으면 429 + `Retry-After`. 막힌 동안에는 비밀번호를 확인하지 않는다(맞는 비밀번호도 429). 계정 횟수는 4차에서 길별로 나뉘었다(아래 "보안 4차"). 시도는 비밀번호를 확인하기 *전에* 센다(성공하면 그 기록을 지운다): 확인이 느려서, 먼저 확인하고 나중에 세면 동시에 보낸 40개가 모두 한도 검사를 통과했다. argon2id는 동시에 4개까지만 돌리고 200개까지 기다리게 하며 그 이상은 429(메모리 64MiB씩). 막힌 시도의 `auth.rate_limited` 감사 기록은 IP(모르면 계정)당 1분에 한 번만 남긴다(디스크 채우기 방지). 초대·재설정 링크의 토큰은 로그의 요청 경로에서 `***`로 바꾼다. 로그인에 성공하면 그 계정의 실패만 지운다. IP는 `info.ip`(소켓 상대 또는 중계 OPEN 메타데이터)만 쓰고, 모르면 계정 제한만 건다. 감사 기록에는 IP와 경로(direct/relay)만, 시도한 비밀번호는 절대 남기지 않는다.
 - **없는 아이디와 틀린 비밀번호는 같은 문구·같은 시간**(없는 계정도 더미 argon2id 해시로 확인). 비활성 계정도 비밀번호가 맞든 틀리든 같은 401 "아이디 또는 비밀번호가 맞지 않습니다"이고 실패 횟수에 들어간다(보안 점검 1회차에서 바꿈: 전에는 맞는 비밀번호에만 403 "사용할 수 없는 계정"이라 로그인하지 않은 사람에게 계정이 있고 비활성이며 그 비밀번호가 맞다는 것을 알려 줬다). 대가로 비활성이 된 사람은 로그인 화면에서 "관리자에게 문의" 안내를 보지 못한다. 비활성화될 때 열려 있던 세션에는 계속 그 이유가 간다. 서버 감사 기록의 `auth.login_failed`에는 `disabled: true`가 붙는다.
 - **비밀번호 규칙**: ~~10~256자, 서로 다른 문자 4개 이상, 짧은 반복 금지, 아이디 포함 금지, 임시 비밀번호 `xxxx-xxxx-xxxx-xxxx`~~ → 2026-10-21 소유자 결정으로 8~128자·아이디와 같으면 안 됨·흔한 비밀번호 금지만 남기고, 임시 비밀번호는 외우기 쉬운 단어+숫자로 바꿨다(아래 "쉬운 비밀번호").
-- **비밀번호 재설정은 두 가지를 다 둔다.** 설계(1·4·5번 탭)는 1회용 재설정 링크(24시간, 메일 없이 관리자가 전달)이고, 기반 계약에는 임시 비밀번호(첫 로그인 때 변경 강제)가 있었다. 둘 다 구현했다: `POST /api/admin/users/:id/reset-link`, 공개 `GET/POST /api/password-resets/:token`. 새 링크를 만들면 이전 링크는 무효. 링크를 쓰면 그 사람의 다른 세션이 모두 끝나고 바로 로그인된다. owner 본인 복구는 서버 맥에서 `bun run admin reset-link`(메뉴바 앱이 이 CLI를 부르면 된다). "마지막 초기화: 누가·언제"는 `/api/me`의 `passwordReset`(누가 = null이면 서버 맥 복구). 화면 알림 테이블(notifications)은 아직 주인이 없어 만들지 않았다.
+- **비밀번호 재설정은 두 가지를 다 둔다.** 설계(1·4·5번 탭)는 1회용 재설정 링크(24시간, 메일 없이 관리자가 전달)이고, 기반 계약에는 임시 비밀번호(첫 로그인 때 변경 강제)가 있었다. 둘 다 구현했다: `POST /api/admin/users/:id/reset-link`, 공개 `GET/POST /api/password-resets/:token`. 새 링크를 만들면 이전 링크는 무효. 비밀번호가 다른 길로 바뀌면(본인 변경, 관리자의 임시 비밀번호, 링크 사용) 그리고 계정이 비활성되거나 역할이 바뀌면 열려 있던 링크도 모두 쓴 것으로 표시한다(`revokeResetLinksFor`, 같은 트랜잭션; 다시 활성화해도 살아나지 않음 — 잘못된 대화방에 붙인 링크가 하루 동안 계정을 넘겨주지 않게). 링크를 쓰면 그 사람의 다른 세션이 모두 끝나고 바로 로그인된다. owner 본인 복구는 서버 맥에서 `bun run admin reset-link`(메뉴바 앱이 이 CLI를 부르면 된다). "마지막 초기화: 누가·언제"는 `/api/me`의 `passwordReset`(누가 = null이면 서버 맥 복구). 화면 알림 테이블(notifications)은 아직 주인이 없어 만들지 않았다.
 - **관리자가 만든 재설정 링크는 만든 사람의 권한과 함께 죽는다**(보안 점검 1회차). 재설정 링크는 쓰는 사람을 그 계정으로 로그인시키므로 초대와 같은 종류의 열쇠다. 만든 admin이 비활성·member로 강등·삭제되면 그 사람이 만든 아직 안 쓴 링크를 모두 쓴 것으로 표시한다(`revokeResetLinksBy`, 다시 활성화해도 살아나지 않음). 링크를 쓸 때도 다시 본다: 만든 사람이 지금도 활성 owner·admin이고 대상이 그 사람 손이 닿는 범위(admin → member만, owner → owner 외 모두)일 때만 유효. 그래서 member일 때 만든 링크는 대상이 admin·owner가 되면 죽는다. 만든 사람이 없는 링크(서버 맥 복구 CLI)는 대상이 활성이면 그대로 쓴다.
 - **링크 주소**: 초대 `<origin>/invite/<token>`, 재설정 `<origin>/reset-password/<token>`(D가 이 경로를 쓴다). origin은 요청의 Origin이 이 서버·`publicOrigins`일 때 그것, 아니면 `publicOrigins[0]`, 아니면 요청 주소.
 - **초대 기본 유효 기간 7일**(1·5번 탭; 계약 기본값 72시간을 168시간으로). 1회용(동시 수락도 한 번만), 사용한 초대는 취소할 수 없다. 취소한 초대는 목록에서 뺀다. admin 역할 초대는 owner만.
@@ -278,7 +278,7 @@
 - **부트스트랩(Go, `native/cmd/mycel-bootstrap`)**: 서버 LaunchDaemon은 서버가 아니라 이것을 띄운다. `app/current`의 manifest(sha256)를 확인하고(릴리스 키가 생기면 Ed25519 서명도, 그전에는 `--allow-unsigned`로 무결성만), 대기 중 업데이트가 120초 안에 `/api/health`에 그 버전으로 답하지 않거나 3번 죽으면 이전 버전으로 되돌린다. 평소 5분 안에 5번 넘게 죽으면 1→2→…60초 간격.
 - **번들 형식은 tar.gz 대신 tar.zst**(우리 스트리밍 tar + node:zlib zstd, 설치·업데이트 모두 우리 코드로 푼다). 서버는 `bun build`로 한 파일(`server/src/main.js`)과 관리 CLI(`admin.js`), 버전은 빌드 때 넣는다.
 - **백업**: DB는 VACUUM INTO(자식 bun 프로세스에서, 서버 이벤트 루프를 막지 않게) → `data/backups/<id>.sqlite`, 팀 폴더는 `.system/backups/<id>/team.tar.zst` + manifest + deleted 목록 + 폴더 목록(`dirs.json`). 7일마다 전체, 그 사이는 크기·수정 시각이 바뀐 파일만(폴더 항목은 매번 모두 넣는다: 빈 새 폴더가 복원에서 빠지지 않게. 복원은 `dirs.json`에 없는 폴더를 지우고 있어야 할 폴더가 없으면 실패). 14일 보관, 남는 백업이 기대는 이전 백업은 지우지 않는다. 설계서의 "날짜별 cp -c 사본" 대신 이 방식을 쓴 이유: 작업 지시(목록 비교 tar+zstd)와 스파이크 B 결과, APFS가 아닌 볼륨에서도 같은 동작.
-- **API 복원은 DB만**(설계 6번 탭). 확인한 사본을 `data/restore-staged.db`에 두고 서버가 다음 시작 때 DB를 열기 전에 바꾼다(`main.ts`의 `applyPendingRestore`). 이전 DB는 `data/backups/before-restore-*`에 남긴다. 다른 맥으로 옮기기·외장 디스크 보관은 관리 CLI의 암호 걸린 archive(age) → `restore-archive`(임시 폴더에 풀고 전부 성공했을 때만 새 폴더로).
+- **API 복원은 DB만**(설계 6번 탭). 확인한 사본을 `data/restore-staged.db`에 두고 서버가 다음 시작 때 DB를 열기 전에 바꾼다(`main.ts`의 `applyPendingRestore`). 이전 DB는 `data/backups/before-restore-*`에 남긴다. (2026-11-11) 백업과 같은 보관 기간이 지나면 지운다. 가장 최근 것과 `restore-result.json`이 가리키는 것은 남기고, 복원이 대기 중(`restore-pending.json`)이면 하나도 지우지 않는다. 다른 맥으로 옮기기·외장 디스크 보관은 관리 CLI의 암호 걸린 archive(age) → `restore-archive`(임시 폴더에 풀고 전부 성공했을 때만 새 폴더로).
 - **내보내기**: 대화·메모리는 요청한 owner 본인 것만(관리자도 남의 대화를 볼 수 없다는 원칙), 파일은 팀 폴더에서 `.system/`·이전 내보내기·**다른 사람의 `users/<id>/`**를 뺀 것(6번 탭 '내보내기'; owner 본인 폴더는 넣는다). 항목은 쓰는 동안 하나씩 만들어 대화가 많아도 메모리에 한꺼번에 올리지 않는다. 결과 위치는 공유 계약(`shared/src/api/system.ts`)대로 `users/<owner>/exports/`이다(설계서는 `data/exports/<jobId>.zip` + 24시간 삭제 + `GET /api/jobs/:id/download`; C의 다운로드 엔드포인트가 생기면 옮긴다).
 - **진단 문구는 ko/en/id**(요청자 언어). 메뉴바용 `status/status.json`은 30초마다 쓰고 개인정보(이름·대화)를 넣지 않는다. 엔진 로그인 확인은 local-login이면 `claude auth status`·`codex login status`(이메일은 버림), 역할 계정 모드면 `secrets/claude-oauth-token` 유무.
 - **로그 폴더**: `/Library/Logs/<id>`와 `crash/`는 root:wheel 755(launchd·newsyslog가 root로 일하는 경로에 역할 계정 소유 폴더가 끼면 링크를 심어 root 쓰기를 돌릴 수 있다; 755인 이유는 실행기의 launchd 출력 파일을 엔진 계정 권한으로 열기 때문, 750이면 EX_CONFIG). 서버 로그와 update.log는 `server/`(server:admin 750). 메뉴바 앱은 로그 폴더를 status.json이 아니라 고정 경로로 Finder에 보여 준다(열지 않는다).
@@ -738,6 +738,13 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `--port`를 안 준 경우)와 530(연결 없음)을 나눠 고칠 명령을 보여 주고, `set`은 답이 없으면 1로 끝난다. `off`는 지울 이름을
   넣어 `remove` 명령을 보여 준다. 가이드: 2-0(주인 맥 준비·cert.pem·API 토큰), 주소를 바꾼 뒤 데스크 할 일(옛 앱 제거·새
   앱·다시 로그인, 카드 재인쇄, 안 쓴 초대 링크), 502와 530/1033 구분, zip 크기 170 MB.
+- **The relay is the internet too (2026-11-11, audit).** Signed out, `/api/health` through the relay
+  (`<team>.<team domain>`, `via: 'relay'`) answers only `ok` and `time`, like the office internet address: before, anyone
+  could read the version, schema and uptime of a relayed team and pick a known-vulnerable release. This server itself,
+  the office LAN (direct and TLS port) and signed-in people keep the full answer. Nothing signed out reads the version
+  through the relay: the desktop and phone apps' address check only parse the shape, the bootstrap, installers,
+  `mycel-ctl` and the Docker health check ask `127.0.0.1`, and the sign-in page's source-code link then names no version
+  (as on the office internet address).
 
 ## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 
@@ -20212,6 +20219,25 @@ overruled the review's MUST 1 and three of its SHOULDs:
   - `site-allow.test.ts`;
   - the permission matrix and `security-route-coverage.test.ts`;
   - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
+
+## Moving a file out of a personal folder asks first (fix/move-widen-warning, 2026-11-11, QA TC-115)
+
+- **Problem.** On the Files screen, moving a file from users/<me>/ into a project or other shared folder showed no
+  question, so a private file (a salary file in QA) became visible to more people at once. Moving the other way
+  (into users/<me>/) already asked ("Make it private?", `audience_narrowed`), and Share (copy) asked too.
+- **Rule.** `POST /api/files/move` with `askWiden: true`: an item moved out of a personal folder users/<x>/ to a place
+  outside it where more active people (the mover left out) can read it answers 409 conflict
+  `{reason: 'audience_widened', viewersAdded}` unless `confirm: true`. People are counted, never named. Once moved,
+  the file event's detail has `audienceWidened`. A move inside the same personal folder never asks.
+- **Opt-in.** Only the Files screen sends `askWiden` (single move, rename, drag and drop and the bulk move, which asks
+  once for the whole batch with the most people any one item adds). An older client that does not send it, and the
+  AI's file tools (their own cards ask: tools/file-moves.ts, skills/), move as before. One `confirm` covers both
+  directions: a move cannot narrow and widen at once.
+- **Not covered (question for the product owner).** Shared → shared moves that widen (a group folder into
+  Company-wide) still do not ask. Only the personal-folder case was asked for.
+- **Tests.** `tests/security/r1-managed-folder-move.test.ts` (409 with the count, nothing moved; same-folder rename
+  without a question; confirm moves and records it; no askWiden moves as before) and `web/test/unit/bulk-files.test.ts`
+  (askWiden sent, one question for the batch, "no" leaves them, no askWiden without confirmWiden).
 
 ## Admin and Settings on phones: a list you tap into (feat/phone-admin-list, 2026-11-10, product owner)
 

@@ -96,8 +96,10 @@ export const systemRoutes: RouteModule = {
       let dbOk = true
       let applied = 0
       try { applied = schemaInfo(ctx.db).maxVersion } catch { dbOk = false }
-      // the office internet address, signed out: liveness only, no build fingerprint (attack review finding 1)
-      if (c.get('info').tunnel && !auth) return { ok: dbOk, time: new Date().toISOString() }
+      // from the internet, signed out (the office internet address, or <team>.<domain> through the relay): liveness
+      // only, no build fingerprint (attack review finding 1). This server, the office LAN and signed-in people keep it.
+      const info = c.get('info')
+      if (!auth && (info.tunnel || info.via === 'relay')) return { ok: dbOk, time: new Date().toISOString() }
       return {
         ok: dbOk,
         version: ctx.version,
