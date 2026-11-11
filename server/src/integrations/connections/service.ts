@@ -43,11 +43,22 @@ type KeySecret = { type: 'key'; key: string }
 type Secret = KeySecret | OAuthSecret
 /** pinOnto: the own app as read when the sign-in started, when it has a client secret, finds its addresses and has no
  * token address remembered yet: the one this sign-in uses is remembered onto it once the sign-in worked (pinFound).
- * appVersion: for a member's connection made from a template with an app, the template's version then (callback) */
+ * appVersion: for a member's connection made from a template with an app, the template's version then (callback).
+ * own: signed in through an own app (its client ID and secret were typed in; a refused one is said as such) */
 interface FlowSecret {
   verifier: string; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null
-  pinOnto?: { json: string; enc: string | null } | null; appVersion?: number | null
+  pinOnto?: { json: string; enc: string | null } | null; appVersion?: number | null; own?: boolean
 }
+/** Why a sign-in did not finish (integration_oauth_flows.reason, IntegrationFlow.reason; the app says it in words,
+ * web/src/lib/integrations.ts flowReasonKey): the person said no at the service (denied), the answer was not one we
+ * can use (invalid), the connection or its app changed meanwhile (changed), an own app's client ID or secret was
+ * refused at the token address (client), another error there (exchange), a newer sign-in started (superseded). */
+export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'exchange' | 'superseded'
+/** The sign-in window's answer: done, or why not (null: not a sign-in this browser may finish, e.g. not signed in to
+ * the team here, or the link was used already) */
+export type CallbackResult = { ok: true } | { ok: false; reason: FlowFailure | null }
+/** the token address refused the client itself (RFC 6749 5.2), not the code */
+const CLIENT_REFUSED = new Set(['invalid_client', 'unauthorized_client'])
 /** an own app's client secret as sealed (clientAad, templateClientAad) */
 export interface SealedClientSecret { clientSecret: string }
 
@@ -826,7 +837,7 @@ export class Integrations {
     const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
-    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app ? app.stored.version : null }
+    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app ? app.stored.version : null, own: !!app }
     let sealed
     try { sealed = this.box.seal(flowAad({ id: flowId, user_id: viewer.id }), secret) } catch { return fail('unavailable', say('key_unsafe', L)) }
     const expiresAt = iso(this.now() + FLOW_TTL)
@@ -849,15 +860,16 @@ export class Integrations {
 
   /** The browser comes back from the service. It must be signed in as the same person who started (any of their live
    * sessions); a flow started by someone else, or a browser without a session, changes nothing. */
-  async callback(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
+  async callback(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackResult> {
     this.sweep()
-    if (!q.state || !/^[A-Za-z0-9_-]{43}$/.test(q.state)) return false
+    const no: CallbackResult = { ok: false, reason: null }
+    if (!q.state || !/^[A-Za-z0-9_-]{43}$/.test(q.state)) return no
     const f = this.db.query('SELECT * FROM integration_oauth_flows WHERE state_hash=?').get(hash(q.state)) as FlowRow | null
-    if (!f || f.state !== 'pending') return false
-    if (!browser || browser.userId !== f.user_id) return false
-    try { this.liveSession(browser.userId, browser.sessionId); this.liveSession(f.user_id, f.session_id) } catch { return false }
-    if (!this.db.query("UPDATE integration_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return false
-    const failed = (reason: string) => { this.db.query("UPDATE integration_oauth_flows SET state='failed', reason=?, secret_enc=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return false }
+    if (!f || f.state !== 'pending') return no
+    if (!browser || browser.userId !== f.user_id) return no
+    try { this.liveSession(browser.userId, browser.sessionId); this.liveSession(f.user_id, f.session_id) } catch { return no }
+    if (!this.db.query("UPDATE integration_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return no
+    const failed = (reason: FlowFailure): CallbackResult => { this.db.query("UPDATE integration_oauth_flows SET state='failed', reason=?, secret_enc=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return { ok: false, reason } }
     try {
       if (q.error) return failed('denied')
       if (!q.code || q.code.length > 4096) return failed('invalid')
@@ -878,7 +890,8 @@ export class Integrations {
       if (!covered(row) || appMoved(row)) return failed('changed')
       let tokens: OAuthTokens
       try { tokens = await tokenRequest(s, { grant_type: 'authorization_code', code: q.code, redirect_uri: s.client.redirectUri, code_verifier: s.verifier, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now()) }
-      catch { return failed('exchange') }
+      // the service's answer is never kept or shown (it may repeat what was sent): only whether it refused the app
+      catch (e) { return failed(s.own && e instanceof GrantError && CLIENT_REFUSED.has(e.message) ? 'client' : 'exchange') }
       const cur = getRow(this.db, row.id)
       if (!cur || cur.version !== row.version || !covered(cur)) return failed('changed')
       const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens } satisfies OAuthSecret)
@@ -891,7 +904,9 @@ export class Integrations {
         kept = true
         const stored = this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=?")
           .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version).changes
-        this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id)
+        // done once the check below has ended (the app reads the connection again when the flow says completed, and
+        // would find it still waiting for a sign-in)
+        this.db.query("UPDATE integration_oauth_flows SET secret_enc=NULL WHERE id=?").run(f.id)
         // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway), only when
         // these tokens are the ones stored now
         if (stored && cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))
@@ -900,14 +915,17 @@ export class Integrations {
       })()
       // its tokens are dropped, not revoked: revoking would send the client secret once more to the address that lost
       if (!kept) return failed('changed')
-      this.dropClient(cur.id)
-      audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })
-      // made from an admin's request (requests.ts): the request is connected now that the member signed in (its
-      // bookkeeping never undoes a sign-in that worked)
-      try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
-      if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
-      await this.check(getRow(this.db, cur.id)!)
-      return true
+      // the tokens are kept: whatever happens next, the sign-in is done, marked once the check has ended
+      try {
+        this.dropClient(cur.id)
+        audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })
+        // made from an admin's request (requests.ts): the request is connected now that the member signed in (its
+        // bookkeeping never undoes a sign-in that worked)
+        try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
+        if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
+        await this.check(getRow(this.db, cur.id)!)
+      } finally { this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id) }
+      return { ok: true }
     } catch { return failed('exchange') }
   }
 }

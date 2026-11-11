@@ -20049,3 +20049,24 @@ overruled the review's MUST 1 and three of its SHOULDs:
   - `site-allow.test.ts`;
   - the permission matrix and `security-route-coverage.test.ts`;
   - the web and desktop unit tests for Settings › Browser and the desktop's follow-off.
+
+## A sign-in that did not finish says why — 로그인 실패는 이유를 말한다 (fix/activity-tabs-oauth-errors, 2026-11-11, QA TC-020)
+
+- **Never a code.** A failed sign-in at a service (MCP OAuth, an own app) used to show its stored reason as is: the row
+  said "exchange", and the sign-in window always said to sign in to the same team account. The flow keeps a code
+  (`integration_oauth_flows.reason`, `FlowFailure` in `connections/service.ts`), and both places say it in words:
+  the row through `flowReasonKey` (`web/src/lib/integrations.ts`, `integrations.signIn.reason.*`), the window through
+  `callbackClient` / `callbackDenied` / `callbackChanged` / `callbackExchange` (`connections/text.ts`). A code the app
+  does not know is the plain "Could not sign in. Please try again."
+- **A refused own app is named.** `invalid_client` or `unauthorized_client` from an own app's token address is the
+  reason `client`: "The service did not accept this app's Client ID or Secret", and where to look (the Secret under
+  Advanced when editing the connection; the word is that screen's own). A registered app's refusal stays the general
+  "did not finish". The service's answer is never stored or shown (it may repeat what was sent), nor is the secret.
+- **"Sign in to the team account" only when that is the problem**: a browser without the person's session, a used or
+  unknown link. A sign-in the service did not finish says what to do in the app instead.
+- **Done means checked.** The flow is `completed` once the connection's check after the sign-in has ended (it stays
+  `exchanging` meanwhile), so the row the app reads then says connected, not "needs sign-in" until a reload.
+- Tests: server `c-integrations-own-app` (a fake token address answering `invalid_client`; another refusal; the flow
+  completes after the check), web `integrations` (every reason in five languages, never the code), `connect-card` (the
+  card says the reason in words).
+- Version impact: **patch** (words; a new reason code `client`; no API shape or data change).

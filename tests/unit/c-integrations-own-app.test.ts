@@ -493,3 +493,55 @@ test('security review 2: a client secret is never sent to a revocation address o
   // refused before any request (the network options would fail any lookup)
   expect(await revoke({ server, client }, 'token', 'refresh_token', { lookup: async () => { throw new Error('no lookup expected') } })).toBe(false)
 })
+
+test('TC-020: a Secret the service refuses is said in plain words (never "exchange", never the secret or the service\'s answer); the right one signs in', async () => {
+  const WRONG = 'CANARY-wrong-secret-4Hk2'
+  const c = await olga.call('POST', '/api/integrations', ownMcp({ oauthClient: { clientId: APP, clientSecret: WRONG } }))
+  const f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  const res = await olga.raw('GET', callback(fake.authorize(f.authorizationUrl, `${fake.base}/as-own`)))
+  expect(res.status).toBe(400)
+  const page = await res.text()
+  // the team's language: the app's Client ID or Secret was refused, look under 고급; no "sign in to the team account"
+  expect(page).toContain('Client ID나 Secret')
+  expect(page).toContain('고급')
+  expect(page).not.toContain('같은 계정으로 로그인')
+  expect(page).not.toContain('href="/login"')
+  for (const raw of [WRONG, 'invalid_client', 'exchange']) expect(page).not.toContain(raw)
+  // the token address did refuse the client, and the flow says why as a code the app puts in words
+  expect(tokenCalls().at(-1)).toMatchObject({ client_id: APP, client_secret: WRONG })
+  expect(await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).toMatchObject({ state: 'failed', reason: 'client' })
+  expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)).toMatchObject({ status: 'needs_auth', hasSecret: false })
+  expect(everything()).not.toContain(WRONG)
+  expect(everything()).not.toContain('invalid_client')
+  // another refusal at the token address (the code, not the app): the plain "did not finish", still no code
+  await olga.call('PATCH', `/api/integrations/${c.id}`, { oauthClient: { clientId: APP, clientSecret: SECRET } })
+  const h2 = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  const cb = fake.authorize(h2.authorizationUrl, `${fake.base}/as-own`)
+  fake.codes.get(cb.code)!.challenge = 'not-the-challenge'
+  const bad = await (await olga.raw('GET', callback(cb))).text()
+  expect(bad).toContain('로그인을 마무리하지 못했어요')
+  expect(bad).not.toContain('invalid_grant')
+  expect(await olga.call('GET', `/api/integrations/flows/${h2.flowId}`)).toMatchObject({ state: 'failed', reason: 'exchange' })
+  // the right secret: signed in
+  const ok = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(ok.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(200)
+  expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)).toMatchObject({ status: 'connected', hasSecret: true })
+})
+
+test('the sign-in is "completed" only once the check after it has ended: the row the app reads then is connected, not "needs sign-in"', async () => {
+  const c = await olga.call('POST', '/api/integrations', ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }))
+  const f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  let release!: () => void
+  fake.hold = { path: '/mcp-own', until: new Promise<void>((r) => { release = r }) }
+  try {
+    const done = olga.raw('GET', callback(fake.authorize(f.authorizationUrl, `${fake.base}/as-own`)))
+    // the tokens are stored and the check is on its way (held at the service)
+    expect(await until(() => !!getRow(h.ctx.db, c.id)?.secret_enc)).toBe(true)
+    const during = await olga.call('GET', `/api/integrations/flows/${f.flowId}`)
+    expect(during.state).toBe('exchanging')
+    release()
+    expect((await done).status).toBe(200)
+  } finally { release?.(); fake.hold = null }
+  expect(await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).toMatchObject({ state: 'completed', reason: null })
+  expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)).toMatchObject({ status: 'connected', hasSecret: true })
+})

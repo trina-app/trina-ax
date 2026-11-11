@@ -337,6 +337,21 @@ export function canonicalService(url: string): string {
 }
 
 /** sign-in (OAuth) is offered: a connection with sign-in that the person manages (an MCP server, or an API with its own app) */
+/** Why a sign-in did not finish, as the server records it (server/src/integrations/connections/service.ts FlowFailure),
+ * in words: an own app's Client ID or Secret refused, access not allowed, the connection changed meanwhile, a newer
+ * sign-in. Any other code (an error at the token address, one this build does not know) is the plain "could not sign
+ * in": a code is never shown. */
+export function flowReasonKey(reason: string | null): MessageKey {
+  switch (reason) {
+    case 'client': return 'integrations.signIn.reason.client'
+    case 'denied': return 'integrations.signIn.reason.denied'
+    case 'changed': return 'integrations.signIn.reason.changed'
+    case 'superseded': return 'integrations.signIn.reason.superseded'
+    case 'exchange': case 'invalid': return 'integrations.signIn.reason.exchange'
+    default: return 'integrations.signIn.failed'
+  }
+}
+
 export const canSignIn = (i: Integration) => i.auth === 'oauth' && i.canManage
 
 /** Personal connections first, then team ones; each by name. */
