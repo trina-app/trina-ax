@@ -36,6 +36,26 @@ test('owner: every section in order, as plain sections without boxes', async ({ 
   expect(realErrors(errors)).toEqual([])
 })
 
+test('restore: a wrong password stays in the dialog under the field; the right one starts it (QA TC-221)', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/admin/system')
+  await page.getByTestId('backup-list').getByRole('button', { name: t['system.restore'] }).click()
+  const dialog = page.getByRole('dialog', { name: t['system.restoreTitle'] })
+  await dialog.getByTestId('reauth-password').fill('not my password')
+  await dialog.getByTestId('reauth-confirm').click()
+  // still open, the words under the field, the field ready for another try; no toast
+  await expect(dialog.getByRole('alert')).toContainText('비밀번호가 맞지 않아요')
+  await expect(dialog.getByTestId('reauth-password')).toHaveAttribute('aria-invalid', 'true')
+  await expect(dialog.getByTestId('reauth-password')).toBeFocused()
+  // typing again clears it
+  await dialog.getByTestId('reauth-password').fill('correct horse battery')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await dialog.getByTestId('reauth-confirm').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText(t['system.restoreDone'])).toBeVisible()
+})
+
 test('health: what needs attention first, the passed checks behind Show details', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
