@@ -28,7 +28,7 @@ import { assertSeatFree } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
-import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
 import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
@@ -429,13 +429,17 @@ export function createResetLink(ctx: AppContext, userId: string, createdBy: stri
   const token = newToken()
   const now = authOf(ctx).now()
   const expiresAt = new Date(now + RESET_TTL_MS).toISOString()
+  const id = newId()
   ctx.db.transaction(() => {
     // only the newest link works
     revokeResetLinksFor(ctx.db, userId, now)
     ctx.db.query('INSERT INTO password_resets (id, user_id, token_hash, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(newId(), userId, hashToken(token), createdBy, new Date(now).toISOString(), expiresAt)
+      .run(id, userId, hashToken(token), createdBy, new Date(now).toISOString(), expiresAt)
     audit(ctx.db, { actor: createdBy, action: 'user.reset_link', target: userId, detail: { expiresAt, recovery: createdBy === null } })
   })()
+  // the person the link is for is told (Activity), whoever made it: the server's CLIs (mycel-account / mycel-ctl
+  // reset-link) or an owner or admin. Before, only the audit log knew (QA TC-202)
+  notifyResetLink(ctx, userId, id)
   return { token, url: `${base}/reset-password/${token}`, expiresAt }
 }
 

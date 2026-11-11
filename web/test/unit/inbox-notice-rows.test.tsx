@@ -71,6 +71,18 @@ test('someone joined a project I am in (docs/DECISIONS.md "Project contents only
   expect(noticeLink(joined({ name: 'Dana', project: null }))).toBeNull()
 })
 
+test('a reset link made for me says who made it, and how to stop it while it still works (QA TC-202)', () => {
+  const reset = (resetLink: { server: boolean; by: string | null; open: boolean }) => notice({ eventType: 'account.reset_link', code: 'account.reset_link', link: null, chatId: null, outcome: null, resetLink })
+  expect(text(reset({ server: true, by: null, open: true }))).toBe('서버에서 내 계정의 비밀번호 재설정 링크를 만들었어요. 내가 부탁한 게 아니면 보안·기기에서 비밀번호를 바꿔 주세요. 그러면 링크가 바로 막혀요.')
+  expect(text(reset({ server: false, by: 'Adam', open: false }), 'en')).toBe('Adam made a password reset link for your account.')
+  expect(text(reset({ server: false, by: null, open: false }))).toBe(ko('notifications.resetLink.admin'))
+  // an older server without the details: the plain line
+  expect(text(notice({ eventType: 'account.reset_link', code: 'account.reset_link', link: null, chatId: null, outcome: null }))).toBe(ko('notifications.event.account.reset_link'))
+  // while it works the row opens Settings › 보안·기기, where changing the password ends it; after, it opens nothing
+  expect(noticeLink(reset({ server: true, by: null, open: true }))).toEqual({ to: '/settings/security', testId: 'notification-reset-link-link' })
+  expect(noticeLink(reset({ server: true, by: null, open: false }))).toBeNull()
+})
+
 // ---------------- in the Inbox ----------------
 const me = { user: { id: ME.id, username: ME.id, name: ME.name, email: null, role: 'member', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} }, groups: [],
   team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: uuidv7(), client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: false, timeZone: 'Asia/Seoul' } } as unknown as Me

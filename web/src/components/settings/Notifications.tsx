@@ -91,6 +91,12 @@ export function projectJoinedText(j: NonNullable<InboxNotification['projectJoine
   return t('notifications.event.project.joined')
 }
 
+/** A password reset link made for me (QA TC-202): who made it and, while it still works, how to stop it. */
+export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t: T) => {
+  const who = r.server ? t('notifications.resetLink.server') : r.by ? t('notifications.resetLink.by', { name: r.by }) : t('notifications.resetLink.admin')
+  return r.open ? `${who} ${t('notifications.resetLink.openHint')}` : who
+}
+
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
@@ -107,6 +113,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
+  if (item.code === 'account.reset_link' && item.resetLink) return resetLinkText(item.resetLink, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
   if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
@@ -148,6 +155,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
   if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
+  // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
+  if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
   return null
