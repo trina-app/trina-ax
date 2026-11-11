@@ -31,6 +31,7 @@ import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
 import { paneGrab } from '../../common/pane-width'
 import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
+import { clearSessionData, type ClearResult } from '../clear-session'
 import { debug } from '../debug'
 
 export interface PanePrompt {
@@ -590,9 +591,9 @@ export class BrowserPane {
   /**
    * Another person signed in to this team, or the person signed out (common/browser-owner.ts): end running calls,
    * close every tab, forget allowed sites and kept results, and clear the pane's cookies, storage, cache and HTTP
-   * logins. The pane itself stays.
+   * logins. The pane itself stays. Says how the clear went (main/clear-session.ts).
    */
-  async resetForNewPerson() {
+  async resetForNewPerson(): Promise<ClearResult> {
     for (const p of [...this.prompts]) p.settle('deny')
     for (const c of this.calls.values()) this.cancelCtx(c, 'Another person signed in to the team page.')
     for (const t of Array.from(this.tabs.values())) {
@@ -614,13 +615,11 @@ export class BrowserPane {
     this.repeatHint = new RepeatPromptHint()
     this.officeLetThrough.clear()
     if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
-    await Promise.all([
-      this.session.clearStorageData(),
-      this.session.clearCache(),
-      this.session.clearAuthCache(),
-    ])
+    // an explicit list and a time limit: a clear that never settles must not stop every later AI browser call
+    const cleared = await clearSessionData(this.session, 'in-app browser')
     this.hide()
     this.emit()
+    return cleared
   }
 
   /** Close every tab (window closing / team switch): detached tabs would otherwise outlive the window. */
