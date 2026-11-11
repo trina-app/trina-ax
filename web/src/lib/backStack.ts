@@ -170,7 +170,9 @@ export function useListUnderPage(listPath: string | readonly string[], phone: bo
     // under the Settings dialog this is the page behind it, not the address in the bar; a first entry opened from
     // outside gets its parents put under it by the phone's history once the app shows it (lib/screenHistory.ts)
     if (!firstPhone.current?.phone || realPath !== location.pathname || stackNow()?.open) return
-    const below = entryBelow(location.key)
+    // what is under the entry: the phone's stack says it (lib/screenHistory.ts), also for an entry it made itself
+    const stack = stackNow()
+    const below = stack ? (stack.below ? parsePath(stack.below.p).pathname || null : null) : entryBelow(location.key)
     const lists = typeof listPath === 'string' ? [listPath] : listPath
     if (!lists.length || !needsList({ nav, idx: historyIdx(), below, listPath: lists[0]!, own: belowInState(location.state) !== undefined, fresh: entryFresh(location.key), inside })) return
     // the address as it was opened, ?query and #hash included, even when the page has used its query up meanwhile
