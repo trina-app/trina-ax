@@ -329,6 +329,8 @@ export class MockServer {
   aiAllowances: AiAllowance[] = []
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
+  /** how long a "Run now" run takes before it ends (POST /__test/schedule `runMs`) */
+  scheduleRunMs = 200
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
@@ -531,6 +533,7 @@ export class MockServer {
     this.memories = []
     this.aiAllowances = []
     this.schedules = []
+    this.scheduleRunMs = 200
     this.budgets = []
     this.versions = []
     this.trash = []
@@ -3770,11 +3773,20 @@ export class MockServer {
       const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
       if (x.needsReview) throw new Fail('conflict', 409, '이 예약 작업은 확인 카드 없이 만들어져서 멈춰 뒀어요.', undefined, { reason: 'schedule_review' })
       if (/budget/.test(x.title)) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 내일 오전 12:00부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.')
-      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+      // the run is queued (running) when the answer comes and ends a moment later, with the chat.updated of its end, as
+      // the server's turn does (chat/turn.ts finish: the result is written before the event)
+      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'queued' }
       this.chats.push(chat)
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'created', chat } })
       x.lastChatId = chat.id
-      x.lastOutcome = 'done'
+      x.running = true
+      setTimeout(() => {
+        // a reset in between (the next test): nothing to end
+        if (!this.schedules.includes(x)) return
+        Object.assign(x, { running: false, lastOutcome: 'done', lastOutcomeAt: now() })
+        Object.assign(chat, { runState: 'idle', updatedAt: now() })
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }, this.scheduleRunMs)
       const { userId: _, ...out } = x
       return { schedule: out, chatId: chat.id }
     },
@@ -4474,6 +4486,7 @@ export class MockServer {
       // a scheduled task the owner confirmed on its card (or a template: templateId), for Settings › Scheduled tasks
       const owner = this.users.find((u) => u.role === 'owner')!
       const tpl = typeof body.templateId === 'string' ? body.templateId as 'daily-file-index' | 'weekly-summary' : null
+      if (typeof body.runMs === 'number') this.scheduleRunMs = body.runMs
       this.schedules.push({ userId: owner.id, id: uuidv7(), title: String(body.title ?? '주간 회의록 요약'), prompt: String(body.prompt ?? '매주 월요일 shared/회의록 에서 지난주 회의록을 읽고 users/olga/주간요약.md 에 정리해 줘.'),
         repeat: tpl === 'weekly-summary' ? 'weekly' : tpl ? 'daily' : (body.repeat as Schedule['repeat'] | undefined) ?? 'weekly', time: '09:00', weekday: tpl === 'daily-file-index' ? null : 1, day: null, date: null, projectId: null,
         enabled: body.enabled !== false, resumeBlockedReason: null, nextRunAt: body.enabled === false ? null : new Date(Date.now() + 86400_000).toISOString(), lastRunAt: null, lastChatId: null, needsReview: false, reviewSince: null,

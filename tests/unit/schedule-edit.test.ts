@@ -58,6 +58,18 @@ describe('run now', () => {
     expect(h.rt().schedules.runDue(new Date(Date.parse(before.next_run_at!) + 1000))).toContain(s.id)
   })
 
+  test('the Scheduled page follows a run now: running while it is on, then its result and when it ended (it moves only lastChatId)', async () => {
+    const s = make('alice', { prompt: fake({ sleep: 1500 }, { say: 'digest done' }) })
+    const r = await h.api('alice').call(API.runScheduleNow, { params: { id: s.id }, body: {} })
+    // the run is on: its chat is lastChatId, the result is still the run before it (none), last_run_at stays
+    expect(r.schedule).toMatchObject({ running: true, lastChatId: r.chatId, lastRunAt: null, lastOutcome: null, lastOutcomeAt: null })
+    const list = async () => (await h.api('alice').call(API.listSchedules)).items.find((x) => x.id === s.id)!
+    const done = await waitFor(async () => { const x = await list(); return x.running === false && x.lastOutcome ? x : null }, { timeoutMs: 30_000 })
+    expect(done).toMatchObject({ running: false, lastOutcome: 'done', lastRunAt: null, lastChatId: r.chatId })
+    const ended = (h.ctx.db.query('SELECT ended_at FROM turns WHERE chat_id = ?').get(r.chatId) as { ended_at: string }).ended_at
+    expect(done!.lastOutcomeAt).toBe(ended)
+  })
+
   test('a paused task runs once and stays paused; a one-time task is not used up', async () => {
     const s = make('alice', { title: 'Once later', repeat: 'once', date: new Date(Date.now() + 5 * 86400_000).toISOString().slice(0, 10) })
     await h.api('alice').call(API.updateSchedule, { params: { id: s.id }, body: { enabled: false } })

@@ -127,7 +127,54 @@ describe('scheduled task page', () => {
     expect(outcomeTone('done')).toBe('muted')
     expect(outcomeTone('problems')).toBe('warn')
     for (const o of ['error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable'] as const) expect(outcomeTone(o)).toBe('danger')
-    expect(decode(render({ ...base, lastOutcome: 'done', lastChatId: 'c' }))).toContain(t('scheduleTemplates.outcome.done'))
+    expect(decode(render({ ...base, lastOutcome: 'done', lastChatId: 'c' }))).toContain(t('scheduled.run.done'))
+  })
+
+  // the "Last run" block: one heading, then the state and when (QA: it said "Last run / Last run / Last run succeeded")
+  const history = (html: string) => /data-testid="schedule-history"[\s\S]*?<\/section>/.exec(html)?.[0] ?? ''
+  const count = (s: string, part: string) => s.split(part).length - 1
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
+
+  test('the Last run block: one heading, then "Succeeded · 2 minutes ago" linked to the run', () => {
+    // a "Run now" run: only lastChatId moved (lastRunAt is the last run at its time, here none)
+    const block = history(decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: null, lastChatId: 'chat-3', lastOutcome: 'done', lastOutcomeAt: ago(2 * 60_000), running: false })))
+    expect(count(block, t('scheduled.lastRunTitle'))).toBe(1)
+    expect(block).not.toContain(t('scheduleTemplates.outcome.done'))
+    expect(block).toContain(t('scheduled.run.done'))
+    expect(block).toContain('2 minutes ago')
+    expect(block).toContain('data-outcome="done"')
+    expect(block).toContain('href="/c/chat-3"')
+    expect(block).toContain(t('scheduled.openResult'))
+  })
+
+  test('a run on its way: "Running", linked to its chat; the run before it is not shown as its result', () => {
+    const html = decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: ago(86400_000), lastChatId: 'chat-4', lastOutcome: 'error', lastOutcomeAt: ago(86400_000), running: true }))
+    const block = history(html)
+    expect(count(block, t('scheduled.lastRunTitle'))).toBe(1)
+    expect(block).toContain(t('scheduled.run.running'))
+    expect(block).toContain('data-outcome="running"')
+    expect(block).not.toContain(t('scheduled.run.error'))
+    expect(block).not.toContain('data-testid="schedule-outcome-reason"')
+    expect(block).toContain(t('schedules.openRun'))
+    // nor under the title
+    expect(html).not.toContain('data-testid="schedule-status-outcome"')
+  })
+
+  test('a failure says what and when, then why; an older server (no lastOutcomeAt) uses the last run at its time', () => {
+    const block = history(decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: ago(3 * 3600_000), lastChatId: 'chat-5', lastOutcome: 'error' })))
+    expect(count(block, t('scheduled.lastRunTitle'))).toBe(1)
+    expect(block).toContain(`${t('scheduled.run.error')}</span><span class="text-muted" aria-hidden="true"> · </span>`)
+    expect(block).toContain('3 hours ago')
+    expect(block).toContain(t('scheduled.reason.error'))
+    // an occurrence that did not run keeps its own words (they never said "last run")
+    const skipped = history(decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: ago(60_000), lastOutcome: 'budget_exceeded', lastOutcomeAt: ago(60_000) })))
+    expect(skipped).toContain(t('scheduleTemplates.outcome.budget_exceeded'))
+  })
+
+  test('the block\'s words exist in every language', () => {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
+      for (const key of ['scheduled.run.running', 'scheduled.run.done', 'scheduled.run.problems', 'scheduled.run.error', 'scheduled.run.stopped', 'scheduled.run.interrupted', 'rooms.roomNotIn'] as const)
+        expect(translate(locale, key)).not.toBe(key)
   })
 })
 

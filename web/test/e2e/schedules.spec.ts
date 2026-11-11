@@ -2,6 +2,7 @@
 // (docs/DECISIONS.md "Scheduled tasks: run now, edit, pause"), against the mock server's copy of the server's rules.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { uuidv7 } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 async function task(page: Page, data: Record<string, unknown> = {}) {
@@ -49,6 +50,40 @@ test('run now: a new chat now, the schedule stays; a paused task says it does no
   expect(log.filter((l) => /\/api\/schedules\/[^/]+(\/run)?$/.test(l) && !l.startsWith('GET'))).toEqual([
     expect.stringMatching(/^PATCH /), expect.stringMatching(/^POST .*\/run$/), expect.stringMatching(/^PATCH /),
   ])
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('the Last run block: one heading, the run on its way after Run now, then its result, without a reload; rooms by name', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  // a room the owner is in and one they are not in, named in the instruction by id as the AI writes it
+  const SALES = uuidv7(), HR = uuidv7()
+  const room = { canRename: false, managerId: null, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastSeq: 0, lastMessage: null, muted: false, createdAt: new Date().toISOString(), activityAt: new Date().toISOString() }
+  expect((await page.request.post('/__test/rooms', { data: { rooms: [{ ...room, id: SALES, kind: 'team', name: '영업팀', groupId: uuidv7(), memberCount: 4, peers: [{ id: 'bob', name: 'Bob' }] }] } })).ok()).toBeTruthy()
+  await task(page, { title: '영업 대화 요약', prompt: `매주 월요일 room_id ${SALES} 의 지난주 대화를 요약하고 room_id ${HR} 도 참고해 줘.`, runMs: 1500 })
+  await signIn(page)
+  const item = await open(page, '영업 대화 요약')
+  const instructions = item.getByTestId('schedule-instructions')
+  await expect(instructions).toContainText('#영업팀')
+  await expect(instructions).toContainText('참여하지 않은 대화방')
+  await expect(instructions).not.toContainText(SALES)
+  await expect(instructions).not.toContainText(HR)
+  const history = item.getByTestId('schedule-history')
+  await expect(history).toContainText('아직 실행한 적이 없어요.')
+  await item.getByTestId('schedule-run-now').click()
+  // on its way: said once, under the one heading, linked to its chat
+  await expect(history.getByTestId('schedule-outcome')).toHaveAttribute('data-outcome', 'running')
+  await expect(history).toContainText('실행 중')
+  await expect(history.getByTestId('schedule-run-link')).toHaveAttribute('href', /\/c\/[0-9a-f-]+$/)
+  // it ends: the block follows (the run's chat.updated), no reload
+  await expect(history.getByTestId('schedule-outcome')).toHaveAttribute('data-outcome', 'done')
+  await expect(history.getByTestId('schedule-outcome')).toHaveText(/^성공 · /)
+  expect((await history.innerText()).split('마지막 실행').length - 1).toBe(1)
+  // the list card reads the room by name too
+  await page.goto('/scheduled')
+  const card = page.getByTestId('schedule-item').filter({ hasText: '영업 대화 요약' })
+  await expect(card).toContainText('#영업팀')
+  await expect(card).not.toContainText(SALES)
   expect(realErrors(errors)).toEqual([])
 })
 

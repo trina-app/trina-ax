@@ -54,7 +54,7 @@ import SourcesList from './SourcesList'
 import Steps, { StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
-import { WithRoomRefs } from './RoomRefMenu'
+import { WithRoomNames } from '../RoomNames'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 import { Tooltip } from '../Tooltip'
@@ -168,13 +168,14 @@ export function UserText({ content: sent, clamp, quotes = false }: { content: st
   const cmd = splitCommand(content)
   const items = useSkillList(!!cmd)
   const skill = cmd && items ? skillByName(items, cmd.name) : null
-  // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles
+  // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles; a room named by its id alone (a
+  // scheduled run's question is its instruction, "… room_id <id>") by its name for a viewer in it (components/RoomNames.tsx)
   const text = !cmd || !skill ? (
-    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
+    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomNames text={content} tokenTitles /></div>
   ) : (
     <div data-testid="user-text-skill">
       <SkillChip title={skillLabel(skill)} name={skill.name} />
-      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={cmd.rest} /></div>}
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomNames text={cmd.rest} tokenTitles /></div>}
     </div>
   )
   if (!quote) return text

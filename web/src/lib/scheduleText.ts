@@ -52,6 +52,19 @@ export const stateLabel = (s: Schedule, t: T) => {
  *  dot, because the dot's colour alone says nothing on a phone (no hover) and every failure is the same red. */
 export const outcomeLabel = (s: Schedule, t: T) => (s.lastOutcome ? t(`scheduleTemplates.outcome.${s.lastOutcome}` as MessageKey) : '')
 
+const RUN_STATE: Partial<Record<NonNullable<Schedule['lastOutcome']>, MessageKey>> = {
+  done: 'scheduled.run.done', problems: 'scheduled.run.problems', error: 'scheduled.run.error', stopped: 'scheduled.run.stopped', interrupted: 'scheduled.run.interrupted',
+}
+/** The last run under the task page's "Last run" heading, without saying "last run" again: "Running" while a run is
+ *  queued or running, "Succeeded", "Failed"…; an occurrence that did not run says why ("Usage limit prevented the
+ *  run"); empty before the first run (or from an older server, which says neither). */
+export const runStateLabel = (s: Schedule, t: T) => {
+  if (s.running) return t('scheduled.run.running')
+  if (!s.lastOutcome) return ''
+  const key = RUN_STATE[s.lastOutcome]
+  return key ? t(key) : outcomeLabel(s, t)
+}
+
 /** Why the last run did not succeed, in plain words, with the next step ("…then use Run now to try again"); empty for a
  *  success or before the first run. The API gives only the outcome code, not the error text, so this explains the code. */
 export const outcomeReason = (s: Schedule, t: T) =>
