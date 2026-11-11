@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 07:16
 - Branch: `fix/windows-update-verify-signature`
-- Status: in progress
+- Status: done
 - Where: desktop/ (updater), shared/ (manifest signature check), server/ (puts the signed manifest next to the installer).
   Why: the Windows app trusted whatever installer its team server offered; the signed release info is the only proof
   that an installer is ours (see docs/REPOSITORY-RULES.md: core first).
@@ -44,3 +44,9 @@ Out: Authenticode signing / SmartScreen; macOS (notice only, unchanged); store b
   path writes it), else desks fall back to the internet feed; an offline office would block until its next update run.
 - Cannot run a real Windows install here; QA note in the PR (TC-166).
 - No migrations.
+
+## Result
+
+PR #382. As planned, plus from the independent review: the app downloads itself (no electron-updater auto-download),
+never while a download is checked, and re-hashes the file right before installing; an unreadable manifest keeps the
+download; a refused version is not downloaded again in that run. A real Windows install is left to QA TC-166.
