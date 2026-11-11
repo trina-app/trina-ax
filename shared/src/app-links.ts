@@ -16,6 +16,8 @@ export const APP_LINKS = {
    * answer 404. */
   androidCertSha256: [
     '6F:9C:90:4B:59:83:9C:1C:F4:9C:95:95:77:EE:01:FE:78:02:63:35:CC:32:F8:FB:79:CA:F3:BA:08:C9:CA:7A',
+    // Google Play's app signing key: installs from Play are signed with it (Play Console › App integrity › App signing)
+    '8E:15:1D:64:3C:87:6B:8D:B4:B1:C5:A6:5A:47:00:E2:32:85:66:16:DB:90:79:45:0F:F6:6B:0B:BB:49:9C:81',
   ] as readonly string[],
 }
 
@@ -45,3 +47,31 @@ export function assetLinks(ids = APP_LINKS) {
   if (!prints.length) return null
   return [{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: ids.androidPackage, sha256_cert_fingerprints: prints } }]
 }
+
+/**
+ * The App Store id of an `apps.apple.com` listing (`…/app/<name>/id6829192435?platform=iphone` → `6829192435`), or
+ * null for '' or anything else. Used for Apple's Smart App Banner on the join pages (docs/DECISIONS.md "Get the app").
+ */
+export function appStoreId(listing: string): string | null {
+  try {
+    const u = new URL(listing)
+    if (u.protocol !== 'https:' || u.hostname !== 'apps.apple.com') return null
+    return /\/id(\d{5,15})$/.exec(u.pathname)?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Apple's Smart App Banner for the invite and team-link pages (`/invite/<token>`, `/join`), or null when the edition
+ * names no App Store listing. Never an `app-argument`: an invite's token is in its path, and the team link's token is
+ * in the fragment, which the server never sees (the address without it tells the app nothing). The id is digits only,
+ * so the tag needs no escaping.
+ */
+export function smartAppBanner(iphoneListing: string): string | null {
+  const id = appStoreId(iphoneListing)
+  return id ? `<meta name="apple-itunes-app" content="app-id=${id}" />` : null
+}
+
+/** The pages the Smart App Banner goes on: an invite (`/invite/<token>`) and the team link (`/join`). */
+export const joinPagePath = (p: string) => p === '/join' || /^\/invite\/[^/]+$/.test(p)
