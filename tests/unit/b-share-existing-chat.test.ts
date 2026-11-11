@@ -1,4 +1,4 @@
-// "프로젝트 사람들과 공유" (shared/src/api/chats.ts shareChat, server/src/chat/share-chat.ts): the creator of a private
+// "프로젝트 멤버와 공유" (shared/src/api/chats.ts shareChat, server/src/chat/share-chat.ts): the creator of a private
 // chat in a team project that shares its chats makes it a shared chat after a one-time check of what it contains.
 // Covered: who may (the creator only; a team project with the setting on that they see) and every refusal; the check
 // over every branch (a source the whole audience reads is left out, the hash rule, a scope that does not describe every

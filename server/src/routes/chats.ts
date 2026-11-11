@@ -14,7 +14,6 @@ import { fail } from '../http/errors'
 import { newId } from '../db'
 import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/runtime'
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
-import { frequentQuestions } from '../chat/frequent-questions'
 import { hideTitle } from '../chat/title'
 import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
@@ -188,7 +187,6 @@ export const chatsRoutes: RouteModule = {
       if (!r || !(canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r)))) return fail('not_found')
       return r
     }
-    kit.handle(API.frequentQuestions, ({ auth }) => frequentQuestions(ctx.db, auth.user.id))
 
     // ---------------- chats ----------------
     kit.handle(API.listChats, ({ query, auth }) => {
@@ -502,7 +500,7 @@ export const chatsRoutes: RouteModule = {
       return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
     })
 
-    // "프로젝트 사람들과 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
+    // "프로젝트 멤버와 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
     // of what it contains, every branch (chat/share-chat.ts); a shared chat answers 409 already_shared to whoever sees it
     kit.handle(API.shareChat, ({ c, params, body, auth }) => shareChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
 

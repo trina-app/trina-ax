@@ -795,6 +795,8 @@ describe('second review round', () => {
 
 describe('connected services after a room read: reads without a card, one card for a write', () => {
   const LEAD = 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.'
+  /** the same card for a read: it reads, it changes nothing (QA TC-285) */
+  const READ_LEAD = 'Messages from your conversations (other people\'s words) came in here, so reading from other services is asked first too.'
   let svc: FakeServices
   const made: string[] = []
   beforeAll(async () => {
@@ -841,13 +843,15 @@ describe('connected services after a room read: reads without a card, one card f
     const requests = svc.seen.length
     const get = await answered(chat, fake({ tool: 'api_request', args: { connection: 'my_aipm', method: 'GET', path: '/tasks' }, sayResult: true }), 'allow')
     expect(get.cards).toHaveLength(1)
-    expect(get.cards[0]!.question).toStartWith(LEAD)
+    // a read says it reads (QA TC-285), not "changes are asked first" and "What it sends"
+    expect(get.cards[0]!.question).toStartWith(READ_LEAD)
+    expect(get.cards[0]!.question).not.toContain('changes are asked first')
     // in plain words (QA TC-233): what it does at the service by its name, where it goes, the exact request one click
     // away; never "Api request", the connection's key name or the arguments as the AI wrote them
-    expect(get.cards[0]!.question).toContain('wants to do this: Read from AI PM. Allow it?')
+    expect(get.cards[0]!.question).toContain('wants to read something: Read from AI PM. Allow it?')
     const [detail, ...more] = get.cards[0]!.details as { label: string; text: string; fields?: { name: string; value: string }[]; exact?: true }[]
     expect(more).toEqual([])
-    expect(detail).toMatchObject({ label: 'What it sends', text: `GET ${svc.base}/api/v1/tasks`, exact: true })
+    expect(detail).toMatchObject({ label: 'What it reads', text: `GET ${svc.base}/api/v1/tasks`, exact: true })
     expect(detail!.fields).toEqual([{ name: 'Action', value: 'Read from AI PM' }, { name: 'Address', value: `${svc.base}/api/v1/tasks` }])
     expect(JSON.stringify(get.cards[0])).not.toMatch(/my_aipm|Api request|connection:|method:/)
     expect(svc.seen.length).toBe(requests + 1)
@@ -883,8 +887,8 @@ describe('connected services after a room read: reads without a card, one card f
       const before = svc.calls.length
       const r = await answered(chat, fake({ tool: 'my_tasks__search_tasks', args: { q } }, { say: 'done' }), 'skip')
       expect(r.cards, q).toHaveLength(1)
-      expect(r.cards[0]!.question, q).toStartWith(LEAD)
-      expect(r.cards[0]!.question, q).toContain('Tasks · Search tasks')
+      expect(r.cards[0]!.question, q).toStartWith(READ_LEAD)
+      expect(r.cards[0]!.question, q).toContain('wants to read something: Tasks · Search tasks. Allow it?')
       expect(svc.calls.length, q).toBe(before)
     }
   })

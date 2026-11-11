@@ -85,7 +85,7 @@ describe('a read the card confirmed', () => {
     // two people see the chat (alice and bob: the owner and admins are not members); bob cannot read groups/marketing:
     // the card, and alice says yes
     const r = await askWithCard('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), 'share')
-    expect(r.card.question).toContain('Of the 2 people in the project who see this chat, 1 cannot see this place')
+    expect(r.card.question).toContain('Of the 2 members who see this chat, 1 cannot see this place')
     expect(r.done.content).toContain(CANARY)
     answerId = r.done.id
     questionId = r.started.userMessage!.id
@@ -324,7 +324,7 @@ describe("a group's skills in a shared chat are its members' only (as in a room)
     expect(sys.done.content).not.toContain('GROUP-BRIEF-SKILL')
     const r = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'GROUP-BRIEF-SKILL' }, sayResult: true }), 'skip')
     expect(r.card.question).toContain('The AI wants to use a skill in')
-    expect(r.card.question).toContain('Of the 4 people in the project who see this chat, 2 cannot use this skill')
+    expect(r.card.question).toContain('Of the 4 members who see this chat, 2 cannot use this skill')
     expect(r.done.content).not.toContain('GROUP-SKILL-BODY-55')
     const yes = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'GROUP-BRIEF-SKILL' }, sayResult: true }), 'share')
     expect(yes.done.content).toContain('GROUP-SKILL-BODY-55')

@@ -207,12 +207,12 @@ dl.kv dd{ color:var(--ink-2);}
   <h3>예: 데모 팀에서 누가 무엇을 보나</h3>
   <table class="t">
     <tr><th>폴더</th><th class="c">Alice (마케팅)</th><th class="c">Bob (재무)</th><th class="c">팀장·관리자</th></tr>
-    <tr><td>shared (공용)</td><td class="c yes">읽기·쓰기</td><td class="c yes">읽기·쓰기</td><td class="c yes">읽기·쓰기</td></tr>
-    <tr><td>groups/마케팅</td><td class="c yes">읽기·쓰기</td><td class="c no">안 보임</td><td class="c yes">읽기·쓰기</td></tr>
-    <tr><td>groups/재무</td><td class="c no">안 보임</td><td class="c yes">읽기·쓰기</td><td class="c yes">읽기·쓰기</td></tr>
-    <tr><td>groups/재무/급여</td><td class="c no">안 보임</td><td class="c no">안 보임</td><td class="c yes">읽기·쓰기</td></tr>
-    <tr><td>projects/신제품-출시</td><td class="c yes">읽기·쓰기</td><td class="c ro">읽기만</td><td class="c yes">읽기·쓰기</td></tr>
-    <tr><td>users/alice (Alice의 폴더)</td><td class="c yes">읽기·쓰기</td><td class="c no">안 보임</td><td class="c no">안 보임</td></tr>
+    <tr><td>shared (공용)</td><td class="c yes">고칠 수 있음</td><td class="c yes">고칠 수 있음</td><td class="c yes">고칠 수 있음</td></tr>
+    <tr><td>groups/마케팅</td><td class="c yes">고칠 수 있음</td><td class="c no">안 보임</td><td class="c yes">고칠 수 있음</td></tr>
+    <tr><td>groups/재무</td><td class="c no">안 보임</td><td class="c yes">고칠 수 있음</td><td class="c yes">고칠 수 있음</td></tr>
+    <tr><td>groups/재무/급여</td><td class="c no">안 보임</td><td class="c no">안 보임</td><td class="c yes">고칠 수 있음</td></tr>
+    <tr><td>projects/신제품-출시</td><td class="c yes">고칠 수 있음</td><td class="c ro">볼 수만 있음</td><td class="c yes">고칠 수 있음</td></tr>
+    <tr><td>users/alice (Alice의 폴더)</td><td class="c yes">고칠 수 있음</td><td class="c no">안 보임</td><td class="c no">안 보임</td></tr>
   </table>
   <p class="small" style="margin-top:-2mm">급여 폴더는 재무 그룹이라도 따로 막아 두었어요. 이렇게 하위 폴더마다 다르게 정할 수 있어요.</p>
   <figure class="shot center" style="width:72%"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>Alice가 새 채팅을 열면 보이는 카드. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. Bob의 카드에는 groups/마케팅 대신 groups/재무가 있고, 신제품-출시는 자물쇠(읽기 전용)로 보여요.</figcaption></figure>
@@ -225,7 +225,7 @@ dl.kv dd{ color:var(--ink-2);}
   <p class="lead">어디로 들어와도 같은 계정, 같은 채팅, 같은 파일이에요. <b>팀 주소</b>는 팀장이 알려 줘요.</p>
   <ul>
     <li><b>웹 브라우저</b> — 설치 없이 크롬·엣지·사파리에서 팀 주소를 열어요. 가장 간단해요.</li>
-    <li><b>데스크톱 앱</b>(맥) — AI에게 웹사이트 일을 맡기고 싶을 때(7장) 설치해요.</li>
+    <li><b>데스크톱 앱</b>(맥) — AI에게 웹사이트 일을 맡기고 싶을 때(7장) Mac App Store에서 받아요.</li>
     <li><b>휴대폰</b> — 휴대폰 브라우저로 팀 주소를 열고 홈 화면에 추가해요.</li>
   </ul>
   <p class="small">팀 설정에 따라 팀 주소가 사무실 안에서만 열릴 수도 있어요. 밖이나 휴대폰에서 안 열리면 팀장에게 물어보세요.</p>
@@ -245,20 +245,30 @@ dl.kv dd{ color:var(--ink-2);}
     <figure class="shot" style="flex:.6"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>휴대폰에서 본 채팅.</figcaption></figure>
   </div>
   <h3>데스크톱 앱 설치 — 맥</h3>
-  <p class="small" style="margin-bottom:2mm">Mac DMG는 아직 배포하지 않아요. 아래는 운영자가 직접 빌드한 파일을 제공할 때의 절차예요. universal 빌드는 Intel·Apple Silicon 모두 지원해요.</p>
+  <p>맥 앱은 두 가지 방법으로 받아요. 보통은 첫 번째 방법인 <b>Mac App Store</b>로 받으세요. 경고 창이 나오지 않고, 새 버전도 저절로 받아요.</p>
   <div class="row">
     <div class="side">
+      <p><b>방법 1. Mac App Store</b> (권장)</p>
       <ol class="steps">
-        <li><span class="n">1</span>팀장이 준 <b>Trina-AX-….dmg</b> 파일을 열고, Trina AX 아이콘을 <b>응용 프로그램</b> 폴더로 끌어 놓아요. (설정 › 앱 화면에 내려받기 버튼이 있으면 거기서 받아도 돼요.)</li>
-        <li><span class="n">2</span>Trina AX를 한 번 열어 봐요. “확인되지 않은 개발자” 같은 경고가 나오면 <b>완료</b>를 눌러 닫아요.</li>
-        <li><span class="n">3</span><b>시스템 설정 → 개인정보 보호 및 보안</b>을 열고, 아래쪽 “Trina AX이(가) 차단되었습니다” 옆 <span class="ui">그래도 열기</span>를 눌러요. 맥 암호를 넣으면 열려요.</li>
-        <li><span class="n">4</span>첫 화면에 팀 주소를 넣고 <span class="ui">연결</span>을 눌러요. 다음부터는 바로 열려요.</li>
+        <li><span class="n">1</span>맥에서 <a href="https://apps.apple.com/app/trina-ax/id6829192435?platform=mac">Mac App Store의 Trina AX</a>를 열고 <span class="ui">받기</span>를 눌러요. App Store 앱에서 “Trina AX”를 검색해도 돼요. 팀의 설정 › 앱 화면에도 같은 링크가 있어요.</li>
+        <li><span class="n">2</span>설치가 끝나면 Launchpad나 응용 프로그램 폴더에서 Trina AX를 열어요.</li>
+        <li><span class="n">3</span>첫 화면에 팀장에게 받은 초대 링크나 팀 주소를 넣고 <span class="ui">들어가기</span>를 눌러요. 다음부터는 바로 열려요.</li>
       </ol>
-      <p class="small">예전 맥(macOS 14 이하)에서는 Finder에서 오른쪽 클릭 → 열기로도 열 수 있어요.</p>
+      <p class="small">App Store에서 받은 앱은 업데이트도 App Store에서 저절로 받아요.</p>
     </div>
-    <figure class="shot" style="flex:.85"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>데스크톱 앱 첫 화면. 팀 주소를 넣어요. (그림의 주소는 데모용이에요)</figcaption></figure>
+    <figure class="shot" style="flex:.85"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>데스크톱 앱 첫 화면. 초대 링크나 팀 주소를 넣어요. (그림의 주소는 데모용이에요)</figcaption></figure>
   </div>
-  <div class="warn"><b>“손상되었기 때문에 열 수 없습니다”가 나오면</b><p>카카오톡·메신저로 받은 파일에서 생길 수 있어요. 직접 고치려 하지 말고 팀장에게 도움을 요청하세요. 경고가 나오는 건 아직 애플의 공식 서명을 받기 전이라서예요.</p></div>
+
+  <p><b>방법 2. 설치 파일(.dmg)</b></p>
+  <p class="small" style="margin-bottom:2mm">App Store를 쓸 수 없을 때 써요. Mac DMG는 아직 배포하지 않아서, 운영자가 직접 빌드한 파일을 줄 때의 절차예요. universal 빌드는 Intel·Apple Silicon 모두 지원해요.</p>
+  <ol class="steps">
+    <li><span class="n">1</span>팀장이 준 <b>Trina-AX-….dmg</b> 파일을 열고, Trina AX 아이콘을 <b>응용 프로그램</b> 폴더로 끌어 놓아요. (팀 서버에 설치 파일이 있으면 설정 › 앱의 맥 줄 아래 <span class="ui">설치 파일 내려받기</span>를 펼쳐서 받아도 돼요.)</li>
+    <li><span class="n">2</span>Trina AX를 한 번 열어 봐요. “확인되지 않은 개발자” 같은 경고가 나오면 <b>완료</b>를 눌러 닫아요.</li>
+    <li><span class="n">3</span><b>시스템 설정 → 개인정보 보호 및 보안</b>을 열고, 아래쪽 “Trina AX이(가) 차단되었습니다” 옆 <span class="ui">그래도 열기</span>를 눌러요. 맥 암호를 넣으면 열려요.</li>
+    <li><span class="n">4</span>첫 화면에 초대 링크나 팀 주소를 넣고 <span class="ui">들어가기</span>를 눌러요. 다음부터는 바로 열려요.</li>
+  </ol>
+  <p class="small">예전 맥(macOS 14 이하)에서는 Finder에서 오른쪽 클릭 → 열기로도 열 수 있어요. App Store 앱과 설치 파일로 설치한 앱은 서로 다른 앱이라, 바꾸면 한 번 더 로그인해요.</p>
+  <div class="warn"><b>“손상되었기 때문에 열 수 없습니다”가 나오면</b><p>카카오톡·메신저로 받은 설치 파일에서 생길 수 있어요. 직접 고치려 하지 말고 팀장에게 도움을 요청하세요. 경고가 나오는 건 설치 파일이 아직 애플의 공식 서명을 받기 전이라서예요. App Store에서 받은 앱에는 이런 경고가 없어요.</p></div>
 
   <h3>윈도우</h3>
   <p>Windows용 <code>Trina-AX-Setup-&lt;버전&gt;-win-x64.exe</code>는 최신 릴리스 또는 팀의 설정 → 앱에서 받아요. 설치 파일을 확인한 뒤 실행하고, “Windows의 PC 보호” 파란 창이 나오면 <b>추가 정보 → 실행</b>을 눌러요.</p>
@@ -621,7 +631,7 @@ dl.kv dd{ color:var(--ink-2);}
       <ol class="steps">
         <li><span class="n">1</span><span class="ui">팀 스킬</span> 화면의 “고칠 수 있는 사람” 줄에서 <span class="ui">바꾸기</span>를 눌러요.</li>
         <li><span class="n">2</span><span class="ui">사람이나 그룹 추가</span>에서 이름으로 찾아 골라요. 경고를 읽어 주세요.</li>
-        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. <span class="path">skills</span> 전체를 고칠 수 있게 돼요. 이 설정은 <span class="ui">폴더 권한</span>에서 “읽기·쓰기 · 팀 스킬 관리”로도 보여요. <span class="ui">빼기</span>를 누르면 쓰기 권한만 빠지고 만든 스킬은 남아요. <span class="path">skills/재무</span> 같은 하위 폴더만 맡기려면 창 아래의 <span class="ui">폴더별로 맡기려면 폴더 권한에서</span>로 가서 그 폴더에 쓰기 권한을 줘요.</li>
+        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. <span class="path">skills</span> 전체를 고칠 수 있게 돼요. 이 설정은 <span class="ui">폴더 권한</span>에서 “고칠 수 있음 · 팀 스킬 관리”로도 보여요. <span class="ui">빼기</span>를 누르면 고칠 수 있는 권한만 빠지고 만든 스킬은 남아요. <span class="path">skills/재무</span> 같은 하위 폴더만 맡기려면 창 아래의 <span class="ui">폴더별로 맡기려면 폴더 권한에서</span>로 가서 그 폴더를 “고칠 수 있음”으로 정해요.</li>
       </ol>
       <p class="small">누가 바꾸든(AI 포함) 팀장·관리자에게 “팀 스킬이 바뀌었어요” 알림이 가요. <span class="ui">버전 기록 보기</span>를 누르면 그 파일의 예전 버전으로 되돌릴 수 있어요. 지난 변경은 왼쪽 <span class="ui">팀 스킬</span> › <span class="ui">최근 변경</span>에 있어요.</p>
     </div>
@@ -647,7 +657,7 @@ dl.kv dd{ color:var(--ink-2);}
   <h3>폴더 권한 — 바꾸기 전에 “누가 무엇을 보나” 미리보기</h3>
   <div class="row">
     <div class="side">
-      <p><span class="ui">폴더 권한</span>에서 폴더마다 <b>누가</b>(모두·역할·그룹·사람) <b>무엇을</b>(권한 없음 / 읽기만 / 읽기·쓰기) 할지 정해요. 규칙이 없는 하위 폴더는 위 폴더의 규칙을 따라요.</p>
+      <p><span class="ui">폴더 권한</span>에서 폴더마다 <b>누가</b>(모두·역할·그룹·사람) <b>무엇을</b>(열 수 없음 / 볼 수 있음 / 고칠 수 있음) 할지 정해요. 규칙이 없는 하위 폴더는 위 폴더의 규칙을 따라요.</p>
       <ol class="steps">
         <li><span class="n">1</span>폴더 옆 <span class="ui">수정</span>(새 폴더는 <span class="ui">폴더 추가</span>)을 누르고 규칙을 바꿔요.</li>
         <li><span class="n">2</span><span class="ui">누가 무엇을 보나</span>를 누르면 저장하기 전에 사람별로 어떻게 바뀌는지 보여요.</li>
@@ -661,7 +671,7 @@ dl.kv dd{ color:var(--ink-2);}
         <i data-box="853,713,1002,746" data-pin="2" data-pos="l"></i>
         <i data-box="376,616,1064,682" data-pin="3"></i>
       </div>
-      <figcaption>예: 신제품 출시 폴더에서 재무 그룹을 “권한 없음”으로 바꾸면 Bob이 권한을 잃어요. (미리보기만 하고 저장하지 않았어요)</figcaption>
+      <figcaption>예: 신제품 출시 폴더에서 재무 그룹을 “열 수 없음”으로 바꾸면 Bob이 권한을 잃어요. (미리보기만 하고 저장하지 않았어요)</figcaption>
     </figure>
   </div>
 

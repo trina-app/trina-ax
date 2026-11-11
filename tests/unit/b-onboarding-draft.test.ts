@@ -387,8 +387,6 @@ describe('draft turns', () => {
         expect(ids, q).not.toContain(chatId)
       }
       expect(await list('초안')).toEqual([plain.id])
-      const frequent = await h.api('carol').call(API.frequentQuestions)
-      expect(frequent.items.filter((x) => x.question.includes('acme.co.kr'))).toEqual([])
       // read by id as before
       expect((await settled('carol', r.chatId)).status).toBe('done')
       expect((await h.api('carol').call(API.getChat, { params: { id: r.chatId } })).id).toBe(r.chatId)

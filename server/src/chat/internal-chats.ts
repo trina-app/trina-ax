@@ -4,7 +4,7 @@
 // once read) and the AI's picks among a folder's files for 팀 파일 (onboarding/file-rank.ts, deleted once read). Each is
 // already marked by its own table (migrations 227, 232, 249, 272), so no column is added: those marks
 // are read here. Such a chat stays out of the chat list and its search (GET /api/chats),
-// Home's frequent questions and the chat list's realtime events (chat.updated); its flow reads it by id as before
+// and the chat list's realtime events (chat.updated); its flow reads it by id as before
 // (GET /api/onboarding/profile/draft/:chatId, …/skill-draft/:chatId), its answers still send their message events (the
 // profile step watches its steps), and the chat itself still opens by its address.
 import type { Database } from 'bun:sqlite'
