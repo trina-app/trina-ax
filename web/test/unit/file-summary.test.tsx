@@ -22,7 +22,9 @@ describe('file summary: rejected write notice', () => {
     test(`${locale}: localized line, no raw reason`, () => {
       setLocale(locale)
       const html = render(files('finance/2026/q3.csv'))
-      expect(html).toContain(esc(translate(locale, 'files.summary.rejectedLine', { path: 'finance/2026/q3.csv' })))
+      // the place in words (no raw path), the path on hover
+      expect(html).toContain(esc(translate(locale, 'files.summary.rejectedLine', { path: 'finance › 2026 › q3.csv' })))
+      expect(html).toContain('title="finance/2026/q3.csv"')
       expect(html).toContain(esc(translate(locale, 'files.summary.askOwnFolder')))
       expect(html).not.toContain(RAW)
     })
