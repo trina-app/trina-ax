@@ -1370,6 +1370,7 @@ export const ja: Record<MessageKey, string> = {
   'notifications.event.onboarding.ai_request': "チームメンバーがAI接続を待っています。",
   'notifications.event.onboarding.ai_requestNamed': "{name}さんがAI接続を待っています。",
   "notifications.event.onboarding.ai_notReadyNamed": "{name}さんがトリナを使おうとしましたが、まだ準備ができていません。",
+  "notifications.event.onboarding.ai_notReady": "チームメンバーがトリナを使おうとしましたが、まだ準備ができていません。",
   'notifications.event.skill.suggested': "チームメンバーがスキルを提案しました。「チームスキル」で確認してください。",
   'notifications.event.skill.reviewed': "スキルの提案が審査されました。「チームスキル」で結果を確認してください。",
   'notifications.event.dev_env.job': "開発環境のジョブが終了しました。",

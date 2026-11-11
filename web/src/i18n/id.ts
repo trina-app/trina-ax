@@ -1398,6 +1398,7 @@ export const id: Record<MessageKey, string> = {
   'notifications.event.onboarding.ai_request': "Seorang anggota tim menunggu koneksi AI.",
   'notifications.event.onboarding.ai_requestNamed': "{name} menunggu koneksi AI.",
   "notifications.event.onboarding.ai_notReadyNamed": "{name} mencoba memakai Trina, tetapi Trina belum disiapkan.",
+  "notifications.event.onboarding.ai_notReady": "Seorang anggota tim mencoba memakai Trina, tetapi Trina belum disiapkan.",
   'notifications.event.skill.suggested': 'Anggota tim mengusulkan skill. Tinjau di Skill tim.',
   'notifications.event.skill.reviewed': 'Usulan skill Anda sudah ditinjau. Lihat hasilnya di Skill tim.',
   'notifications.event.dev_env.job': "Pekerjaan lingkungan pengembangan selesai.",

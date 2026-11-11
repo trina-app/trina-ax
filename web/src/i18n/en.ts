@@ -1398,6 +1398,7 @@ export const en: Record<MessageKey, string> = {
   'notifications.event.onboarding.ai_request': "A team member is waiting for an AI connection.",
   'notifications.event.onboarding.ai_requestNamed': "{name} is waiting for an AI connection.",
   "notifications.event.onboarding.ai_notReadyNamed": "{name} tried to use Trina but it isn't set up yet.",
+  "notifications.event.onboarding.ai_notReady": "A team member tried to use Trina but it isn't set up yet.",
   'notifications.event.skill.suggested': 'A teammate suggested a skill. Review it in Team skills.',
   'notifications.event.skill.reviewed': 'Your skill suggestion was reviewed. See the result in Team skills.',
   'notifications.event.dev_env.job': "A dev environment job ended.",

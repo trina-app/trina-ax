@@ -1397,6 +1397,7 @@ export const ko = {
   'notifications.event.onboarding.ai_request': "팀원이 AI 연결을 기다리고 있어요.",
   'notifications.event.onboarding.ai_requestNamed': "{name} 님이 AI 연결을 기다리고 있어요.",
   "notifications.event.onboarding.ai_notReadyNamed": "{name} 님이 트리나를 쓰려고 했지만 아직 준비되지 않았어요.",
+  "notifications.event.onboarding.ai_notReady": "팀원이 트리나를 쓰려고 했지만 아직 준비되지 않았어요.",
   'notifications.event.skill.suggested': '팀원이 스킬을 제안했어요. 팀 스킬에서 검토해 주세요.',
   'notifications.event.skill.reviewed': '내 스킬 제안이 검토됐어요. 팀 스킬에서 결과를 확인해 주세요.',
   'notifications.event.dev_env.job': "개발 환경 작업이 끝났어요.",
