@@ -172,12 +172,12 @@ export function ConnectorsHome() {
     <div className="flex h-full flex-col overflow-y-auto" data-testid="integrations">
       <PageHeader testId="connectors-header" title={t('integrations.title')} desc={t('connectorsPage.desc')}
         actions={<>
-          <div className="relative w-full min-w-0 sm:w-60">
+          <div className="relative w-[calc(100vw-2rem)] min-w-0 sm:w-60">
             <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
             <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
           </div>
           {personalAllowed && (
-            <Button className="max-sm:hidden" onClick={() => setDialog({})} data-testid="integration-add">
+            <Button onClick={() => setDialog({})} data-testid="integration-add">
               <Plus size={15} aria-hidden /> {t('connectorsPage.addCustom')}
             </Button>
           )}
@@ -203,12 +203,12 @@ export function ConnectorsHome() {
                 <ul className="flex flex-wrap gap-x-2 gap-y-3" data-testid="connected-apps">
                   {connected.map((x) => (
                     <li key={x.id}>
-                      <button type="button" onClick={() => navigate(x.to)} className="group flex w-20 flex-col items-center gap-1.5 rounded-xl p-1.5 text-center hover:bg-hover" data-testid="connected-app" data-id={x.id} data-warn={x.warn ? 'yes' : undefined}>
+                      <button type="button" onClick={() => navigate(x.to)} className="group flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl p-1.5 text-center hover:bg-hover" data-testid="connected-app" data-id={x.id} data-warn={x.warn ? 'yes' : undefined}>
                         <span className="relative">
                           {x.logo ? <LogoTile src={x.logo} className="size-12 rounded-xl p-2" /> : <InitialTile name={x.name} />}
                           {x.warn && <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-[var(--c-canvas)] bg-warn" aria-hidden />}
                         </span>
-                        <span className="w-full truncate text-xs">{x.name}</span>
+                        <span className="line-clamp-2 w-full text-xs leading-tight break-words">{x.name}</span>
                         {x.warn && <span className="sr-only">{t('drive.status.needs_reconnect')}</span>}
                       </button>
                     </li>
@@ -231,14 +231,6 @@ export function ConnectorsHome() {
                   {shownCards.map((c) => <PopularCard key={c.id} c={c} />)}
                 </ul>
               </section>
-            )}
-            {personalAllowed && (
-              <p className="text-sm text-muted">
-                {t('integrations.discover.customHint')}{' '}
-                <button type="button" className="font-medium text-accent-text underline underline-offset-2" onClick={() => setDialog({})} data-testid="connector-custom">
-                  {t('connectorsPage.addCustom')}
-                </button>
-              </p>
             )}
             <p className="text-xs text-faint">{t('integrations.privacy')}</p>
           </>
@@ -338,7 +330,7 @@ function ListedPage({ c }: { c: Connector }) {
       <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={() => navigate('/connectors')}
         action={have.length ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
           : list.data?.personalAllowed ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button> : null}
-        description={t('connectors.mcp.about', { name: c.name })} tools={have[0]?.tools.map((x) => x.name)}>
+        description={t('connectors.mcp.about', { name: c.name })} noTools={have.length > 0}>
         {have.length > 0 && <MineRows items={have} />}
       </ConnectorDetail>
     </McpShell>
@@ -358,7 +350,7 @@ export function CustomConnectorPage() {
   return (
     <McpShell>
       <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name} line={c ? t(`integrations.catalog.${c.id}`) : i.url} official={!!c} onBack={() => navigate('/connectors')}
-        description={t('connectors.mcp.about', { name: i.name })} tools={i.tools.map((x) => x.name)}>
+        description={t('connectors.mcp.about', { name: i.name })} noTools>
         <MineRows items={[i]} />
       </ConnectorDetail>
     </McpShell>

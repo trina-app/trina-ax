@@ -44,7 +44,8 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
     <div className="flex h-full flex-col overflow-y-auto">
       <article aria-labelledby={titleId} className={`mx-auto w-full max-w-4xl space-y-8 px-4 pt-4 pb-10 sm:px-6 sm:pt-6`} data-testid={testId} data-state={state}>
         <div>
-          <nav aria-label={t('gapps.breadcrumb')} className="mb-5 flex min-w-0 items-center gap-1 text-sm text-muted" data-testid="app-breadcrumb">
+          {/* phones: the top bar names the list and has its way back */}
+          <nav aria-label={t('gapps.breadcrumb')} className="mb-5 flex min-w-0 items-center gap-1 text-sm text-muted max-md:hidden" data-testid="app-breadcrumb">
             <Link to="/connectors" className="rounded hover:text-ink hover:underline" data-testid="app-breadcrumb-connectors">{t('integrations.title')}</Link>
             <ChevronRight size={14} aria-hidden className="shrink-0 text-faint" />
             <span aria-current="page" className="truncate text-ink">{name}</span>
@@ -55,7 +56,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
               <h1 id={titleId} className="truncate text-2xl font-semibold tracking-tight">{name}</h1>
               <p className="mt-0.5 text-sm text-muted" data-testid="app-by">{byLine}</p>
             </div>
-            {actions && <div className="flex flex-wrap items-center gap-2 max-sm:w-full" data-testid="app-actions">{actions}</div>}
+            {actions && <div className="flex flex-wrap items-center gap-2 max-sm:w-full max-sm:[&>button:first-child]:flex-1" data-testid="app-actions">{actions}</div>}
           </div>
           {status && <div className="mt-4 space-y-2">{status}</div>}
         </div>
@@ -65,9 +66,9 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
           <ul className="grid gap-2 sm:grid-cols-3 sm:gap-3">
             {examples.map((x) => (
               <li key={x}>
-                <button type="button" onClick={() => onExample(x)} className="flex h-full w-full flex-col justify-between gap-3 rounded-xl border border-line bg-surface p-3 text-left text-sm leading-snug transition hover:border-field-border hover:bg-hover" data-testid="app-example">
+                <button type="button" onClick={() => onExample(x)} className="flex h-full w-full items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3 text-left text-sm leading-snug transition hover:border-field-border hover:bg-hover sm:flex-col sm:items-start" data-testid="app-example">
                   <span>{x}</span>
-                  <MessageSquare size={14} className="text-faint" aria-hidden />
+                  <MessageSquare size={14} className="shrink-0 text-faint" aria-hidden />
                 </button>
               </li>
             ))}
