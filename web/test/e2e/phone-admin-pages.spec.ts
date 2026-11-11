@@ -1,4 +1,5 @@
-// Admin on a phone (390×844, touch), the level below each page (QA TC-267 to TC-270; pages/admin/adminScreens.ts):
+// Admin on a phone (390×844, touch), the level below each page (QA TC-267 to TC-270; pages/admin/adminScreens.ts). Each
+// test names the QA row and step it follows (System, TC-269 step 1 and TC-270 step 1, is another session's):
 // - TC-267: a connector, a plugin, a folder, its rule editor, a person in By person and an engine are pages with their
 //   own address, pushed over the page they come from: ‹ and the browser's (the iPhone's swipe) Back go one level up, and
 //   the bar names the page; no second "← back" link under the bar.
@@ -28,7 +29,7 @@ test.beforeEach(async ({ page }) => {
   await signIn(page)
 })
 
-test('Connectors: a connector is a page of its own; ‹ and Back return to Connectors, then to Admin', async ({ page }) => {
+test('TC-267 step 1: Connectors › a connector is a page of its own; ‹ and Back return to Connectors, then to Admin', async ({ page }) => {
   await openAdminPage(page, 'connectors', /\/admin\/connectors$/)
   const length = await historyLength(page)
   await page.locator('[data-testid="connector-card"][data-id="gmail"]').getByTestId('connector-open').click()
@@ -52,7 +53,7 @@ test('Connectors: a connector is a page of its own; ‹ and Back return to Conne
   await expect(page).toHaveURL(/\/admin$/)
 })
 
-test('Connectors: a connector\'s address opened from outside has Connectors and Admin under it', async ({ page }) => {
+test('TC-267: a connector\'s address opened from outside has Connectors and Admin under it', async ({ page }) => {
   await page.goto('/admin/connectors/google-drive')
   await expect(page.getByTestId('drive-admin-detail')).toBeVisible()
   await expect(bar(page)).toHaveText('Google Drive')
@@ -65,7 +66,7 @@ test('Connectors: a connector\'s address opened from outside has Connectors and 
   await expect(page).toHaveURL(/\/admin\/connectors$/)
 })
 
-test('Plugins: a plugin is a page of its own under "‹ Plugins"', async ({ page }) => {
+test('TC-267 step 1: Plugins › a plugin is a page of its own under "‹ Plugins"', async ({ page }) => {
   await openAdminPage(page, 'plugins', /\/admin\/plugins$/)
   const card = page.getByTestId('plugin-catalog').first()
   const name = (await card.getByTestId('plugin-open').locator('.truncate').first().textContent())!.trim()
@@ -80,7 +81,7 @@ test('Plugins: a plugin is a page of its own under "‹ Plugins"', async ({ page
   await expect(page.getByTestId('plugins-catalog')).toBeVisible()
 })
 
-test('Folder permissions: a folder and its rule editor are entries of their own; Back goes editor → folder → tree', async ({ page }) => {
+test('TC-267 step 2: Folder permissions › a folder › edit a rule; Back twice goes editor → folder → list; Back goes editor → folder → tree', async ({ page }) => {
   await openAdminPage(page, 'folders', /\/admin\/folders$/)
   const tree = page.getByTestId('folder-tree')
   const length = await historyLength(page)
@@ -126,7 +127,7 @@ test('Folder permissions: a folder and its rule editor are entries of their own;
   await expect(page).toHaveURL(/\/admin\/folders$/)
 })
 
-test('Folder permissions: ‹ from an editor with changes asks first', async ({ page }) => {
+test('TC-267: ‹ from a rule editor with changes asks first', async ({ page }) => {
   await page.goto('/admin/folders?folder=marketing')
   await expect(page.getByTestId('folder-detail')).toBeVisible()
   await page.getByTestId('folder-detail-edit').click()
@@ -145,7 +146,7 @@ test('Folder permissions: ‹ from an editor with changes asks first', async ({ 
   await expect(page.getByTestId('folder-detail')).toBeVisible()
 })
 
-test('Folder permissions › By person: the list alone, a person a page of their own', async ({ page }) => {
+test('TC-268 step 4: Folder permissions › 사람별: the list alone, a person a page of their own', async ({ page }) => {
   await page.goto('/admin/folders?view=people')
   const option = page.locator('[data-testid="access-person-option"][data-person="bob"]')
   await expect(option).toBeVisible()
@@ -159,7 +160,7 @@ test('Folder permissions › By person: the list alone, a person a page of their
   await expect(option).toBeVisible()
 })
 
-test('Providers: an engine is a row that opens its own page; a server command is left to a computer', async ({ page }) => {
+test('TC-267 step 3 / TC-270 step 4: AI accounts › an engine opens a pushed page with its accounts; its server login is left to a computer', async ({ page }) => {
   await openAdminPage(page, 'providers', /\/admin\/providers$/)
   const row = page.locator('[data-testid="engine-row"][data-engine="codex"]')
   await expect(row).toBeVisible()
@@ -188,7 +189,7 @@ test('Providers: an engine is a row that opens its own page; a server command is
 //   delete last); a member never reaches them.
 const H = { [CSRF_HEADER]: '1' }
 
-test('Members: a row opens the person\'s page (role, groups, folders, actions with delete last); Back to the list', async ({ page }) => {
+test('TC-268 step 1: Members › tap a person: their page (role, groups, folders, actions with delete last); Back to the list', async ({ page }) => {
   await openAdminPage(page, 'members', /\/admin\/members$/)
   await page.getByTestId('member-card-bob').getByTestId('row-open').click()
   await expect(page).toHaveURL(/\/admin\/members\/bob$/)
@@ -207,7 +208,7 @@ test('Members: a row opens the person\'s page (role, groups, folders, actions wi
   await expect(page.getByTestId('members-list')).toBeVisible()
 })
 
-test('Members: ⋯ and Invite ⌄ are bottom sheets with 48 px rows, delete last', async ({ page }) => {
+test('TC-268 steps 1 and 3: Members › ⋯ and Invite ⌄ are bottom sheets with 48 px rows, delete last', async ({ page }) => {
   await openAdminPage(page, 'members', /\/admin\/members$/)
   await page.getByTestId('member-card-bob').getByTestId('member-more').click()
   const sheet = page.getByRole('menu')
@@ -232,7 +233,7 @@ test('Members: ⋯ and Invite ⌄ are bottom sheets with 48 px rows, delete last
   await expect(page.getByRole('dialog')).toBeVisible()
 })
 
-test('Groups: a row opens the group\'s page with its members, Edit and Delete', async ({ page }) => {
+test('TC-268 step 2: Groups › tap a group: its page with its members, Edit and Delete', async ({ page }) => {
   expect((await page.request.post('/api/admin/groups', { headers: H, data: { name: 'Sales', description: 'The sales team', memberIds: ['bob'] } })).ok()).toBeTruthy()
   await openAdminPage(page, 'groups', /\/admin\/groups$/)
   await page.getByTestId('group-row').filter({ hasText: 'Sales' }).getByTestId('row-open').click()
@@ -248,7 +249,7 @@ test('Groups: a row opens the group\'s page with its members, Edit and Delete', 
   await expect(page).toHaveURL(/\/admin\/groups$/)
 })
 
-test('an admin gets the same pages; a member opening one is told it is for admins', async ({ page }) => {
+test('TC-267/268 as an admin and a member: an admin gets the same pages; a member opening one is told it is for admins', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
   await signIn(page, { username: 'dana', password: 'dana password 1' })
   await page.goto('/admin/members/bob')
@@ -265,7 +266,7 @@ test('an admin gets the same pages; a member opening one is told it is for admin
   await expect(page.getByTestId('member-page')).toHaveCount(0)
 })
 
-test('Groups: ⋯ is a bottom sheet, delete last; Usage limits ⌄ is a sheet too; By person\'s segments are 44 px', async ({ page }) => {
+test('TC-268 steps 2–4: Groups › ⋯ is a bottom sheet, delete last; Usage limits ⌄ is a sheet; 사람별\'s segments are 44 px', async ({ page }) => {
   expect((await page.request.post('/api/admin/groups', { headers: H, data: { name: 'Sales', description: '', memberIds: [] } })).ok()).toBeTruthy()
   await page.goto('/admin/groups')
   await page.getByTestId('group-row').filter({ hasText: 'Sales' }).getByTestId('member-more').click()
@@ -289,7 +290,7 @@ test('Groups: ⋯ is a bottom sheet, delete last; Usage limits ⌄ is a sheet to
 })
 
 // - TC-269: the remaining pages in phone layouts. (System is left to the session changing its backup and storage parts.)
-test('Plugins: flat rows, the title once; a plugin\'s page has its name on its own line with the buttons under it', async ({ page }) => {
+test('TC-269 step 2: Plugins: flat rows, the title once; a plugin\'s page has its name on its own line with the buttons under it', async ({ page }) => {
   await page.goto('/admin/plugins')
   await expect(page.getByTestId('plugins-header').getByRole('heading', { name: t['admin.plugins'] })).toHaveClass(/sr-only/)
   const card = page.getByTestId('plugin-catalog').first()
@@ -306,7 +307,7 @@ test('Plugins: flat rows, the title once; a plugin\'s page has its name on its o
   expect(button.y).toBeGreaterThanOrEqual(name.y + name.height - 1)
 })
 
-test('Activity log: a row opens the record\'s page; Filters open in a sheet; Back to the list', async ({ page }) => {
+test('TC-269 step 3: Activity log › open a row: its page; Filters open in a sheet; Back to the list', async ({ page }) => {
   await openAdminPage(page, 'audit', /\/admin\/audit$/)
   const header = page.getByTestId('activity-header')
   const before = (await header.boundingBox())!.height
@@ -329,14 +330,14 @@ test('Activity log: a row opens the record\'s page; Filters open in a sheet; Bac
   await expect(page.getByTestId('audit-list')).toBeVisible()
 })
 
-test('Usage: the breakdown is list rows, not a table', async ({ page }) => {
+test('TC-269 step 4: Usage: the breakdown is list rows, not a table', async ({ page }) => {
   await page.goto('/admin/usage')
   await expect(page.getByTestId('usage-rows').or(page.getByTestId('usage-none'))).toBeVisible()
   await expect(page.getByTestId('usage-table')).toHaveCount(0)
   if (await page.getByTestId('usage-row').count()) await expect(page.getByTestId('usage-total')).toBeVisible()
 })
 
-test('AI apps: tappable rows, no outline Connect buttons; Claude Code and Codex are set up on a computer', async ({ page }) => {
+test('TC-269 step 5 / TC-270 step 3: AI apps: tappable rows, no outline Connect buttons; Claude Code and Codex are set up on a computer', async ({ page }) => {
   await page.goto('/admin/ai-apps')
   const list = page.getByTestId('admin-ai-app-list')
   await expect(list).toBeVisible()
@@ -351,7 +352,7 @@ test('AI apps: tappable rows, no outline Connect buttons; Claude Code and Codex 
   await expect(page.getByRole('dialog')).toBeVisible()
 })
 
-test('page intros: the line is not cut beside the button; the scope line once, on the list; Team … names', async ({ page }) => {
+test('TC-269 step 6: page intros (English): the line is not cut beside the button; the scope line once, on the list; Team … names', async ({ page }) => {
   await openAdminPage(page, 'members', /\/admin\/members$/)
   const desc = (await page.getByTestId('members-header-desc').boundingBox())!
   const actions = (await page.getByTestId('members-header-actions').boundingBox())!
@@ -366,7 +367,7 @@ test('page intros: the line is not cut beside the button; the scope line once, o
   await expect(page.getByTestId('admin-row-ai-apps')).toContainText(t['admin.team.aiApps'])
 })
 
-test('Team settings › General: the logo in phone words; the update window as two time pickers', async ({ page }) => {
+test('TC-269 (ADM-19): Team settings › General: the logo in phone words; the update window as two time pickers', async ({ page }) => {
   await page.goto('/admin/settings/general')
   await expect(page.getByTestId('team-icon')).toContainText(t['teamIcon.descPhone'].replace('{product}', '').split(' ')[0]!)
   await expect(page.getByTestId('team-icon-previews')).toHaveCount(0)
@@ -375,7 +376,7 @@ test('Team settings › General: the logo in phone words; the update window as t
 })
 
 // - TC-270: computer or server setup is not offered as phone forms.
-test('Slack, Connectors and engines: a status row and "Set this up on a computer" instead of computer forms', async ({ page }) => {
+test('TC-270 steps 2, 4, 5: Slack › 토큰 바꾸기, Connectors › add by address, an engine\'s server login: a status row and "Set this up on a computer" instead of computer forms', async ({ page }) => {
   // Slack › Replace tokens
   await page.goto('/admin/slack')
   await expect(page.getByTestId('slack-status')).toBeVisible()
