@@ -1,7 +1,8 @@
 // The phone's Back walks the screen hierarchy (QA TC-244; lib/screens.ts, lib/screenHistory.ts), at 390×844 with touch,
 // in Chromium and WebKit (the iPhone app's engine: its edge swipe is the browser's Back here). The owner: "뒤로가기가 그냥
 // 쌓이는 듯. 다른 폴더 갔다가 뒤로 가기 하면 이전 폴더로 감".
-// - Files: a folder's Back is the folder above it; a breadcrumb goes back, not forward; Team folder ↔ Trash adds nothing.
+// - Files: a folder's Back is the folder above it; its bar's ‹ goes back, not forward (phones have no breadcrumbs:
+//   pages/Files.tsx); Team folder ↔ Trash adds nothing (the Trash row at the team folder, ‹ back).
 // - Tabs: a tap adds no entry, each tab's root is the first entry (Back never walks into another tab), a tab keeps its
 //   own stack, the tab on show goes back to its root.
 // - A chat's project link and the chat again: back, not a ping-pong. 나 › 연결한 서비스 stays in 나 and returns to it.
@@ -33,7 +34,7 @@ async function folders(page: Page) {
   }
 }
 
-test('Files: Back is always the folder above; a breadcrumb goes back; Team folder ↔ Trash adds nothing', async ({ page }) => {
+test('Files: Back is always the folder above; ‹ goes back; Team folder ↔ Trash adds nothing', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await folders(page)
@@ -47,26 +48,30 @@ test('Files: Back is always the folder above; a breadcrumb goes back; Team folde
   await row(page, '회사').click()
   await expect.poll(() => path(page)).toBe('groups/leads/회사')
   expect(await idx(page)).toBe(3)
-  // the breadcrumb of a folder above: back to it, the folders after it gone from Back's way
-  await page.getByTestId('crumb').nth(1).click()
+  // the bar's ‹ (the folder above, named): back to it, the folders after it gone from Back's way
+  await expect(page.getByTestId('files-back-label')).toHaveText('leads')
+  await page.getByTestId('files-back').click()
+  await expect.poll(() => path(page)).toBe('groups/leads')
+  expect(await idx(page)).toBe(2)
+  await page.getByTestId('files-back').click()
   await expect.poll(() => path(page)).toBe('groups')
   expect(await idx(page)).toBe(1)
   await row(page, 'team korea').click()
   await expect.poll(() => path(page)).toBe('groups/team korea')
-  expect(await idx(page)).toBe(2)
-  // Trash and back: no entry of its own
-  const before = await len(page)
-  await page.getByRole('tab', { name: t['files.trash'] }).click()
-  await expect(page).toHaveURL(/view=trash/)
-  await page.getByRole('tab', { name: t['files.all'] }).click()
-  await expect(page).not.toHaveURL(/view=trash/)
-  expect(await len(page)).toBe(before)
   expect(await idx(page)).toBe(2)
   // Back: the folder above each time, then the team folder, which is the tab's first entry
   await page.goBack()
   await expect.poll(() => path(page)).toBe('groups')
   await page.goBack()
   await expect(page).toHaveURL(/\/files$/)
+  expect(await idx(page)).toBe(0)
+  // Trash (a row at the team folder) and ‹ back: no entry of its own
+  const before = await len(page)
+  await page.getByTestId('files-open-trash').click()
+  await expect(page).toHaveURL(/view=trash/)
+  await page.getByTestId('files-back').click()
+  await expect(page).not.toHaveURL(/view=trash/)
+  expect(await len(page)).toBe(before)
   expect(await idx(page)).toBe(0)
 })
 
