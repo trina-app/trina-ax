@@ -1058,6 +1058,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.linkCopiedPrivate': "リンクをコピーしました · 自分だけが開けます",
   'chat.sharedBusy': "{name}さんの質問に回答中です。終わったら送信できます。",
   'chat.endingEarlier': "前の回答が終わるのを待っています。ほかのチャットは通常どおり使えます。",
+  'chat.waitingForPlace': "空きを待っています。空きが出しだい回答を続けます。",
   'chat.sharedWaiting': "{name}さんの確認を待っています。",
   "chat.sharedSafeOps": "チームのセキュリティ設定により、共有チャットは続けられません。自分のチャットで質問してください。",
   'chat.sharedUploadLine': "プロジェクトのフォルダー（{folder}）に保存されます · メンバー{n, plural, one {#人} other {#人}}が閲覧できます",

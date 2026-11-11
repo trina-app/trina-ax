@@ -219,6 +219,9 @@ export const Chat = z.object({
    * at most a few minutes past the answer's time limit): the chat takes no new message until then and says so; other
    * chats work as usual. Absent = no. */
   ending: z.literal(true).optional(),
+  /** I answered the AI here, and the answer waits for a free place among the team's running answers to go on (the AI
+   * gave its place back while it waited for me). Absent = no. */
+  waitingForPlace: z.literal(true).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it

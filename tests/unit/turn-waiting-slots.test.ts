@@ -113,6 +113,9 @@ test('an answered turn waits for a slot first in line, and never more answers wo
   expect(ea.waitingForSlot).toBe(true)
   expect(answers.has(a)).toBe(false)
   expect(rt.slotsInUse()).toBe(1)
+  // the chat says it waits for a free place
+  expect(chatView(rt, 'olga', rt.store.chatRow(a)!).waitingForPlace).toBe(true)
+  expect(chatView(rt, 'olga', rt.store.chatRow(b)!).waitingForPlace).toBeUndefined()
   // c is queued after a's answer: a goes first
   engines.set(c, () => work(() => Bun.sleep(5)))
   const third = send(c)
@@ -124,6 +127,7 @@ test('an answered turn waits for a slot first in line, and never more answers wo
   expect(await waitFor(() => answers.has(a))).toBe(true)
   expect(answers.get(a)).toEqual(['yes'])
   expect(ea.waitingForSlot).toBe(false)
+  expect(chatView(rt, 'olga', rt.store.chatRow(a)!).waitingForPlace).toBeUndefined()
   await Bun.sleep(50)
   expect(turnStatus(third.turnId)).toBe('queued')
   expect(rt.slotsInUse()).toBe(1)
@@ -219,6 +223,51 @@ test('a card that times out takes the slot back like an answer; Stop on a waitin
   cDone.open()
   expect(await waitFor(() => turnStatus(third.turnId) === 'stopped')).toBe(true)
   expect(await waitFor(() => turnStatus(fourth.turnId) === 'done')).toBe(true)
+}, 30_000)
+
+test('engines up stay under twice the limit: past it, answers stay queued even with every slot free', async () => {
+  await setup('cap', 1)
+  const answers = new Map<string, unknown>()
+  const a = newChat(), b = newChat(), c = newChat()
+  engines.set(a, asking(answers)); engines.set(b, asking(answers)); engines.set(c, asking(answers))
+  send(a)
+  await waitFor(() => execOf(a)?.waitingForPerson)
+  send(b)
+  expect(await waitFor(() => execOf(b)?.waitingForPerson)).toBe(true)
+  // two idle engines up, no slot in use: the third waits for one of them to end
+  const third = send(c)
+  await Bun.sleep(50)
+  expect(rt.slotsInUse()).toBe(0)
+  expect(rt.runningCount()).toBe(2)
+  expect(turnStatus(third.turnId)).toBe('queued')
+  const ea = execOf(a)!
+  ea.answer(cardOf(ea)!, 'ask_user', ['ok'])
+  expect(await waitFor(() => turnStatus(third.turnId) === 'running')).toBe(true)
+  expect(rt.runningCount()).toBeLessThanOrEqual(2)
+  for (const x of [b, c]) { await waitFor(() => execOf(x)?.waitingForPerson); const e = execOf(x)!; e.answer(cardOf(e)!, 'ask_user', ['ok']) }
+  expect(await waitFor(() => rt.runningCount() === 0)).toBe(true)
+}, 30_000)
+
+test('an answered turn whose tool call would time out waiting for a slot goes on over the limit', async () => {
+  await setup('overdue', 1)
+  const answers = new Map<string, unknown>()
+  const a = newChat(), b = newChat()
+  engines.set(a, asking(answers))
+  const first = send(a)
+  await waitFor(() => execOf(a)?.waitingForPerson)
+  const bDone = gate()
+  engines.set(b, () => work(() => bDone.p))
+  const second = send(b)
+  await waitFor(() => turnStatus(second.turnId) === 'running')
+  rt.slotWaitMaxMs = 200
+  const ea = execOf(a)!
+  ea.answer(cardOf(ea)!, 'ask_user', ['yes'])
+  expect(answers.has(a)).toBe(false)
+  // the capacity watcher lets it go on before its tool call would end
+  expect(await waitFor(() => turnStatus(first.turnId) === 'done', { timeoutMs: 5000 })).toBe(true)
+  expect(answers.get(a)).toEqual(['yes'])
+  bDone.open()
+  expect(await waitFor(() => rt.runningCount() === 0)).toBe(true)
 }, 30_000)
 
 test('a chat whose earlier answer is still ending says so, and a send there gets that plain message', async () => {

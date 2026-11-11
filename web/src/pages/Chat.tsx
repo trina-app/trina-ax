@@ -430,6 +430,8 @@ function ChatView({ chatId }: { chatId: string }) {
           <SharedReadOnly />
         ) : (
           <>
+          {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
+          {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}

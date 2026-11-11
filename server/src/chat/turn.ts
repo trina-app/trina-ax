@@ -143,7 +143,7 @@ export interface TurnSpec extends QueueTiming {
  * that failed (chat/turn.ts sharedReadText). */
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
-interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null }
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt?: number }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -299,7 +299,7 @@ export class TurnExec {
   private humanWaits = 0
   /** card answers held back until the turn has a queue slot again (ChatRuntime.turnResuming): the turn gave its slot
    * back while it waited for the person, and its engine goes on only once it holds one */
-  private heldAnswers: { requestId: string; value: unknown; resolve: (v: unknown) => void }[] = []
+  private heldAnswers: { requestId: string; value: unknown; resolve: (v: unknown) => void; openedAt: number }[] = []
   private requests = new Map<string, OpenRequest>()
   /** what the server keeps beside an open connect_service card (chat/connect-service.ts), by its request id: the
    * connection the card made, so another key after a failed check goes to that same connection, and the connect still
@@ -376,6 +376,11 @@ export class TurnExec {
   get waitingForPerson() { return this.humanWaits > 0 }
   /** a person answered, and the turn waits for a queue slot to go on (its time limit stays paused meanwhile) */
   get waitingForSlot() { return this.heldAnswers.length > 0 }
+  /** how long ago the oldest held answer's card opened (its tool call started then), ms; 0: none held */
+  heldSinceMs(): number {
+    if (!this.heldAnswers?.length) return 0
+    return performance.now() - Math.min(...this.heldAnswers.map((a) => a.openedAt))
+  }
   /** The turn holds a slot again (ChatRuntime.grantResumes): the held answers reach the engine. */
   resumeAnswers() {
     for (const a of this.heldAnswers.splice(0)) a.resolve(a.value)
@@ -3011,7 +3016,7 @@ export class TurnExec {
         if (this.remainingWallMs() <= 0) this.expireWall()
         this.closeRequest(request.requestId, null, 'timeout')
       }, Math.min(o.timeoutMs, this.remainingWallMs()))
-      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null })
+      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: performance.now() })
       this.humanWaits++
       // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
       if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
@@ -3086,7 +3091,7 @@ export class TurnExec {
     if (reason !== 'turn_ended' && this.status === 'running' && !this.stopReason) {
       let now = true
       try { now = !this.rt.isParked(this) || (this.humanWaits === 0 && this.rt.turnResuming(this)) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }) }
-      if (!now) { this.heldAnswers.push({ requestId, value, resolve: r.resolve }); return }
+      if (!now) { this.heldAnswers.push({ requestId, value, resolve: r.resolve, openedAt: r.openedAt ?? performance.now() }); return }
     }
     r.resolve(value)
   }

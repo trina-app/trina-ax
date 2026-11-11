@@ -1083,6 +1083,7 @@ export const en: Record<MessageKey, string> = {
   'chat.linkCopiedPrivate': "Link copied · only you can open it",
   'chat.sharedBusy': "{name}'s question is being answered. You can send yours when it is done.",
   'chat.endingEarlier': "Waiting for the earlier answer to finish. Other chats work as usual.",
+  'chat.waitingForPlace': "Waiting for a free place. Your answer goes on as soon as one is free.",
   'chat.sharedWaiting': "Waiting for {name} to confirm.",
   "chat.sharedSafeOps": "Your team's security settings don't allow continuing shared chats. Ask in a chat of your own.",
   'chat.sharedUploadLine': "Saved in the project folder ({folder}) · {n, plural, one {# member} other {# members}} can see it",

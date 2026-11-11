@@ -1083,6 +1083,7 @@ export const id: Record<MessageKey, string> = {
   'chat.linkCopiedPrivate': "Tautan disalin · hanya kamu yang bisa membukanya",
   'chat.sharedBusy': "Pertanyaan {name} sedang dijawab. Kamu bisa mengirim setelah selesai.",
   'chat.endingEarlier': "Menunggu jawaban sebelumnya selesai. Obrolan lain berjalan seperti biasa.",
+  'chat.waitingForPlace': "Menunggu tempat kosong. Jawaban Anda lanjut begitu ada yang kosong.",
   'chat.sharedWaiting': "Menunggu konfirmasi {name}.",
   "chat.sharedSafeOps": "Pengaturan keamanan tim Anda tidak mengizinkan obrolan bersama dilanjutkan. Tanyakan di obrolan Anda sendiri.",
   'chat.sharedUploadLine': "Disimpan di folder proyek ({folder}) · {n} anggota bisa melihatnya",
