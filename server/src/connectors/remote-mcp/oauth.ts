@@ -25,13 +25,24 @@ const iso = (v: number) => new Date(v).toISOString()
  * app's id is public, so it is not counted per app alone). Both leave room for an office behind one public address
  * connecting a whole team to one app. A token request with a live credential and a live upload
  * link are not in the shared bucket: a refresh or a one-time upload link must work during a flood.
+ *
+ * The shared bucket (all anonymous requests of a minute) is not one fixed cap any longer: a fixed 2,400 was filled by
+ * 14 addresses each under its own 180 a minute, and then nobody could start a connection (QA TC-168). Now:
+ * - busyPerMinute: past this many in a minute the server is busy, and only a network that sent at most
+ *   networkPerMinute anonymous requests this minute (any area, an IPv4 /24 or an IPv6 /48: networkKey()) gets through.
+ *   A person starting a connection sends about 5 (Claude's server: /mcp, two metadata, register; the browser:
+ *   authorize), so they still get in; a flooding network does not. Its refused requests are not counted in the bucket.
+ * - anonymousPerMinute: the last-resort cap for everyone, so the work and the rows written stay bounded. Only requests
+ *   let in count, so filling it during busy minutes takes (30,000 - 2,400) / 30 = about 900 networks (/24s or /48s) in
+ *   one minute; filling the busy level takes 14 addresses (2,400 / 180). Its bound on rows: at most 30,000 requests
+ *   a minute write rows (about 3 each: the address's buckets, the network, plus one hour-long row for register).
  */
 export const OAUTH_LIMITS: {
-  perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; mcpPerGrantPerMinute: number
-  clients: number; idleClientMs: number; pending: number; pendingPerClient: number
+  perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; busyPerMinute: number; networkPerMinute: number
+  mcpPerGrantPerMinute: number; clients: number; idleClientMs: number; pending: number; pendingPerClient: number
 } = {
   perAddress: { register: [[60_000, 12], [3600_000, 240]], authorize: [[60_000, 180], [600_000, 200]], default: [[60_000, 180]] },
-  anonymousPerMinute: 2400, mcpPerGrantPerMinute: 300,
+  anonymousPerMinute: 30_000, busyPerMinute: 2400, networkPerMinute: 30, mcpPerGrantPerMinute: 300,
   clients: 2000, idleClientMs: 7 * 24 * 3600_000, pending: 2000, pendingPerClient: 50,
 }
 /** A registered app that has no connection and no sign-in in progress: removed a week after its last use (one
@@ -54,6 +65,16 @@ export function ipKey(ip: string | null): string {
   const [head = '', tail] = v.split('::'), h = head ? head.split(':') : [], t = tail ? tail.split(':') : []
   const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t]
   return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64'
+}
+
+/** The network of a client address for the busy-minute share (OAUTH_LIMITS): an IPv4 /24, an IPv6 /48 (what one
+ * customer or one cloud machine usually gets), so taking fresh addresses from one's own block gives no fresh share. */
+export function networkKey(ip: string | null): string {
+  const k = ipKey(ip)
+  if (k === 'unknown') return k
+  if (k.endsWith('::/64')) return k.split(':').slice(0, 3).join(':') + '::/48'
+  const v4 = /^(\d+\.\d+\.\d+)\.\d+$/.exec(k)
+  return v4 ? v4[1] + '.0/24' : k
 }
 
 /** An active owner or admin right now (the users table, not the role when a grant was made). mcp:admin needs this. */
@@ -100,28 +121,44 @@ export class RemoteOAuth {
   /** Durable hashed identities. `window`: a whole number of minutes; the row keeps the minute its window ends, so
    * housekeep() can drop finished windows of any length. */
   rate(area: string, identity: string, limit: number, window = 60_000) {
+    if (this.count(area, identity, window) > limit) throw new OAuthError('slow_down', 429)
+  }
+  /** This minute's count, read only. */
+  private peek(area: string, identity: string): number {
+    const r = this.db.query('SELECT bucket,count FROM remote_mcp_limits WHERE key=?').get(hash(area + '\0' + identity)) as { bucket: number; count: number } | null
+    return r && r.bucket === Math.floor(this.now() / 60_000) + 1 ? r.count : 0
+  }
+  /** Count one more in this window and return the count (no limit). */
+  private count(area: string, identity: string, window = 60_000): number {
     const bucket = (Math.floor(this.now() / window) + 1) * (window / 60_000), key = hash(area + '\0' + identity)
-    const count = this.db.query(`INSERT INTO remote_mcp_limits(key,bucket,count) VALUES(?,?,1)
-      ON CONFLICT(key) DO UPDATE SET bucket=excluded.bucket,count=CASE WHEN bucket=excluded.bucket THEN count+1 ELSE 1 END RETURNING count`).get(key, bucket) as { count: number }
-    if (count.count > limit) throw new OAuthError('slow_down', 429)
+    return (this.db.query(`INSERT INTO remote_mcp_limits(key,bucket,count) VALUES(?,?,1)
+      ON CONFLICT(key) DO UPDATE SET bucket=excluded.bucket,count=CASE WHEN bucket=excluded.bucket THEN count+1 ELSE 1 END RETURNING count`).get(key, bucket) as { count: number }).count
   }
   /**
-   * A request no credential vouches for yet. Order: a full shared bucket refuses at once, writing nothing (so a flood
-   * from ever new addresses adds no rows once it is full); then the address's own buckets (an address over its limit
-   * does not spend the shared one); then the shared bucket. `shared: false`: only the address's buckets (token, which
-   * with a live code or refresh token, see liveCredential(); an upload link that is live).
+   * A request no credential vouches for yet. Order, first the read-only refusals that write nothing (so a flood from
+   * ever new addresses adds no rows then): a shared bucket at its last-resort cap; in a busy minute (past
+   * busyPerMinute), a network that already sent networkPerMinute. Then the address's own buckets (an address over its
+   * limit does not spend the shared one); then the network's count and the shared bucket. `shared: false`: only the address's buckets (token, which with a live code or refresh token, see
+   * liveCredential(); an upload link that is live).
    * An /mcp call with a live access token goes through granted() instead.
    */
   ingress(area: string, ip: string | null, o: { shared?: boolean } = {}) {
     this.enabled()
     const shared = o.shared !== false
     if (shared) {
-      const g = this.db.query('SELECT bucket,count FROM remote_mcp_limits WHERE key=?').get(hash('global\0all')) as { bucket: number; count: number } | null
-      if (g && g.bucket === Math.floor(this.now() / 60_000) + 1 && g.count >= OAUTH_LIMITS.anonymousPerMinute) throw new OAuthError('slow_down', 429)
+      const used = this.peek('global', 'all')
+      if (used >= OAUTH_LIMITS.anonymousPerMinute) throw new OAuthError('slow_down', 429)
+      // a busy minute: a network over its share is refused before anything is written, so ever new addresses of one
+      // network add no rows (and spend nothing). All callers without an address share one network ('unknown').
+      if (used >= OAUTH_LIMITS.busyPerMinute && this.peek('network', networkKey(ip)) >= OAUTH_LIMITS.networkPerMinute) throw new OAuthError('slow_down', 429)
     }
     const who = ipKey(ip)
     for (const [window, limit] of OAUTH_LIMITS.perAddress[area] ?? OAUTH_LIMITS.perAddress.default!) this.rate(window === 60_000 ? area : `${area}@${window}`, who, limit, window)
-    if (shared) this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
+    if (shared) {
+      // counted in every minute (not only busy ones), so a network that sent much before the minute got busy is known
+      this.count('network', networkKey(ip))
+      this.rate('global', 'all', OAUTH_LIMITS.anonymousPerMinute)
+    }
     this.housekeep()
   }
   /** A token request that carries an unused, unexpired code or refresh token of a live grant of the app it names (a
