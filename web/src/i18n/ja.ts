@@ -531,6 +531,8 @@ export const ja: Record<MessageKey, string> = {
   'ask.ownAnswer': "回答",
   'ask.orType': "または回答を入力してください",
   'ask.typeAnswer': "回答を入力",
+  'ask.inBox': "下のメッセージ欄に回答を入力してください。",
+  'ask.inBoxOr': "自分の言葉で答えるときは、下のメッセージ欄に入力してください。",
   'ask.noSecrets': "パスワードや認証コードをAIに伝えないでください。",
   'ask.skip': "スキップ",
   'ask.send': "回答",
