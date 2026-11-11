@@ -27,8 +27,9 @@ In:
    while it shows. All done: "You're all set", then gone for good.
 2. The "{name} joined the team" line in Everyone and the owners' `team.joined` notice come from dev (997f87f4f, "A new
    member is told to the team": `RoomsService.memberJoined`, invites and the team link). This branch adds no event kind,
-   text or notice of its own; it extends dev's mechanism to the one case dev left out, an admin's "Add directly" (the
-   line, and the owners except the owner who added them). The line is an event, not a message: "Say hi" stays a real
+   text or notice of its own; it extends dev's mechanism to the one case dev left out, an admin's "Add directly": the
+   line and the owners' notice (except the owner who added them) at the person's first successful sign-in, once, never
+   for an account disabled or deleted before it (owner's decision). The line is an event, not a message: "Say hi" stays a real
    message and is done only by one.
 3. The join pages say "{inviter} invited you to {team}" (team link and single-use invite).
 4. No connector-template notice at join: a new person's template notices wait until they open Connected apps (the
@@ -43,9 +44,10 @@ permission in the card.
 
 ## Steps
 
-1. Migration 342 `member_welcome` (user_id, invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at).
+1. Migration 342 `member_welcome` (user_id, invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at,
+   added_by, announced_at).
 2. Server: `onboarding/member-welcome.ts` (record a join: the row only; the card's state; hide/asked), the three join
-   paths (recordJoin; "Add directly" also calls dev's `memberJoined` and `notifyTeamJoined`), inviter on the two info
+   paths (recordJoin; for "Add directly", `firstSignIn` from `signIn` calls dev's `memberJoined` and `notifyTeamJoined`), inviter on the two info
    endpoints, the template hold in `offerTemplates` and the silent offers in `listIntegrationTemplates`.
 3. Contract: `GET/PATCH /api/me/welcome` (`auth: 'user'`, the caller only), `inviterName` on the two info answers,
    `prefs.roomAskHint`.
@@ -73,4 +75,4 @@ and without an inviter, the ✦ hint once, Files labels); the e2e specs closest 
 Built as planned. Rebased on dev after 997f87f4f ("A new member is told to the team"), which had shipped the joined line
 and the invite notice meanwhile: the branch's own `Rooms.joined`, its duplicate event type, texts and notice code were
 dropped for dev's, recordJoin now keeps only the welcome row, and "Add directly" calls dev's `memberJoined` and
-`notifyTeamJoined`. Migration 342 was still free.
+`notifyTeamJoined` at the person's first sign-in (owner's decision: not when the account is made). Migration 342 was still free.

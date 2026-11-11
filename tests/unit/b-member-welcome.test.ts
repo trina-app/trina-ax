@@ -78,15 +78,39 @@ describe('every way of joining', () => {
     expect((await guest().call('GET', `/api/invites/${inv.token}`)).inviterName).toBeNull()
   })
 
-  test('Add directly: the line, the owner is told (not the admin who added them), the card has no inviter', async () => {
-    const m = await addMember(h, adam, { username: 'dora' })
-    expect((await lines(owner)).at(-1)).toMatchObject({ event: { type: 'joined' }, author: { id: m.id } })
-    expect((await joinedNotices(owner)).filter((x) => x.sourceId === m.id)).toHaveLength(1)
-    expect((await joinedNotices(adam)).filter((x) => x.sourceId === m.id)).toHaveLength(0)
-    expect((await welcome(m.client)).inviter).toBeNull()
+  test('Add directly: nothing at creation; the line and the owner\'s notice at the first sign-in, once; not the admin who added them; the card has no inviter', async () => {
+    const created = await adam.call('POST', '/api/admin/users', { username: 'dora', name: 'DORA', role: 'member', groupIds: [] })
+    const id = created.user.id
+    // made, not joined yet: no line, nobody told
+    expect((await lines(owner)).some((m) => m.author?.id === id)).toBe(false)
+    expect((await joinedNotices(owner)).filter((x) => x.sourceId === id)).toHaveLength(0)
+    // the first sign-in: the line (written as them) and the owner's notice; the admin who added them is not told
+    const c = guest()
+    await c.login('dora', created.temporaryPassword)
+    expect((await lines(owner)).at(-1)).toMatchObject({ event: { type: 'joined' }, author: { id } })
+    expect((await joinedNotices(owner)).filter((x) => x.sourceId === id)).toHaveLength(1)
+    expect((await joinedNotices(adam)).filter((x) => x.sourceId === id)).toHaveLength(0)
+    // a new password and a second sign-in say nothing again
+    await c.call('POST', '/api/auth/password', { currentPassword: created.temporaryPassword, newPassword: PW })
+    await guest().login('dora', PW)
+    expect((await lines(owner)).filter((m) => m.event?.type === 'joined' && m.author?.id === id)).toHaveLength(1)
+    expect((await joinedNotices(owner)).filter((x) => x.sourceId === id)).toHaveLength(1)
+    expect((await welcome(c)).inviter).toBeNull()
     // the owner adding someone is not told about their own action
     const n = await addMember(h, owner, { username: 'nils' })
     expect((await joinedNotices(owner)).filter((x) => x.sourceId === n.id)).toHaveLength(0)
+    expect((await lines(owner)).at(-1)).toMatchObject({ event: { type: 'joined' }, author: { id: n.id } })
+  })
+
+  test('Add directly, disabled or deleted before the first sign-in: never announced', async () => {
+    const { firstSignIn } = await import('../../server/src/onboarding/member-welcome')
+    for (const [username, gone] of [['gwen', "status = 'disabled'"], ['gus', "deleted_at = '2026-01-01T00:00:00.000Z'"]] as const) {
+      const created = await adam.call('POST', '/api/admin/users', { username, name: username.toUpperCase(), role: 'member', groupIds: [] })
+      h.ctx.db.query(`UPDATE users SET ${gone} WHERE id = ?`).run(created.user.id)
+      firstSignIn(h.ctx, created.user.id)
+      expect((await lines(owner)).some((m) => m.author?.id === created.user.id)).toBe(false)
+      expect((await joinedNotices(owner)).filter((x) => x.sourceId === created.user.id)).toHaveLength(0)
+    }
   })
 
   test('no connection template notice at join', async () => {

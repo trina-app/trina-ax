@@ -7449,7 +7449,9 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
   - Names only: no email, no role, no inviter in the room line.
 - **Not done.** An account an admin adds directly (Admin › Members › Add directly) writes no line: the admin made it,
   and the person may not have signed in yet. No push for joins. (Changed by "A welcome for invited people",
-  feat/member-welcome: "Add directly" now writes the line and tells the owners too, as the owner asked.)
+  feat/member-welcome, owner's decision: for "Add directly" the line and the owners' notice come at the person's first
+  successful sign-in, once, not when the account is made; an account disabled or deleted before that is never
+  announced.)
 - **Tests.** `tests/unit/a-users.test.ts` (invite join: Activity for owner and maker, the line, no unread) and
   `tests/unit/a-team-links.test.ts` (team link join: the line).
 ||||||| 2be3f4b09
@@ -21386,7 +21388,8 @@ extended to "Add directly"), no admin-written welcome message yet, the photo row
 rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-welcome.md`.
 
 - **Who gets the card.** Someone who joined with a team link, a single-use invite or an admin's "Add directly"
-  (`member_welcome`, migration 342: invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at), written at
+  (`member_welcome`, migration 342: invited_by, via, joined_at, hidden_at, asked_at, done_at, apps_seen_at, added_by,
+  announced_at), written at
   the join (`onboarding/member-welcome.ts recordJoin`). Admins who were invited get it too: they are new people as well.
   Never the team's creator (their start is the welcome steps) and nobody who joined before this release. It shows for
   14 days after joining (`MEMBER_WELCOME_DAYS`), until hidden or done; an add-directly account that first signs in
@@ -21418,10 +21421,13 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   the row's button under its words when they need the width.
 - **The joined line and the owners' notice are dev's** ("A new member is told to the team" above, 997f87f4f:
   `RoomsService.memberJoined`, the `joined` event line, `team.joined` to the owners and the invite's or link's maker).
-  This branch adds no event kind, text or notice of its own. It adds the one case that entry left out: an admin's
-  "Add directly" (`admin/users.ts createUser`) now also calls `memberJoined` and tells the owners, except the owner
-  who added them (the admin who did it is not an owner, so is not told either). Reason: the owner asked for the line
-  and the notice for every way of joining; the account exists and is in the team from that moment, signed in or not.
+  This branch adds no event kind, text or notice of its own. It adds the one case that entry left out, an admin's
+  "Add directly", the way the owner decided: the account is made with its `member_welcome` row (`recordJoin`, with
+  `added_by`), but the person has not joined until they are here, so `memberJoined` and `notifyTeamJoined` (the active
+  owners, except the owner who added them) run at their **first successful sign-in**, once
+  (`onboarding/member-welcome.ts firstSignIn`, called from `auth/service.ts signIn`; `announced_at` is claimed in the
+  same statement). A second sign-in, or the password change after the temporary one, says nothing again. An account
+  disabled or deleted before its first sign-in is never announced.
   The line is an event, not a message: it does not mark "Say hi" (row b) done; only a message the person writes does.
 - **The join pages name the inviter**: "{inviter} invited you to {team}" (`inviterName` on both info answers, only while
   the link or invite works), else "Join {team}" as before.
@@ -21441,7 +21447,8 @@ rooms, joining, notifications). Plan: `docs/AGENTS/plan/20261111-1107-member-wel
   notification permission in the card (the web's one-line ask and the phone app's own question stay).
 - i18n: `memberWelcome.*`, `rooms.askHint`, `invite.invitedBy`, `teamLink.alreadyIn`,
   `files.personalInside`, `files.addHere`, `files.addInMyFolder` in the five languages (`rooms.event.joined` and the `teamLink.joinedNotice` wording are dev's).
-- Tests: `tests/unit/b-member-welcome.test.ts` (the three ways, with dev's line and notice: unread unchanged, no room notice, who is told, "Add directly" told,
+- Tests: `tests/unit/b-member-welcome.test.ts` (the three ways, with dev's line and notice: unread unchanged, no room notice, who is told; "Add directly": nothing at
+  creation, the line and notice at the first sign-in once, never for an account disabled or deleted before it;
   the inviter on the info pages and the card; no template notice at join; the card's rows, all set and gone, the photo
   optional, Hide, the days, the caller's own only), `c-integration-templates` (held at join, offered silently on
   Connected apps, told after the days, a later template told at once), the permission matrix cases, web
