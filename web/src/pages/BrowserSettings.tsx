@@ -240,6 +240,14 @@ export function BrowserSettings({ bridge }: { bridge: BrowserSettingsBridge | nu
         return
       }
       let pane: DesktopAccessOutcome | null = null
+      // the app's own window shows the current risk sentence only in a desktop app that says so (riskVersion); an older
+      // app's window does not, so the page's confirm comes first there
+      const appShowsRisk = s?.riskVersion === WEB_ALLOW_ALL_WARNING_VERSION
+      let pageConfirmed = false
+      if (bridge && !appShowsRisk) {
+        if (!(await confirmWebAllowAll(t, locale))) return
+        pageConfirmed = true
+      }
       if (bridge) {
         pane = await desktopAll()
         if (pane === null || pane === 'cancelled') return
@@ -247,7 +255,7 @@ export function BrowserSettings({ bridge }: { bridge: BrowserSettingsBridge | nu
         // 'unavailable' (no browser in this window) or 'unchanged' (it allows all already): no window was shown
       }
       // the risk sentence was shown in the app's own window only when it changed this computer's browser
-      if (pane !== 'changed' && !(await confirmWebAllowAll(t, locale))) return
+      if (!pageConfirmed && (pane !== 'changed' || !appShowsRisk) && !(await confirmWebAllowAll(t, locale))) return
       setConfirming(true)
       const ok = await putWeb(true)
       setConfirming(false)

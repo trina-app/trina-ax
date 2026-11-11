@@ -281,8 +281,9 @@ describe('turning it on: the risk sentence first, then the server value with its
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'checked')!.set!.call(input, true)
     await m.click(input)
   }
-  const fakeSettingsBridge = (outcome: DesktopAccessOutcome, calls: string[]): BrowserSettingsBridge => ({
-    get: async () => settings(),
+  /** `riskVersion`: what the app's window says it shows (absent: an app built before the risk sentence) */
+  const fakeSettingsBridge = (outcome: DesktopAccessOutcome, calls: string[], riskVersion: number | 'none' = WEB_ALLOW_ALL_WARNING_VERSION): BrowserSettingsBridge => ({
+    get: async () => ({ ...settings(), ...(riskVersion === 'none' ? {} : { riskVersion }) }),
     onChange: () => noop,
     setAccess: async (v) => { calls.push(v); return v === 'all' ? outcome : 'changed' },
     removeSite: async () => settings(),
@@ -320,6 +321,27 @@ describe('turning it on: the risk sentence first, then the server value with its
     expect(calls).toEqual(['all', 'ask'])
     expect(puts()).toEqual([{ on: true, acceptWarning: WEB_ALLOW_ALL_WARNING_VERSION }])
     await m.unmount()
+  })
+
+  test('an older desktop app (its window reports no risk version): the page\'s confirm with the sentence comes first, then the app\'s window', async () => {
+    for (const old of ['none', WEB_ALLOW_ALL_WARNING_VERSION - 1] as const) {
+      signedIn()
+      sent.length = 0
+      const calls: string[] = []
+      routes = { 'PUT /api/me/web-access': () => json(200, { allowAll: true }) }
+      const m = await mount(<MemoryRouter><BrowserSettings bridge={fakeSettingsBridge('changed', calls, old)} /><DialogHost /></MemoryRouter>)
+      await m.until(() => m.find('browser-access-all'), 'the page')
+      await m.settle(30)
+      await pick(m, 'browser-access-all')
+      const warning = await m.until(() => m.find('browser-all-warning'), 'the page\'s confirm')
+      expect(warning.textContent).toContain(WEB_ALLOW_ALL_RISK.en)
+      expect(calls).toEqual([]) // the app's window only after the sentence
+      await m.click('dialog-confirm')
+      await m.until(() => puts().length > 0, 'the PUT')
+      expect(calls).toEqual(['all'])
+      expect(puts()).toEqual([{ on: true, acceptWarning: WEB_ALLOW_ALL_WARNING_VERSION }])
+      await m.unmount()
+    }
   })
 
   test('inside the desktop app with its browser already "all" (no window opened): the page\'s confirm first; turning off sends off and asks here too', async () => {

@@ -10,6 +10,7 @@ import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/priv
 import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { hwpPluginOn } from '../lib/hwp-plugin'
+import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -75,6 +76,25 @@ describe('browser tools', () => {
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
+  })
+
+  test('"Allow all websites" (url-gate ①d): a browser tool opens an address the AI wrote without the address card, named in its audit line', async () => {
+    const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: `opened ${c.args.url}` }] }))
+    expect(setWebAllowAll(h.ctx.db, 'alice', true, { via: 'settings' })).toBe(true)
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      // written so the address is not typed in the message (as an injection would)
+      const step = '@fake ' + JSON.stringify({ tool: 'navigate', args: { url: 'https://www.example.com/allow-all-check' }, sayResult: true }).replace(/\//g, '\\u002f')
+      const r = await send(step)(chat.id)
+      const d = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(d.data.message.content).toContain('opened https://www.example.com/allow-all-check')
+      expect(desk.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.turnId)).toBe(false)
+      const ev = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'navigate'").get(r.turnId) as { summary: string }
+      expect(ev.summary).toContain('(all websites allowed)')
+    } finally {
+      setWebAllowAll(h.ctx.db, 'alice', false, { via: 'settings' })
+      stop()
+    }
   })
 
   test('office-network address: the sending window is asked; "always" is remembered, "deny" stops the call', async () => {

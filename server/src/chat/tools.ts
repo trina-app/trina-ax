@@ -904,9 +904,11 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {}) as Record<string, unknown>
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
+      let allSites = false
       const gate = async (href: string): Promise<string | null> => {
         try {
-          await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
+          // an address "Allow all websites" opened is named in the audit line (plan §3)
+          if (await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId }) === 'all') allSites = true
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
@@ -966,7 +968,7 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       if (!r.ok) content.push({ type: 'text', text: `Error: ${r.error ?? 'browser tool failed'}` })
       exec.patchToolStep(name, (s) => (shared.length ? { images: [...(s.images ?? []), ...shared] } : {}))
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
-      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}` }
+      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${allSites ? ' (all websites allowed)' : ''}` }
     },
   }
 }

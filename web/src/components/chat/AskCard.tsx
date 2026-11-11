@@ -21,6 +21,7 @@ import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER } from '@mycel/shared'
 import { navigateTo } from '../../lib/nav'
 import { toast } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 
@@ -49,9 +50,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
     try {
       await answer(r.requestId, body)
       // the address card's "Allow all websites (turn off in Settings)" (server/src/tools/url-gate.ts): say it is on, and
-      // where it goes off
-      if (body.kind === 'ask_user' && r.kind === 'ask_user' && r.origin === 'server' && body.answer === ALL_SITES_ANSWER)
-        toast({ level: 'success', text: t('settings.browser.allOnFromCard'), action: { label: t('settings.browser.open'), run: () => navigateTo('/settings/browser') } })
+      // where it goes off, only once Me says so (an admin may have turned the team's switch off while the card was open:
+      // then the address opened and the switch stayed off)
+      if (body.kind === 'ask_user' && r.kind === 'ask_user' && r.origin === 'server' && body.answer === ALL_SITES_ANSWER) void toastWhenOn(t)
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
       setBusy(false)
@@ -483,4 +484,18 @@ function Marked({ text, marks, alerts }: { text: string; marks?: string[]; alert
       )}
     </>
   )
+}
+
+/** After the card's "Allow all websites": read Me again (the server sets the switch as the card closes) and say it is on
+ * only when it is. */
+async function toastWhenOn(t: ReturnType<typeof useT>) {
+  for (const wait of [300, 1000, 3000]) {
+    await new Promise((r) => setTimeout(r, wait))
+    await useSession.getState().refreshMe().catch(() => {})
+    const st = useSession.getState().status
+    if (st.kind === 'signed-in' && st.me.user.webAllowAll === true) {
+      toast({ level: 'success', text: t('settings.browser.allOnFromCard'), action: { label: t('settings.browser.open'), run: () => navigateTo('/settings/browser') } })
+      return
+    }
+  }
 }

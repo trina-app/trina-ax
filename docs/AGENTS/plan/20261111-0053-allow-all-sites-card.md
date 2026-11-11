@@ -61,7 +61,7 @@ The review's list, as built:
   Team settings, and it needs that switch on. `browserAllowAll` keeps its meaning: admins agreed to it for the desktop's
   own browser only. While `browserAllowAll && webAllowAll` is not on, nobody's flag works, Settings shows no server
   switch, and the card does not offer it.
-- **Where the person's value lives.** A new table `user_web_access`, migration `339_c_web_allow_all.sql` (the next free
+- **Where the person's value lives.** A new table `user_web_access`, migration `340_c_web_allow_all.sql` (339 went to another branch; the next free
   number in C's range 300–399 on dev; check it again before merge). It is additive (reader 1), with these columns:
   `user_id` (PK, cascade), `allow_all`, `warning` (the version of the risk text the person accepted,
   `WEB_ALLOW_ALL_WARNING_VERSION` in shared), `epoch` (the policy epoch when it was turned on), `via` (`settings` |

@@ -35,6 +35,8 @@ export interface SiteSettings {
   privateAlways: string[]
   siteAccess: SiteAccess
   teamAllowsAll: boolean
+  /** the risk sentence's version the app's "Allow all websites" window shows (main process, pane.ts siteSettings) */
+  riskVersion?: number
 }
 
 export const asSiteAccess = (v: unknown): SiteAccess => (v === 'all' ? 'all' : 'ask')

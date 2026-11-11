@@ -374,14 +374,18 @@ export const adminRoutes: RouteModule = {
       if (body.teamName !== undefined && body.teamName !== cur.teamName && auth.user.role !== 'owner') fail('forbidden', msg('ownerTeamName', c.get('locale')))
       if (body.defaultEngine !== undefined && !engineOn(ctx, body.defaultEngine)) fail('conflict', msg('engineDisabled', c.get('locale')))
       if (body.defaultEngine === 'codex' && codexIsBeta(ctx)) fail('conflict', msg('codexBetaDefault', c.get('locale')))
-      const next = updateTeamSettings(ctx.db, body)
+      // the settings and, when "Allow all websites" for web reads stops being allowed, everyone's switch off with the
+      // policy epoch raised (tools/web-allow-all.ts): one transaction, so a crash between them leaves no row on
+      let turnedOff: string[] = []
+      const next = ctx.db.transaction(() => {
+        const n = updateTeamSettings(ctx.db, body)
+        if ((cur.browserAllowAll && cur.webAllowAll) && !(n.browserAllowAll && n.webAllowAll)) turnedOff = teamPolicyOff(ctx.db, auth.user.id)
+        return n
+      })()
       const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))
       if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'settings.update', target: null, detail: changed })
-      // "Allow all websites" for the AI's web reads stopped being allowed (either switch off): everyone's switch goes off
-      // in one transaction with the policy epoch raised (tools/web-allow-all.ts), each person audited and told
-      if ((cur.browserAllowAll && cur.webAllowAll) && !(next.browserAllowAll && next.webAllowAll)) {
-        for (const id of teamPolicyOff(ctx.db, auth.user.id)) ctx.services.realtime.publish(id, WEB_ACCESS_CHANGED)
-      }
+      // the people whose switch went off (audited above) are told
+      for (const id of turnedOff) ctx.services.realtime.publish(id, WEB_ACCESS_CHANGED)
       // everyone's screen shows "Team default (…)", and people without their own language switch with it
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)

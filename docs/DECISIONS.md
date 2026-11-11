@@ -19956,7 +19956,7 @@ overruled the review's MUST 1 and three of its SHOULDs:
 - the card offers it on the first address card, not from the third: Claude's own apps show "always allow" right away;
 - the separate team key is on by default for existing and new teams, and admins can turn it off.
 
-- **One switch, one value per person on the server.** `user_web_access` (migration 339) stores the switch, the version
+- **One switch, one value per person on the server.** `user_web_access` (migration 340) stores the switch, the version
   of the risk sentence the person accepted, the team's policy epoch, how it was turned on (`settings` / `card`) and the
   card's turn. It is not stored in `users.prefs`, which PATCH /api/me writes freely: a `webAllowAll` key sent there is
   dropped. Only two things turn it on, both done by the person:
@@ -20027,10 +20027,20 @@ overruled the review's MUST 1 and three of its SHOULDs:
   Settings › Browser takes the app's own window, then the PUT. Turned on elsewhere (the card, another device), this
   computer's browser keeps asking, with a line [Allow here too]. The app follows an off (the value going from true to
   false in GET /api/me) and never widens from it. ⚙ in the panel stays this computer's only.
+  - **The risk sentence in the app's window** (security review of PR #351). The page skips its own confirm only when the
+    desktop app reports the version of the sentence its window shows (`DesktopBrowserSettings.riskVersion`, set by the
+    main process) and it equals `WEB_ALLOW_ALL_WARNING_VERSION`. An app built before this (Mac App Store 0.4, for one)
+    reports none: the page shows its own confirm with the sentence first, then the app's window, then the PUT. So the
+    stored warning version is always one the person was shown.
+  - **How soon an off reaches the in-app browser.** The app re-reads GET /api/me before every AI browser call
+    (`ensureBrowserOwner`), so the AI's next browser step already sees the off. The `web_access_changed` notice makes
+    an open team page re-read Settings › Browser, which re-reads Me within 5 seconds. Without that, the panel's own
+    display catches up on the minute timer. The rules are in `common/me-policy.ts applyMePolicy`.
 - **Audit**:
   - `web.allow_all_on` with `via`, `warningVersion` and, for the card, `turnId`;
   - `web.allow_all_off` with `via` (`settings`, `policy`, `warning` or `account`);
-  - each address opened this way ends its tool audit line with "(all websites allowed)".
+  - each address opened this way ends its tool audit line with "(all websites allowed)", the browser tools' too;
+  - the settings change and the reset of everyone's switch are one transaction.
 - **Tests**:
   - `tests/unit/web-allow-all.test.ts`: the first card and the team key, the card's pick and its stored version, the
     exceptions, echoes under ①b and ①d, always the caller's own switch (a real room with one person on and one off, a

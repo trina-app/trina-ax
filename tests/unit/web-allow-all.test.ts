@@ -368,3 +368,93 @@ describe('save_url uses the same rule for its address', () => {
     expect(looked('files.save-all.example')).toBe(1)
   })
 })
+
+describe('the real rule of which turns use it (chat/tools.ts turnPerson allSitesHere)', () => {
+  const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d).replace(/\//g, '\\u002f')).join('\n')
+  /** a real turn of alice's with this client kind that fetches `url` (written so it is not typed in the message) */
+  async function turnWith(clientKind: string | null, url: string, o: { draft?: boolean } = {}) {
+    const id = (await h.api('alice').call(API.createChat, { body: {} })).id as string
+    if (o.draft) db().query("INSERT INTO onboarding_profile_drafts (chat_id, user_id, source, website, site, created_at) VALUES (?, 'alice', 'website', 'https://draft-scope.example/', 'draft-scope.example', ?)").run(id, new Date().toISOString())
+    const row = h.rt().store.chatRow(id)!
+    return h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind, engine: row.engine as 'claude-code', model: null,
+      user: { parentId: row.active_leaf_id, content: fake({ tool: 'web_fetch', args: { url } }, { say: 'done' }), attachments: [], clientMessageId: 'cm-' + crypto.randomUUID() } })
+  }
+  const summaries = (turnId: string) => (db().query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(turnId) as { summary: string }[]).map((r) => r.summary).join('\n')
+  const doneOf = (turnId: string) => alice.next('message.done', (f) => f.data.message.turnId === turnId, 30_000)
+
+  test('a Slack question and a turn with no client kind: a card, without the fourth answer', async () => {
+    on()
+    for (const kind of ['slack', null]) {
+      const host = `kind-${kind ?? 'none'}.example`
+      const t = await turnWith(kind, `https://${host}/a`)
+      const card = await alice.next('turn.request', (f) => f.data.turnId === t.turnId, 20_000)
+      expect([kind, req(card).options!.map((o) => o.value)]).toEqual([kind, ['allow', 'site', 'deny']])
+      expect(looked(host)).toBe(0)
+      await h.api('alice').call(API.answerTurn, { params: { id: t.turnId }, body: { kind: 'ask_user', requestId: req(card).requestId, answer: 'deny' } })
+      await doneOf(t.turnId)
+    }
+  })
+
+  test('a scheduled run and a company-profile draft: refused without a card, saying the setting does not apply', async () => {
+    on()
+    const run = await turnWith('schedule', 'https://kind-schedule.example/a')
+    await doneOf(run.turnId)
+    expect(summaries(run.turnId)).toContain('does not apply in a run the user does not answer step by step')
+    const draft = await turnWith('web', 'https://draft-scope.example/about', { draft: true })
+    await doneOf(draft.turnId)
+    expect(summaries(draft.turnId)).toContain('does not apply in a run the user does not answer step by step')
+    for (const t of [run, draft]) expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === t.turnId)).toBe(false)
+    expect(looked('kind-schedule.example') + looked('draft-scope.example')).toBe(0)
+  })
+
+  test('web_fetch of a turn by someone who does not own the chat uses that person\'s switch (t.user.id)', async () => {
+    const chat = await chatOf('alice')
+    const fetchAs = (user: string, url: string, p: TurnPerson) => {
+      const turnId = uuidv7()
+      db().query("INSERT INTO turns (id, chat_id, user_id, engine, status) VALUES (?, ?, ?, 'claude-code', 'running')").run(turnId, chat, user)
+      return toolRegistry(h.ctx.files).call('web_fetch', { url }, { user: h.ctx.files.principal(user), turnId, files: new TurnFiles(), person: p })
+    }
+    on('bob')
+    const none: Asked[] = []
+    const r = await fetchAs('bob', 'https://bob-turn.example/a', person(null, none))
+    expect(none).toHaveLength(0)
+    expect(r.text).toContain('could not resolve bob-turn.example')
+    setWebAllowAll(db(), 'bob', false, { via: 'settings' })
+    on('alice')
+    const asked: Asked[] = []
+    const r2 = await fetchAs('bob', 'https://bob-turn2.example/a', person(null, asked))
+    expect(asked).toHaveLength(1)
+    expect(r2.isError).toBe(true)
+    expect(looked('bob-turn2.example')).toBe(0)
+  })
+})
+
+describe('notices and accounts', () => {
+  /** a frame of `type` that came after `from` frames of the socket */
+  async function after(sock: TestSocket, from: number, code: string) {
+    const end = Date.now() + 5000
+    for (;;) {
+      if (sock.frames.slice(from).some((f) => f.type === 'notice' && f.data.code === code)) return true
+      if (Date.now() > end) return false
+      await Bun.sleep(50)
+    }
+  }
+  test('the team key off: web_access_changed to the people who had it on, browser_policy_changed to everyone', async () => {
+    on('alice')
+    const a = alice.frames.length, b = bob.frames.length
+    await h.api('dana').call(API.updateSettings, { body: { webAllowAll: false } })
+    expect(await after(alice, a, 'web_access_changed')).toBe(true)
+    expect(await after(bob, b, 'browser_policy_changed')).toBe(true)
+    expect(bob.frames.slice(b).some((f) => f.type === 'notice' && f.data.code === 'web_access_changed')).toBe(false)
+  })
+
+  test('deleting a member turns the switch off, audited with the admin as actor', async () => {
+    const u = await h.api('dana').call(API.createUser, { body: { username: `gone-${uuidv7().slice(-6)}`, name: 'Kim Sora', role: 'member', groupIds: [] } })
+    const id = u.user.id
+    on(id)
+    await h.api('dana').call(API.deleteUser, { params: { id }, query: { personalFolder: 'delete' }, body: {} })
+    expect(audits('web.allow_all_off', id).at(-1)).toEqual({ actor: 'dana', via: 'account' })
+    expect(db().query('SELECT allow_all FROM user_web_access WHERE user_id = ?').get(id)).toEqual({ allow_all: 0 })
+  })
+})
+

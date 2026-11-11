@@ -12,6 +12,7 @@ import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
 import { NO_KIT, parseKit } from '../../desktop/src/common/kit'
 import { RepeatPromptHint, REPEAT_HINT_WINDOW_MS, siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
+import { applyMePolicy } from '../../desktop/src/common/me-policy'
 import { blockedUrl } from '../../desktop/src/common/browser-block'
 import { acceptFilter, answersFileChoosers, openDialogChoice } from '../../desktop/src/common/file-chooser'
 import { browserOwnerChange } from '../../desktop/src/common/browser-owner'
@@ -391,6 +392,28 @@ describe('site access "all", the team policy and Settings > Browser', () => {
     const other = new SitePermissions({ siteAccess: 'all', personAllowsAll: true })
     other.resetForNewPerson()
     expect(other.toJSON()).not.toHaveProperty('personAllowsAll')
+  })
+
+  test('the window applies GET /api/me (common/me-policy.ts, AppWindow.fetchTeamInfo): an off narrows, an on never widens, an older server changes nothing', () => {
+    const p = new SitePermissions({ always: [], privateAlways: [] })
+    const pane = { setTeamPolicy: (v: boolean) => { p.setTeamPolicy(v) }, setPersonPolicy: (v: boolean) => { p.setPersonPolicy(v) } }
+    // the person turned it on here (the app's window) and on the server
+    expect(p.setSiteAccess('all')).toBe(true)
+    applyMePolicy(pane, { team: { browserAllowAll: true }, user: { webAllowAll: true } })
+    expect(p.siteAccess).toBe('all')
+    // switched off elsewhere: this browser asks again
+    applyMePolicy(pane, { team: { browserAllowAll: true }, user: {} })
+    expect(p.siteAccess).toBe('ask')
+    // on again on the server: not widened here
+    applyMePolicy(pane, { team: { browserAllowAll: true }, user: { webAllowAll: true } })
+    expect(p.siteAccess).toBe('ask')
+    // a browser set to "all" here with the server value never on (older server, or before this release): left as it is
+    const q = new SitePermissions({ always: [], privateAlways: [], siteAccess: 'all' })
+    applyMePolicy({ setTeamPolicy: (v) => { q.setTeamPolicy(v) }, setPersonPolicy: (v) => { q.setPersonPolicy(v) } }, { team: {}, user: {} })
+    expect(q.siteAccess).toBe('all')
+    // the team's policy off still turns it back
+    applyMePolicy({ setTeamPolicy: (v) => { q.setTeamPolicy(v) }, setPersonPolicy: (v) => { q.setPersonPolicy(v) } }, { team: { browserAllowAll: false }, user: {} })
+    expect(q.siteAccess).toBe('ask')
   })
 
   test('"all" covers public sites only: office-network, this computer and the team address still ask or stay blocked', () => {
