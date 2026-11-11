@@ -2,13 +2,18 @@
 // row each by keyboard (focus ring, the Inbox count on its row and in words), the team menu on top with Admin and
 // Invite for owners and admins (docs/DECISIONS.md "The team menu"; no Admin row any more), both groups folded
 // across a reload, 60 rooms in one scroll (대화 strictly capped at the five latest and the room on screen, "더 보기 (N)"
-// with what is unread behind it, remembered; 트리나 기록's heading and first chats in sight below at 1440 and 1280), and "답변 필요" / the
-// new-answer dot that come from the chat list (they survive a reload, and no request is made per chat).
+// with what is unread behind it, remembered; 트리나 기록's heading and first chats in sight below at 1440 and 1280), an
+// opened "더 보기" by kind (the top rows and a clicked row below stay put; docs/DECISIONS.md "Conversations by kind under
+// Show more"; with SHOTS_DIR set, its screenshots), and "답변 필요" / the new-answer dot that come from the chat list (they
+// survive a reload, and no request is made per chat).
+import fs from 'node:fs'
+import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { routeRooms, type MockRoomSpec } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -513,8 +518,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }])
     await expect(s.getByTestId('rooms-more-unread')).toHaveCount(0)
     await page.reload()
     await expect(s.getByTestId('sidebar-room')).toHaveCount(60)
-    // the room on screen stays, the sixth, when the list closes again
-    await s.getByTestId('sidebar-room').nth(30).click()
+    // the room on screen stays, the sixth, when the list closes again (opened, the team rooms are by name: by its link)
+    await s.locator(`[data-testid="sidebar-room"][href="/rooms/${list[30]!.id}"]`).click()
     await expect(page).toHaveURL(new RegExp(`/rooms/${list[30]!.id}`))
     await s.getByTestId('rooms-more').click()
     await expect(s.getByTestId('sidebar-room')).toHaveCount(6)
@@ -530,6 +535,128 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }])
     expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0)
   })
 }
+
+// 대화 opened by kind (docs/DECISIONS.md "Conversations by kind under Show more"): the rooms through rooms-mock.ts
+// routeRooms, five on top (latest activity) and a mix of every kind below them.
+test.describe('대화 opened by kind', () => {
+  test.use({ serviceWorkers: 'block' })
+  const kid = (n: number) => `019a5f00-0000-7000-8000-0000000d${String(n).padStart(4, '0')}`
+  const p = (id: string, name: string) => ({ id, name })
+  const [SAM, ALEX, DANA, EVE, KIM] = [p('sam', 'Sam'), p('alex', 'Alex'), p('dana', 'Dana'), p('eve', 'Eve'), p('kim', 'Kim')]
+  const DANA_DM = kid(11)
+  const BY_KIND: MockRoomSpec[] = [
+    { id: kid(1), kind: 'team', name: '디자인', peers: [SAM, ALEX], ago: 1, last: '시안 올렸어요' },
+    { id: kid(2), kind: 'dm', name: null, peers: [SAM], ago: 2, last: '내일 봬요' },
+    { id: kid(3), kind: 'group', name: '주간회의', peers: [SAM, KIM], ago: 3, last: '안건 정리했어요' },
+    { id: kid(4), kind: 'team', name: '개발', peers: [KIM], ago: 4, last: '배포 끝났어요' },
+    { id: kid(5), kind: 'dm', name: null, peers: [KIM], ago: 5, last: '확인했어요' },
+    { id: kid(6), kind: 'dm', name: null, peers: [EVE], unread: 1, ago: 6, last: '자료 보냈어요' },
+    { id: kid(7), kind: 'team', name: '영업', peers: [ALEX], ago: 7, last: '견적서 보냈어요' },
+    { id: kid(8), kind: 'all', name: null, peers: [SAM, ALEX, KIM], ago: 8, last: '점심 같이 하실 분' },
+    { id: kid(9), kind: 'group', name: '점심 모임', peers: [EVE, KIM], ago: 9, last: '12시에 봬요' },
+    { id: kid(10), kind: 'team', name: '기획', peers: [DANA], ago: 10, last: '일정 공유해요' },
+    { id: DANA_DM, kind: 'dm', name: null, peers: [DANA], ago: 11, last: '감사해요' },
+    { id: kid(12), kind: 'group', name: '가을 워크숍', peers: [ALEX, DANA], ago: 12, last: '장소 정했어요' },
+    { id: kid(13), kind: 'dm', name: null, peers: [ALEX], ago: 13, last: '좋아요' },
+  ]
+  /** the names of the rows of one section, in order */
+  const named = (page: Page, section: string) => side(page).locator(`[data-testid="sidebar-room-row"][data-section="${section}"] span[title]`).evaluateAll((els) => els.map((e) => e.getAttribute('title')))
+  /** each top row's link and where it is (the five latest) */
+  const topRows = async (page: Page) => {
+    const rows = (await side(page).getByTestId('sidebar-room').all()).slice(0, 5)
+    return Promise.all(rows.map(async (r) => [await r.getAttribute('href'), (await r.boundingBox())!.y]))
+  }
+
+  test('the top rows stay put, the rest under 팀 대화방, 그룹 대화 and 1:1 대화; a clicked row below does not move, "접기" stays', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await reset(page)
+    await routeRooms(page, BY_KIND)
+    await signIn(page)
+    const s = side(page)
+    const list = s.getByTestId('sidebar-rooms-list')
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(5)
+    await expect(list.getByRole('heading')).toHaveCount(0)
+    const before = await topRows(page)
+    expect(before.map(([href]) => href)).toEqual(BY_KIND.slice(0, 5).map((r) => `/rooms/${r.id}`))
+    await s.getByTestId('rooms-more').click()
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(BY_KIND.length)
+    // nothing on top moved; the three headings in order, inside the list the fold controls
+    expect(await topRows(page)).toEqual(before)
+    await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['rooms.section.team'], t['rooms.section.group'], t['rooms.section.dm']])
+    expect(await named(page, 'team')).toEqual([t['rooms.all'], '기획', '영업'])
+    expect(await named(page, 'group')).toEqual(['점심 모임', '가을 워크숍'])
+    expect(await named(page, 'dm')).toEqual(['Eve', 'Dana', 'Alex'])
+    // quiet labels: a step under 대화 and under "더 보기" (lighter, smaller, fainter than the title), lined up with "더 보기"
+    // and the title, no box
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme })
+      await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+      const [title, more, head, row] = await s.evaluate(textStyles, [id('rooms-toggle'), id('rooms-more'), ['[data-testid="sidebar-rooms-section"] h3', 0] as [string, number], id('sidebar-room', -1)])
+      expect(head!.weight, scheme).toBeLessThan(title!.weight)
+      expect(head!.size, scheme).toBeLessThanOrEqual(more!.size)
+      expect(head!.size, scheme).toBeLessThan(row!.size)
+      expect(head!.contrast, scheme).toBeLessThan(title!.contrast)
+      expect(head!.contrast, scheme).toBeGreaterThanOrEqual(4.5)
+    }
+    const textX = (sel: string) => s.locator(sel).first().evaluate((e) => {
+      const walk = document.createTreeWalker(e, NodeFilter.SHOW_TEXT)
+      let n = walk.nextNode()
+      while (n && !n.textContent!.trim()) n = walk.nextNode()
+      const r = document.createRange()
+      r.selectNodeContents(n!)
+      return Math.round(r.getBoundingClientRect().left)
+    })
+    expect(await textX('[data-testid="sidebar-rooms-section"] h3')).toBe(await textX('[data-testid="rooms-more"]'))
+    expect(await list.locator('[data-testid="sidebar-rooms-section"] h3').first().evaluate((e) => getComputedStyle(e).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+    // a row under 1:1 대화, clicked: the room opens, the row stays where it was and in its section, nothing is added on top
+    const dana = list.locator(`[data-testid="sidebar-room"][href="/rooms/${DANA_DM}"]`)
+    await dana.scrollIntoViewIfNeeded()
+    const y0 = (await dana.boundingBox())!.y
+    await dana.click()
+    await expect(page).toHaveURL(new RegExp(`/rooms/${DANA_DM}$`))
+    await expect(dana).toHaveAttribute('aria-current', 'page')
+    expect((await dana.boundingBox())!.y).toBe(y0)
+    await expect(list.locator('[data-testid="sidebar-room-row"]').filter({ has: page.locator(`[href="/rooms/${DANA_DM}"]`) })).toHaveAttribute('data-section', 'dm')
+    expect(await named(page, 'dm')).toEqual(['Eve', 'Dana', 'Alex'])
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(BY_KIND.length)
+    await expect(s.getByTestId('rooms-more')).toHaveText(t['common.less'])
+    // closed: the room on screen is the sixth, as before
+    await s.getByTestId('rooms-more').click()
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(6)
+    await expect(s.getByTestId('sidebar-room').nth(5)).toHaveAttribute('href', `/rooms/${DANA_DM}`)
+    await expect(list.getByRole('heading')).toHaveCount(0)
+  })
+
+  // With SHOTS_DIR set: the opened list with a DM open, at 1440×900 and 1280×800, light and dark: the page at the top of
+  // the sidebar's scroll, and scrolled to the open DM
+  test.describe('screenshots', () => {
+    test.use({ deviceScaleFactor: 2 })
+    for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }])
+      test(`screenshot at ${size.width}: 대화 opened by kind, light and dark`, async ({ page }) => {
+        test.skip(!process.env.SHOTS_DIR, 'SHOTS_DIR not set')
+        fs.mkdirSync(process.env.SHOTS_DIR!, { recursive: true })
+        const shot = (name: string) => page.screenshot({ path: path.join(process.env.SHOTS_DIR!, `${size.width}-${name}.png`) })
+        await page.setViewportSize(size)
+        await page.emulateMedia({ reducedMotion: 'reduce' })
+        await reset(page)
+        await routeRooms(page, BY_KIND)
+        await signIn(page)
+        await side(page).getByTestId('rooms-more').click()
+        await page.goto(`/rooms/${DANA_DM}`)
+        await expect(page.getByTestId('room-message')).toHaveCount(1)
+        await page.mouse.move(size.width - 10, size.height - 10)
+        const scroll = side(page).getByTestId('sidebar-scroll')
+        for (const scheme of ['light', 'dark'] as const) {
+          await page.emulateMedia({ colorScheme: scheme })
+          await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+          await scroll.evaluate((e) => e.scrollTo({ top: 0 }))
+          await shot(`${scheme}-rooms-by-kind`)
+          await scroll.evaluate((e) => e.scrollTo({ top: e.scrollHeight }))
+          await shot(`${scheme}-rooms-by-kind-scrolled`)
+        }
+      })
+  })
+})
 
 test('the "?" and the new-answer dot (session markers) come from the chat list: they survive a reload, with no request per chat', async ({ page }) => {
   await reset(page)
