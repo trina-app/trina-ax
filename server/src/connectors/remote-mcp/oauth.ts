@@ -20,9 +20,10 @@ const iso = (v: number) => new Date(v).toISOString()
  * Limits of the connector's own OAuth server (mutable for tests). perAddress: [window ms, requests] per client
  * address (an IPv6 address counts by its /64) for each anonymous area. Registration comes from the apps' servers
  * (Claude, ChatGPT), so one of their addresses carries many people's (and anyone can make them register): 240 an
- * hour, while a full table makes room anyway (register()). One authorize makes at most one pending request, so 60 per 10 minutes is also the pending requests per address;
- * pendingPerClient counts one app's sign-ins per address (an app's id is public, so it is not counted per app alone).
- * token and upload are not in the shared bucket: a refresh or a one-time upload link must work during a flood.
+ * hour, while a full table makes room anyway (register()). One authorize makes at most one pending request, so 60
+ * per 10 minutes is also the pending requests per address; pendingPerClient counts one app's sign-ins per address (an
+ * app's id is public, so it is not counted per app alone). A token request with a live credential and a live upload
+ * link are not in the shared bucket: a refresh or a one-time upload link must work during a flood.
  */
 export const OAUTH_LIMITS: {
   perAddress: Record<string, [number, number][]>; anonymousPerMinute: number; mcpPerGrantPerMinute: number
@@ -140,16 +141,16 @@ export class RemoteOAuth {
     this.housekeep()
   }
   private swept = -Infinity
-  /** At most every HOUSEKEEP_MS: the limits table has no index on bucket, so this is a scan. */
   private housekeep() {
-    if (this.now() - this.swept < HOUSEKEEP_MS && this.now() >= this.swept) return
-    this.swept = this.now()
-    // Fixed-size lifetime for attacker-controlled keys: this table never contains raw IPs or tokens.
-    this.db.query('DELETE FROM remote_mcp_limits WHERE bucket < ?').run(Math.floor(this.now() / 60_000) - 1)
     this.db.query('DELETE FROM remote_mcp_requests WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_upload_links WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_grants WHERE expires_at <= ?').run(this.now())
     pruneScopes(this.db, this.now())
+    // At most every HOUSEKEEP_MS: these two are scans (no index on the limits' bucket; the idle-app subqueries).
+    if (this.now() - this.swept < HOUSEKEEP_MS && this.now() >= this.swept) return
+    this.swept = this.now()
+    // Fixed-size lifetime for attacker-controlled keys: this table never contains raw IPs or tokens.
+    this.db.query('DELETE FROM remote_mcp_limits WHERE bucket < ?').run(Math.floor(this.now() / 60_000) - 1)
     this.db.query(`DELETE FROM remote_mcp_clients WHERE last_used_at < ? AND ${IDLE_CLIENT}`).run(this.now() - OAUTH_LIMITS.idleClientMs)
   }
   register(body: Record<string, unknown>) {

@@ -263,5 +263,10 @@ test('junk token requests naming a known app do not stop that app\'s live refres
   // 200 junk requests from two addresses fill the app's token bucket (180 a minute)
   for (let i = 0; i < 200; i++) await token(i % 2 ? '192.0.2.10' : '192.0.2.11', 'tax_mcp_r_' + 'q'.repeat(43))
   expect((await token('192.0.2.12', 'tax_mcp_r_' + 'q'.repeat(43))).status).toBe(429)
+  // only for the app that holds the grant: the same refresh token naming another app is not exempt
+  const other = await (await f.post('/oauth/register', { redirect_uris: [redirect] })).json() as any
+  expect(f.oauth.liveCredential({ client_id: other.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(false)
+  expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(true)
   expect((await token('192.0.2.12', refresh)).status).toBe(200)
+  expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(false) // used
 })
