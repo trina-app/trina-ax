@@ -11119,7 +11119,8 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
   upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,
   classes, callers and callees across the team's folders that hold code, from CodeGraph indexes kept up to date after
-  file changes. Details, limits and measurements: [KNOWLEDGE-GRAPH.md](KNOWLEDGE-GRAPH.md).
+  file changes. Details, limits and measurements were in docs/KNOWLEDGE-GRAPH.md (removed with the knowledge graph on
+  2026-11-11, "Knowledge graph removed" below; in git history).
 - **CodeGraph is found, not bundled.** MIT (fine in AGPL-3.0), but each platform's package is about 280 MB with its own
   Node.js runtime, more than the rest of a Linux bundle. It is looked up on the PATH or named in `server.json`
   (`knowledgeGraph.codegraph`). Without it the feature is off and Admin says to install it.
@@ -19831,3 +19832,39 @@ after **Run now** until a reload.
   the turn's end, `lastRunAt` untouched), e2e `web/test/e2e/schedules.spec.ts` (the room names, a copy of the
   instruction, Run now followed to its result without a reload).
 - Version impact: **patch** (two optional response fields; corrected words; no data change).
+
+## Knowledge graph removed — 지식 그래프를 없앤다; the AI finds files with list, glob, grep and read (chore/remove-knowledge-graph, 2026-11-11, product owner)
+
+넣을 곳: Team AX core (`server/src/knowledge-graph/` and its callers, the Files search, Admin › Team settings, the
+bundles), 이유: chat, files and the AI are core. Plan: `docs/AGENTS/plan/20261111-0135-remove-knowledge-graph.md`.
+Replaces "K — Knowledge graph" (2026-11-06), "지식 그래프로 더 빠른 답" and "뜻으로도 찾는 지식 그래프" (2026-11-07).
+
+- **Why.** On the same dev build with the knowledge graph on and off, the AI found the same files either way (a
+  2,204-file test folder, the 92 questions that finished). The index alone put the right file in its top 5 for 28% of
+  hard questions, where a plain file-name search got 57%. It saved about 27% of input tokens on easy questions and used
+  more on others. It leaked stale text: text taken out of a file stayed searchable, and the AI quoted it, until the
+  folder was indexed again (30 s to overnight). After every restart on Linux nothing was indexed for 10–15 minutes, and
+  on a 4 GB server searches took 1–7 s while it indexed and the meaning indexer went over its 800 MiB cap. Anthropic's
+  guidance is to start with agentic search (semantic search is "less accurate, more difficult to maintain"); the Claude
+  Code team found grep and glob beat vector databases and indexing ("stale indexes, permission complexity").
+- **Gone.** The document index and its search worker, search by meaning (multilingual-e5-small, the embedding process,
+  `@huggingface/transformers` with onnxruntime and sharp, `scripts/vendor-semantic.ts`), the CodeGraph code map, the
+  `knowledge_explore` tool, the `<document_matches>` lookup before the model and its prompt rules, the Files search's
+  "관련 문서" rows, Admin › Team settings › Knowledge graph and `/api/admin/knowledge-graph`, `scripts/bench/quality/`.
+  The old `search` tool stays removed.
+- **Stays.** The Files search lists exact-line matches as before the knowledge graph, and a word no file has says
+  "nothing found" (QA TC-061). The MCP connection's side-by-side read-only calls stay for `list`, `glob`, `grep` and
+  `read`. The document-question benchmark (`scripts/bench/run.ts`) stays, without an index to wait for.
+- **Old data.** The first start deletes `<data>/knowledge-graph/` (copies of private document text and code; renamed at
+  once and deleted in the background, so a large one does not hold the start) and the downloaded model in
+  `<data>/models/Xenova/multilingual-e5-small`, with one info line. Whisper's models stay; a link is removed and never
+  followed, so a host's shared `MYCEL_MODELS_DIR` is never touched. Migration 339 deletes the switch's settings rows.
+- **Old configs and content.** A `server.json` with `knowledgeGraph` still loads: the key is ignored and the start logs
+  once that it is obsolete (CONFIGURATION.md). Older chats keep their `knowledge_explore` steps with their label, and
+  old Activity rows keep theirs. Scheduled templates never stored a tool list (their scope is two folders); a call of
+  the old tool is refused like any tool a template does not list.
+- **Release notes.** The knowledge graph's first part (the code map and the document index) shipped in 0.5.0-beta.1;
+  waves 1–3 never did, so their notes leave "Unreleased" (the side-by-side reads keep theirs) and
+  `changes/remove-knowledge-graph.md` says what goes.
+- Version impact: **minor** (0.x): a feature and an admin API are removed; nothing an installed team set up stops
+  loading.
