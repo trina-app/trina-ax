@@ -165,7 +165,7 @@ func TestOldVersionExit75GoesForwardAgain(t *testing.T) {
 	f.version("1.0.0", "exit 75")
 	// unhealthy until the test creates <work>/heal (after the roll-back): a start count would race with a slow shell
 	heal := filepath.Join(f.work, "heal")
-	f.version("1.1.0", fmt.Sprintf("if [ ! -f %q ]; then exec sleep 60; fi\n", heal)+f.healthyBody("1.1.0"))
+	f.version("1.1.0", fmt.Sprintf("while [ ! -f %q ]; do sleep 0.05; done\n", heal)+f.healthyBody("1.1.0"))
 	f.updating("1.0.0", "1.1.0")
 	stop := f.start()
 	f.waitFor("roll-back", func(st appState) bool { return len(st.History) == 1 })
@@ -292,5 +292,55 @@ func TestOrdinaryCrashStillRestarts(t *testing.T) {
 	}
 	if st := f.state(); st.Blocked != nil || len(f.startList()) != 3 {
 		t.Fatalf("state %+v starts %v", st, f.startList())
+	}
+}
+
+// A forwarded version that itself exits 75 stops at once (no --max-attempts rounds).
+func TestForwardedExit75StopsAtOnce(t *testing.T) {
+	f := newFakeInstall(t)
+	f.version("1.0.0", "exit 75")
+	f.version("1.1.0", "exit 75")
+	f.updating("1.0.0", "1.1.0")
+	stop := f.start()
+	st := f.waitFor("blocked", func(st appState) bool { return st.Blocked != nil })
+	time.Sleep(10 * blockedPoll)
+	if code := stop(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if got := strings.Join(f.startList(), " "); got != "1.1.0 1.1.0 1.1.0 1.0.0 1.1.0" {
+		t.Fatalf("starts %s", got)
+	}
+	if st.Blocked.Version != "1.1.0" || !strings.Contains(st.Blocked.Detail, "1.1.0 cannot read the database") {
+		t.Fatalf("blocked %+v", st.Blocked)
+	}
+}
+
+// state.json cannot be written (a full disk, a read-only folder): the bootstrap still stops instead of restarting a
+// version that exits 75 with no delay.
+func TestStopsWhenStateCannotBeWritten(t *testing.T) {
+	f := newFakeInstall(t)
+	f.version("1.0.0", "exit 75")
+	if err := switchTo("1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(writeState(appState{Format: 1, Current: sp("1.0.0"), History: []historyEntry{}}))
+	must(os.Chmod(f.app, 0o555))
+	t.Cleanup(func() { os.Chmod(f.app, 0o755) })
+	stop := f.start()
+	until := time.Now().Add(30 * time.Second)
+	for len(f.startList()) < 1 && time.Now().Before(until) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(20 * blockedPoll)
+	if code := stop(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if got := f.startList(); len(got) != 1 {
+		t.Fatalf("restarted while state.json could not be written: %v", got)
 	}
 }

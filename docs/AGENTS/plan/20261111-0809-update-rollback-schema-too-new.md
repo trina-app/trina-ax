@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-11
 - Branch: `fix/update-rollback-schema-too-new`
 - Status: done
-- Where: `native/cmd/mycel-bootstrap` (Go), `native/cmd/mycel-ctl/status.go`, `shared/src/install.ts`. Why: the
+- Where: `native/cmd/mycel-bootstrap` (Go), `native/cmd/mycel-ctl` (status.go, update.go), `shared/src/install.ts`. Why: the
   bootstrap is the only process that runs when no server version starts (macOS LaunchDaemon and Linux systemd unit both
   run it)
 - Version impact: the bootstrap is a root file, so the next release is a root update
@@ -24,6 +24,7 @@ version runs, and the owner has no screen to fix it from.
 - Exit 75 with nothing to go forward to, or a forwarded version that keeps dying: the bootstrap stops starting the server
   and records why in state.json (`blocked`) and in the history (`rolled_back`, detail "stopped: ..."). It waits for
   app/current to change, `blocked` to be removed, or SIGHUP, then tries again. `mycel-ctl status` shows the stop.
+- `mycel-ctl update` reports a roll-back only after it lasted 20 s and not while `forward` names the new version.
 - Why not restore the pre-migrate copy: the bootstrap would have to pick the right file and swap SQLite files from
   outside the server; a wrong pick loses data. Restoring stays a step the owner chooses; the stop message names it.
 

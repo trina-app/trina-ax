@@ -1224,22 +1224,58 @@ func (u *updater) updateApp(dir, v string) error {
 		}
 	}
 	deadline := time.Now().Add(u.healthTimeout)
+	// a roll-back is reported once it has lasted rollbackGrace: when the old version cannot read the database the new
+	// one migrated, the bootstrap goes forward to v again (state.json forward), which then gets its own health wait
+	var rbAt time.Time
+	forwardSeen := false
 	for time.Now().Before(deadline) {
 		if h := health(u.in.Port, 3*time.Second); h["ok"] == true && h["version"] == v {
 			u.res.Result = "ok"
 			return nil
 		}
-		if rb := u.rolledBack(v); rb != "" {
-			u.res.Result, u.res.Detail = "rolled_back", rb
-			return nil
+		if u.forwardTo(v) {
+			rbAt = time.Time{}
+			if !forwardSeen {
+				forwardSeen = true
+				deadline = time.Now().Add(u.healthTimeout)
+			}
+		} else if rb := u.rolledBack(v); rb != "" {
+			if rbAt.IsZero() {
+				rbAt = time.Now()
+				if d := rbAt.Add(rollbackGrace + time.Second); d.After(deadline) {
+					deadline = d
+				}
+			}
+			if time.Since(rbAt) >= rollbackGrace {
+				u.res.Result, u.res.Detail = "rolled_back", rb
+				return nil
+			}
+		} else {
+			rbAt = time.Time{}
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(min(2*time.Second, max(rollbackGrace/4, 50*time.Millisecond)))
 	}
-	if rb := u.rolledBack(v); rb != "" {
+	if rb := u.rolledBack(v); rb != "" && !u.forwardTo(v) {
 		u.res.Result, u.res.Detail = "rolled_back", rb
 		return nil
 	}
 	return fmt.Errorf("version %s did not answer /api/health within %v", v, u.healthTimeout)
+}
+
+// rollbackGrace: how long a roll-back must last before `update` reports it (the old version's start and exit 75, then
+// the bootstrap's step forward to v again; native/cmd/mycel-bootstrap)
+var rollbackGrace = 20 * time.Second
+
+// forwardTo: the bootstrap went forward to v again after the version it rolled back to could not read the database
+func (u *updater) forwardTo(v string) bool {
+	b, err := os.ReadFile(filepath.Join(u.e.base, "app", "state.json"))
+	if err != nil {
+		return false
+	}
+	var st struct {
+		Forward *string `json:"forward"`
+	}
+	return json.Unmarshal(b, &st) == nil && st.Forward != nil && *st.Forward == v
 }
 
 // rolledBack reads app/state.json: the bootstrap recorded a roll-back away from v (returns its detail).

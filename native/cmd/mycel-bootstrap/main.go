@@ -13,7 +13,7 @@
 // 75 (SchemaTooNewError) on every start. Then the bootstrap goes forward to the new version again (it already migrated
 // the database) and watches it like an update, without a roll-back; when it keeps dying too, or there is nothing to go
 // forward to, the bootstrap stops starting the server and records why (state.json blocked + history) instead of
-// restarting a build that can never read the database (docs/DECISIONS.md, 2026-11-11).
+// restarting a build that can never read the database (decision: fix/update-rollback-schema-too-new, 2026-11-11).
 // Normal crashes restart after 1 s; more than 5 crashes in 5 minutes back off 1, 2, 4 ... 60 s. launchd's KeepAlive
 // only restarts the bootstrap itself.
 package main
@@ -323,19 +323,44 @@ func forwardTarget(st appState, v string) string {
 
 // block stops starting the server: no version can run (the old one cannot read the database, the new one keeps dying).
 // The reason goes to state.json (blocked, for mycel-ctl status) and to the history as a roll-back of v that went
-// nowhere (the result the server, mycel-ctl update and the update hold already know).
-func block(st *appState, v, why string) {
+// nowhere (the result the server, mycel-ctl update and the update hold already know). Then it waits (stopAndWait).
+func block(st *appState, v, why string) bool {
 	st.Pending, st.PendingSince, st.Forward, st.Attempts = nil, nil, nil, 0
-	detail := "stopped: " + why + ". Restore the database backup made before the update (data/backups/pre-migrate-*.db) or install a version that starts; the server starts again when app/current changes or on SIGHUP"
+	detail := "stopped: " + why + ". Restore the database backup made before the update (data/backups/pre-migrate-*.db) " +
+		"or install a version that starts. The server starts again when app/current changes, or on SIGHUP to the bootstrap " +
+		"(Linux: systemctl kill -s HUP <id>-server.service; macOS: launchctl kill HUP system/<label>.server)"
 	st.Blocked = &blockedState{Version: v, Since: time.Now().UTC().Format(time.RFC3339Nano), Detail: detail}
 	record(st, sp(v), v, "rolled_back", detail)
-	_ = writeState(*st)
+	if err := writeState(*st); err != nil {
+		logf("cannot write state.json: %v", err)
+		return stopAndWait(v, detail, false)
+	}
+	return stopAndWait(v, detail, true)
 }
 
-// waitBlocked waits while state.json says the server is stopped at v: until app/current points elsewhere, someone
-// removes `blocked`, or SIGHUP asks for one more try. Returns false on SIGTERM / SIGINT.
-func waitBlocked(v string, detail string) bool {
+// stopAndWait waits while the server is stopped at v, then sets up one more watched try when app/current still points
+// at v. False on SIGTERM / SIGINT.
+func stopAndWait(v, detail string, persisted bool) bool {
+	if !waitBlocked(v, detail, persisted) {
+		return false
+	}
+	st := readState()
+	if cur, err := currentVersion(); err == nil && cur == v {
+		// one more try of the same version, watched like a forwarded one: no roll-back, stops again after --max-attempts
+		st.Forward, st.Attempts = sp(v), 0
+	}
+	st.Blocked = nil
+	_ = writeState(st)
+	return true
+}
+
+// waitBlocked waits until app/current points elsewhere, someone removes state.json `blocked` (persisted: it was
+// written), or SIGHUP asks for one more try. A SIGHUP sent before the stop does not count. False on SIGTERM / SIGINT.
+func waitBlocked(v, detail string, persisted bool) bool {
 	logf("server stopped at %s: %s", v, detail)
+	for len(hup) > 0 {
+		<-hup
+	}
 	for {
 		select {
 		case <-stopping:
@@ -345,7 +370,7 @@ func waitBlocked(v string, detail string) bool {
 			return true
 		case <-time.After(blockedPoll):
 		}
-		if readState().Blocked == nil {
+		if persisted && readState().Blocked == nil {
 			return true
 		}
 		if cur, err := currentVersion(); err != nil || cur != v {
@@ -382,17 +407,10 @@ func run() int {
 			return 1
 		}
 		if st.Blocked != nil && st.Blocked.Version == v {
-			if !waitBlocked(v, st.Blocked.Detail) {
+			// stopped before this bootstrap started (a reboot): stay stopped
+			if !stopAndWait(v, st.Blocked.Detail, true) {
 				return 0
 			}
-			st = readState()
-			if cur, err := currentVersion(); err == nil && cur == v {
-				// one more try of the same version, watched like a forwarded one: no roll-back, stops again after
-				// --max-attempts
-				st.Forward, st.Attempts = sp(v), 0
-			}
-			st.Blocked = nil
-			_ = writeState(st)
 			continue
 		}
 		if st.Blocked != nil {
@@ -505,18 +523,21 @@ func run() int {
 				kind = "pending"
 			}
 			logf("%s version %s exited (%v) before it was healthy, attempt %d/%d", kind, v, werr, after.Attempts, *maxAttempts)
+			goOn := true
 			switch {
 			case forwarded && code == exitSchemaTooNew:
-				block(&after, v, fmt.Sprintf("%s cannot read the database: a newer version has updated it", v))
+				goOn = block(&after, v, fmt.Sprintf("%s cannot read the database: a newer version has updated it", v))
 			case after.Attempts < *maxAttempts:
 				_ = writeState(after)
+				goOn = sleepOrStop(retryDelay)
 			case pending:
 				rollBack(&after, v, fmt.Sprintf("exited %d times before it was healthy (last: %v)", after.Attempts, werr))
+				goOn = sleepOrStop(retryDelay)
 			default:
-				block(&after, v, fmt.Sprintf("%s exited %d times before it was healthy (last: %v), and %s cannot read the database it already updated",
+				goOn = block(&after, v, fmt.Sprintf("%s exited %d times before it was healthy (last: %v), and %s cannot read the database it already updated",
 					v, after.Attempts, werr, orUnknown(after.Current)))
 			}
-			if !sleepOrStop(retryDelay) {
+			if !goOn {
 				return 0
 			}
 			continue
@@ -533,7 +554,9 @@ func run() int {
 				}
 				logf("cannot switch to %s: %v", f, err)
 			}
-			block(&after, v, fmt.Sprintf("%s cannot read the database: a newer version has updated it", v))
+			if !block(&after, v, fmt.Sprintf("%s cannot read the database: a newer version has updated it", v)) {
+				return 0
+			}
 			continue
 		}
 		// a normal crash or a requested restart: back off when it happens too often
