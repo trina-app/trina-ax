@@ -29,6 +29,7 @@ import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { recordJoin } from '../onboarding/member-welcome'
 import { newId } from '../db'
 import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer, toEndOf } from './handover'
 import { componentC } from '../team-files/component'
@@ -112,6 +113,10 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     throw e
   }
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // their welcome card, with no inviter; connection template notices wait until they open Connected apps. The everyone
+  // room's joined line and the owners' notice wait for their first sign-in: until then they have not joined
+  // (onboarding/member-welcome.ts firstSignIn; docs/DECISIONS.md "A welcome for invited people")
+  recordJoin(ctx, { userId: id, via: 'admin', invitedBy: null, addedBy: auth.user.id })
   // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
   if (groups.length) projectJoinsOfNewAccount(ctx, id, auth.user.id, captureState(ctx.db))
   // connection templates this new person is in (security review 2, #1: on the event, not only the 30-second pass)
@@ -447,6 +452,8 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     // commit cannot leave the old owner's tokens serving the team unnoticed (retried at the server's start; the new
     // owner sees what is left and can end it from the Inbox)
     toEnd = b.end?.length ? toEndOf(ctx, me, b.end) : []
+    // the new owner's welcome card is over for good (onboarding/member-welcome.ts): Home shows the owner's own start
+    ctx.db.query('UPDATE member_welcome SET hidden_at = COALESCE(hidden_at, ?) WHERE user_id = ?').run(at, b.userId)
     ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at, to_end) VALUES (?, ?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at, JSON.stringify(toEnd))
     const locked = setRecoveryLockIn(ctx, transferId, at)
     audit(ctx.db, { actor: me, action: 'owner.transfer', target: b.userId, detail: { from: me, to: b.userId, via, ...(revoked ? { adminInvitesRevoked: revoked } : {}), ...(unflagged ? { leadHintsCleared: unflagged } : {}), ...(leadsStopped ? { leadInvitesRevoked: leadsStopped } : {}), ...(cliLinks ? { recoveryLinksStopped: cliLinks } : {}), ...(locked ? { recoveryLocked: true } : {}) } })

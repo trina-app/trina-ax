@@ -24,6 +24,7 @@ import { onboardingFilesRoutes } from './onboarding-files'
 import { promoVideoRoutes } from './promo-video'
 import { introDeckRoutes } from './intro-deck'
 import { onboardingGoalRoutes } from './onboarding-goal'
+import { memberWelcomeRoutes } from './member-welcome'
 import { skillSharesRoutes } from './skill-shares'
 import { demoRoutes } from './demo'
 import { roomsRoutes } from './rooms'
@@ -57,6 +58,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   promoVideoRoutes, // the company's promo video and its MP4 (docs/DECISIONS.md "V")
   introDeckRoutes, // the company's intro deck as PowerPoint and PDF (docs/DECISIONS.md "D2")
   onboardingGoalRoutes, // onboarding: the 7-day team goal (docs/DECISIONS.md "G — The 7-day team goal")
+  memberWelcomeRoutes, // onboarding: the welcome card for invited people (docs/DECISIONS.md "A welcome for invited people")
   skillSharesRoutes, // B: 내 스킬 가져오기, an owner's skills shared with the team (docs/DECISIONS.md "SK")
   oftenAskedRoutes, // B: Home's "what my group often asks" and its daily run (docs/DECISIONS.md "Home: what my group often asks")
   slackRoutes, // C: the Slack connector (docs/SLACK.md); after chats, whose runtime its questions use

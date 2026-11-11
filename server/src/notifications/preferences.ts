@@ -69,7 +69,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'integration.request': return true
     // a member without AI asks the owner (shown always: the member cannot work until it is answered)
     case 'onboarding.ai_request': return true
-    // someone joined through the team invite link (shown always, Notifications.teamJoined)
+    // someone joined the team, whichever way (shown always, Notifications.teamJoined)
     case 'team.joined': return true
     // someone started to see a project the person is in (shown always, Notifications.projectJoined)
     case 'project.joined': return true

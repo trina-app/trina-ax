@@ -523,6 +523,11 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
   )
 }
 
+/** Both join pages' title: "{inviter} invited you to {team}" when the link's or invite's maker is known (docs/DECISIONS.md
+ * "A welcome for invited people"), else "Join {team}". */
+export const joinTitle = (t: ReturnType<typeof useT>, team: string, inviter: string | null | undefined) =>
+  inviter ? t('invite.invitedBy', { inviter, team }) : t('invite.joinTeam', { team })
+
 /** Under both join forms: someone who already has an account here signs in instead of making a second one. */
 function HaveAccount() {
   const t = useT()
@@ -605,7 +610,7 @@ export function AcceptInvite() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       <JoinChoices path={`/invite/${token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>
@@ -693,7 +698,7 @@ export function TeamJoin() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <JoinChoices path={`/join#t=${link.token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       </JoinChoices>
