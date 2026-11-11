@@ -426,7 +426,8 @@ function setupLinks(s: OfficeSettings, origins: string[]): { local: string; desk
  * (`migratingIsUp`, TEAMAX_UPDATE_RUN) it returns 'migrating' after UPDATER_MIGRATE_WAIT_MS instead: the updater waits
  * for the rest, and kills an installer that takes 10 minutes. That first part of the wait is here and not only in the
  * updater because the updater that runs this install is the previous version's (an updater without this change waits
- * 150 s and does not know "migrating"): a migration that ends within it gets through such an update too. */
+ * 150 s and does not know "migrating"): a migration that ends within it gets through such an update too. An updater
+ * that waits itself says so (TEAMAX_UPDATER_WAITS_MIGRATING, updaterMs 0). */
 export async function waitHealthy(s: Pick<OfficeSettings, 'appPort'>, seconds: number, o: { migratingIsUp?: boolean; say?: (line: string) => void; migrateMs?: number; updaterMs?: number; pollMs?: number } = {}): Promise<'up' | 'migrating' | 'still-migrating' | false> {
   const start = Date.now()
   const migrateMs = o.migrateMs ?? MIGRATE_WAIT_MS
@@ -856,7 +857,8 @@ export async function main(argv: string[]): Promise<number> {
       fs.writeFileSync(p.plist(s.label), text, { mode: 0o644 })
       lines(`LaunchAgent ${p.plist(s.label)}: ${agent.start()}`)
       lines('waiting for the server ...')
-      const up = await waitHealthy(s, 90, { migratingIsUp: process.env.TEAMAX_UPDATE_RUN === '1', say: lines })
+      // an updater that knows "migrating" (TEAMAX_UPDATER_WAITS_MIGRATING) waits for it itself: hand it over at once
+      const up = await waitHealthy(s, 90, { migratingIsUp: process.env.TEAMAX_UPDATE_RUN === '1', updaterMs: process.env.TEAMAX_UPDATER_WAITS_MIGRATING === '1' ? 0 : undefined, say: lines })
       if (up === 'still-migrating') { lines(`the server was still updating its database after ${Math.round(MIGRATE_WAIT_MS / 60_000)} min; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       if (!up) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       if (up === 'migrating') lines('the server is updating its database before it starts; the update waits for it')

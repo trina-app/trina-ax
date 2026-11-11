@@ -130,6 +130,10 @@ describe('waitHealthy (office.js install)', () => {
     expect(await waitHealthy(s, 1, { pollMs: 100, migratingIsUp: true, updaterMs: 700 })).toBe('migrating')
     expect(Date.now() - t).toBeGreaterThanOrEqual(600)
     expect(Date.now() - t).toBeLessThan(2500)
+    // an updater that waits itself (TEAMAX_UPDATER_WAITS_MIGRATING): handed over at once
+    const t2 = Date.now()
+    expect(await waitHealthy(s, 1, { pollMs: 100, migratingIsUp: true, updaterMs: 0 })).toBe('migrating')
+    expect(Date.now() - t2).toBeLessThan(500)
     migrateUntil = Date.now() + 300 // ends within the installer's own wait: up
     expect(await waitHealthy(s, 1, { pollMs: 100, migratingIsUp: true, updaterMs: 5000 })).toBe('up')
   })

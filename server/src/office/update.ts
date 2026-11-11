@@ -907,7 +907,9 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   }
   // from here on the program changes: any failure rolls back
   phase('install', `installing ${target} (was ${current})`, target)
-  const inst = await d.exec(['/bin/bash', path.join(bundle, 'office-install.sh'), '--prefix', home, '--update'], { cwd: bundle, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1' }, timeoutMs: 10 * 60_000 })
+  // TEAMAX_UPDATER_WAITS_MIGRATING: this updater waits for a version that updates its database (waitVersion), so the
+  // new install hands that wait over at once instead of spending up to 4 of its 10 minutes on it (cli.ts waitHealthy)
+  const inst = await d.exec(['/bin/bash', path.join(bundle, 'office-install.sh'), '--prefix', home, '--update'], { cwd: bundle, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1', TEAMAX_UPDATER_WAITS_MIGRATING: '1' }, timeoutMs: 10 * 60_000 })
   let problem: string | null = inst.code !== 0 ? `the installer exited ${inst.code}` : null
   if (!problem) {
     phase('verify', `waiting for ${target} to answer`, target)
