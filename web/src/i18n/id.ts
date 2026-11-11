@@ -1497,6 +1497,7 @@ export const id: Record<MessageKey, string> = {
   'apps.phoneTitle': "Aplikasi ponsel",
   'apps.thisApp': "Aplikasi ini",
   'apps.download': "Unduh",
+  'apps.installerFile': "Unduh file installer",
   'apps.scanQr': "Pindai dengan kamera ponsel Anda untuk mendapatkan aplikasinya.",
   'apps.qrLabel': "Kode QR untuk mendapatkan aplikasi",
   'apps.updatesItself': "Pembaruannya otomatis.",

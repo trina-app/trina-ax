@@ -1472,6 +1472,7 @@ export const es: Record<MessageKey, string> = {
   'apps.phoneTitle': "Aplicación para el teléfono",
   'apps.thisApp': "Esta aplicación",
   'apps.download': "Descargar",
+  'apps.installerFile': "Descargar el instalador",
   'apps.scanQr': "Escanéelo con la cámara del teléfono para conseguir la aplicación.",
   'apps.qrLabel': "Código QR para conseguir la aplicación",
   'apps.updatesItself': "Se actualiza sola.",
