@@ -81,8 +81,9 @@ describe('step labels of the built-in tools', () => {
     expect(stepLabel('schedule_delete', INPUT.schedule_delete, 'id', NONE)).toBe('Hapus tugas terjadwal')
     expect(stepLabel('search', INPUT.search, 'en', NONE)).toBe('Search by meaning "견적 회신" · shared')
     // the removed knowledge graph's tool: an older chat's step still reads in every language
-    expect(stepLabel('knowledge_explore', INPUT.knowledge_explore, 'en', NONE)).toBe('Search knowledge graph "환불 정책" · shared/policies')
-    expect(localizeStep({ kind: 'tool', tool: 'knowledge_explore', label: '지식 그래프 검색 "환불 정책" · shared/policies' }, 'es').label).toBe('Buscar en el grafo de conocimiento "환불 정책" · shared/policies')
+    // (in plain words: "the file map", not "knowledge graph"; a step saved with the earlier verb reads in today's)
+    expect(stepLabel('knowledge_explore', INPUT.knowledge_explore, 'en', NONE)).toBe('Search the file map "환불 정책" · shared/policies')
+    expect(localizeStep({ kind: 'tool', tool: 'knowledge_explore', label: '지식 그래프 검색 "환불 정책" · shared/policies' }, 'es').label).toBe('Buscar en el mapa de archivos "환불 정책" · shared/policies')
     expect(stepLabel('drive_list', {}, 'en', NONE)).toBe('List Google Drive folder')
     expect(stepLabel('drive_list', INPUT.drive_list, 'en', NONE)).toBe('List Google Drive folder')
   })
