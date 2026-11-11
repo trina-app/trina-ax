@@ -26,9 +26,10 @@ import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
 import { dropAdminScope } from '../connectors/remote-mcp/oauth'
 import { integrationsOf } from '../integrations/connections/service'
-import { syncRoomsNow } from '../rooms/service'
+import { roomsOf, syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
-import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { notificationsOf, notifyTeamJoined, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { recordJoin } from '../onboarding/member-welcome'
 import { newId } from '../db'
 import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer, toEndOf } from './handover'
 import { componentC } from '../team-files/component'
@@ -112,6 +113,14 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     throw e
   }
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // their welcome card, with no inviter; connection template notices wait until they open Connected apps
+  // (onboarding/member-welcome.ts)
+  recordJoin(ctx, { userId: id, via: 'admin', invitedBy: null })
+  // told as an invite or team link join is (docs/DECISIONS.md "A new member is told to the team"): the owners in
+  // Activity, except the owner who added them, and the everyone room's "{name} joined the team" line
+  const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+  notifyTeamJoined(ctx, owners.filter((o) => o !== auth.user.id), id)
+  roomsOf(ctx).memberJoined(id)
   // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
   if (groups.length) projectJoinsOfNewAccount(ctx, id, auth.user.id, captureState(ctx.db))
   // connection templates this new person is in (security review 2, #1: on the event, not only the 30-second pass)

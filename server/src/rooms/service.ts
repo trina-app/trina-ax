@@ -364,8 +364,9 @@ export class Rooms {
   }
 
   /**
-   * Someone new joined the team (an invite: auth/accounts.ts acceptInvite; the team link: auth/team-links.ts). One line
-   * in the everyone room, written as them: "QA D joined the team", so the others can say hello. No notice and no push
+   * Someone new joined the team (an invite: auth/accounts.ts acceptInvite; the team link: auth/team-links.ts; an
+   * admin's "Add directly": admin/users.ts createUser). One line in the everyone room, written as them: "QA D joined
+   * the team", so the others can say hello. No notice and no push
    * (an event line is never unread: rooms/inbox.ts), and the room keeps its place in the lists. They are put in the
    * room first, so they see their own line. Never throws: the join itself has worked.
    */

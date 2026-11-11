@@ -7,7 +7,8 @@
 //     (7, 14 or 30 days); every join still takes a seat (system/limits.ts), checked inside the write;
 //   - join attempts through one link are rate-limited from anywhere (rate-limit.ts perLink), on top of the per-IP limit
 //     on unknown tokens;
-//   - each join is audited and told to the owners (and the link's maker) in their inbox;
+//   - each join is audited and told to the owners (and the link's maker) in their inbox, and the everyone room gets a
+//     "{name} joined" line (rooms/service.ts memberJoined);
 //   - it works only while its maker could still make it (an active owner or admin), like an invite;
 //   - only one link is open: making a new one, or revoking, ends the old token for good (a new link = a new token);
 //   - the token is in the address's #fragment and reaches the server only in a POST body.
@@ -38,8 +39,9 @@ import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { readSkill } from '../chat/skills'
 import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
-import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { notifyTeamJoined } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
+import { recordJoin } from '../onboarding/member-welcome'
 import { newMemberAi } from '../credentials/access'
 import { getChatRuntime } from '../chat/runtime'
 import type { Principal } from '../policy/access'
@@ -336,7 +338,9 @@ export function teamLinkInfo(c: Context<AppEnv>, ctx: AppContext, token: string)
   if (!r) { guard.fail(); return fail('not_found') }
   const problem = problemOf(ctx.db, r, authOf(ctx).now())
   const skill = !problem && r.skill_path ? teamSkill(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), r.skill_path) : null
-  return { teamName: getTeamSettings(ctx.db).teamName, valid: problem === null, problem, expiresAt: r.expires_at, skillName: skill?.name ?? null, skillTitle: skill?.title ?? null }
+  // who made the link, only while it works ("{inviter} invited you to {team}")
+  const inviterName = problem === null && r.created_by ? getUser(ctx.db, r.created_by)?.name ?? null : null
+  return { teamName: getTeamSettings(ctx.db).teamName, valid: problem === null, problem, expiresAt: r.expires_at, skillName: skill?.name ?? null, skillTitle: skill?.title ?? null, inviterName }
 }
 
 class UsernameTaken extends Error {}
@@ -393,6 +397,9 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   // turned away, only failed and refused attempts add up
   hold.release()
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // who invited them (the link's maker: the welcome card's "{inviter} invited you"). First, so the template notice
+  // below waits until the person opens Connected apps (onboarding/member-welcome.ts)
+  recordJoin(ctx, { userId: id, via: 'team_link', invitedBy: r.created_by })
   // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
   if (groups.length) projectJoinsOfNewAccount(ctx, id, id, captureState(ctx.db))
   notifyTemplateOffers(ctx, { userId: id })
