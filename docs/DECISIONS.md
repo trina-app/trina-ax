@@ -20675,6 +20675,7 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   replaced in this browser (that one stays valid until it expires).
 - Tests: web unit `person-switch` (A's stores and socket, reset completed as B: nothing of A, a new socket, a reload).
 - Version impact: **patch** (no API or data change).
+
 ## One room for the whole team — 팀 대화방은 하나 (fix/one-default-room, 2026-11-11, product owner)
 
 - **The welcome steps' team group gets no team room.** `setupWelcomeTeam` makes the team group (the team link and the
