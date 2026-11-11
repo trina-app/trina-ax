@@ -640,8 +640,8 @@ export function TabPanel({ base, value, className, children, ...rest }: { base: 
 /** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. The keyboard follows
  * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. `panels`:
  * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content.
- * A phone (below 768px), segmented: the row is as wide as the page, its choices of equal width and 44px tall, never
- * scrolling sideways; an item's `short` is its word there ("Mine" for "My suggestions"). When a choice's word does not
+ * A phone (below 768px), segmented: the row takes the width it is given (the page's, or what a button beside it
+ * leaves: Folder permissions' Filters), its choices of equal width and 44px tall, never scrolling sideways; an item's `short` is its word there ("Mine" for "My suggestions"). When a choice's word does not
  * fit its share (a long language, five choices), the row is one picker row instead, "Available skills ⌄", whose
  * sheet lists them all (rooms/MenuButton.tsx), so nothing is cut or hidden off the side. Computers keep the row. */
 export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string; short?: string }[]; label: string; segmented?: boolean; panels: string }) {
@@ -695,7 +695,7 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
   if (fitted) {
     const now = items.find((it) => it.id === current)
     return (
-      <div className="relative w-full" data-testid="tabs-phone" data-fits={fits ? 'row' : 'picker'}>
+      <div className="relative min-w-0 flex-1" data-testid="tabs-phone" data-fits={fits ? 'row' : 'picker'}>
         {/* the row as it would be drawn, out of sight: each word against its share */}
         <div ref={probe} aria-hidden className="pointer-events-none invisible absolute inset-x-0 top-0 grid h-0 auto-cols-[minmax(0,1fr)] grid-flow-col gap-0.5 overflow-hidden p-0.5">
           {items.map((it) => (

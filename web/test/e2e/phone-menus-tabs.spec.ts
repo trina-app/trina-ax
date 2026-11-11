@@ -5,6 +5,7 @@
 // tabs and a row's ⋯, Scheduled tasks ("+" and "Edit" in the bar, a red Delete row), the drawer's filter, the search
 // overlay (its types and a chat row's ⋯), Activity's tabs and tools. With SHOTS=1 each step is saved in
 // $SHOTS_DIR (default test-results/phone-menus-tabs).
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -40,6 +41,16 @@ async function big(el: Locator) {
 
 /** The page never scrolls sideways. */
 const fitsPage = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+
+/** No serious accessibility problem on the screen as it is (an open sheet included); `only`: within that part (the
+ * drawer: Home's own blocks under it are other tests') */
+async function audit(page: Page, where: string, only?: string) {
+  await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => {}))))
+  const axe = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe')
+  const r = await (only ? axe.include(only) : axe).analyze()
+  const serious = r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
+}
 
 async function start(page: Page, lang: 'ko' | 'en') {
   await reset(page, { teamLocale: lang, usersFollowTeam: true })
@@ -330,4 +341,44 @@ test('a narrow phone: tabs whose words do not fit their share become one picker 
   await expect(page.getByRole('tabpanel')).toHaveAccessibleName(`${t['skills.title']}: ${t['skills.tabMine']}`)
   expect(await fitsPage(page)).toBe(true)
   await shot(page, 'en-skills-picker')
+})
+
+test('the phone\'s tabs, pickers and sheets have no serious accessibility problems', async ({ page }) => {
+  // English: at 280px its four Team skills words do not fit (Korean's do), so the picker shows
+  await start(page, 'en')
+  expect((await page.request.post('/__test/skills', { headers: H_, data: { files: [{ path: 'skills/weekly-report/SKILL.md', name: 'weekly-report', description: 'Turn the week into a short report' }] } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/schedule', { data: {} })).ok()).toBeTruthy()
+  await page.goto('/skills')
+  await expect(page.getByTestId('skill-row').first()).toBeVisible()
+  await audit(page, 'team skills tabs')
+  await page.getByTestId('skill-more').first().click()
+  await audit(page, 'team skills sheet')
+  await page.mouse.click(W / 2, 100)
+  await page.setViewportSize({ width: 280, height: 653 })
+  await expect(page.getByTestId('tabs-picker')).toBeVisible()
+  await audit(page, 'team skills picker')
+  await page.getByTestId('tabs-picker').click()
+  await audit(page, 'team skills picker sheet')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: W, height: H })
+  await page.goto('/activity')
+  await expect(page.getByTestId('activity-tabs')).toBeVisible()
+  await audit(page, 'activity')
+  await page.goto('/scheduled')
+  await page.getByTestId('new-task-phone').click()
+  await audit(page, 'scheduled new task sheet')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('schedule-item').click()
+  await expect(page.getByTestId('schedule-delete-row')).toBeAttached()
+  await audit(page, 'scheduled task')
+  await page.goto('/')
+  await page.getByTestId('menu-open').click()
+  await page.locator('[data-drawer]').getByTestId('recents-filter').click()
+  await audit(page, 'drawer filter sheet', '[data-drawer]')
+  await page.keyboard.press('Escape')
+  await page.locator('[data-drawer]').getByRole('button', { name: DICTS.en['sidebar.search'] }).first().click()
+  await expect(page.getByTestId('search-palette')).toBeVisible()
+  await audit(page, 'search', '[data-testid="search-palette"]')
+  await page.getByTestId('search-type').click()
+  await audit(page, 'search types sheet', '[data-testid="search-palette"]')
 })
