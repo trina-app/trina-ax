@@ -381,7 +381,8 @@ export default function Composer({
               openMenu(true)
             }
           }}
-          className="touch-hit"
+          // its size in the box, taps from a 44 px box (as the room's)
+          compact
           data-testid="attach-button"
         >
           <Plus size={19} />

@@ -302,13 +302,14 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:px-3" />
+          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:pr-3 max-md:pl-2" />
         ) : (
           <>
             <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
             {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
-                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last */}
-            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
+                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last. A phone: 8 px on the
+                left, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
+            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:pr-3 max-md:pl-2">
               <div className="flex h-composer-line shrink-0 items-center">
                 <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
                   <Paperclip size={18} />
