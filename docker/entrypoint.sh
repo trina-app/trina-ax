@@ -26,6 +26,15 @@ BASE=/var/lib/$ID
 KIT=/opt/trina-ax/kit
 say() { echo "trina-ax: $*" >&2; }
 die() { echo "trina-ax: error: $*" >&2; exit 1; }
+# A host or compose setting that a restart cannot fix: say it once and wait, instead of exiting into the restart
+# policy's loop (the same message again and again). Fix it, then `docker compose up -d` (or restart) starts again.
+host_stop() {
+  echo "trina-ax: error: $*" >&2
+  echo "trina-ax: the server does not start until this is fixed; then run \`docker compose up -d --force-recreate\`" >&2
+  trap 'exit 1' TERM INT
+  sleep infinity & wait $!
+  exit 1
+}
 
 if [ $# -gt 0 ] && [ "$1" != run ]; then exec "$@"; fi
 [ "$(id -u)" = 0 ] || die "the container must start as root (the server and the engines run as axserver and axagent)"
@@ -33,10 +42,10 @@ KV=$(tr -d '[:space:]' < "$KIT/VERSION")
 
 # ---- checks that give a clear message before the installer's own checks ----
 if ! nft list tables >/dev/null 2>&1; then
-  die "nftables does not work here: add the capability NET_ADMIN (cap_add: [NET_ADMIN]); the engine firewall needs it"
+  host_stop "nftables does not work here: add the capability NET_ADMIN (cap_add: [NET_ADMIN]); the engine firewall needs it"
 fi
 if ! runuser -u nobody -- bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev true >/dev/null 2>&1; then
-  die "the engine sandbox (bubblewrap) cannot start here. The container needs the security_opt lines of docker-compose.yml (seccomp=./seccomp.json, apparmor=unconfined, systempaths=unconfined) (see docs/INSTALL-DOCKER.md); on an Ubuntu 24.04 host also see \"Ubuntu hosts\" there"
+  host_stop "the engine sandbox (bubblewrap) cannot start here. The container needs the security_opt lines of docker-compose.yml (seccomp=./seccomp.json, apparmor=unconfined, systempaths=unconfined) (see docs/INSTALL-DOCKER.md); on an Ubuntu 24.04 host also see \"Ubuntu 24.04 hosts\" there"
 fi
 if [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then
   say "warning: kernel.yama.ptrace_scope is 0 on this host; set it to 1 on the host (sysctl -w kernel.yama.ptrace_scope=1)"
@@ -55,8 +64,10 @@ mv -f "/etc/default/$ID.tmp" "/etc/default/$ID"
 
 # ---- 2) install or update from the image's kit ----
 # --minimal: the image carries the always groups of the one list (scripts/system/packages.json), not the dev
-# environment's tools or the headless browser (docker/Dockerfile)
-ARGS=(--from "$KIT" --no-systemd --skip-apt --no-auto-update --minimal)
+# environment's tools or the headless browser (docker/Dockerfile). Kits before 0.5.0-beta.1 have no root/packages.json
+# and their installer does not know --minimal (it checks only its fixed list, which the image has).
+ARGS=(--from "$KIT" --no-systemd --skip-apt --no-auto-update)
+if compgen -G "$KIT/app/*/root/packages.json" >/dev/null; then ARGS+=(--minimal); fi
 ENGINES=${TRINA_AX_ENGINES:-claude}
 for e in $ENGINES; do
   case "$e" in
