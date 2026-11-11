@@ -862,7 +862,7 @@ export const id: Record<MessageKey, string> = {
   'files.summary.askOwnFolderHiddenPrompt': 'Penyimpanan sebelumnya tidak diizinkan. Tolong simpan isi yang sama di folder saya {folder}.',
 
   'projects.title': 'Proyek',
-  'projects.desc': 'Satu folder di folder tim plus instruksi; chat yang dibuka di proyek memakai konteks yang sama.',
+  'projects.desc': 'Simpan file, instruksi, dan chat untuk satu pekerjaan di satu tempat.',
   'projects.new': 'Proyek baru',
   'projects.edit': 'Ubah proyek',
   'projects.empty': 'Belum ada proyek',

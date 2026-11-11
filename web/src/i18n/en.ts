@@ -862,7 +862,7 @@ export const en: Record<MessageKey, string> = {
   'files.summary.askOwnFolderHiddenPrompt': "The previous save wasn't allowed. Please save the same content inside my folder {folder}.",
 
   'projects.title': 'Projects',
-  'projects.desc': 'A folder of the team folder plus instructions; chats opened in a project share that context.',
+  'projects.desc': 'Keep the files, instructions and chats for one piece of work in one place.',
   'projects.new': 'New project',
   'projects.edit': 'Edit project',
   'projects.empty': 'No projects yet',

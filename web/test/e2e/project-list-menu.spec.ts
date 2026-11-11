@@ -152,6 +152,43 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
         await expect(card(page, 'Launch').getByRole('menu')).toHaveCount(0)
         await expect(more).toBeFocused()
       })
+
+    test('the cards: one height whatever their instructions, who sees it in place of the folder, and plain words on top', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      // long instructions (clamped to two lines), none at all, one short line; Launch with Bob as a member
+      const make = async (name: string, instructions: string, participants: { subjectType: 'user'; subjectId: string }[] = []) =>
+        expect((await post(page, '/api/projects', { name, scope: 'team', instructions, participants })).status()).toBe(201)
+      await make('Launch', 'Plan the spring launch together: the dates, who does what and the first draft of the press kit, all in one place. Answer in short bullet points.', [{ subjectType: 'user', subjectId: 'bob' }])
+      await make('Hiring', '')
+      await make('Budget', 'Draft next year\'s budget.')
+      await page.goto('/projects')
+      await expect(page.getByText(t['projects.desc'], { exact: true })).toBeVisible()
+      const cards = page.getByTestId('project-card')
+      await expect(cards).toHaveCount(3)
+
+      // no instructions: the project page's own words, in the same two lines' room
+      await expect(card(page, 'Hiring').getByTestId('project-card-about')).toHaveText(t['projects.noInstructions'])
+      await expect(card(page, 'Budget').getByTestId('project-card-about')).toHaveText('Draft next year\'s budget.')
+      // who sees it, as the project page's 멤버 line counts (the owner reads its own people): no folder path
+      await expect(card(page, 'Launch').getByTestId('project-card-who')).toHaveText(translate('ko', 'projects.whoMembers', { n: 2 }))
+      await expect(card(page, 'Hiring').getByTestId('project-card-who')).toHaveText(t['chat.whoMe'])
+      for (const c of await cards.all()) await expect(c).not.toContainText('projects/')
+
+      const boxes = await Promise.all((await cards.all()).map(async (c) => (await c.getByRole('link').boundingBox())!))
+      // one height: a card without instructions or with one short line is as tall as one with two lines
+      expect(new Set(boxes.map((b) => Math.round(b.height))).size).toBe(1)
+      if (vp.phone) {
+        // one card per row, the column's width, each below the one before
+        expect(new Set(boxes.map((b) => Math.round(b.x))).size).toBe(1)
+        expect(new Set(boxes.map((b) => Math.round(b.width))).size).toBe(1)
+        expect(boxes.every((b, i) => i === 0 || b.y >= boxes[i - 1].y + boxes[i - 1].height)).toBe(true)
+      } else {
+        // three in one row
+        expect(new Set(boxes.map((b) => Math.round(b.y))).size).toBe(1)
+      }
+      await audit(page, 'project cards')
+    })
   })
 
   test.describe(`move a chat from its row in the sidebar at ${vp.name}`, () => {
