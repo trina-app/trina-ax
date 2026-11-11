@@ -1,8 +1,8 @@
 # Admin on phones, the level below each page: detail pages with an address, people and groups as pages, phone layouts
 
 - Date (UTC): 2026-11-11 17:52
-- Branch: `fix/phone-admin-pages` (stacked on `batch/phone-settings`, #344)
-- Status: in progress
+- Branch: `fix/phone-admin-pages` (into `dev`; #344 is merged there)
+- Status: done
 - Where: trina-ax core web (`web/src/pages/admin/`, `web/src/components/integrations/ConnectorsView.tsx`,
   `web/src/components/PageActions.tsx`, `web/src/components/PhoneFilters.tsx`, `web/src/components/CompactRow.tsx`).
   Why: phone navigation and the Admin pages are core web UI; the phone app is this web app in a web view (see
@@ -101,4 +101,18 @@ Out: System, the invite-link section, any API or permission change, desktop layo
 
 ## Result
 
-(filled in at the end)
+PR #468. Built as planned, with these differences:
+
+- Addresses: Members, Groups, Providers and Activity log items have their page on phones only; on a computer their
+  address leads to the same thing in the page (`?member=`, `?engine=`, the list). Connectors' and Plugins' pages have
+  their address on every width (same layout).
+- The rule editor's entry is `&rules=<path>` (not `&rules=1`): a rule row outside the tree has no `?folder=` under it.
+  Back closes the editor without asking (the browser gives no way to ask first, as before); ‹ in the bar asks.
+- By person's segments get 44 px from Folders.tsx itself (a descendant rule), so this does not wait for #453's `Tabs`.
+- `PhoneFilters` became a bottom sheet with Done, so Members', Folder permissions' and Usage's filters changed with
+  Activity log's.
+- AI apps' rows on phones are drawn in `admin/AiApps.tsx` (the shared `AiAppConnect.tsx` rows are the settings
+  agent's): tappable rows, Claude Code and Codex marked "Set this up on a computer".
+- Connectors on a phone have no Add (by address) button, so "Ask a member to connect" (in its ⌄) is a computer's too.
+- Left: System as a list of pages (ADM-14) and System's folder path (another session is changing System's backup and
+  storage parts); the address card of AI apps (`pages/AiApps.tsx` ConnectorAddress, the settings agent's).
