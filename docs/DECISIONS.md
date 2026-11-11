@@ -20687,14 +20687,21 @@ and the page line spoke of "a folder of the team folder plus instructions" and "
   answer, counts as alive), or, with no group known, when the launcher reports no live engine at all (`liveTurns: 0`,
   the same trust as startup recovery). Without that proof it comes back at the turn's wall deadline plus
   `QUARANTINE_RELEASE_GRACE_MS` (5 min): the launcher was told to end the engine by the wall deadline
-  (`LaunchRequest.timeoutMs`) and ends its groups when the connection closes, so this is a bounded wait. The answer is
-  already saved as failed (`error`) by then; the release is logged at error level.
-- **A dispatch failure fails one turn.** A throw while dispatching one queued turn (`QueueStore.claim`, the `TurnExec`
-  constructor) ends that turn with the crash error (turn and answer `error`, its queue ticket settled, `message.done`),
-  never re-claims it, and the loop goes on. A throw elsewhere in `schedule()` is logged and the capacity watcher tries
+  (`LaunchRequest.timeoutMs`) and, while it lives, ends its groups when the connection closes, so this is a bounded
+  wait. The answer is already saved as failed (`error`) by then; the release is logged at error level. A turn
+  quarantined before it ended (the launcher stays connected but never confirms the end) stops reading the launcher at
+  that same time (`TurnExec.abandonOverdue`), ends as failed, and its slot follows the same rules.
+- `liveTurns: 0` from a launcher that restarted says nothing about engines its earlier process left behind (on macOS
+  nothing kills them when the launcher dies; on Linux `Pdeathsig` does). It is trusted only when no process group was
+  reported, i.e. the engine most likely never started.
+- **A dispatch failure fails one turn.** A throw from `QueueStore.claim` rolled its transaction back, so the turn stays
+  queued and is claimed again on the next try (`CLAIM_TRIES`, 3); after that, or for a throw after a committed claim
+  (the `TurnExec` constructor), that turn ends with the crash error (turn and answer `error`, its queue ticket settled,
+  `message.done`), is never claimed again, and the loop goes on. A throw elsewhere in `schedule()` is logged and the capacity watcher tries
   again; it no longer latches `closing` (every later send was 503 `draining` until a restart).
 - **`finish()` always ends.** Each part of a turn's end (text, cards, relay, proxy, sub-agent audit, file summary,
   `message.done`) is guarded on its own; if the end state itself fails, the turn and answer still get `error`; the slot
   is given back (or quarantined) and `done` resolves whatever failed.
 - Tests: `tests/unit/turn-slot-leaks.test.ts` (a broken launcher connection with the group gone, still alive until the
-  deadline, no group known with the launcher busy or idle; an injected claim failure; injected failures in the end).
+  deadline, no group known with the launcher busy or idle, a launcher that never confirms the end; an injected claim
+  failure once and every time; injected failures in the end).

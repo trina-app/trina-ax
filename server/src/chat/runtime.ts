@@ -47,6 +47,8 @@ export const QUEUE_RETRY_AFTER_S = 30
 export const MEMORY_RECHECK_MS = 2000
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000
+/** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
+export const CLAIM_TRIES = 3
 /** a quarantined slot whose engine was never confirmed gone is released this long after the turn's own wall deadline:
  * the launcher was told to end the engine by then (LaunchRequest.timeoutMs), so it is a bounded wait, never forever */
 export const QUARANTINE_RELEASE_GRACE_MS = 5 * 60_000
@@ -198,6 +200,8 @@ export class ChatRuntime {
   private dispatching = false
   /** the last dispatch failed outside one turn: the capacity watcher runs schedule() again */
   private dispatchRetry = false
+  /** failed claims by turn (a claim's own transaction rolled back: safe to try again, CLAIM_TRIES times) */
+  private claimFailures = new Map<string, number>()
   private recovering = false
   private recoveryTask: Promise<void> | null = null
   private recoveryRetry: ReturnType<typeof setTimeout> | null = null
@@ -419,15 +423,29 @@ export class ChatRuntime {
       const i = this.queued.findIndex(s => s.turnId === head.turnId)
       const spec = this.queued[i]!
       let exec: TurnExec
+      let timing: ReturnType<QueueStore['claim']>
+      try { timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs) } catch (err) {
+        // the claim's transaction rolled back: nothing committed, so the turn may be claimed again a little later
+        const n = (this.claimFailures.get(spec.turnId) ?? 0) + 1
+        if (n < CLAIM_TRIES) {
+          this.claimFailures.set(spec.turnId, n)
+          this.log.warn('claiming a queued turn failed; trying again', { err, turn: spec.turnId, tries: n })
+          this.dispatchRetry = true
+          break
+        }
+        this.claimFailures.delete(spec.turnId)
+        this.dispatchFailed(spec, err)
+        continue
+      }
+      this.claimFailures.delete(spec.turnId)
       try {
-        const timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs)
         this.queued.splice(i, 1)
         this.queueRevision++
         if (!timing) { this.queueStore.settle(spec.userId); continue }
         Object.assign(spec, timing)
         exec = new TurnExec(this, spec)
       } catch (err) {
-        // Only this turn fails: it is never claimed again (a committed claim is not replayed), the queue goes on.
+        // After a committed claim only this turn fails: it is never claimed again (not replayed), the queue goes on.
         this.dispatchFailed(spec, err)
         continue
       }
@@ -528,7 +546,12 @@ export class ChatRuntime {
         const exec = this.running.get(id)
         if (!exec) { this.quarantined.delete(id); continue }
         const q = exec.quarantineState()
-        if (!q) continue // still ending: its own finish releases or keeps the slot
+        if (!q) {
+          // still ending: its own finish releases or keeps the slot; one stuck on a launcher that never confirms the
+          // end is made to end at the release time (the next probe then decides on its slot)
+          if (exec.abandonOverdue()) this.log.error('quarantined turn never ended; stopped waiting for its launcher', { turn: id })
+          continue
+        }
         let reason: 'engine_gone' | 'launcher_idle' | 'deadline' | null = null
         if (q.pgid !== null) { if (processGroupGone(q.pgid)) reason = 'engine_gone' }
         else {

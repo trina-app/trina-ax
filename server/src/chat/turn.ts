@@ -289,6 +289,8 @@ export class TurnExec {
   /** the process group of the latest engine launch (the launcher's started event); null: none reported */
   private enginePgid: number | null = null
   private quarantinedAt = 0
+  /** a quarantined turn still waiting on its launcher past the release time: stop reading it (abandonOverdue) */
+  private readonly abandon = new AbortController()
   private timeoutSource: 'active' | 'wall' | null = null
   private activeMs = 0
   private humanWaits = 0
@@ -383,7 +385,7 @@ export class TurnExec {
       }
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
-      if (this.spec.engine === 'claude-code') guardOfficeClaudeJson(this.rt.ctx, 'turn')
+      if (this.spec.engine === 'claude-code') { try { guardOfficeClaudeJson(this.rt.ctx, 'turn') } catch (e) { this.rt.log.error('claude.json guard failed', { err: e, turn: this.id }) } }
       await this.finish()
       // a seeded past chat of the demo (demo/replay.ts) says when it was
       if (this.replayDaysAgo) { try { backdateChat(this.rt.db, this.spec.chatId, this.replayDaysAgo) } catch (e) { this.rt.log.warn('demo backdate failed', { err: e, turn: this.id }) } }
@@ -426,7 +428,15 @@ export class TurnExec {
    * ended, or not quarantined. */
   quarantineState(): { pgid: number | null; releaseAt: number } | null {
     if (!this.quarantined || this.status !== 'finished') return null
-    return { pgid: this.enginePgid, releaseAt: Math.max(this.wallEndsAt, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
+    return { pgid: this.enginePgid, releaseAt: this.quarantineReleaseAt() }
+  }
+  private quarantineReleaseAt() { return Math.max(this.wallEndsAt, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
+  /** A quarantined turn that has not ended (its launcher stays connected but never confirms the end) past the release
+   * time: stop waiting for the launcher, so the turn ends (as failed) and its slot follows the probe. True if it did. */
+  abandonOverdue(): boolean {
+    if (!this.quarantined || this.status === 'finished' || this.abandon.signal.aborted || performance.now() < this.quarantineReleaseAt()) return false
+    this.abandon.abort()
+    return true
   }
 
   private tick() {
@@ -1130,7 +1140,16 @@ export class TurnExec {
     const notes: string[] = []
     let exit: any = null
     try {
-    for await (const e of h.events) {
+    const it = h.events[Symbol.asyncIterator]()
+    const abandoned = new Promise<'abandoned'>((r) => {
+      if (this.abandon.signal.aborted) r('abandoned')
+      else this.abandon.signal.addEventListener('abort', () => r('abandoned'), { once: true })
+    })
+    for (;;) {
+      const next = await Promise.race([it.next(), abandoned])
+      if (next === 'abandoned') { void it.return?.(undefined)?.catch?.(() => {}); throw new Error('engine end not confirmed by the release time; turn abandoned') }
+      if (next.done) break
+      const e = next.value
       if (e.ev === 'started') { this.enginePgid = e.pgid; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
@@ -3171,6 +3190,7 @@ export class TurnExec {
     if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
     // the same for a step the person's Stop cut off: stopped, like Claude Code's "Interrupted" (Step.stopped)
     if (status === 'stopped') for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.stopped = true
+    let endFailed = false
     let files: ReturnType<TurnExec['fileSummary']> = null
     try { files = this.fileSummary() } catch (e) { this.rt.log.warn('the answer\'s file summary failed', { err: e, turn: this.id }) }
     const db = this.rt.db
@@ -3221,13 +3241,14 @@ export class TurnExec {
     } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
       this.endAfterFailure()
+      endFailed = true
     }
     if (this.spec.clientKind === 'schedule') this.finishStep('notifications', () => notificationsOf(this.rt.ctx).afterTurn(this.id))
     // the 7-day team goal: a member's first successful run of a team skill tells the owners (never throws)
     if (turnStatus === 'done') noteGoalRun(this.rt.ctx, this.id)
     // budget notices (80% / 100%) once the turn's usage is in (admin/budget-watch.ts)
     try { if (this.registered) afterUsage(db, this.spec.userId, credentialsOf(this.rt.ctx).notify) } catch (e) { this.rt.log.warn('budget notices failed', { err: e }) }
-    return status
+    return endFailed ? 'error' : status
   }
 
   /** message.done (or the room's end) and the chat's update, after the slot is given back */

@@ -1,11 +1,12 @@
 // A turn's slot (and its chat) always comes back (fix/turn-slot-leaks, 2026-11-11):
 // 1. a turn quarantined because the launcher connection broke (termination unconfirmed) gives its slot back once its
 //    engine's process group is gone, the launcher reports no engine (group unknown), or at a bounded deadline;
-// 2. a throw while dispatching one turn ends only that turn (before: the whole queue stopped, every send 503);
+// 2. a throw while dispatching one turn never stops the queue (before: every later send 503): a failed claim (rolled
+//    back) is tried again, a few times at most, then only that turn fails;
 // 3. a throw in the turn's end still records an end state, gives the slot back and resolves `done`.
 import { afterEach, expect, spyOn, test } from 'bun:test'
 import { harness, withOwner, type Harness } from './a-lib'
-import { getChatRuntime, processGroupGone, type ChatRuntime } from '../../server/src/chat/runtime'
+import { CLAIM_TRIES, getChatRuntime, processGroupGone, type ChatRuntime } from '../../server/src/chat/runtime'
 import { TurnExec } from '../../server/src/chat/turn'
 import { newId } from '../../server/src/db'
 import { setSetting } from '../../server/src/admin/settings'
@@ -134,21 +135,57 @@ test('with no process group known, only a launcher with no live engine releases 
   expect(rt.runningCount()).toBe(0)
 }, 30_000)
 
-test('a throw while dispatching one turn ends only that turn; the queue keeps taking answers', async () => {
+test('a throw while claiming a turn is tried again; one that keeps failing ends only that turn', async () => {
   await setup('dispatch')
-  const a = newChat(), b = newChat()
-  const claim = spyOn(rt.queueStore, 'claim').mockImplementationOnce(() => { throw new Error('injected claim failure') })
-  spies.push(claim)
+  const a = newChat(), b = newChat(), c = newChat()
+  // once: the claim's transaction rolled back, the turn stays queued and runs on the next try (capacity watcher)
+  const once = spyOn(rt.queueStore, 'claim').mockImplementationOnce(() => { throw new Error('injected claim failure') })
   const first = send(a)
-  expect(turnStatus(first.turnId)).toBe('error')
-  expect(messageStatus(first.assistantMessage.id)).toBe('error')
+  expect(turnStatus(first.turnId)).toBe('queued')
   expect(rt.acceptingTurns).toBe(true)
-  expect(rt.runningCount() + rt.queuedCount()).toBe(0)
+  expect(await waitFor(() => turnStatus(first.turnId) === 'done', { timeoutMs: 10_000 })).toBe(true)
+  once.mockRestore()
+  // every time: after CLAIM_TRIES tries only that turn fails, and the queue goes on
+  const always = spyOn(rt.queueStore, 'claim').mockImplementation(() => { throw new Error('injected claim failure') })
+  spies.push(always)
   const second = send(b)
-  expect(await waitFor(() => turnStatus(second.turnId) === 'done')).toBe(true)
+  for (let i = 1; i < CLAIM_TRIES; i++) rt.schedule()
+  expect(turnStatus(second.turnId)).toBe('error')
+  expect(messageStatus(second.assistantMessage.id)).toBe('error')
+  expect(rt.runningCount() + rt.queuedCount()).toBe(0)
+  always.mockRestore()
+  const third = send(c)
+  expect(await waitFor(() => turnStatus(third.turnId) === 'done')).toBe(true)
   // the failed chat takes a new question too
-  const again = send(a)
+  const again = send(b)
   expect(await waitFor(() => turnStatus(again.turnId) === 'done')).toBe(true)
+}, 30_000)
+
+test('a quarantined turn whose launcher never confirms the end is made to end at the release time', async () => {
+  await setup('stuck')
+  const a = newChat()
+  const pgid = await liveGroup()
+  engines.set(a, async (exec) => {
+    const core = { turns: { bind() {} }, launcher: { launch: () => ({ kill() {}, events: (async function* () {
+      yield { ev: 'started', pid: pgid, pgid }
+      await new Promise(() => {}) // connected, never an exit
+    })() }) } }
+    await (exec as any).launch(core, {}, () => {})
+  })
+  send(a)
+  await waitFor(() => execs.length === 1)
+  rt.stopChat(a)
+  ;(execs[0] as any).quarantine() // what the stop grace does when no exit comes
+  await rt.probeQuarantined()
+  expect(execs[0]!.status).not.toBe('finished')
+  ;(execs[0] as any).wallEndsAt = 0
+  rt.quarantineReleaseGraceMs = 0
+  await rt.probeQuarantined()
+  await execs[0]!.done
+  expect(turnStatus(execs[0]!.id)).toBe('error')
+  await rt.probeQuarantined()
+  expect(rt.runningCount()).toBe(0)
+  expect(rt.queueDiagnostics().quarantined).toBe(0)
 }, 30_000)
 
 test('a throw in the end of a turn still ends it, gives the slot back and resolves done', async () => {
