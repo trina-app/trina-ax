@@ -111,8 +111,8 @@ export function Field({ label, children, hint, error, aside }: { label: string; 
     </label>
   )
   return (
-    <div className="block">
-      {aside ? <div className="relative">{labelled}<div className="absolute right-0 bottom-0 flex h-9 items-center max-sm:h-10">{aside}</div></div> : labelled}
+    <div className="block" data-field>
+      {aside ? <div className="relative">{labelled}<div className="absolute right-0 bottom-0 flex h-9 items-center max-sm:h-10" data-testid="field-aside">{aside}</div></div> : labelled}
       {hint && !error && (
         <span id={id} className="mt-1 block text-xs text-faint">
           {hint}

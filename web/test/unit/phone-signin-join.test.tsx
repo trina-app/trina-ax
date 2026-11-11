@@ -43,9 +43,10 @@ describe('the password field', () => {
       const eye = m.get('invite-password-show')
       const input = m.get('invite-password')
       // the eye and the input share the field's box: the input keeps room for it on its right
-      const box = eye.parentElement!.parentElement!
-      expect(box.className).toContain('relative')
-      expect(box.contains(input)).toBe(true)
+      const aside = m.get('field-aside')
+      expect(aside.contains(eye)).toBe(true)
+      expect(aside.parentElement!.className).toContain('relative')
+      expect(aside.parentElement!.contains(input)).toBe(true)
       expect(input.className).toContain('pr-11')
       // the eye is not part of the field's name: it is outside the <label>
       expect(input.closest('label')!.contains(eye)).toBe(false)
@@ -85,6 +86,7 @@ describe('inside the phone app', () => {
     let m: Mounted = await mount(<MemoryRouter initialEntries={['/login']}><Login /></MemoryRouter>)
     try {
       expect(m.find('auth-frame')).not.toBeNull()
+      expect(m.get('auth-submit-bar').contains(m.get('login-submit'))).toBe(true)
       expect(m.container.querySelector('select')).not.toBeNull()
       expect(m.container.querySelector('a[href*="github"]')).not.toBeNull()
     } finally { await m.unmount() }

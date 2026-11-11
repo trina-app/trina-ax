@@ -121,8 +121,8 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
 }
 
 /** On a phone, the field being typed in stays in sight above the button bar (SubmitBar) and the keyboard: when it gets
- * the focus, and when the keyboard opens and the box gets shorter (visualViewport's resize), the box scrolls it into
- * view, keeping the bar's height free under it (the box's scroll-padding-bottom). A computer's page does not scroll. */
+ * the focus, and when the keyboard opens and the box gets shorter (visualViewport's resize), the box scrolls it (with its
+ * hint or error) into view, keeping the bar's height free under it (the box's scroll-padding-bottom). A computer's page does not scroll. */
 function useFieldAboveBar() {
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -131,7 +131,8 @@ function useFieldAboveBar() {
     if (!el || !phone) return
     const reveal = () => {
       const f = document.activeElement
-      if (phone.matches && isTextField(f) && el.contains(f)) f.scrollIntoView?.({ block: 'nearest' })
+      // the whole field (Field's box: its hint or error under it too), not only the input
+      if (phone.matches && isTextField(f) && el.contains(f)) (f.closest('[data-field]') ?? f).scrollIntoView?.({ block: 'nearest' })
     }
     // after the keyboard's own scrolling and the new --app-h have settled
     const later = () => requestAnimationFrame(reveal)
@@ -297,14 +298,16 @@ export function Login() {
         <Field label={t('auth.password')} error={errorOf('password')}>
           <input className={inputCls} name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required data-testid="login-password" />
         </Field>
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
-        <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="login-submit">
-          {t('auth.signIn')}
-        </Button>
+        <SubmitBar>
+          {error && (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          )}
+          <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="login-submit">
+            {t('auth.signIn')}
+          </Button>
+        </SubmitBar>
         <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
       </form>
     </AuthFrame>
