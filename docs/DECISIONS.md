@@ -19865,6 +19865,7 @@ Replaces "K — Knowledge graph" (2026-11-06), "지식 그래프로 더 빠른 �
   the old tool is refused like any tool a template does not list.
 - **Release notes.** The knowledge graph's first part (the code map and the document index) shipped in 0.5.0-beta.1;
   waves 1–3 never did, so their notes leave "Unreleased" (the side-by-side reads keep theirs) and
-  `changes/remove-knowledge-graph.md` says what goes.
+  `changes/remove-knowledge-graph.md` says what goes, including the older `search` tool (`MYCEL_SEMANTIC=on`, shipped
+  until 0.5.0-beta.1), whose removal note was one of those lines, and its model, which that note said would stay.
 - Version impact: **minor** (0.x): a feature and an admin API are removed; nothing an installed team set up stops
   loading.

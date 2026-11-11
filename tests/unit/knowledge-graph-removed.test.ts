@@ -30,6 +30,8 @@ function lines() {
   return { out, log, about: () => out.filter((l) => l.msg.includes('knowledge graph')) }
 }
 
+/** the index's folders under a temporary name, while they are deleted in the background */
+const removing = (data: string) => fs.readdirSync(data).filter((n) => n.startsWith('.knowledge-graph-removing'))
 const put = (f: string, text = 'x') => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text) }
 
 /** an older version's data folder: the index (document text, a code copy) and the meaning model next to whisper's */
@@ -49,7 +51,7 @@ describe("the knowledge graph's data", () => {
     const l = lines()
     expect(await removeKnowledgeGraphData(data, l.log, {})).toBe(true)
     expect(fs.existsSync(path.join(data, 'knowledge-graph'))).toBe(false)
-    expect(fs.existsSync(path.join(data, '.knowledge-graph-removing'))).toBe(false)
+    expect(removing(data)).toEqual([])
     expect(fs.existsSync(path.join(data, 'models', 'Xenova'))).toBe(false)
     expect(fs.readFileSync(path.join(data, 'models', 'whisper', 'ggml-base.bin'), 'utf8')).toBe('whisper')
     expect(l.out).toEqual([{ level: 'info', msg: expect.stringContaining('knowledge graph'), fields: { removed: ['knowledge-graph', 'models/Xenova/multilingual-e5-small'] } }])
@@ -108,12 +110,15 @@ describe("the knowledge graph's data", () => {
     expect(fs.readFileSync(path.join(host, 'Xenova', 'multilingual-e5-small', 'config.json'), 'utf8')).toBe('shared')
   })
 
-  test('an index a stopped start had begun to delete is finished at the next', async () => {
+  test('an index a stopped start had begun to delete is finished at the next, next to a new one', async () => {
     const data = tmp()
     put(path.join(data, '.knowledge-graph-removing', 'documents', 'documents.db'), 'PRIVATE-DOCUMENT-TEXT')
+    put(path.join(data, '.knowledge-graph-removing-0195f3c2-8a3e-7b1c-9d2e-123456789abc', 'state.json'), '{}')
+    put(path.join(data, 'knowledge-graph', 'state.json'), '{}')
     const l = lines()
     expect(await removeKnowledgeGraphData(data, l.log, {})).toBe(true)
-    expect(fs.existsSync(path.join(data, '.knowledge-graph-removing'))).toBe(false)
+    expect(removing(data)).toEqual([])
+    expect(fs.existsSync(path.join(data, 'knowledge-graph'))).toBe(false)
     expect(l.about().map((x) => x.level)).toEqual(['info'])
   })
 })
@@ -152,7 +157,7 @@ describe('an older server.json', () => {
       for (let i = 0; i < 250 && !removed().length; i++) await Bun.sleep(20)
       expect(removed().map((x) => x.level)).toEqual(['info'])
       expect(fs.existsSync(path.join(data, 'knowledge-graph'))).toBe(false)
-      expect(fs.existsSync(path.join(data, '.knowledge-graph-removing'))).toBe(false)
+      expect(removing(data)).toEqual([])
       expect(fs.existsSync(path.join(data, 'models', 'Xenova'))).toBe(false)
       expect(fs.existsSync(path.join(data, 'models', 'whisper', 'ggml-base.bin'))).toBe(true)
     } finally { await s.stop() }

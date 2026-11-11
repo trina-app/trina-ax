@@ -81,7 +81,8 @@ describe('the mark (stepMark)', () => {
 
   test('a failed look-up nothing got past: quiet under an answer that did not fail, red when the answer failed', () => {
     const search = step({ id: 'w1', kind: 'web_search', tool: 'web_search', label: '웹 검색 "acme"', status: 'error' })
-    for (const s of [guess, search, { ...guess, id: 'g5', tool: 'grep' }]) {
+    // knowledge_explore and search: removed look-up tools whose steps stay in older chats, with the same quiet mark
+    for (const s of [guess, search, { ...guess, id: 'g5', tool: 'grep' }, { ...guess, id: 'g6', tool: 'knowledge_explore' }, { ...guess, id: 'g7', tool: 'search' }]) {
       expect(stepMark(s, ctx([s]))).toBe('retried')
       expect(stepMark(s, ctx([s], { answerFailed: true }))).toBe('failed')
     }

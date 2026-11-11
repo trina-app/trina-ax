@@ -112,6 +112,9 @@ export function mediaStepKind(step: { tool?: string; label: string }): MediaKind
  * A failed call of one changed nothing, so the steps list under an answer that did not fail shows it with the quiet
  * mark even when no later step worked (web/src/components/chat/Steps.tsx stepMark). */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
+/** Removed tools that only looked things up (search by meaning, the knowledge graph's knowledge_explore): never offered
+ * any more, but their steps in older chats keep the quiet mark of a read-only step (Steps.tsx stepMark). */
+export const REMOVED_READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['search', 'knowledge_explore'])
 
 export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', "ブラウザー", "Navegador")
 

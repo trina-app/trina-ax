@@ -203,7 +203,9 @@ export function teamRules(files: FileService, user: Principal, readable?: ((rel:
   return r.text + `\n\n(${r.total - r.followed} more team rule file${r.total - r.followed === 1 ? '' : 's'} under skills/ ${r.total - r.followed === 1 ? 'is' : 'are'} not included: only the first ${SKILL_FILES_MAX} by file name are given to you. If the user asks about a rule you do not see here, say so.)`
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'room_refs', 'attachments', 'shared_chat', 'shared_chats']
+const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'room_refs', 'attachments', 'document_matches', 'shared_chat', 'shared_chats']
+// document_matches: the removed knowledge graph's block in front of a message (docs/DECISIONS.md, 2026-11-11); a Claude
+// session resumed from before still has instructions that name it, so file text still cannot open or close it
 // "< /tag", "<\u200b/tag", "</ tag": spaces and format characters (zero-width ones) between "<", "/" and the name count
 // too (review of wave 1: document text now reaches the message without anyone asking for it)
 const BLOCK_TAG_RE = new RegExp(`<[\\s\\p{Cf}]*(/?)[\\s\\p{Cf}]*(${BLOCK_TAGS.join('|')})\\b`, 'giu')

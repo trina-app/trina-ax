@@ -24,7 +24,7 @@ import { createContext, useContext, useState } from 'react'
 import { api, API, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
-import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, stepPlace } from '@mycel/shared'
+import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, stepPlace } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
@@ -50,8 +50,9 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
   return parts.join(' · ')
 }
 
-/** A step that only looked something up (a read, a search, a web search): its failure changed nothing. */
-const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && READ_ONLY_TOOLS.has(s.tool))
+/** A step that only looked something up (a read, a search, a web search; a removed search tool's step in an older chat):
+ * its failure changed nothing. */
+const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && (READ_ONLY_TOOLS.has(s.tool) || REMOVED_READ_ONLY_TOOLS.has(s.tool)))
 /** Tools that save a file: one that worked makes up for another that failed. */
 const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp'])
 /** What a later step must have done to make up for a failed one that changed something: the same tool (a save tool for a

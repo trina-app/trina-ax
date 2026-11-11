@@ -69,8 +69,8 @@ export function removeOldSemanticIndex(dataDir: string, log: Pick<Logger, 'info'
  * indexes (copies of the team's document text and code), and the files of its search by meaning model, which nothing
  * else reads (speech-to-text keeps its own models in models/whisper). */
 export const KNOWLEDGE_GRAPH_DATA = { index: 'knowledge-graph', model: ['models', 'Xenova', 'multilingual-e5-small'] } as const
-/** the index's folder while it is deleted in the background: a start that finds it (the last one stopped before the
- * end) deletes the rest */
+/** the index's folder while it is deleted in the background (`<name>-<uuid>`): a start that finds one (the last one
+ * stopped before the end) deletes the rest */
 const KG_REMOVING = '.knowledge-graph-removing'
 
 /** a real folder, never a link to one (lstat) */
@@ -91,11 +91,9 @@ const isUnder = (p: string, root: string) => p === root || p.startsWith(root + p
 export function removeKnowledgeGraphData(dataDir: string, log: Pick<Logger, 'info' | 'warn'>, env: Record<string, string | undefined> = process.env): Promise<boolean> {
   const removed: string[] = []
   const index = path.join(dataDir, KNOWLEDGE_GRAPH_DATA.index)
-  const removing = path.join(dataDir, KG_REMOVING)
   try {
     if (fs.lstatSync(index).isSymbolicLink()) fs.unlinkSync(index)
-    else if (!fs.existsSync(removing)) fs.renameSync(index, removing)
-    else fs.rmSync(index, { recursive: true, force: true })
+    else fs.renameSync(index, path.join(dataDir, `${KG_REMOVING}-${crypto.randomUUID()}`))
     removed.push(KNOWLEDGE_GRAPH_DATA.index)
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') log.warn('the knowledge graph\'s old index could not be removed', { err: e })
@@ -113,12 +111,14 @@ export function removeKnowledgeGraphData(dataDir: string, log: Pick<Logger, 'inf
       try { fs.rmdirSync(path.join(dataDir, models, vendor)) } catch {}
     } catch (e) { log.warn('the knowledge graph\'s old model files could not be removed', { err: e }) }
   }
-  // the index folder, now under its temporary name (also one an earlier start left half deleted)
-  if (!fs.existsSync(removing)) {
+  // the index folder, now under a temporary name (also any an earlier start left half deleted)
+  let removing: string[] = []
+  try { removing = fs.readdirSync(dataDir).filter((n) => n === KG_REMOVING || n.startsWith(`${KG_REMOVING}-`)).map((n) => path.join(dataDir, n)) } catch {}
+  if (!removing.length) {
     if (removed.length) log.info('removed the knowledge graph\'s old index and model files: the knowledge graph was removed', { removed })
     return Promise.resolve(removed.length > 0)
   }
-  return fs.promises.rm(removing, { recursive: true, force: true }).then(() => {
+  return Promise.all(removing.map((p) => fs.promises.rm(p, { recursive: true, force: true }))).then(() => {
     log.info('removed the knowledge graph\'s old index and model files: the knowledge graph was removed', { removed: removed.length ? removed : [KNOWLEDGE_GRAPH_DATA.index] })
     return true
   }, (e: unknown) => {
