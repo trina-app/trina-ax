@@ -301,7 +301,9 @@ function toolContent(out: string, links: string[]): string {
  */
 export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string; message: string; rpc: Rpc; emit: (e: EngineEvent) => void; signal: AbortSignal; fetchFn?: typeof fetch; maxSteps?: number; headersTimeoutMs?: number; publicOrigins?: readonly string[]
   /** spend control per completion (ApiMeter); `maxTokens`: sent as max_tokens (none: the provider's default) */
-  meter?: ApiMeter; maxTokens?: number }): Promise<void> {
+  meter?: ApiMeter; maxTokens?: number
+  /** before each round after the first (the turn checks the person's budget; a used-up one aborts `signal`) */
+  beforeRound?: () => void }): Promise<void> {
   // the hosted cloud: every call's address is checked first (public https only, system/egress.ts)
   const fetchFn = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: o.conf.setBy === 'admin' })
   const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
@@ -313,6 +315,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   guard.allow(o.message)
   const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: o.message }]
   for (let step = 0; step < (o.maxSteps ?? MAX_STEPS); step++) {
+    if (step > 0) o.beforeRound?.()
     if (o.signal.aborted) return
     let r: Awaited<ReturnType<typeof complete>>
     try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, guard, meter: o.meter, maxTokens: o.maxTokens }) } catch (e) {
@@ -324,6 +327,8 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
     }
     if (!r) return
     if (!r.calls.length) { o.emit({ type: 'done' }); return }
+    // stopped while this round answered (Stop, or the budget its usage used up): its tool calls are not run
+    if (o.signal.aborted) return
     messages.push({ role: 'assistant', content: r.text || null, tool_calls: r.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.args || '{}' } })) })
     for (const c of r.calls) {
       let args: unknown = {}
