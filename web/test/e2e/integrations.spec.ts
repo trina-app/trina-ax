@@ -533,6 +533,10 @@ test('phone width: a member asks for an app from its page, and the button fits',
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   await button.click()
   await expect(page.getByTestId('service-asked')).toHaveAttribute('data-state', 'sent')
+  // an admin sets it up meanwhile: the open page offers Connect without a reload (its "ready" notice brings it)
+  expect((await page.request.post('/__test/google-apps', { data: { app: 'calendar', client: 'app' } })).ok()).toBeTruthy()
+  await expect(page.getByTestId('gapp-connect')).toBeEnabled()
+  await expect(page.getByTestId('service-asked')).toHaveCount(0)
 })
 
 test('single tools on and off: a switch each for whoever manages the connection; new tools are on; members see which are off', async ({ page }) => {

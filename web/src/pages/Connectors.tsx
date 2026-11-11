@@ -16,7 +16,7 @@
 // ConnectorsLayout, so a + can open Google during the click and its page shows the same sign-in.
 import clsx from 'clsx'
 import { Check, Plus, Search } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -25,7 +25,7 @@ import { builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LI
 import { canonicalService, splitByScope } from '../lib/integrations'
 import { writeDraft } from '../lib/localData'
 import { useT } from '../i18n'
-import { integrationsChanged, reloadAsked } from '../store/live'
+import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe, useMeStrict } from '../store/session'
 import { Button, EmptyState, ErrorNote, IconButton, PageHeader, Skeleton, inputCls, pageColumn } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
@@ -66,6 +66,11 @@ function useConnectorsState() {
   useEffect(() => reloadAsked.on(reload), [reload])
   // a connection of mine went without me (its template changed or went): the lists again, so no stale row stays
   useEffect(() => integrationsChanged.on(reload), [reload])
+  // an app I asked for may be ready now (its notice comes with notifications.changed): the asks and the apps again, so
+  // its page offers Connect without a reload; only while I have an ask open
+  const onNotice = useRef(() => {})
+  onNotice.current = () => { if (asks.waiting) { void reloadAsks(); void reloadGoogle(); drive.load() } }
+  useEffect(() => notificationsChanged.on(() => onNotice.current()), [])
   const actions = useIntegrationActions({
     add: (i) => list.setData((d) => (d ? { ...d, items: [...d.items, i] } : d)),
     replace: (i) => list.setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === i.id ? i : x)) } : d)),

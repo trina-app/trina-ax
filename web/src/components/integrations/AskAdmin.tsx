@@ -54,7 +54,7 @@ export function useServiceAsks(admin: boolean) {
         : reason === 'not_requestable' ? t('serviceRequest.notRequestable', { name }) : t('serviceRequest.failed') })
     } finally { if (g === life.current) setBusy(null) }
   }
-  return { ready: open !== null, stateOf, ask, busy, error, reload: load }
+  return { ready: open !== null, waiting: !!open?.size, stateOf, ask, busy, error, reload: load }
 }
 export type ServiceAsks = ReturnType<typeof useServiceAsks>
 
