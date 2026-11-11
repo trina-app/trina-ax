@@ -213,6 +213,42 @@ export function overlayBackCases() {
     await expect(page).toHaveURL(/\/$/)
   })
 
+  test('the room\'s ‹ while the @ list is open leaves the room in one tap (the list closes with it)', async ({ page }) => {
+    await reset(page)
+    await routeRoom(page, { members: [SORA], messages: MESSAGES })
+    await signIn(page)
+    // into the room from Chats, so ‹ goes back there
+    await page.goto('/rooms')
+    await page.getByTestId('rooms-row').first().click()
+    await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}$`))
+    await expect(page.getByTestId('room-message')).toHaveCount(MESSAGES.length)
+    await page.getByTestId('room-input').tap()
+    await page.keyboard.type('@')
+    await expect(page.getByTestId('mention-menu')).toBeVisible()
+    await page.getByTestId('room-back').click()
+    await expect(page).toHaveURL(/\/rooms$/)
+    await expect(page.getByTestId('rooms-page')).toBeVisible()
+    await expect(page.getByTestId('mention-menu')).toHaveCount(0)
+  })
+
+  test('a sheet\'s item that opens a screen already in the stack (Scheduled + › 채팅으로 설명하기): Trina, and the app stays', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await expect(page).toHaveURL(/\/$/)
+    await page.getByTestId('menu-open').click()
+    await page.locator('[data-drawer]').getByTestId('nav-scheduled').click()
+    await expect(page).toHaveURL(/\/scheduled$/)
+    await page.getByTestId('new-task-phone').click()
+    await page.getByTestId('new-task-chat').click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    // nothing goes one entry too far a moment later (two backs at once)
+    await page.waitForTimeout(1200)
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    expect(await onOverlay(page)).toBe(false)
+  })
+
   test('the side chat\'s 🕘 list: Back closes the list, then the side chat, then the room is left', async ({ page }) => {
     await openRoom(page)
     const roomUrl = page.url()

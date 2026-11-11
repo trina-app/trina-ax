@@ -4,6 +4,7 @@
 // takes its entry; a replace while one is open reaches the page's entry under it; entries of closed overlays are skipped.
 import { afterEach, expect, test } from 'bun:test'
 import { holdOverlayEntry, isOverlayEntry, OVERLAY_DEPTH, resetOverlaysForTest, whenOverlaysSettled } from '../../src/lib/backCloses'
+import { stepping } from '../../src/lib/historySteps'
 import { FakeEvent, installDom, removeDom } from './dom-host'
 
 type State = Record<string, unknown> | null
@@ -287,3 +288,86 @@ test('a page under a history the page may not change: the overlay still opens, B
   const release = holdOverlayEntry(() => {})
   expect(() => release()).not.toThrow()
 })
+
+// ---- one traversal at a time (Chromium applies two backs started together and lands one entry too far) ----
+
+test('a sheet\'s item that opens a screen already in the stack: the screen history steps back past the sheet\'s entry; no back of ours on top of it', async () => {
+  start('/scheduled')
+  entries = [{ state: { idx: 0, key: 'k0', usr: null }, url: '/' }, { state: { idx: 1, key: 'k1', usr: null }, url: '/scheduled' }]
+  at = 1
+  resetOverlaysForTest()
+  const sheet = holdOverlayEntry(() => {})
+  holdBack = true
+  let done!: () => void
+  const stepDone = new Promise<void>((r) => (done = r))
+  // the item: the sheet closes and the screen history goes back to Trina in the same tap (lib/screenHistory.ts)
+  const step = stepping(async () => {
+    globalThis.history.go(-2)
+    await stepDone
+  })
+  sheet()
+  await tick()
+  // only the step: ours waits
+  expect(gos).toEqual([-2])
+  late.shift()!()
+  done()
+  await step
+  await tick()
+  expect(gos).toEqual([-2])
+  expect(entries[at]!.url).toBe('/')
+})
+
+test('someone else\'s back on its way (a ‹): a closed overlay\'s back-off waits for it, and is not needed once it landed past', async () => {
+  start()
+  const r = holdOverlayEntry(() => {})
+  holdBack = true
+  // the app's step back from inside the overlay goes past its entry too
+  globalThis.history.go(-1)
+  expect(gos).toEqual([-2])
+  r()
+  await tick()
+  expect(gos).toEqual([-2])
+  late.shift()!()
+  await tick()
+  expect(gos).toEqual([-2])
+})
+
+test('a page\'s ‹ while the @ list is open (React Router\'s navigate(-1)): one step leaves the page, the list closes', () => {
+  start('/rooms/r1')
+  entries = [{ state: { idx: 0, key: 'k0', usr: null }, url: '/rooms' }, { state: { idx: 1, key: 'k1', usr: null }, url: '/rooms/r1' }]
+  at = 1
+  resetOverlaysForTest()
+  let closed = 0
+  holdOverlayEntry(() => closed++)
+  globalThis.history.go(-1)
+  expect(entries[at]!.url).toBe('/rooms')
+  expect(closed).toBe(1)
+})
+
+test('an overlay opened while someone else\'s back is on its way pushes its entry once it has landed', () => {
+  start()
+  routerPush('k2', 4, '/files')
+  holdBack = true
+  globalThis.history.go(-1)
+  holdOverlayEntry(() => {})
+  expect(entries).toHaveLength(2)
+  late.shift()!()
+  expect(at).toBe(1)
+  expect(isOverlayEntry(entries[1]!.state)).toBe(true)
+  expect(entries[1]!.url).toBe('/rooms')
+})
+
+test('a page pushed while our back is on its way is not pushed twice when the browser kept it', async () => {
+  start()
+  holdBack = true
+  const r = holdOverlayEntry(() => {})
+  r()
+  await tick()
+  routerPush('k2', 4, '/files')
+  // this browser kept the push and landed on it
+  late.shift()
+  at = entries.length - 1
+  globalThis.dispatchEvent(new FakeEvent('popstate') as unknown as Event)
+  expect(entries.filter((e) => e.url === '/files')).toHaveLength(1)
+})
+

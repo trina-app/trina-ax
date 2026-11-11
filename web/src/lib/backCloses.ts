@@ -21,8 +21,17 @@
 // - Entries of overlays no longer open are skipped: Back over one goes on back; Forward onto one goes back where it was,
 //   or on forward over one a page was opened on top of (a lower overlay's, when the top one opened a page).
 // - Opened while a back of ours is on its way, an overlay pushes its entry once that back has landed (browsers drop a
-//   push made meanwhile); a page pushed meanwhile is pushed again once it has.
+//   push made meanwhile); a page pushed meanwhile is pushed again once it has (only when it was dropped).
+// - One traversal at a time (Chromium, Android's WebView, applies two backs started together and lands one entry too
+//   far): history.go, back and forward are wrapped too. A traversal someone else started is on its way until its
+//   popstate (or 700 ms): no back of ours starts meanwhile, and an overlay opened meanwhile pushes its entry after it.
+//   A step of the phone's screen history (lib/historySteps.ts `stepping`) is the same: while one is on its way no back
+//   of ours starts (its step goes past the overlays' entries and its popstate closes their overlays as a Back does),
+//   and the entries of closed overlays it lands on are its to step past, not ours to skip.
+// - A step back that the app takes from inside an overlay (React Router's navigate(-1): a page's ‹ while the @ list is
+//   open) is a step back from the page: it goes past the overlays' entries too, and they close.
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { historyStepping, whenStepsDone } from './historySteps'
 
 /** The history-state field of an overlay's entry: its overlay's number. */
 export const OVERLAY = 'mycelOverlay'
@@ -68,6 +77,11 @@ let flushQueued = false
 let generation = 0
 /** a history.go(-n) of ours is on its way */
 let inFlight = false
+/** a traversal someone else started (the router's go, a ‹) is on its way: until its popstate, or this timer */
+let othersTimer: ReturnType<typeof setTimeout> | null = null
+const othersGoing = () => othersTimer !== null
+/** no back of ours may start now: one of ours, another's or a screen-history step is on its way */
+const busy = () => inFlight || othersGoing() || historyStepping()
 /** what the router did while it was: done again on the entry it lands on */
 let owed: { push: boolean; state: State; url: string } | null = null
 let waiting: (() => void)[] = []
@@ -82,11 +96,10 @@ const heldOf = (s: State) => {
   const id = s?.[OVERLAY]
   return typeof id === 'number' ? held.find((h) => h.id === id && h.entry === 'on') : undefined
 }
-const go = (n: number) => (n === -1 ? window.history.back() : n === 1 ? window.history.forward() : window.history.go(n))
 
 // ---- the history's own pushState and replaceState, and the wrapped ones the router calls ----
 
-type Native = { push: (s: State, url?: string | URL | null) => void; replace: (s: State, url?: string | URL | null) => void }
+type Native = { push: (s: State, url?: string | URL | null) => void; replace: (s: State, url?: string | URL | null) => void; go: (n: number) => void }
 const natives = new WeakMap<object, Native>()
 
 function native(): Native {
@@ -95,11 +108,46 @@ function native(): Native {
   if (known) return known
   const push = h.pushState
   const replace = h.replaceState
-  const n: Native = { push: (s, url) => push.call(h, s, '', url), replace: (s, url) => replace.call(h, s, '', url) }
+  // a test's history may have no go of its own
+  const goNative = h.go as History['go'] | undefined
+  const backNative = h.back
+  const forwardNative = h.forward
+  const n: Native = {
+    push: (s, url) => push.call(h, s, '', url),
+    replace: (s, url) => replace.call(h, s, '', url),
+    go: (k) => (goNative ? goNative.call(h, k) : k < 0 ? backNative.call(h) : forwardNative.call(h)),
+  }
   natives.set(h, n)
   h.pushState = (s: unknown, _title: string, url?: string | URL | null) => routerPush(n, s as State, url)
   h.replaceState = (s: unknown, _title: string, url?: string | URL | null) => routerReplace(n, s as State, url)
+  h.go = (k?: number) => othersGo(n, k ?? 0)
+  h.back = () => othersGo(n, -1)
+  h.forward = () => othersGo(n, 1)
   return n
+}
+
+/** A traversal someone else starts (React Router's go, the screen history's steps). */
+function othersGo(n: Native, k: number) {
+  if (!k) return n.go(0)
+  // a page's step back taken from inside an overlay: past the overlays' entries too (a screen-history step counts them
+  // itself)
+  if (k < 0 && !historyStepping() && !inFlight && isOverlayEntry(state())) k -= depthOf(state())
+  traverse(n, k)
+}
+
+/** A traversal that is not a back-off of ours (another's, or our skip over an entry): on its way until it lands. */
+function traverse(n: Native, k: number) {
+  if (othersTimer !== null) clearTimeout(othersTimer)
+  // a step that goes nowhere brings no popstate
+  othersTimer = setTimeout(othersLanded, 700)
+  n.go(k)
+}
+
+/** Another's traversal has landed (or went nowhere): what waited on it goes on. */
+function othersLanded() {
+  if (othersTimer !== null) clearTimeout(othersTimer)
+  othersTimer = null
+  afterTraversal()
 }
 
 /** A page pushed by someone else (the router). */
@@ -203,17 +251,22 @@ function onPop() {
   const at = posOf(s)
   here = at
   if (inFlight) return landed()
-  // a Back or Forward of the person's
+  const others = othersGoing()
+  // a Back or Forward of the person's, or a traversal of the app's: the overlays above where it landed close
   closeAbove(at)
   const id = s?.[OVERLAY]
-  if (typeof id !== 'number') return
-  const mine = held.find((h) => h.id === id)
-  if (mine && !mine.closing) return
-  // an entry of an overlay no longer open: closed a moment ago (this move is its back-off), left under a page, or
-  // from before a reload
-  if (mine) held = held.filter((h) => h !== mine)
-  if (leftBehind.has(id) && above(at, from)) go(1)
-  else go(-1)
+  const mine = typeof id === 'number' ? held.find((h) => h.id === id) : undefined
+  if (typeof id === 'number' && !(mine && !mine.closing) && !historyStepping()) {
+    // an entry of an overlay no longer open: closed a moment ago (this move is its back-off), left under a page, or
+    // from before a reload. A screen-history step steps past it itself.
+    if (mine) held = held.filter((h) => h !== mine)
+    if (others) othersLanded()
+    if (leftBehind.has(id) && above(at, from)) traverse(native(), 1)
+    else traverse(native(), -1)
+    return
+  }
+  if (others) othersLanded()
+  else afterTraversal()
 }
 
 /** Our back has landed. */
@@ -221,10 +274,20 @@ function landed() {
   inFlight = false
   const o = owed
   owed = null
-  if (o?.push) native().push(o.state, o.url)
-  else if (o) native().replace(o.state, o.url)
-  for (const h of held) if (h.entry === 'owed') pushEntry(h)
+  // a page the router pushed while it was on its way: browsers drop such a push; made again, unless it stayed
+  const s = state()
+  if (o && !(s?.key !== undefined && s?.key === o.state?.key && window.location.href === o.url)) {
+    if (o.push) native().push(o.state, o.url)
+    else native().replace(o.state, o.url)
+  }
   here = posOf(state())
+  afterTraversal()
+}
+
+/** No traversal on its way now: overlays opened meanwhile push their entries, closed ones back theirs off. */
+function afterTraversal() {
+  if (busy()) return
+  for (const h of held) if (h.entry === 'owed') pushEntry(h)
   if (held.some((h) => h.closing && h.entry === 'on')) schedule()
   settle()
 }
@@ -241,7 +304,10 @@ function schedule() {
 /** Back off the entries of the overlays closed on top, with one step for all of them. */
 function flush() {
   flushQueued = false
-  if (inFlight || typeof window === 'undefined') return
+  if (typeof window === 'undefined') return
+  // one traversal at a time: after the one on its way (landed and afterTraversal schedule this again)
+  if (historyStepping()) return whenStepsDone(afterTraversal)
+  if (inFlight || othersGoing()) return
   // closed ones without an entry go at once
   held = held.filter((h) => !(h.closing && h.entry !== 'on'))
   const on = held.filter((h) => h.entry === 'on')
@@ -252,17 +318,18 @@ function flush() {
     held = held.filter((h) => !off.includes(h))
     if (state()?.[OVERLAY] === off[off.length - 1]!.id) {
       inFlight = true
-      go(-off.length)
+      native().go(-off.length)
     } else {
-      // the current entry is not theirs (the router moved meanwhile): theirs stay under it, skipped
-      for (const h of off) leftBehind.add(h.id)
+      // the current entry is not theirs (the router or a step moved meanwhile): under it (left behind, skipped both
+      // ways), or ahead of it (Forward onto one goes back)
+      for (const h of off) if (!above([h.idx, h.depth], here)) leftBehind.add(h.id)
     }
   }
   settle()
 }
 
 function settle() {
-  if (flushQueued || inFlight) return
+  if (flushQueued || busy()) return
   const w = waiting
   waiting = []
   for (const f of w) f()
@@ -270,8 +337,11 @@ function settle() {
 
 /** Runs `fn` once the history is where the open overlays say (the entries of those just closed are gone). */
 export function whenOverlaysSettled(fn: () => void) {
-  if (!flushQueued && !inFlight) fn()
-  else waiting.push(fn)
+  if (!flushQueued && !busy()) fn()
+  else {
+    waiting.push(fn)
+    if (historyStepping()) whenStepsDone(afterTraversal)
+  }
 }
 
 /** the windows listened to, by their addEventListener (a test's window is a new one each time) */
@@ -290,7 +360,7 @@ if (typeof window !== 'undefined' && window.history && typeof window.addEventLis
   install()
   // the page loaded again (a reload, the phone app brought back) on an overlay's entry: the overlay is gone, so is its
   // entry; Back from it would land on the same page and seem to do nothing
-  if (isOverlayEntry(state())) go(-1)
+  if (isOverlayEntry(state())) native().go(-1)
 }
 
 /**
@@ -304,15 +374,18 @@ export function holdOverlayEntry(onBack: () => void): () => void {
   const h: Held = { id: ++seq, onBack, entry: 'gone', closing: false, idx: -1, depth: 0 }
   const cur = state()
   const top = heldOf(cur)
-  if (top?.closing && !inFlight) {
+  if (top?.closing && !busy()) {
     // opened as the one on top closes (a menu's item that opens a dialog): it takes over that entry
     held = held.filter((x) => x !== top)
     h.idx = top.idx
     h.depth = top.depth
     native().replace({ ...(cur ?? {}), [OVERLAY]: h.id })
     h.entry = 'on'
-  } else if (inFlight) h.entry = 'owed'
-  else pushEntry(h)
+  } else if (busy()) {
+    // after the traversal on its way (a browser drops a push made meanwhile)
+    h.entry = 'owed'
+    if (historyStepping()) whenStepsDone(afterTraversal)
+  } else pushEntry(h)
   held.push(h)
   return () => {
     if (!held.includes(h) || h.closing) return
@@ -350,10 +423,12 @@ export function useOverlayEntry(open: boolean, close: () => void, o: { at?: stri
   }, [on, o.at])
 }
 
-/** For tests: forget every overlay and entry (the history object itself is the test's). */
+/** For tests: forget every overlay and entry, and wrap the test's history object as the browser's is at load. */
 export function resetOverlaysForTest() {
   generation += 1
   flushQueued = false
+  if (othersTimer !== null) clearTimeout(othersTimer)
+  othersTimer = null
   held = []
   leftBehind.clear()
   fixes.clear()
@@ -361,4 +436,5 @@ export function resetOverlaysForTest() {
   owed = null
   waiting = []
   here = typeof window !== 'undefined' && window.history ? posOf(state()) : [-1, 0]
+  if (typeof window !== 'undefined' && window.history && typeof window.addEventListener === 'function') install()
 }
