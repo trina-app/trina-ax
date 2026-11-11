@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 01:35
 - Branch: `chore/remove-knowledge-graph`
-- Status: in progress
+- Status: done
 - Where: this repo: `server/src/knowledge-graph/` and its callers (chat, tools, MCP, Files search, admin routes),
   `shared/src/api`, the web Files search and Admin › Team settings, the bundle scripts, `scripts/bench/`, docs. Why:
   chat, files and the AI are Team AX core (docs/REPOSITORY-RULES.md).
@@ -108,4 +108,18 @@ Stays:
 
 ## Result
 
-Filled in at the end.
+Built as planned (branch rebased onto `dev` 2123db11e). Differences from the plan:
+
+- The changelog: the repository's rule puts notes in `changes/remove-knowledge-graph.md`, not in `CHANGELOG.md`. The
+  Unreleased notes of waves 1–3, which never shipped, were taken out of `CHANGELOG.md` (the check allows fewer notes);
+  the note on side-by-side reads stays, reworded. The new note also says that the older `search` tool, its
+  `semantic.db` and the model go (that removal note was one of the lines taken out).
+- `files/locations.ts` `chunkDoc` stays, unused by the server now: its tests check the places the extractors leave in
+  document text. `sourceLabel` and `sourceLink` went with the documents block.
+- From an independent review: old `knowledge_explore` and `search` steps keep the quiet mark of a look-up
+  (`REMOVED_READ_ONLY_TOOLS`), `document_matches` stays among the prompt's guarded tags (sessions resumed from before
+  the update name it), and the index is renamed to a folder of its own before the background delete.
+- Kept as decided, with a risk noted for review: migration 339 deletes the switch's rows, so a team that had turned
+  the knowledge graph off and then rolls back to 0.5.0-beta.1 gets it on again (that build's default).
+
+Checks: see the PR description.
