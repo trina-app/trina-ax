@@ -25,6 +25,10 @@ import {
 } from './store'
 import { say, type Reason, type TextKey } from './text'
 import { notifyTemplateReconnect } from '../../notifications/service'
+import { refreshGoogleApp } from '../google-apps/tokens'
+import { APP_NAMES, appTools } from '../google-apps/catalog'
+import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
+import { workspaceLibraryOf } from '../google-apps/library'
 
 export const MAX_PERSONAL = 20
 export const MAX_TEAM = 50
@@ -152,7 +156,8 @@ export class Integrations {
 
   // ---------------- reading ----------------
   list(viewer: Viewer, locale: Locale): IntegrationList {
-    const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(viewer.id) as Row[]
+    // Gmail, Calendar, Docs and Sheets have their own page (google-apps/): not in the generic list
+    const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND google_app IS NULL ORDER BY name, id`).all(viewer.id) as Row[]
     const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
     return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed: getTeamSettings(this.db).personalIntegrations }
   }
@@ -165,7 +170,8 @@ export class Integrations {
   /** The row for a manage action: someone else's personal connection is "not found"; a team one needs an admin. */
   private manageable(viewer: Viewer, id: string): Row {
     const row = getRow(this.db, id)
-    if (!row || !activeUser(this.db, viewer.id)) return fail('not_found')
+    // a Google app connection is managed on its own page only (google-apps/service.ts)
+    if (!row || row.google_app || !activeUser(this.db, viewer.id)) return fail('not_found')
     if (row.scope === 'personal') return row.owner_user_id === viewer.id ? row : fail('not_found')
     if (isAdmin(viewer.role)) return row
     return mayUse(this.db, row, viewer.id) ? fail('forbidden') : fail('not_found')
@@ -183,7 +189,7 @@ export class Integrations {
     // sending without asking is the team's choice (an admin's), never one person's for their own connection
     if (scope === 'personal' && input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
     const count = templateId ? 0 : scope === 'personal'
-      ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL").get(viewer.id) as { n: number }).n
+      ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL").get(viewer.id) as { n: number }).n
       : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team'").get() as { n: number }).n
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
     if (count >= max) fail('conflict', say('tooMany', L, { n: max }))
@@ -563,7 +569,10 @@ export class Integrations {
     if (!s.tokens.refreshToken) { this.setStatus(row, 'needs_auth', 'sign_in'); throw new NeedsAuth('sign_in') }
     const task = (async () => {
       try {
-        const tokens = await tokenRequest(s, { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
+        // a Google app: the card's client as set up now, or the hosting service (google-apps/tokens.ts)
+        const tokens = row.google_app
+          ? await refreshGoogleApp(this.ctx, s, this.now())
+          : await tokenRequest(s, { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
         const cur = getRow(this.db, row.id)
         if (!cur || cur.version !== row.version) throw new CallError('the connection changed while this ran; try again', 'changed')
         const sealed = this.box.seal(connectionAad(cur), { ...s, tokens } satisfies OAuthSecret)
@@ -654,7 +663,9 @@ export class Integrations {
         // starts that would end later (withMcp, mcp.ts listTools)
         const deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
-        const { tools, more, total, unread } = await this.withMcp(row, (c) => c.listTools(signal, deadline), deadline)
+        const listed = await this.withMcp(row, (c) => c.listTools(signal, deadline), deadline)
+        // a Google app: only its own app's tools of the library's four (google-apps/catalog.ts)
+        const { tools, more, total, unread } = row.google_app ? { ...listed, tools: appTools(row.google_app, listed.tools), more: false, unread: false } : listed
         // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
         // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools)
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread })
@@ -665,6 +676,8 @@ export class Integrations {
         else this.setStatus(row, 'connected', null)
       }
     } catch (e) {
+      // a Google app whose library cannot be reached now: nothing about the connection changed (it comes back by itself)
+      if (row.google_app && e instanceof CallError) return getRow(this.db, row.id) ?? row
       const s = statusOf(e)
       // the row as it is now: a call during the check may have found a sign-in needed (that stays), or an error
       const now = getRow(this.db, row.id)
@@ -679,15 +692,25 @@ export class Integrations {
 
   // ---------------- calls ----------------
   private client(row: Row): McpClient {
+    // a Google app: the library on this machine, at the address it listens on now (google-apps/transport.ts); its
+    // connection's own address is a placeholder that is never used
+    const library = row.google_app ? workspaceLibraryOf(this.ctx).endpoint() : null
+    if (row.google_app && !library) throw new CallError(downMessage(APP_NAMES[row.google_app]), 'service down')
     const key = `${row.id}:${row.version}`
     const c = this.clients.get(key)
-    if (c && this.now() - c.usedAt < CLIENT_IDLE_MS) return c
+    if (c && this.now() - c.usedAt < CLIENT_IDLE_MS && (!library || c.url === library)) return c
     this.dropClient(row.id)
-    const fresh = new McpClient(row.url, (deadline) => this.authHeaders(row, deadline), this.net, () => this.hider([row]))
+    const fresh = library
+      ? new McpClient(library, (deadline) => this.authHeaders(row, deadline), this.net, () => this.hider([row]), (url, r) => libraryRequest(library, url, r).catch((e) => {
+        throw e instanceof LibraryDown ? new CallError(downMessage(APP_NAMES[row.google_app!]), 'service down') : e
+      }))
+      : new McpClient(row.url, (deadline) => this.authHeaders(row, deadline), this.net, () => this.hider([row]))
     this.clients.set(key, fresh)
     return fresh
   }
   private dropClient(id: string) { for (const k of [...this.clients.keys()]) if (k.startsWith(id + ':')) this.clients.delete(k) }
+  /** A connection deleted elsewhere (google-apps/service.ts disconnect): its client, remembered secrets and tool list go. */
+  forget(id: string) { this.dropClient(id); this.recent.delete(id); toolListsOf(this.db).drop(id) }
 
   /** Run against the MCP server: a new session when the server forgot ours, one token refresh after a 401. `deadline`
    * (a check's): neither once it has passed, nor a token refresh (its own 30 s) that would end after it. */
@@ -706,6 +729,10 @@ export class Integrations {
           const s = this.secretOf(row)
           if (s.type === 'oauth') { await this.oauthToken(row, s.tokens.accessToken); this.dropClient(row.id); continue }
         }
+        // a Google app refused again with a token Google just refreshed: the library answers 401 whenever its own check
+        // with Google fails (a timeout, Google busy), so it is for now, not a sign-in to redo (a refused refresh is a
+        // GrantError in oauthToken and asks for one)
+        if (row.google_app && refreshed && e instanceof McpError && e.code === 'unauthorized') throw new CallError(downMessage(APP_NAMES[row.google_app]), 'service down')
         throw e
       }
     }
@@ -716,7 +743,7 @@ export class Integrations {
     const row = getRow(this.db, id)
     if (!row) throw new CallError('this connection no longer exists', 'gone')
     if (!mayUse(this.db, row, userId)) throw new CallError('the user may not use this connection (any more); the person who manages it can change that', 'no access')
-    if (row.auth !== 'none' && !row.secret_enc) throw new CallError(`${row.name} needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings › Connected apps`, 'needs sign-in or key')
+    if (row.auth !== 'none' && !row.secret_enc) throw new CallError(`${row.name} needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}; the user can fix it in ${fixWhere(row)}`, 'needs sign-in or key')
     return row
   }
 
@@ -726,7 +753,8 @@ export class Integrations {
       this.used(row)
       return r
     } catch (e) {
-      if (!signal?.aborted) this.noteFailure(row, e)
+      // a Google app's answer too large (a big Gmail attachment) says nothing about the connection
+      if (!signal?.aborted && !(row.google_app && e instanceof NetError && e.reason === 'too_large')) this.noteFailure(row, e)
       throw e instanceof CallError ? e : new CallError(callMessage(e, row), kindOf(e), e instanceof McpError && e.code === 'rpc')
     }
   }
@@ -933,6 +961,9 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
   return null
 }
 
+/** where the person fixes a connection's sign-in: a Google app on its card under Connectors */
+const fixWhere = (row: Pick<Row, 'google_app'>) => (row.google_app ? `Connected apps › ${APP_NAMES[row.google_app]} (Reconnect)` : 'Settings › Connected apps')
+
 /** the audit summary's word for a failed call */
 function kindOf(e: unknown): string {
   if (e instanceof NeedsAuth || e instanceof GrantError) return 'needs sign-in or key'
@@ -944,10 +975,10 @@ function kindOf(e: unknown): string {
 /** A failed call in words for the AI: our own words and status codes, plus a JSON-RPC error's message (the tool's answer). */
 function callMessage(e: unknown, row: Row): string {
   if (e instanceof CallError) return e.message
-  if (e instanceof NeedsAuth) return `${row.name} needs ${e.reason === 'sign_in' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings › Connected apps`
+  if (e instanceof NeedsAuth) return `${row.name} needs ${e.reason === 'sign_in' ? 'a new sign-in' : 'its key'}; the user can fix it in ${fixWhere(row)}`
   if (e instanceof McpError) {
     if (e.code === 'rpc') return `${row.name} answered with an error: ${e.detail}`
-    if (e.code === 'unauthorized' || e.code === 'forbidden') return `${row.name} refused the stored key or sign-in (HTTP ${e.status}); the user can fix it in Settings › Connected apps`
+    if (e.code === 'unauthorized' || e.code === 'forbidden') return `${row.name} refused the stored key or sign-in (HTTP ${e.status}); the user can fix it in ${fixWhere(row)}`
     if (e.code === 'not_mcp') return `${row.name} did not answer like an MCP server`
     return `${row.name} answered HTTP ${e.status}`
   }
@@ -959,7 +990,7 @@ function callMessage(e: unknown, row: Row): string {
     }
     return `${row.name} ${words[e.reason] ?? 'could not be reached'}`
   }
-  if (e instanceof GrantError) return `${row.name} needs a new sign-in; the user can fix it in Settings › Connected apps`
+  if (e instanceof GrantError) return `${row.name} needs a new sign-in; the user can fix it in ${fixWhere(row)}`
   return `${row.name} could not be reached`
 }
 

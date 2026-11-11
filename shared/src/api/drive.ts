@@ -30,8 +30,8 @@ export type DriveFlow = z.infer<typeof DriveFlow>
  * "service" a hosted server that signs in through the hosting service (nothing to set up).
  * `blocked`: why the page cannot set it up ("hosted" the hosting service owns it, "server" the operator's own client,
  * "public_host" no public https address to send Google back to). Never the client secret, never the client ID. */
-/** `membersCanConnect`: members may connect their own Google Drive (off until an admin turns it on; teams whose members
- * had connected before this switch keep it on). `sharesOn`: team shares that work now. A Google client alone turns
+/** `membersCanConnect`: members may connect their own Google Drive (on for a new team; a team made before migration
+ * 339 keeps what it had: off unless an admin turned it on or its members had connected before this switch). `sharesOn`: team shares that work now. A Google client alone turns
  * nothing on: it only makes Drive available. */
 export const DriveAdminStatus = z.object({
   configured: z.boolean(), source: z.enum(['app', 'server', 'service', 'none']), canSetUp: z.boolean(),

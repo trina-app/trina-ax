@@ -402,7 +402,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     }
   }
   const mcpRow = (i: Integration, attention?: string): Row => ({
-    key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: '/settings/connectors', match: true,
+    key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: i.scope === 'personal' ? `/connectors/mcp/${i.id}` : '/connectors', match: true,
     sub: attention ?? (i.scope === 'team' ? t('search.team') : undefined), attention: !!attention,
   })
   const fileNameRow = (f: FileEntry): Row => ({
@@ -433,7 +433,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     const m = ok(mcp)
     // owners and admins go straight to the add-by-address form; a member to the page, which lists the services to
     // connect (the form is an admin's job). "MCP" and the page's name still find it.
-    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin ? '/settings/connectors?add=1' : '/settings/connectors', terms: `MCP ${t('integrations.title')}` })
+    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin ? '/connectors?add=1' : '/connectors', terms: `MCP ${t('integrations.title')}` })
     list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0

@@ -3,7 +3,7 @@
 // team key it knows, the strict bodies, single-use handoffs bound to the PKCE challenge. It never opens a connection.
 import crypto from 'node:crypto'
 import {
-  DRIVE_BROKER_PATHS, DRIVE_BROKER_SCOPE, driveBrokerConnectPage, driveBrokerSigningString, parseDriveBrokerAuthorization, parseDriveBrokerRedeem,
+  DRIVE_BROKER_PATHS, DRIVE_BROKER_SCOPE, GOOGLE_APP_BROKER_SCOPES, driveBrokerConnectPage, driveBrokerSigningString, parseDriveBrokerAuthorization, parseDriveBrokerRedeem,
   parseDriveBrokerRefresh, parseDriveBrokerStart, parseDriveBrokerStatus,
 } from '../../shared/src/cloud-protocol/drive-broker'
 import type { DriveFetch } from '../../server/src/integrations/google-drive/client'
@@ -19,8 +19,14 @@ export class FakeDriveBroker {
   trusted = this.publicKey
   configured = true
   requests: { path: string; body: string }[] = []
-  starts = new Map<string, { returnState: string; challenge: string; purpose: string }>()
-  handoffs = new Map<string, { challenge: string; who: string }>()
+  starts = new Map<string, { returnState: string; challenge: string; purpose: string; app?: string }>()
+  handoffs = new Map<string, { challenge: string; who: string; app?: string }>()
+  /** false: an older control plane that refuses the `app` field (invalid_request) */
+  appsSupported = true
+  /** the `app` field of each refresh (undefined: Drive) */
+  refreshApps: (string | undefined)[] = []
+  /** a stand-in for the library: told about each access token handed out (Gmail, Calendar, Docs, Sheets tests) */
+  onAccess: ((token: string, who: string) => void) | null = null
   sealed = new Map<string, string>()
   revoked: string[] = []
   invalidGrant = false
@@ -39,14 +45,16 @@ export class FakeDriveBroker {
     if (!s) throw new Error('unknown broker state')
     this.starts.delete(new URL(authorizationUrl).searchParams.get('state')!)
     const handoff = crypto.randomBytes(32).toString('base64url')
-    this.handoffs.set(handoff, { challenge: s.challenge, who })
+    this.handoffs.set(handoff, { challenge: s.challenge, who, ...(s.app ? { app: s.app } : {}) })
     return { state: s.returnState, handoff }
   }
 
-  private token(who: string, withRefresh: boolean) {
+  private token(who: string, withRefresh: boolean, app?: string) {
     const access = 'CANARY-broker-access:' + who + ':' + this.requests.length
     this.google.access.set(access, who)
-    const out: Record<string, unknown> = { access_token: access, expires_in: this.google.expired ? 30 : 3600, scope: DRIVE_BROKER_SCOPE, token_type: 'Bearer' }
+    this.onAccess?.(access, who)
+    const scope = app ? GOOGLE_APP_BROKER_SCOPES[app as keyof typeof GOOGLE_APP_BROKER_SCOPES].join(' ') : DRIVE_BROKER_SCOPE
+    const out: Record<string, unknown> = { access_token: access, expires_in: this.google.expired ? 30 : 3600, scope, token_type: 'Bearer' }
     if (withRefresh) {
       const sealed = `ev1.k1.${crypto.randomBytes(12).toString('base64url')}.${crypto.randomBytes(48).toString('base64url')}`
       this.sealed.set(sealed, who)
@@ -74,9 +82,9 @@ export class FakeDriveBroker {
     if (path === DRIVE_BROKER_PATHS.status) return parseDriveBrokerStatus(json) ? Response.json({ ok: true }) : err('invalid_request', 400)
     if (path === DRIVE_BROKER_PATHS.start) {
       const b = parseDriveBrokerStart(json)
-      if (!b) return err('invalid_request', 400)
+      if (!b || (b.app && !this.appsSupported)) return err('invalid_request', 400)
       const state = crypto.randomBytes(32).toString('base64url')
-      this.starts.set(state, { returnState: b.returnState, challenge: b.codeChallenge, purpose: b.purpose })
+      this.starts.set(state, { returnState: b.returnState, challenge: b.codeChallenge, purpose: b.purpose, ...(b.app ? { app: b.app } : {}) })
       const u = new URL(this.authorizeBase)
       u.searchParams.set('state', state); u.searchParams.set('scope', DRIVE_BROKER_SCOPE); u.searchParams.set('redirect_uri', BROKER_ORIGIN + '/drive-broker/google/callback')
       const connectUrl = this.connect === 'none' ? undefined : this.connect === 'page' ? driveBrokerConnectPage(BROKER_ORIGIN, state) : this.connect.replace('{state}', state)
@@ -88,7 +96,7 @@ export class FakeDriveBroker {
       const h = this.handoffs.get(b.handoff)
       this.handoffs.delete(b.handoff)
       if (!h || crypto.createHash('sha256').update(b.codeVerifier).digest('base64url') !== h.challenge) return err('invalid_handoff', 400)
-      return Response.json(this.token(h.who, true))
+      return Response.json(this.token(h.who, true, h.app))
     }
     if (path === DRIVE_BROKER_PATHS.refresh) {
       const b = parseDriveBrokerRefresh(json)
@@ -96,7 +104,8 @@ export class FakeDriveBroker {
       const who = this.sealed.get(b.refreshToken)
       if (!who || this.invalidGrant) return err('invalid_grant', 400)
       this.google.refreshCount++
-      return Response.json(this.token(who, false))
+      this.refreshApps.push(b.app)
+      return Response.json(this.token(who, false, b.app))
     }
     if (path === DRIVE_BROKER_PATHS.revoke) {
       const b = parseDriveBrokerRefresh(json)

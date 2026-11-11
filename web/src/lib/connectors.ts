@@ -58,9 +58,17 @@ export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
 
 /** App connectors: apps this server's AI connects to for a person, with the person's own account and a connect flow
  * built into the server (not an MCP server someone adds): Settings › App connectors, one card each
- * (components/integrations/DriveConnector.tsx for Google Drive). Another platform is one more entry here and one card.
+ * (components/integrations/DriveConnector.tsx for Google Drive, GoogleAppConnector.tsx for the Google apps). Another platform is one more entry here and one card.
  * Not the same as AI apps below (outside AI apps that use this server). Their logos sit beside the MCP ones. */
-export const APP_CONNECTORS = [{ id: 'google-drive', name: 'Google Drive', logo: 'google-drive.svg' }] as const
+export const APP_CONNECTORS = [
+  { id: 'google-drive', name: 'Google Drive', logo: 'google-drive.svg' },
+  // Gmail, Google Calendar, Google Docs and Google Sheets (docs/GOOGLE-APPS.md): one card and one Google sign-in each;
+  // their ids are the server's (shared/src/api/google-apps.ts GOOGLE_APP_IDS) and their Connectors page addresses
+  { id: 'gmail', name: 'Gmail', logo: 'gmail.svg' },
+  { id: 'calendar', name: 'Google Calendar', logo: 'google-calendar.svg' },
+  { id: 'docs', name: 'Google Docs', logo: 'google-docs.svg' },
+  { id: 'sheets', name: 'Google Sheets', logo: 'google-sheets.svg' },
+] as const
 export type AppConnector = (typeof APP_CONNECTORS)[number]
 export const appConnectorLogo = (a: AppConnector) => `/icons/connectors/${a.logo}`
 /** the earlier name of APP_CONNECTORS (the logo checks in test/unit/connectors.test.ts) */

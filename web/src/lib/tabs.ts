@@ -17,7 +17,7 @@ export const TAB_ROOT: Record<Tab, string> = { ai: '/', chats: '/rooms', files: 
 const under = (path: string, base: string) => path === base || path.startsWith(`${base}/`)
 
 /** the AI tab's pages besides Home and the chats: what the ☰ drawer opens */
-const AI_PAGES = ['/projects', '/scheduled', '/skills', '/trash']
+const AI_PAGES = ['/projects', '/scheduled', '/skills', '/connectors', '/trash']
 
 export function tabOf(path: string): Tab | null {
   if (path === '/' || path.startsWith('/c/') || AI_PAGES.some((p) => under(path, p))) return 'ai'
@@ -42,6 +42,7 @@ const PAGE_TITLE: [string, MessageKey][] = [
   ['/projects', 'projects.title'],
   ['/scheduled', 'settings.schedules'],
   ['/skills', 'skills.title'],
+  ['/connectors', 'integrations.title'],
   ['/trash', 'trash.title'],
   ['/admin', 'admin.title'],
   ['/activity', 'inbox.title'],

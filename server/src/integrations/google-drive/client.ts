@@ -4,6 +4,8 @@ export const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth'
 export const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token'
 export const GOOGLE_REVOKE = 'https://oauth2.googleapis.com/revoke'
 export const DRIVE_API = 'https://www.googleapis.com/drive/v3/'
+/** whose Google account a Gmail, Calendar, Docs or Sheets sign-in is (google-apps/service.ts) */
+export const GOOGLE_USERINFO = 'https://openidconnect.googleapis.com/v1/userinfo'
 
 export function checkAbort(signal?: AbortSignal) { if (signal?.aborted) throw new DriveError('cancelled', 409) }
 
@@ -30,7 +32,7 @@ export function backoff(ms: number, signal: AbortSignal): Promise<void> {
 export class GoogleTransport {
   constructor(readonly fetcher: DriveFetch = fetch) {}
   async request(url: string, init: RequestInit = {}, maxBytes = 1_048_576): Promise<{ status: number; bytes: Uint8Array }> {
-    const allowed = url === GOOGLE_TOKEN || url === GOOGLE_REVOKE || url.startsWith(DRIVE_API)
+    const allowed = url === GOOGLE_TOKEN || url === GOOGLE_REVOKE || url === GOOGLE_USERINFO || url.startsWith(DRIVE_API)
     if (!allowed) throw new DriveError('invalid_endpoint')
     const signal = AbortSignal.any([AbortSignal.timeout(20_000), ...(init.signal ? [init.signal] : [])])
     checkAbort(signal)
