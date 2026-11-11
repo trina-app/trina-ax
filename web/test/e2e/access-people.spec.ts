@@ -68,7 +68,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   await expect(page).toHaveURL(/view=people&person=bob/)
   await expect(option(page, 'bob')).toHaveAttribute('aria-selected', 'true')
   const summary = page.getByTestId('access-summary')
-  await expect(summary).toContainText('Bob 님과 그 AI는 팀 폴더 6개를 볼 수 있고, 그중 4개에 쓸 수 있어요.')
+  await expect(summary).toContainText('Bob 님과 그 AI는 팀 폴더 6개를 볼 수 있고, 그중 4개를 고칠 수 있어요.')
   await expect(summary).toContainText(translate('ko', 'accessView.summaryListed', { n: 3 }))
   // said to screen readers too
   await expect(page.locator('[role="status"][aria-live="polite"]').filter({ hasText: 'Bob 님과 그 AI는 팀 폴더 6개' })).toHaveCount(1)
@@ -136,7 +136,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
   await panel.getByTestId('edit-save').click()
   await expect(page).toHaveURL(/view=people&person=bob$/)
-  await expect(summary).toContainText('Bob 님과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 4개에 쓸 수 있어요.')
+  await expect(summary).toContainText('Bob 님과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 4개를 고칠 수 있어요.')
   // the row moved to the folded folders: the focus goes to their toggle
   await expect(page.getByTestId('access-hidden-toggle')).toBeFocused()
   await page.getByTestId('access-hidden-toggle').click()
@@ -194,7 +194,7 @@ test('someone new: the invite\'s choices, worked out by the server; an admin see
   await option(page, 'new').click()
   await expect(page).toHaveURL(/view=people&new=1$/)
   const summary = page.getByTestId('access-summary')
-  await expect(summary).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 3개를 볼 수 있고, 그중 1개에 쓸 수 있어요.')
+  await expect(summary).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 3개를 볼 수 있고, 그중 1개를 고칠 수 있어요.')
   // no personal folder yet, and no person rule can name them
   await expect(row(page, 'users/bob')).toHaveCount(0)
   await expect(row(page, 'projects/apollo')).toBeHidden()
@@ -202,7 +202,7 @@ test('someone new: the invite\'s choices, worked out by the server; an admin see
   const setup = page.getByTestId('access-new-setup')
   await setup.getByRole('checkbox', { name: '영업팀' }).check()
   await expect(page).toHaveURL(new RegExp(`new=1&groups=${g.id}`))
-  await expect(summary).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개에 쓸 수 있어요.')
+  await expect(summary).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개를 고칠 수 있어요.')
   await expect(row(page, 'groups/영업팀')).toHaveAttribute('data-level', 'write')
 
   await setup.getByRole('combobox', { name: t['members.role'], exact: true }).selectOption('admin')
@@ -227,7 +227,7 @@ test('a disabled person: what they would get if enabled again', async ({ page })
   await team(page)
   await page.goto('/admin/folders?view=people&person=dan')
   await expect(page.getByTestId('access-off-note')).toHaveText(t['accessView.offNote'])
-  await expect(page.getByTestId('access-summary')).toContainText('다시 활성화하면 Dan 님과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개에 쓸 수 있어요.')
+  await expect(page.getByTestId('access-summary')).toContainText('다시 활성화하면 Dan 님과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개를 고칠 수 있어요.')
   await expect(row(page, 'users/dan').getByTestId('access-reason')).toHaveText(t['accessView.why.ownPersonal'])
 })
 
@@ -251,12 +251,12 @@ test('Members: "Folders they see" opens the person; the invite previews what som
   const preview = dialog.getByTestId('new-person-preview-toggle')
   await expect(preview).toHaveAttribute('aria-expanded', 'false')
   await preview.click()
-  await expect(dialog.getByTestId('access-summary')).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개에 쓸 수 있어요.')
+  await expect(dialog.getByTestId('access-summary')).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개를 고칠 수 있어요.')
   // read only: no rule editor from the dialog
   await expect(dialog.getByTestId('access-edit')).toHaveCount(0)
   // a group changed while open: the same answer again
   await dialog.getByRole('checkbox', { name: '영업팀' }).uncheck()
-  await expect(dialog.getByTestId('access-summary')).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 3개를 볼 수 있고, 그중 1개에 쓸 수 있어요.')
+  await expect(dialog.getByTestId('access-summary')).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 3개를 볼 수 있고, 그중 1개를 고칠 수 있어요.')
   await dialog.getByRole('checkbox', { name: '영업팀' }).check()
   await expect(dialog.getByTestId('access-summary')).toContainText('팀 폴더 5개')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/invite-preview-1360.png` })
@@ -281,7 +281,7 @@ test('someone new with a rule on the team root: no broken answer, in the view an
   // the root is listable for everyone through their own folder; someone new has none yet, and it is never named
   await call(page, 'post', '/api/admin/folders', { path: '', create: true, rules: [{ subjectType: 'group', subjectId: g.id, access: 'read' }] })
   await page.goto('/admin/folders?view=people&new=1')
-  await expect(page.getByTestId('access-summary')).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 3개를 볼 수 있고, 그중 1개에 쓸 수 있어요.')
+  await expect(page.getByTestId('access-summary')).toContainText('새로 들어올 사람과 그 AI는 팀 폴더 3개를 볼 수 있고, 그중 1개를 고칠 수 있어요.')
   await expect(page.getByTestId('access-answer').getByRole('alert')).toHaveCount(0)
   const root = row(page, '')
   await expect(root).toHaveAttribute('data-level', 'listed')
@@ -405,7 +405,7 @@ test('pages of rows, narrowing to a folder, and a failed answer to try again', a
   await more.click()
   await expect(more).toHaveCount(0)
   await expect(page.getByText(translate('ko', 'accessView.loaded', { n: 13, total: 13 }))).toBeFocused()
-  await expect(summary).toContainText('Bob 님과 그 AI는 팀 폴더 6개를 볼 수 있고, 그중 4개에 쓸 수 있어요.')
+  await expect(summary).toContainText('Bob 님과 그 AI는 팀 폴더 6개를 볼 수 있고, 그중 4개를 고칠 수 있어요.')
   await expect(summary).not.toContainText(translate('ko', 'accessView.summaryPartial', { loaded: 13, total: 13 }))
   await page.unroute('**/api/admin/access/people/**')
 
@@ -414,7 +414,7 @@ test('pages of rows, narrowing to a folder, and a failed answer to try again', a
   await page.getByTestId('access-prefix-apply').click()
   await expect(page).toHaveURL(/person=bob&prefix=projects$/)
   await expect(page.getByTestId('access-row')).toHaveCount(2)
-  await expect(summary).toContainText('projects 안에서는 Bob 님과 그 AI는 팀 폴더 1개를 볼 수 있고, 그중 1개에 쓸 수 있어요.')
+  await expect(summary).toContainText('projects 안에서는 Bob 님과 그 AI는 팀 폴더 1개를 볼 수 있고, 그중 1개를 고칠 수 있어요.')
   await page.getByTestId('access-prefix').fill('nowhere')
   await page.getByTestId('access-prefix').press('Enter')
   await expect(page.getByTestId('access-answer')).toContainText(translate('ko', 'accessView.emptyPrefix', { path: 'nowhere' }))
@@ -539,7 +539,7 @@ test('screen readers hear the summary once the choices settle, not at every clic
   await expect(page).toHaveURL(new RegExp(`groups=${g.id}$`))
   await page.waitForTimeout(1500)
   const said = await page.evaluate(() => (window as unknown as { __said: string[] }).__said)
-  expect(said).toEqual(['새로 들어올 사람과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개에 쓸 수 있어요. 폴더 이름만 보이는 곳이 2개 더 있어요.'])
+  expect(said).toEqual(['새로 들어올 사람과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 2개를 고칠 수 있어요. 폴더 이름만 보이는 곳이 2개 더 있어요.'])
 })
 
 test('a big team: the list shows the first hundred and says how many more; typing narrows; a linked person is in it', async ({ page }) => {
