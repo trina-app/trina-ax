@@ -3,20 +3,17 @@
 // connections on the same page ("Top connectors" with Trina's own Google Drive first, then the MCP services of
 // lib/connectors.ts, the rest behind Show all); and a connector's page (ConnectorDetail: a big logo, the main action,
 // what it does and its tools), which takes the place of both sections until its way back.
-import { ArrowLeft, ArrowRight, BadgeCheck, Check, ChevronDown, Plus, Search } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { ArrowLeft, ArrowRight, BadgeCheck, Check, Plus, Search } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Button, IconButton, StickyHeader, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
+import { SplitAction, type AddMenuItem } from '../PageActions'
 
-export interface AddMenuItem {
-  label: string
-  icon?: ReactNode
-  onSelect: () => void
-  testId: string
-}
+// the split button (Add ⌄, a connector's Connect ⌄) is every page's now (components/PageActions.tsx)
+export { SplitAction, type AddMenuItem } from '../PageActions'
 
 /** `onAdd`: this person may add connections (without it, no adding and no Discover). `moreAdd`: other ways to add
  * (Admin: ask a member to connect), in a small menu next to Add connection. */
@@ -30,19 +27,15 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
   const t = useT()
   return (
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      {/* a phone: the bar above says the name (Admin's and Settings' phone bar), so only the search row stays here */}
+      <h2 className="text-lg font-semibold tracking-tight max-md:sr-only">{title}</h2>
       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
         <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
           <input type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
         </div>
         {onAdd && (moreAdd?.length ? (
-          <div className="flex shrink-0 items-stretch" data-testid="integration-add-group">
-            <Button variant="primary" className="rounded-r-none" onClick={onAdd} data-testid="integration-add">
-              <Plus size={15} aria-hidden /> {t('integrations.add')}
-            </Button>
-            <AddMenu items={moreAdd} />
-          </div>
+          <SplitAction label={t('integrations.add')} icon={<Plus size={15} aria-hidden />} onPrimary={onAdd} items={moreAdd} testId="integration-add" menuLabel={t('integrations.addMore')} />
         ) : (
           <Button variant="primary" className="shrink-0" onClick={onAdd} data-testid="integration-add">
             <Plus size={15} aria-hidden /> {t('integrations.add')}
@@ -75,86 +68,6 @@ export function goToSection(id: string, frames = 10) {
     h.scrollIntoView({ block: 'start' })
     h.focus({ preventScroll: true })
   })
-}
-
-/** A primary button with a ⌄ menu of other ways to do it (a connector's page: Connect, or as a template). */
-export function SplitAction({ label, onPrimary, items, testId }: { label: string; onPrimary: () => void; items: AddMenuItem[]; testId: string }) {
-  return (
-    <div className="flex shrink-0 items-stretch" data-testid={`${testId}-group`}>
-      <Button variant="primary" className="rounded-r-none" onClick={onPrimary} data-testid={testId}>{label}</Button>
-      <AddMenu items={items} label="connectors.connectMore" />
-    </div>
-  )
-}
-
-/** The ⌄ half of the split Add button: a small menu of the other ways to add. A dialog opened from it gets the focus
- * back on this button when it closes (the item is gone with the menu). */
-function AddMenu({ items, label = 'integrations.addMore' }: { items: AddMenuItem[]; label?: 'integrations.addMore' | 'connectors.connectMore' }) {
-  const t = useT()
-  const box = useRef<HTMLDivElement>(null)
-  const button = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
-  useEffect(() => {
-    if (!open) return
-    menuItems()[0]?.focus()
-    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
-    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', outside)
-    return () => document.removeEventListener('mousedown', outside)
-  }, [open])
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (!open) return
-    if (e.key === 'Escape' || e.key === 'Tab') {
-      if (e.key === 'Escape') e.stopPropagation()
-      setOpen(false)
-      button.current?.focus()
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      const all = menuItems()
-      const at = all.indexOf(document.activeElement as HTMLElement)
-      all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus()
-    }
-  }
-  return (
-    <div ref={box} className="relative" onKeyDown={onKeyDown}>
-      <Tooltip label={t(label)}>
-        <button
-          ref={button}
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label={t(label)}
-          onClick={() => setOpen((v) => !v)}
-          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-sm:min-h-10"
-          data-testid="integration-add-more"
-        >
-          <ChevronDown size={15} aria-hidden />
-        </button>
-      </Tooltip>
-      {open && (
-        <div role="menu" aria-label={t(label)} className="absolute top-full right-0 z-30 mt-1 w-64 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          {items.map((it) => (
-            <button
-              key={it.testId}
-              role="menuitem"
-              type="button"
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover"
-              onClick={() => {
-                setOpen(false)
-                // the dialog this opens returns the focus to the button it was opened from
-                button.current?.focus()
-                it.onSelect()
-              }}
-              data-testid={it.testId}
-            >
-              {it.icon} {it.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 /** A connection fits the search box: its name or address. */

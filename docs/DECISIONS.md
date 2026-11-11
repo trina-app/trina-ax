@@ -19664,3 +19664,34 @@ the references, the review). This is the first part (navigation); the page patte
   opening another, Folder permissions' views, Settings' Back, a member, an admin who is not the owner, no page wider than
   the screen in English and Spanish, 820 and 1440 px).
 - Version impact: **minor** (a visible change on phones and tablets; no API, data or permission change).
+
+### The page patterns (feat/phone-page-patterns, 2026-11-10)
+
+The owner, with Admin › Members & invites at 390 px: "All of the mobile settings are a problem": three buttons on two
+rows, the line under them, a search on its own row and "Role All" on another, rows of three lines, a 266 px header that
+stayed on screen. Shared parts, so every page gets them (the remaining pages move onto them in their own PRs):
+
+- **The page header** (`admin/common.tsx` `AdminPageHeader`, and the pages that draw their own: Connectors in Admin and
+  Settings, Settings › AI apps): below 768 px the bar says the page's name, so the title is for screen readers only;
+  the line keeps one line (More) with the page's buttons at its end (the plan put them at the end of the search row;
+  the line has more room for them, and a page without a search has them there too); only the search and filters row
+  stays at the top (one row of 44 px controls; Connectors' about 64 px). Computers and tablets: as before.
+- **`PageActions`** (`components/PageActions.tsx`): one main button; on a phone the other ways go under its ⌄ (the
+  split button Connectors had, moved here as `SplitAction` / `ActionMenu`). Members: "Invite to team" ⌄ "Add
+  directly", "Team invite link". Computers: every button, the main one last.
+- **`PhoneFilters`** (`components/PhoneFilters.tsx`): on a phone a "Filters" button with the number turned on sits at
+  the end of the search row and opens the filters under it (Activity log's way). A view choice (Group by) is not a
+  filter and is not passed to it.
+- **`CompactRow`** (`components/CompactRow.tsx`): the name, its chip on the right and ⋯ on one line; a second line only
+  when it adds something. Members: the role on the right (the owner's member ↔ admin stays a select there, drawn as
+  words and an arrow, 44 px tall); the username only when it is not the name; the email when the search matched it
+  only; the badges that need a look. The first member now shows about 280 px down a 844 px screen (about 450 before).
+- Removed on phones: the visible page title and its count (the bar says the name; the title, count included, stays
+  for screen readers), the secondary buttons (under ⌄), the filter's own row, the role's own line.
+- Folder permissions' detail column sticks under the part of the header that sticks (its controls row on a phone),
+  measured again when the width crosses 768 px.
+- Tests: `web/test/e2e/phone-page-patterns.spec.ts` (the bar's name and the hidden title, the ⌄ menu, search and
+  Filters on one row with the count, compact rows (one line, the username line, the email line, an admin's read-only
+  roles), only the search row sticky while the list scrolls, the other pages' buttons still there, Connectors and AI
+  apps named once, 768 and 1440 px unchanged), `people-console.spec.ts`.
+- Version impact: **minor** (a visible change on phones; no API, data or permission change).
