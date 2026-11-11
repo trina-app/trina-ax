@@ -23,13 +23,13 @@ import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
-import { errorText, isApiError } from '../lib/api'
+import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useBackCloses } from '../lib/backCloses'
 import { useStickToBottom } from '../lib/stickToBottom'
-import { useLocale, useT } from '../i18n'
+import { useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
 import { useMe } from '../store/session'
@@ -49,7 +49,8 @@ import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
-import { EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from '../components/ui'
+import { EmptyState, IconButton, Skeleton, useMediaQuery } from '../components/ui'
+import { LoadError } from '../components/LoadError'
 import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
@@ -97,7 +98,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const t = useT()
   // ‹ goes back where I came from (else the 대화 list in place of the room): the phone's own back never loops
   const backLink = useBackLink()
-  const locale = useLocale()
   const me = useMe()
   const meId = me?.user.id ?? null
   const title = useRoomTitle()
@@ -362,11 +362,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-4">
-          {timeline?.loading && messages.length > 0 && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
-          {timeline?.loading && !messages.length && <Skeleton lines={5} className="pt-4" />}
+          {timeline?.loading && messages.length > 0 && !timeline.error && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {timeline?.loading && !messages.length && !timeline.error && <Skeleton lines={5} className="pt-4" />}
           {!!timeline?.error && !notFound && (
             <div className="pt-4">
-              <ErrorNote onRetry={() => void useRooms.getState().loadNewest(roomId)}>{errorText(timeline.error, locale, t('error.network'))}</ErrorNote>
+              <LoadError error={timeline.error} onRetry={() => useRooms.getState().loadNewest(roomId)} what="room-messages" />
             </div>
           )}
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}

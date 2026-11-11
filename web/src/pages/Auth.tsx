@@ -435,6 +435,36 @@ function HaveAccount() {
   )
 }
 
+/**
+ * An invite link opened while someone is signed in (a shared phone or computer, an admin trying the link they made, the
+ * phone app already on this team): say who is signed in and offer to sign out to accept it, or to keep the account.
+ * Before, the link opened Home without a word and the invite was lost (QA TC-134, TC-174). Signing out shows the
+ * invite page at the same address (the signed-out routes in App.tsx).
+ */
+export function InviteWhileSignedIn() {
+  const t = useT()
+  const me = useMe()
+  const { token } = useParams()
+  const signedOut = useSession((s) => s.signedOut)
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+  const leave = async () => {
+    setBusy(true)
+    await api.call(API.logout).catch(() => {})
+    clearLocalData()
+    signedOut()
+    navigate(`/invite/${encodeURIComponent(token ?? '')}`, { replace: true })
+  }
+  return (
+    <AuthFrame title={t('invite.signedInTitle')} sub={t('invite.signedInBody', { name: me?.user.name ?? me?.user.username ?? '' })} switcher={false}>
+      <div className="flex flex-col gap-2" data-testid="invite-signed-in">
+        <Button variant="primary" disabled={busy} onClick={() => void leave()} data-testid="invite-sign-out">{t('invite.signOutAccept')}</Button>
+        <Button disabled={busy} onClick={() => navigate('/', { replace: true })} data-testid="invite-keep">{t('invite.keepAccount')}</Button>
+      </div>
+    </AuthFrame>
+  )
+}
+
 export function AcceptInvite() {
   const t = useT()
   const locale = useLocale()
