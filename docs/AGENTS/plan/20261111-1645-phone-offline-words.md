@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:45
 - Branch: `fix/phone-offline-words`
-- Status: in progress
+- Status: done
 - Where: web app (`web/src/i18n/recovery-locale.ts`, `web/scripts/product-pages.ts`, `web/src/pages/Files.tsx`, the five locale files). Why: wording on the web screens every client shows (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, wording and language choice only
 
@@ -38,4 +38,6 @@ before.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The offline page's script reads `navigator.languages` through `asLocale` inside a try; a new case in
+`web/test/unit/offline-worker.test.ts` runs it with ko-KR, ja-JP, fr-FR, no languages and a stored choice. Checked:
+web typecheck, check:i18n, check:docs, offline-worker and chunk-reload tests.
