@@ -189,6 +189,9 @@ export class BackupManager {
   private async doRun(o: { kind: 'daily' | 'manual' | 'pre-update'; scope: 'db' | 'full'; progress?: BackupProgress }): Promise<BackupMeta> {
     const L = this.o.layout
     const progress = o.progress ?? (() => {})
+    // old copies of a DB a restore replaced take room no new backup needs: dropped before the space check, so a disk
+    // they filled does not stop every backup (and with it the prune that follows one)
+    this.pruneBeforeRestore(this.now().getTime() - retentionDays() * 86400_000)
     const free = Math.min(diskSpace(L.dataDir).free, diskSpace(L.teamRoot).free)
     if (free < BACKUP_MIN_FREE_BYTES) throw new BackupError(`not enough free disk space for a backup (${Math.round(free / 1024 ** 2)} MB free, 2 GB needed)`, 'disk_space')
     const newChain = o.scope === 'full' && this.planGate()
@@ -584,6 +587,8 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
       for (const s of moved.reverse()) {
         try { fs.renameSync(path.join(keep, 'app.db' + s), live + s) } catch (e2) { log.error('could not put the database back after a failed restore', { file: live + s, kept: keep, err: e2 }) }
       }
+      // an empty folder left here would be the newest copy and leave the previous real one to the prune
+      try { fs.rmdirSync(keep) } catch {}
       throw e
     }
     // engine session stashes belong to the replaced DB: a chat keeps its session id across turns and the stash is

@@ -174,6 +174,35 @@ describe('backups', () => {
     e.db.close()
   })
 
+  test('a disk full of old before-restore copies: they go before the space check, so the backup runs', async () => {
+    const e = setup('prune-before-space')
+    e.setClock(new Date('2026-10-01T04:00:00Z'))
+    const dir = e.layout.dbBackupsDir
+    for (const n of ['before-restore-20260801T040000Z', 'before-restore-20260802T040000Z']) fs.mkdirSync(path.join(dir, n), { recursive: true })
+    const orig = fs.statfsSync
+    // the disk is full until the old copy is gone
+    ;(fs as unknown as { statfsSync: unknown }).statfsSync = (...a: unknown[]) => fs.existsSync(path.join(dir, 'before-restore-20260801T040000Z'))
+      ? { bavail: 10, bsize: 4096, blocks: 1e6 } : (orig as (...x: unknown[]) => unknown)(...a)
+    try {
+      await e.mgr.run({ kind: 'daily', scope: 'db' })
+    } finally {
+      ;(fs as unknown as { statfsSync: unknown }).statfsSync = orig
+    }
+    expect(fs.readdirSync(dir).filter((n) => n.startsWith('before-restore-'))).toEqual(['before-restore-20260802T040000Z'])
+    e.db.close()
+  })
+
+  test('a restore whose swap fails leaves no empty before-restore folder', async () => {
+    const e = setup('restore-swap-fails')
+    const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
+    await e.mgr.stageDbRestore(m.id, null)
+    e.db.close()
+    const r = applyPendingRestore(e.cfg.dataDir, silentLogger, { rename: (a, b) => { if (a.endsWith('restore-staged.db')) throw new Error('disk error'); fs.renameSync(a, b) } })
+    expect(r.applied).toBe(false)
+    expect(fs.existsSync(e.dbFile)).toBe(true)
+    expect(fs.readdirSync(e.layout.dbBackupsDir).filter((n) => n.startsWith('before-restore-'))).toEqual([])
+  })
+
   test('a backup after a restore prunes the old before-restore copy and keeps the new one', async () => {
     const e = setup('prune-after-restore')
     e.setClock(new Date('2026-10-01T04:00:00Z'))
