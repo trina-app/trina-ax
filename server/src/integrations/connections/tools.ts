@@ -14,7 +14,7 @@
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
 import crypto from 'node:crypto'
 import { z } from 'zod'
-import { readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX } from '@mycel/shared'
+import { STEP_WORDS_OTHER, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import { INTEGRATION_TOOLS_OLD_MAX, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
@@ -130,8 +130,8 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
 /** What a write sends: the whole text and the parts that say where it goes (counted for the card's size limit); `dest`:
  * every value that says where it goes, for a scheduled run's pinned recipients (pinTargets); `lines`: what the card shows
  * in the person's language (card-lines.ts), `exact` when those lines show all of `text`, which then sits behind "보내는
- * 내용 그대로 보기" (ConfirmDetail.exact). */
-interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean } }
+ * 내용 그대로 보기" (ConfirmDetail.exact); `request`: an HTTP API call (the card names a request). */
+interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean }; request?: boolean }
 
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
  * cannot show all of it (cardLines null: the JSON stays open). */
@@ -332,7 +332,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
-  const question = `${say('confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  const question = `${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const shown = sent.lines?.(L) ?? { fields: sent.fields, exact: false }
@@ -647,7 +647,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
             const body = a.body !== undefined && a.body !== null && typeof a.body === 'object' ? argLines(a.body, L) : { fields: [], exact: false }
             return { fields: [{ name: say('fieldAddress', L), value: url }, ...body.fields], exact: body.exact }
           }
-          confirmed = await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines }, b, tc)
+          confirmed = await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }
@@ -785,11 +785,12 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
       return hit.length === 1 && hit[0]!.tool.readOnly === false ? hit[0]!.row.id : null
     },
-    // the tool it names, as its own step says it; a name not found: that name in words
+    // the tool it names, as its own step says it; a name not found (the AI's own text, the call fails): the word for a
+    // step, never that text
     label(args, locale) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
-      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool) : clip(readableToolName(String(a.name ?? '')), 80) || STEP_WORDS_OTHER[locale]
+      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool) : STEP_WORDS_OTHER[locale]
     },
     // the tool it names, as it was when the turn began (mcpTool asks for a write either way); an unknown or ambiguous
     // name is no read

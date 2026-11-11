@@ -175,8 +175,10 @@ export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ"
  * letter or digit.
  */
 export function readableToolName(id: string): string {
-  const last = id.split('__').filter(Boolean).at(-1) ?? id
-  const words = last.replace(/([\p{Ll}\d])(\p{Lu})/gu, '$1 $2').replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+  // a tool's name is short; anything longer (an AI's text, call_tool's name before its check) is cut first, and the
+  // patterns stay linear
+  const last = id.slice(0, 200).split('__').filter(Boolean).at(-1) ?? ''
+  const words = last.replace(/([\p{Ll}\d])(\p{Lu})/gu, '$1 $2').replace(/(\p{Lu})(?=\p{Lu}\p{Ll})/gu, '$1 ').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
     .map((w) => (w.length > 1 && w === w.toUpperCase() ? w : w.toLowerCase()))
   const s = words.join(' ')
   return s.charAt(0).toUpperCase() + s.slice(1)

@@ -19969,25 +19969,31 @@ engine names, model ids and an English " (job)". The owner approved the audit's 
     direction-changing characters dropped, so it cannot add lines to the card. A service that would mislead with its
     title could already mark the tool read-only and never be asked at all (`mcp.ts toolOf`), so the title widens nothing.
   - Every value of the call is a labelled line (받는 사람, 제목, 마감일 …; a name not in `FIELD_WORDS` as its own words,
-    "page_id" → "Page id"), recipients first, **every value in full** (a long one scrolls in place). Runs of spaces and
-    of empty lines are made one, so nothing sits out of sight below a wall of blank lines. A name with a long
-    random-looking part stays as it is.
+    "page_id" → "Page id"), recipients first, **every text exactly as it is sent** (only a Windows line break read as a
+    line break; a long value scrolls in place). Two values whose names read the same get the name as sent after the
+    words ("내용 (html)"). A name with a long random-looking part stays as it is; names and values are highlighted alike.
+    The names' column takes at most 40% of the card and wraps, so a name never pushes the values out of sight.
   - The exact JSON is one click away, "보내는 내용 그대로 보기" (`ConfirmDetail.exact`), with its size; open, it is what
     the card showed before. A client that does not know `exact` shows the JSON open.
-  - Lines are made only when they can show all of it. More than 40 values, nested deeper than 4, over 20,000 characters,
-    or an invisible or direction-changing character in a name or a value: no lines, the JSON open as before, the
-    recipients first in words.
+  - Lines are made only when they can show all of it, else no lines and the JSON open as before, the recipients first
+    in words: more than 40 values, nested deeper than 4, over 20,000 characters; a name over 40 characters; an
+    invisible character in a name or a value (control, format, default-ignorable ones such as Unicode tags and
+    variation selectors, private use; an emoji's own joiners, selectors and skin tones are allowed); or spacing a line
+    would not show as sent (two spaces, a tab or another kind of space, a space at a line's end or start, more than one
+    empty line, white space at either end), which can carry data too (the review's finding: collapsing it hid it).
   - The card now also highlights long random-looking parts (`opaqueParts`), in the lines and in the JSON. It had none.
   - The size limit (`MAX_CARD_PAYLOAD`) is counted as before, on the JSON and the recipients.
-  - An HTTP API call says what its method does (보내기, 바꾸기, 고치기, 지우기) and shows the address it calls first, as
-    "주소"; a JSON body as lines, a text body open.
+  - An HTTP API call is a request: "AI가 Tasks에 이 요청을 보내려고 해요: 지우기" (보내기, 바꾸기, 고치기, 지우기 for the
+    method), and the address it calls comes first as "보내는 곳", a word no argument gets; a JSON body as lines, a text
+    body open.
 - **Steps never show the AI's arguments.** A connection's step is "Notion · Create page" (`stepOf`), an HTTP API's
-  "Tasks · 보내기". This amends the 0.2.19 review's "a short look at the arguments" (`argsPreview`, S8): a price check
+  "Tasks · 보내기", a `call_tool` whose name matches no tool "작업" (that name is the AI's own text). This amends the 0.2.19 review's "a short look at the arguments" (`argsPreview`, S8): a price check
   and the paid run it was for no longer read differently in the steps; both are on the activity log and the paid one
   asked on its card. With no arguments there is nothing to hide, so `argsPreview`, `secretArg`, `hideSecretsInText`
   and their test are gone.
 - **Step lines** (`shared/src/step-labels.ts`): a tool without words of its own reads as its id in words
-  (`readableToolName`: "TodoWrite" → "Todo write"; nothing left → 작업); no schedule or Drive ids (the verb alone);
+  (`readableToolName`: "TodoWrite" → "Todo write"; nothing left → 작업; cut to 200 characters first, with linear
+  patterns: an AI's long text cannot stall the server); no schedule or Drive ids (the verb alone);
   no engine names or model ids ("AI가 답하지 않아 다른 AI로 다시 답해요", "고른 AI를 지금 쓸 수 없어 팀 기본 AI로
   답해요"); " (job)" / " (background)" in the language on screen; verbs 화면 만들기, 자료 지도에서 찾기, 페이지에서 동작
   실행, 페이지 오류 보기, 페이지 통신 보기, 쓸 수 있는 기능 찾기. Stored steps with the earlier templates or verbs are
@@ -19995,8 +20001,10 @@ engine names, model ids and an English " (job)". The owner approved the audit's 
 - **Places in words on cards** (`chat/place-words.ts`): the Files screen's words for the top folders (`labeledPath`:
   전사 공유, 부서, 프로젝트, 팀 스킬), 내 폴더 and 첨부한 파일 (`placeName`), another person's folder by their name, the
   team folder's top as "팀 폴더 맨 위". Not `placeName` alone: it says a group's brand folder and the company's both as
-  "브랜드 폴더", and a card is where the person decides, so two places must never read the same. A path with `.` or `..`
-  is shown as given. Used by the wider-audience card (target and sources), the shared-read card, the room change card's
+  "브랜드 폴더", and a card is where the person decides, so two places must never read the same. Two people of the same
+  name are told apart by their user name ("김민수 (kms)님의 폴더"); a folder at the top named like a place ("내 폴더",
+  "전사 공유") reads "팀 폴더 맨 위 › 내 폴더". A path with `.` or `..` is shown as given. Left as is: the person's own
+  attachments read "첨부한 파일 › 사진.jpg" whichever chat they came from (placeName; only their own). Used by the wider-audience card (target and sources), the shared-read card, the room change card's
   question and fields, move/copy, the trash card's list, the team-skill save card (and the web preview's path, on hover
   as a path) and save_room_file's default. What the AI reads, refusals and the activity log keep the disk path.
 - **The wider-audience card has no SHA-256 line.** A safe-operations PowerPoint's approval is still bound to those bytes

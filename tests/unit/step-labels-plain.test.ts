@@ -17,6 +17,12 @@ describe('new steps', () => {
     expect(label('mcp__notion__create_page', {})).toBe('Create page')
     expect(label('__', {}, 'ko')).toBe('작업')
     expect(readableToolName('get_PDF_text')).toBe('Get PDF text')
+    expect(readableToolName('HTMLParserTool')).toBe('HTML parser tool')
+    // the AI's own text (call_tool's name before its check) takes no time, however long: cut first, linear patterns
+    const t0 = performance.now()
+    readableToolName('A'.repeat(40_000) + 'b')
+    readableToolName('aA'.repeat(40_000))
+    expect(performance.now() - t0).toBeLessThan(200)
   })
 
   test('no raw ids: a schedule, a Drive file or folder by the words alone', () => {

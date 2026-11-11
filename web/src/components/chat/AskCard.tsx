@@ -337,11 +337,12 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
           <div key={i} className="space-y-1.5 text-sm" data-testid="ask-detail">
             {d.fields?.length ? (
               <div role="group" aria-label={d.label} data-testid="ask-detail-fields">
-                {/* the names' column as wide as the longest one ("파일", "고칠 수 있게 돼요"), at least 3.5rem */}
-                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                {/* the names' column as wide as the longest one ("파일", "고칠 수 있게 돼요"), at least 3.5rem and at most
+                    40%: a long name wraps and never squeezes the values off the card; marks show in names too */}
+                <dl className="grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-3 gap-y-1">
                   {d.fields.map((f, j) => (
                     <div key={j} className="contents">
-                      <dt className="min-w-14 text-faint">{f.name}</dt>
+                      <dt className="min-w-14 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></dt>
                       {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
                       <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
                         <Marked text={f.value} marks={d.marks} />
@@ -390,7 +391,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
             >
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
-                  <span className="shrink-0 text-faint">{f.name}</span>
+                  <span className="max-w-[40%] shrink-0 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></span>
                   <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
                 </div>
               ))}

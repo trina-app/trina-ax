@@ -10,6 +10,8 @@ export const TEXT = {
   // the card before a call that changes something at the service: {what} is the tool's title (MCP `title`, else its id
   // in words) or, for an HTTP API, what the method does (methodPost …); card-lines.ts
   confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}"),
+  // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
+  confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)"),
   // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing
   valueEmpty: t('(비어 있음)', '(empty)', '(kosong)', "（空）", "(vacío)"),
@@ -17,7 +19,7 @@ export const TEXT = {
   valueNo: t('아니요', 'No', 'Tidak', "いいえ", "No"),
   valueNone: t('(없음)', '(none)', '(tidak ada)', "（なし）", "(ninguno)"),
   // an HTTP API call on the card and in its step: the address it calls, and what its method does
-  fieldAddress: t('주소', 'Address', 'Alamat', "アドレス", "Dirección"),
+  fieldAddress: t('보내는 곳', 'Sends to', 'Dikirim ke', "送信先", "Se envía a"),
   methodGET: t('가져오기', 'Get', 'Ambil', "取得", "Obtener"),
   methodHEAD: t('확인하기', 'Check', 'Periksa', "確認", "Comprobar"),
   methodPOST: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),

@@ -7,8 +7,8 @@ import { expect, test } from 'bun:test'
 import { placeWords } from '../../server/src/chat/place-words'
 
 const db = new Database(':memory:')
-db.run('CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)')
-db.run("INSERT INTO users VALUES ('u-bob', 'Bob'), ('u-olga', '대표님')")
+db.run('CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL)')
+db.run("INSERT INTO users VALUES ('u-bob', 'Bob', 'bob'), ('u-olga', '대표님', 'olga'), ('u-kim1', '김민수', 'minsu.kim'), ('u-kim2', '김민수', 'kms')")
 const at = (p: string, l: 'ko' | 'en' = 'ko') => placeWords(db, p, l, 'u-bob')
 
 test('the top folders as the Files screen says them; the rest by name', () => {
@@ -29,6 +29,17 @@ test('my folder and my attachments in words; another person\'s folder by their n
   expect(at('users/u-olga/메모.txt')).toBe('대표님의 폴더 › 메모.txt')
   expect(at('users/u-olga', 'en')).toBe("대표님's folder")
   expect(at('users/u-olga/x')).not.toContain('u-olga')
+})
+
+test('two places never read the same: people of the same name by their user name, a top folder named like a place', () => {
+  expect(at('users/u-kim1/보고서.docx')).toBe('김민수 (minsu.kim)님의 폴더 › 보고서.docx')
+  expect(at('users/u-kim2/보고서.docx')).toBe('김민수 (kms)님의 폴더 › 보고서.docx')
+  expect(at('내 폴더/x.md')).toBe('팀 폴더 맨 위 › 내 폴더 › x.md')
+  expect(at('My folder/x.md', 'en')).toBe('Top of the team folder › My folder › x.md')
+  expect(at('전사 공유/x.md')).toBe('팀 폴더 맨 위 › 전사 공유 › x.md')
+  expect(at('대표님의 폴더/x.md')).toBe('팀 폴더 맨 위 › 대표님의 폴더 › x.md')
+  // an ordinary folder at the top: its name
+  expect(at('marketing/plan.md')).toBe('marketing › plan.md')
 })
 
 test('a path that steps up or stays put is shown as it was given', () => {
