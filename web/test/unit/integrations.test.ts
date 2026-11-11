@@ -290,6 +290,7 @@ describe('a connection whose last check failed', () => {
 
 test('TC-020: why a sign-in failed, in words in every language; an unknown code is the plain "could not sign in", never the code', () => {
   expect(flowReasonKey('client')).toBe('integrations.signIn.reason.client')
+  expect(flowReasonKey('client_template')).toBe('integrations.signIn.reason.clientTemplate')
   expect(flowReasonKey('denied')).toBe('integrations.signIn.reason.denied')
   expect(flowReasonKey('changed')).toBe('integrations.signIn.reason.changed')
   expect(flowReasonKey('superseded')).toBe('integrations.signIn.reason.superseded')
@@ -302,5 +303,9 @@ test('TC-020: why a sign-in failed, in words in every language; an unknown code 
     const words = translate(l, 'integrations.signIn.reason.client')
     expect(words).toContain(translate(l, 'integrations.advanced'))
     expect(words).not.toMatch(/\b(client|exchange|invalid_client)\b/)
+    // a template's app: the member cannot see it, so the words send them to whoever set it up, not to Advanced
+    const theirs = translate(l, 'integrations.signIn.reason.clientTemplate')
+    expect(theirs).not.toContain(translate(l, 'integrations.advanced'))
+    expect(theirs).not.toMatch(/\b(client_template|invalid_client)\b/)
   }
 })

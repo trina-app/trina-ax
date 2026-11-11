@@ -401,8 +401,9 @@ idle minutes; a 404 for it starts a new one.
   its own hashed `window.close()`; the code and state are never put anywhere else. A sign-in the service did not finish
   says why in plain words, on that page and on the connection's row (never the reason code, the service's answer or a
   secret): access not allowed (`denied`), an own app's Client ID or Secret refused (`client`, from `invalid_client` or
-  `unauthorized_client`), the connection changed meanwhile (`changed`), or did not finish (`exchange`, `invalid`). The
-  flow is `completed` only once the connection's check after the sign-in has ended.
+  `unauthorized_client`; `client_template` for a template's app, whose member is told to ask who set it up), the connection changed meanwhile (`changed`), or did not finish (`exchange`, `invalid`). The
+  flow is `completed` only once the connection's check after the sign-in has ended (its lifetime starts again when the
+  tokens are stored, so a long check is not swept as expired).
 
 ## Your own app (client ID)
 

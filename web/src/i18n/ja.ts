@@ -2809,6 +2809,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.signIn.done': "ログインしました。",
   'integrations.signIn.failed': "ログインできませんでした。再試行してください。",
   'integrations.signIn.reason.client': "サービスがこのアプリのクライアントIDまたはシークレットを受け付けませんでした。接続を編集して「詳細設定」でシークレットを確認してから、もう一度ログインしてください。",
+  'integrations.signIn.reason.clientTemplate': "サービスが、この接続で使うアプリのクライアントIDまたはシークレットを受け付けませんでした。この接続を設定した人にクライアントIDとシークレットの確認を依頼してください。",
   'integrations.signIn.reason.denied': "サービスでアクセスが許可されませんでした。もう一度ログインして、接続を許可してください。",
   'integrations.signIn.reason.changed': "ログイン中に接続の設定が変更されました。もう一度ログインしてください。",
   'integrations.signIn.reason.superseded': "この接続で新しいログインが始まりました。そちらを完了するか、もう一度ログインしてください。",

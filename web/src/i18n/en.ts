@@ -2849,6 +2849,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.signIn.done': 'Signed in.',
   'integrations.signIn.failed': 'Could not sign in. Please try again.',
   'integrations.signIn.reason.client': "The service did not accept this app’s Client ID or Secret. Edit the connection and check the Secret under Advanced, then sign in again.",
+  'integrations.signIn.reason.clientTemplate': "The service did not accept the Client ID or Secret of the app this connection uses. Ask the person who set up this connection to check its Client ID and Secret.",
   'integrations.signIn.reason.denied': "Access was not allowed at the service. Sign in again and allow it to connect.",
   'integrations.signIn.reason.changed': "The connection’s settings changed while you were signing in. Sign in again.",
   'integrations.signIn.reason.superseded': "A newer sign-in was started for this connection. Finish that one, or sign in again.",

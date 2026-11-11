@@ -545,3 +545,39 @@ test('the sign-in is "completed" only once the check after it has ended: the row
   expect(await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).toMatchObject({ state: 'completed', reason: null })
   expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)).toMatchObject({ status: 'connected', hasSecret: true })
 })
+
+test('TC-020: a member signing in through a template\'s app the service refuses is told to ask who set it up, not to look under 고급', async () => {
+  const WRONG = 'CANARY-template-wrong-8Pq1'
+  const t = await olga.call('POST', '/api/admin/integration-templates', { ...ownMcp({ oauthClient: { clientId: APP, clientSecret: WRONG } }), access: { everyone: false, groups: [], users: [bobId] } })
+  const shared = (await bob.call('GET', '/api/integration-templates')).items
+  const mine = await bob.call('POST', `/api/integration-templates/${t.id}/connect`, { version: shared[0].version })
+  const f = await bob.call('POST', `/api/integrations/${mine.id}/authorize`, {})
+  const res = await bob.raw('GET', callback(fake.authorize(f.authorizationUrl, `${fake.base}/as-own`)))
+  expect(res.status).toBe(400)
+  const page = await res.text()
+  expect(page).toContain('이 연결을 설정한 사람에게')
+  expect(page).not.toContain('고급')
+  for (const raw of [WRONG, 'invalid_client', 'client_template']) expect(page).not.toContain(raw)
+  expect(await bob.call('GET', `/api/integrations/flows/${f.flowId}`)).toMatchObject({ state: 'failed', reason: 'client_template' })
+  expect(everything()).not.toContain(WRONG)
+})
+
+test('a sign-in waiting for its check outlives the first 10 minutes: a poll then does not find it expired', async () => {
+  const c = await olga.call('POST', '/api/integrations', ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }))
+  const f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  // the person comes back late, a little before the flow's 10 minutes end
+  fake.now += 9 * 60_000 + 50_000
+  let release!: () => void
+  fake.hold = { path: '/mcp-own', until: new Promise<void>((r) => { release = r }) }
+  try {
+    const done = olga.raw('GET', callback(fake.authorize(f.authorizationUrl, `${fake.base}/as-own`)))
+    expect(await until(() => !!getRow(h.ctx.db, c.id)?.secret_enc)).toBe(true)
+    // the check takes a while: the first 10 minutes are over, the app polls (which sweeps)
+    fake.now += 2 * 60_000
+    expect((await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).state).toBe('exchanging')
+    release()
+    expect((await done).status).toBe(200)
+  } finally { release?.(); fake.hold = null }
+  expect((await olga.call('GET', `/api/integrations/flows/${f.flowId}`)).state).toBe('completed')
+  expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)).toMatchObject({ status: 'connected' })
+})

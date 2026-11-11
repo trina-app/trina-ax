@@ -2848,6 +2848,7 @@ export const ko = {
   'integrations.signIn.done': '로그인했어요.',
   'integrations.signIn.failed': '로그인하지 못했어요. 다시 시도해 주세요.',
   'integrations.signIn.reason.client': "서비스가 이 앱의 Client ID나 Secret을 받아들이지 않았어요. 연결을 편집해 고급에서 Secret을 확인한 뒤 다시 로그인해 주세요.",
+  'integrations.signIn.reason.clientTemplate': "서비스가 이 연결에 쓰는 앱의 Client ID나 Secret을 받아들이지 않았어요. 이 연결을 설정한 사람에게 Client ID와 Secret을 확인해 달라고 요청해 주세요.",
   'integrations.signIn.reason.denied': "서비스에서 접근을 허용하지 않았어요. 다시 로그인해 연결을 허용해 주세요.",
   'integrations.signIn.reason.changed': "로그인하는 동안 연결 설정이 바뀌었어요. 다시 로그인해 주세요.",
   'integrations.signIn.reason.superseded': "이 연결에 새 로그인이 시작됐어요. 그 로그인을 마치거나 다시 로그인해 주세요.",

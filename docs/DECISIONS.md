@@ -20223,12 +20223,14 @@ overruled the review's MUST 1 and three of its SHOULDs:
   does not know is the plain "Could not sign in. Please try again."
 - **A refused own app is named.** `invalid_client` or `unauthorized_client` from an own app's token address is the
   reason `client`: "The service did not accept this app's Client ID or Secret", and where to look (the Secret under
-  Advanced when editing the connection; the word is that screen's own). A registered app's refusal stays the general
-  "did not finish". The service's answer is never stored or shown (it may repeat what was sent), nor is the secret.
+  Advanced when editing the connection; the word is that screen's own). A member whose connection comes from a template
+  signs in with the admin's app, which they never see: for them it is `client_template`, "ask the person who set up
+  this connection to check its Client ID and Secret". A registered app's refusal stays the general "did not finish". The service's answer is never stored or shown (it may repeat what was sent), nor is the secret.
 - **"Sign in to the team account" only when that is the problem**: a browser without the person's session, a used or
   unknown link. A sign-in the service did not finish says what to do in the app instead.
 - **Done means checked.** The flow is `completed` once the connection's check after the sign-in has ended (it stays
-  `exchanging` meanwhile), so the row the app reads then says connected, not "needs sign-in" until a reload.
+  `exchanging` meanwhile), so the row the app reads then says connected, not "needs sign-in" until a reload. When the
+  tokens are stored the flow gets a new 10 minutes, so a check that runs past the first 10 is never swept as expired.
 - Tests: server `c-integrations-own-app` (a fake token address answering `invalid_client`; another refusal; the flow
   completes after the check), web `integrations` (every reason in five languages, never the code), `connect-card` (the
   card says the reason in words).

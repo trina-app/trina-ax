@@ -48,16 +48,19 @@ type Secret = KeySecret | OAuthSecret
 /** pinOnto: the own app as read when the sign-in started, when it has a client secret, finds its addresses and has no
  * token address remembered yet: the one this sign-in uses is remembered onto it once the sign-in worked (pinFound).
  * appVersion: for a member's connection made from a template with an app, the template's version then (callback).
- * own: signed in through an own app (its client ID and secret were typed in; a refused one is said as such) */
+ * own: signed in through an own app, the person's own ('mine', their connection's 고급) or the one an admin set on the
+ * template the connection was made from ('template', which the member never sees): a refused one is said as such, with
+ * who can fix it (true: from a build before this was told apart, read as 'mine') */
 interface FlowSecret {
   verifier: string; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null
-  pinOnto?: { json: string; enc: string | null } | null; appVersion?: number | null; own?: boolean
+  pinOnto?: { json: string; enc: string | null } | null; appVersion?: number | null; own?: 'mine' | 'template' | boolean
 }
 /** Why a sign-in did not finish (integration_oauth_flows.reason, IntegrationFlow.reason; the app says it in words,
  * web/src/lib/integrations.ts flowReasonKey): the person said no at the service (denied), the answer was not one we
  * can use (invalid), the connection or its app changed meanwhile (changed), an own app's client ID or secret was
- * refused at the token address (client), another error there (exchange), a newer sign-in started (superseded). */
-export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'exchange' | 'superseded'
+ * refused at the token address (client: the person's own app; client_template: the app an admin set on the template),
+ * another error there (exchange), a newer sign-in started (superseded). */
+export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded'
 /** The sign-in window's answer: done, or why not (null: not a sign-in this browser may finish, e.g. not signed in to
  * the team here, or the link was used already) */
 export type CallbackResult = { ok: true } | { ok: false; reason: FlowFailure | null }
@@ -865,7 +868,7 @@ export class Integrations {
     const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
-    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app ? app.stored.version : null, own: !!app }
+    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app ? app.stored.version : null, own: app ? (row.template_id ? 'template' : 'mine') : undefined }
     let sealed
     try { sealed = this.box.seal(flowAad({ id: flowId, user_id: viewer.id }), secret) } catch { return fail('unavailable', say('key_unsafe', L)) }
     const expiresAt = iso(this.now() + FLOW_TTL)
@@ -919,7 +922,10 @@ export class Integrations {
       let tokens: OAuthTokens
       try { tokens = await tokenRequest(s, { grant_type: 'authorization_code', code: q.code, redirect_uri: s.client.redirectUri, code_verifier: s.verifier, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now()) }
       // the service's answer is never kept or shown (it may repeat what was sent): only whether it refused the app
-      catch (e) { return failed(s.own && e instanceof GrantError && CLIENT_REFUSED.has(e.message) ? 'client' : 'exchange') }
+      catch (e) {
+        if (!s.own || !(e instanceof GrantError) || !CLIENT_REFUSED.has(e.message)) return failed('exchange')
+        return failed(s.own === 'template' ? 'client_template' : 'client')
+      }
       const cur = getRow(this.db, row.id)
       if (!cur || cur.version !== row.version || !covered(cur)) return failed('changed')
       const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens } satisfies OAuthSecret)
@@ -934,7 +940,9 @@ export class Integrations {
           .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version).changes
         // done once the check below has ended (the app reads the connection again when the flow says completed, and
         // would find it still waiting for a sign-in)
-        this.db.query("UPDATE integration_oauth_flows SET secret_enc=NULL WHERE id=?").run(f.id)
+        // and the check may take up to its deadline: the flow gets a new lifetime from now, so a poll after the first one
+        // ended does not find it expired (sweep) while it is only waiting for the check
+        this.db.query("UPDATE integration_oauth_flows SET secret_enc=NULL, expires_at=? WHERE id=?").run(iso(this.now() + FLOW_TTL), f.id)
         // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway), only when
         // these tokens are the ones stored now
         if (stored && cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))

@@ -20,7 +20,7 @@ const viewer = (auth: AuthInfo) => ({ id: auth.user.id, role: auth.user.role })
 /** a sign-in the service did not finish, in words (never a code, never the service's answer); one that never started
  * here (no session in this browser, a used link) says to sign in to the team account */
 const FAILED_TEXT: Record<FlowFailure, TextKey> = {
-  client: 'callbackClient', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged',
+  client: 'callbackClient', client_template: 'callbackClientTemplate', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged',
 }
 
 export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {

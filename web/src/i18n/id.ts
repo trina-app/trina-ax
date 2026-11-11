@@ -2849,6 +2849,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.signIn.done': 'Berhasil masuk.',
   'integrations.signIn.failed': 'Tidak bisa masuk. Silakan coba lagi.',
   'integrations.signIn.reason.client': "Layanan tidak menerima Client ID atau Secret aplikasi ini. Edit koneksi dan periksa Secret di Lanjutan, lalu login lagi.",
+  'integrations.signIn.reason.clientTemplate': "Layanan tidak menerima Client ID atau Secret aplikasi yang dipakai koneksi ini. Minta orang yang menyiapkan koneksi ini untuk memeriksa Client ID dan Secret-nya.",
   'integrations.signIn.reason.denied': "Akses tidak diizinkan di layanan. Login lagi dan izinkan untuk menghubungkan.",
   'integrations.signIn.reason.changed': "Pengaturan koneksi berubah saat Anda login. Login lagi.",
   'integrations.signIn.reason.superseded': "Login yang lebih baru dimulai untuk koneksi ini. Selesaikan yang itu, atau login lagi.",
