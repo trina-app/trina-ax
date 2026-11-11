@@ -1,10 +1,13 @@
 // Shared project chats: the trash and live lists (docs/DECISIONS.md "Shared project chats: the trash and live lists").
-// The project is on projects/falcon: alice made it and writes it, the finance group (bob) reads it, carol (admin) and
-// dana (owner) see everything; erin is not in its audience. Covered: deleting a project moves its shared chats to their
-// creators' trash (unshared, without project; restored, the creator's own with the several-authors rules and the
-// per-viewer view of other people's turns), or purges one whose creator would not see the project; everyone else hears
-// it is gone. The trash lists the shared chats I deleted beside my own, once, only while I may restore them. An access
-// change sends whoever stops seeing a shared chat its removal (its id only), and nothing to the others.
+// The project is on projects/falcon: alice made it and writes it, the finance group (bob) reads it; carol (admin) and
+// dana (owner) are not its members, so they do not see its chats (docs/DECISIONS.md "Project contents only for
+// members"); erin is not in its audience. Covered: deleting a team project in projects/ moves it to the trash with its
+// folder first (it stays, In trash; its shared chats stay, read by nobody, and leave everyone's lists; restored, they
+// are back), and deleting it again moves its shared chats to their creators' trash (unshared, without project; restored,
+// the creator's own with the several-authors rules and the per-viewer view of other people's turns), or purges one whose
+// creator would not see the project. The trash lists the shared chats I deleted beside my own, once, only while I may
+// restore them. An access change sends whoever stops seeing a shared chat its removal (its id only), and nothing to the
+// others.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, uuidv7, type Chat, type Message, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -66,8 +69,9 @@ async function caughtUp() {
 }
 
 describe('deleting a project', () => {
-  test("its shared chats go to their creators' trash, unshared and without project; the others hear they are gone", async () => {
-    // a new team folder: dana, alice and bob write it, carol (admin) sees it too; erin does not
+  test("in the trash with its folder first (its shared chats kept, read by nobody); deleted again, they go to their creators' trash, unshared and without project", async () => {
+    // a new team folder: dana, alice and bob write it; carol (admin) is not a member, so she never sees its chats; erin
+    // does not see it either
     const p = await h.api('dana').call(API.createProject, { body: { name: 'Temp', scope: 'team', participants: [{ subjectType: 'user', subjectId: 'alice' }, { subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
     await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     // bob's chat, alice wrote in it too (her turn failed: its reason is hers)
@@ -84,23 +88,51 @@ describe('deleting a project', () => {
     const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
     const from = mark()
 
+    // the first delete (docs/DECISIONS.md "Project contents only for members"): the project and its folder go to the
+    // trash together. The project stays, In trash, for the owner and admins; its chats stay as they are, read by nobody
     await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect(row(chat.id)).toMatchObject({ user_id: 'bob', project_id: p.id, deleted_at: null, deleted_by: null })
+    expect(row(chat.id)!.shared_at).not.toBeNull()
+    expect(row(own.id)).toMatchObject({ project_id: p.id, deleted_at: null })
+    expect(db().query("SELECT actor_id AS actor FROM audit_log WHERE action = 'project.trash' AND target = ?").all(p.id)).toEqual([{ actor: 'dana' }])
+    expect(db().query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'project.delete' AND target = ?").get(p.id)).toEqual({ n: 0 })
+    for (const u of ['dana', 'carol']) expect(await h.api(u).call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })).toMatchObject({ inTrash: true, member: false, instructions: '' })
+    // nobody reads it now, its creator and members included
+    for (const u of ['dana', 'alice', 'bob']) expect((await errOf(h.api(u).call(API.getProject, { params: { id: p.id } }))).status).toBe(404)
+    for (const u of ['bob', 'alice', 'dana']) expect((await errOf(h.api(u).call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
+    // whoever saw its shared chats hears they are gone (their id alone); carol, never a member, and erin hear nothing
+    for (const u of ['alice', 'bob', 'dana']) await ws[u]!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'deleted' && seqOf(f) > from[u]!)
+    await caughtUp()
+    for (const u of ['alice', 'bob', 'dana']) expect(updates(u, chat.id, from[u]).map((f) => [f.data.change, f.data.chat])).toEqual([['deleted', null]])
+    for (const u of ['carol', 'erin']) expect(updates(u, chat.id, from[u])).toEqual([])
+
+    // restored by an admin who is not a member (she manages it without reading it): its people read its chats again,
+    // she still does not
+    const restored = await h.api('carol').call(API.restoreProject, { params: { id: p.id } })
+    expect(restored).toMatchObject({ inTrash: false, member: false, instructions: '' })
+    expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).shared).toBeTruthy()
+    expect((await errOf(h.api('carol').call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
+    // in the trash again, then deleted for good: its shared chats go to their creators' trash
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect(row(chat.id)).toMatchObject({ project_id: p.id, deleted_at: null })
+    await caughtUp()
+    const from2 = mark()
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect(db().query('SELECT id FROM projects WHERE id = ?').get(p.id)).toBeNull()
+    expect((await errOf(h.api('dana').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } }))).status).toBe(404)
 
     expect(row(chat.id)).toMatchObject({ user_id: 'bob', project_id: null, shared_at: null, deleted_by: 'dana' })
     expect(row(chat.id)!.deleted_at).not.toBeNull()
     expect(row(trashed.id)).toMatchObject({ project_id: null, shared_at: null, deleted_at: trashedAt, deleted_by: 'dana' })
     expect(row(own.id)).toMatchObject({ project_id: null, shared_at: null, deleted_at: null })
-    // bob: in his trash, his own chat; told it moved there. Everyone else: gone, nothing of it
-    await ws.bob!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'deleted')
-    const toBob = updates('bob', chat.id, from.bob).find((f) => f.data.change === 'deleted')!
+    // bob: in his trash, his own chat; told it moved there. Everyone else heard it was gone when it went to the trash:
+    // nothing more now
+    await ws.bob!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'deleted' && seqOf(f) > from2.bob!)
+    const toBob = updates('bob', chat.id, from2.bob).find((f) => f.data.change === 'deleted')!
     expect(toBob.data.chat).toMatchObject({ id: chat.id, projectId: null })
     expect(toBob.data.chat!.shared).toBeUndefined()
-    for (const u of ['alice', 'carol', 'dana']) {
-      await ws[u]!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'purged')
-      expect(updates(u, chat.id, from[u]).map((f) => [f.data.change, f.data.chat])).toEqual([['purged', null]])
-    }
     await caughtUp()
-    expect(updates('erin', chat.id, from.erin)).toEqual([])
+    for (const u of ['alice', 'carol', 'dana', 'erin']) expect(updates(u, chat.id, from2[u])).toEqual([])
     expect(await trashIds('bob')).toEqual(expect.arrayContaining([chat.id, trashed.id]))
     // dana deleted the second one, but it is not hers to restore any more (no project): not in her trash
     expect(await trashIds('dana')).not.toContain(trashed.id)
@@ -142,9 +174,12 @@ describe('deleting a project', () => {
     const chat = await h.api('bob').call(API.createChat, { body: { projectId: p.id } })
     await ask('bob', chat.id, 'bob asks\n' + fake({ say: 'ok' }))
     const folder = (await h.api('dana').call(API.getProject, { params: { id: p.id } })).folderPath
-    // an admin moves the folder to the trash (its rules go with it): only admins see the project now, then it is deleted
+    // an admin moves the folder to the trash (its rules go with it): nobody reads the project now, the owner and admins
+    // included (docs/DECISIONS.md "Project contents only for members"); they still manage it, and it is deleted (for good:
+    // its folder is in the trash already)
     await h.api('dana').call(API.remove, { query: { path: folder } })
-    expect((await h.api('dana').call(API.getProject, { params: { id: p.id } })).inTrash).toBe(true)
+    expect((await errOf(h.api('dana').call(API.getProject, { params: { id: p.id } }))).status).toBe(404)
+    expect((await h.api('dana').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })).inTrash).toBe(true)
     expect((await errOf(h.api('bob').call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
     await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
     // judged by the folder's own rules, as if it were back: bob would see it
@@ -152,7 +187,8 @@ describe('deleting a project', () => {
     expect(await trashIds('bob')).toContain(chat.id)
 
     // the same under shared/ (everyone reads it), the folder's own rule keeping erin out, and the folder purged from the
-    // files trash before the project is deleted: its rules are gone, so nobody but admins counts (not erin by shared/'s)
+    // files trash before the project is deleted: its rules are gone, so nobody counts, the owner and admins neither (not
+    // erin by shared/'s)
     const q = await oldProject(h, 'dana', { name: 'Purged', folderPath: 'shared/acme-purged', instructions: '' })
     await h.api('dana').call(API.updateProject, { params: { id: q.id }, body: { shareChats: true } })
     const erins = await h.api('erin').call(API.createChat, { body: { projectId: q.id } })
@@ -177,13 +213,18 @@ describe('deleting a project', () => {
     db().query("UPDATE folder_rules SET access = 'none' WHERE subject_type = 'user' AND subject_id = 'erin' AND folder_id = (SELECT id FROM folders WHERE path = ?)").run(folder)
     db().query("UPDATE users SET status = 'disabled' WHERE id = 'bob'").run()
     try {
+      // the first delete puts it in the trash with its folder (its people hear its chats are gone: dana, its creator,
+      // still sees it); the second deletes it for good, judged by its folder's rules as if it were back
+      const from = mark()
+      await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+      expect(row(erins.id)).toMatchObject({ project_id: p.id, deleted_at: null })
+      await ws.dana!.next('chat.updated', (f) => f.data.chatId === erins.id && f.data.change === 'deleted' && seqOf(f) > from.dana!)
       await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
       expect(row(erins.id)).toBeNull()
       expect(row(bobs.id)).toMatchObject({ user_id: 'bob', project_id: null, shared_at: null })
       expect(row(bobs.id)!.deleted_at).not.toBeNull()
       const audit = db().query("SELECT detail FROM audit_log WHERE action = 'project.delete' AND target = ?").get(p.id) as { detail: string }
       expect(JSON.parse(audit.detail)).toMatchObject({ sharedChats: 2, sharedChatsPurged: 1 })
-      await ws.dana!.next('chat.updated', (f) => f.data.chatId === erins.id && f.data.change === 'purged')
     } finally { db().query("UPDATE users SET status = 'active' WHERE id = 'bob'").run() }
     expect(await trashIds('bob')).toContain(bobs.id)
     expect(await trashIds('erin')).not.toContain(erins.id)
@@ -204,6 +245,8 @@ describe('deleting a project', () => {
     try { hidden = (await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }, { tool: 'artifact', args: { action: 'create', key: 'brief', type: 'markdown', title: 'ART-TITLE', content: '# brief notes' } }))).done.id }
     finally { db().query(bobRule).run('write', folder) }
     expect((await messages('bob', chat.id)).find((m) => m.id === hidden)!.withheld).toBe(true)
+    // deleted: to the trash with its folder, then for good (its shared chats to their creators' trash)
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
     await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
     await h.api('bob').call(API.restoreChat, { params: { id: chat.id } })
 

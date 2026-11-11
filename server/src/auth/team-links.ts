@@ -18,6 +18,8 @@
 // <secrets>/team-links/) beside its sha256 (token_hash, the lookup), so the admin can copy the same link again later:
 // a link already posted in a chat must keep working when the leader comes back for it.
 import path from 'node:path'
+import { projectJoinsOfNewAccount } from '../chat/project-joins'
+import { captureState } from '../admin/folders'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import {
@@ -391,6 +393,8 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   // turned away, only failed and refused attempts add up
   hold.release()
   ensurePersonalFolder(ctx.files.fx.root, id)
+  // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
+  if (groups.length) projectJoinsOfNewAccount(ctx, id, id, captureState(ctx.db))
   notifyTemplateOffers(ctx, { userId: id })
   // the owners hear about every join, and so does the admin who made the link
   const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
