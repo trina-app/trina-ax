@@ -49,6 +49,10 @@ export const mimeOf = (name: string): string | null => {
 const segsOf = (rel: string) => (rel === '' ? [] : rel.split('/'))
 const isUnder = (anc: string, p: string) => anc === '' ? p !== '' : p.startsWith(anc + '/')
 const iso = (ms: number) => new Date(ms).toISOString()
+/** A path a person typed, for a name the server makes from it (a new folder or file, a rename, a move): composed (NFC),
+ * like uploads (QA TC-225: a Mac types Korean decomposed, which Windows shows as split letters). Folders already on
+ * the way are still found in either form (policy/resolve.ts walk compares NFC), so names stored in NFD keep working. */
+const composedPath = (p: string) => (typeof p === 'string' ? p.normalize('NFC') : p)
 
 /** GET /api/files/history `current` */
 interface HistoryCurrent { version: number; sha256: string; size: number; author: UserRef | null; turnId: string | null; at: string | null }
@@ -251,7 +255,7 @@ export class TeamFiles {
   save(userId: string, rel: string, content: string, baseSha: string | null): SaveResult {
     const user = this.principal(userId)
     const rules = this.rules()
-    const r = authorize(this.fx, rules, user, rel, 'write', { createDirs: true })
+    const r = authorize(this.fx, rules, user, composedPath(rel), 'write', { createDirs: true })
     if (BINARY_EXT.has(ext(r.rel)) || isOffice(r.rel)) fileError('validation', 'notText', { path: r.rel })
     const data = Buffer.from(content, 'utf8')
     const ndata = sha256(data)
@@ -293,7 +297,7 @@ export class TeamFiles {
   mkdir(userId: string, rel: string): FileEntry {
     const user = this.principal(userId)
     const rules = this.rules()
-    const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: false })
+    const r = authorize(this.fx, rules, user, composedPath(rel), 'write', { mustExist: false })
     if (r.exists) fileError('conflict', 'exists', { path: r.rel })
     fs.mkdirSync(r.abs, { mode: 0o700 })
     verifyChain(this.root, r.segs)
@@ -399,12 +403,12 @@ export class TeamFiles {
     const managed = this.assertMayChangeManaged(user, rules, fr.rel)
     const isDir = fr.st!.isDirectory()
     if (!isDir) checkRegular(fr.abs)
-    let tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false, createDirs })
-    const typed = segsOf(to.normalize('NFC'))
+    let tr = authorize(this.fx, rules, user, composedPath(to), 'write', { mustExist: false, createDirs })
+    const typedSegs = segsOf(composedPath(to))
     let target: string[]
     if (tr.exists && tr.rel === fr.rel) {
       // same entry: case-only / Unicode-form rename on a case-insensitive volume
-      target = [...fr.segs.slice(0, -1), typed[typed.length - 1]!]
+      target = [...fr.segs.slice(0, -1), typedSegs[typedSegs.length - 1]!]
       if (target.join('/') === fr.rel) return { fr, target, isDir, managed, same: true }
     } else {
       if (tr.exists) {
@@ -814,7 +818,7 @@ export class TeamFiles {
   ensureFolder(userId: string, rel: string): { path: string; created: string[] } {
     const user = this.principal(userId)
     const rules = this.rules()
-    const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: false, createDirs: true })
+    const r = authorize(this.fx, rules, user, composedPath(rel), 'write', { mustExist: false, createDirs: true })
     if (r.exists) {
       if (!r.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
       return { path: r.rel, created: [] }

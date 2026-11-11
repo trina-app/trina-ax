@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:53
 - Branch: `fix/nfc-folder-names`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/team-files/service.ts`, `server/src/team-files/download.ts`; tests; DECISIONS).
   Why: the file names of the core, used by every edition.
 - Version impact: patch; same API, a new name is stored composed
@@ -45,4 +45,6 @@ NFD folder is still found and can be renamed to NFC; the download header is NFC.
 
 ## Result
 
-(filled in at the end)
+Built as planned. The new test in `tests/unit/c-files.test.ts` fails without the change (the API answered the
+decomposed name) and passes with it on macOS (APFS keeps the form it is given). `mkdir / move / rename` and the other
+c-files cases pass; typecheck, check:i18n, check:docs pass.
