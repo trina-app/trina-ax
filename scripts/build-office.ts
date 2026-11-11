@@ -31,7 +31,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
 import { PRODUCT, productEnv } from '../shared/src/product'
-import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
@@ -77,10 +76,6 @@ const ENTRIES: [string, string][] = [
   ['server/src/files/office-worker.ts', 'office-worker.js'],
   ['server/src/safe-ops/deck-worker.ts', 'deck-worker.js'],
   ['server/src/files/hwp-preflight.ts', 'hwp-preflight.js'],
-  // the knowledge graph's document searches, off the main thread (knowledge-graph/documents/search-worker.ts)
-  ['server/src/knowledge-graph/documents/search-worker.ts', 'doc-search-worker.js'],
-  // search by meaning's background process, which embeds the document pieces (knowledge-graph/meaning/embed-worker.ts)
-  ['server/src/knowledge-graph/meaning/embed-worker.ts', 'kg-embed-worker.js'],
 ]
 /** native helpers per architecture (native/build.sh) */
 const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-safeops', 'mycel-ocr']
@@ -100,7 +95,7 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string
       ...['bun', 'rg', 'cloudflared', ...(o.pandoc ? ['pandoc'] : [])].map((b) => `app/bin/${a.dir}/${b}`),
       ...NATIVE.map((b) => `app/native/bin/${a.dir}/${b}`),
     ]),
-    ...ENTRIES.map(([, out]) => `app/server/src/${out}`), 'app/server/migrations/', 'app/server/node_modules/@huggingface/transformers/',
+    ...ENTRIES.map(([, out]) => `app/server/src/${out}`), 'app/server/migrations/',
     'app/scripts/macos/engine.sb', 'app/web/dist/index.html',
     // the one list of packages and its reader: office-install.sh installs the pinned chrome-headless-shell from it
     'app/scripts/system/packages.json', 'app/scripts/system/packages.sh',
@@ -227,15 +222,12 @@ export async function buildOffice(o: {
   for (const [entry, out] of ENTRIES) {
     const res = await Bun.build({
       entrypoints: [path.join(REPO, entry)], target: 'bun', outdir: path.join(stage, '.build'), naming: '[name].js', minify: false,
-      external: SEMANTIC_EXTERNAL,
       define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(o.version) },
     })
     if (!res.success) throw new Error(res.logs.map(String).join('\n'))
     fs.renameSync(res.outputs[0]!.path, path.join(app, 'server', 'src', out))
   }
   fs.rmSync(path.join(stage, '.build'), { recursive: true, force: true })
-  // search by meaning: its runtime next to the server files (scripts/vendor-semantic.ts; arm64 Macs)
-  vendorSemantic(path.join(app, 'server'))
   fs.mkdirSync(path.join(app, 'server', 'migrations'))
   for (const f of fs.readdirSync(path.join(REPO, 'server', 'migrations'))) if (f.endsWith('.sql')) fs.copyFileSync(path.join(REPO, 'server', 'migrations', f), path.join(app, 'server', 'migrations', f))
   fs.mkdirSync(path.join(app, 'scripts', 'macos'), { recursive: true })

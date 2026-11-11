@@ -263,8 +263,6 @@ export class ConnectedFolders {
     r.bytes = tot.b
     this.db.query('UPDATE connected_folders SET last_sync_at = ?, last_status = ?, last_error = NULL, files = ?, bytes = ? WHERE id = ?')
       .run(now, r.pending ? 'partial' : 'ok', r.files, r.bytes, id)
-    // the knowledge graph updates the mirror's folder (knowledge-graph/service.ts); a sync changes no folder rules
-    if (r.copied + r.updated + r.removed > 0) this.ctx.files.events.emit('tree-changed', { paths: [`${CONNECTED_ROOT}/${c.name}`] })
     return r
   }
 

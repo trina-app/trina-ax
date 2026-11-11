@@ -64,7 +64,7 @@ describe('endpoint registry', () => {
     for (const { name, ep } of all) {
       if (ep.method === 'GET') expect(ep.body, name).toBeUndefined()
       if (!isSchema(ep.response) && ep.response.kind === 'empty') expect(ep.status, name).toBe(204)
-      if (ep.status === 202) expect(['sendMessage', 'regenerate', 'editMessage', 'transcribe', 'startUpdate', 'startBackup', 'startRestore', 'startExport', 'startCredentialLogin', 'startMyCredentialLogin', 'renderPromoVideo', 'rebuildKnowledgeGraph']).toContain(name)
+      if (ep.status === 202) expect(['sendMessage', 'regenerate', 'editMessage', 'transcribe', 'startUpdate', 'startBackup', 'startRestore', 'startExport', 'startCredentialLogin', 'startMyCredentialLogin', 'renderPromoVideo']).toContain(name)
     }
   })
   test('the team\'s official AI accounts ask for no password; the API engine, where the caller sets the address, still does', () => {
