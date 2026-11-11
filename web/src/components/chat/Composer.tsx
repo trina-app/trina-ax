@@ -673,6 +673,7 @@ export default function Composer({
       {error && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}
+          {voice.settingsFor === error && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
         </p>
       )}
       {unsent && !error && (

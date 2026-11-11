@@ -47,6 +47,7 @@ import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
+import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
@@ -1274,7 +1275,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
               </button>
             )}
             <button role="menuitem" type="button" className={item} onClick={onChat} disabled={aiOff} aria-describedby={aiOff ? `${menuId}-ai-off` : undefined} data-testid="chat-with-file">
-              {folder ? <MessageSquarePlus size={14} aria-hidden /> : <Sparkles size={14} aria-hidden />} {t(folder ? 'files.chatWith' : 'files.askAi')}
+              {folder ? <MessageSquarePlus size={14} aria-hidden /> : <Sparkles size={14} aria-hidden />} {t(chatItemKey(folder))}
             </button>
             {!folder && onAddToChat && (
               <button role="menuitem" type="button" className={item} onClick={onAddToChat} disabled={aiOff} aria-describedby={aiOff ? `${menuId}-ai-off` : undefined} data-testid="add-to-chat">
