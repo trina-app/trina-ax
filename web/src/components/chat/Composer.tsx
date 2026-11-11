@@ -697,7 +697,9 @@ export default function Composer({
           {waitsFor?.hint}
         </p>
       ) : phone && who && (
-        <p className="px-2 pt-1.5 text-center text-micro break-keep text-faint in-[.keyboard-open]:hidden" data-testid="composer-phone-footer">
+        // with the keyboard up a chat only I see ("나만 봐요") gives the room to the box; a shared one keeps saying who
+        // reads what I type (docs/DECISIONS.md "Who sees it, always")
+        <p className={clsx('px-2 pt-1.5 text-center text-micro break-keep text-faint', !sharedUploads && 'in-[.keyboard-open]:hidden')} data-testid="composer-phone-footer">
           {who}
         </p>
       )}
