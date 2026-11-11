@@ -273,7 +273,7 @@ export class Notifications {
    * source is the template's id only, and integration_template_offers keeps a second notice from coming once the first
    * is past its 30 days. Shown always: the person has something to do before their AI can use the service. Not, for
    * a template already there when they joined, someone who joined in the last days and has not opened Connected apps
-   * yet (member_welcome, migration 284). */
+   * yet (member_welcome, migration 286). */
   offerTemplates(opts: { templateId?: string; userId?: string; limit?: number } = {}, at = new Date().toISOString()): number {
     // One set-based query (security review 2, #1): templates × active people, the same test as templateCovers in SQL,
     // so the cost is a single indexed scan instead of 1–3 queries per template and person. Only the pairs still owed a
