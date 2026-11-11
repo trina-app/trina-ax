@@ -606,7 +606,7 @@ pk__python_build_locked() {
   local dest=$1 name=$2 dir py k env=()
   dir="$dest/$PY_KEY"
   # built by pk_python_prepare in this run (the same pin): no second start of the program
-  if [ "${PK_PY_PREPARED:-}" = "$dir:$PY_SHA" ] && [ "$(cat "$dir/.sha256" 2>/dev/null || true)" = "$PY_SHA" ]; then return 0; fi
+  if [[ "${PK_PY_PREPARED:-}" == *" $dir:$PY_SHA "* ]] && [ "$(cat "$dir/.sha256" 2>/dev/null || true)" = "$PY_SHA" ]; then return 0; fi
   if [ "$(cat "$dir/.sha256" 2>/dev/null || true)" != "$PY_SHA" ] || ! pk_python_check "$dir" "$PY_PROG"; then
     py=$(command -v python3 2>/dev/null) || { pk_err "python $name: python3 is missing (apt-get install python3 python3-venv)"; return 1; }
     "$py" -c "import sys; sys.exit(sys.version_info < ($(echo "$PY_MIN" | tr . ,),))" \
@@ -626,7 +626,7 @@ pk__python_build_locked() {
     if ! pk_python_check "$dir" "$PY_PROG"; then rm -rf "$dir"; pk_err "python $name $PY_V: $PY_PROG does not start here"; return 1; fi
     printf '%s\n' "$PY_SHA" > "$dir/.sha256"
   fi
-  PK_PY_PREPARED="$dir:$PY_SHA"
+  PK_PY_PREPARED="${PK_PY_PREPARED:- } $dir:$PY_SHA "
 }
 pk__python_install_locked() {
   local dest=$1 name=$2 dir cv prev keep v

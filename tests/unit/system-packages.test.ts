@@ -490,6 +490,8 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     const s = read('scripts/install-linux.sh')
     const stop = s.indexOf('\nstop_units\nkill_accounts\n')
     expect(stop).toBeGreaterThan(0)
+    // inside the update lock (a mycel-ctl update that runs finishes first)
+    expect(s.indexOf('# ---- 6b)')).toBeGreaterThan(s.indexOf('flock -n 9'))
     // the distribution packages, the browser, the Python programs and the engine downloads: before the stop
     for (const step of ['pk_apt_install -- "${PKGS[@]}"', 'pk_browser_prepare "$PK_OPT/chrome-headless-shell"',
       'pk_python_prepare "$PK_OPT/python/$PY" "$PY" || PY_NOT_READY+="$PY "', 'download "$url" "$sha" "$size" "$stage"',
@@ -612,6 +614,11 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     expect(fs.readlinkSync(path.join(p.dest, 'current'))).toBe(pyKey(l2))
     expect(p.calls().length).toBe(3)
     expect(starts() - before).toBe(1)
+    // what prepare built changed before the install (another pin's .sha256): built again, not trusted
+    r = lib(`pk_load "${p.d}/l2.json"; pk_python_prepare "${p.dest}" workspace-mcp && echo stale > "${p.dest}/${pyKey(l2)}/.sha256" && pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env)
+    expect(r.code).toBe(0)
+    expect(p.calls().length).toBe(4)
+    expect(fs.readFileSync(path.join(p.dest, pyKey(l2), '.sha256'), 'utf8').trim()).toBe(reqSha(l2))
     // a failed prepare touches nothing: current stays, no folder is left
     fs.writeFileSync(path.join(p.d, 'pip-fails'), '')
     const l3 = withWheel('extra-wheel==2.0', 'c')
