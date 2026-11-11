@@ -251,16 +251,29 @@ export default function Files() {
     }
   }, [path, load, loadProjects])
 
+  // 더 보기 belongs to the listing on screen when it was pressed: another folder opened (or a reload) before the next
+  // page came back, that page is dropped. Added anyway, a subfolder showed its own files plus the parent's next 200
+  // (QA TC-240), and those rows pointed at another folder
+  const mores = useRef(0)
+  useEffect(() => {
+    mores.current++
+    setLoadingMore(false)
+  }, [path])
   const more = async () => {
     if (!tree?.nextCursor) return
+    const ask = ++mores.current
+    const listing = loads.current
+    const from = tree.path
+    const current = () => listing === loads.current
     setLoadingMore(true)
     try {
       const r = await api.call(API.tree, { query: { path, limit: 200, cursor: tree.nextCursor } })
-      setTree((cur) => (cur ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : r))
+      if (!current()) return
+      setTree((cur) => (cur && cur.path === from ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : cur))
     } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      if (current()) toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
-      setLoadingMore(false)
+      if (ask === mores.current) setLoadingMore(false)
     }
   }
 

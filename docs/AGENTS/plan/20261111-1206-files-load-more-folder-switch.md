@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 12:06
 - Branch: `fix/files-load-more-folder-switch`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/pages/Files.tsx`, a web unit test). Why: the Files screen is core (see
   docs/REPOSITORY-RULES.md).
 - Version impact: patch, a wrong listing on a slow network is fixed; no API, data or wording change
@@ -44,4 +44,12 @@ page (the person presses 더 보기 again) instead of adding it to a first page 
 
 ## Result
 
-(filled in at the end)
+Built as planned. `more()` in `web/src/pages/Files.tsx` remembers the listing it started on (the `loads` counter that
+`load()` already uses to drop late first pages) and adds its page only while no other listing started since and the
+table still shows the same folder; a failure toast shows only for that listing too. Its own counter keeps the 더 보기
+button's busy state for the latest press, and opening another folder clears it.
+
+Test: `web/test/unit/files-load-more.test.tsx` (400 files and a subfolder, the second page held until the subfolder is
+on screen: 2 rows, none of the parent's; it failed with 202 rows before the fix), and 더 보기 without leaving still
+adds the page. On a local server (401 entries, the `cursor=` request held 2.5 s, the QA script): the subfolder shows
+its 3 files, no parent rows; without leaving, 더 보기 shows 400 rows and the button for the last one.
