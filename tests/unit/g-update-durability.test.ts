@@ -88,6 +88,9 @@ describe('unfinished backups (QA TC-278: a reboot during the pre-update backup l
     const done = await e.mgr.run({ kind: 'manual', scope: 'full' })
     const doneFiles = [path.join(L.dbBackupsDir, `${done.id}.json`), path.join(L.dbBackupsDir, `${done.id}.sqlite`)]
     put(path.join(L.dbBackupsDir, `${done.id}.sqlite-journal`), 'j', old)
+    // ...but a stale .partial or metadata temp file of a finished id is not part of it and goes
+    put(path.join(L.dbBackupsDir, `${done.id}.sqlite${PARTIAL_SUFFIX}`), 'stale', old)
+    put(path.join(L.dbBackupsDir, `.mycel-tmp-${done.id}.json.partial`), '{', old)
     for (const f of doneFiles) touch(f, old)
     touch(path.join(L.teamBackupsDir, done.id), old)
     // the reboot case: the old code's copy written straight to <id>.sqlite with its journal, no .json
@@ -114,7 +117,7 @@ describe('unfinished backups (QA TC-278: a reboot during the pre-update backup l
     put(path.join(L.dbBackupsDir, 'notes.sqlite'), 'x', old)
 
     const removed = e.mgr.removeUnfinished()
-    expect(removed.sort()).toEqual([`unfinished:${crashed}`, `unfinished:${partial}`, `unfinished:${teamCut}`].sort())
+    expect(removed.sort()).toEqual([`unfinished:${crashed}`, `unfinished:${partial}`, `unfinished:${teamCut}`, `unfinished:${done.id}`].sort())
     const left = fs.readdirSync(L.dbBackupsDir).sort()
     expect(left).toEqual([`${busy}.sqlite${PARTIAL_SUFFIX}`, `${done.id}.json`, `${done.id}.sqlite`, `${done.id}.sqlite-journal`, 'notes.sqlite'].sort())
     expect(fs.readdirSync(L.teamBackupsDir).sort()).toEqual([busy, done.id].sort())

@@ -240,7 +240,9 @@ export async function* counted(src: Bytes, onBytes: (n: number) => void): AsyncG
 export async function fsyncPath(p: string): Promise<void> {
   let fh: fsp.FileHandle
   try { fh = await fsp.open(p, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ELOOP') return // a symlink has no data of its own; its folder holds it
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ELOOP') return // a symlink has no data of its own; its folder holds it
+    if (code === 'EACCES') return // not readable (a file of mode 0o311): nothing can be done here, and it must not stop an update
     throw e
   }
   try { await fh.sync() } catch (e) {

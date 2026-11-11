@@ -29,7 +29,7 @@ import { SCHEMA_READER_LEVEL, checkReadable } from '../db'
 import type { Logger } from '../log'
 import { diskSpace, type InstallLayout } from './layout'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
-import { fsyncPath, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
+import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { backupRetentionDays } from './limits'
 import { HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
@@ -263,10 +263,10 @@ export class BackupManager {
 
     progress(0.02, 'database')
     const dbFile = this.dbCopy(id)
-    await vacuumInto(this.o.dbFile, dbFile)
     let schemaVersion: number, dbStat: fs.Stats
     const dbSha = crypto.createHash('sha256')
     try {
+      await vacuumInto(this.o.dbFile, dbFile)
       schemaVersion = (await inspectDbCopyAsync(dbFile)).schemaVersion
       dbStat = await fsp.stat(dbFile)
       for await (const c of readFileChunks(dbFile)) dbSha.update(c)
@@ -284,8 +284,13 @@ export class BackupManager {
         meta.team = await this.archiveTeam(id, now, newChain, (f) => progress(0.1 + 0.85 * f, 'team folder'))
         meta.scope = meta.team.base ? 'incremental' : 'full'
         await fsp.writeFile(path.join(this.teamDir(id), 'meta.json'), JSON.stringify(meta, null, 1), { mode: 0o600 })
+        // its lists on disk before the marker below says the backup is complete
+        await fsyncTree(this.teamDir(id))
+        await fsyncPath(this.o.layout.teamBackupsDir)
       }
       await writeAtomic([Buffer.from(JSON.stringify(meta, null, 1))], this.metaFile(id))
+      // the marker's name on disk too: a copy whose <id>.json a power loss took would be removed as unfinished
+      await fsyncPath(this.o.layout.dbBackupsDir)
     } catch (e) {
       await fsp.rm(dbFile, { force: true })
       await fsp.rm(this.teamDir(id), { recursive: true, force: true })

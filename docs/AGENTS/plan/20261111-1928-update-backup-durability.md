@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 19:28
 - Branch: `fix/update-backup-durability`
-- Status: in progress
+- Status: done
 - Where: server/src/system (backup.ts, update.ts, streams.ts, ops.ts), scripts/install-linux.sh. Why: QA side findings of TC-278/TC-279.
 - Version impact: patch (bug fix, no new behaviour or setting)
 
@@ -42,4 +42,8 @@ ids without metadata and only after 6 h unchanged, so a backup another process i
 
 ## Result
 
-(filled in at the end)
+Built as planned. After review also: the team archive's lists and the folders of the `<id>.json` marker are fsynced
+before/after it (a marker lost to a power loss would make removeUnfinished delete a good copy). Docker check (trixie +
+systemd, qa3's kits with this install-linux.sh): install, update qa3a -> qa3b (strace: syncfs, rename, fsync of
+versions/, rename of .current-install over current, fsync of app/), repair downtime 3.1 s (unchanged). Not done:
+install-linux.sh still switches app/current before writing state.json (older order); the slow-disk writeback stall.
