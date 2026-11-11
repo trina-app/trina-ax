@@ -91,10 +91,11 @@ const folded = (s: string) => s.normalize('NFC').toLowerCase()
 
 /** The text of one line of an HTML file as a reader sees it: tags, scripts and styles out, entities decoded, white
  * space as one space (web_fetch's htmlToText: one forward pass, no backtracking). Null when the query is only in the
- * markup (a tag name, an attribute): that line has nothing to show. */
+ * markup (a tag name, an attribute): that line has nothing to show. A line inside a multi-line <script> or <style>
+ * has no tag to see and stays as written. ripgrep's per-file cap counts lines before this check, so a file whose
+ * first matching lines match only in its markup can show fewer lines (or none). */
 export function htmlLineText(line: string, q: string): string | null {
-  // a link is its label here (htmlToText writes a web link as [label](address))
-  const text = htmlToText(line, NO_BASE).text.replace(/\[([^\]]*)\]\(https?:[^)\s]*\)/g, '$1').replace(/\s+/g, ' ').trim()
+  const text = htmlToText(line, NO_BASE, { plain: true }).text.replace(/\s+/g, ' ').trim()
   return folded(text).includes(folded(q)) ? text : null
 }
 

@@ -190,7 +190,7 @@ export function FileNameResults({ q, path, onFolder }: { q: string; path: string
   useEffect(() => {
     let live = true
     const ctrl = new AbortController()
-    setRes(null)
+    // the last answer stays until the next one is here: the lines below do not jump when it comes
     setError(null)
     const timer = setTimeout(() => {
       api.call(API.findFiles, { query: { q: query, path, limit: NAME_LIMIT, folders: '1' }, signal: ctrl.signal }).then(

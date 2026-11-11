@@ -358,7 +358,7 @@ describe('names first (TC-260)', () => {
     const r = await search('alice', 'QAHTML-7731', '&path=shared%2Ftc260-html')
     expect(r.items).toEqual([
       { path: 'shared/tc260-html/raw.md', name: 'raw.md', line: 1, snippet: '<b>QAHTML-7731</b> in markdown stays as written' },
-      { path: 'shared/tc260-html/견적 안내.html', name: '견적 안내.html', line: 2, snippet: '# 견적 & 일정 QAHTML-7731 납품은 3주 뒤 자세히' },
+      { path: 'shared/tc260-html/견적 안내.html', name: '견적 안내.html', line: 2, snippet: '견적 & 일정 QAHTML-7731 납품은 3주 뒤 자세히' },
       { path: 'shared/tc260-html/견적 안내.html', name: '견적 안내.html', line: 3, snippet: '<b> 태그가 아닌 글 qahtml-7731' },
     ])
     expect(JSON.stringify(r)).not.toContain('doctype')
@@ -367,13 +367,25 @@ describe('names first (TC-260)', () => {
 
 describe('htmlLineText', () => {
   test('tags out, entities decoded, a match only in a tag or attribute is null', () => {
-    expect(htmlLineText('<td>견적</td><td>&#47196;&#xACE0;</td>', '로고')).toBe('| 견적 | 로고')
+    expect(htmlLineText('<td>견적</td><td>&#47196;&#xACE0;</td>', '로고')).toBe('견적 로고')
+    expect(htmlLineText('<h2>회사 로고</h2><ul><li>흑백</li></ul>', '로고')).toBe('회사 로고 흑백')
+    // a link is its label, whatever its address or label holds
+    expect(htmlLineText('<a href="https://e.com/a)b">로고</a> 끝', '로고')).toBe('로고 끝')
+    expect(htmlLineText('<a href="https://e.com/">[[로고]]</a>', '로고')).toBe('[[로고]]')
     expect(htmlLineText('<img alt="로고" src="logo.png">', '로고')).toBeNull()
     expect(htmlLineText('<!doctype html><html lang="ko">', 'html')).toBeNull()
     expect(htmlLineText('<p>LOGO</p>', 'logo')).toBe('LOGO')
     // an unfinished tag (the line goes on below): the text before it is the line
     expect(htmlLineText('회사 로고 <img src="a.png"', '로고')).toBe('회사 로고')
   })
+})
+
+test('a 64K line of brackets or tags is turned into text in linear time', () => {
+  for (const line of ['['.repeat(64 * 1024) + '로고', '<b>['.repeat(16 * 1024) + '로고', '<a href="https://e.com/">'.repeat(2600) + '로고']) {
+    const t0 = performance.now()
+    expect(htmlLineText(line, '로고')).toContain('로고')
+    expect(performance.now() - t0).toBeLessThan(200)
+  }
 })
 
 describe('snippetOf', () => {

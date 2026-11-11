@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 19:29
 - Branch: `fix/files-search-names-first`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (web/src Files screen, server/src/team-files). Why: the file screen's search is core (docs/REPOSITORY-RULES.md).
 - Version impact: patch, a fix of the file screen's search (no API change)
 
@@ -46,3 +46,9 @@ tests/unit/attach-team-files.test.ts, web/test/unit/file-content-search.test.tsx
 
 ## Result
 
+Built as planned. The Files search shows the ⌘K name search (files and folders, under the open folder) above the line
+matches; an HTML line is its plain text (a new `plain` option of web_fetch's htmlToText: no link, heading, list or
+table marks, so nothing is stripped afterwards by a pattern). The name list keeps its last answer while the next one
+loads, so the lines below do not jump. Known limits (in the code): ripgrep's per-file cap counts HTML lines before the
+markup-only check; a line inside a multi-line `<script>`/`<style>` stays as written; GET /api/files/find has no rate
+limit (as for ⌘K). PR: see the branch's pull request.

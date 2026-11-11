@@ -2785,10 +2785,11 @@ export class MockServer {
       const items: { path: string; name: string; line: number; snippet: string }[] = []
       for (const [p, n] of visible) {
         if (!/\.(md|txt|csv|html|json)$/i.test(p)) continue
-        // an HTML file's line as its text (server: htmlLineText); a match only in the markup is no line
+        // like the server: the raw line matches first; an HTML file's line is then shown as its text, and a match only in
+        // the markup is no line (server: htmlLineText)
         const html = /\.html?$/i.test(p)
         const asText = (l: string) => l.replace(/<(script|style)\b[^>]*>[^<]*<\/\1>/gi, '').replace(/<[^>]*>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
-        dec.decode(n.data!).split('\n').map((l) => (html ? asText(l) : l)).forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
+        dec.decode(n.data!).split('\n').map((l) => (html && l.toLowerCase().includes(q.toLowerCase()) ? asText(l) : l)).forEach((line, i) => { const at = line.toLowerCase().indexOf(q.toLowerCase()); if (at >= 0 && items.length < Number(c.query.limit ?? 50)) items.push({ path: p, name: p.slice(p.lastIndexOf('/') + 1), line: i + 1, snippet: line.length > 160 ? cut(line, at) : line }) })
       }
       return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
     },

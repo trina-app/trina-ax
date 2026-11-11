@@ -706,7 +706,7 @@ export const ja: Record<MessageKey, string> = {
   'files.search.clear': "検索をクリア",
   'files.search.scope': "{folder}内で“{q}”を含む行",
   'files.search.none': "開けるファイルにこのテキストは見つかりませんでした。",
-  'files.search.names': "名前に“{q}”を含むファイルとフォルダ",
+  'files.search.names': "名前に“{q}”を含むファイルとフォルダー",
   'files.search.namesTruncated': "{n, plural, one {最初の1件の名前だけを表示しています。} other {最初の#件の名前だけを表示しています。}}検索語を足して絞り込んでください。",
   'files.search.line': "{n}行目",
   'files.search.truncated': "{n, plural, one {最初の1行のみ表示しています。} other {最初の#行のみ表示しています。}}検索するテキストを追加して絞り込んでください。",
