@@ -61,3 +61,5 @@ keeps the text and shows the server's words through `errorText`. `limitResetText
 made, the same words; the time "…0시부터", never "오전"; this failed before the fix) and `limit-reset.test.ts`.
 `bun run test:web`: 2364 pass. `g-subscription`'s managed-mode tests fail on this machine with or without the change
 (environment). They do not touch this code.
+
+PR: https://github.com/trina-app/trina-ax/pull/420
