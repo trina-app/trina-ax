@@ -484,7 +484,9 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async loadNewest(roomId) {
       const gen = ++timelineGen
-      set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true, error: null } } : {}))
+      // a failed read's error stays until this one answers: the page's calm notice stays while it reads again
+      // (components/LoadError.tsx) instead of going and coming back
+      set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true } } : {}))
       try {
         const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE } })
         if (gen !== timelineGen || get().openRoomId !== roomId) return

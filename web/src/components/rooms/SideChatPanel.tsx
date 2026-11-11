@@ -56,7 +56,8 @@ import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { Tooltip } from '../Tooltip'
-import { ErrorNote, IconButton } from '../ui'
+import { IconButton } from '../ui'
+import { LoadError } from '../LoadError'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
 import type { SentHere } from './SendHere'
@@ -290,12 +291,13 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     setFileError(null)
   }, [roomId, chatId])
 
+  // a failed read's error stays until a read works: the notice stays while it reads again (components/LoadError.tsx)
   const load = useCallback(async () => {
-    setLoadError(null)
     try {
       patch({ chatId: await findSideChat(roomId) })
+      setLoadError(null)
     } catch (e) {
-      setLoadError(e)
+      setLoadError(e ?? new Error('failed'))
     }
   }, [roomId, patch])
   // the chat this page shows for the room already (another panel of it, or the last one kept by sideChatOpening): read
@@ -476,7 +478,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             </nav>
           )}
           {!history && chatId === undefined && !loadError && <Loader2 size={16} className="mx-auto my-6 animate-spin text-faint" aria-label={t('common.loading')} />}
-          {!history && !!loadError && <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote>}
+          {!history && !!loadError && <LoadError error={loadError} onRetry={load} what="side-chat" />}
           {!history && chatId !== undefined && !messages.length && (
             <div className="flex flex-col items-center gap-3 py-10 text-center" data-testid="side-chat-empty">
               <AiFace size={40} />

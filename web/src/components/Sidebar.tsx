@@ -56,6 +56,7 @@ import { useRooms } from '../store/rooms'
 import { SetupRow } from './onboarding/SetupRow'
 import { TeamMenu } from './TeamMenu'
 import { SidebarSectionTitle, useMediaQuery } from './ui'
+import { LoadError } from './LoadError'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { Tooltip } from './Tooltip'
 
@@ -143,9 +144,13 @@ export default function Sidebar() {
   const navigate = useNavigate()
   const [more, setMore] = useState(false)
 
+  // a first read that failed: the calm notice in place of the list, which reads again by itself (components/LoadError.tsx);
+  // it spun forever before. The error stays until a read works, so the notice stays while it reads again
+  const [chatsError, setChatsError] = useState<unknown>(null)
+  const readChats = useCallback(() => loadChats(true).then(() => setChatsError(null), (e: unknown) => setChatsError(e ?? new Error('failed'))), [loadChats])
   useEffect(() => {
-    if (!loaded) void loadChats(true).catch(() => {})
-  }, [loaded, loadChats])
+    if (!loaded) void readChats()
+  }, [loaded, readChats])
 
   const [recentsOpen, setRecentsOpen] = useState(() => remembered(OPEN_KEY, ['open', 'closed'] as const, 'open') === 'open')
   const [view, setViewState] = useState<RecentsView>(rememberedView)
@@ -279,7 +284,8 @@ export default function Sidebar() {
           <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
         </div>
         <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
-          {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {!loaded && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" className="mx-1 mt-2" />}
           {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
           {loaded && chats.some((c) => !isUnused(c)) && !groups.length && !pinnedRows.length && (
             <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">

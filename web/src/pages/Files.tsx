@@ -46,6 +46,7 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
@@ -124,7 +125,8 @@ export default function Files() {
   }
   const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  /** the listing that failed (kept until a listing works: the notice stays while it reads again, components/LoadError.tsx) */
+  const [error, setError] = useState<unknown>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [drag, setDrag] = useState(false)
   // phones (below 768 px, like the tab bar): rows are selected by a long press, not by a checkbox; a touch phone does
@@ -190,11 +192,11 @@ export default function Files() {
   const loads = useRef(0)
   const load = useCallback(async () => {
     const mine = ++loads.current
-    setError(null)
     try {
       const r = await api.call(API.tree, { query: { path, limit: 200 } })
       if (mine !== loads.current) return
       setTree(r)
+      setError(null)
       shown.current = path
     } catch (e) {
       if (mine !== loads.current) return
@@ -216,13 +218,14 @@ export default function Files() {
         setParams({ ...(up ? { path: up } : {}), ...(viewNow() === 'trash' ? { view: 'trash' } : {}) }, { replace: true })
         return
       }
-      setError(errorText(e, locale, t('error.network')))
+      setError(e ?? new Error('failed'))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
   useEffect(() => {
     setTree(null)
+    setError(null)
     void load()
   }, [load])
 
@@ -844,9 +847,9 @@ export default function Files() {
               <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
             ) : (
               <>
-                {error && (
+                {!!error && (
                   <div className="p-4">
-                    <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>
+                    <LoadError error={error} onRetry={load} what="files" />
                   </div>
                 )}
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}

@@ -14,7 +14,8 @@
 // - owners and admins: no filled button; nothing prepared: "스킬 넣기 · 팀 파일 넣기" (팀 스킬 with the ready-made skills
 //   unfolded, 파일), no question;
 // - a phone: a skill row's tap is 써 보기 and says so at its end, 예시 its own target; the files row is one row;
-// - a failed read: one "다시 불러오기", never the empty state; a skill change reads again;
+// - a failed read: the calm notice (components/LoadError.tsx), never red under the box and never the empty state; the
+//   connection: it reads again by itself and the block shows; a skill change reads again;
 // - the invite step's line: an empty team only, its links (the welcome steps' or the pages'), never for a member.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
@@ -25,6 +26,7 @@ import { filesQuestion, folderLabel, preparedView, TeamPrepared } from '../../sr
 import { EmptyTeamLine, InviteStep } from '../../src/components/onboarding/InviteStep'
 import { useHandover } from '../../src/store/handover'
 import { skillsChanged } from '../../src/store/live'
+import { forgetRetryLevels } from '../../src/lib/autoRetry'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
@@ -45,6 +47,8 @@ const full = (o: Partial<Data> = {}): Data => ({ skills: [HUMANIZER, CARDS, VIDE
 // ---- the fake server
 let data: Data | null = full()
 let fails = 0
+/** how a failed read fails: the server's error, or no answer at all (the connection) */
+let failWith: 'server' | 'connection' = 'server'
 let reads = 0
 /** the folders a person can open (GET /api/files/tree at the top) */
 let folders: { name: string; path: string }[] = []
@@ -67,7 +71,11 @@ beforeAll(() => {
     const key = `${init?.method ?? 'GET'} ${url.pathname}`
     if (key === 'GET /api/skills/examples') {
       reads++
-      if (fails > 0) { fails--; return json(500, { error: { code: 'internal', message: 'down' } }) }
+      if (fails > 0) {
+        fails--
+        if (failWith === 'connection') throw new TypeError('Failed to fetch')
+        return json(500, { error: { code: 'internal', message: 'down' } })
+      }
       return json(200, data)
     }
     if (key === 'GET /api/files/tree') {
@@ -312,15 +320,19 @@ describe('a member', () => {
     } finally { await m.unmount() }
   })
 
-  test('a failed read: one "다시 불러오기" (no empty state); it reads again; a skill change reads again', async () => {
+  test('a failed read: the calm notice (never red, no empty state); 다시 시도 reads again; a skill change reads again', async () => {
     fails = 1
     data = full({ skills: [], teamFolder: null })
     const m = await open()
     try {
-      await m.until(() => m.find('team-prepared-retry'), 'the retry')
+      await m.until(() => m.find('load-error'), 'the notice')
       expect(m.find('team-prepared-ready')).toBeNull()
-      expect(m.get('team-prepared-retry').textContent).toBe(ko('home.prepared.retry'))
-      await m.click('team-prepared-retry')
+      expect(m.get('team-prepared-failed').contains(m.get('load-error'))).toBe(true)
+      expect(m.get('load-error').getAttribute('data-state')).toBe('failed')
+      expect(m.get('load-error').textContent).toContain(ko('conn.loadFailed'))
+      expect(m.container.querySelector('[role="alert"]')).toBeNull()
+      expect(m.get('load-error-retry').textContent).toBe(ko('common.retry'))
+      await m.click('load-error-retry')
       await m.until(() => m.find('team-prepared-ready'), 'the block after the retry')
       data = full()
       const was = reads
@@ -329,6 +341,26 @@ describe('a member', () => {
     } finally { await m.unmount() }
   })
 })
+
+test('no answer at all: "지금 연결이 안 돼요 · 다시 연결하는 중…"; it reads again by itself and the block shows', async () => {
+  fails = 1
+  failWith = 'connection'
+  data = full()
+  const m = await open()
+  try {
+    await m.until(() => m.find('load-error'), 'the notice')
+    expect(m.get('load-error').getAttribute('data-state')).toBe('connection')
+    expect(m.get('load-error').textContent).toContain(ko('conn.now'))
+    expect(m.get('load-error').textContent).toContain(ko('conn.retrying'))
+    // the next read (2 s) works: the rows, without a click
+    await m.until(() => m.find('team-prepared') && rows(m).length === 3, 'the rows', 4_000)
+    expect(m.find('load-error')).toBeNull()
+  } finally {
+    failWith = 'server'
+    forgetRetryLevels()
+    await m.unmount()
+  }
+}, 10_000)
 
 describe('owners and admins', () => {
   test('the same rows, no filled button; nothing prepared: "스킬 넣기 · 팀 파일 넣기" and no question', async () => {
