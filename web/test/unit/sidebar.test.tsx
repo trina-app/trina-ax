@@ -180,7 +180,7 @@ describe('a computer', () => {
         expect(m.get('nav-search').textContent?.trim()).toStartWith(ko('sidebar.search'))
         expect(m.get('nav-search').querySelector('kbd')?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/)
         const links = rows.querySelectorAll('a')
-        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects', '/scheduled', '/settings/notifications', '/files', '/skills'])
+        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects', '/scheduled', '/activity', '/files', '/skills'])
         expect(links.map((a) => a.textContent?.trim())).toEqual([ko('sidebar.projects'), ko('sidebar.scheduled'), ko('inbox.title'), ko('sidebar.files'), ko('sidebar.skills')])
         expect(m.find('nav-admin')).toBeNull()
         // no icon row and no tooltips any more: each row says its name

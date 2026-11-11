@@ -75,7 +75,7 @@ test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('handover-card')).toHaveCount(0)
 
-  await page.goto('/settings/notifications')
+  await page.goto('/activity')
   const row = page.getByTestId('notification-item').filter({ hasText: '김팀장 대표님에게 보낸 팀장 링크로' })
   await expect(row).toContainText("'박민준'(아이디 minjun)님이 ")
   await expect(row).toContainText('팀장을 넘길까요?')
@@ -112,7 +112,7 @@ test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand
   await expect(page.getByLabel('팀 이름')).toBeDisabled()
 
   // the new owner: told in the Inbox, with what was ended, [내보내기] and the setup to go on with
-  await p2.goto('/settings/notifications')
+  await p2.goto('/activity')
   const told = p2.getByTestId('notification-item').filter({ hasText: 'Olga님이 팀장을 넘겼어요 · Olga님은 관리자로 남아 있어요' })
   await expect(told).toContainText('끊은 연결: 팀 AI 1개')
   await expect(told.getByTestId('handover-notice-setup')).toHaveAttribute('href', '/welcome')

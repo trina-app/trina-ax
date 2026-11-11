@@ -50,16 +50,17 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await expect(page.getByRole('heading', { level: 1, name: t['files.title'] })).toBeVisible()
   await expect(page.getByTestId('phone-topbar')).toHaveCount(0)
 
-  // 나: 알림함 first, 관리자 right below for the owner; the list's own 알림 row is not there
+  // 나: 활동 (Activity) first, 관리자 right below for the owner; 알림 (the settings) stays in its group
   await page.getByTestId('tab-me').click()
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   await expect(dialog.getByTestId('settings-inbox')).toBeVisible()
   await expect(dialog.getByTestId('settings-phone-top').getByRole('link')).toHaveText([t['inbox.title'], t['sidebar.admin']])
-  await expect(dialog.getByTestId('settings-menu').getByRole('link', { name: t['notifications.title'], exact: true })).toBeHidden()
+  await expect(dialog.getByTestId('settings-menu').getByRole('link', { name: t['notifications.title'], exact: true })).toBeVisible()
   await dialog.getByTestId('settings-inbox').click()
-  await expect(page).toHaveURL(/\/settings\/notifications$/)
-  await expect(dialog.getByTestId('settings-section-title')).toHaveText(t['inbox.title'])
-  await dialog.getByTestId('settings-back').click()
+  await expect(page).toHaveURL(/\/activity$/)
+  await expect(page.getByTestId('topbar-title')).toHaveText(t['inbox.title'])
+  await expect(page.getByTestId('tab-me')).toHaveAttribute('aria-current', 'page')
+  await page.getByTestId('tab-me').click()
   await dialog.getByTestId('settings-admin').click()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByTestId('topbar-title')).toHaveText(t['admin.title'])

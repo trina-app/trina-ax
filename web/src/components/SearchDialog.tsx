@@ -417,7 +417,7 @@ function SearchBox({ onClose, onPerson }: { onClose: () => void; onPerson: (user
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0
     list.push({
-      key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/settings/notifications', terms: `${t('inbox.title')} ${t('notifications.title')}`,
+      key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/activity', terms: `${t('inbox.title')} ${t('notifications.title')}`,
       sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,
     })
     // the team menu's items (owners and admins), found by their words: "Invite teammates", "Members & invites" too

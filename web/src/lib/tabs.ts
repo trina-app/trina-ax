@@ -23,7 +23,7 @@ export function tabOf(path: string): Tab | null {
   if (path === '/' || path.startsWith('/c/') || AI_PAGES.some((p) => under(path, p))) return 'ai'
   if (under(path, '/rooms')) return 'chats'
   if (under(path, '/files')) return 'files'
-  if (under(path, '/settings') || under(path, '/admin')) return 'me'
+  if (under(path, '/settings') || under(path, '/admin') || under(path, '/activity')) return 'me'
   return null
 }
 
@@ -44,6 +44,7 @@ const PAGE_TITLE: [string, MessageKey][] = [
   ['/skills', 'skills.title'],
   ['/trash', 'trash.title'],
   ['/admin', 'admin.title'],
+  ['/activity', 'inbox.title'],
 ]
 export function pageTitleKey(path: string): MessageKey | null {
   return PAGE_TITLE.find(([p]) => under(path, p))?.[1] ?? null
