@@ -116,6 +116,30 @@ describe('admins and the owner', () => {
   })
 })
 
+describe('out of users/<me>/ to where more people see it (askWiden, QA TC-115)', () => {
+  test('409 audience_widened with a count of people, nothing moves; confirm:true moves it and records it', async () => {
+    fs.writeFileSync(path.join(A.team, 'users', 'alice', 'plan-w.md'), 'private plan')
+    const r = await move('alice', 'users/alice/plan-w.md', 'shared/plan-w.md', { askWiden: true })
+    expect(r.status).toBe(409)
+    expect(r.body.error.params).toEqual({ reason: 'audience_widened', viewersAdded: 4 }) // bob, carol, dana, erin
+    expect(JSON.stringify(r.body)).not.toContain('Bob') // counted, never named
+    expect(exists(A.team, 'users/alice/plan-w.md')).toBe(true)
+    expect((await read('bob', 'shared/plan-w.md')).status).toBe(404)
+    // within the same personal folder nothing widens: no question
+    expect((await move('alice', 'users/alice/plan-w.md', 'users/alice/plan-w2.md', { askWiden: true })).status).toBe(200)
+    const ok = await move('alice', 'users/alice/plan-w2.md', 'shared/plan-w.md', { askWiden: true, confirm: true })
+    expect(ok.status).toBe(200)
+    expect((await read('bob', 'shared/plan-w.md')).status).toBe(200)
+    const ev = A.ctx.db.query("SELECT detail FROM file_events WHERE path = 'shared/plan-w.md' AND action = 'create' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(ev.detail).audienceWidened).toBe(4)
+  })
+
+  test('without askWiden (an older client, the AI) the move goes as before', async () => {
+    fs.writeFileSync(path.join(A.team, 'users', 'alice', 'old-client.md'), 'x')
+    expect((await move('alice', 'users/alice/old-client.md', 'shared/old-client.md')).status).toBe(200)
+  })
+})
+
 describe('ordinary items into users/<me>/: confirm who loses sight of it', () => {
   test('a shared file: 409 audience_narrowed with a count of people, then confirm:true moves it', async () => {
     const r = await move('alice', 'shared/glossary.md', 'users/alice/glossary.md')

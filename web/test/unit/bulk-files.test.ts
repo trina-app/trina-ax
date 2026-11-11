@@ -5,7 +5,7 @@
 // a chat), and where it may be dropped.
 import { describe, expect, test } from 'bun:test'
 import { ApiError, type FileEntry } from '@mycel/shared/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, narrowedBy, projectSkillsOn, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, narrowedBy, projectSkillsOn, widenedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
 import { TEAM_FILE_DRAG_TYPE } from '../../src/lib/teamAttach'
 
 const entry = (path: string, o: Partial<FileEntry> = {}): FileEntry => ({ name: path.slice(path.lastIndexOf('/') + 1), path, type: 'file', size: 1, mtime: '2026-10-28T00:00:00.000Z', mime: null, access: 'write', ...o })
@@ -89,6 +89,28 @@ describe('moveMany', () => {
     expect(r.done).toEqual([])
     expect(r.declined.map((e) => e.path)).toEqual(['m/b.pdf', 'm/c.pdf'])
     expect(r.failed.map((f) => [f.entry.path, f.error])).toEqual([['m/a.png', forbidden]])
+  })
+
+  test('out of my personal folder to where more people see it (QA TC-115): askWiden is sent, the person is asked once, then those move with confirm', async () => {
+    const widening = (n: number) => new ApiError(409, { code: 'conflict', message: 'widened', params: { reason: 'audience_widened', viewersAdded: n } })
+    expect(widenedBy(widening(3))).toBe(3)
+    expect(widenedBy(narrowing(3))).toBeNull()
+    const calls: { from: string; confirm?: boolean; askWiden?: boolean }[] = []
+    const asked: [number, number][] = []
+    const r = await moveMany([entry('users/me/a.md'), entry('users/me/b.md'), entry('users/me/c.md')], 'projects/p', {
+      move: async (body) => { calls.push(body); if (!body.confirm && body.from !== 'users/me/c.md') throw widening(body.from === 'users/me/a.md' ? 2 : 4); return {} },
+      confirmNarrow: async () => { throw new Error('nothing narrows here') },
+      confirmWiden: async (count, n) => (asked.push([count, n]), true),
+    })
+    expect(asked).toEqual([[2, 4]])
+    expect(calls.every((c) => c.askWiden === true)).toBe(true)
+    expect(r.done.map((e) => e.path).sort()).toEqual(['users/me/a.md', 'users/me/b.md', 'users/me/c.md'])
+    // "no": those stay; without confirmWiden (an older caller) askWiden is not sent at all
+    const no = await moveMany([entry('users/me/a.md')], 'projects/p', { move: async (body) => { if (!body.confirm) throw widening(1); return {} }, confirmNarrow: async () => true, confirmWiden: async () => false })
+    expect(no.declined.map((e) => e.path)).toEqual(['users/me/a.md'])
+    const plain: { askWiden?: boolean }[] = []
+    await moveMany([entry('users/me/a.md')], 'projects/p', { move: async (body) => (plain.push(body), {}), confirmNarrow: async () => true })
+    expect(plain[0]!.askWiden).toBeUndefined()
   })
 
   test('a project\'s folder into projects/: its skills switch on, so that item is asked about by name, then moved with skillsOk', async () => {

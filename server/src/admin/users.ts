@@ -10,7 +10,7 @@ import type { CreateUserBody, EndedConnection, HandoverConnectionRef, Locale, Re
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
-import { linkBase, tempPasswordExpiry } from '../auth/accounts'
+import { linkBase, revokeResetLinksFor, tempPasswordExpiry } from '../auth/accounts'
 import { msg, weakPasswordMessage } from '../auth/messages'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
@@ -140,6 +140,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     if (b.role !== undefined && b.role !== target.role) set('role', b.role, 'role')
     if (b.status !== undefined && b.status !== target.status) set('status', b.status, 'status')
     if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, id)
+    // their own open reset links end with the account (and stay ended if it is enabled again), and with a new role: a
+    // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
+    if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
     // null = follow the team default again
     if (b.locale !== undefined) { setUserLocale(ctx.db, id, b.locale); changed.locale = b.locale }
     if (groups) {
@@ -354,6 +357,8 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
     // or a caller who is no longer allowed, is refused, so a temporary password never lands on the new owner
     guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ?, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, expiresAt, auth.user.id, now, id)
+    // a reset link sent earlier (maybe to the wrong place) stops working: the admin chose a temporary password instead
+    revokeResetLinksFor(ctx.db, id, nowMs)
     audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id })
   }).immediate()
   authOf(ctx).endUserSessions(id, 'password_changed')
