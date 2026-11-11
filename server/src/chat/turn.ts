@@ -376,8 +376,7 @@ export class TurnExec {
   get waitingForPerson() { return this.humanWaits > 0 }
   /** a person answered, and the turn waits for a queue slot to go on (its time limit stays paused meanwhile) */
   get waitingForSlot() { return this.heldAnswers.length > 0 }
-  /** The turn holds a slot again (ChatRuntime.grantResumes), or opened another card (it waits for a person again): the
-   * held answers reach the engine. */
+  /** The turn holds a slot again (ChatRuntime.grantResumes): the held answers reach the engine. */
   resumeAnswers() {
     for (const a of this.heldAnswers.splice(0)) a.resolve(a.value)
   }
@@ -415,6 +414,8 @@ export class TurnExec {
   stop(reason: 'stopped' | 'timeout' | 'shutdown' = 'stopped') {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
+    // a turn that waited for a person holds a slot again while its engine ends (ChatRuntime.turnEngineEnding)
+    try { this.rt.turnEngineEnding(this) } catch (e) { this.rt.log.warn('taking the slot back for the stop failed', { err: e, turn: this.id }) }
     this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
     this.abort.abort()
     // Stop authorizing tools/model requests immediately, even if process termination takes longer.
@@ -3079,11 +3080,12 @@ export class TurnExec {
     else this.rt.hub.publish(this.spec.userId, ev)
     this.cardsChanged(r.window, false)
     if (reason !== 'answered') this.cardMissing.set(requestId, reason === 'timeout' ? 'timeout' : 'ended')
-    // the last open card closed (answered or timed out): the turn needs its slot again before the engine goes on; with
-    // none free it waits first in line (ChatRuntime.turnResuming). A card the turn's end closed needs none.
-    if (reason !== 'turn_ended' && this.humanWaits === 0 && this.status === 'running' && !this.stopReason) {
+    // A card of a turn that holds no slot closed (answered or timed out): its answer reaches the engine only once the
+    // turn has a slot again. Another card still open: the answer waits with the turn. The last one: the turn takes the
+    // next free slot, first in line (ChatRuntime.turnResuming). A card the turn's end closed needs none.
+    if (reason !== 'turn_ended' && this.status === 'running' && !this.stopReason) {
       let now = true
-      try { now = this.rt.turnResuming(this) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }) }
+      try { now = !this.rt.isParked(this) || (this.humanWaits === 0 && this.rt.turnResuming(this)) } catch (e) { this.rt.log.warn('taking a slot back failed', { err: e, turn: this.id }) }
       if (!now) { this.heldAnswers.push({ requestId, value, resolve: r.resolve }); return }
     }
     r.resolve(value)

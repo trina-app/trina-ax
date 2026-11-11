@@ -6,7 +6,7 @@
 // 3. a chat whose earlier answer ended but whose engine end is unconfirmed (a quarantined slot) says so (Chat.ending)
 //    and a send there is refused with that plain message, not a silent 409.
 import { afterEach, expect, spyOn, test } from 'bun:test'
-import { harness, withOwner, type Harness } from './a-lib'
+import { harness, withOwner, type Client, type Harness } from './a-lib'
 import { getChatRuntime, type ChatRuntime } from '../../server/src/chat/runtime'
 import { TurnExec } from '../../server/src/chat/turn'
 import { chatView } from '../../server/src/chat/shared'
@@ -15,7 +15,7 @@ import { newId } from '../../server/src/db'
 import { setSetting } from '../../server/src/admin/settings'
 import { waitFor } from '../lib/wait'
 
-let h: Harness, rt: ChatRuntime
+let h: Harness, rt: ChatRuntime, owner: Client
 const spies: { mockRestore(): void }[] = []
 const engines = new Map<string, (exec: TurnExec) => Promise<void>>()
 const execs: TurnExec[] = []
@@ -31,7 +31,7 @@ async function setup(name: string, concurrency: number) {
     execs.push(this)
     await engines.get(this.spec.chatId)?.(this)
   }))
-  h = await harness(`wait-${name}`); await withOwner(h)
+  h = await harness(`wait-${name}`); owner = await withOwner(h)
   rt = getChatRuntime(h.ctx)
   rt.quarantineProbeMs = 60 * 60_000
   ;(rt as any).probedAt = Date.now()
@@ -97,7 +97,9 @@ test('an answered turn waits for a slot first in line, and never more answers wo
   await setup('resume', 1)
   const answers = new Map<string, unknown>()
   const a = newChat(), b = newChat(), c = newChat()
-  engines.set(a, asking(answers))
+  // a works until aDone once it goes on after the answer
+  const aDone = gate()
+  engines.set(a, asking(answers, aDone.p))
   const first = send(a)
   await waitFor(() => execOf(a)?.waitingForPerson)
   // a's slot went to b, which works until bDone
@@ -117,12 +119,17 @@ test('an answered turn waits for a slot first in line, and never more answers wo
   await Bun.sleep(50)
   expect(turnStatus(third.turnId)).toBe('queued')
   expect(answers.has(a)).toBe(false)
+  // b ends: the slot goes to a (its answer reaches the engine), and c still waits while a works
   bDone.open()
-  expect(await waitFor(() => turnStatus(first.turnId) === 'done')).toBe(true)
+  expect(await waitFor(() => answers.has(a))).toBe(true)
   expect(answers.get(a)).toEqual(['yes'])
+  expect(ea.waitingForSlot).toBe(false)
+  await Bun.sleep(50)
+  expect(turnStatus(third.turnId)).toBe('queued')
+  expect(rt.slotsInUse()).toBe(1)
+  aDone.open()
+  expect(await waitFor(() => turnStatus(first.turnId) === 'done')).toBe(true)
   expect(await waitFor(() => turnStatus(third.turnId) === 'done')).toBe(true)
-  // c started only after a was done with the slot
-  expect(execs.findIndex((e) => e.spec.chatId === c)).toBeGreaterThan(execs.findIndex((e) => e.spec.chatId === b))
   expect(mostWorking).toBe(1)
   expect(mostSlots).toBe(1)
 }, 30_000)
@@ -149,13 +156,80 @@ test('a turn stopped while it waits for a slot leaves the line; its held answer 
   expect(rt.slotsInUse()).toBe(0)
 }, 30_000)
 
+test('two cards open: the first answer waits with the turn; the last one takes the slot back for both', async () => {
+  await setup('two', 1)
+  const a = newChat(), b = newChat()
+  const got: unknown[] = []
+  engines.set(a, async (exec) => {
+    const ask = (q: string) => exec.waitForPerson({ kind: 'ask_user', requestId: crypto.randomUUID(), question: q } as any, { timeoutMs: 60_000 }).then((v) => { got.push(v) })
+    await Promise.all([ask('one?'), ask('two?')])
+  })
+  const first = send(a)
+  await waitFor(() => execOf(a)?.openRequests().length === 2)
+  const bDone = gate()
+  engines.set(b, () => work(() => bDone.p))
+  const second = send(b)
+  expect(await waitFor(() => turnStatus(second.turnId) === 'running')).toBe(true)
+  const ea = execOf(a)!
+  const [one, two] = ea.openRequests().map((r) => r.request.requestId)
+  ea.answer(one!, 'ask_user', ['1'])
+  await Bun.sleep(20)
+  expect(got).toEqual([]) // no slot: the first answer does not reach its tool either
+  ea.answer(two!, 'ask_user', ['2'])
+  await Bun.sleep(20)
+  expect(got).toEqual([]) // b still holds the only slot
+  expect(ea.waitingForSlot).toBe(true)
+  bDone.open()
+  expect(await waitFor(() => turnStatus(first.turnId) === 'done')).toBe(true)
+  expect(got).toEqual([['1'], ['2']])
+}, 30_000)
+
+test('a card that times out takes the slot back like an answer; Stop on a waiting turn counts its engine again', async () => {
+  await setup('timeout', 1)
+  const a = newChat(), b = newChat(), c = newChat()
+  const got = new Map<string, unknown>()
+  engines.set(a, async (exec) => { got.set(a, await exec.waitForPerson({ kind: 'ask_user', requestId: crypto.randomUUID(), question: 'q' } as any, { timeoutMs: 100 })) })
+  const first = send(a)
+  await waitFor(() => execOf(a)?.waitingForPerson)
+  const bDone = gate()
+  engines.set(b, () => work(() => bDone.p))
+  const second = send(b)
+  await waitFor(() => turnStatus(second.turnId) === 'running')
+  // the card times out while b holds the slot: a waits for it
+  expect(await waitFor(() => execOf(a)!.waitingForSlot)).toBe(true)
+  expect(got.has(a)).toBe(false)
+  bDone.open()
+  expect(await waitFor(() => turnStatus(first.turnId) === 'done')).toBe(true)
+  expect(got.get(a)).toBeNull()
+  // a turn stopped while it waits on a card: its engine may work while it ends, so it holds a slot again at once
+  const cDone = gate()
+  engines.set(c, async (exec) => {
+    await exec.waitForPerson({ kind: 'ask_user', requestId: crypto.randomUUID(), question: 'q' } as any, { timeoutMs: 60_000 })
+    await cDone.p // the engine is slow to end
+  })
+  const third = send(c)
+  await waitFor(() => execOf(c)?.waitingForPerson)
+  expect(rt.slotsInUse()).toBe(0)
+  rt.stopChat(c)
+  expect(rt.slotsInUse()).toBe(1)
+  const d = newChat()
+  const fourth = send(d)
+  await Bun.sleep(50)
+  expect(turnStatus(fourth.turnId)).toBe('queued')
+  cDone.open()
+  expect(await waitFor(() => turnStatus(third.turnId) === 'stopped')).toBe(true)
+  expect(await waitFor(() => turnStatus(fourth.turnId) === 'done')).toBe(true)
+}, 30_000)
+
 test('a chat whose earlier answer is still ending says so, and a send there gets that plain message', async () => {
-  await setup('ending', 2)
+  await setup('ending', 1)
   const a = newChat(), b = newChat()
   // the launcher connection breaks mid-answer with the engine still up: the slot is quarantined
   const out = await new Response(Bun.spawn(['ps', '-o', 'pgid=', '-p', String(process.pid)]).stdout).text()
   const pgid = Number(out.trim())
   engines.set(a, async (exec) => {
+    // it waits on a card (gives its slot back) when the launcher connection breaks
+    void exec.waitForPerson({ kind: 'ask_user', requestId: crypto.randomUUID(), question: 'q' } as any, { timeoutMs: 60_000 })
     const core = { turns: { bind() {} }, launcher: { launch: () => ({ kill() {}, events: (async function* () {
       yield { ev: 'started', pid: pgid, pgid }
       yield { ev: 'error', message: 'launcher: read ECONNRESET' }
@@ -177,15 +251,23 @@ test('a chat whose earlier answer is still ending says so, and a send there gets
   expect((refused as HttpError).code).toBe('conflict')
   expect((refused as HttpError).extra.params?.reason).toBe('earlier_answer_ending')
   expect((refused as HttpError).body('en').message).toBe('Waiting for the earlier answer to finish. Other chats work as usual.')
-  // other chats work as usual
+  // the same words through the API (send, regenerate and edit share the check)
+  const api = await owner.try('POST', `/api/chats/${a}/messages`, { content: 'next', clientMessageId: crypto.randomUUID() }, { 'accept-language': 'en' })
+  expect(api.status).toBe(409)
+  expect(api.body.error.params?.reason).toBe('earlier_answer_ending')
+  // the quarantined engine holds its slot again (it was waiting on a card when the connection broke): b waits
+  expect(rt.slotsInUse()).toBe(1)
   const other = send(b)
-  expect(await waitFor(() => turnStatus(other.turnId) === 'done')).toBe(true)
+  await Bun.sleep(50)
+  expect(turnStatus(other.turnId)).toBe('queued')
   expect(chatView(rt, 'olga', rt.store.chatRow(b)!).ending).toBeUndefined()
   // released at its deadline: the line goes, the chat takes a message again
   ;(execOf(a) as any).wallEndsAt = 0
   rt.quarantineReleaseGraceMs = 0
   await rt.probeQuarantined()
   expect(chatView(rt, 'olga', rt.store.chatRow(a)!).ending).toBeUndefined()
+  // other chats go on as usual
+  expect(await waitFor(() => turnStatus(other.turnId) === 'done')).toBe(true)
   engines.delete(a)
   const again = send(a)
   expect(await waitFor(() => turnStatus(again.turnId) === 'done')).toBe(true)

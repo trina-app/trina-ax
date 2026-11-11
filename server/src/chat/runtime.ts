@@ -399,16 +399,19 @@ export class ChatRuntime {
 
   /** A turn opened its first card (it waits for a person): its slot goes to the next answer. Its engine stays up, idle
    * on the tool call: the card's own time limit and the wall limit still end it. A turn that was waiting for a slot
-   * after an answer and opened another card waits for the person again: what it was given goes on meanwhile. */
+   * after an answer and opened another card (a tool running beside it) waits for the person again: it leaves the line,
+   * and what it was given stays held until it has a slot. */
   turnWaiting(exec: TurnExec) {
-    if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id)) return
+    if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id) || exec.stopReason) return
     const r = this.resuming.indexOf(exec.id)
-    if (r >= 0) { this.resuming.splice(r, 1); exec.resumeAnswers(); return }
+    if (r >= 0) { this.resuming.splice(r, 1); return }
     if (this.parked.has(exec.id)) return
     this.parked.add(exec.id)
     // after the card is shown (never inside the tool call that opens it)
     queueMicrotask(() => this.schedule())
   }
+  /** The turn holds no slot now (it waits for a person, or for a slot after an answer). */
+  isParked(exec: TurnExec): boolean { return this.running.get(exec.id) === exec && this.parked.has(exec.id) }
   /** The last open card of a parked turn closed: it needs a slot to go on. True when it has one now; false: it waits
    * first in line and grantResumes calls exec.resumeAnswers() when one is free. */
   turnResuming(exec: TurnExec): boolean {
@@ -417,10 +420,18 @@ export class ChatRuntime {
     this.grantResumes()
     return !this.parked.has(exec.id)
   }
-  /** A turn waiting for a slot stopped or ended: it leaves the line (it stays parked until its end gives the turn back). */
+  /** A turn waiting for a slot ended its wait without going on (stopped, ended): it leaves the line. */
   turnStopsWaiting(exec: TurnExec) {
     const r = this.resuming.indexOf(exec.id)
     if (r >= 0) this.resuming.splice(r, 1)
+  }
+  /** A turn is being stopped (Stop, the wall limit, shutdown) or its engine's end is unconfirmed: whether it waited for
+   * a person or not, its engine may now be working (ending, or still running), so it holds a slot again until its end
+   * is confirmed. That may go over the limit for a moment; nothing new starts until it is back under. */
+  turnEngineEnding(exec: TurnExec) {
+    if (this.running.get(exec.id) !== exec) return
+    this.turnStopsWaiting(exec)
+    this.parked.delete(exec.id)
   }
   /** Answered turns take free slots first, oldest answer first (no memory check: their engine is already up). */
   private grantResumes() {
@@ -516,7 +527,7 @@ export class ChatRuntime {
     }
     const held = this.queued.length > 0 && this.slotsInUse() < limit && this.slotsInUse() >= room
     if (held !== this.memoryHeld) {
-      if (held) this.log.warn('queued answers wait for memory', { running: this.running.size, concurrency: limit, queued: this.queued.length })
+      if (held) this.log.warn('queued answers wait for memory', { running: this.slotsInUse(), live: this.running.size, concurrency: limit, queued: this.queued.length })
       else this.log.info('memory is back; queued answers run again')
       this.memoryHeld = held
     }
@@ -587,6 +598,7 @@ export class ChatRuntime {
   turnQuarantined(exec: TurnExec) {
     if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id)) return
     this.quarantined.add(exec.id)
+    this.turnEngineEnding(exec)
     this.log.error('turn slot quarantined: termination unconfirmed', { turn: exec.id })
   }
 
