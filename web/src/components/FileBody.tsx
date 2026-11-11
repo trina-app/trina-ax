@@ -329,7 +329,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   if (framed && files) {
     const fit = kind === 'html' && phoneFit
     const frame = scripts
-      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true, fit } : {})} fit={fit} title={name} className="h-full min-h-[70vh] w-full flex-1 border-0 bg-white" />
+      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true, fit } : {})} fit={fit} title={name} className={clsx('h-full min-h-[70vh] w-full border-0 bg-white', fit && 'flex-1')} />
       : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} fit={fit} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
     if (!files.external) return frame
     return (

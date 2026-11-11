@@ -224,4 +224,23 @@ test.describe('computer', () => {
       await shot(page, 'files-narrow-mouse-600')
     })
   })
+
+  test.describe('wide touch screen (a tablet)', () => {
+    test.use({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true })
+    test('the pencil (no ⋯ menu) for .md and .html; the page is not fitted', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      await putFiles(page)
+      await openInFiles(page, 'sales', 'memo.md')
+      const panel = page.getByTestId('file-panel')
+      await expect(panel.getByTestId('file-edit')).toBeVisible()
+      // wide: the ⋯ menu (a phone's) is not there, the header's buttons are
+      await expect(panel.getByTestId('file-panel-more')).toBeHidden()
+      await openInFiles(page, 'sales', 'quote.html')
+      await expect(page.frameLocator('[data-testid="file-panel"] [data-testid="sandbox-frame"]').locator('h1')).toHaveText('견적서')
+      await page.waitForTimeout(500)
+      await expect(panel.getByTestId('page-fit-bar')).toHaveCount(0)
+      await expect(panel.getByTestId('file-edit')).toBeVisible()
+    })
+  })
 })

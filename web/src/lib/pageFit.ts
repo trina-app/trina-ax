@@ -9,7 +9,7 @@
 // whether the page is wider than the frame and how it is shown; the host's bar (components/SandboxFrame.tsx PageFitBar)
 // asks for 'fit' or 'actual'.
 
-/** Where a page is fitted: phones only, narrow and touch (the same test as the PDF toolbar's `max-md:pointer-coarse:`,
+/** Where a page is fitted (and where only .md / .txt are edited, from the ⋯ sheet: components/FilePanel.tsx): phones only, narrow and touch (the same test as the PDF toolbar's `max-md:pointer-coarse:`,
  * components/viewers/PdfView.tsx). A computer, a narrow mouse window included, shows the page at its own size as before. */
 export const PAGE_FIT_QUERY = '(max-width: 767.98px) and (pointer: coarse)'
 

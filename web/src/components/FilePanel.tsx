@@ -21,6 +21,7 @@ import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
+import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
 import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
@@ -58,8 +59,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const [saving, setSaving] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(false)
   const canEdit = file.source === 'team' && !!kind && EDITABLE.includes(kind)
-  // a touch screen edits from the ⋯ sheet (prose only); a mouse keeps the pencil, in a narrow window too
-  const touch = useMediaQuery('(pointer: coarse)')
+  // a phone (narrow and touch: the pencil's max-md:pointer-coarse:hidden) edits from the ⋯ sheet, prose only; a mouse
+  // (a narrow window too) and a wide touch screen keep the pencil, so there is never a second edit
+  const phone = useMediaQuery(PAGE_FIT_QUERY)
   const me = useMe()
   const [pdfBusy, setPdfBusy] = useState(false)
 
@@ -191,7 +193,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
   // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
   const more: MenuItem[] = [
-    ...(canEdit && touch && phoneCanEdit(kind) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
+    ...(canEdit && phone && phoneCanEdit(kind) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
     ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
