@@ -31,6 +31,8 @@ const FILTERS: { id: Filter; label: MessageKey; icon?: typeof Bell }[] = [
   { id: 'mentions', label: 'feed.tab.mentions', icon: AtSign },
   { id: 'threads', label: 'feed.tab.threads', icon: MessagesSquare },
 ]
+/** A tab. The tab list scrolls sideways, which cuts anything drawn outside it: the focus ring is drawn inside the tab. */
+export const tabCls = 'inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition focus-visible:-outline-offset-2'
 const isFilter = (s: string | null): s is Filter => FILTERS.some((f) => f.id === s)
 
 /** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
@@ -150,7 +152,8 @@ export default function Activity() {
 
   const toolBtn = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink hover:bg-hover'
   return (
-    <div className="flex h-full flex-col overflow-y-auto" data-testid="activity">
+    // the scroll bar's room is kept when a tab's list is short (Windows, a Mac with a mouse): a tab never moves the page
+    <div className="flex h-full flex-col overflow-y-auto [scrollbar-gutter:stable]" data-testid="activity">
       <div className={clsx(stickyCls, 'shrink-0 border-b border-line')}>
         <div className={clsx(pageColumn, 'px-4 pt-4 sm:px-6 sm:pt-5 max-md:pt-1')}>
           <div className="flex items-center justify-between gap-3 max-md:block">
@@ -167,10 +170,14 @@ export default function Activity() {
               const on = filter === id
               return (
                 <button key={id} type="button" role="tab" aria-selected={on} onClick={() => setFilter(id)}
-                  className={clsx('inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition', on ? 'border-ink font-semibold text-ink' : 'border-transparent text-muted hover:text-ink')}
+                  className={clsx(tabCls, on ? 'border-ink font-semibold text-ink' : 'border-transparent text-muted hover:text-ink')}
                   data-testid={`activity-tab-${id}`}>
                   {Icon && <Icon size={15} aria-hidden />}
-                  {t(label)}
+                  {/* as wide as when bold, so the selected tab does not push the others */}
+                  <span className="grid">
+                    <span className="col-start-1 row-start-1">{t(label)}</span>
+                    <span aria-hidden className="invisible col-start-1 row-start-1 font-semibold">{t(label)}</span>
+                  </span>
                   {unreadIn(id) && <span className="size-1.5 rounded-full bg-accent" data-testid={`activity-tab-${id}-unread`}><span className="sr-only">{t('notifications.unreadMark')}</span></span>}
                 </button>
               )
