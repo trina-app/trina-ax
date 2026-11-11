@@ -14240,7 +14240,9 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   "공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요." under it. Saved with it on: the move, then the share
   (`ShareChat.tsx ShareChatFlow`); the move's own toast only when the chat ends up not shared (on a phone it covered
   the confirm's lines; shared, the one toast is the share's). The title menu (`ChatTitleMenu.tsx`) has "프로젝트 사람들과 공유…" for such a chat
-  already in that project. The confirm: title "이 채팅을 프로젝트 사람 {n}명과 공유할까요?", first that sentence, then #163's
+  already in that project. The confirm: title "이 채팅을 공유해서 프로젝트 사람 {n}명이 볼 수 있게 할까요?" ({n}: everyone who
+  will see it, me included, as the line under the box and the copy-link toast count them: `seenOnceShared`, the check's
+  `audience` + 1; it said "{n}명과 공유할까요?" with the others only, QA TC-070, 2026-11-11), first that sentence, then #163's
   provenance line style ("이 채팅에는 프로젝트 사람 {m}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}", or the unknown
   line), "개인 메모리를 참고한 답이 있을 수 있어요" when it applies, "그 사이 바뀐 것이 있어요. 다시 확인해 주세요" when asked
   again; [취소] [공유하기], 공유하기 focused. Cancel keeps the chat moved and private. Shared: "프로젝트 사람들과 공유했어요",
@@ -18105,6 +18107,18 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   team path: `share_file` links are checked per viewer and grant nothing). **Stricter than the review asked:** hidden
   items, instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) and a live project's
   folder or one holding it, personal projects included (`managedInside` leaves `users/` out) are refused too.
+- **Each refused folder says what it is** (QA TC-016, 2026-11-11, `fix/qa-11-11-followups`). Every `projects/<p>`,
+  `groups/<g>` and `users/<id>` got the skill reason ("… the Files screen or the Skills page"), so asked to delete a
+  project's folder the AI sent an admin to the Skills page. Now (`TeamFiles.aiFolderRefusal`, `AI_TRASH_FOLDER_REFUSAL`):
+  a project's folder or one holding it → the project is deleted on the Projects screen, where a team project's folder
+  can go to the trash with it; a group's folder or one holding it → the Files screen, and deleting the group keeps its
+  folder; the person's own folder → it never goes to the trash, what is in it can; a rule folder or one holding it →
+  the Files screen; a folder right in `projects/` or `groups/` that is none of these → its place and the Files screen.
+  The skill reason only for a skill folder, something in one, or a folder with a `skills` entry in it now. What a folder
+  is comes before what it holds. The same folders are refused as before, by `remove()`'s guard too; only the words
+  changed. Who does it, in general words: "the user" when they may (the owner and admins; a project's creator for the
+  project), else "an admin" or "its creator or an admin" (the top-level reason too), never a person's name ("Admins are
+  never named"): an admin is not told that an admin does it, a member is not sent to a delete that fails.
 - **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
   folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
   card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
@@ -18328,6 +18342,12 @@ some of them into cards.
   a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
   anything).
 - The README instruction is gone; the tools' descriptions say a missing folder is made.
+- **The answer's file summary** (QA TC-018, 2026-11-11, `fix/qa-11-11-followups`): two files moved into a new folder
+  read "파일 3개 저장" with every row "새로 만듦". An empty folder the tool made is not a file and is left out; a file the
+  answer moved is `moved` ("옮김"; an optional field next to `action: 'create'`, so an older app still shows "새로 만듦").
+  A folder that came with its files (moved whole, a skill copied whole: one event for the folder) stays one row as
+  before, moved or new, so such an answer still shows its chip. A file the answer made and then moved is new where it
+  is now; its old place leaves the list (`chat/turn.ts fileSummaryOf`).
 
 ## Scheduled tasks: saving and sending allowed on the card (feat/schedule-save-scope, 2026-11-10, product owner)
 

@@ -3043,21 +3043,7 @@ export class TurnExec {
   }
 
   private fileSummary(): FileChangeSummary | null {
-    const rows = this.rt.db.query('SELECT path, action, detail FROM file_events WHERE turn_id = ? ORDER BY id').all(this.id) as { path: string; action: string; detail: string | null }[]
-    if (!rows.length) return null
-    const saved = new Map<string, 'create' | 'update'>()
-    const conflicts: FileChangeSummary['conflicts'] = []
-    const rejected: FileChangeSummary['rejected'] = []
-    for (const r of rows) {
-      const d = parseJson(r.detail)
-      if (r.path.includes('/.attachments/')) continue // screenshots the AI shared, attachments: not "changed files"
-      if ((r.action === 'create' || r.action === 'update' || r.action === 'upload') && !d.conflictCopyOf) {
-        if (!saved.has(r.path)) saved.set(r.path, r.action === 'update' ? 'update' : 'create')
-      } else if (r.action === 'conflict' && typeof d.copy === 'string') conflicts.push({ path: r.path, copyPath: d.copy })
-      else if (r.action === 'rejected') rejected.push({ path: r.path.slice(0, 1024), reason: String(d.reason ?? 'denied').slice(0, 300) })
-    }
-    if (!saved.size && !conflicts.length && !rejected.length) return null
-    return { saved: [...saved].map(([p, action]) => ({ path: p, action })), conflicts, rejected }
+    return fileSummaryOf(this.rt.db.query('SELECT path, action, detail FROM file_events WHERE turn_id = ? ORDER BY id').all(this.id) as FileEventRow[])
   }
 
   // ---------------- session stash ----------------
@@ -3232,6 +3218,49 @@ export const stepId = (id: string) => (id.length <= 100 ? id : 'h-' + crypto.cre
 
 function hasAttachments(m: Pick<MessageRow, 'attachments'>): boolean {
   try { const a = JSON.parse(m.attachments); return Array.isArray(a) && a.length > 0 } catch { return false }
+}
+
+type FileEventRow = { path: string; action: string; detail: string | null }
+type Saved = FileChangeSummary['saved'][number]
+/**
+ * An answer's file summary from its file_events, in order: the files it made, changed or moved here (QA TC-018: a
+ * folder a move made counted as a file, and moved files read "Created"), its conflict copies and its refused writes.
+ * A folder made empty (move_files / copy_files making their target, ensureFolder) is not a file and is left out; a
+ * folder that came with its files (moved, or copied like a skill) stays one row, as before. A moved item is `moved`,
+ * unless this answer made it (then it is new where it is now); its old place leaves the list.
+ */
+export function fileSummaryOf(rows: readonly FileEventRow[]): FileChangeSummary | null {
+  if (!rows.length) return null
+  const saved = new Map<string, Saved>()
+  // a file of this answer that moved on: what it was, by where it went
+  const movedOn = new Map<string, Saved>()
+  const conflicts: FileChangeSummary['conflicts'] = []
+  const rejected: FileChangeSummary['rejected'] = []
+  for (const r of rows) {
+    const d = parseJson(r.detail)
+    if (r.path.includes('/.attachments/')) continue // screenshots the AI shared, attachments: not "changed files"
+    // an empty folder made here: not a file (one moved or copied here brings its files)
+    if (d.folder === true && r.action === 'create' && typeof d.movedFrom !== 'string' && typeof d.copiedFrom !== 'string' && !Array.isArray(d.sourcePaths)) continue
+    if (r.action === 'delete' && typeof d.movedTo === 'string') {
+      // its old place is not a file of this answer any more
+      const was = saved.get(r.path)
+      saved.delete(r.path)
+      if (was) movedOn.set(d.movedTo, was)
+      continue
+    }
+    if ((r.action === 'create' || r.action === 'update' || r.action === 'upload') && !d.conflictCopyOf) {
+      if (saved.has(r.path)) continue
+      if (typeof d.movedFrom === 'string') {
+        const was = movedOn.get(r.path)
+        movedOn.delete(r.path)
+        // made by this answer: new where it is now; anything else moved here
+        saved.set(r.path, was?.action === 'create' && !was.moved ? { path: r.path, action: 'create' } : { path: r.path, action: 'create', moved: true })
+      } else saved.set(r.path, { path: r.path, action: r.action === 'update' ? 'update' : 'create' })
+    } else if (r.action === 'conflict' && typeof d.copy === 'string') conflicts.push({ path: r.path, copyPath: d.copy })
+    else if (r.action === 'rejected') rejected.push({ path: r.path.slice(0, 1024), reason: String(d.reason ?? 'denied').slice(0, 300) })
+  }
+  if (!saved.size && !conflicts.length && !rejected.length) return null
+  return { saved: [...saved.values()], conflicts, rejected }
 }
 
 function parseJson(s: string | null): Record<string, unknown> {
