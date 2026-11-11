@@ -74,9 +74,9 @@ export function writeLockedCatalog(src: string, dst: string): string[] {
   return j.models.map((m: any) => m.slug)
 }
 
-/** CODEX_HOME files and folders that change what Codex may do (scripts/macos/engine.sb; the Linux launcher binds the
- * first seven read-only, sandbox_linux.go codexLockFiles): .env sets the CLI's environment, AGENTS.override.md wins over
- * AGENTS.md, rules/ holds command rules and prompts/ custom prompts */
+/** CODEX_HOME files and folders that change what Codex may do (scripts/macos/engine.sb denies writes; the Linux launcher
+ * binds the same names read-only, sandbox_linux.go codexLockFiles): .env sets the CLI's environment,
+ * AGENTS.override.md wins over AGENTS.md, rules/ holds command rules and prompts/ custom prompts */
 export const CODEX_LOCK_FILES = ['config.toml', 'models_cache.json', 'catalog.json', 'AGENTS.md', 'hooks.json', 'skills', 'plugins',
   '.env', 'AGENTS.override.md', 'rules', 'prompts'] as const
 

@@ -82,18 +82,18 @@ func TestBwrapArgsCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := strings.Join(a, " ")
-	for _, f := range []string{"config.toml", "models_cache.json", "catalog.json", "AGENTS.md", "hooks.json"} {
+	for _, f := range []string{"config.toml", "models_cache.json", "catalog.json", "AGENTS.md", "hooks.json", ".env", "AGENTS.override.md"} {
 		if !strings.Contains(s, "--ro-bind /var/lib/mycel/root/sandbox-etc/empty /var/lib/mycel/agent/c_1/.codex/"+f+" ") {
 			t.Errorf("no lock bind for %s", f)
 		}
 	}
-	for _, d := range []string{"skills", "plugins"} {
+	for _, d := range []string{"skills", "plugins", "rules", "prompts"} {
 		if !strings.Contains(s, "--ro-bind /var/lib/mycel/root/sandbox-etc/empty.d /var/lib/mycel/agent/c_1/.codex/"+d+" ") {
 			t.Errorf("no lock bind for %s", d)
 		}
 	}
 	// the lock binds come after the chat bind (they are mounted on top of it) and before the remount
-	if strings.Index(s, ".codex/config.toml") < strings.Index(s, "--bind /var/lib/mycel/agent/c_1") || strings.Index(s, ".codex/plugins") > strings.Index(s, "--remount-ro") {
+	if strings.Index(s, ".codex/config.toml") < strings.Index(s, "--bind /var/lib/mycel/agent/c_1") || strings.Index(s, ".codex/prompts") > strings.Index(s, "--remount-ro") {
 		t.Error("lock binds out of order")
 	}
 	if !strings.Contains(s, "--allow-listen -- /var/lib/mycel/app/engines/codex/9b1c/codex") || strings.Contains(s, "ld-linux") {
