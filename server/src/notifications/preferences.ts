@@ -87,5 +87,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'owner.lead_joined': case 'owner.transferred': case 'owner.reauth_locked': return true
     // a member asks to add an app (shown always, Notifications.serviceRequested), and its answer to them
     case 'service.request': case 'service.ready': return true
+    // a password reset link was made for the person (shown always, Notifications.resetLinkMade)
+    case 'account.reset_link': return true
   }
 }

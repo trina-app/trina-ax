@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 14:36
 - Branch: `fix/owner-reset-link-notice`
-- Status: in progress
+- Status: done
 - Where: `server/` (auth, notifications), `shared/src/api/notifications.ts`, `web/` (the notice's words). Why: the
   reset link and the Inbox are core account features (see docs/REPOSITORY-RULES.md)
 - Version impact: minor — a new notice in the Inbox (a new notice kind and its table, migration 119)
@@ -58,4 +58,9 @@ Out:
 
 ## Result
 
-(filled in at the end)
+Built as planned. Expiry in the row is read with the wall clock (like the rest of the Inbox). Tests:
+`tests/unit/a-reset-link-notice.test.ts` (server-made link for the owner: one unread notice, no token, closes after a
+password change; an admin's link for a member names the admin, the maker gets none, closes when expired),
+`tests/unit/dev-admin.test.ts` (the real `bun run dev admin reset-link` leaves the owner's row) and
+`web/test/unit/inbox-notice-rows.test.tsx` (words and link). On a local dev server, `bun run dev admin reset-link` gave
+the owner unread count 1 with `{ server: true, by: null, open: true }`.

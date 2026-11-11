@@ -57,8 +57,9 @@ export type PushEventType = z.infer<typeof PushEventType>
  * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
  * when a password re-check of theirs locked after too many wrong tries, and a member's ask to add an app the team has
  * not set up (service_request_notices; shared/src/api/service-requests.ts): service.request to the owners and the
- * admins (one per app), service.ready to the member once they can connect it. */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready'])
+ * admins (one per app), service.ready to the member once they can connect it, and account.reset_link to a person when a password reset link
+ * was made for their account, on the server or by an admin (reset_link_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -116,6 +117,11 @@ export const InboxNotification = z.object({
   credentialChange: z.object({
     who: z.string(), action: z.string(), subject: z.string(),
   }).optional(),
+  /** 'account.reset_link' only: a password reset link was made for this account. `server`: made on the server itself
+   * (mycel-account / mycel-ctl reset-link), else by `by` (the owner's or admin's name while their account is there,
+   * null after); `open` while the link is unused, not replaced and not expired (changing the password ends it). Never
+   * the token or the link. Older servers omit it */
+  resetLink: z.object({ server: z.boolean(), by: z.string().nullable(), open: z.boolean() }).optional(),
   /** 'skills.merge_waiting' only (the owner, at the end of the welcome steps): how many skills wait to be merged into
    * team skills; link 'chat' opens the one merge chat (chatId); older servers omit it */
   merges: z.object({ n: z.number().int().positive() }).optional(),
