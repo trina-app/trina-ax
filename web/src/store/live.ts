@@ -57,6 +57,15 @@ let relay: BrowserRelay | null = null
 let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
 
+/** A hello from the server: the first one sets the version this page runs with; a later one with another version says
+ * once that a new version is ready. Reconnects that say it again add no second notice (QA TC-273: four were stacked). */
+export function serverHello(serverVersion: string) {
+  if (firstServerVersion === null) { firstServerVersion = serverVersion; return }
+  if (serverVersion === firstServerVersion || useUi.getState().updateReady) return
+  useUi.getState().setUpdateReady(true)
+  toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
+}
+
 /** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
 export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
@@ -270,11 +279,7 @@ export function startLive() {
     onHello: ({ serverVersion }) => {
       // the server takes a window that has just connected as in use: say how this one is
       activity?.connected()
-      if (firstServerVersion === null) firstServerVersion = serverVersion
-      else if (serverVersion !== firstServerVersion) {
-        useUi.getState().setUpdateReady(true)
-        toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
-      }
+      serverHello(serverVersion)
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
