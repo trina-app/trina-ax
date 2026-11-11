@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-11 16:33
 - Branch: `fix/artifact-navigation-notice`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/routes/web-static.ts` receiver; `web/src/components/SandboxFrame.tsx` comment;
   e2e). Why: the artifact frame of the core.
 - Version impact: patch; the receiver writes the document a moment later, nothing else changes
@@ -43,4 +43,8 @@ page when the parent's CSP blocks the navigation. WebKit keeps the document. So 
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus the receiver's unit test (`tests/unit/d-web.test.ts`: the one write after the receiver's load)
+and DECISIONS (the artifact frame entry). The two new e2e cases fail without the receiver change (1 load; no notice)
+and pass with it. `sandbox-exfil` (Chromium and WebKit), `artifacts` and `frame-files` e2e: 97 passed. The file
+preview path in real Chrome 157 and Playwright Chromium 156 showed the notice before and after (its timing did not
+merge the loads); the artifact panel is where the loads merged on a busy computer.

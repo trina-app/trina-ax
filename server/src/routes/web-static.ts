@@ -160,17 +160,24 @@ const RECEIVER_SCRIPT = `(function () {
   // and WebKit then runs a javascript: URL into a fresh window (the frame's own location / links do not)
   lock(W, "open", off("window.open"));
   watch(D);
-  // 4. take the one document from the parent
-  var done = false;
+  // 4. take the one document from the parent, and write it once this receiver has loaded: written while the receiver
+  // was still loading, Chromium gave the frame one load for both, so the host (SandboxFrame), which counts loads to see
+  // the document leave, missed the next one (QA TC-218: a blank frame and no notice)
+  var done = false, loaded = false, html = N;
+  var render = function () {
+    call(open, D);
+    call(write, D, html.replace(/shadowrootmode/gi, "$&_"));
+    call(close, D);
+  };
+  W.addEventListener("load", function () { loaded = true; if (html !== N) W.setTimeout(render, 0); });
   W.addEventListener("message", function (e) {
     if (done || e.source !== window.parent) return;
     var d = e.data;
     if (d && d.source === "mycel-host" && d.type === "ping") { window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*"); return; }
     if (!d || d.source !== "mycel-host" || d.type !== "render" || typeof d.html !== "string") return;
     done = true;
-    call(open, D);
-    call(write, D, d.html.replace(/shadowrootmode/gi, "$&_"));
-    call(close, D);
+    html = d.html;
+    if (loaded) render();
   });
   window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*");
 })();`
