@@ -111,6 +111,10 @@ export const TEXT = {
   oauth_no_registration: t('이 서비스는 앱을 스스로 등록하게 해 주지 않아요. 서비스에서 앱을 만들어 "내 앱으로 로그인"에 Client ID를 넣거나, API 키로 연결해 보세요.', 'This service does not let apps register themselves. Make an app at the service and enter its client ID under "Sign in with my own app", or try an API key instead.', 'Layanan ini tidak mengizinkan aplikasi mendaftar sendiri. Buat aplikasi di layanan itu dan masukkan client ID-nya di "Login dengan aplikasi saya", atau coba pakai kunci API.', "このサービスはアプリの自動登録を受け付けていません。サービスでアプリを作成して「自分のアプリでログイン」にクライアントIDを入力するか、APIキーをお試しください。", "Este servicio no permite que las aplicaciones se registren solas. Cree una aplicación en el servicio e introduzca su ID de cliente en «Iniciar sesión con mi propia aplicación», o pruebe con una clave de API."),
   oauth_no_registration_member: t('이 서비스는 팀이 서비스에 만든 앱으로만 로그인할 수 있어요. 관리자에게 알려 주세요.', 'This service signs in only through an app your team made there. Tell your admin.', 'Layanan ini hanya bisa login melalui aplikasi yang dibuat tim Anda di sana. Beri tahu admin Anda.', "このサービスには、チームがそこで作成したアプリでのみログインできます。管理者に知らせてください。", "Este servicio solo permite iniciar sesión con una aplicación que su equipo creó allí. Avise a su administrador."),
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo."),
+  // the same reasons for someone who cannot fix them (reasonText): a member on a team connection, or on a connection made
+  // from a team template for its address (QA TC-235). No admin is named (members never see who the admins are)
+  addressMember: t('서비스에 연결하지 못했어요. 관리자에게 알려 주세요.', 'Could not reach the service. Tell your admin.', 'Tidak dapat menghubungi layanan. Beri tahu admin Anda.', "サービスに接続できませんでした。管理者に知らせてください。", "No se pudo conectar con el servicio. Avise a su administrador."),
+  keyMember: t('이 서비스에 쓰는 팀의 키나 로그인이 안 돼요. 관리자에게 알려 주세요.', "The team's key or sign-in for this service is not working. Tell your admin.", 'Kunci atau login tim untuk layanan ini tidak berfungsi. Beri tahu admin Anda.', "このサービスに使うチームのキーまたはログインが機能していません。管理者に知らせてください。", "La clave o el inicio de sesión del equipo para este servicio no funciona. Avise a su administrador."),
   key_unsafe: t('서버의 키 보관 폴더를 쓸 수 없어요. 관리자에게 알려 주세요.', 'The server’s key folder cannot be used. Tell your admin.', 'Folder kunci server tidak bisa dipakai. Beri tahu admin Anda.', "サーバーのキーフォルダーを使用できません。管理者に知らせてください。", "No se puede usar la carpeta de claves del servidor. Avise a su administrador."),
 }
 export type TextKey = keyof typeof TEXT
@@ -150,10 +154,23 @@ export const say = (key: TextKey, locale: Locale, vars: Record<string, string | 
   // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)
   dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
 
-/** The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"). */
-export function reasonText(code: string | null, locale: Locale): string | null {
+/** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
+const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
+/** Reasons whose fix is the connection's key or sign-in. */
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_failed'])
+
+/**
+ * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can
+ * fix it. `can`: what this reader can change (store.ts view): the address (whoever manages the connection, not on one
+ * made from a team template) and the key or sign-in (whoever manages it). A reason only someone else can fix says what
+ * happened and "Tell your admin." instead of "Check the address" (QA TC-235).
+ */
+export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }): string | null {
   if (!code) return null
   const [reason, status] = code.split(':')
-  if (!reason || !(reason in TEXT)) return say('unreachable', locale)
+  const known = !!reason && reason in TEXT
+  if (!can.address && (!known || ADDRESS_REASONS.has(reason!))) return say('addressMember', locale)
+  if (!can.key && KEY_REASONS.has(reason!)) return say('keyMember', locale)
+  if (!known) return say('unreachable', locale)
   return say(reason as TextKey, locale, { status: status ?? '?' })
 }
