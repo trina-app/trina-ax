@@ -38,6 +38,14 @@
 - **오피스 파일은 `write`로 쓸 수 없다**(`make_file`은 나중). 사람의 파일 화면 저장(`humanSave`)은 같은 규칙(해시 기준 충돌)을 쓴다.
 - **AI의 삭제는 `delete_files` 하나, 휴지통으로만**(2026-11-09, 아래 "AI가 휴지통으로 옮기기"). 파일 화면의 삭제와 같은 `TeamFiles.remove`를 부르고(`FileService.deleteFile`은 쓰지 않는다: 30일 고정, 관리 폴더 확인·알림·세션 정리 없음), 사람이 서버 카드에서 "예"를 눌러야 하며 그 "예"는 카드가 보여 준 목록(디스크의 각 항목, 볼 수 있는 사람, 휴지통 보관 일수)에 묶인다. 사람의 개인 채팅에서만, 한 번에 200개(폴더 안까지 센다)까지, 최상위·관리·스킬·남의 폴더와 첨부·플러그인·업로드 링크 대상은 관리자에게도 막는다.
 
+- **Upload chunks pass a server-wide gate (2026-11-11 stress test)**: at most 3 chunks are read at once, 64 more wait
+  with their bodies unread, and a new chunk gets 503 `unavailable` (retryAfter 5 s, the web client retries) while the
+  server process is above 35 % of the machine's memory (at least 768 MB) after one forced collection. After each chunk
+  a light `Bun.gc(false)`. Why: chunks are written straight to disk, but Bun keeps request buffers until a collection
+  that does not count their size; three 200 MB uploads at once took the server from 0.19 GB to 3.1 GB on a 4 GB
+  machine and other pages to 8-12 s. Per-person limits (10 sessions) did not help: the pressure is whole-server.
+  `server/src/uploads/chunk-gate.ts`.
+
 ## grep / glob
 
 - **설계대로 ripgrep에 허용 루트만 넘기고, 허용 루트 안의 숨긴 하위 폴더는 `--glob '!경로'` + `'!경로/**'`로 뺀다.** 슬래시가 든 glob이 rg의 작업 폴더(팀 루트) 기준으로 고정되고 다른 곳의 같은 이름을 잘못 빼지 않는 것을 직접 시험했다. 이름 속 glob 특수문자는 이스케이프한다.

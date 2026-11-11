@@ -19,6 +19,7 @@ import { fileError } from '../team-files/errors'
 import { hashFile } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import type { Attachments } from './attachments'
+import { defaultChunkGate, type ChunkGate } from './chunk-gate'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
 export const SESSION_TTL_MS = 24 * 3600_000
@@ -42,6 +43,8 @@ export class UploadSessions {
   transcribe: TranscribeStarter | null = null
   /** refuses a transcribe upload before it starts (a confidential chat's recording that would go out) */
   transcribeCheck: ((userId: string, chatId?: string) => void) | null = null
+  /** limits chunks read at once and refuses them while the server is short of memory (chunk-gate.ts) */
+  gate: ChunkGate = defaultChunkGate()
 
   constructor(private ctx: AppContext, private files: TeamFiles, private attachments: Attachments) {
     fs.mkdirSync(this.dir(), { recursive: true, mode: 0o700 })
@@ -110,6 +113,11 @@ export class UploadSessions {
     if (!Number.isInteger(n) || n < 0 || n >= count) fileError('validation', 'chunkSize', { n: `chunk number must be 0..${count - 1}` })
     const already: number[] = JSON.parse(r.received)
     if (already.includes(n)) { for await (const _ of body) { /* drain */ } return { received: already } }
+    const release = await this.gate.enter()
+    try { return await this.writeChunk(id, n, count, r, body) } finally { release() }
+  }
+
+  private async writeChunk(id: string, n: number, count: number, r: Row, body: AsyncIterable<Uint8Array>): Promise<{ received: number[] }> {
     const expected = n === count - 1 ? r.size - n * r.chunk_size : r.chunk_size
     const offset = n * r.chunk_size
     const h = this.hashes.get(id) ?? (n === 0 ? { hash: crypto.createHash('sha256'), next: 0 } : null)
