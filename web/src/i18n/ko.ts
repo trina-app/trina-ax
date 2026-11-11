@@ -4841,7 +4841,7 @@ export const ko = {
   "invite.invitedBy": "{inviter}님이 {team}에 초대했어요",
   "teamLink.alreadyIn": "이미 {team}에 들어와 있어요",
   "files.personalInside": "안에 내 폴더가 있어요",
-  "files.addHere": "편집할 수 있는 폴더 안에 파일을 넣을 수 있어요",
+  "files.addHere": "고칠 수 있는 폴더 안에 파일을 넣을 수 있어요",
   "files.addInMyFolder": "내 파일은 내 폴더에 넣어요",
 } as const
 
