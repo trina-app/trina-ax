@@ -31,6 +31,7 @@ import { PhonePageBar } from '../../components/phone/PhonePageBar'
 import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
 import { teamSettingsGroup, teamSettingsRedirect } from './teamSettingsGroups'
+import { APP_CONNECTORS, CONNECTORS } from '../../lib/connectors'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
 
@@ -120,6 +121,8 @@ function redirectOf(section: string, sub: string | undefined, search: string, ph
     if (app && /^[a-z0-9-]+$/.test(app)) return `/admin/connectors/${app}`
     if (q.get('drive') === '1') return '/admin/connectors/google-drive'
   }
+  // a connector this app does not list (a typo, an old link): the list
+  if (section === 'connectors' && sub && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
   if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
   // a phone: an engine is a page of its own (?engine= opened its row in place)
   if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
