@@ -35,6 +35,9 @@ export const Me = z.object({
     avatarVersion: z.number().int().positive().optional(),
     /** my status message (docs/DECISIONS.md "상태 메시지"), also one whose first day is still to come; absent: none */
     statusMessage: MyStatus.optional(),
+    /** my "Allow all websites" is on for the AI's web reads (Settings › Browser; PUT /api/me/web-access), as it works
+     * now: the team allows it and the warning I accepted is the current one. Absent: off (or an older server). */
+    webAllowAll: z.literal(true).optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({
@@ -42,6 +45,9 @@ export const Me = z.object({
     /** people may turn on "Allow all websites" for the desktop app's in-app browser (Admin > Team settings
      * browserAllowAll). The desktop app enforces it. Absent (older server) = no policy. */
     browserAllowAll: z.boolean().optional(),
+    /** members may turn on "Allow all websites" for the AI's web reads too (Admin > Team settings webAllowAll, with
+     * browserAllowAll on). Absent: not allowed (or an older server). */
+    webAllowAll: z.literal(true).optional(),
     /** the team logo's version (Admin > Team settings): the computer's sidebar header shows /team-icon?v=<it>; null or
      * absent (older server) = the product's mark. The tab and app icons are always the product's. */
     iconVersion: z.string().regex(TEAM_ICON_VERSION_RE).nullable().optional(),
@@ -192,6 +198,12 @@ export const UpdateMeBody = z.object({
   prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
 })
 
+/** PUT /api/me/web-access: my "Allow all websites" for the AI's web reads. Turning it on needs the version of the risk
+ * sentence the person was shown (WEB_ALLOW_ALL_WARNING_VERSION) and the team allowing it; off always works. */
+export const MyWebAccessBody = z.strictObject({ on: z.boolean(), acceptWarning: z.number().int().optional() })
+export const MyWebAccess = z.object({ allowAll: z.boolean() })
+export type MyWebAccess = z.infer<typeof MyWebAccess>
+
 /** GET /api/me/usage: the signed-in person's own usage in a period of the team's time zone (today, this week from
  * Monday, this month), never anyone else's, and the usage limits (Admin budgets) that apply to them. A group's or the
  * team's limit shows only how full it is, not who used it. */
@@ -231,6 +243,8 @@ export const AUTH = {
   changePassword: endpoint({ method: 'POST', path: '/api/auth/password', auth: 'user', owner: 'A', allowWhilePasswordChange: true, body: ChangePasswordBody, response: Ok, summary: 'Change own password; ends every other session of this person.' }),
   me: endpoint({ method: 'GET', path: '/api/me', auth: 'user', owner: 'A', allowWhilePasswordChange: true, response: Me, summary: 'The signed-in person, groups, team name.' }),
   updateMe: endpoint({ method: 'PATCH', path: '/api/me', auth: 'user', owner: 'A', body: UpdateMeBody, response: Me, summary: 'Profile, language, theme and composer preferences.' }),
+  // not allowWhilePasswordChange: a person who must change the password first cannot widen what the AI opens
+  setMyWebAccess: endpoint({ method: 'PUT', path: '/api/me/web-access', auth: 'user', owner: 'A', body: MyWebAccessBody, response: MyWebAccess, summary: 'Turn my "Allow all websites" for the AI\'s web reads on (with the current risk sentence accepted, while the team allows it) or off.' }),
   myUsage: endpoint({ method: 'GET', path: '/api/me/usage', auth: 'user', owner: 'A', query: MyUsageQuery, response: MyUsage, summary: 'My own usage this day / week / month (never anyone else\'s) and the usage limits that apply to me.' }),
   mySessions: endpoint({ method: 'GET', path: '/api/me/sessions', auth: 'user', owner: 'A', response: z.object({ items: z.array(Session) }), summary: 'Own signed-in devices.' }),
   revokeMySession: endpoint({ method: 'DELETE', path: '/api/me/sessions/:id', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Sign out one of own devices.' }),

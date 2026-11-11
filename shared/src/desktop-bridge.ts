@@ -73,6 +73,10 @@ export interface DesktopBrowserSettings {
   privateAlways: string[]
   /** the team lets people turn on "all" (Admin > Team settings), as the desktop app last heard from the team server */
   teamAllowsAll: boolean
+  /** the version of the "Allow all websites" risk sentence (WEB_ALLOW_ALL_WARNING_VERSION) that the app's own window
+   * shows. Absent: an app built before the sentence existed, whose window does not show it: the page shows its own
+   * confirm with the sentence before the server value goes on */
+  riskVersion?: number
 }
 
 /** How a test notification went: 'shown' (the system took it: Windows, Linux), 'off' (the system refused it:

@@ -3,7 +3,9 @@
 // ACCOUNT_DELETION (a person's request to have their account deleted: routes/account-deletion.ts)
 // Contract: shared/src/api/auth.ts, shared/src/api/account-deletion.ts
 import { API } from '@mycel/shared/api'
-import { LOCALE_CHANGED } from '../admin/settings'
+import { LOCALE_CHANGED, WEB_ACCESS_CHANGED } from '../admin/settings'
+import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
+import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from '../tools/web-allow-all'
 import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
 import { fail } from '../http/errors'
@@ -48,6 +50,21 @@ export const authRoutes: RouteModule = {
     })
 
     kit.handle(API.me, ({ auth }) => a().me(auth.user.id, auth.session.id))
+
+    // my "Allow all websites" for the AI's web reads (tools/web-allow-all.ts, docs/DECISIONS.md "Allow all websites
+    // covers the AI's web reads"): on only with the risk sentence the person was shown and while the team allows it;
+    // off always. Not while a password change is pending (the contract leaves allowWhilePasswordChange out).
+    kit.handle(API.setMyWebAccess, ({ auth, body }) => {
+      const before = webAllowAll(ctx.db, auth.user.id)
+      if (body.on) {
+        if (!teamAllowsWebAll(ctx.db)) fail('conflict', 'Your team does not let members allow all websites for the AI\'s web reads.', { params: { reason: 'web_allow_all_off' } })
+        if (body.acceptWarning !== WEB_ALLOW_ALL_WARNING_VERSION) fail('conflict', 'Accept the current warning first.', { params: { reason: 'web_allow_all_warning', warningVersion: WEB_ALLOW_ALL_WARNING_VERSION } })
+      }
+      const allowAll = setWebAllowAll(ctx.db, auth.user.id, body.on, { via: 'settings' })
+      if (body.on && !allowAll) fail('conflict', 'Your team does not let members allow all websites for the AI\'s web reads.', { params: { reason: 'web_allow_all_off' } })
+      if (allowAll !== before) ctx.services.realtime.publish(auth.user.id, WEB_ACCESS_CHANGED)
+      return { allowAll }
+    })
 
     kit.handle(API.updateMe, ({ auth, body }) => {
       const u = getUser(ctx.db, auth.user.id)

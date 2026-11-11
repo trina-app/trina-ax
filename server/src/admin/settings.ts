@@ -22,6 +22,9 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   timeZone: 'UTC',
   /** people may turn on "Allow all websites" in the desktop app's in-app browser; each team (the director) decides */
   browserAllowAll: true,
+  /** "Allow all websites" also for the AI's web reads (tools/web-allow-all.ts): on unless an admin turns it off (the
+   * owner's call, 2026-11-11); each person still turns their own switch on */
+  webAllowAll: true,
   personalIntegrations: true,
   /** AI reads send images and PDF pages as images (files/vision.ts) */
   aiVision: true,
@@ -117,6 +120,14 @@ export const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'lo
  * every minute). The message carries nothing.
  */
 export const BROWSER_POLICY_CHANGED = { type: 'notice', data: { level: 'info', code: 'browser_policy_changed', message: '' } } as const
+
+/**
+ * Realtime notice to one person: their "Allow all websites" for the AI's web reads changed (Settings, an address card,
+ * the team turning it off). Their open windows ask GET /api/me again; inside the desktop app the page also reads
+ * Settings > Browser again, which makes the app re-read GET /api/me itself (it follows an off, never an on). The
+ * message carries nothing.
+ */
+export const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code: 'web_access_changed', message: '' } } as const
 
 /**
  * Realtime notice: voice input was turned on or off (speechProvider, the OpenRouter key). Open windows ask GET /api/me
