@@ -30,14 +30,16 @@ export class ReplayCache {
 
   /** Call only after the signature checked out, so only real signatures take room. 'ok' remembers the call now. */
   check(signer: string, signedMessage: string, now: number): ReplayVerdict {
-    let seen = this.bySigner.get(signer)
-    if (seen) this.purge(signer, seen, now)
+    const mine = this.bySigner.get(signer)
+    if (mine) this.purge(signer, mine, now)
     const key = createHash('sha256').update(signedMessage).digest('hex')
-    if (seen?.has(key)) return 'replayed'
+    if (this.bySigner.get(signer)?.has(key)) return 'replayed'
     if (this.total >= this.totalMax) {
       for (const [s, m] of this.bySigner) this.purge(s, m, now)
       if (this.total >= this.totalMax) return 'full'
     }
+    // looked up again: purge drops a signer's map once it is empty, and a new entry must go into the live map
+    let seen = this.bySigner.get(signer)
     if (!seen) { seen = new Map(); this.bySigner.set(signer, seen) }
     if (seen.size >= this.perSignerMax) {
       // this signer's own oldest entry goes: a signer that floods past its room loses only its own entries
@@ -48,6 +50,9 @@ export class ReplayCache {
     this.total++
     return 'ok'
   }
+
+  /** live entries, for tests and metrics */
+  get size(): number { return this.total }
 
   private purge(signer: string, seen: Map<string, number>, now: number): void {
     for (const [k, until] of seen) { if (until > now) break; seen.delete(k); this.total-- }

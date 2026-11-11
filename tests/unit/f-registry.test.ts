@@ -173,6 +173,15 @@ describe('replay cache', () => {
     // the window ends: room again
     expect(c.check('third', 'x', 1001)).toBe('ok')
   })
+  test('a signer whose entries all expired is still checked: its next call is remembered, and the count does not leak', () => {
+    const c = new ReplayCache(1000, 10, 1)
+    expect(c.check('a', 'call-1', 0)).toBe('ok')
+    expect(c.check('a', 'call-2', 5000)).toBe('ok')
+    expect(c.check('a', 'call-2', 5001)).toBe('replayed')
+    // signers taking turns over time never fill a cache of one
+    for (let i = 0; i < 20; i++) expect(c.check(`s${i % 3}`, `m${i}`, 10_000 + i * 2000)).toBe('ok')
+    expect(c.size).toBe(1)
+  })
   test('past its own room a signer drops its own oldest entry, never another signer\'s', () => {
     const c = new ReplayCache(1000, 2, 100)
     expect(c.check('victim', 'v', 0)).toBe('ok')
