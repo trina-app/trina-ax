@@ -3,6 +3,7 @@
 import clsx from 'clsx'
 import { ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useOverlayEntry } from '../lib/backCloses'
 
 export interface TitleMenuItem {
   label: string
@@ -16,6 +17,8 @@ export interface TitleMenuItem {
 export function TitleMenu({ name, items, testId, heading }: { name: string; items: TitleMenuItem[]; testId: string; heading?: string }) {
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  // phones: Back closes the menu, not the page (lib/backCloses.ts)
+  useOverlayEntry(open, () => setOpen(false))
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
   useEffect(() => {
     if (!open) return
